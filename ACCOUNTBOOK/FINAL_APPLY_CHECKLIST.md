@@ -1,4 +1,4 @@
-# V19.4-BUDGET-ONBOARDING-STABILITY 운영 적용 체크리스트
+# V19.5-SMART-FLOW 운영 적용 체크리스트
 
 ## 적용 전
 
@@ -15,7 +15,7 @@
 
 ## 적용 후 확인
 
-8. `/health`에서 `"version":"V19.4-BUDGET-ONBOARDING-STABILITY"`, `"mode":"budget-onboarding-stability"` 확인
+8. `/health`에서 `"version":"V19.5-SMART-FLOW"`, `"mode":"smart-flow"` 확인
 9. `/app` 홈·입력·기록 정상 표시 확인
 10. `/analysis` 기본 노출(요약·핵심 인사이트·일별·요일별)과 접힘 영역(도넛·6/12개월·분류변화·반복지출·큰지출) 확인
 11. `/my/analysis`가 /analysis와 같은 구조로 보이는지 확인
@@ -27,6 +27,10 @@
 16-1. `/app` 빠른 입력에서 자주 쓰는 항목 칩·오늘/어제 칩이 동작하는지 확인
 16-2. `/start-guide` 체크리스트 진행률이 실제 설정 상태와 맞는지 확인
 16-3. `/reserve-plans` 이번 달 납부 예정 카드 확인
+16-4. `/app` 한 줄 입력("점심 12000 국민카드")이 폼을 채우는지, 저장 시 분류가 자동 추론되는지 확인
+16-5. member 계정으로 /app에서 자기 기록만 수정/삭제되는지, viewer는 입력 폼 자체가 안 보이는지 확인
+16-6. /analysis 분류 랭킹·일별 그래프 클릭 → 해당 기록 목록으로 이동하는지 확인
+16-7. /app 홈 "오늘 쓴 돈 / 오늘 써도 되는 돈" 카드 확인
 
 ## 보안 확인 (중요)
 

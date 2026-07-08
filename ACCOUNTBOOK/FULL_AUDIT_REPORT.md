@@ -1,4 +1,4 @@
-# V19.4-BUDGET-ONBOARDING-STABILITY 점검 보고서
+# V19.5-SMART-FLOW 점검 보고서
 
 > V19.3-REPORT-CLEAN-FINAL 점검 결과 위에 v19.4 변경분 점검을 추가한 문서입니다.
 
@@ -53,3 +53,15 @@ v19.3-report 원본을 기준으로 운영 적용 전 전체 점검을 수행한
 | 정기지출 이번 달 요약 | 기존 reserveDashboard 결과 필터링만 추가 | 낮음 | 렌더링 테스트 통과 |
 | 시작가이드 체크리스트 | 사용자 첫 가계부(households[0]) 기준으로만 조회 — 스코프 유지 | 낮음 | /start-guide 스크립트·렌더링 테스트 통과 |
 | 권한 구조 | owner/admin/member/viewer/pending/blocked 로직 무변경 | 없음 | 회귀 테스트 전부 통과 |
+
+
+## 5. V19.5 변경분 점검
+
+| 항목 | 내용 | 위험도 | 검증 |
+|---|---|---|---|
+| /app 쓰기 라우트 개방 | **v19.4까지 /app의 기록 저장/수정/삭제·고정지출이 관리자 전용이라 일반 사용자에게 동작하지 않던 구조 결함** 수정. resolveTransactionAccess로 owner/admin/member/viewer 매트릭스 적용, 수정/삭제는 DB row의 household·user_id 기준 검증(폼 값 신뢰 안 함) | **높음(수정됨)** | 12건 권한 매트릭스 런타임 테스트 통과 |
+| member 지출자 강제 | member가 add/update 시 user_id를 본인으로 강제 | 중 | 테스트 통과 |
+| 분류 자동 추론 | category 비면 inferCategory(전역 규칙)로 채움 — 기존 저장 동작에 추가만 | 낮음 | 추론 결과 저장 테스트 통과 |
+| 한 줄 입력 | 순수 클라이언트 파서(폼 채우기만) — 서버 로직 무변경 | 낮음 | 스크립트 문법 검사 통과 |
+| 드릴다운 링크 | 기존 /app 필터 파라미터 재사용 — 새 데이터 접근 없음 | 낮음 | 렌더링 테스트 통과 |
+| 오늘 카드 | 이미 스코프된 rows/budget으로 계산 | 낮음 | 렌더링 테스트 통과 |

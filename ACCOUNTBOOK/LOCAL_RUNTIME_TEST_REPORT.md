@@ -1,39 +1,36 @@
-# Local Runtime Test Report — V19.4-BUDGET-ONBOARDING-STABILITY
+# Local Runtime Test Report — V19.5-SMART-FLOW
 
 ## Result
-**PASS — 57/57** (runtime) + **13/13** (inline script syntax)
+**PASS — 73/73** (runtime) + **13/13** (inline script syntax)
 
-Node 환경에서 Supabase REST(PostgREST)를 in-memory mock으로 대체하고,
-Worker의 `fetch(request, env)`를 직접 호출해 라우팅·인증·렌더링을 검증했습니다.
-V19.3-CLEAN-FINAL의 51개 테스트에 v19.4 신규 기능 검증 6건을 더했습니다.
+Node에서 Supabase REST를 in-memory mock으로 대체하고 Worker `fetch()`를 직접 호출해 검증.
+v19.4의 57개 테스트에 v19.5 권한 매트릭스·신규 기능 16건을 추가했습니다.
 
-## Mock 데이터
-- 가계부 h1/h2, u1(h1 owner), u2(h2 owner), u3(h1 viewer)
-- h2에는 식별용 비밀 마커(가계부명·거래·분류·결제수단·예산·정기지출·자산·카카오키) 삽입 —
-  u1 세션 응답에 한 글자라도 나오면 실패 처리
+## Mock 구성
+- h1: u1(owner), u3(viewer), u4(member) / h2: u2(owner)
+- h2 비밀 마커 데이터 — u1 응답에 노출 시 실패
 
 ## 정적 검사
-- `node --check src/index.js` 통과
-- 렌더링된 13개 페이지(신규: /start-guide 포함)의 인라인 `<script>` 13개 → vm 문법 검사 전부 통과
-- `"async async"` 문자열 0건
+- `node --check` 통과 · 13개 화면 인라인 스크립트 13개 문법 통과 · "async async" 0건
 
-## v19.3에서 이어지는 회귀 테스트 (전부 PASS)
-- `/health` version=V19.4-BUDGET-ONBOARDING-STABILITY, mode=budget-onboarding-stability
-- smoke: /app /analysis /my/analysis /calendar /budgets /reserve-plans /payment-methods /keyword-guide /households /my
-- 누출: 9개 화면 × (기본/`household_id=h2` 강제) 18케이스 — h2 데이터 미노출
-- 권한: viewer 버튼 미노출 + POST 서버 차단, u1→h2 교차 저장 차단, owner 정상 저장, 비로그인 안전 리다이렉트
-- UX 회귀: 캘린더 접힘, analysis foldSection, __income/__total 원시값 미노출, 자산 인사이트 카드 5종
+## 회귀 (v19.3~v19.4 전체 유지)
+- /health(V19.5-SMART-FLOW/smart-flow), 10개 화면 smoke, 누출 18케이스, 예산/정기지출/자산 권한,
+  캘린더 접힘, 분석 접기, 예산 자동 산정 UI, 입력 칩, 시작가이드 체크리스트 — 전부 PASS
 
-## v19.4 신규 기능 테스트 (전부 PASS)
-1. /budgets 자동 산정 UI — 모드 배지(modeTag), 초과 저장 경고 스크립트(BUDGET_CTX), "남은 배정 가능 예산" 표기
-2. /budgets 직접 설정 상태에서 "자동 산정(분류 합계)으로 전환" 버튼 노출
-3. /budgets `__total` 삭제 후 "월 예산 자동 산정" 안내 + <분류 합계 자동> 배지 전환 확인
-4. /app 빠른 입력 — 자주 쓰는 항목 칩(freqChips)·오늘/어제 날짜 칩(dateChip) 렌더링
-5. /reserve-plans "이번 달 납부 예정" 메트릭 렌더링
-6. /start-guide 8단계 체크리스트(ckList) 렌더링 및 실데이터 기반 완료 판정
-
-## 기타 확인
-- /deployment-check: 비로그인 접근 시 안전 리다이렉트(303) — Error 1101 없음
+## v19.5 신규 테스트 (전부 PASS)
+1. owner가 /admin/transactions로 기록 추가 성공 (일반 사용자 세션)
+2. 분류 미입력 시 서버 자동 추론으로 category 채워짐
+3. viewer 기록 추가 차단 (서버)
+4. 타 가계부 소유자의 h1 기록 추가 차단
+5. member 기록 추가 시 지출자(user_id) 본인 강제
+6. member가 타인 기록 수정 시도 → 차단 (row 소유권 검증)
+7. member 본인 기록 수정 성공
+8. viewer 삭제 차단
+9. 타 가계부 row 삭제 차단 — 폼에 자기 household_id를 넣어도 DB row 기준으로 차단
+10. viewer 고정지출 저장 차단 / owner 저장 성공
+11. /app 한 줄 스마트 입력·오늘 쓴 돈 카드 렌더링
+12. viewer에게 /app 입력·수정·고정지출 폼 미노출
+13. /analysis 분류 랭킹 드릴다운 링크 · /payment-methods 결제수단 드릴다운 링크
 
 ## 한계
-- 실제 Supabase/카카오 OAuth/OpenBuilder 발화는 mock 범위 밖 — 배포 후 FINAL_APPLY_CHECKLIST.md 절차로 재검증 필요
+- 실제 Supabase/카카오 OAuth/OpenBuilder 발화는 mock 범위 밖 — FINAL_APPLY_CHECKLIST.md로 배포 후 재검증
