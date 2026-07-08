@@ -1,0 +1,41 @@
+# V19.3-REPORT-CLEAN-FINAL 점검 보고서
+
+v19.3-report 원본을 기준으로 운영 적용 전 전체 점검을 수행한 결과입니다.
+기능 추가 없이 정리·수정·검증만 진행했습니다.
+
+## 1. 발견·수정한 문제
+
+| # | 항목 | 심각도 | 내용 | 조치 |
+|---|---|---|---|---|
+| 1 | ZIP 내부 경로 | 중 | Windows 백슬래시 경로(`...\src\index.js`)로 압축되어 일부 환경에서 폴더 구조가 깨짐 | 정상 슬래시 경로로 재구성 |
+| 2 | /health 이전 마커 | 중 | `mode: "global-stability-final"`, source `backup_import_v18_8` 등 v18.8 잔재 | `report-clean-final`, `backup_import_v19_3`으로 정리 |
+| 3 | /budgets 가계부 범위 누출 | **높음** | 로그인 사용자가 `?household_id=`로 임의 가계부 ID를 넘기면 다른 가계부의 예산·거래·참여자 사용내역이 조회됨 | 참여 가계부 목록으로 클램핑(selectScopedHousehold) |
+| 4 | /my/calendar 전체 달력 상시 펼침 | 중 | 모바일에서 화면이 과도하게 길어짐 | 기록 있는 날짜 우선 + 전체 달력 details 기본 접힘 |
+| 5 | /calendar 전체 달력 기본 open | 중 | `<details open>`으로 기본 펼침 상태 | open 제거(기본 접힘), 히트맵 유지 |
+| 6 | /analysis·/my/analysis 정보량 | 중 | 모바일에서 고급 분석까지 전부 펼쳐져 스크롤 과다 | 도넛/6·12개월/분류변화/반복지출/큰지출을 details 접기로 재배치, 두 화면 구조 통일 |
+| 7 | /payment-methods 저장·삭제 권한 불일치 | 중 | POST 핸들러가 관리자 세션 전용이라 사용자 화면의 저장/삭제 버튼이 실제로는 동작하지 않음(관리자 로그인으로 리다이렉트) | 예산/정기지출과 동일한 owner/admin 권한 체크로 정리 |
+| 8 | 권한 없는 사용자에게 버튼 노출 | 중 | /budgets, /reserve-plans, /payment-methods에서 viewer 등에게도 저장/삭제 버튼 표시 | canManage(owner/admin) 조건부 렌더링 |
+| 9 | 문서 v18.8 기준 | 낮음 | FULL_AUDIT_REPORT/LOCAL_RUNTIME_TEST_REPORT/FINAL_APPLY_CHECKLIST/VERSION이 v18.8 기준 | 전부 V19.3-REPORT-CLEAN-FINAL 기준으로 재작성 |
+
+## 2. 이상 없음을 확인한 항목
+
+- **장기 분석 범위**: /analysis, /my/analysis의 6/12개월 조회(fetchAdminRowsRange)는 모두 현재 household_id 필터로만 조회. 가계부 미선택 시 빈 배열 처리.
+- **/app, /calendar, /my/***: pcScopedContext / getMyPageContext / getScopedHouseholdsForPage가 사용자 참여 가계부로만 선택을 제한.
+- **/households**: 사용자 화면은 fetchUserHouseholds 기반 — 참여하지 않은 가계부 미노출. 참여자 카드 UI 정상.
+- **표시 이름 수정**: /admin/member/nickname은 household_members.nickname만 변경. 카카오 고유키(kakao_user_key)는 변경 경로 없음.
+- **예산 정합성 경고**: 분류 합계 > 월 전체 예산, 월 전체 예산 > 수입 기준 모두 경고 표시(renderBudgetConsistencyAlert).
+- **내부 코드값**: `__income`/`__total`은 화면에서 한글 라벨로 변환되어 노출되지 않음(런타임 테스트로 확인).
+- **서버측 변경 권한**: 예산 저장/삭제, 정기지출 저장/삭제, 참여자 이름/권한 변경 모두 owner/admin 서버 체크 존재. pending/viewer/blocked는 기록 입력/수정 불가(canWriteMyHousehold).
+- **safe fallback**: 사용자 화면 라우트는 safeHtmlRoute로 감싸져 있어 오류 시 Error 1101 대신 안내 페이지 응답.
+- **관리자 메뉴 분리**: 운영/점검 메뉴는 renderUnifiedNav의 ops 그룹(showOps일 때만) 및 /operation-center로 분리 — 일반 사용자 메뉴에 미노출.
+
+## 3. 수행한 검증
+
+- `node --check src/index.js` 통과
+- 렌더링된 12개 화면의 인라인 `<script>` 12개 전부 vm 문법 검사 통과
+- `"async async"` 문자열 0건
+- ZIP `testzip()` 무결성 통과
+- mock Supabase 런타임 테스트 51건 전부 통과 (상세: LOCAL_RUNTIME_TEST_REPORT.md)
+  - u1(h1만 참여) 세션으로 9개 화면 × (기본 / household_id=h2 강제) 조합 전부에서 h2 데이터(가계부명, 거래, 예산, 정기지출, 자산, 참여자, 카카오키) 미노출
+  - viewer 권한에서 저장/삭제 버튼 미노출 + POST 강제 호출 시 서버 차단
+  - u1이 h2에 예산/정기지출/자산 저장 시도 시 서버 차단
