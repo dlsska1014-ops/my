@@ -71,8 +71,8 @@
 
 | 매뉴얼 규칙 | 현 상태 | 필요 조치 |
 |---|---|---|
-| plusfriendUserKey 미사용 | /skill 파서 확인 필요 | 코드에서 참조 시 botUserKey로 정리 (V19.6 후보) |
-| SkillResponse 미지원 타입 회피 | /skill 응답 형식 점검 필요 | QuickReplies/Carousel 사용 여부 확인 |
+| plusfriendUserKey 미사용 | ✅ 점검 완료 — getKakaoUserKey에서 botUserKey→appUserId 우선이며 plusfriendUserKey는 최후순위 레거시 폴백으로만 존재 | 유지 (제거 시 구키로 저장된 기존 사용자 매칭 파손 위험). 신규 로직에서 참조 금지 |
+| SkillResponse 미지원 타입 회피 | ✅ 점검 완료 — QuickReplies/CommerceCard/Carousel 사용 0건, simpleText 중심 | 유지 |
 | 개인정보 표현 | /privacy·도움말 문구 점검 필요 | 금지 표현 없는지, 저장·보관 기간 명시 여부 확인 |
 | 선톡 월 2회 vs 알림 블록 분리 | 예산/정기지출 알림 설계 시 적용 | 알림 기능은 알림 전용 블록 + 빈 outputs 스킵 패턴 |
 | 멱등키 중복 방지 | /skill 저장 로직 점검 필요 | 카카오 재전송 대비 멱등 처리 확인 (V19.6 후보) |
