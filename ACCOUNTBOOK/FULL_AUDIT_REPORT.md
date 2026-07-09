@@ -85,3 +85,21 @@ v19.3-report 원본을 기준으로 운영 적용 전 전체 점검을 수행한
 | 하단탭 재편 | 밈 탭 제거(홈 카드로 유지), 예산 탭 승격, ＋입력 중앙 강조, 스크롤 스파이 | 낮음 | 렌더·문법·80+ 런타임 테스트 통과 |
 | 링크 스코프 | 예산/전체 탭이 month+household_id 파라미터를 그대로 전달 | 없음 | 렌더 출력 확인 |
 | CSS 정리 | 이전 active-tab 파란 박스/검은 박스 규칙 제거, 아이콘+라벨 세로 배치로 교체 | 낮음 | 시각 렌더 확인 |
+
+
+## 8. V19.7 후속 — 모바일 상단/하단 헤더 중복 수정 (코덱스 지적 반영)
+
+실제 모바일 렌더(Playwright 390×844)로 재현한 결과, `/app`이 자체 헤더(.appTop)+하단바(.bottom)에
+더해 renderUnifiedNav("app")의 모바일 상단바(abNavMobileTop)·하단바(abNavBottom)까지 함께 렌더해
+**상단바 2개·하단바 2개**가 겹쳐 있었다. 코덱스가 지적한 "상단 고정헤더 자동 숨김 문제"는
+고정 abNavMobileTop이 스크롤 시 숨는데 그 아래 sticky .appTop이 top:48px에 고정돼 빈 띠/겹침이
+생기는 이 이중 구조의 증상이었다.
+
+| 조치 | 내용 | 검증 |
+|---|---|---|
+| 중복 nav 제거 | `/app`에서 renderUnifiedNav 호출 삭제 — .appTop이 top:0 단일 sticky로 정상화, 고정 상단바/자동숨김 충돌 제거 | 렌더 계측: navTop=null, appTop top:0 |
+| 하단바 5칸 고정 | 옛 4탭 잔재 `@media(max-width:420px){.bottom{repeat(4,1fr)}}` → repeat(5,1fr). 5개 탭이 한 줄 정렬 | 계측: 5칸 동일 top |
+| 단일 nav 보장 | /app에 abNavBottom/abNavMobileTop 부재를 런타임 테스트로 고정 | 테스트 통과 |
+
+결과: /app이 단일 헤더 + 단일 하단바(홈·기록·＋입력·예산·전체)로 정리됨. 데스크톱 /app은
+사이드바 대신 자체 헤더+하단바+전체(/menu)로 내비게이션 제공.
