@@ -1,4 +1,4 @@
-# V19.8-BUDGET-ALERT 운영 적용 체크리스트
+# V19.8.4-BIZ-FOOTER-ONLY-HOTFIX 운영 적용 체크리스트
 
 ## 적용 전
 
@@ -15,7 +15,7 @@
 
 ## 적용 후 확인
 
-8. `/health`에서 `"version":"V19.8-BUDGET-ALERT"`, `"mode":"budget-alert"` 확인
+8. `/health`에서 `"version":"V19.8.4-BIZ-FOOTER-ONLY-HOTFIX"`, `"mode":"biz-footer-only-hotfix"` 확인
 9. `/app` 홈·입력·기록 정상 표시 확인
 10. `/analysis` 기본 노출(요약·핵심 인사이트·일별·요일별)과 접힘 영역(도넛·6/12개월·분류변화·반복지출·큰지출) 확인
 11. `/my/analysis`가 /analysis와 같은 구조로 보이는지 확인
@@ -44,3 +44,20 @@
 
 20. 백업해 둔 이전 Worker 코드로 즉시 롤백
 21. `/health`로 롤백 버전 확인 후 원인 분석
+
+
+## V20.2 추가 검증
+- `node --check src/index.js`: PASS
+- ES module import: PASS
+- `/health`: PASS
+- `/ops-duplicates`: PASS
+- `/ops-snapshot.json`: PASS
+- ZIP 무결성: PASS
+
+
+## V20.3 추가 확인
+
+- `/health`에서 `V20.3-BUDGET-ALERT-POLISH-BUNDLE` 확인
+- `/budget-alert-guide` 진입 확인
+- 로그인 후 `/budget-alerts`에서 오늘 사용 가능 금액/월말 예상/정기지출 대기 표시 확인
+- `/operation-center`에서 예산 알림 센터 진입점 확인

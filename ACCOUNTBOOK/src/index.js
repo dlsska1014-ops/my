@@ -77,6 +77,192 @@ function checkSkillRateLimit(userKey = "", env = {}) {
   return { ok: bucket.count <= limit, count: bucket.count, limit, resetInMs };
 }
 
+
+const AB_TRAFFIC_BUCKETS = globalThis.__AB_TRAFFIC_BUCKETS || (globalThis.__AB_TRAFFIC_BUCKETS = new Map());
+const AB_TRAFFIC_EVENTS = globalThis.__AB_TRAFFIC_EVENTS || (globalThis.__AB_TRAFFIC_EVENTS = []);
+const AB_OPS_EVENTS = globalThis.__AB_OPS_EVENTS || (globalThis.__AB_OPS_EVENTS = []);
+const AB_DUPLICATE_EVENTS = globalThis.__AB_DUPLICATE_EVENTS || (globalThis.__AB_DUPLICATE_EVENTS = []);
+const AB_KAKAO_REPEAT_GUARD = globalThis.__AB_KAKAO_REPEAT_GUARD || (globalThis.__AB_KAKAO_REPEAT_GUARD = new Map());
+
+function rememberOpsEvent(event = {}) {
+  try {
+    AB_OPS_EVENTS.push({
+      at: new Date().toISOString(),
+      kind: String(event.kind || "info").slice(0, 40),
+      severity: String(event.severity || "info").slice(0, 20),
+      path: String(event.path || "").slice(0, 120),
+      method: String(event.method || "").slice(0, 12),
+      label: String(event.label || "").slice(0, 80),
+      detail: String(event.detail || "").slice(0, 260),
+    });
+    while (AB_OPS_EVENTS.length > 220) AB_OPS_EVENTS.shift();
+  } catch (err) {}
+}
+
+function getOpsEventsSnapshot() {
+  const recent = AB_OPS_EVENTS.slice(-120).reverse();
+  const byKind = recent.reduce((acc, e) => {
+    acc[e.kind] = (acc[e.kind] || 0) + 1;
+    return acc;
+  }, {});
+  const bySeverity = recent.reduce((acc, e) => {
+    acc[e.severity] = (acc[e.severity] || 0) + 1;
+    return acc;
+  }, {});
+  const lastError = recent.find((e) => e.severity === "error" || e.kind === "server_error" || e.kind === "route_error") || null;
+  return { recent, byKind, bySeverity, lastError };
+}
+
+
+function rememberDuplicateEvent(event = {}) {
+  try {
+    AB_DUPLICATE_EVENTS.push({
+      at: new Date().toISOString(),
+      kind: String(event.kind || "duplicate_guard").slice(0, 40),
+      source: String(event.source || "").slice(0, 40),
+      household_id: String(event.household_id || "").slice(0, 64),
+      user_id: String(event.user_id || "").slice(0, 64),
+      amount: Number(event.amount || 0) || 0,
+      transaction_date: String(event.transaction_date || "").slice(0, 20),
+      detail: String(event.detail || "").slice(0, 220),
+    });
+    while (AB_DUPLICATE_EVENTS.length > 180) AB_DUPLICATE_EVENTS.shift();
+    if (["duplicate_skipped", "bulk_limited", "kakao_repeat"].includes(String(event.kind || ""))) {
+      rememberOpsEvent({ kind: event.kind, severity: "warn", path: event.path || "", method: event.method || "", detail: event.detail || `${event.source || ""} ${event.transaction_date || ""} ${event.amount || ""}` });
+    }
+  } catch (err) {}
+}
+
+function getDuplicateOpsSnapshot() {
+  const recent = AB_DUPLICATE_EVENTS.slice(-90).reverse();
+  const byKind = recent.reduce((acc, e) => { acc[e.kind] = (acc[e.kind] || 0) + 1; return acc; }, {});
+  const bySource = recent.reduce((acc, e) => { acc[e.source || "unknown"] = (acc[e.source || "unknown"] || 0) + 1; return acc; }, {});
+  return { recent, byKind, bySource };
+}
+
+function duplicateGuardSeconds(env = {}, source = "") {
+  const src = String(source || "");
+  if (src === "kakao_skill") return Math.max(10, Number(env.KAKAO_RETRY_DEDUP_SECONDS || KAKAO_RETRY_DEDUP_SECONDS || 120));
+  if (src === "my_import") return 0;
+  return Math.max(10, Number(env.DUPLICATE_GUARD_SECONDS || 90));
+}
+
+function isDuplicateGuardSource(source = "") {
+  const s = String(source || "");
+  return ["my_web", "web_user", "ledger_live", "api", "kakao_skill", "web_admin"].includes(s);
+}
+
+function isDatabaseBusyError(err) {
+  const m = String(err?.message || err || "").toLowerCase();
+  return /supabase|fetch|network|timeout|timed|gateway|503|502|504|failed|database|connection/.test(m);
+}
+
+function userSafeErrorCode(err) {
+  return isDatabaseBusyError(err) ? "db_delay" : safeError(err);
+}
+
+function duplicateSkippedReturnLocation(month, householdId, extra = {}) {
+  return myReturnLocation(month, householdId, { msg: "duplicate_skipped", ...extra });
+}
+
+function buildOpsSnapshot(env = {}) {
+  const traffic = getTrafficOpsSnapshot();
+  const skill = getSkillOpsSnapshot();
+  const events = getOpsEventsSnapshot();
+  const duplicates = getDuplicateOpsSnapshot();
+  return {
+    app_version: APP_VERSION,
+    app_mode: APP_MODE,
+    generated_at: new Date().toISOString(),
+    traffic,
+    skill,
+    events,
+    duplicates,
+    limits: {
+      traffic_guard_limit: Number(env.TRAFFIC_GUARD_LIMIT || 90),
+      traffic_guard_window_ms: Number(env.TRAFFIC_GUARD_WINDOW_MS || 60000),
+      skill_rate_limit: Number(env.SKILL_RATE_LIMIT || 24),
+      skill_rate_window_ms: Number(env.SKILL_RATE_WINDOW_MS || 60000),
+      duplicate_guard_seconds: Number(env.DUPLICATE_GUARD_SECONDS || 90),
+      kakao_retry_dedup_seconds: Number(env.KAKAO_RETRY_DEDUP_SECONDS || KAKAO_RETRY_DEDUP_SECONDS || 120),
+      kakao_repeat_guard_seconds: Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8),
+      my_import_limit: Number(env.MY_IMPORT_LIMIT || 120),
+      kakao_bulk_limit: Number(env.KAKAO_BULK_LIMIT || 25),
+    },
+  };
+}
+
+function rememberTrafficEvent(event = {}) {
+  try {
+    AB_TRAFFIC_EVENTS.push({
+      at: new Date().toISOString(),
+      kind: String(event.kind || "info").slice(0, 40),
+      path: String(event.path || "").slice(0, 120),
+      method: String(event.method || "").slice(0, 12),
+      key: String(event.key || "").slice(0, 64),
+      detail: String(event.detail || "").slice(0, 220),
+    });
+    while (AB_TRAFFIC_EVENTS.length > 160) AB_TRAFFIC_EVENTS.shift();
+    if (String(event.kind || "") === "limited") rememberOpsEvent({ kind: "rate_limited", severity: "warn", path: event.path, method: event.method, detail: event.detail });
+  } catch (err) {}
+}
+
+function trafficClientKey(request) {
+  try {
+    const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
+    const ua = request.headers.get("user-agent") || "";
+    return `${String(ip).split(",")[0].trim()}|${String(ua).slice(0, 32)}`.slice(0, 120);
+  } catch (err) {
+    return "unknown";
+  }
+}
+
+function isTrafficGuardedPath(path = "", method = "GET") {
+  const m = String(method || "GET").toUpperCase();
+  const p = String(path || "");
+  if (p === "/skill") return true;
+  if (!["POST", "PATCH", "DELETE"].includes(m)) return false;
+  return p.startsWith("/my/") || p.startsWith("/api/") || p.startsWith("/admin/") || p.startsWith("/backup/") || p.startsWith("/cron/");
+}
+
+function checkTrafficGuard(request, env, url) {
+  const method = request.method || "GET";
+  if (!isTrafficGuardedPath(url?.pathname || "", method)) return { ok: true, skipped: true };
+  const now = Date.now();
+  const windowMs = Math.max(10000, Number(env.TRAFFIC_GUARD_WINDOW_MS || 60000));
+  const limit = Math.max(20, Number(env.TRAFFIC_GUARD_LIMIT || 90));
+  const key = `${trafficClientKey(request)}|${String(url?.pathname || "").slice(0, 60)}`;
+  let bucket = AB_TRAFFIC_BUCKETS.get(key);
+  if (!bucket || now - Number(bucket.windowStart || 0) > windowMs) bucket = { windowStart: now, count: 0 };
+  bucket.count += 1;
+  AB_TRAFFIC_BUCKETS.set(key, bucket);
+  const ok = bucket.count <= limit;
+  if (!ok) rememberTrafficEvent({ kind: "limited", path: url?.pathname || "", method, key, detail: `${bucket.count}/${limit}` });
+  return { ok, count: bucket.count, limit, resetInMs: Math.max(0, windowMs - (now - bucket.windowStart)), key };
+}
+
+function getTrafficOpsSnapshot() {
+  const now = Date.now();
+  let activeBuckets = 0;
+  for (const [k, v] of AB_TRAFFIC_BUCKETS.entries()) {
+    if (!v || now - Number(v.windowStart || 0) > 10 * 60 * 1000) AB_TRAFFIC_BUCKETS.delete(k);
+    else activeBuckets++;
+  }
+  const recent = AB_TRAFFIC_EVENTS.slice(-80).reverse();
+  const byKind = recent.reduce((acc, e) => {
+    acc[e.kind] = (acc[e.kind] || 0) + 1;
+    return acc;
+  }, {});
+  return { activeBuckets, recent, byKind };
+}
+
+function trafficLimitedResponse(url, request, result = {}) {
+  const retry = Math.max(1, Math.ceil(Number(result.resetInMs || 0) / 1000));
+  if (url?.pathname === "/skill") return rateLimitedKakaoText(url.origin || "");
+  if (String(url?.pathname || "").startsWith("/api/")) return jsonResponse({ ok: false, error: "rate_limited", retry_after_seconds: retry }, 429);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>요청이 잠시 제한되었어요</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:720px;margin:38px auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:22px;box-shadow:0 18px 44px rgba(15,23,42,.08)}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.muted{color:#64748b;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>잠시 후 다시 시도해주세요</h1><p class="muted">짧은 시간에 저장·수정 요청이 많아 데이터 중복을 막기 위해 잠깐 제한했습니다. 약 ${retry}초 뒤 다시 시도해주세요.</p><a class="btn" href="/my">내 가계부로 이동</a></section></main></body></html>`, 429, { "retry-after": String(retry) });
+}
+
 function rateLimitedKakaoText(origin = "") {
   return kakaoText([
     "잠시만요 😊",
@@ -123,6 +309,9 @@ export default {
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
       }
+
+      const trafficGuard = checkTrafficGuard(request, env, url);
+      if (!trafficGuard.ok) return trafficLimitedResponse(url, request, trafficGuard);
 
       if (url.pathname === "/" && request.method === "GET") {
         // 운영 안정화: 루트는 기본적으로 사용자 홈으로 보냅니다.
@@ -427,7 +616,7 @@ export default {
       }
 
       if (url.pathname === "/health") {
-        return jsonResponse({ ok: true, app: appName(env), version: "V19.8-BUDGET-ALERT", mode: "budget-alert", time: new Date().toISOString() });
+        return jsonResponse({ ok: true, app: appName(env), version: APP_VERSION, mode: APP_MODE, time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ops-audit" && request.method === "GET") {
@@ -661,6 +850,54 @@ export default {
         return handleDataPolicyPage(request, env, url);
       }
 
+      if ((url.pathname === "/terms" || url.pathname === "/service-policy") && request.method === "GET") {
+        return handleTermsPage(request, env, url);
+      }
+
+      if ((url.pathname === "/review-ready" || url.pathname === "/beta-ready") && request.method === "GET") {
+        return handleReviewReadyPage(request, env, url);
+      }
+
+      if ((url.pathname === "/beta-start" || url.pathname === "/onboarding" || url.pathname === "/user-onboarding") && request.method === "GET") {
+        return handleBetaStartPage(request, env, url);
+      }
+
+      if ((url.pathname === "/household-flow" || url.pathname === "/multi-household-guide") && request.method === "GET") {
+        return handleHouseholdFlowGuidePage(request, env, url);
+      }
+
+      if ((url.pathname === "/backup-safety" || url.pathname === "/backup-guide") && request.method === "GET") {
+        return handleBackupSafetyGuidePage(request, env, url);
+      }
+
+      if ((url.pathname === "/kakao-commands" || url.pathname === "/chatbot-commands") && request.method === "GET") {
+        return handleKakaoCommandsPage(request, env, url);
+      }
+
+      if ((url.pathname === "/budget-alerts" || url.pathname === "/today-budget" || url.pathname === "/monthly-forecast" || url.pathname === "/fixed-preview") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => handleBudgetAlertPolishPage(request, env, url), "예산 알림 센터");
+      }
+
+      if ((url.pathname === "/budget-alert-guide" || url.pathname === "/budget-polish-guide") && request.method === "GET") {
+        return handleBudgetAlertGuidePage(request, env, url);
+      }
+
+      if ((url.pathname === "/ops-dashboard" || url.pathname === "/ops-events" || url.pathname === "/ops-health") && request.method === "GET") {
+        return handleOpsDashboardPage(request, env, url);
+      }
+
+      if (url.pathname === "/ops-snapshot.json" && request.method === "GET") {
+        return handleOpsSnapshotJson(request, env, url);
+      }
+
+      if ((url.pathname === "/ops-duplicates" || url.pathname === "/duplicate-safety") && request.method === "GET") {
+        return handleDuplicateSafetyPage(request, env, url);
+      }
+
+      if ((url.pathname === "/ops-traffic" || url.pathname === "/traffic-ops") && request.method === "GET") {
+        return handleTrafficOpsPage(request, env, url);
+      }
+
       if ((url.pathname === "/skill-ops" || url.pathname === "/ops-skill") && request.method === "GET") {
         return handleSkillOpsPage(request, env, url);
       }
@@ -737,6 +974,10 @@ export default {
     } catch (err) {
       console.error(err);
       try {
+        const failUrlForOps = new URL(request.url);
+        rememberOpsEvent({ kind: "server_error", severity: "error", path: failUrlForOps.pathname, method: request.method || "GET", detail: safeError(err) });
+      } catch (opsErr) {}
+      try {
         const failUrl = new URL(request.url);
         if (failUrl.pathname === "/skill") {
           return kakaoText(kakaoSkillSafeFallbackText(failUrl.origin));
@@ -752,13 +993,64 @@ export default {
     }
   },
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(runRecurringAutoApply(env));
+    ctx.waitUntil((async () => {
+      try {
+        await runRecurringAutoApply(env);
+        rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: "recurring auto apply completed" });
+      } catch (err) {
+        rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
+        throw err;
+      }
+    })());
   },
 };
+
+const APP_VERSION = "V20.3-BUDGET-ALERT-POLISH-BUNDLE";
+const APP_MODE = "budget-alert-polish-bundle";
 
 function appName(env) {
   return env.APP_NAME || env.BRAND_NAME || "똑똑한가계부";
 }
+
+const BUSINESS_FOOTER_INFO = Object.freeze({
+  service: "똑똑한가계부",
+  company: "도담 네트워크",
+  businessNumber: "729-24-02288",
+  address: "경기도 평택시 신촌3로 12",
+  businessType: "정보통신업",
+  businessItem: "응용 소프트웨어 개발 및 공급업",
+});
+
+function businessFooterText(value = "") {
+  return escapeHtml(String(value || "").trim());
+}
+
+function renderBusinessInfoFooter() {
+  const info = BUSINESS_FOOTER_INFO;
+  return `<footer class="abBusinessFooter" aria-label="사업자 정보" style="margin:22px 0 0;padding:16px 4px 0;border-top:1px solid #e5e7eb;color:#64748b;font-size:12px;line-height:1.7;letter-spacing:-.02em;word-break:keep-all;overflow-wrap:anywhere">
+    <div style="font-weight:900;color:#334155;margin-bottom:4px">사업자 정보</div>
+    <div>상호: ${businessFooterText(info.company)}</div>
+    <div>사업자등록번호: ${businessFooterText(info.businessNumber)}</div>
+    <div>사업장 소재지: ${businessFooterText(info.address)}</div>
+    <div>업태: ${businessFooterText(info.businessType)}</div>
+    <div>종목: ${businessFooterText(info.businessItem)}</div>
+    <div>서비스명: ${businessFooterText(info.service)}</div>
+  </footer>`;
+}
+
+function renderBusinessInfoReviewCard(variant = "") {
+  // V19.8.4: 카카오 심사용 본문 카드는 제거하고, 하단 사업자 푸터만 유지합니다.
+  return "";
+}
+function attachBusinessInfoFooter(html = "") {
+  const source = String(html || "");
+  if (!source || source.includes("abBusinessFooter")) return source;
+  const footer = renderBusinessInfoFooter();
+  if (source.includes("</main></body></html>")) return source.replace("</main></body></html>", `${footer}</main></body></html>`);
+  if (source.includes("</body></html>")) return source.replace("</body></html>", `${footer}</body></html>`);
+  return source;
+}
+
 
 function safeError(err) {
   if (!err) return "unknown";
@@ -777,6 +1069,7 @@ async function safeHtmlRoute(request, url, handler, label = "화면") {
     return await handler();
   } catch (err) {
     console.error(`[safeHtmlRoute:${label}]`, err);
+    rememberOpsEvent({ kind: "route_error", severity: "error", path: url?.pathname || "", method: request?.method || "GET", label, detail: safeError(err) });
     return htmlResponse(renderEmergencyErrorHtml(url, err, `${label}을 안전모드로 전환했어요`), 200);
   }
 }
@@ -789,7 +1082,7 @@ function jsonResponse(data, status = 200) {
 }
 
 function htmlResponse(html, status = 200, headers = {}) {
-  return new Response(html, {
+  return new Response(attachBusinessInfoFooter(html), {
     status,
     headers: { ...HTML_HEADERS, ...headers },
   });
@@ -4275,7 +4568,13 @@ async function handleUiAuditPage(request, env, url) {
 async function handleUserReadyCheckPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
+  let households = [];
+  try {
+    households = await fetchAdminHouseholds(env);
+  } catch (err) {
+    rememberOpsEvent({ kind: "operation_center_db", severity: "warn", path: "/operation-center", method: "GET", detail: safeError(err) });
+    households = [];
+  }
   const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
   const hid = householdId;
   const rows = [
@@ -4311,7 +4610,13 @@ async function handleUserReleaseCheckPage(request, env, url) {
 async function handleOperationCenterPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
+  let households = [];
+  try {
+    households = await fetchAdminHouseholds(env);
+  } catch (err) {
+    rememberOpsEvent({ kind: "operation_center_db", severity: "warn", path: "/operation-center", method: "GET", detail: safeError(err) });
+    households = [];
+  }
   const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
   const hid = householdId;
   const hh = hid ? `&household_id=${encodeURIComponent(hid)}` : "";
@@ -4319,6 +4624,17 @@ async function handleOperationCenterPage(request, env, url) {
     ["최종 사용자 준비 확인", "/user-ready-check", "사용자 화면 기준 최종 정리 상태를 확인합니다.", "추천"],
     ["사용자 배포 확인", "/release-check", "최종 사용자가 보는 흐름을 확인합니다.", "추천"],
     ["운영 상태 확인", "/final-release", "전체 기능과 배포 가능 상태를 확인합니다.", "관리"],
+    ["심사·베타 준비", "/review-ready", "카카오 심사·베타 운영 체크리스트를 확인합니다.", "신규"],
+    ["베타 시작 흐름", "/beta-start", "신규 사용자의 첫 설정 흐름을 확인합니다.", "베타"],
+    ["가계부 전환·참여", "/household-flow", "여러 가계부·초대코드 흐름을 안내합니다.", "베타"],
+    ["백업 안전가이드", "/backup-safety", "배포 전후 백업·복구 순서를 안내합니다.", "안전"],
+    ["챗봇 명령어", "/kakao-commands", "카카오 발화와 오입력 안내를 정리합니다.", "베타"],
+    ["예산 알림 센터", "/budget-alerts", "오늘 사용 가능 금액, 월말 예상, 정기지출 예정, 초과/주의 분류를 확인합니다.", "신규"],
+    ["예산 알림 가이드", "/budget-alert-guide", "예산 알림·오늘 예산·월말 예상 기준을 설명합니다.", "신규"],
+    ["운영 대시보드", "/ops-dashboard", "최근 오류·트래픽·카카오 발화를 한 화면에서 확인합니다.", "운영"],
+    ["트래픽 가드", "/ops-traffic", "과도 요청 제한과 최근 제한 이벤트를 확인합니다.", "신규"],
+    ["스킬 운영", "/skill-ops", "최근 카카오 발화와 스킬 상태를 확인합니다.", "운영"],
+    ["약관/서비스 안내", "/terms", "서비스 이용 기준과 사용자 안내 문구를 확인합니다.", "신규"],
     ["시스템 진단", "/diagnostics", "환경변수와 Supabase 테이블 연결을 확인합니다.", "필수"],
     ["운영 점검", "/operation-center", "/ops-audit", "배포 전후 운영 기준을 점검합니다.", "관리"],
     ["기능맵", "/feature-map", "현재 포함 기능과 다음 확장 기능을 확인합니다.", "관리"],
@@ -4339,7 +4655,7 @@ async function handleOperationCenterPage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>운영센터</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:32px}.hero p{line-height:1.65;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.opGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.opCard{display:block;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.05)}.opCard span{display:inline-flex;border-radius:999px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000;padding:5px 9px}.opCard b{display:block;margin-top:10px;font-size:18px}.opCard p{color:#64748b;line-height:1.45}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>운영센터</h1><p>일반 사용자가 매일 누를 필요 없는 점검 메뉴를 한곳으로 모았습니다. 상단 메뉴는 실제 사용 흐름만 남기고, 운영/점검/배포 확인은 이 화면에서 관리합니다.</p><p>${quick}</p></section><section class="card"><h2>운영·점검 메뉴</h2><div class="opGrid">${cards}</div></section><section class="card"><h2>운영 원칙</h2><p class="warn">실제 사용자는 입력·기록·카드혜택·백업센터만 주로 사용하면 됩니다. 메뉴점검, 운영점검, 배포런북 같은 관리 메뉴는 문제가 있을 때 운영센터에서만 확인하세요.</p></section></main></body></html>`);
 }
 
-const FINAL_RELEASE_VERSION = "V19.8-BUDGET-ALERT";
+const FINAL_RELEASE_VERSION = APP_VERSION;
 
 const FINAL_FEATURE_MATRIX = [
   { group: "기록/입력", name: "카카오톡 지출 입력", status: "운영포함", route: "/skill", detail: "카카오 OpenBuilder Skill 라우트 유지" },
@@ -4347,6 +4663,7 @@ const FINAL_FEATURE_MATRIX = [
   { group: "기록/입력", name: "관리자 기록 관리", status: "운영포함", route: "/?legacy=1&tab=transactions", detail: "입력/수정/삭제/일괄변경/CSV 다운로드" },
   { group: "가족/공동사용", name: "가계부·참여자 관리", status: "운영포함", route: "/households", detail: "가계부 생성, 초대코드, 참여자 권한 관리" },
   { group: "분류/예산", name: "분류 설정", status: "운영포함", route: "/categories", detail: "사용자 분류 관리" },
+  { group: "분류/예산", name: "예산 알림 센터", status: "신규포함", route: "/budget-alerts", detail: "오늘 사용 가능 금액, 월말 예상, 정기지출 예정, 초과/주의 분류" },
   { group: "분류/예산", name: "예산/고정항목", status: "운영포함", route: "/?legacy=1", detail: "예산 초과 경고와 고정항목 구조 유지" },
   { group: "요약/리포트", name: "일/월 통계", status: "운영포함", route: "/app", detail: "월별 합계, 최근 내역, 필터 기반 조회" },
   { group: "카드혜택", name: "카드 혜택 드롭다운 조회", status: "신규포함", route: "/card-benefits", detail: "카드명 직접 입력 없이 카드사/카드 선택" },
@@ -4366,6 +4683,8 @@ const FINAL_FEATURE_MATRIX = [
   { group: "운영", name: "시스템진단", status: "운영포함", route: "/diagnostics", detail: "환경변수/DB 테이블/기능 라우트 점검" },
   { group: "운영", name: "배포운영 점검", status: "운영포함", route: "/ops-audit", detail: "운영 전후 상태 점검" },
   { group: "운영", name: "운영센터", status: "운영포함", route: "/operation-center", detail: "점검/배포/기능맵 통합 화면" },
+  { group: "운영", name: "운영 대시보드", status: "신규포함", route: "/ops-dashboard", detail: "최근 오류/트래픽/스킬 이벤트 통합 확인" },
+  { group: "운영", name: "중복 방어", status: "신규포함", route: "/ops-duplicates", detail: "중복 저장/대량 입력 제한 이벤트 확인" },
   { group: "운영", name: "최종 배포판 점검", status: "신규포함", route: "/final-release", detail: "전체 기능/배포 게이트/운영 경로 통합 확인" },
 ];
 
@@ -4382,6 +4701,9 @@ function finalReleaseRoutes() {
     "/feature-map",
     "/deploy-runbook",
     "/ops-audit",
+    "/ops-dashboard",
+    "/ops-traffic",
+    "/skill-ops",
     "/diagnostics",
     "/menu",
     "/app",
@@ -4986,14 +5308,14 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
     { key: "start", label: "처음 시작", icon: "🌱", items: [["start-guide", "시작가이드", `/start-guide?month=${encodeURIComponent(month)}${hh}`], ["chatbot-edit-guide", "챗봇수정", `/chatbot-edit-guide?month=${encodeURIComponent(month)}${hh}`]] },
-    { key: "money", label: "돈 관리", icon: "💰", items: [["app", "홈·입력", app], ["records", "기록 보기", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`], ["analysis", "분석", `/analysis?month=${encodeURIComponent(month)}${hh}`], ["calendar", "캘린더", `/calendar?month=${encodeURIComponent(month)}${hh}`], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`], ["card-benefits", "카드혜택", `/card-benefits?month=${encodeURIComponent(month)}${hh}`]] },
+    { key: "money", label: "돈 관리", icon: "💰", items: [["app", "홈·입력", app], ["records", "기록 보기", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`], ["analysis", "분석", `/analysis?month=${encodeURIComponent(month)}${hh}`], ["calendar", "캘린더", `/calendar?month=${encodeURIComponent(month)}${hh}`], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`], ["budget-alerts", "예산알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`], ["card-benefits", "카드혜택", `/card-benefits?month=${encodeURIComponent(month)}${hh}`]] },
     { key: "house", label: "우리집 설정", icon: "⚙️", items: [["households", "가계부", "/households"], ["categories", "분류·키워드", cat], ["settings", "보안·설정", "/settings"]] },
     { key: "safe", label: "보관·복구", icon: "🧰", items: [["backup", "백업·복구", `/backup?month=${encodeURIComponent(month)}${hh}`], ["meme-lab", "밈카드", `/meme-lab?month=${encodeURIComponent(month)}${hh}`], ["meme-archive", "밈도감", "/meme-archive"]] },
-    { key: "ops", label: "운영 관리", icon: "🛠️", items: [["operation-center", "운영센터", "/operation-center"], ["diagnostics", "시스템 진단", "/diagnostics"], ["deployment-check", "배포점검", "/deployment-check"], ["ui-polish-check", "화면점검", "/ui-polish-check"], ["final-release", "배포 확인", "/final-release"]] },
+    { key: "ops", label: "운영 관리", icon: "🛠️", items: [["operation-center", "운영센터", "/operation-center"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard"], ["ops-duplicates", "중복 방어", "/ops-duplicates"], ["ops-traffic", "트래픽", "/ops-traffic"], ["skill-ops", "스킬", "/skill-ops"], ["diagnostics", "시스템 진단", "/diagnostics"], ["deployment-check", "배포점검", "/deployment-check"], ["ui-polish-check", "화면점검", "/ui-polish-check"], ["final-release", "배포 확인", "/final-release"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
   const backupKeys = new Set(["backup-preview", "backup-compare", "backup-select", "backup-final", "backup-apply", "import-history", "rollback-candidates", "rollback-final"]);
-  const opsKeys = new Set(["ops-audit", "nav-audit", "route-audit", "ui-audit", "flow-audit", "filter-audit", "deployment-check", "ui-polish-check", "final-release", "feature-map", "deploy-runbook", "diagnostics"]);
+  const opsKeys = new Set(["ops-audit", "ops-dashboard", "ops-duplicates", "duplicate-safety", "ops-events", "ops-health", "ops-traffic", "skill-ops", "nav-audit", "route-audit", "ui-audit", "flow-audit", "filter-audit", "deployment-check", "ui-polish-check", "final-release", "feature-map", "deploy-runbook", "diagnostics", "review-ready", "beta-ready"]);
   const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : active;
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "start";
   const groupHtml = groups.map((g) => {
@@ -5009,7 +5331,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
     ["categories", "분류", "🏷️", cat],
   ];
   const bottomLinks = bottomDefs.map(([key, label, icon, href]) => {
-    const on = key === activeKey || (key === "app" && ["records"].includes(activeKey)) || (key === "categories" && ["keyword-guide"].includes(activeKey));
+    const on = key === activeKey || (key === "app" && ["records"].includes(activeKey)) || (key === "budgets" && ["budget-alerts"].includes(activeKey)) || (key === "categories" && ["keyword-guide"].includes(activeKey));
     return `<a class="${on ? "active" : ""}" aria-current="${on ? "page" : "false"}" href="${escapeHtml(href)}"><i>${escapeHtml(icon)}</i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
   return `<style id="unifiedNavStyle">
@@ -5200,7 +5522,7 @@ async function handleDeploymentCheckPage(request, env, url) {
     ["모바일 홈", true, "/app"],
     ["백업·복구", true, "/backup"],
     ["카카오 챗봇", true, "/skill"],
-    ["배포 버전", true, "V19.8-BUDGET-ALERT"],
+    ["배포 버전", true, APP_VERSION],
   ];
   const okCount = checks.filter((c) => c[1]).length;
   const percent = Math.round((okCount / checks.length) * 100);
@@ -5220,6 +5542,292 @@ async function handleDeploymentCheckPage(request, env, url) {
 
 
 
+
+
+
+async function handleTermsPage(request, env, url) {
+  const title = escapeHtml(appName(env));
+  const terms = [
+    ["서비스 목적", "똑똑한가계부는 사용자가 직접 입력한 수입·지출 기록을 가족/모임 가계부 단위로 정리해 주는 생활비 기록 도우미입니다."],
+    ["사용자 책임", "입력한 금액, 날짜, 메모, 결제수단의 정확성은 사용자가 확인해야 합니다. 금융·세무·투자 판단을 대신하지 않습니다."],
+    ["공동 가계부", "초대코드로 참여한 사용자는 부여된 권한 범위 안에서 조회·입력·수정할 수 있습니다. owner/admin은 참여자 권한을 관리할 수 있습니다."],
+    ["데이터 관리", "사용자는 웹 화면에서 기록을 수정·삭제하고 백업 파일을 내려받을 수 있습니다. 삭제·가져오기 같은 위험 작업은 확인 절차를 거칩니다."],
+    ["장애 대응", "일시적인 오류나 과도 요청이 발생하면 안전 안내 화면 또는 재시도 안내를 표시하며, 데이터 중복 저장을 막는 것을 우선합니다."],
+  ];
+  const rows = terms.map(([a,b]) => `<tr><td><b>${escapeHtml(a)}</b></td><td>${escapeHtml(b)}</td></tr>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 이용안내</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:940px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#2563eb);color:#fff}.hero p{color:#dbeafe;line-height:1.65}.muted{color:#667085;line-height:1.7}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}@media(max-width:760px){.wrap{padding:12px}}</style></head><body><main class="wrap"><section class="hero"><h1>서비스 이용안내</h1><p>${title}를 실제 사용자에게 열기 전, 심사와 운영에 필요한 기본 안내를 한곳에 정리했습니다.</p><p><a class="btn light" href="/privacy">개인정보 안내</a><a class="btn light" href="/start-guide">시작가이드</a><a class="btn light" href="/my">내 가계부</a></p></section><section class="card"><h2>핵심 이용 기준</h2><table><tbody>${rows}</tbody></table></section><section class="card"><h2>사업자 정보</h2><p class="muted">페이지 하단 사업자 정보 푸터를 기준으로 표시합니다. 카카오 비즈니스 심사에서는 하단 푸터의 상호, 사업자등록번호, 소재지, 업태, 종목, 서비스명을 확인할 수 있습니다.</p></section></main></body></html>`);
+}
+
+async function handleReviewReadyPage(request, env, url) {
+  const title = escapeHtml(appName(env));
+  const adminOk = await verifyAdminSession(request, env);
+  const checks = [
+    ["사업자 정보 하단 노출", true, "모든 HTML 응답에 사업자 정보 푸터 자동 삽입"],
+    ["개인정보 안내", true, "/privacy 또는 /data-policy"],
+    ["이용안내", true, "/terms"],
+    ["카카오 스킬 URL", true, `${url.origin}/skill`],
+    ["시작가이드", true, "/start-guide"],
+    ["백업/복구 안내", true, "/backup"],
+    ["과도 요청 방어", true, "쓰기 요청 및 /skill 1차 rate guard"],
+    ["운영센터", adminOk, adminOk ? "/operation-center 접근 가능" : "관리자 로그인 후 확인"],
+  ];
+  const rows = checks.map(([name, ok, detail]) => `<tr><td>${escapeHtml(name)}</td><td><span class="${ok ? "ok" : "warn"}">${ok ? "정상" : "확인"}</span></td><td>${escapeHtml(detail)}</td></tr>`).join("");
+  const steps = ["/health 버전 확인", "/my 하단 사업자 정보 확인", "/privacy 개인정보 안내 확인", "/terms 이용안내 확인", "카카오 OpenBuilder 폴백 포함 전체 블록 /skill 연결", "요약·오늘 기록·지출 입력 발화 테스트"].map((x)=>`<li>${escapeHtml(x)}</li>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 심사·베타 준비</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#ccfbf1;line-height:1.65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left}.ok,.warn{display:inline-flex;border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.ok{background:#dcfce7;color:#166534}.warn{background:#fff7ed;color:#9a3412}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><section class="hero"><h1>심사·베타 준비센터</h1><p>카카오 비즈니스 심사와 지인 베타 운영에 필요한 최소 항목을 한 번에 확인합니다.</p><p><a class="btn light" href="/my">/my 확인</a><a class="btn light" href="/privacy">개인정보</a><a class="btn light" href="/terms">이용안내</a><a class="btn light" href="/openbuilder-report">챗봇 점검</a></p></section><section class="grid"><div class="card"><h2>심사 체크</h2><table><tbody>${rows}</tbody></table></div><div class="card"><h2>재신청 전 순서</h2><ol>${steps}</ol></div></section><section class="card"><h2>운영 메모</h2><p>심사 통과 전에는 본문에 불필요한 심사용 카드를 노출하지 않고, 하단 사업자 푸터·개인정보 안내·이용안내·OpenBuilder 연결 상태를 명확히 유지하는 방향이 안전합니다.</p></section></main></body></html>`);
+}
+
+function betaInfoCard(title, body, href = "", cta = "열기") {
+  const link = href ? `<a class="btn" href="${escapeHtml(href)}">${escapeHtml(cta)}</a>` : "";
+  return `<div class="betaCard"><b>${escapeHtml(title)}</b><p>${escapeHtml(body)}</p>${link}</div>`;
+}
+
+async function handleBetaStartPage(request, env, url) {
+  const title = escapeHtml(appName(env));
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const userId = await verifyUserSession(request, env);
+  let householdId = url.searchParams.get("household_id") || "";
+  let householdName = "가계부 선택 전";
+  let households = [];
+  let progress = 0;
+  let selected = null;
+  if (userId) {
+    households = await fetchUserHouseholds(env, userId);
+    selected = households.find((h) => h.id === householdId) || households[0] || null;
+    householdId = selected?.id || "";
+    householdName = selected?.name || householdName;
+    if (householdId) {
+      const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
+      const budgets = await fetchBudgets(env, householdId, month);
+      const payments = await fetchPaymentAssets(env, householdId);
+      const reserves = await fetchReservePlans(env, householdId);
+      progress = [households.length > 0, budgets.length > 0, payments.length > 0, reserves.length > 0, rows.length > 0].filter(Boolean).length;
+    }
+  }
+  const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
+  const publicMode = !userId;
+  const steps = [
+    ["1. 가계부 만들기/참여", "가족·모임·여행 장부를 분리하고 초대코드로 참여합니다.", userId ? "/my/households" : "/my", "가계부 시작"],
+    ["2. 이번 달 예산 잡기", "전체 예산과 분류별 예산을 먼저 넣으면 남은 예산 카드가 살아납니다.", userId ? `/my/settings?month=${encodeURIComponent(month)}${hh}` : "/start-guide", "예산 설정"],
+    ["3. 결제수단 등록", "현금·카드·통장·간편결제를 등록하면 분석 기준이 더 깔끔해집니다.", userId ? `/payment-methods?month=${encodeURIComponent(month)}${hh}` : "/start-guide", "결제수단"],
+    ["4. 정기지출 등록", "보험·세금·구독처럼 반복되는 돈을 월 지출 흐름에 미리 반영합니다.", userId ? `/reserve-plans?month=${encodeURIComponent(month)}${hh}` : "/start-guide", "정기지출"],
+    ["5. 카카오톡으로 기록", "점심 12000 국민카드, 7월3일 여러 줄 입력 같은 자연어 기록을 테스트합니다.", "/kakao-commands", "명령어 보기"],
+    ["6. 분석 확인", "입력한 기록이 분석·캘린더·예산 경고로 이어지는지 확인합니다.", userId ? `/my/analysis?month=${encodeURIComponent(month)}${hh}` : "/my", "분석 보기"],
+  ];
+  const cards = steps.map(([a,b,c,d]) => betaInfoCard(a,b,c,d)).join("");
+  const pct = publicMode ? 0 : Math.round((progress / 5) * 100);
+  const quick = [
+    ["내 가계부", "/my"],
+    ["가계부 전환·참여", "/my/households"],
+    ["백업 안전가이드", "/backup-safety"],
+    ["챗봇 명령어", "/kakao-commands"],
+  ].map(([a,b]) => `<a class="btn light" href="${escapeHtml(b)}">${escapeHtml(a)}</a>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 베타 시작</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1060px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff;border-radius:30px;padding:24px;margin:14px 0;box-shadow:0 20px 46px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:31px}.hero p{line-height:1.6;color:#ede9fe}.progress{height:13px;background:rgba(255,255,255,.2);border-radius:999px;overflow:hidden;margin:14px 0}.progress i{display:block;height:100%;width:${pct}%;background:#FEE500;border-radius:999px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.betaCard,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:17px;margin:10px 0;box-shadow:0 12px 28px rgba(15,23,42,.055)}.betaCard b{display:block;font-size:18px}.betaCard p,.muted{color:#64748b;line-height:1.55}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.pill{display:inline-flex;background:#eef2ff;color:#3730a3;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}}</style></head><body><main class="wrap"><section class="hero"><span class="pill">${escapeHtml(APP_VERSION)}</span><h1>베타 시작 흐름</h1><p>${publicMode ? "처음 사용하는 사람이 로그인 전에도 어떤 순서로 시작할지 확인할 수 있게 만든 안내 화면입니다." : `${escapeHtml(householdName)} 기준으로 베타 준비 상태를 확인합니다.`}</p><div class="progress"><i></i></div><p>${publicMode ? "로그인 후 진행률이 표시됩니다." : `베타 준비 ${pct}% · ${progress}/5`}</p><p>${quick}</p></section><section class="grid">${cards}</section><section class="card"><h2>베타 운영 기준</h2><p class="muted">처음에는 기능을 많이 설명하기보다 “가계부 생성 → 예산 → 결제수단 → 정기지출 → 카카오 기록 → 분석 확인” 흐름만 안내합니다. 오류가 나면 안전화면과 백업 가이드를 먼저 보여줍니다.</p></section></main></body></html>`);
+}
+
+async function handleHouseholdFlowGuidePage(request, env, url) {
+  const title = escapeHtml(appName(env));
+  const userId = await verifyUserSession(request, env);
+  const households = userId ? await fetchUserHouseholds(env, userId) : [];
+  const items = households.map((h) => `<tr><td><b>${escapeHtml(h.name || "가계부")}</b></td><td>${escapeHtml(h.role || "member")}</td><td><a href="/app?household_id=${encodeURIComponent(h.id)}">열기</a></td></tr>`).join("") || `<tr><td colspan="3">로그인 후 내가 참여한 가계부만 표시됩니다.</td></tr>`;
+  const cards = [
+    ["내 집 가계부", "가족/부부가 매달 계속 쓰는 기본 장부입니다."],
+    ["모임 가계부", "회식, 친구 모임, 공동 구매처럼 기간이 있는 장부입니다."],
+    ["여행 가계부", "여행 기간의 지출을 모아보고 참여자별로 확인합니다."],
+    ["단발성 정산", "한 번 쓰고 보관하거나 읽기 전용으로 남길 수 있는 장부 흐름입니다."],
+  ].map(([a,b]) => betaInfoCard(a,b,"/my/households","전환·추가")).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 여러 가계부</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0891b2);color:#fff}.hero p{color:#cffafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.betaCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.betaCard p{color:#64748b}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>여러 가계부 운영 흐름</h1><p>가족 장부와 모임/여행/단발성 장부를 분리하되, 모든 화면은 내가 참여한 household 범위만 보여야 합니다.</p><p><a class="btn" href="/my/households">가계부 전환·추가</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="grid">${cards}</section><section class="card"><h2>내가 참여한 가계부</h2><table><thead><tr><th>가계부</th><th>권한</th><th>진입</th></tr></thead><tbody>${items}</tbody></table></section><section class="card"><h2>운영 기준</h2><div class="note">초대코드를 받은 사용자는 참여 후 권한에 따라 입력/수정/삭제 범위가 달라집니다. viewer는 조회만, member는 자기 기록 중심, owner/admin은 전체 관리가 기본입니다.</div></section></main></body></html>`);
+}
+
+async function handleBackupSafetyGuidePage(request, env, url) {
+  const title = escapeHtml(appName(env));
+  const steps = [
+    ["1. 배포 전 백업", "/backup", "운영 코드 변경 전 JSON/CSV 백업을 먼저 받습니다."],
+    ["2. 미리보기", "/backup/preview", "파일을 바로 넣지 않고 구조와 컬럼을 먼저 확인합니다."],
+    ["3. 비교", "/backup/compare", "신규/중복/충돌 후보를 나눠 확인합니다."],
+    ["4. 최종 확인", "/backup/final-check", "가져오기 전 확인 문구와 권한을 다시 확인합니다."],
+    ["5. 이력 확인", "/backup/import-history", "적용 후 언제 어떤 자료가 들어갔는지 확인합니다."],
+  ].map(([a,b,c]) => `<div class="step"><b>${escapeHtml(a)}</b><p>${escapeHtml(c)}</p><a href="${escapeHtml(b)}">열기</a></div>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 백업 안전가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.step p{color:#64748b}.step a,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>백업·복구 안전가이드</h1><p>베타 운영에서는 새 기능보다 복구 가능성이 먼저입니다. 배포 전후에는 이 순서를 기준으로 움직입니다.</p><p><a class="btn" href="/backup">백업센터</a><a class="btn" href="/operation-center">운영센터</a></p></section><section class="grid">${steps}</section><section class="card"><h2>주의</h2><div class="warn">가져오기와 되돌리기는 전체 데이터를 직접 바꾸는 작업입니다. 반드시 백업 파일을 저장한 뒤, 미리보기 → 비교 → 최종 확인 순서로 진행하세요.</div></section></main></body></html>`);
+}
+
+async function handleKakaoCommandsPage(request, env, url) {
+  const origin = url.origin;
+  const title = escapeHtml(appName(env));
+  const rows = [
+    ["요약", "이번 달 수입·지출·잔액 요약"],
+    ["오늘 기록", "오늘 또는 최근 입력 내역 확인"],
+    ["점심 12000 국민카드", "지출 1건 저장"],
+    ["7월3일\\n온열안대 9900 삼성카드\\n풋샴푸 10150 삼성카드", "날짜 묶음 여러 줄 저장"],
+    ["01번 삭제", "최근 기록 번호 기준 삭제"],
+    ["남은예산", "이번 달 남은 예산 확인"],
+    ["도움말", "기본 사용법 안내"],
+  ].map(([a,b]) => `<tr><td><code>${escapeHtml(a)}</code></td><td>${escapeHtml(b)}</td></tr>`).join("");
+  const openbuilder = ["웰컴", "도움말", "요약", "오늘 기록", "입력 예시", "수정가이드", "폴백"].map((x) => `<span>${escapeHtml(x)} → /skill</span>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 명령어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#FEE500);color:#111827}.hero p{line-height:1.65}.skill{background:#111827;color:#fff;border-radius:16px;padding:13px;word-break:break-all;font-weight:1000}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}@media(max-width:760px){.wrap{padding:12px}table{font-size:13px}}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 챗봇 명령어</h1><p>베타 운영에서는 사용자가 가장 많이 쓰는 문장과 오입력 안내를 먼저 안정화합니다.</p><div class="skill">Skill URL: ${escapeHtml(origin)}/skill</div><p><a class="btn" href="/openbuilder-guide">오픈빌더 설정</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="card"><h2>대표 발화</h2><table><thead><tr><th>발화</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></section><section class="card"><h2>OpenBuilder 연결 기준</h2><div class="chips">${openbuilder}</div><p>폴백 블록까지 /skill로 연결되어야 “이해하기 어려워요” 대신 서비스 안내와 입력 예시가 표시됩니다.</p></section></main></body></html>`);
+}
+
+async function handleOpsSnapshotJson(request, env, url) {
+  const adminOk = await verifyAdminSession(request, env);
+  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
+  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "admin_required" }, 401);
+  return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
+}
+
+
+function renderDuplicateSafetyHtml(env = {}) {
+  const snapshot = buildOpsSnapshot(env);
+  const d = snapshot.duplicates || { recent: [], byKind: {}, bySource: {} };
+  const limits = snapshot.limits || {};
+  const rows = (d.recent || []).slice(0, 60).map((e) => `<tr><td>${escapeHtml(String(e.at || "").replace("T"," ").slice(0,19))}</td><td>${escapeHtml(e.kind || "")}</td><td>${escapeHtml(e.source || "")}</td><td>${escapeHtml(e.transaction_date || "")}</td><td>${numberWithCommas(e.amount || 0)}원</td><td><code>${escapeHtml(e.household_id || "")}</code></td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="7">최근 중복/대량 제한 이벤트가 없습니다.</td></tr>`;
+  const kindCards = Object.entries(d.byKind || {}).map(([k,v]) => `<div class="metric"><span>${escapeHtml(k)}</span><b>${numberWithCommas(v)}</b></div>`).join("");
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>중복 저장 방어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#7c2d12);color:#fff;border-radius:26px;padding:22px;margin:14px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:14px}.metric span{display:block;color:#64748b}.metric b{font-size:23px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:9px;text-align:left;font-size:13px;vertical-align:top}.tableWrap{overflow:auto}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.note{color:#64748b;line-height:1.6}code{font-size:11px;word-break:break-all}</style></head><body><main class="wrap"><section class="hero"><h1>중복 저장·대량 입력 안전센터</h1><p>카카오 재전송, 같은 폼 반복 제출, CSV 대량 가져오기에서 데이터 중복과 과부하를 막는 운영 현황입니다.</p><p><a class="btn" href="/operation-center">운영센터</a> <a class="btn" href="/ops-dashboard">운영 대시보드</a> <a class="btn" href="/ops-duplicates">중복 방어</a></p></section><section class="grid"><div class="metric"><span>중복 방어 시간</span><b>${numberWithCommas(limits.duplicate_guard_seconds || 0)}초</b></div><div class="metric"><span>카카오 재전송 방어</span><b>${numberWithCommas(limits.kakao_retry_dedup_seconds || 0)}초</b></div><div class="metric"><span>카카오 반복 발화</span><b>${numberWithCommas(limits.kakao_repeat_guard_seconds || 0)}초</b></div><div class="metric"><span>CSV 1회 처리 제한</span><b>${numberWithCommas(limits.my_import_limit || 0)}건</b></div><div class="metric"><span>카카오 1회 처리 제한</span><b>${numberWithCommas(limits.kakao_bulk_limit || 0)}건</b></div></section><section class="card"><h2>이벤트 요약</h2><div class="grid">${kindCards || `<div class="metric"><span>최근 이벤트</span><b>0</b></div>`}</div><p class="note">이 목록은 Worker 인스턴스 메모리 기준입니다. 배포/재시작/인스턴스 변경 시 초기화될 수 있습니다.</p></section><section class="card"><h2>최근 이벤트</h2><div class="tableWrap"><table><thead><tr><th>시간</th><th>종류</th><th>입력경로</th><th>날짜</th><th>금액</th><th>가계부</th><th>내용</th></tr></thead><tbody>${rows}</tbody></table></div></section></main></body></html>`;
+}
+
+
+function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [] }) {
+  const budget = budgetSummary(rows, budgets);
+  const center = budgetCenterSummary(rows, budgets);
+  const today = nowKstDate();
+  const todayStr = formatDate(today);
+  const sameMonth = todayStr.slice(0, 7) === month;
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() || 30;
+  const currentDay = sameMonth ? Number(todayStr.slice(8, 10)) : daysInMonth;
+  const remainingDays = sameMonth ? Math.max(1, daysInMonth - currentDay + 1) : 0;
+  const spent = Number(budget.expense || 0);
+  const totalBudget = Number(budget.totalBudget || 0);
+  const remainingBudget = totalBudget ? Math.max(0, totalBudget - spent) : 0;
+  const dailyAllowance = totalBudget && remainingDays ? Math.round(remainingBudget / remainingDays) : 0;
+  const avgDaily = currentDay ? Math.round(spent / currentDay) : 0;
+  const forecastExpense = sameMonth && currentDay ? Math.round((spent / currentDay) * daysInMonth) : spent;
+  const forecastDiff = totalBudget ? forecastExpense - totalBudget : 0;
+  const rate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0;
+  const projectedRate = totalBudget ? Math.round((forecastExpense / totalBudget) * 100) : 0;
+  const activeRecurring = safeArray(recurring).filter((r) => r.is_active !== false && Number(r.amount || 0) > 0);
+  const pendingRecurring = activeRecurring.filter((r) => String(r.last_applied_month || "") !== month);
+  const recurringTotal = activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const pendingRecurringTotal = pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const afterPendingForecast = forecastExpense + pendingRecurringTotal;
+  const afterPendingDiff = totalBudget ? afterPendingForecast - totalBudget : 0;
+  const status = !totalBudget ? "setup" : spent > totalBudget ? "over" : forecastExpense > totalBudget ? "forecast" : rate >= 85 ? "warning" : "ok";
+  const statusText = {
+    setup: "예산 설정 필요",
+    over: "예산 초과",
+    forecast: "월말 초과 예상",
+    warning: "주의 구간",
+    ok: "정상 흐름",
+  }[status] || "확인 필요";
+  const statusMessage = {
+    setup: "월 전체 예산이나 분류별 예산을 먼저 설정하면 오늘 사용 가능 금액과 월말 예상이 계산됩니다.",
+    over: "이미 이번 달 예산을 넘었습니다. 남은 기간에는 고정지출과 필수 지출만 먼저 확인하세요.",
+    forecast: "현재 속도라면 월말에 예산을 넘을 수 있습니다. 이번 주 소비 속도를 낮추는 것이 좋습니다.",
+    warning: "아직 초과는 아니지만 예산의 85% 이상을 사용했습니다. 남은 기간 지출을 조금 보수적으로 잡으세요.",
+    ok: "현재 소비 속도는 예산 안에서 관리되고 있습니다. 오늘 사용 가능 금액 기준으로 기록하면 됩니다.",
+  }[status] || "예산 상태를 확인하세요.";
+  const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
+  const dangerCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 100);
+  const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.rate || 0) < 100);
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+}
+
+function renderBudgetAlertStatusPill(status = "ok") {
+  const cls = status === "over" ? "bad" : status === "forecast" || status === "warning" ? "warn" : status === "setup" ? "setup" : "ok";
+  const label = { over: "초과", forecast: "예상초과", warning: "주의", setup: "설정필요", ok: "정상" }[status] || "확인";
+  return `<span class="pill ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function renderBudgetAlertRows(model) {
+  const rows = safeArray(model.sortedAlerts).slice(0, 12);
+  if (!rows.length) return `<tr><td colspan="6">분류별 예산이 아직 없습니다. 예산 화면에서 분류 예산을 설정하면 초과/주의 분류가 표시됩니다.</td></tr>`;
+  return rows.map((x) => {
+    const remain = Math.max(0, Number(x.budget || 0) - Number(x.spent || 0));
+    const state = Number(x.rate || 0) >= 100 ? "bad" : Number(x.rate || 0) >= 85 ? "warn" : "ok";
+    const link = `/app?month=${encodeURIComponent(model.month)}${model.selectedHousehold?.id ? `&household_id=${encodeURIComponent(model.selectedHousehold.id)}` : ""}&type=expense&category=${encodeURIComponent(x.category || "")}&feed=all#feed`;
+    return `<tr><td><a href="${escapeHtml(link)}">${escapeHtml(x.category || "미분류")}</a></td><td>${numberWithCommas(x.budget)}원</td><td>${numberWithCommas(x.spent)}원</td><td>${numberWithCommas(remain)}원</td><td><div class="miniBar"><span class="${state}" style="width:${Math.min(100, Number(x.rate || 0))}%"></span></div></td><td><span class="state ${state}">${budgetStatusLabel(x.rate || 0)} · ${numberWithCommas(x.rate || 0)}%</span></td></tr>`;
+  }).join("");
+}
+
+function renderPendingRecurringList(model) {
+  const list = safeArray(model.pendingRecurring).slice(0, 8);
+  if (!list.length) return `<p class="muted">이번 달에 아직 반영 대기 중인 정기지출이 없습니다.</p>`;
+  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>`;
+}
+
+function budgetAlertKakaoHint(model) {
+  if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 남은예산, 오늘예산, 이번달예상처럼 확인할 수 있어요.";
+  if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
+  if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
+  return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
+}
+
+async function handleBudgetAlertPolishPage(request, env, url) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const households = await fetchUserHouseholds(env, userId);
+  const selected = households.find((h) => String(h.id) === String(url.searchParams.get("household_id") || "")) || households[0] || null;
+  if (!selected) return redirectResponse("/my");
+  const selectedHousehold = await ensureSelectedHouseholdRole(env, userId, selected);
+  const members = await fetchHouseholdMembers(env, selectedHousehold.id);
+  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: selectedHousehold.id, type: "all" }), members);
+  const budgets = await fetchBudgets(env, selectedHousehold.id, month);
+  const recurring = await fetchRecurring(env, selectedHousehold.id);
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold, rows, budgets, recurring });
+  return htmlResponse(renderBudgetAlertPolishHtml({ env, month, households, selectedHousehold, model }));
+}
+
+function renderBudgetAlertPolishHtml({ env, month, households, selectedHousehold, model }) {
+  const title = escapeHtml(appName(env));
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selectedHousehold?.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const appHref = `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
+  const budgetHref = `/budgets?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
+  const recurringHref = `/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
+  const forecastLabel = model.forecastDiff > 0 ? `예산보다 ${numberWithCommas(model.forecastDiff)}원 초과 예상` : model.totalBudget ? `예산보다 ${numberWithCommas(Math.abs(model.forecastDiff))}원 여유 예상` : "예산 설정 후 계산";
+  const afterPendingLabel = model.afterPendingDiff > 0 ? `정기지출 반영 후 ${numberWithCommas(model.afterPendingDiff)}원 초과 가능` : model.totalBudget ? `정기지출 반영 후 ${numberWithCommas(Math.abs(model.afterPendingDiff))}원 여유` : "예산 설정 후 계산";
+  const topWarn = [...model.dangerCategories, ...model.warningCategories].slice(0, 5).map((x) => `<span>${escapeHtml(x.category)} ${numberWithCommas(x.rate)}%</span>`).join("") || `<span>주의 분류 없음</span>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 예산 알림</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.filters{display:grid;grid-template-columns:1fr 160px 110px;gap:8px;margin-top:12px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.pill,.state{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:1000;font-size:12px}.pill.ok,.state.ok{background:#dcfce7;color:#166534}.pill.warn,.state.warn{background:#fef3c7;color:#92400e}.pill.bad,.state.bad{background:#fee2e2;color:#991b1b}.pill.setup{background:#eef2ff;color:#3730a3}.notice{border-radius:20px;padding:16px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.65}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}.chips span{display:inline-flex;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:7px 10px;font-size:12px;font-weight:1000}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:middle}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;min-width:110px}.miniBar span{display:block;height:100%;border-radius:999px;background:#16a34a}.miniBar span.warn{background:#f59e0b}.miniBar span.bad{background:#ef4444}.recList{display:grid;gap:8px;list-style:none;margin:0;padding:0}.recList li{display:grid;grid-template-columns:1fr auto;gap:6px;border:1px solid #e8edf4;border-radius:16px;padding:12px}.recList span{color:#64748b;font-size:13px}.recList strong{grid-row:1/3;grid-column:2;font-size:18px}.kakaoBox{background:#fefce8;border:1px solid #fde68a;border-radius:18px;padding:14px;color:#713f12;line-height:1.6}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.filters{grid-template-columns:1fr}.metric b{font-size:21px}.recList li{grid-template-columns:1fr}.recList strong{grid-row:auto;grid-column:auto}}</style></head><body>${renderUnifiedNav("budget-alerts", { month, householdId: selectedHousehold.id, householdName: selectedHousehold.name })}<main class="wrap"><section class="hero"><p>${renderBudgetAlertStatusPill(model.status)}</p><h1>예산 알림 센터</h1><p>${escapeHtml(model.statusMessage)}</p><form class="filters" method="get" action="/budget-alerts"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>오늘 사용 가능</span><b>${model.dailyAllowance ? numberWithCommas(model.dailyAllowance) + "원" : "설정 필요"}</b></div><div class="metric"><span>이번 달 사용</span><b>${numberWithCommas(model.spent)}원</b></div><div class="metric"><span>남은 예산</span><b>${model.totalBudget ? numberWithCommas(model.remainingBudget) + "원" : "미설정"}</b></div><div class="metric"><span>월말 예상</span><b>${numberWithCommas(model.forecastExpense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${model.totalBudget ? numberWithCommas(model.rate) + "%" : "-"}</b></div><div class="metric"><span>정기지출 대기</span><b>${numberWithCommas(model.pendingRecurringTotal)}원</b></div></section><section class="card"><h2>이번 달 예산 판단</h2><div class="notice"><b>${escapeHtml(model.statusText)}</b><br/>${escapeHtml(forecastLabel)} · ${escapeHtml(afterPendingLabel)}<div class="chips">${topWarn}</div></div></section><section class="card"><h2>분류별 초과/주의</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>게이지</th><th>상태</th></tr></thead><tbody>${renderBudgetAlertRows(model)}</tbody></table></div></section><section class="card"><h2>정기지출 반영 예정</h2>${renderPendingRecurringList(model)}</section><section class="card"><h2>카카오 안내 문구</h2><div class="kakaoBox">${escapeHtml(budgetAlertKakaoHint(model))}<br/><br/>추천 발화: <b>남은예산</b>, <b>오늘예산</b>, <b>이번달예상</b>, <b>정기지출</b></div></section><section class="card"><h2>바로가기</h2><div class="actions"><a class="btn" href="${escapeHtml(appHref)}#quick">기록 입력</a><a class="btn light" href="${escapeHtml(budgetHref)}">예산 설정</a><a class="btn light" href="${escapeHtml(recurringHref)}">정기지출</a><a class="btn light" href="/budget-alert-guide">알림 기준</a></div></section></main></body></html>`;
+}
+
+async function handleBudgetAlertGuidePage(request, env, url) {
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 예산 알림 가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.box{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px}.box p{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}</style></head><body><main class="wrap"><section class="hero"><h1>예산 알림 가이드</h1><p>예산 알림은 사용자를 재촉하는 기능이 아니라 오늘 얼마나 써도 되는지 알려주는 생활 안내판입니다.</p><p><a class="btn" href="/budget-alerts">예산 알림 센터</a></p></section><section class="grid"><div class="box"><h2>오늘 사용 가능</h2><p>남은 예산을 남은 날짜로 나눠 계산합니다. 이번 달 예산을 넘기지 않기 위한 하루 기준 금액입니다.</p></div><div class="box"><h2>월말 예상</h2><p>오늘까지의 평균 지출 속도를 월말까지 이어간다고 가정해 예상 지출을 계산합니다.</p></div><div class="box"><h2>정기지출 반영 예정</h2><p>아직 이번 달에 반영되지 않은 정기지출을 별도로 보여줘서 월말 예상의 빈칸을 줄입니다.</p></div><div class="box"><h2>초과/주의 분류</h2><p>분류별 예산 대비 85% 이상이면 주의, 100% 이상이면 초과로 표시합니다.</p></div></section><section class="card"><h2>운영 기준</h2><p>이 화면은 기존 거래 저장 로직과 권한 구조를 바꾸지 않습니다. 로그인 사용자는 자신이 참여한 가계부 범위 안에서만 예산 알림을 볼 수 있습니다.</p></section></main></body></html>`);
+}
+
+async function handleDuplicateSafetyPage(request, env, url) {
+  const adminOk = await verifyAdminSession(request, env);
+  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
+  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  return htmlResponse(renderDuplicateSafetyHtml(env));
+}
+
+async function handleOpsDashboardPage(request, env, url) {
+  const adminOk = await verifyAdminSession(request, env);
+  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
+  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  const title = escapeHtml(appName(env));
+  const snap = buildOpsSnapshot(env);
+  const traffic = snap.traffic || {};
+  const skill = snap.skill || {};
+  const events = snap.events || {};
+  const errCount = Number((events.bySeverity || {}).error || 0);
+  const warnCount = Number((events.bySeverity || {}).warn || 0);
+  const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.user_key || "")}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
+  const opsRows = (events.recent || []).slice(0, 16).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.severity)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="6">최근 운영 이벤트가 없습니다.</td></tr>`;
+  const trafficRows = (traffic.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
+  const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
+  const statusClass = errCount ? "bad" : warnCount ? "warn" : "ok";
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 장기 저장은 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>운영 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
+}
+
+async function handleTrafficOpsPage(request, env, url) {
+  const adminOk = await verifyAdminSession(request, env);
+  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
+  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  const title = escapeHtml(appName(env));
+  const traffic = getTrafficOpsSnapshot();
+  const skill = getSkillOpsSnapshot();
+  const trafficRows = traffic.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
+  const skillKind = Object.entries(skill.byKind || {}).map(([k,v]) => `<span>${escapeHtml(k)} ${numberWithCommas(v)}건</span>`).join("") || "<span>스킬 이벤트 없음</span>";
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 트래픽 운영</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#7c2d12);color:#fff}.hero p{color:#fed7aa;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px;margin-top:5px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{border-radius:999px;padding:7px 10px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.note{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}</style></head><body><main class="wrap"><section class="hero"><h1>트래픽 운영센터</h1><p>쓰기 요청과 카카오 스킬 요청의 과도 호출을 1차로 방어하고, 최근 제한 이벤트를 확인합니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/deployment-check">배포점검</a></p></section><section class="grid"><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets)}</b></div><div class="box"><span>Traffic 제한 이벤트</span><b>${numberWithCommas(traffic.recent.length)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(Number(env.TRAFFIC_GUARD_LIMIT || 90))}/분</b></div></section><section class="card"><h2>스킬 이벤트 요약</h2><div class="chips">${skillKind}</div><p class="note">인스턴스 메모리 기반 임시 상태입니다. 장기 통계가 필요하면 다음 단계에서 Supabase 운영 로그 테이블 또는 외부 로그 저장소로 분리합니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section></main></body></html>`);
+}
 
 
 async function handleBrandKitPage(request, env, url) {
@@ -6070,7 +6678,13 @@ async function findExactDuplicateTransaction(env, row = {}, options = {}) {
   params.set("type", `eq.${row.type === "income" ? "income" : "expense"}`);
   params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
   params.set("limit", "30");
-  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  let rows = [];
+  try {
+    rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  } catch (err) {
+    rememberOpsEvent({ kind: "duplicate_check_error", severity: "warn", path: "/rest/v1/transactions", method: "GET", detail: safeError(err) });
+    return null;
+  }
   const norm = (v) => normalizeText(v || "");
   const targetRaw = norm(row.raw_text);
   const targetMemo = norm(row.memo);
@@ -6158,8 +6772,11 @@ async function handleMyImport(request, env) {
     if (String(t || "").trim()) csvText = t;
   }
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  const objects = csvRowsToObjects(csvText).slice(0, 500);
-  let imported = 0, skipped = 0, failed = 0;
+  const allObjects = csvRowsToObjects(csvText).slice(0, 500);
+  const importLimit = Math.min(500, Math.max(10, Number(env.MY_IMPORT_LIMIT || 120)));
+  const objects = allObjects.slice(0, importLimit);
+  let imported = 0, skipped = Math.max(0, allObjects.length - objects.length), failed = 0;
+  if (allObjects.length > objects.length) rememberDuplicateEvent({ kind: "bulk_limited", source: "my_import", household_id: selected.id, user_id: userId, detail: `${allObjects.length} requested, ${objects.length} processed`, path: "/my/import", method: "POST" });
   const skipDuplicates = form.get("skip_duplicates") === "1";
   for (const obj of objects) {
     const row = normalizeImportTransaction(obj, selected.id, userId);
@@ -6195,7 +6812,13 @@ async function findRecurringAutoDuplicate(env, row = {}) {
   params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
   params.set("source", "eq.recurring_auto");
   params.set("limit", "30");
-  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  let rows = [];
+  try {
+    rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  } catch (err) {
+    rememberOpsEvent({ kind: "duplicate_check_error", severity: "warn", path: "/rest/v1/transactions", method: "GET", detail: safeError(err) });
+    return null;
+  }
   const norm = (v) => normalizeText(v || "");
   return rows.find((r) => norm(r.memo) === norm(row.memo) && norm(r.category) === norm(row.category) && norm(r.payment_method) === norm(row.payment_method)) || null;
 }
@@ -7036,10 +7659,14 @@ async function handleMyAddTransaction(request, env) {
     raw_text: String(form.get("raw_text") || "").trim(),
   };
   try {
-    await createManualTransaction(env, body);
+    const created = await createManualTransaction(env, body);
+    if (created?.__duplicate_skipped) {
+      return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
+    }
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "created" }));
   } catch (err) {
-    return redirectResponse(myReturnLocation(month, selected.id, { err: safeError(err) }));
+    rememberOpsEvent({ kind: "save_error", severity: isDatabaseBusyError(err) ? "warn" : "error", path: "/my/transactions", method: "POST", detail: safeError(err) });
+    return redirectResponse(myReturnLocation(month, selected.id, { err: userSafeErrorCode(err) }));
   }
 }
 
@@ -9829,7 +10456,7 @@ function mergedOptions(base, extra) {
 }
 
 function formatMessage(msg) {
-  const map = { added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다.", invite_code_not_found: "초대코드를 찾지 못했습니다.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 관리자 승인 후 사용할 수 있습니다.", joined_approval_disabled: "가계부에 참여했습니다. 현재 DB가 승인대기 권한을 지원하지 않아 바로 구성원으로 연결했습니다.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "결제수단을 저장했습니다.", payment_asset_deleted: "결제수단을 삭제했습니다.", reserve_saved: "정기지출 준비 항목을 저장했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
+  const map = { added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 관리자 승인 후 사용할 수 있습니다.", joined_approval_disabled: "가계부에 참여했습니다. 현재 DB가 승인대기 권한을 지원하지 않아 바로 구성원으로 연결했습니다.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "결제수단을 저장했습니다.", payment_asset_deleted: "결제수단을 삭제했습니다.", reserve_saved: "정기지출 준비 항목을 저장했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
 };
   return escapeHtml(map[msg] || msg);
 }
@@ -10419,6 +11046,33 @@ async function handleKakaoDailyEditFlow(env, { utterance, household, user, origi
 }
 
 
+
+function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}) {
+  const text = normalizeText(utterance);
+  if (!text || isSummaryCommand(text) || isRecentCommand(text) || isHelpCommand(text) || isLinkCommand(text)) return { ok: true, skipped: true };
+  const windowMs = Math.max(2000, Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8) * 1000);
+  const now = Date.now();
+  const key = `${String(userKey || "unknown").slice(0, 80)}|${stableShortHash(text)}`;
+  const last = AB_KAKAO_REPEAT_GUARD.get(key) || 0;
+  AB_KAKAO_REPEAT_GUARD.set(key, now);
+  for (const [k, ts] of AB_KAKAO_REPEAT_GUARD.entries()) {
+    if (!ts || now - Number(ts) > 10 * 60 * 1000) AB_KAKAO_REPEAT_GUARD.delete(k);
+  }
+  if (last && now - Number(last) < windowMs) return { ok: false, elapsedMs: now - Number(last), windowMs };
+  return { ok: true, elapsedMs: last ? now - Number(last) : 0, windowMs };
+}
+
+function kakaoRepeatGuardText(origin = "") {
+  return [
+    "방금 같은 내용을 처리했어요 😊",
+    "카카오톡이 같은 요청을 다시 보냈거나 버튼을 빠르게 누른 경우 중복 저장을 막기 위해 잠깐 멈췄습니다.",
+    "잠시 후 다른 내용을 보내거나 아래처럼 확인해 주세요.",
+    "• 오늘 기록",
+    "• 요약",
+    origin ? `웹에서 확인\n${origin}/my` : "",
+  ].filter(Boolean).join("\n");
+}
+
 async function handleKakaoSkillStable(request, env) {
   const origin = new URL(request.url).origin;
   let bodyText = "";
@@ -10439,6 +11093,13 @@ async function handleKakaoSkillStable(request, env) {
   if (!rate.ok) {
     rememberSkillEvent({ kind: "rate_limited", user_key: userKey, utterance, detail: `${rate.count}/${rate.limit}` });
     return rateLimitedKakaoText(origin);
+  }
+
+  const repeat = checkKakaoRepeatGuard(userKey, utterance, env);
+  if (!repeat.ok) {
+    rememberSkillEvent({ kind: "repeat_guard", user_key: userKey, utterance, detail: `${repeat.elapsedMs}ms` });
+    rememberDuplicateEvent({ kind: "kakao_repeat", source: "kakao_skill", user_id: userKey, detail: utterance, path: "/skill", method: "POST" });
+    return kakaoText(kakaoRepeatGuardText(origin));
   }
 
   try {
@@ -10590,7 +11251,13 @@ ${origin}/my`);
   const paymentAssetRows = await fetchPaymentAssets(env, household.id);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
-  const rowsToInsert = finalParsedList.map((parsed) => ({
+  const kakaoBulkLimit = Math.min(80, Math.max(1, Number(env.KAKAO_BULK_LIMIT || 25)));
+  const limitedParsedList = finalParsedList.slice(0, kakaoBulkLimit);
+  const bulkLimitNotice = finalParsedList.length > limitedParsedList.length ? `
+
+안전 처리를 위해 1회 최대 ${kakaoBulkLimit}건까지만 저장했어요. 나머지는 한 번 더 나눠서 보내주세요.` : "";
+
+  const rowsToInsert = limitedParsedList.map((parsed) => ({
     household_id: household.id,
     user_id: user.id,
     type: parsed.type,
@@ -10615,7 +11282,7 @@ ${origin}/my`);
     return kakaoText(kakaoSaveDelayText(origin));
   }
 
-  if (finalParsedList.length > 1) {
+  if (limitedParsedList.length > 1) {
     const lines = [];
     for (const row of savedRows.slice(0, 6)) {
       const seq = await dailySeqForKakaoRow(env, household.id, user.id, row);
@@ -10624,7 +11291,7 @@ ${origin}/my`);
     return kakaoText(`✅ ${savedRows.length}건 저장 확인 완료\n가계부: ${household.name}\n${lines.join("\n")}\n\n수정 예: 01번 금액 13000원\n오늘 목록: 오늘 기록\n웹: ${origin}/my\n수정가이드: ${origin}/chatbot-edit-guide`);
   }
 
-  const parsed = finalParsedList[0];
+  const parsed = limitedParsedList[0];
   const saved = savedRows[0] || parsed;
   const icon = parsed.type === "income" ? "💰" : "💸";
   const typeText = parsed.type === "income" ? "수입" : "지출";
@@ -10653,6 +11320,10 @@ async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
 
 async function insertKakaoTransactions(env, rows) {
   if (!Array.isArray(rows) || !rows.length) return [];
+  const bulkLimit = Math.min(80, Math.max(1, Number(env.KAKAO_BULK_LIMIT || 25)));
+  const originalCount = rows.length;
+  if (originalCount > bulkLimit) rememberDuplicateEvent({ kind: "bulk_limited", source: "kakao_skill", detail: `${originalCount} requested, ${bulkLimit} processed`, path: "/skill", method: "POST" });
+  rows = rows.slice(0, bulkLimit);
   const cleanRows = rows.map((r) => ({
     household_id: r.household_id,
     user_id: r.user_id,
@@ -10670,6 +11341,7 @@ async function insertKakaoTransactions(env, rows) {
   if (!cleanRows.length) return [];
 
   const { existing, fresh } = await dedupeKakaoRowsBeforeInsert(env, cleanRows);
+  for (const dup of existing) rememberDuplicateEvent({ kind: "duplicate_skipped", source: "kakao_skill", household_id: dup.household_id, user_id: dup.user_id, amount: dup.amount, transaction_date: dup.transaction_date, detail: dup.memo || dup.raw_text || "", path: "/skill", method: "POST" });
   let insertedRows = [];
   if (fresh.length) {
     const inserted = await supabase(env, "/rest/v1/transactions", {
@@ -11987,6 +12659,15 @@ async function listTransactions(env, url) {
 
 async function createManualTransaction(env, body) {
   const row = sanitizeTransactionBody(body);
+  const source = String(row.source || body.source || "web_admin");
+  const dedupSeconds = duplicateGuardSeconds(env, source);
+  if (dedupSeconds > 0 && isDuplicateGuardSource(source) && env.DUPLICATE_GUARD_DISABLED !== "1") {
+    const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
+    if (dup) {
+      rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
+      return { ...dup, __duplicate_skipped: true };
+    }
+  }
   const created = await supabase(env, "/rest/v1/transactions", {
     method: "POST",
     headers: { Prefer: "return=representation" },

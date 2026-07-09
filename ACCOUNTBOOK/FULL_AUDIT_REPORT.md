@@ -1,4 +1,4 @@
-# V19.8-BUDGET-ALERT 점검 보고서
+# V19.8.4-BIZ-FOOTER-ONLY-HOTFIX 점검 보고서
 
 > V19.3-REPORT-CLEAN-FINAL 점검 결과 위에 v19.4 변경분 점검을 추가한 문서입니다.
 
@@ -113,3 +113,12 @@ v19.3-report 원본을 기준으로 운영 적용 전 전체 점검을 수행한
 | 웹 배너 | handleAdminAddTransaction이 저장 분류 예산 상태를 balert로 전달, /app 상단 배너 렌더 | 낮음 | balert 전달·배너 렌더·스크린샷 확인 |
 | 가드레일 | 임의 카카오톡 푸시 없음. 모두 응답/화면 안에서만 처리 | 없음 | 코드상 Event API 미사용, 리플라이/배너만 |
 | 스코프·권한 | budgetAlertText는 이미 스코프된 rows/budgets로만 계산 | 없음 | 누출 회귀 테스트 통과 |
+
+
+## V20.2 추가 검증
+- `node --check src/index.js`: PASS
+- ES module import: PASS
+- `/health`: PASS
+- `/ops-duplicates`: PASS
+- `/ops-snapshot.json`: PASS
+- ZIP 무결성: PASS

@@ -1,4 +1,4 @@
-# Local Runtime Test Report — V19.8-BUDGET-ALERT
+# Local Runtime Test Report — V19.8.4-BIZ-FOOTER-ONLY-HOTFIX
 
 ## Result
 **PASS — 86/86** (runtime) + **12/12** (inline script syntax) + 모바일 렌더 육안 확인
@@ -14,10 +14,19 @@
 1. 웹 초과 저장 시 redirect에 balert 전달(초과 문구 포함)
 2. /app이 balert를 예산 배너(budgetWarn/budgetOver)로 렌더
 3. 챗봇 저장 응답에 🚨 초과 단계 문구가 실림(reply-embedded, 푸시 아님)
-4. /health version=V19.8-BUDGET-ALERT, mode=budget-alert
+4. /health version=V19.8.4-BIZ-FOOTER-ONLY-HOTFIX, mode=biz-footer-only-hotfix
 
 ## 모바일 렌더 확인
 - Playwright 390×844: /app 상단 예산 초과 배너 표시, 단일 헤더+단일 하단바 유지
 
 ## 한계
 - 실제 Supabase/카카오/OpenBuilder는 mock 범위 밖 — 배포 후 FINAL_APPLY_CHECKLIST.md 16-12/16-13로 재검증
+
+
+## V20.2 추가 검증
+- `node --check src/index.js`: PASS
+- ES module import: PASS
+- `/health`: PASS
+- `/ops-duplicates`: PASS
+- `/ops-snapshot.json`: PASS
+- ZIP 무결성: PASS
