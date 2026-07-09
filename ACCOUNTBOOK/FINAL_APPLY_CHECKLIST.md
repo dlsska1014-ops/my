@@ -1,4 +1,4 @@
-# V19.7-UNIFIED-HOME 운영 적용 체크리스트
+# V19.8-BUDGET-ALERT 운영 적용 체크리스트
 
 ## 적용 전
 
@@ -15,7 +15,7 @@
 
 ## 적용 후 확인
 
-8. `/health`에서 `"version":"V19.7-UNIFIED-HOME"`, `"mode":"unified-home"` 확인
+8. `/health`에서 `"version":"V19.8-BUDGET-ALERT"`, `"mode":"budget-alert"` 확인
 9. `/app` 홈·입력·기록 정상 표시 확인
 10. `/analysis` 기본 노출(요약·핵심 인사이트·일별·요일별)과 접힘 영역(도넛·6/12개월·분류변화·반복지출·큰지출) 확인
 11. `/my/analysis`가 /analysis와 같은 구조로 보이는지 확인
