@@ -36,3 +36,12 @@ CANONICAL_REDIRECT=0
 - `/kakao-command-system`, `/kakao-command-menu.json`을 추가했습니다.
 - `/skill` 응답은 기본적으로 `version: "2.0"`, `template.outputs`, `template.quickReplies`를 포함합니다.
 - 오픈빌더 스킬 테스트에서 일반 문장 입력도 방어적으로 처리합니다.
+
+## V21.3-HOME-CALENDAR-MERGE
+- [ ] `/health`에서 `V21.3-HOME-CALENDAR-MERGE` 확인
+- [ ] `/app?view=calendar` 캘린더 그리드 표시, 이전/다음달 이동 시 view 유지
+- [ ] 캘린더 날짜 클릭 → 같은 페이지 피드에 그날 기록만 표시, 수정/삭제 정상
+- [ ] 날짜 선택 상태에서 빠른입력 날짜가 그 날짜로 프리셋
+- [ ] 구주소 `https://ttokttok-accountbook.com/my/calendar?month=...&household_id=...` → `/app?view=calendar` 자동 이동
+- [ ] 시작가이드/전체메뉴/분석의 캘린더 버튼 전부 홈 캘린더로 이동
+- [ ] `/skill` POST 저장, 권한 체크, 예산 알림 회귀 없음

@@ -1184,7 +1184,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.3.1-KAKAO-SKILL-TEST-HOTFIX";
+const APP_VERSION = "V21.3-HOME-CALENDAR-MERGE";
 const APP_MODE = "kakao-skill-test-hotfix";
 
 function normalizeBaseUrl(value = "") {

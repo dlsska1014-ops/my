@@ -36,3 +36,13 @@
 - `/kakao-command-system`, `/kakao-command-menu.json`을 추가했습니다.
 - `/skill` 응답은 기본적으로 `version: "2.0"`, `template.outputs`, `template.quickReplies`를 포함합니다.
 - 오픈빌더 스킬 테스트에서 일반 문장 입력도 방어적으로 처리합니다.
+
+## V21.3-HOME-CALENDAR-MERGE
+- `/my/calendar` 별도 캘린더 페이지를 없애고 홈 화면 `/app` 안으로 통합했습니다.
+- 캘린더 접근 경로: `https://ttokttok-accountbook.com/app?view=calendar` (구주소 `/my/calendar`는 자동 이동)
+- 홈 통계 카드 아래 "📅 캘린더" 버튼으로 캘린더를 열고, 날짜를 누르면 같은 페이지 피드에 그날 기록만 표시됩니다.
+- 날짜 선택 상태에서는 빠른입력 날짜가 그 날짜로 프리셋됩니다.
+- 이전달/다음달 이동 시 캘린더 뷰(`view=calendar`)가 유지됩니다.
+- 시작가이드/전체메뉴/분석 화면의 캘린더 링크를 모두 홈 캘린더로 교체했습니다.
+- 미사용 죽은 코드(`renderMyDashboardHtml`, `handleMyCalendarPage`, `renderMyCalendarHtml`)를 정리했습니다.
+- `/skill` 저장, 권한 체크, 예산 알림, 밈 콘텐츠센터는 변경하지 않았습니다.
