@@ -7901,12 +7901,6 @@ async function handleMyAnalysisPage(request, env, url) {
   return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport }));
 }
 
-async function handleMyCalendarPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url);
-  if (ctx.redirect) return ctx.redirect;
-  return htmlResponse(renderMyCalendarHtml({ env, url, ...ctx }));
-}
-
 function renderPatternBoxes(analysis = {}) {
   const items = [
     ["소비몬 카드", analysis.meme?.title || "기록 분석 대기", analysis.meme?.line || "기록이 쌓이면 소비 성향을 보여줍니다."],
@@ -8094,44 +8088,6 @@ function shiftMonthString(month = currentMonthKst(), delta = 0) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function renderMyCalendarHtml({ env, month, selected, calendar, rows, user, members = [] }) {
-  const title = escapeHtml(appName(env));
-  const role = selected?.role || "";
-  const prevMonth = shiftMonthString(month, -1);
-  const nextMonth = shiftMonthString(month, 1);
-  const memberMap = memberNameMap(members);
-  const dayMap = {};
-  for (const r of safeArray(rows)) {
-    const d = r.transaction_date || "";
-    if (!d) continue;
-    dayMap[d] = dayMap[d] || { expense: 0, income: 0, count: 0, rows: [] };
-    if (r.type === "income") dayMap[d].income += Number(r.amount || 0);
-    else dayMap[d].expense += Number(r.amount || 0);
-    dayMap[d].count += 1;
-    dayMap[d].rows.push(r);
-  }
-  const qsBase = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
-  const prevQs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(prevMonth)}`;
-  const nextQs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(nextMonth)}`;
-  const days = safeArray(calendar).length ? calendar : Array.from({length:new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()},(_,i)=>({date:`${month}-${String(i+1).padStart(2,"0")}`}));
-  const dayCardHtml = (d) => {
-    const v = dayMap[d.date] || d || {};
-    return `<a class="dayCard" href="#day-${escapeHtml(d.date)}"><b>${escapeHtml(String(d.date || "").slice(8, 10) || d.date)}</b><span>${escapeHtml(d.date || "")}</span><strong>${numberWithCommas(v.expense || 0)}원</strong><small>${numberWithCommas(v.count || 0)}건</small></a>`;
-  };
-  const activeDays = days.filter((d) => (dayMap[d.date]?.count || 0) > 0);
-  const activeCards = activeDays.map(dayCardHtml).join("") || `<div class="empty">이번 달 기록이 없습니다.</div>`;
-  const cards = days.map(dayCardHtml).join("") || `<div class="empty">이번 달 날짜 정보가 없습니다.</div>`;
-  const daySections = days.filter((d) => (dayMap[d.date]?.count || 0) > 0).map((d) => {
-    const list = (dayMap[d.date]?.rows || []).map((r) => {
-      const type = r.type === "income" ? "income" : "expense";
-      const editable = canManageMyRecord(role, r, user?.id || "");
-      const spenderName = r.spender_name || memberMap[r.user_id] || "미지정";
-      return `<article class="record"><div class="recordTop"><div><b>${escapeHtml(r.memo || r.raw_text || r.category || "기록")}</b><span>${escapeHtml(r.category || "미분류")} · ${escapeHtml(r.payment_method || "미입력")} · 지출자 ${escapeHtml(spenderName)}</span></div><strong class="${type}">${type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${editable ? `<details><summary>수정/삭제</summary><form method="post" action="/my/update" class="editGrid"><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense" ${type !== "income" ? "selected" : ""}>지출</option><option value="income" ${type === "income" ? "selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(r.transaction_date || d.date)}"/><input type="number" name="amount" value="${escapeHtml(r.amount || 0)}" min="1"/><input name="memo" value="${escapeHtml(r.memo || "")}" placeholder="내용"/><input name="category" value="${escapeHtml(r.category || "")}" placeholder="분류"/><input name="payment_method" value="${escapeHtml(r.payment_method || "")}" placeholder="결제수단"/><button type="submit">수정 저장</button></form><form method="post" action="/my/delete" onsubmit="return confirm('이 기록을 삭제할까요?')"><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button class="danger" type="submit">삭제</button></form></details>` : ""}</article>`;
-    }).join("");
-    return `<section class="card dayList" id="day-${escapeHtml(d.date)}"><h2>${escapeHtml(d.date)} 기록</h2>${list}</section>`;
-  }).join("") || `<section class="card"><div class="empty">기록이 있는 날짜가 없습니다.</div></section>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 캘린더</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#d1fae5}.calendarToolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}.calendarToolbar a,.calendarToolbar button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;padding:10px 14px;font-weight:1000}.calendarToolbar input{height:42px;border:1px solid #cbd5e1;border-radius:14px;padding:0 12px;font:inherit}.calendarGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.dayCard{display:block;text-decoration:none;color:#101828;background:#fff;border:1px solid #e8edf4;border-radius:18px;padding:12px;min-height:104px}.dayCard:hover{background:#eef2ff;border-color:#c7d2fe}.dayCard b{font-size:20px}.dayCard span{display:block;color:#667085;font-size:12px}.dayCard strong{display:block;margin-top:10px;color:#ef4444}.dayCard small{color:#64748b}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:18px;color:#667085}.fullCalendar summary{cursor:pointer;font-weight:1000;background:#f8fafc;border:1px solid #e8edf4;border-radius:16px;padding:12px;margin-bottom:10px}.record{border:1px solid #e8edf4;background:#fff;border-radius:20px;padding:15px;margin:10px 0}.recordTop{display:flex;justify-content:space-between;gap:10px}.recordTop span{display:block;color:#667085;font-size:13px;margin-top:4px}.income{color:#16a34a}.expense{color:#ef4444}.editGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}.editGrid input,.editGrid select{min-width:0;width:100%}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button{border:0;border-radius:14px;background:#111827;color:#fff;font-weight:1000;padding:11px 14px}.danger{background:#ef4444}@media(max-width:760px){.calendarGrid{grid-template-columns:repeat(2,1fr)}.recordTop{display:block}.calendarToolbar>*{width:100%}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "calendar")}<div class="pageMain"><section class="hero"><h1>캘린더별 지출금액/건수</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 월을 바꾸고, 날짜를 누르면 하단에서 해당 일자의 기록을 수정할 수 있습니다.</p><form class="calendarToolbar" method="get" action="/my/calendar"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><a href="/my/calendar?${prevQs}">← 이전달</a><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">월 이동</button><a href="/my/calendar?${nextQs}">다음달 →</a></form></section><section class="card"><h2>기록 있는 날짜</h2><div class="calendarGrid">${activeCards}</div></section><section class="card"><details class="fullCalendar"><summary>전체 날짜 달력 펼쳐 보기</summary><div class="calendarGrid">${cards}</div></details></section>${daySections}</div></div></main></body></html>`;
-}
 
 
 
@@ -8439,10 +8395,6 @@ async function appendTransactionEditHistory(env, householdId = "", transactionId
   return map[transactionId];
 }
 
-function attachEditHistory(rows = [], editMap = {}) {
-  return safeArray(rows).map((r) => ({ ...r, edit_history: Array.isArray(editMap[r.id]) ? editMap[r.id] : [] }));
-}
-
 function memberExists(members = [], userId = "") {
   return safeArray(members).some((m) => String(m.user_id || "") === String(userId || ""));
 }
@@ -8643,21 +8595,7 @@ async function handleMyPage(request, env, url) {
   if (selectedHousehold) {
     return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`);
   }
-  if (selectedHousehold) households = households.map((h) => String(h.id) === String(selectedHousehold.id) ? { ...h, role: selectedHousehold.role } : h);
-  const members = selectedHousehold ? await fetchHouseholdMembers(env, selectedHousehold.id) : [];
-  let rows = selectedHousehold ? await fetchAdminRows(env, { month, householdId: selectedHousehold.id, type: "all" }) : [];
-  rows = attachSpenderNames(rows, members);
-  if (selectedHousehold) {
-    const editMap = await fetchTransactionEditHistoryMap(env, selectedHousehold.id);
-    rows = attachEditHistory(rows, editMap);
-  }
-  const stats = calculateStats(rows);
-  const calendar = selectedHousehold ? await getCalendar(env, selectedHousehold.id, month) : [];
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
-  const collectionState = buildCollectionState({ month, allRows: rows, calendar, analysis });
-  const msg = url.searchParams.get("msg") || "";
-  const err = url.searchParams.get("err") || "";
-  return htmlResponse(renderMyDashboardHtml({ env, url, user, month, households, selectedHousehold, rows, stats, analysis, collectionState, msg, err, members }));
+  return htmlResponse(renderMyStartChoiceHtml({ env, user, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
 
@@ -10548,67 +10486,11 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
   return `<details class="appMenu" open><summary>☰ 메뉴 열기/접기</summary><div class="appMenuBody"><div class="menuHint">어디서든 메뉴를 접고 펼쳐 이동할 수 있습니다.</div><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/my?${qs}`, "홈", "입력/최근")}${item("analysis", `/my/analysis?${qs}`, "분석", "종합·소비몬")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "예산·분류", "설정")}</div><div class="navGroup"><div class="navGroupTitle">운영</div>${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇 필요")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자/초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">도움말</div>${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("backup-login", "/my/backup-login", "백업 로그인", "계정")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details>`;
 }
 
-function renderMyQuickStartBox(selectedHousehold, role = "", month = currentMonthKst()) {
-  const hid = selectedHousehold?.id || "";
-  const qs = `household_id=${encodeURIComponent(hid)}&month=${encodeURIComponent(month)}`;
-  const isManager = ["owner", "admin"].includes(String(role || ""));
-  const managerText = isManager
-    ? "현재 이 가계부의 관리자 권한입니다. 시작가이드에서 필요한 기능만 확인한 뒤 바로 이동하세요."
-    : "현재 구성원 권한입니다. 시작가이드에서 기록 입력과 확인 흐름을 볼 수 있습니다.";
-  return `<section class="card startPanel"><div class="startHead"><div><h2>처음 설정 흐름</h2><p class="muted">${managerText}</p></div><a class="btn secondary" href="/start-guide?${qs}">시작가이드 보기</a></div></section>`;
-}
-
-
-
 function renderMemberOptions(members = [], selected = "") {
   return safeArray(members).filter((m) => m.user_id && !["blocked","pending"].includes(String(m.role || ""))).map((m) => `<option value="${escapeHtml(m.user_id)}" ${String(selected || "") === String(m.user_id) ? "selected" : ""}>${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(m.role || "member")}</option>`).join("");
 }
 
-function renderEditHistoryDetails(history = []) {
-  const list = safeArray(history);
-  if (!list.length) return "";
-  const items = list.slice().reverse().slice(0, 5).map((h) => {
-    const changes = safeArray(h.changes).map((c) => `<li><b>${escapeHtml(c.label || c.field || "")}</b>: ${escapeHtml(c.before || "비어있음")} → ${escapeHtml(c.after || "비어있음")}</li>`).join("");
-    return `<div class="editItem"><b>${escapeHtml(String(h.at || "").slice(0, 19).replace("T", " "))}</b>${h.edited_by_name ? ` · ${escapeHtml(h.edited_by_name)}` : ""}<ul>${changes}</ul></div>`;
-  }).join("");
-  return `<details class="editHistory"><summary>수정됨</summary>${items}</details>`;
-}
 
-function renderMyDashboardHtml({ env, url, user, month, households, selectedHousehold, rows, stats, analysis, collectionState, msg, err, members = [] }) {
-  const title = escapeHtml(appName(env));
-  const userName = escapeHtml(user.nickname || "가계부사용자");
-  const recent = rows.slice(0, 40);
-  const today = formatDate(nowKstDate());
-  const hid = selectedHousehold?.id || "";
-  const role = selectedHousehold?.role || "";
-  const canWrite = selectedHousehold && canWriteMyHousehold(role);
-  const canPickSpender = canManageAllRecords(role);
-  const memberMap = memberNameMap(members);
-  const spenderOptionsForMe = renderMemberOptions(members, user.id);
-  const memberLabel = role === "owner" ? "관리자" : role === "admin" ? "운영자" : role === "viewer" ? "보기전용" : role === "pending" ? "승인대기" : role === "blocked" ? "차단" : "구성원";
-  const kakaoLinkButton = kakaoLoginAvailable(env) ? `<a class="btn secondary" href="/my/kakao-link">카카오 계정 연동</a>` : "";
-  const recentCards = recent.length ? recent.map((r) => {
-    const memo = r.memo || r.raw_text || r.category || "기록";
-    const type = r.type === "income" ? "income" : "expense";
-    const typeText = type === "income" ? "수입" : "지출";
-    const sign = type === "income" ? "+" : "-";
-    const editable = canManageMyRecord(role, r, user.id);
-    const spenderName = r.spender_name || memberMap[r.user_id] || "미지정";
-    const spenderSelect = canPickSpender ? `<select name="user_id">${renderMemberOptions(members, r.user_id || user.id)}</select>` : `<input type="hidden" name="user_id" value="${escapeHtml(r.user_id || user.id)}"/>`;
-    const history = renderEditHistoryDetails(r.edit_history || []);
-    return `<article class="record" id="record-${escapeHtml(r.id)}"><div class="recordTop"><div><b>${escapeHtml(memo)}</b><span>${escapeHtml(r.transaction_date || "")} · ${escapeHtml(r.category || "미분류")} · ${escapeHtml(r.payment_method || "미입력")} · ${escapeHtml(typeText)} · 지출자 ${escapeHtml(spenderName)}</span>${history}</div><strong class="${type}">${sign}${numberWithCommas(r.amount)}원</strong></div>${editable ? `<details><summary>수정/삭제</summary><form method="post" action="/my/update" class="editGrid"><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense" ${type !== "income" ? "selected" : ""}>지출</option><option value="income" ${type === "income" ? "selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(r.transaction_date || today)}"/><input type="number" name="amount" value="${escapeHtml(r.amount || 0)}" min="1"/><input name="memo" value="${escapeHtml(memo)}" placeholder="내용"/><input name="category" value="${escapeHtml(r.category || "")}" placeholder="분류"/><input name="payment_method" value="${escapeHtml(r.payment_method || "")}" placeholder="결제수단"/>${spenderSelect}<button type="submit">수정 저장</button></form><form method="post" action="/my/delete" onsubmit="return confirm('이 기록을 삭제할까요?')"><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button class="danger" type="submit">삭제</button></form></details>` : `<p class="muted">이 기록은 보기만 가능합니다.</p>`}</article>`;
-  }).join("") : `<div class="empty">아직 이번 달 기록이 없습니다. 카카오톡 또는 아래 입력 카드로 첫 기록을 남겨보세요.</div>`;
-  const addSpenderField = canPickSpender ? `<select name="user_id">${spenderOptionsForMe}</select>` : `<input type="hidden" name="user_id" value="${escapeHtml(user.id || "")}"/>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 내 가계부</title><style>
-  ${myNavCss()}
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 44%,#eef2f7 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1100px;margin:0 auto;padding:16px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:30px;padding:22px;margin:12px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.hero h1{margin:0;font-size:30px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.55;font-size:13px}.pill{display:inline-flex;border-radius:999px;background:#FEE500;color:#191919;padding:7px 11px;font-size:13px;font-weight:1000}.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.box{background:#f8fafc;border:1px solid #edf1f7;border-radius:20px;padding:16px}.box b{display:block;font-size:22px;letter-spacing:-.04em}.income{color:#16a34a}.expense{color:#ef4444}.balance{color:#2563eb}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.danger{background:#ef4444!important;color:#fff!important}.inputGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;align-items:center}.inputGrid input,.inputGrid select{min-width:0;width:100%}.record{border:1px solid #e8edf4;background:#fff;border-radius:20px;padding:15px;margin:10px 0}.recordTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.recordTop b{font-size:17px}.recordTop span{display:block;color:#667085;font-size:13px;margin-top:4px}.editGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}.editGrid input,.editGrid select{min-width:0;width:100%}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:18px;color:#667085}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}.quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px}.quick a{display:block;border:1px solid #e8edf4;border-radius:18px;padding:14px;text-decoration:none;color:#111827;background:#fff}.editHistory{margin-top:6px}.editHistory summary{display:inline-flex;cursor:pointer;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:1000}.editItem{background:#f8fafc;border:1px solid #e8edf4;border-radius:14px;padding:10px;margin:8px 0;font-size:13px}.editItem ul{margin:6px 0 0;padding-left:18px}@media(max-width:920px){.flowCard{grid-template-columns:30px 1fr}.flowCard em{display:none}.appLayout{grid-template-columns:1fr}.sideNav{position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.sideTitle{grid-column:1/-1}.sideNav a{margin:0}.startHead{display:block}}@media(max-width:840px){.wrap{padding:10px}.inputGrid,.editGrid{grid-template-columns:1fr}.recordTop{display:block}.top{display:block}.sideNav{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selectedHousehold, role, month, "home")}<div><section class="hero"><div class="top"><div><span class="pill">${escapeHtml(memberLabel)}</span><h1>${userName}님 · ${escapeHtml(selectedHousehold?.name || "내 가계부")}</h1><p class="muted">${title} · ${escapeHtml(month)} · 지출자와 수정 이력을 함께 관리합니다.</p></div><div class="toolbar">${kakaoLinkButton}<form method="post" action="/my/logout"><button class="secondary" type="submit">로그아웃</button></form></div></div></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}${renderMyQuickStartBox(selectedHousehold, role, month)}${myStatCards(stats)}<section class="card"><h2>빠른 입력</h2>${canWrite ? `<form method="post" action="/my/transactions" class="inputGrid"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(today)}"/><input name="memo" placeholder="내용 예: 점심"/><input name="amount" type="number" min="1" placeholder="금액"/><input name="category" placeholder="분류"/><input name="payment_method" placeholder="결제수단"/>${addSpenderField}<button type="submit">기록</button></form>` : `<div class="empty">현재 권한은 입력이 제한됩니다. 관리자에게 권한을 요청하세요.</div>`}</section><section class="card"><h2>빠른 메뉴</h2><div class="quick"><a href="/my/settings?household_id=${encodeURIComponent(hid)}&month=${encodeURIComponent(month)}"><b>예산·분류 설정</b><br/><span class="muted">예산/키워드/정기지출</span></a><a href="/my/groups?household_id=${encodeURIComponent(hid)}&month=${encodeURIComponent(month)}"><b>단톡방 연결</b><br/><span class="muted">그룹방과 가계부 연결</span></a><a href="/my/backup?household_id=${encodeURIComponent(hid)}&month=${encodeURIComponent(month)}"><b>백업·가져오기</b><br/><span class="muted">CSV 저장/복구</span></a><a href="/my/profile"><b>내 프로필</b><br/><span class="muted">표시 이름 관리</span></a></div></section><section class="card"><h2>최근 거래내역</h2>${recentCards}</section></div></div></main></body></html>`;
-}
-
-
-function myStatCards(stats = {}) {
-  const totals = stats?.totals || {};
-  return `<section class="grid"><div class="box"><span class="muted">수입</span><b class="income">${numberWithCommas(totals.income || 0)}원</b></div><div class="box"><span class="muted">지출</span><b class="expense">${numberWithCommas(totals.expense || 0)}원</b></div><div class="box"><span class="muted">잔액</span><b class="balance">${numberWithCommas(totals.balance || 0)}원</b></div><div class="box"><span class="muted">기록</span><b>${numberWithCommas(stats.count || 0)}건</b></div></section>`;
-}
 
 function addMonthsYm(month, delta) {
   const d = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1);
