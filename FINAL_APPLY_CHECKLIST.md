@@ -45,3 +45,13 @@ CANONICAL_REDIRECT=0
 - [ ] 구주소 `https://ttokttok-accountbook.com/my/calendar?month=...&household_id=...` → `/app?view=calendar` 자동 이동
 - [ ] 시작가이드/전체메뉴/분석의 캘린더 버튼 전부 홈 캘린더로 이동
 - [ ] `/skill` POST 저장, 권한 체크, 예산 알림 회귀 없음
+
+## V21.4-KAKAO-COMMANDS
+- [ ] `/health`에서 `V21.4-KAKAO-COMMANDS` 확인
+- [ ] 관리자센터 > 그룹 챗봇 설정 > 대표 명령어 8개 등록 (순서·설명 3건은 KAKAO_OPENBUILDER_UTTERANCES.md 표 그대로)
+- [ ] `/` 입력 시 8개 명령어 드롭다운 노출 (기록·수정·단톡방 연결에만 설명 표시)
+- [ ] 드롭다운 "기록" 선택 → 이어서 입력 → 정상 저장
+- [ ] `기록` 단독 → 입력 예시 안내 / `수정` 단독 → 수정가이드
+- [ ] `오늘 기록` → 조회 응답 유지
+- [ ] 같은 발화 2회 연속 → 반복 발화 방어 유지
+- [ ] 명령어 미반영 시 봇 제거 후 재추가로 갱신

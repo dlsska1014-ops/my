@@ -1184,7 +1184,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.3-HOME-CALENDAR-MERGE";
+const APP_VERSION = "V21.4-KAKAO-COMMANDS";
 const APP_MODE = "kakao-skill-test-hotfix";
 
 function normalizeBaseUrl(value = "") {
@@ -12078,9 +12078,19 @@ async function handleKakaoDailyEditFlow(env, { utterance, household, user, origi
 
 
 
+function stripLeadingCommand(text = "") {
+  const t = String(text || "").trim();
+  // "기록 점심 12000원" → "점심 12000원" / "수정 01번 금액 13000원" → "01번 금액 13000원"
+  const m = t.match(/^(기록|입력)\s+(.+)$/);
+  if (m) return m[2].trim();
+  const e = t.match(/^수정\s+(\d{1,3}\s*번.+)$/);
+  if (e) return e[1].trim();
+  return t;
+}
+
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}) {
-  const text = normalizeText(utterance);
-  if (!text || isSummaryCommand(text) || isRecentCommand(text) || isHelpCommand(text) || isLinkCommand(text)) return { ok: true, skipped: true };
+  const text = normalizeText(stripLeadingCommand(utterance));
+  if (!text || isSummaryCommand(text) || isRecentCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text)) return { ok: true, skipped: true };
   const windowMs = Math.max(2000, Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8) * 1000);
   const now = Date.now();
   const key = `${String(userKey || "unknown").slice(0, 80)}|${stableShortHash(text)}`;
@@ -12215,7 +12225,8 @@ async function handleKakaoSkillStable(request, env) {
 async function handleKakaoSkill(request, env) {
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
-  const utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
+  // 대표 명령어 드롭다운으로 "기록 "/"수정 " 접두어가 붙어 들어와도 기존 파서가 그대로 동작 (단독 입력은 유지)
+  const utterance = stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim());
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
 
@@ -12972,7 +12983,7 @@ function isBudgetCommand(text) {
 }
 
 function isRecentCommand(text) {
-  return /^(최근|최근내역|최근 내역|내역|기록|마지막|마지막내역|마지막 내역|최근 5건|최근5건|오늘기록|오늘 기록|오늘내역|오늘 내역)$/i.test(normalizeText(text));
+  return /^(최근|최근내역|최근 내역|내역|마지막|마지막내역|마지막 내역|최근 5건|최근5건|오늘기록|오늘 기록|오늘내역|오늘 내역)$/i.test(normalizeText(text));
 }
 
 function isUndoCommand(text) {
@@ -12980,7 +12991,7 @@ function isUndoCommand(text) {
 }
 
 function isInputExampleCommand(text) {
-  return /^(입력|입력하기|지출입력|지출 입력|수입입력|수입 입력|입력예시|입력 예시|예시|예제|어떻게입력|어떻게 입력|카톡입력|카톡 입력)$/i.test(normalizeText(text));
+  return /^(기록|입력|입력하기|지출입력|지출 입력|수입입력|수입 입력|입력예시|입력 예시|예시|예제|어떻게입력|어떻게 입력|카톡입력|카톡 입력)$/i.test(normalizeText(text));
 }
 
 function isKeywordGuideCommand(text) {
@@ -13719,6 +13730,8 @@ function helpText(inviteCode = "", origin = "") {
     "• 키워드 안내: 자동분류 단어 보기",
     "• 수정가이드: 01번 수정/삭제 방법",
     "• 링크: 사용자용 링크",
+    "",
+    `"/" 를 입력하면 명령어 목록이 열립니다.`,
     "",
     origin ? `가계부 시작하기\n${origin}/my\n\n시작가이드\n${origin}/start-guide` : "",
   ].filter(Boolean).join("\n");
