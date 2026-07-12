@@ -1018,7 +1018,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: Number(env.SKILL_RATE_LIMIT || 60), traffic_guard_limit_per_ip_per_minute: Number(env.TRAFFIC_GUARD_LIMIT || 240), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "enabled" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: Number(env.SKILL_RATE_LIMIT || 60), traffic_guard_limit_per_ip_per_minute: Number(env.TRAFFIC_GUARD_LIMIT || 240), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "disabled_by_default" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1184,7 +1184,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.4-KAKAO-COMMANDS";
+const APP_VERSION = "V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX";
 const APP_MODE = "kakao-skill-test-hotfix";
 
 function normalizeBaseUrl(value = "") {
@@ -6532,6 +6532,43 @@ function buildSettlementModel(rows = [], members = []) {
   return { totalExpense, participantCount, share, people, transfers, unknownPaid: paidBy.__unknown || 0 };
 }
 
+async function kakaoSettlementStatusText(env, householdId, month) {
+  try {
+    const members = await fetchHouseholdMembers(env, householdId);
+    const rows = await fetchAdminRows(env, { month, householdId, type: "expense" });
+    const model = buildSettlementModel(rows, members);
+    if (!model.totalExpense) {
+      return `📊 ${month} 정산\n\n정산할 지출 기록이 아직 없어요.`;
+    }
+    const people = model.people.slice(0, 8).map((p) => {
+      const state = p.balance > 0
+        ? `${numberWithCommas(p.balance)}원 받을 예정`
+        : p.balance < 0
+          ? `${numberWithCommas(Math.abs(p.balance))}원 보낼 예정`
+          : "정산 완료";
+      return `• ${p.name}: ${numberWithCommas(p.paid)}원 냄 · ${state}`;
+    });
+    const transfers = model.transfers.length
+      ? model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`)
+      : ["• 송금할 금액이 없어요."];
+    return [
+      `📊 ${month} 정산`,
+      "",
+      `총 지출: ${numberWithCommas(model.totalExpense)}원`,
+      `참여자: ${numberWithCommas(model.participantCount)}명`,
+      `1인 기준: ${numberWithCommas(model.share)}원`,
+      "",
+      "구성원별",
+      ...people,
+      "",
+      "송금 제안",
+      ...transfers,
+    ].join("\n");
+  } catch (err) {
+    return "정산 정보를 확인하지 못했어요. 잠시 후 다시 ‘정산’이라고 입력해주세요.";
+  }
+}
+
 function renderTemplateCreateForm(title, description, suggestedName, emoji) {
   return `<form method="post" action="/my/create" class="tmpl"><div class="emoji">${escapeHtml(emoji)}</div><b>${escapeHtml(title)}</b><p>${escapeHtml(description)}</p><input type="hidden" name="household_name" value="${escapeHtml(suggestedName)}"/><button type="submit">이 템플릿으로 만들기</button></form>`;
 }
@@ -6674,11 +6711,12 @@ async function handleDataPolicyPage(request, env, url) {
 
 function expectedOpenBuilderRows() {
   return [
-    ["웰컴", "처음 진입", "버튼: /my, /start-guide, /keyword-guide, /chatbot-edit-guide"],
+    ["웰컴", "처음 진입", "고정 URL 반복 금지; 필요 시 대표 주소 1개"],
     ["도움말", "도움말, 처음, 시작, 메뉴, 사용법", "Skill 연결"],
     ["입력 예시", "입력 예시, 입력, 지출 입력, 어떻게 입력", "Skill 연결"],
     ["요약", "요약, 이번달, 통계, 현황", "Skill 연결"],
-    ["예산", "남은예산, 예산 확인, 남은 돈, 쓸 수 있는 돈", "Skill 연결"],
+    ["정산", "정산, 정산 현황, 정산 요약", "Skill 연결"],
+    ["예산", "남은예산, 내 예산, 우리 예산, 예산 확인, 남은 돈", "Skill 연결"],
     ["최근 기록", "최근, 최근 내역, 오늘 기록, 오늘 내역", "Skill 연결"],
     ["수정", "수정가이드, 번호수정, 삭제 방법", "Skill 연결"],
     ["키워드", "키워드 안내, 분류, 자동분류", "Skill 연결"],
@@ -6693,12 +6731,12 @@ async function handleOpenBuilderReportPage(request, env, url) {
   const title = escapeHtml(appName(env));
   const origin = publicBaseUrl(env, url);
   const rows = expectedOpenBuilderRows().map(([block, utter, action]) => `<tr><td><b>${escapeHtml(block)}</b></td><td>${escapeHtml(utter)}</td><td>${escapeHtml(action)}</td></tr>`).join("");
-  const tests = ["도움말", "입력 예시", "남은예산", "요약", "오늘 기록", "수정가이드", "키워드 안내", "정기지출", "링크", "아무말", "점심 12000원 국민카드"].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
+  const tests = ["도움말", "입력 예시", "내 예산", "남은예산", "요약", "정산", "오늘 기록", "수정가이드", "키워드 안내", "정기지출", "링크", "아무말", "점심 12000원 국민카드"].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
   const warnings = [
     "카카오/카톡/공식 명칭을 브랜드명처럼 사용하지 않기",
     "단톡방 대화를 읽거나 학습한다는 표현 금지",
     "폴백 블록을 고정 문구로 두지 말고 /skill로 연결",
-    "응답은 핵심만 짧게, 자세한 설정은 /my 웹으로 연결",
+    "응답은 핵심만 짧게, URL은 링크 요청 시 대표 주소 1개만 제공",
     "사용자 이름은 가계부 표시명으로만 수정하고 카카오 고유키는 변경하지 않기",
   ].map((x) => `<li>${escapeHtml(x)}</li>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 운영점검</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.startHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.flowGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.flowCard{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;text-decoration:none;color:#111827;border:1px solid #e8edf4;background:#fff;border-radius:18px;padding:13px;min-width:0}.flowCard span{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:999px;background:#111827;color:#fff;font-weight:1000}.flowCard b{display:block}.flowCard small{display:block;color:#667085;font-size:13px;margin-top:4px;line-height:1.35}.flowCard em{font-style:normal;font-size:11px;color:#64748b;background:#f1f5f9;border-radius:999px;padding:5px 8px;white-space:nowrap}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#d1fae5}.skill{background:#111827;color:#fff;border-radius:18px;padding:14px;word-break:break-all;font-weight:1000}.muted{color:#667085;line-height:1.6}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.65}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:11px;text-align:left;vertical-align:top}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-size:13px;font-weight:900}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:10px}}</style></head><body><main class="wrap"><section class="hero"><h1>챗봇 운영점검 리포트</h1><p>정식 챗봇 운영 전 OpenBuilder 블록, 폴백, 응답 문구, 사용자 식별 안정성을 점검합니다.</p></section><section class="card"><h2>Skill URL</h2><div class="skill">${escapeHtml(origin)}/skill</div><p class="warn"><b>가장 중요</b><br/>폴백 블록도 반드시 Skill URL로 연결해야 합니다. 폴백이 고정 문구면 Worker 안정화가 적용되지 않습니다.</p></section><section class="card"><h2>필수 블록/발화</h2><table><thead><tr><th>블록</th><th>대표 발화</th><th>연결</th></tr></thead><tbody>${rows}</tbody></table></section><section class="grid"><div class="card"><h2>심사/운영 주의사항</h2><ul>${warnings}</ul></div><div class="card"><h2>배포 후 테스트 발화</h2><div class="chips">${tests}</div><p class="muted">테스트 중 하나라도 기본 응답으로 빠지면 해당 발화 또는 폴백이 /skill로 연결되지 않은 것입니다.</p></div></section><div class="ok"><b>v15.8 운영 기준</b><br/>/skill에는 과도 요청 제한, 안전 fallback, 최근 이벤트 로그가 적용되어 있습니다. 운영 상태는 /skill-ops에서 확인합니다.</div></main></body></html>`);
@@ -6720,11 +6758,12 @@ async function handleOpenBuilderGuidePage(request, env, url) {
   const origin = publicBaseUrl(env, url);
   const skillUrl = `${origin}/skill`;
   const rows = [
-    ["웰컴 블록", "처음 진입 안내", "가계부 시작하기, 시작가이드, 키워드 안내, 수정가이드 버튼"],
+    ["웰컴 블록", "처음 진입 안내", "URL 자동 반복 금지; 필요 시 대표 주소 1개"],
     ["도움말 블록", "도움말 / 처음 / 시작 / 메뉴 / 사용법", "스킬 사용"],
     ["입력 예시 블록", "입력 예시 / 지출 입력 / 어떻게 입력", "스킬 사용"],
     ["요약 블록", "요약 / 이번 달 요약 / 통계 / 현황", "스킬 사용"],
-    ["예산 블록", "남은예산 / 남은 예산 / 예산 확인 / 남은 돈 / 쓸 수 있는 돈 / 예산 사용률", "스킬 사용"],
+    ["정산 블록", "정산 / 정산 현황 / 정산 요약", "스킬 사용"],
+    ["예산 블록", "남은예산 / 내 예산 / 우리 예산 / 예산 확인 / 남은 돈", "스킬 사용"],
     ["최근 기록 블록", "최근 / 최근 내역 / 오늘 기록 / 오늘 내역", "스킬 사용"],
     ["수정 블록", "수정가이드 / 번호수정 / 방금 수정 / 삭제 방법", "스킬 사용"],
     ["키워드 블록", "키워드 안내 / 분류 / 자동분류", "스킬 사용"],
@@ -6733,8 +6772,8 @@ async function handleOpenBuilderGuidePage(request, env, url) {
     ["초대 블록", "초대 / 초대코드 / 가계부 참여", "스킬 사용"],
     ["폴백 블록", "그 외 모든 말", "반드시 스킬 사용"],
   ].map(([block, utter, action]) => `<tr><td><b>${escapeHtml(block)}</b></td><td>${escapeHtml(utter)}</td><td>${escapeHtml(action)}</td></tr>`).join("");
-  const tests = ["도움말", "입력 예시", "남은예산", "예산 확인", "요약", "오늘 기록", "수정가이드", "키워드 안내", "정기지출", "링크", "아무말", "점심 12000원 국민카드"].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 오픈빌더 설정</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff;border-radius:30px;padding:26px;margin:14px 0;box-shadow:0 22px 54px rgba(15,23,42,.18)}.hero h1{margin:0 0 10px;font-size:32px;letter-spacing:-.06em}.hero p{color:#e5e7eb;line-height:1.6}.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.skill{background:#111827;color:#fff;border-radius:18px;padding:15px;word-break:break-all;font-weight:1000}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}th{background:#f8fafc}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{display:inline-flex;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:13px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.grid{grid-template-columns:1fr}table{font-size:13px}}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 오픈빌더 설정가이드</h1><p>카카오톡에서 “이해하기 어려워요”가 나오면 대부분 코드 문제가 아니라 발화가 /skill로 전달되지 않는 상태입니다. 아래 블록과 폴백을 모두 스킬로 연결하세요.</p></section><section class="card"><h2>Skill URL</h2><div class="skill">${escapeHtml(skillUrl)}</div><p class="warn"><b>중요</b><br/>폴백 블록도 반드시 위 Skill URL로 연결해야 합니다. 폴백이 고정 문구로 남아 있으면 사용자는 계속 “이해하기 어려워요”를 보게 됩니다.</p></section><section class="card"><h2>권장 블록/발화</h2><table><thead><tr><th>블록</th><th>대표 발화</th><th>연결</th></tr></thead><tbody>${rows}</tbody></table></section><section class="grid"><div class="card"><h2>웰컴 버튼 안전 링크</h2><p>가계부 시작하기<br/><b>${origin}/my</b></p><p>시작가이드<br/><b>${origin}/start-guide</b></p><p>키워드 안내<br/><b>${origin}/keyword-guide</b></p><p>수정가이드<br/><b>${origin}/chatbot-edit-guide</b></p></div><div class="card"><h2>배포 후 테스트 발화</h2><div class="chips">${tests}</div></div></section><div class="ok"><b>운영 기준</b><br/>OpenBuilder의 모든 주요 블록과 폴백이 /skill로 연결되면 Worker가 입력 예시, 예산, 요약, 수정가이드 등으로 부드럽게 응답합니다.</div></main></body></html>`);
+  const tests = ["도움말", "입력 예시", "내 예산", "남은예산", "예산 확인", "요약", "정산", "오늘 기록", "수정가이드", "키워드 안내", "정기지출", "링크", "아무말", "점심 12000원 국민카드"].map((x) => `<span>${escapeHtml(x)}</span>`).join("");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 오픈빌더 설정</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff;border-radius:30px;padding:26px;margin:14px 0;box-shadow:0 22px 54px rgba(15,23,42,.18)}.hero h1{margin:0 0 10px;font-size:32px;letter-spacing:-.06em}.hero p{color:#e5e7eb;line-height:1.6}.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.skill{background:#111827;color:#fff;border-radius:18px;padding:15px;word-break:break-all;font-weight:1000}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}th{background:#f8fafc}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{display:inline-flex;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:13px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.grid{grid-template-columns:1fr}table{font-size:13px}}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 오픈빌더 설정가이드</h1><p>카카오톡에서 “이해하기 어려워요”가 나오면 대부분 코드 문제가 아니라 발화가 /skill로 전달되지 않는 상태입니다. 아래 블록과 폴백을 모두 스킬로 연결하세요.</p></section><section class="card"><h2>Skill URL</h2><div class="skill">${escapeHtml(skillUrl)}</div><p class="warn"><b>중요</b><br/>폴백 블록도 반드시 위 Skill URL로 연결해야 합니다. 폴백이 고정 문구로 남아 있으면 사용자는 계속 “이해하기 어려워요”를 보게 됩니다.</p></section><section class="card"><h2>권장 블록/발화</h2><table><thead><tr><th>블록</th><th>대표 발화</th><th>연결</th></tr></thead><tbody>${rows}</tbody></table></section><section class="grid"><div class="card"><h2>응답 링크 정책</h2><p>일반 응답에는 URL을 넣지 않습니다.</p><p>사용자가 <b>링크</b> 또는 <b>주소</b>를 요청할 때만 대표 주소 1개를 제공합니다.</p><p><b>${origin}</b></p></div><div class="card"><h2>배포 후 테스트 발화</h2><div class="chips">${tests}</div></div></section><div class="ok"><b>운영 기준</b><br/>OpenBuilder의 모든 주요 블록과 폴백이 /skill로 연결되면 Worker가 입력 예시, 예산, 요약, 수정가이드 등으로 부드럽게 응답합니다.</div></main></body></html>`);
 }
 
 async function handleKakaoStabilityGuidePage(request, env, url) {
@@ -8940,9 +8979,6 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "") {
       "",
       categoryLines ? "분류별 예산" : "",
       categoryLines,
-      "",
-      "자세한 내용은 가계부에서 확인할 수 있어요.",
-      origin ? `${origin}/my` : "",
     ].filter(Boolean).join("\n");
   } catch (err) {
     return [
@@ -11334,27 +11370,19 @@ function kakaoSkillSafeFallbackText(origin = "") {
 function kakaoNoMatchGuideText(utterance = "", origin = "") {
   const t = normalizeText(utterance);
   const maybeHasMoneyWord = /(원|만원|천원|카드|현금|페이|계좌|점심|커피|마트|병원|월급|수입|지출|결제|주유|택시|보험|세금)/.test(t);
-  const firstLine = maybeHasMoneyWord
-    ? "금액과 내용을 한 문장으로 보내주시면 바로 기록할 수 있어요 😊"
-    : "원하는 메뉴를 골라서 바로 시작할 수 있어요 😊";
+  if (maybeHasMoneyWord) {
+    return [
+      "금액을 정확히 찾지 못했어요.",
+      "",
+      "아래처럼 금액과 내용을 한 문장으로 다시 보내주세요.",
+      "점심 12000원 국민카드",
+    ].join("\n");
+  }
   return [
-    firstLine,
+    `“${t || "입력한 말"}”은 아직 지원하는 명령으로 확인되지 않았어요.`,
     "",
-    "기록 예시",
-    "• 점심 12000원 국민카드",
-    "• 커피 5000원 현금",
-    "• 어제 병원 15000원",
-    "• 월급 250만원",
-    "",
-    "자주 쓰는 말",
-    "• 요약",
-    "• 오늘 기록",
-    "• 입력 예시",
-    "• 키워드 안내",
-    "• 수정가이드",
-    "",
-    origin ? `가계부 시작하기\n${origin}/my` : "",
-  ].filter(Boolean).join("\n");
+    "사용 가능한 명령을 보려면 도움말을 입력해주세요.",
+  ].join("\n");
 }
 
 function kakaoInputExampleText(origin = "") {
@@ -11531,32 +11559,20 @@ function parseCreateHouseholdCommand(text = "") {
 
 function kakaoCommandMenuText(origin = "") {
   return [
-    "📌 바로 쓰는 명령어",
+    "📌 사용 가능한 명령",
     "",
-    "기록",
-    "• 점심 12000 삼성카드",
-    "• 커피 4500 카카오페이",
-    "• 월급 250만원",
-    "",
-    "조회",
+    "• 기록 + 내용",
+    "  예: 기록 점심 12000원 국민카드",
+    "• 오늘 기록",
+    "• 남은예산",
     "• 요약",
-    "• 오늘예산",
-    "• 오늘기록",
-    "• 분류별지출",
-    "",
-    "가계부",
-    "• 초대코드",
-    "• 가계부참여 ABC123",
-    "• 새가계부 만들기 여행비",
-    "• 가계부전환",
-    "",
-    "관리",
-    "• 수정가이드",
-    "• 키워드 안내",
-    "• 밈",
-    "",
-    origin ? `웹에서 자세히 보기\n${origin}/kakao-command-system` : "",
-  ].filter(Boolean).join("\n");
+    "• 정산",
+    "• 수정 + 번호",
+    "  예: 수정 01번 금액 13000원",
+    "• 단톡방 연결 + 초대코드",
+    "• 도움말",
+    "• 링크",
+  ].join("\n");
 }
 
 function kakaoMemeGuideText(origin = "") {
@@ -11608,7 +11624,6 @@ async function kakaoHouseholdSwitchText(env, user = {}, origin = "") {
 
 function kakaoPublicCommandReply(utterance = "", origin = "", env = {}) {
   if (isCommandMenuCommand(utterance)) return kakaoCommandMenuText(origin);
-  if (isLinkCommand(utterance)) return linkText(origin, "");
   if (isOpenBuilderGuideCommand(utterance)) return kakaoOpenBuilderGuideText(origin);
   if (isBrandGuideCommand(utterance)) return kakaoBrandGuideText(origin, env);
   if (isDataPolicyCommand(utterance)) return kakaoDataPolicyText(origin);
@@ -11636,10 +11651,29 @@ function kakaoSaveDelayText(origin = "") {
   ].filter(Boolean).join("\n");
 }
 
-function kakaoSafeText(text = "") {
-  const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+function kakaoResponsePolicyText(text = "", { allowLinks = false } = {}) {
+  // 과거 코드의 join("\\n") 실수로 생긴 문자형 \n도 실제 줄바꿈으로 복구합니다.
+  let raw = String(text || "").replace(/\r\n/g, "\n").replace(/\\n/g, "\n");
+  if (!allowLinks) {
+    const orphanLabels = /^(자세히 보기|시작가이드|가계부 시작하기|가계부 확인|가계부에서 확인|웹에서 확인|웹에서 자세히 보기|사용자 웹|내 가계부|내 가계부 웹|웹|수정가이드|키워드 안내 보기|설정 가이드|운영점검|밈카드 보기|밈연구소|브랜드\/심사 문구|가계부 전환·추가|웹에서 만들기\/참여)$/;
+    const out = [];
+    for (const line of raw.split("\n")) {
+      if (/https?:\/\/\S+/i.test(line)) {
+        while (out.length && !String(out[out.length - 1]).trim()) out.pop();
+        if (out.length && orphanLabels.test(String(out[out.length - 1]).trim())) out.pop();
+        continue;
+      }
+      out.push(line);
+    }
+    raw = out.join("\n");
+  }
+  return raw.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function kakaoSafeText(text = "", options = {}) {
+  const raw = kakaoResponsePolicyText(text, options);
   // Kakao simpleText는 길이가 과하면 스킬 테스트에서 응답 검증 실패로 처리될 수 있어 안전 길이로 자릅니다.
-  return raw.length > 950 ? `${raw.slice(0, 930)}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.` : (raw || "잠시 후 다시 시도해주세요.");
+  return raw.length > 950 ? `${raw.slice(0, 930)}\n\n…자세한 내용은 도움말에서 확인해주세요.` : (raw || "잠시 후 다시 시도해주세요.");
 }
 
 function kakaoQr(label, messageText = label, extra = null) {
@@ -11668,15 +11702,16 @@ function dedupeQuickReplies(items = []) {
 }
 
 function kakaoDefaultQuickReplies() {
+  // 기본 응답에는 사용하지 않습니다. 특정 화면에서 명시적으로 필요할 때만 정식 용어로 호출합니다.
   return dedupeQuickReplies([
-    ["메뉴", "메뉴"],
-    ["기록예시", "입력 예시"],
+    ["기록", "기록 "],
+    ["오늘 기록", "오늘 기록"],
+    ["남은예산", "남은예산"],
     ["요약", "요약"],
-    ["오늘예산", "오늘예산"],
-    ["오늘기록", "오늘 기록"],
-    ["초대코드", "초대코드"],
-    ["가계부전환", "가계부전환"],
-    ["밈", "밈"],
+    ["정산", "정산"],
+    ["수정", "수정 "],
+    ["단톡방 연결", "단톡방 연결 "],
+    ["도움말", "도움말"],
   ]);
 }
 
@@ -11735,17 +11770,19 @@ function kakaoQuickRepliesForText(text = "") {
   return kakaoDefaultQuickReplies();
 }
 
-function kakaoText(text, quickReplies = null) {
+function kakaoText(text, options = null) {
+  // V21.4.1 기준: quickReplies는 기본 미사용. 필요한 응답에서만 명시적으로 전달합니다.
+  const opts = Array.isArray(options) ? { quickReplies: options } : (options && typeof options === "object" ? options : {});
   const template = {
     outputs: [
       {
         simpleText: {
-          text: kakaoSafeText(text),
+          text: kakaoSafeText(text, { allowLinks: opts.allowLinks === true }),
         },
       },
     ],
   };
-  const replies = dedupeQuickReplies(quickReplies || kakaoQuickRepliesForText(text));
+  const replies = Array.isArray(opts.quickReplies) ? dedupeQuickReplies(opts.quickReplies) : [];
   if (replies.length) template.quickReplies = replies;
   return jsonResponse({
     version: "2.0",
@@ -12090,7 +12127,7 @@ function stripLeadingCommand(text = "") {
 
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}) {
   const text = normalizeText(stripLeadingCommand(utterance));
-  if (!text || isSummaryCommand(text) || isRecentCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text)) return { ok: true, skipped: true };
+  if (!text || isSummaryCommand(text) || isSettlementCommand(text) || isBudgetCommand(text) || isRecentCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isGroupLinkInfoCommand(text)) return { ok: true, skipped: true };
   const windowMs = Math.max(2000, Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8) * 1000);
   const now = Date.now();
   const key = `${String(userKey || "unknown").slice(0, 80)}|${stableShortHash(text)}`;
@@ -12234,11 +12271,14 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(helpText("", origin));
   }
 
+  if (isLinkCommand(utterance)) return kakaoText(linkText(origin, ""), { allowLinks: true });
+
   const earlyReply = kakaoPublicCommandReply(utterance, origin, env);
   if (earlyReply) return kakaoText(earlyReply);
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     if (isBudgetCommand(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
+    if (isSettlementCommand(utterance)) return kakaoText("📊 정산 정보를 확인하려면 가계부 저장소 연결이 필요합니다.\n\n잠시 후 다시 입력해주세요: 정산");
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
@@ -12333,7 +12373,7 @@ ${origin}/my`);
 
   const household = await resolveKakaoHousehold(env, user, nickname, payload);
   const accessRole = await getHouseholdMemberRole(env, user.id, household.id);
-  if (["blocked","viewer","pending"].includes(accessRole) && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isSummaryCommand(utterance) && !isRecentCommand(utterance)) {
+  if (["blocked","viewer","pending"].includes(accessRole) && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isSummaryCommand(utterance) && !isSettlementCommand(utterance) && !isBudgetCommand(utterance) && !isRecentCommand(utterance)) {
     return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
 
@@ -12345,7 +12385,7 @@ ${origin}/my`);
   }
 
   if (isLinkCommand(utterance)) {
-    return kakaoText(linkText(origin, household.invite_code));
+    return kakaoText(linkText(origin, household.invite_code), { allowLinks: true });
   }
 
   if (isInviteCommand(utterance)) {
@@ -12356,10 +12396,14 @@ ${origin}/my`);
     return kakaoText(await kakaoBudgetStatusText(env, household.id, currentMonthKst(), origin));
   }
 
+  if (isSettlementCommand(utterance)) {
+    return kakaoText(await kakaoSettlementStatusText(env, household.id, currentMonthKst()));
+  }
+
   if (isSummaryCommand(utterance)) {
     const summary = await getMonthSummary(env, household.id, currentMonthKst());
     const reserveLine = await kakaoReserveAlert(env, household.id);
-    return kakaoText(`${formatSummary(summary, currentMonthKst())}${reserveLine}\n\n자세히 보기\n${origin}/my\n\n시작가이드\n${origin}/start-guide`);
+    return kakaoText(`${formatSummary(summary, currentMonthKst())}${reserveLine}`);
   }
 
   if (isRecentCommand(utterance)) {
@@ -12745,8 +12789,8 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
       "단톡방 연결 초대코드",
       "예: 단톡방 연결 ABC123",
       "",
-      origin ? `내 가계부\\n${origin}/my` : "",
-    ].filter(Boolean).join("\\n");
+      origin ? `내 가계부\n${origin}/my` : "",
+    ].filter(Boolean).join("\n");
   }
   const household = await getLinkedKakaoGroupHousehold(env, groupKey);
   if (!household) {
@@ -12759,7 +12803,7 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
       "예: 단톡방 연결 ABC123",
       "",
       "초대코드는 /my 또는 관리자 화면에서 확인할 수 있어요.",
-    ].join("\\n");
+    ].join("\n");
   }
   const role = user?.id ? await getHouseholdMemberRole(env, user.id, household.id) : "";
   return [
@@ -12770,7 +12814,7 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     "",
     "이 방에서 입력한 지출/수입은 연결된 가계부에 기록됩니다.",
     "예: 점심 12000원 국민카드",
-  ].filter(Boolean).join("\\n");
+  ].filter(Boolean).join("\n");
 }
 
 function getKakaoUserKey(payload) {
@@ -12975,11 +13019,17 @@ function isLinkCommand(text) {
 }
 
 function isSummaryCommand(text) {
-  return /^(요약|이번달|이번 달|월요약|월 요약|합계|정산|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text));
+  return /^(요약|이번달|이번 달|월요약|월 요약|합계|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text));
+}
+
+function isSettlementCommand(text) {
+  return /^(정산|정산현황|정산 현황|정산요약|정산 요약|1\s*\/\s*n\s*정산|일대엔정산)$/i.test(normalizeText(text));
 }
 
 function isBudgetCommand(text) {
-  return /^(남은예산|남은 예산|예산|예산확인|예산 확인|예산설정|예산 설정|월예산|월 예산|이번달예산|이번 달 예산|예산현황|예산 현황|사용금액|사용 금액|예산사용률|예산 사용률|얼마남았어|얼마 남았어|돈얼마남았어|돈 얼마 남았어|남은돈|남은 돈|쓸수있는돈|쓸 수 있는 돈|잔여예산|잔여 예산)$/i.test(normalizeText(text));
+  const t = normalizeText(text);
+  if (/^(내|우리)\s*예산(?:\s*(확인|현황|얼마|알려줘|보여줘|조회))?$/.test(t)) return true;
+  return /^(남은예산|남은 예산|오늘예산|오늘 예산|예산|예산확인|예산 확인|예산알려줘|예산 알려줘|예산보여줘|예산 보여줘|예산얼마|예산 얼마|예산설정|예산 설정|월예산|월 예산|이번달예산|이번 달 예산|예산현황|예산 현황|사용금액|사용 금액|예산사용률|예산 사용률|얼마남았어|얼마 남았어|돈얼마남았어|돈 얼마 남았어|남은돈|남은 돈|쓸수있는돈|쓸 수 있는 돈|잔여예산|잔여 예산)$/i.test(t);
 }
 
 function isRecentCommand(text) {
@@ -13700,14 +13750,8 @@ function makeInviteCode() {
 
 function linkText(origin, inviteCode = "") {
   return [
-    "🔗 똑똑한가계부 링크",
-    "",
-    `가계부 시작하기: ${origin}/my`,
-    `시작가이드: ${origin}/start-guide`,
-    `키워드 안내: ${origin}/keyword-guide`,
-    `챗봇 수정가이드: ${origin}/chatbot-edit-guide`,
-    "",
-    "관리자 비밀번호가 필요한 운영 화면 링크는 일반 사용자에게 보내지 않습니다.",
+    "🔗 똑똑한가계부",
+    origin,
   ].filter(Boolean).join("\n");
 }
 

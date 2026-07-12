@@ -32,9 +32,9 @@
 
 
 ## V21.3-KAKAO-CHAT-FIRST-QUICKREPLY-BUNDLE
-- 카카오톡 안에서 먼저 처리하는 명령어 체계와 quickReplies 바로연결을 보강했습니다.
+- 카카오톡 명령어 체계를 보강했으며, V21.4.1부터 일반 응답의 quickReplies는 기본 미사용입니다.
 - `/kakao-command-system`, `/kakao-command-menu.json`을 추가했습니다.
-- `/skill` 응답은 기본적으로 `version: "2.0"`, `template.outputs`, `template.quickReplies`를 포함합니다.
+- `/skill` 응답은 `version: "2.0"`과 `template.outputs`를 포함합니다. `template.quickReplies`는 특정 응답에서 명시적으로 필요한 경우에만 포함합니다.
 - 오픈빌더 스킬 테스트에서 일반 문장 입력도 방어적으로 처리합니다.
 
 ## V21.3-HOME-CALENDAR-MERGE

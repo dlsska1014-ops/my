@@ -30,7 +30,7 @@ async function hit(path, { allowRedirect = false } = {}) {
 
 // 버전
 const health = await hit('/health');
-assert(health.text.includes('V21.4-KAKAO-COMMANDS'), '/health has V21.4-KAKAO-COMMANDS');
+assert(health.text.includes('V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX'), '/health has V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX');
 
 // 1. "기록 점심 12000원 국민카드" → 접두어 제거 후 기존 "점심 12000원 국민카드"와 동일 결과
 const plain = await skill('점심 12000원 국민카드', 'user-a');
@@ -64,7 +64,7 @@ const budget = await skill('남은예산', 'user-i');
 const settle = await skill('정산', 'user-i');
 assert(summary.length > 0 && budget.length > 0 && settle.length > 0, '요약/남은예산/정산 respond');
 assert(budget.includes('예산'), '남은예산 keeps budget guide');
-assert(settle === summary, '정산 routes like 요약 (summary family)');
+assert(settle !== summary && settle.includes('정산'), '정산 is separated from 요약');
 
 // 6. 같은 발화 2회 연속 → 반복 발화 방어 유지 (접두어 유무 무관, 스트리핑 후 텍스트로 dedup)
 const first = await skill('저녁 20000원 카드', 'user-j');

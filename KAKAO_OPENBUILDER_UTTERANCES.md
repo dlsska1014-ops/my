@@ -49,15 +49,27 @@ ${PUBLIC_BASE_URL}/skill
 이번달
 통계
 현황
-정산
 ```
 연결: Skill 사용
+
+### 3-1. 정산 블록
+발화:
+```text
+정산
+정산 현황
+정산 요약
+```
+연결: Skill 사용
+
+※ V21.4.1: `정산`은 월 합계 요약이 아니라 구성원별 1/N 정산 결과를 반환합니다. 요약 블록에 병합하지 않습니다.
 
 ### 4. 예산 블록
 발화:
 ```text
 남은예산
 남은 예산
+내 예산
+우리 예산
 예산 확인
 예산현황
 사용금액
@@ -156,13 +168,14 @@ ${PUBLIC_BASE_URL}/skill
 
 연결: 반드시 Skill 사용
 
-## 웰컴 버튼 안전 링크
+## 응답 링크 정책 (V21.4.1)
+- 일반 응답에는 URL을 자동으로 넣지 않습니다.
+- 사용자가 `링크` 또는 `주소`를 명시적으로 요청한 경우에만 대표 주소 1개를 보냅니다.
 ```text
-가계부 시작하기 -> ${PUBLIC_BASE_URL}/my
-시작가이드 -> ${PUBLIC_BASE_URL}/start-guide
-키워드 안내 -> ${PUBLIC_BASE_URL}/keyword-guide
-수정가이드 -> ${PUBLIC_BASE_URL}/chatbot-edit-guide
+https://ttokttok-accountbook.com
 ```
+- `/my`, `/start-guide` 등 여러 URL을 한 응답에 반복하지 않습니다.
+- quickReplies는 기본 미사용이며 특정 응답에서 꼭 필요할 때만 명시적으로 추가합니다.
 
 ## 배포 후 테스트
 ```text
@@ -171,6 +184,7 @@ ${PUBLIC_BASE_URL}/skill
 남은예산
 예산 확인
 요약
+정산
 오늘 기록
 수정가이드
 키워드 안내
