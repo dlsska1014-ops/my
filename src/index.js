@@ -6544,28 +6544,19 @@ async function kakaoSettlementStatusText(env, householdId, month) {
       return `📊 ${month} 정산\n\n정산할 지출 기록이 아직 없어요.`;
     }
     const people = model.people.slice(0, 8).map((p) => {
-      const state = p.balance > 0
-        ? `${numberWithCommas(p.balance)}원 받을 예정`
-        : p.balance < 0
-          ? `${numberWithCommas(Math.abs(p.balance))}원 보낼 예정`
-          : "정산 완료";
-      return `• ${p.name}: ${numberWithCommas(p.paid)}원 냄 · ${state}`;
+      if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
+      if (p.balance < 0) return `• ${p.name}: ${numberWithCommas(Math.abs(p.balance))}원 보내기`;
+      return `• ${p.name}: 정산 완료`;
     });
-    const transfers = model.transfers.length
-      ? model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`)
-      : ["• 송금할 금액이 없어요."];
+    const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
     return [
       `📊 ${month} 정산`,
-      "",
       `총 지출: ${numberWithCommas(model.totalExpense)}원`,
       `참여자: ${numberWithCommas(model.participantCount)}명`,
       `1인 기준: ${numberWithCommas(model.share)}원`,
       "",
-      "구성원별",
       ...people,
-      "",
-      "송금 제안",
-      ...transfers,
+      ...(transfers.length ? ["", "송금 제안", ...transfers] : []),
     ].join("\n");
   } catch (err) {
     return "정산 정보를 확인하지 못했어요. 잠시 후 다시 ‘정산’이라고 입력해주세요.";
@@ -12743,10 +12734,9 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
       "",
       "초대코드를 아는 구성원이 아래처럼 연결할 수 있어요.",
       "",
-      "단톡방 연결 초대코드",
-      "예: 단톡방 연결 ABC123",
+      "단톡방 연결 ABC123",
       "",
-      "초대코드는 /my 또는 관리자 화면에서 확인할 수 있어요.",
+      "초대코드는 가계부 관리자에게 확인해주세요.",
     ].join("\n");
   }
   const role = user?.id ? await getHouseholdMemberRole(env, user.id, household.id) : "";

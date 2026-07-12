@@ -135,5 +135,11 @@ const invite = await post(envDb, skillBody('초대코드', 'exist-7'));
 assert(invite.text.includes('단톡방 연결 ABC123'), '초대코드 guides 단톡방 연결');
 assert(!invite.text.includes('가계부 참여 ABC123'), '초대코드 no longer suggests in-chat join');
 
+// 채팅 응답 정책 문구 (chat-response-policy 포팅분)
+const groupInfo = await post(envDb, skillBody('단톡방 연결', 'exist-8', 'group-unlinked'));
+assert(groupInfo.text.includes('아직 가계부와 연결되지 않았어요') && groupInfo.text.includes('초대코드는 가계부 관리자에게 확인해주세요.'), '미연결 단톡방 안내 문구');
+const settleFmt = await post(envDb, skillBody('정산', 'exist-9'));
+assert(!settleFmt.text.includes('구성원별') && !settleFmt.text.includes('원 냄'), '정산 응답은 받기/보내기 포맷 (구성원별/냄 없음)');
+
 globalThis.fetch = nativeFetch;
 console.log('SMOKE_V2144_OK');
