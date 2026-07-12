@@ -1013,12 +1013,12 @@ export default {
       }
 
       if (url.pathname === "/kakao-command-menu.json" && request.method === "GET") {
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, commands: kakaoChatCommandCatalog(publicBaseUrl(env, url)), quick_replies: kakaoDefaultQuickReplies() });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, commands: kakaoChatCommandCatalog(publicBaseUrl(env, url)), quick_replies: "disabled_by_baseline" });
       }
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: Number(env.SKILL_RATE_LIMIT || 60), traffic_guard_limit_per_ip_per_minute: Number(env.TRAFFIC_GUARD_LIMIT || 240), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "disabled_by_default" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: Number(env.SKILL_RATE_LIMIT || 60), traffic_guard_limit_per_ip_per_minute: Number(env.TRAFFIC_GUARD_LIMIT || 240), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "disabled_by_baseline" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1184,7 +1184,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX";
+const APP_VERSION = "V21.4.4-BASELINE-ALIGNMENT-HOTFIX";
 const APP_MODE = "kakao-skill-test-hotfix";
 
 function normalizeBaseUrl(value = "") {
@@ -1206,18 +1206,21 @@ function currentRequestBaseUrl(url = null) {
 
 
 function kakaoChatCommandCatalog(origin = "") {
+  // 처음 시작 순서(가계부 만들기 → 참여 → 기록 → 조회 → 관리)대로 정렬합니다.
   return [
+    { group: "시작", command: "가계부 만들기", description: "새 가계부 만들기 안내 (웹 화면 주소 1개)", chat_first: true },
+    { group: "시작", command: "단톡방 연결 ABC123", description: "그룹방과 가계부 연결 (초대코드)", chat_first: true },
+    { group: "시작", command: "초대코드", description: "현재 가계부 참여 코드", chat_first: true },
     { group: "기록", command: "점심 12000 삼성카드", description: "내용·금액·결제수단을 한 문장으로 저장", chat_first: true },
     { group: "기록", command: "7월3일 온열안대 9900 삼성카드", description: "날짜 포함 저장", chat_first: true },
-    { group: "조회", command: "요약", description: "이번 달 수입·지출·잔액", chat_first: true },
-    { group: "조회", command: "오늘예산", description: "남은 예산과 사용률", chat_first: true },
     { group: "조회", command: "오늘기록", description: "오늘 입력 목록과 수정 번호", chat_first: true },
-    { group: "가계부", command: "초대코드", description: "현재 가계부 참여 코드", chat_first: true },
-    { group: "가계부", command: "가계부참여 ABC123", description: "초대코드로 참여", chat_first: true },
-    { group: "가계부", command: "새가계부 만들기 여행비", description: "채팅에서 새 가계부 생성", chat_first: true },
-    { group: "가계부", command: "가계부전환", description: "내 가계부 목록 확인", chat_first: true },
+    { group: "조회", command: "요약", description: "이번 달 수입·지출·잔액", chat_first: true },
+    { group: "조회", command: "남은예산", description: "남은 예산과 사용률", chat_first: true },
+    { group: "조회", command: "정산", description: "구성원별 1/N 정산과 송금 제안", chat_first: true },
     { group: "관리", command: "수정가이드", description: "01번 수정/삭제 방법", chat_first: true },
     { group: "관리", command: "키워드 안내", description: "자동분류 키워드 안내", chat_first: true },
+    { group: "가계부", command: "가계부 참여", description: "웹 화면에서 초대코드 입력 안내", chat_first: true },
+    { group: "가계부", command: "가계부 전환", description: "가계부 목록·변경 웹 화면 안내", chat_first: true },
     { group: "콘텐츠", command: "밈", description: "소비밈/소비몬 안내", chat_first: true },
     { group: "웹", command: `${origin}/my`, description: "로그인·상세 설정·분석·백업", chat_first: false },
   ];
@@ -4934,7 +4937,7 @@ async function handleOperationCenterPage(request, env, url) {
     ["예산 알림 센터", "/budget-alerts", "오늘 사용 가능 금액, 월말 예상, 정기지출 예정, 초과/주의 분류를 확인합니다.", "신규"],
     ["모임·여행 가계부", "/meeting-households", "모임/여행/단발성 가계부 템플릿과 정산 흐름을 확인합니다.", "신규"],
     ["정산 요약", "/settlement-summary", "참여자별 지출과 1/N 정산 금액을 확인합니다.", "신규"],
-    ["예산 알림 가이드", "/budget-alert-guide", "예산 알림·오늘 예산·월말 예상 기준을 설명합니다.", "신규"],
+    ["예산 알림 가이드", "/budget-alert-guide", "예산 알림·오늘 사용 가능 금액·월말 예상 기준을 설명합니다.", "신규"],
     ["운영 대시보드", "/ops-dashboard", "최근 오류·트래픽·카카오 발화를 한 화면에서 확인합니다.", "운영"],
     ["트래픽 가드", "/ops-traffic", "과도 요청 제한과 최근 제한 이벤트를 확인합니다.", "신규"],
     ["스킬 운영", "/skill-ops", "최근 카카오 발화와 스킬 상태를 확인합니다.", "운영"],
@@ -6033,7 +6036,7 @@ function openBuilderFinalRows(origin = "") {
     ["기록 입력", "점심 12000 국민카드, 커피 4500 카카오페이", "입력 블록 또는 폴백 → Skill", skill],
     ["여러 줄 입력", "7월3일\\n온열안대 9900 삼성카드\\n풋샴푸 10150 삼성카드", "폴백 → Skill", skill],
     ["조회", "요약, 오늘 기록, 최근, 내역", "조회 블록 → Skill", skill],
-    ["예산", "남은예산, 오늘예산, 이번달예상, 정기지출", "예산 블록 → Skill", skill],
+    ["예산", "남은예산, 예산 확인, 이번달예상, 정기지출", "예산 블록 → Skill", skill],
     ["수정/삭제", "01번 금액 13000원, 01번 삭제, 수정가이드", "수정 블록 → Skill", skill],
     ["단톡방", "단톡방, 단톡방 연결 ABC123, 그룹 정보", "그룹 연결 블록 → Skill", skill],
     ["정책", "개인정보, 데이터 보관, 브랜드, 심사", "안내 블록 → Skill", skill],
@@ -6050,7 +6053,7 @@ async function handleOpenBuilderFinalUtterancePage(request, env, url) {
     "필수 발화",
     "도움말 / 처음 / 메뉴 / 입력 예시",
     "요약 / 오늘 기록 / 최근",
-    "남은예산 / 오늘예산 / 이번달예상 / 정기지출",
+    "남은예산 / 예산 확인 / 이번달예상 / 정기지출",
     "01번 삭제 / 01번 금액 13000원 / 수정가이드",
     "단톡방 / 단톡방 연결 초대코드 / 그룹 정보",
     "개인정보 / 브랜드 / 심사 / 폴백",
@@ -6131,7 +6134,7 @@ async function handleBetaChecklistPage(request, env, url) {
     ["가계부", "새 가계부 만들기, 초대코드 참여, 전환 흐름 확인"],
     ["권한", "viewer 저장 차단, member 자기 기록 중심 수정, owner/admin 관리 확인"],
     ["입력", "한 줄/여러 줄/날짜별 입력, 중복 저장 방어 확인"],
-    ["예산", "오늘 예산, 남은 예산, 월말 예상, 정기지출 예정 확인"],
+    ["예산", "남은 예산, 오늘 사용 가능 금액, 월말 예상, 정기지출 예정 확인"],
     ["모임", "여행/모임 가계부 생성, 정산 요약, 공유 문구 확인"],
     ["운영", "운영 대시보드, 트래픽, 스킬 발화, 중복 방어 이벤트 확인"],
     ["백업", "배포 전 JSON/CSV 백업, 가져오기 미리보기 확인"],
@@ -6148,7 +6151,7 @@ async function handleRealUserQaPage(request, env, url) {
     ["/app", "빠른 입력", "한 줄·여러 줄·날짜별 입력 후 분류와 결제수단이 카카오와 비슷하게 잡히는지 확인", `/app?month=${encodeURIComponent(month)}${hh}#add`],
     ["/my/households", "가계부 생성/참여", "기존 가계부가 있어도 새 모임·여행 가계부를 만들고 초대코드 참여가 가능한지 확인", "/my/households"],
     ["/menu", "사용자 메뉴", "운영/점검 메뉴가 일반 전체보기에서 보이지 않는지 확인", `/menu?month=${encodeURIComponent(month)}${hh}`],
-    ["/budget-alerts", "예산 알림", "오늘예산·월말예상·정기지출예정·초과/주의 분류가 자연스럽게 보이는지 확인", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`],
+    ["/budget-alerts", "예산 알림", "오늘 사용 가능 금액·월말예상·정기지출예정·초과/주의 분류가 자연스럽게 보이는지 확인", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`],
     ["/settlement-summary", "모임 정산", "참여자별 지출과 1/N 정산 요약이 선택 가계부 범위 안에서만 보이는지 확인", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
     ["/meme-lab", "밈 화면", "흰 글자 묻힘, 과한 문구, 부적절한 단어 없이 전체이용가 톤인지 확인", "/meme-lab"],
     ["/privacy", "심사 정보", "개인정보 안내와 하단 사업자 푸터가 자연스럽게 표시되는지 확인", "/privacy"],
@@ -6447,7 +6450,7 @@ function renderPendingRecurringList(model) {
 }
 
 function budgetAlertKakaoHint(model) {
-  if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 남은예산, 오늘예산, 이번달예상처럼 확인할 수 있어요.";
+  if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 남은예산, 예산 확인, 이번달예상처럼 확인할 수 있어요.";
   if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
@@ -6478,7 +6481,7 @@ function renderBudgetAlertPolishHtml({ env, month, households, selectedHousehold
   const forecastLabel = model.forecastDiff > 0 ? `예산보다 ${numberWithCommas(model.forecastDiff)}원 초과 예상` : model.totalBudget ? `예산보다 ${numberWithCommas(Math.abs(model.forecastDiff))}원 여유 예상` : "예산 설정 후 계산";
   const afterPendingLabel = model.afterPendingDiff > 0 ? `정기지출 반영 후 ${numberWithCommas(model.afterPendingDiff)}원 초과 가능` : model.totalBudget ? `정기지출 반영 후 ${numberWithCommas(Math.abs(model.afterPendingDiff))}원 여유` : "예산 설정 후 계산";
   const topWarn = [...model.dangerCategories, ...model.warningCategories].slice(0, 5).map((x) => `<span>${escapeHtml(x.category)} ${numberWithCommas(x.rate)}%</span>`).join("") || `<span>주의 분류 없음</span>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 예산 알림</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.filters{display:grid;grid-template-columns:1fr 160px 110px;gap:8px;margin-top:12px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.pill,.state{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:1000;font-size:12px}.pill.ok,.state.ok{background:#dcfce7;color:#166534}.pill.warn,.state.warn{background:#fef3c7;color:#92400e}.pill.bad,.state.bad{background:#fee2e2;color:#991b1b}.pill.setup{background:#eef2ff;color:#3730a3}.notice{border-radius:20px;padding:16px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.65}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}.chips span{display:inline-flex;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:7px 10px;font-size:12px;font-weight:1000}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:middle}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;min-width:110px}.miniBar span{display:block;height:100%;border-radius:999px;background:#16a34a}.miniBar span.warn{background:#f59e0b}.miniBar span.bad{background:#ef4444}.recList{display:grid;gap:8px;list-style:none;margin:0;padding:0}.recList li{display:grid;grid-template-columns:1fr auto;gap:6px;border:1px solid #e8edf4;border-radius:16px;padding:12px}.recList span{color:#64748b;font-size:13px}.recList strong{grid-row:1/3;grid-column:2;font-size:18px}.kakaoBox{background:#fefce8;border:1px solid #fde68a;border-radius:18px;padding:14px;color:#713f12;line-height:1.6}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.filters{grid-template-columns:1fr}.metric b{font-size:21px}.recList li{grid-template-columns:1fr}.recList strong{grid-row:auto;grid-column:auto}}</style></head><body>${renderUnifiedNav("budget-alerts", { month, householdId: selectedHousehold.id, householdName: selectedHousehold.name })}<main class="wrap"><section class="hero"><p>${renderBudgetAlertStatusPill(model.status)}</p><h1>예산 알림 센터</h1><p>${escapeHtml(model.statusMessage)}</p><form class="filters" method="get" action="/budget-alerts"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>오늘 사용 가능</span><b>${model.dailyAllowance ? numberWithCommas(model.dailyAllowance) + "원" : "설정 필요"}</b></div><div class="metric"><span>이번 달 사용</span><b>${numberWithCommas(model.spent)}원</b></div><div class="metric"><span>남은 예산</span><b>${model.totalBudget ? numberWithCommas(model.remainingBudget) + "원" : "미설정"}</b></div><div class="metric"><span>월말 예상</span><b>${numberWithCommas(model.forecastExpense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${model.totalBudget ? numberWithCommas(model.rate) + "%" : "-"}</b></div><div class="metric"><span>정기지출 대기</span><b>${numberWithCommas(model.pendingRecurringTotal)}원</b></div></section><section class="card"><h2>이번 달 예산 판단</h2><div class="notice"><b>${escapeHtml(model.statusText)}</b><br/>${escapeHtml(forecastLabel)} · ${escapeHtml(afterPendingLabel)}<div class="chips">${topWarn}</div></div></section><section class="card"><h2>분류별 초과/주의</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>게이지</th><th>상태</th></tr></thead><tbody>${renderBudgetAlertRows(model)}</tbody></table></div></section><section class="card"><h2>정기지출 반영 예정</h2>${renderPendingRecurringList(model)}</section><section class="card"><h2>카카오 안내 문구</h2><div class="kakaoBox">${escapeHtml(budgetAlertKakaoHint(model))}<br/><br/>추천 발화: <b>남은예산</b>, <b>오늘예산</b>, <b>이번달예상</b>, <b>정기지출</b></div></section><section class="card"><h2>바로가기</h2><div class="actions"><a class="btn" href="${escapeHtml(appHref)}#quick">기록 입력</a><a class="btn light" href="${escapeHtml(budgetHref)}">예산 설정</a><a class="btn light" href="${escapeHtml(recurringHref)}">정기지출</a><a class="btn light" href="/budget-alert-guide">알림 기준</a></div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 예산 알림</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.filters{display:grid;grid-template-columns:1fr 160px 110px;gap:8px;margin-top:12px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.pill,.state{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:1000;font-size:12px}.pill.ok,.state.ok{background:#dcfce7;color:#166534}.pill.warn,.state.warn{background:#fef3c7;color:#92400e}.pill.bad,.state.bad{background:#fee2e2;color:#991b1b}.pill.setup{background:#eef2ff;color:#3730a3}.notice{border-radius:20px;padding:16px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.65}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}.chips span{display:inline-flex;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:7px 10px;font-size:12px;font-weight:1000}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:middle}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;min-width:110px}.miniBar span{display:block;height:100%;border-radius:999px;background:#16a34a}.miniBar span.warn{background:#f59e0b}.miniBar span.bad{background:#ef4444}.recList{display:grid;gap:8px;list-style:none;margin:0;padding:0}.recList li{display:grid;grid-template-columns:1fr auto;gap:6px;border:1px solid #e8edf4;border-radius:16px;padding:12px}.recList span{color:#64748b;font-size:13px}.recList strong{grid-row:1/3;grid-column:2;font-size:18px}.kakaoBox{background:#fefce8;border:1px solid #fde68a;border-radius:18px;padding:14px;color:#713f12;line-height:1.6}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.filters{grid-template-columns:1fr}.metric b{font-size:21px}.recList li{grid-template-columns:1fr}.recList strong{grid-row:auto;grid-column:auto}}</style></head><body>${renderUnifiedNav("budget-alerts", { month, householdId: selectedHousehold.id, householdName: selectedHousehold.name })}<main class="wrap"><section class="hero"><p>${renderBudgetAlertStatusPill(model.status)}</p><h1>예산 알림 센터</h1><p>${escapeHtml(model.statusMessage)}</p><form class="filters" method="get" action="/budget-alerts"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>오늘 사용 가능</span><b>${model.dailyAllowance ? numberWithCommas(model.dailyAllowance) + "원" : "설정 필요"}</b></div><div class="metric"><span>이번 달 사용</span><b>${numberWithCommas(model.spent)}원</b></div><div class="metric"><span>남은 예산</span><b>${model.totalBudget ? numberWithCommas(model.remainingBudget) + "원" : "미설정"}</b></div><div class="metric"><span>월말 예상</span><b>${numberWithCommas(model.forecastExpense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${model.totalBudget ? numberWithCommas(model.rate) + "%" : "-"}</b></div><div class="metric"><span>정기지출 대기</span><b>${numberWithCommas(model.pendingRecurringTotal)}원</b></div></section><section class="card"><h2>이번 달 예산 판단</h2><div class="notice"><b>${escapeHtml(model.statusText)}</b><br/>${escapeHtml(forecastLabel)} · ${escapeHtml(afterPendingLabel)}<div class="chips">${topWarn}</div></div></section><section class="card"><h2>분류별 초과/주의</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>게이지</th><th>상태</th></tr></thead><tbody>${renderBudgetAlertRows(model)}</tbody></table></div></section><section class="card"><h2>정기지출 반영 예정</h2>${renderPendingRecurringList(model)}</section><section class="card"><h2>카카오 안내 문구</h2><div class="kakaoBox">${escapeHtml(budgetAlertKakaoHint(model))}<br/><br/>추천 발화: <b>남은예산</b>, <b>예산 확인</b>, <b>이번달예상</b>, <b>정기지출</b></div></section><section class="card"><h2>바로가기</h2><div class="actions"><a class="btn" href="${escapeHtml(appHref)}#quick">기록 입력</a><a class="btn light" href="${escapeHtml(budgetHref)}">예산 설정</a><a class="btn light" href="${escapeHtml(recurringHref)}">정기지출</a><a class="btn light" href="/budget-alert-guide">알림 기준</a></div></section></main></body></html>`;
 }
 
 async function handleBudgetAlertGuidePage(request, env, url) {
@@ -6585,7 +6588,7 @@ async function handleReleaseCandidateCheckPage(request, env, url) {
     ["/households 사용자 관리", true, "참여자 관리 화면에도 생성/참여 폼 보강"],
     ["권한 범위", true, "owner/admin/member/viewer/pending/blocked 구조 유지"],
     ["중복/트래픽 방어", true, "V20.2 중복 저장·반복 발화 방어 유지"],
-    ["예산 알림", true, "오늘 예산·월말 예상·정기지출 예정 안내 유지"],
+    ["예산 알림", true, "오늘 사용 가능 금액·월말 예상·정기지출 예정 안내 유지"],
     ["카카오 단톡방/OpenBuilder", true, "V20.5 안내/점검 경로 유지"],
     ["베타 UX 가이드", true, "V20.6 사용자 폴리시 가이드 유지"],
   ];
@@ -11389,6 +11392,9 @@ function kakaoInputExampleText(origin = "") {
   return [
     "📝 입력 예시",
     "",
+    "아직 가계부가 없다면 \"가계부 만들기\"를 먼저 보내주세요.",
+    "만들기 → 참여 → 기록 순서로 시작해요.",
+    "",
     "지출",
     "• 점심 12000원 국민카드",
     "• 커피 5000원 현금",
@@ -11547,7 +11553,15 @@ function isMemeCommand(text = "") {
 }
 
 function isHouseholdSwitchCommand(text = "") {
-  return /^(가계부전환|가계부 전환|가계부목록|가계부 목록|내가계부목록|내 가계부 목록|장부전환|장부 전환)$/i.test(normalizeText(text));
+  return /^(가계부전환|가계부 전환|가계부목록|가계부 목록|내가계부목록|내 가계부 목록|장부전환|장부 전환|가계부변경|가계부 변경|가계부이동|가계부 이동|다른가계부|다른 가계부)$/i.test(normalizeText(text));
+}
+
+function isHouseholdCreateGuideCommand(text = "") {
+  return /^(가계부만들기|가계부 만들기|새가계부|새 가계부|신규가계부|신규 가계부|가계부생성|가계부 생성|새가계부만들기|새 가계부 만들기|새가계부 생성|새 가계부 생성|새로만들기|새로 만들기|신규생성|신규 생성)$/i.test(normalizeText(text));
+}
+
+function isHouseholdJoinGuideCommand(text = "") {
+  return /^(가계부참여|가계부 참여|참여방법|참여 방법|참여하기|참가|참가하기)$/i.test(normalizeText(text));
 }
 
 function parseCreateHouseholdCommand(text = "") {
@@ -11558,20 +11572,28 @@ function parseCreateHouseholdCommand(text = "") {
 }
 
 function kakaoCommandMenuText(origin = "") {
+  // 처음 시작 순서(만들기 → 참여 → 기록)대로 정렬합니다.
   return [
     "📌 사용 가능한 명령",
     "",
+    "시작",
+    "• 가계부 만들기",
+    "• 단톡방 연결 + 초대코드",
+    "  예: 단톡방 연결 ABC123",
+    "",
+    "기록",
     "• 기록 + 내용",
     "  예: 기록 점심 12000원 국민카드",
-    "• 오늘 기록",
-    "• 남은예산",
-    "• 요약",
-    "• 정산",
     "• 수정 + 번호",
     "  예: 수정 01번 금액 13000원",
-    "• 단톡방 연결 + 초대코드",
-    "• 도움말",
-    "• 링크",
+    "",
+    "조회",
+    "• 오늘 기록",
+    "• 요약",
+    "• 남은예산",
+    "• 정산",
+    "",
+    "• 도움말 / 링크",
   ].join("\n");
 }
 
@@ -11590,36 +11612,47 @@ function kakaoMemeGuideText(origin = "") {
   ].filter(Boolean).join("\n");
 }
 
-async function kakaoHouseholdSwitchText(env, user = {}, origin = "") {
-  const households = await fetchUserHouseholds(env, user.id);
-  if (!households.length) {
-    return [
-      "📒 아직 연결된 가계부가 없어요.",
-      "",
-      "아래처럼 새 가계부를 만들 수 있어요.",
-      "새가계부 만들기 우리집",
-      "새가계부 만들기 여행비",
-      "",
-      "초대코드가 있으면 이렇게 보내주세요.",
-      "가계부참여 ABC123",
-      "",
-      origin ? `웹에서 만들기/참여\n${origin}/my/households` : "",
-    ].filter(Boolean).join("\n");
-  }
-  const lines = households.slice(0, 8).map((h, i) => `${i + 1}. ${h.name || "가계부"} · ${userHouseholdRoleLabel(h.role || "member")} · 초대코드 ${h.invite_code || "-"}`);
+function kakaoOnboardingGuideText(origin = "", { groupRoom = false } = {}) {
+  // 처음 시작 순서: 가계부 생성 → 참여 → 기록. 가계부가 없으면 기록 예시보다 생성 안내가 먼저 나옵니다.
   return [
-    "📒 내 가계부 목록",
+    "🚀 처음 오셨네요! 이 순서로 시작해요.",
     "",
-    ...lines,
+    "1단계. 가계부 만들기",
+    `${origin}/my/households`,
+    "위 화면에서 새 가계부를 만들어주세요.",
     "",
-    "단톡방에 연결하려면 그룹방에서 이렇게 입력하세요.",
+    "2단계. 함께 쓰기 (참여)",
+    groupRoom
+      ? "이 그룹방에서 아래처럼 보내면 방 전체가 연결돼요.\n단톡방 연결 초대코드"
+      : "그룹 채팅방에서는 \"단톡방 연결 초대코드\"로 연결하고,\n개인 참여는 위 화면에서 초대코드를 입력해요.",
+    "",
+    "3단계. 기록하기",
+    "가계부가 연결되면 이렇게 보내면 저장돼요.",
+    "점심 12000원 국민카드",
+    "",
+    "그다음 요약, 남은예산, 정산도 바로 쓸 수 있어요.",
+  ].join("\n");
+}
+
+function kakaoHouseholdManageGuideText(origin = "", kind = "create") {
+  // P0-4: 가계부 만들기·참여·전환은 카카오톡에서 직접 처리하지 않고 안내만 반환합니다. (V21.5 재설계 전까지)
+  const head = kind === "join" ? "👥 가계부 참여 안내" : kind === "switch" ? "📒 가계부 전환·목록 안내" : "🆕 가계부 만들기 안내";
+  const action = kind === "join"
+    ? "가계부 참여는 아래 화면에서 초대코드를 입력하면 완료돼요."
+    : kind === "switch"
+      ? "내 가계부 목록 확인과 선택 가계부 변경은 아래 화면에서 진행해요."
+      : "새 가계부 만들기는 아래 화면에서 진행해요.";
+  return [
+    head,
+    "",
+    action,
+    `${origin}/my/households`,
+    "",
+    "그룹 채팅방을 연결하려면 그 방에서 이렇게 보내주세요.",
     "단톡방 연결 초대코드",
     "",
-    "새 가계부는 이렇게 만들 수 있어요.",
-    "새가계부 만들기 여행비",
-    "",
-    origin ? `가계부 전환·추가\n${origin}/my/households` : "",
-  ].filter(Boolean).join("\n");
+    "연결이 끝나면 순서대로 진행돼요: 만들기 → 참여 → 기록",
+  ].join("\n");
 }
 
 function kakaoPublicCommandReply(utterance = "", origin = "", env = {}) {
@@ -11713,61 +11746,6 @@ function kakaoDefaultQuickReplies() {
     ["단톡방 연결", "단톡방 연결 "],
     ["도움말", "도움말"],
   ]);
-}
-
-function kakaoQuickRepliesForText(text = "") {
-  const t = String(text || "");
-  if (/저장했어요|저장 확인|수정 완료|삭제 완료|방금 같은 내용/.test(t)) {
-    return dedupeQuickReplies([
-      ["오늘기록", "오늘 기록"],
-      ["요약", "요약"],
-      ["오늘예산", "오늘예산"],
-      ["수정가이드", "수정가이드"],
-      ["방금삭제", "방금 삭제"],
-      ["메뉴", "메뉴"],
-    ]);
-  }
-  if (/예산|남은 돈|사용률/.test(t)) {
-    return dedupeQuickReplies([
-      ["요약", "요약"],
-      ["오늘기록", "오늘 기록"],
-      ["분류별지출", "분류별지출"],
-      ["예산설정", "예산 설정"],
-      ["입력예시", "입력 예시"],
-      ["메뉴", "메뉴"],
-    ]);
-  }
-  if (/초대코드|가계부 참여|가계부 연결|내 가계부 목록|단톡방 연결/.test(t)) {
-    return dedupeQuickReplies([
-      ["가계부전환", "가계부전환"],
-      ["초대코드", "초대코드"],
-      ["참여방법", "가계부연결"],
-      ["요약", "요약"],
-      ["입력예시", "입력 예시"],
-      ["메뉴", "메뉴"],
-    ]);
-  }
-  if (/입력 예시|사용법|바로 쓰는 명령어|원하는 메뉴/.test(t)) {
-    return kakaoDefaultQuickReplies();
-  }
-  if (/최근 입력|오늘 기록/.test(t)) {
-    return dedupeQuickReplies([
-      ["수정가이드", "수정가이드"],
-      ["요약", "요약"],
-      ["오늘예산", "오늘예산"],
-      ["입력예시", "입력 예시"],
-      ["메뉴", "메뉴"],
-    ]);
-  }
-  if (/밈|소비몬/.test(t)) {
-    return dedupeQuickReplies([
-      ["요약", "요약"],
-      ["오늘예산", "오늘예산"],
-      ["오늘기록", "오늘 기록"],
-      ["메뉴", "메뉴"],
-    ]);
-  }
-  return kakaoDefaultQuickReplies();
 }
 
 function kakaoText(text, options = null) {
@@ -12203,6 +12181,12 @@ async function handleKakaoSkillStable(request, env) {
     utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
   } catch (err) {
     const rawUtterance = String(bodyText || "").trim();
+    // 운영 기본값에서는 비 JSON 본문을 거래 처리하지 않습니다. (P0-1)
+    // 원문 테스트는 ALLOW_RAW_SKILL_TEST=1 개발 설정에서만 허용합니다.
+    if (rawUtterance && env.ALLOW_RAW_SKILL_TEST !== "1") {
+      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: "non-JSON body rejected (raw test disabled)" });
+      return kakaoText(kakaoSkillSafeFallbackText(origin));
+    }
     if (rawUtterance) {
       payload = {
         intent: { id: "raw-test", name: "raw-text-test" },
@@ -12284,30 +12268,17 @@ async function handleKakaoSkill(request, env) {
 
   const user = await ensureUser(env, kakaoUserKey, nickname);
 
-  const createHouseholdName = parseCreateHouseholdCommand(utterance);
-  if (createHouseholdName) {
-    try {
-      const createdHousehold = await createUserHousehold(env, user.id, createHouseholdName, nickname);
-      return kakaoText(`✅ 새 가계부를 만들었어요.
-가계부: ${createdHousehold.name}
-초대코드: ${createdHousehold.invite_code}
-
-가족/모임원에게 이렇게 보내주세요.
-가계부참여 ${createdHousehold.invite_code}
-
-이제 카톡에서 바로 기록할 수 있어요.
-점심 12000 삼성카드
-요약`);
-    } catch (err) {
-      return kakaoText(`새 가계부 만들기가 잠시 지연되고 있어요.
-
-아래 화면에서도 만들 수 있습니다.
-${origin}/my/households`);
-    }
+  // P0-4: 가계부 만들기·참여·전환은 안내형으로 제한합니다. 데이터 변경 없이 대표 주소 1개만 안내합니다.
+  if (parseCreateHouseholdCommand(utterance) || isHouseholdCreateGuideCommand(utterance)) {
+    return kakaoText(kakaoHouseholdManageGuideText(origin, "create"), { allowLinks: true });
   }
 
   if (isHouseholdSwitchCommand(utterance)) {
-    return kakaoText(await kakaoHouseholdSwitchText(env, user, origin));
+    return kakaoText(kakaoHouseholdManageGuideText(origin, "switch"), { allowLinks: true });
+  }
+
+  if (isHouseholdJoinGuideCommand(utterance)) {
+    return kakaoText(kakaoHouseholdManageGuideText(origin, "join"), { allowLinks: true });
   }
 
   const botGroupKey = getKakaoBotGroupKey(payload);
@@ -12327,43 +12298,10 @@ ${origin}/my/households`);
     return kakaoText(await kakaoGroupInfoText(env, payload, origin, user));
   }
 
+  // P0-4: 개인 채팅의 "가계부 참여 초대코드"도 안내형으로 제한합니다. (그룹방의 "단톡방 연결"은 위에서 기존대로 처리)
   const joinCode = parseJoinCode(utterance);
   if (joinCode) {
-    try {
-      const joined = await joinHouseholdByCode(env, user.id, joinCode);
-      if (!joined) {
-        return kakaoText(`초대코드 ${joinCode}를 찾지 못했습니다. 코드를 다시 확인해주세요.`);
-      }
-      if (["pending","blocked","viewer"].includes(joined.join_role)) {
-        return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 참여 요청 완료
-가계부: ${joined.name}
-
-관리자 승인 후 같은 가계부에 기록할 수 있습니다.
-관리자에게 /households 화면에서 승인 요청을 알려주세요.`);
-      }
-      const warn = joined.join_warning ? `
-
-참고: 현재 DB가 승인대기 권한을 아직 지원하지 않아 바로 구성원으로 연결했습니다. 승인제로 쓰려면 저장 구조 확인을 실행하세요.` : "";
-      return kakaoText(`✅ 가계부 참여 완료
-가계부: ${joined.name}${warn}
-
-이제 아래처럼 바로 기록해보세요.
-점심 12000원
-커피 4500원 카드
-
-내 가계부 웹
-${origin}/my
-
-명령어: 요약 / 최근 / 취소`);
-    } catch (err) {
-      return kakaoText(`초대코드 확인이 잠시 지연되고 있어요.
-
-코드를 다시 확인한 뒤 아래처럼 보내주세요.
-가계부 참여 ABC123
-
-가계부 시작하기
-${origin}/my`);
-    }
+    return kakaoText(kakaoHouseholdManageGuideText(origin, "join"), { allowLinks: true });
   }
 
   const pendingHousehold = await getPendingHousehold(env, user.id);
@@ -12372,6 +12310,10 @@ ${origin}/my`);
   }
 
   const household = await resolveKakaoHousehold(env, user, nickname, payload);
+  if (!household) {
+    // 처음 시작 온보딩: 가계부가 없으면 기록·조회 대신 생성 → 참여 → 기록 순서를 안내합니다.
+    return kakaoText(kakaoOnboardingGuideText(origin, { groupRoom: !!getKakaoBotGroupKey(payload) }), { allowLinks: true });
+  }
   const accessRole = await getHouseholdMemberRole(env, user.id, household.id);
   if (["blocked","viewer","pending"].includes(accessRole) && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isSummaryCommand(utterance) && !isSettlementCommand(utterance) && !isBudgetCommand(utterance) && !isRecentCommand(utterance)) {
     return kakaoText(roleBlockedMessage(accessRole, household.name));
@@ -12389,7 +12331,7 @@ ${origin}/my`);
   }
 
   if (isInviteCommand(utterance)) {
-    return kakaoText(`👥 가족 초대하기\n초대코드: ${household.invite_code}\n\n가족에게 아래 문장을 보내세요.\n가계부 참여 ${household.invite_code}\n\n사용자 웹\n${origin}/my\n\n참여 후에는 "점심 12000원"처럼 각자 입력하면 같은 가계부에 모입니다.`);
+    return kakaoText(`👥 가족·모임원 초대하기\n초대코드: ${household.invite_code}\n\n같이 쓰는 방법 (둘 중 하나)\n1. 그룹 채팅방에 봇을 초대한 뒤 그 방에서\n   단톡방 연결 ${household.invite_code}\n2. 참여자가 웹 화면에서 초대코드 입력\n\n참여 후에는 "점심 12000원"처럼 각자 입력하면 같은 가계부에 모입니다.`);
   }
 
   if (isBudgetCommand(utterance)) {
@@ -12750,7 +12692,9 @@ async function resolveKakaoHousehold(env, user = {}, nickname = "", payload = {}
       return { ...linked, from_group_link: true, bot_group_key: groupKey };
     }
   }
-  return await ensurePrimaryHousehold(env, user.id, nickname);
+  // V21.4.4: 가계부가 없으면 자동 생성하지 않고 null을 반환합니다.
+  // 호출부가 온보딩 안내(만들기 → 참여 → 기록)로 응답합니다.
+  return await findPrimaryHousehold(env, user.id);
 }
 
 async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = "") {
@@ -12872,7 +12816,7 @@ async function ensureUser(env, kakaoUserKey, nickname) {
   return Array.isArray(created) ? created[0] : created;
 }
 
-async function ensurePrimaryHousehold(env, userId, nickname) {
+async function findPrimaryHousehold(env, userId) {
   const forcedHouseholdId = String(env.KAKAO_DEFAULT_HOUSEHOLD_ID || "").trim();
   if (forcedHouseholdId) {
     const forcedRows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(forcedHouseholdId)}&select=id,name,invite_code&limit=1`, { method: "GET" });
@@ -12895,22 +12839,9 @@ async function ensurePrimaryHousehold(env, userId, nickname) {
     const householdRows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(writable.household_id)}&select=id,name,invite_code&limit=1`, { method: "GET" });
     if (householdRows?.[0]) return householdRows[0];
   }
-
-  const householdName = `${nickname || "내"} 가계부`.slice(0, 80);
-  const householdRows = await supabase(env, "/rest/v1/households", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ name: householdName, invite_code: makeInviteCode() }),
-  });
-  const household = Array.isArray(householdRows) ? householdRows[0] : householdRows;
-
-  await supabase(env, "/rest/v1/household_members", {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ household_id: household.id, user_id: userId, role: "owner" }),
-  });
-
-  return household;
+  // V21.4.4: 자동 생성하지 않습니다. 가계부 생성은 웹(/my/households)에서 진행하고
+  // 카카오톡은 온보딩 안내(만들기 → 참여 → 기록)로 응답합니다. (V21.5 재설계 전까지)
+  return null;
 }
 
 async function joinHouseholdByCode(env, userId, code) {
@@ -13041,7 +12972,7 @@ function isUndoCommand(text) {
 }
 
 function isInputExampleCommand(text) {
-  return /^(기록|입력|입력하기|지출입력|지출 입력|수입입력|수입 입력|입력예시|입력 예시|예시|예제|어떻게입력|어떻게 입력|카톡입력|카톡 입력)$/i.test(normalizeText(text));
+  return /^(기록|기록예시|기록 예시|입력|입력하기|지출입력|지출 입력|수입입력|수입 입력|입력예시|입력 예시|예시|예제|어떻게입력|어떻게 입력|카톡입력|카톡 입력)$/i.test(normalizeText(text));
 }
 
 function isKeywordGuideCommand(text) {
@@ -13069,7 +13000,7 @@ function isDataPolicyCommand(text) {
 }
 
 function isGroupLinkInfoCommand(text) {
-  return /^(단톡방|단톡방정보|단톡방 정보|단톡방연결|단톡방 연결|그룹연결|그룹 연결|방연결|방 연결|방정보|방 정보|그룹정보|그룹 정보)$/i.test(normalizeText(text));
+  return /^(단톡방|단톡방정보|단톡방 정보|단톡방연결|단톡방 연결|그룹연결|그룹 연결|방연결|방 연결|방정보|방 정보|그룹정보|그룹 정보|가계부연결|가계부 연결)$/i.test(normalizeText(text));
 }
 
 function parseGroupBindCommand(text = "") {
@@ -13759,7 +13690,10 @@ function helpText(inviteCode = "", origin = "") {
   return [
     "🚀 똑똑한가계부 사용법",
     "",
-    "카카오톡에 말하듯 입력하면 저장됩니다.",
+    "처음 시작 순서",
+    "1. 가계부 만들기 — \"가계부 만들기\"라고 보내면 안내해드려요",
+    "2. 함께 쓰기 — 그룹방에서 \"단톡방 연결 초대코드\"",
+    "3. 기록하기 — 가계부 연결 후 아래처럼 보내면 저장돼요",
     "",
     "입력 예시",
     "• 점심 12000원 국민카드",
@@ -13768,16 +13702,14 @@ function helpText(inviteCode = "", origin = "") {
     "• 월급 250만원",
     "",
     "자주 쓰는 말",
+    "• 오늘 기록: 오늘 입력 목록과 수정 번호",
     "• 요약: 이번 달 합계",
-    "• 최근 / 오늘 기록: 최근 기록 확인",
-    "• 입력 예시: 입력 방법 보기",
-    "• 키워드 안내: 자동분류 단어 보기",
+    "• 남은예산: 남은 예산과 사용률",
     "• 수정가이드: 01번 수정/삭제 방법",
-    "• 링크: 사용자용 링크",
+    "• 키워드 안내: 자동분류 단어 보기",
+    "• 링크: 사용자용 웹 주소",
     "",
     `"/" 를 입력하면 명령어 목록이 열립니다.`,
-    "",
-    origin ? `가계부 시작하기\n${origin}/my\n\n시작가이드\n${origin}/start-guide` : "",
   ].filter(Boolean).join("\n");
 }
 
