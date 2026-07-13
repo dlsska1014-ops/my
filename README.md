@@ -1,9 +1,9 @@
-# 똑똑한가계부 Cloudflare Bundle — V21.6.0
+# 똑똑한가계부 Cloudflare Bundle — V21.6.1
 
 현재 버전:
 
 ```text
-V21.6.0-ANALYSIS-STUDIO
+V21.6.1-FINAL-POLISH
 ```
 
 공개 도메인:
@@ -17,6 +17,15 @@ Kakao OpenBuilder Skill URL:
 ```text
 https://ttokttok-accountbook.com/skill
 ```
+
+## V21.6.1 추가 개선 — 파이널 폴리시
+
+- 종합 리포트에서 "PC 전체 화면", "PC 예산 화면" 버튼 제거 — /my 반응형 화면으로 통일
+- 총지출·총수입 증감률을 "지난달 같은 기간 대비"로 공정 비교 (진행 중인 달 왜곡 제거)
+- 도넛 차트 팔레트를 색각이상 검증 8색으로 교체, 스튜디오 도넛은 조회 기준 순위로
+  색을 배정해 회색 반복 문제 해결
+- 사이드 메뉴: 모바일에서는 접힌 상태로 시작, PC에서는 토글 없이 항상 보이는 사이드바
+- 하단 사업자 정보를 가로로 넓게 퍼지는 은은한 푸터로 재디자인
 
 ## V21.6.0 추가 개선 — 분석 스튜디오
 
@@ -103,7 +112,7 @@ node smoke_v2160.mjs
 
 ## 배포 후 확인
 
-1. `/health`에서 `V21.6.0-ANALYSIS-STUDIO` 확인
+1. `/health`에서 `V21.6.1-FINAL-POLISH` 확인
 2. OpenBuilder Skill URL과 폴백 블록 연결 확인
 3. 신규 사용자 `/시작`부터 첫 기록까지 실제 그룹방 테스트
 4. 일반 기록 응답에 링크와 quickReplies가 없는지 확인

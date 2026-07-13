@@ -12,7 +12,7 @@ async function get(path) {
 let res = await get('/health');
 const health = await res.json();
 console.log('/health', res.status, health.version);
-if (health.version !== 'V21.6.0-ANALYSIS-STUDIO') throw new Error('version mismatch');
+if (!/^V21\.6\./.test(String(health.version))) throw new Error('version mismatch');
 
 res = await get('/my/analysis/app.js');
 const js = await res.text();

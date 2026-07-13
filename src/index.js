@@ -1189,7 +1189,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.6.0-ANALYSIS-STUDIO";
+const APP_VERSION = "V21.6.1-FINAL-POLISH";
 const APP_MODE = "kakao-skill-latency-hotfix";
 
 function normalizeBaseUrl(value = "") {
@@ -1277,14 +1277,18 @@ function businessFooterText(value = "") {
 
 function renderBusinessInfoFooter() {
   const info = BUSINESS_FOOTER_INFO;
-  return `<footer class="abBusinessFooter" aria-label="사업자 정보" style="margin:22px 0 0;padding:16px 4px 0;border-top:1px solid #e5e7eb;color:#64748b;font-size:12px;line-height:1.7;letter-spacing:-.02em;word-break:keep-all;overflow-wrap:anywhere">
-    <div style="font-weight:900;color:#334155;margin-bottom:4px">사업자 정보</div>
-    <div>상호: ${businessFooterText(info.company)}</div>
-    <div>사업자등록번호: ${businessFooterText(info.businessNumber)}</div>
-    <div>사업장 소재지: ${businessFooterText(info.address)}</div>
-    <div>업태: ${businessFooterText(info.businessType)}</div>
-    <div>종목: ${businessFooterText(info.businessItem)}</div>
-    <div>서비스명: ${businessFooterText(info.service)}</div>
+  const item = (label, value) => `<span style="display:inline-flex;align-items:baseline;gap:5px;min-width:0"><b style="font-weight:700;color:#8B95A1;white-space:nowrap">${label}</b><span>${value}</span></span>`;
+  return `<footer class="abBusinessFooter" aria-label="사업자 정보" style="margin:32px -16px 0;padding:20px 16px 28px;border-top:1px solid #E8EBEF;background:transparent;color:#A9B2BC;font-size:12px;line-height:1.9;letter-spacing:-.02em;word-break:keep-all">
+    <div style="max-width:1240px;margin:0 auto">
+      <div style="font-weight:800;color:#8B95A1;margin-bottom:6px">${businessFooterText(info.service)}</div>
+      <div style="display:flex;flex-wrap:wrap;column-gap:18px;row-gap:2px">
+        ${item("상호", businessFooterText(info.company))}
+        ${item("사업자등록번호", businessFooterText(info.businessNumber))}
+        ${item("소재지", businessFooterText(info.address))}
+        ${item("업태", businessFooterText(info.businessType))}
+        ${item("종목", businessFooterText(info.businessItem))}
+      </div>
+    </div>
   </footer>`;
 }
 
@@ -7899,6 +7903,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const yearRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [];
   const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
+  extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
@@ -8202,19 +8207,19 @@ function insightClientMain() {
   var IS_CUR = MONTH === ymOf(TODAY);
   var BUDGET = DATA.budget || { total: 0, cats: [] };
 
-  // 분류 색상: 전체 기간 순위 기준으로 고정 배정 (필터가 바뀌어도 색이 유지되도록)
-  function buildColorMap(wantIncome) {
-    var rank = {};
-    ROWS.forEach(function (r) { if (r.income === wantIncome) rank[r.cat] = (rank[r.cat] || 0) + r.amount; });
-    var map = {};
-    Object.keys(rank).sort(function (a, b) { return rank[b] - rank[a]; }).forEach(function (c2, i) {
-      map[c2] = i < C.cat.length ? C.cat[i] : C.other;
+  // 분류 색상: 현재 조회 결과의 금액 순위 기준으로 배정.
+  // 전체 기간 고정 배정은 이번 달 상위 분류가 장기 순위 밖이면 전부 회색이 되는 문제가 있어,
+  // 화면 안에서 항상 구분되는 것을 우선한다 (범례가 항상 붙어 있어 식별은 범례가 담당).
+  var viewCatColors = {};
+  function rebuildViewColors() {
+    viewCatColors = {};
+    var by = {};
+    compRows(viewRows()).forEach(function (r) { by[r.cat] = (by[r.cat] || 0) + r.amount; });
+    Object.keys(by).sort(function (a, b) { return by[b] - by[a]; }).forEach(function (c2, i) {
+      viewCatColors[c2] = i < C.cat.length ? C.cat[i] : C.other;
     });
-    return map;
   }
-  var CAT_COLOR = buildColorMap(false), INC_CAT_COLOR = buildColorMap(true);
-  function catColor(c) { return CAT_COLOR[c] || C.other; }
-  function incCatColor(c) { return INC_CAT_COLOR[c] || C.other; }
+  function catColor(c) { return viewCatColors[c] || C.other; }
 
   function dimValues(field, incomeToo) {
     var m = {};
@@ -8622,8 +8627,7 @@ function insightClientMain() {
     comp.forEach(function (r) { byCat[r.cat] = (byCat[r.cat] || 0) + r.amount; });
     var names = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
     var segs = [];
-    var colorOf = state.type === "income" ? incCatColor : catColor;
-    names.slice(0, 6).forEach(function (c2) { segs.push({ name: c2, amt: byCat[c2], color: colorOf(c2) }); });
+    names.slice(0, 6).forEach(function (c2) { segs.push({ name: c2, amt: byCat[c2], color: catColor(c2) }); });
     if (names.length > 6) {
       var rest = 0;
       names.slice(6).forEach(function (c2) { rest += byCat[c2]; });
@@ -9020,6 +9024,7 @@ function insightClientMain() {
 
   // ---------- 전체 렌더
   function renderAll() {
+    rebuildViewColors();
     renderPeriodChips();
     renderTypeSeg();
     renderPanel();
@@ -9091,6 +9096,22 @@ function insightClientMain() {
     kb.appendChild(empty);
   }
   renderAll();
+}
+
+// 진행 중인 달은 지난달 "같은 날짜 범위"와 비교해야 증감률이 공정하다.
+// (예: 13일 시점에 지난달 전체와 비교하면 항상 -90%대로 왜곡)
+function computeFairMoM(month, rows = [], prevRows = []) {
+  const todayStr = formatDate(nowKstDate());
+  const isCurrent = todayStr.slice(0, 7) === month;
+  const cutDay = isCurrent ? todayStr.slice(8, 10) : "31";
+  const prevCut = safeArray(prevRows).filter((r) => String(r.transaction_date || "").slice(8, 10) <= cutDay);
+  const cur = calculateStats(safeArray(rows)).totals;
+  const prev = calculateStats(prevCut).totals;
+  return {
+    label: isCurrent ? "지난달 같은 기간 대비" : "지난달 대비",
+    expense: percentChange(cur.expense, prev.expense),
+    income: percentChange(cur.income, prev.income),
+  };
 }
 
 function renderPatternBoxes(analysis = {}) {
@@ -9212,6 +9233,7 @@ function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [],
   const qs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const ext = extended || calculateExtendedAnalytics({ month, allRows: rows, prevRows: [], historyRows: [], yearRows: [], rowsBase: rows });
   const incomeMoMRate = percentChange(Number(stats.totals?.income || 0), ext.prev.totals.income);
+  const fair = ext.fairMoM || { label: "지난달 대비", expense: ext.expenseMoMRate, income: incomeMoMRate };
   const recurringTotal = safeArray(recurringCandidates).reduce((s, c) => s + Number(c.amount || 0), 0);
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff}.hero p{color:#ede9fe}.muted{color:#667085;line-height:1.55;font-size:13px}.grid,.gaugeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.box,.gaugeCard{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.box b,.gaugeCard b{display:block;font-size:22px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}.btn{display:inline-flex;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;padding:10px 14px;font-weight:1000;margin:3px}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.meme{background:linear-gradient(135deg,#111827,#f59e0b);color:#fff}.meme .muted{color:#fff7ed}.meter,.miniMeter{height:16px;background:#eef2f7;border-radius:999px;overflow:hidden;border:1px solid #dbe4ef}.meter i,.miniMeter i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);border-radius:999px}.miniMeter{height:10px;min-width:100px;margin-bottom:4px}.readableTrendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:8px}.dailyCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:9px;min-height:86px}.dailyCell.noValue{opacity:.55}.dailyTop{display:flex;justify-content:space-between;gap:6px;align-items:center}.dailyTop b{font-size:17px}.dailyTop span{font-size:12px;font-weight:1000;color:#2563eb}.dailyTrack{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:10px 0 7px}.dailyTrack i{display:block;height:100%;background:#2563eb;border-radius:999px}.dailyCell small{color:#64748b;font-weight:800}.weekdayTrendGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.weekdayCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:12px;display:grid;gap:8px}.weekdayCell.peak{border-color:#FEE500;box-shadow:0 0 0 3px rgba(254,229,0,.28)}.weekdayCell div{display:flex;justify-content:space-between;gap:8px;align-items:center}.weekdayCell b{font-size:18px}.weekdayCell span{font-size:12px;color:#64748b}.weekdayCell strong{font-size:18px}.weekdayCell i{display:block;height:8px;background:#3182F6;border-radius:999px}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b;margin-top:4px}.pcBox{display:flex;gap:8px;flex-wrap:wrap}.insightList{display:grid;gap:8px}.insightList div{background:#f8fafc;border:1px solid #e8edf4;border-radius:16px;padding:12px}@media(max-width:760px){.pcBox .btn{width:100%}}
 .grid2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
@@ -9268,7 +9290,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain"><section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 소비몬, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 분석 스튜디오 (자유 필터·차트)</a><a class="btn" href="/app?${qs}">PC 전체 화면 바로가기</a><a class="btn secondary" href="/budgets?${qs}">PC 예산 화면</a><a class="btn secondary" href="/my/settings?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section><section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(ext.expenseMoMRate)}">지난달 대비 ${formatSignedPercent(ext.expenseMoMRate)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${incomeMoMRate > 0 ? "deltaDown" : incomeMoMRate < 0 ? "deltaUp" : "deltaFlat"}">지난달 대비 ${formatSignedPercent(incomeMoMRate)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card meme"><h2>소비몬</h2><h3>${escapeHtml(analysis.meme?.title || "소비몬 분석 대기")}</h3><p class="muted">${escapeHtml(analysis.meme?.line || "기록이 쌓이면 소비 패턴 카드가 만들어집니다.")}</p></section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain"><section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 소비몬, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 분석 스튜디오</a><a class="btn secondary" href="/my/settings?${qs}">예산·분류 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더</a><a class="btn secondary" href="/my?${qs}">홈</a></div></section><section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card meme"><h2>소비몬</h2><h3>${escapeHtml(analysis.meme?.title || "소비몬 분석 대기")}</h3><p class="muted">${escapeHtml(analysis.meme?.line || "기록이 쌓이면 소비 패턴 카드가 만들어집니다.")}</p></section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></div></main></body></html>`;
 }
 
 
@@ -11105,7 +11127,8 @@ function pcHouseholdMonthFilters(action, households = [], selected = null, month
 }
 
 
-const ANALYSIS_DONUT_COLORS = ["#3182F6", "#7c3aed", "#f59e0b", "#ef4444", "#10b981", "#ec4899", "#94a3b8"];
+// 색각이상 검증(인접 CVD ΔE ≥ 12)을 통과한 팔레트. 마지막 회색은 "기타" 전용.
+const ANALYSIS_DONUT_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#B0B8C1"];
 
 function renderDonutChart(categories = [], totalExpense = 0) {
   const top = safeArray(categories).filter((c) => Number(c.expense || 0) > 0).slice(0, 6);
@@ -11251,6 +11274,7 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
   const center = budgetCenterSummary(rows, budgets);
   const ext = extended || calculateExtendedAnalytics({ month, allRows: rows, prevRows: [], historyRows: [], yearRows: [], rowsBase: rows });
   const incomeMoMRate = percentChange(stats.totals.income, ext.prev.totals.income);
+  const fair = ext.fairMoM || { label: "지난달 대비", expense: ext.expenseMoMRate, income: incomeMoMRate };
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() || 30;
   const todayStr = formatDate(nowKstDate());
   const remainingDays = todayStr.slice(0, 7) === month ? Math.max(1, daysInMonth - Number(todayStr.slice(8, 10)) + 1) : 0;
@@ -11321,7 +11345,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><section class="hero"><h1>${escapeHtml(selected.name || "가계부")} 분석</h1><p>전월 대비 변화, 월별 흐름, 지출 구성, 반복 지출과 큰 지출까지 월간 리포트처럼 한 화면에서 확인합니다.</p>${pcHouseholdMonthFilters("/analysis", households, selected, month)}</section><section class="metricGrid"><div class="metric"><span>총 지출</span><b>${numberWithCommas(stats.totals.expense)}원</b><small class="${deltaClass(ext.expenseMoMRate)}">지난달 대비 ${formatSignedPercent(ext.expenseMoMRate)}</small></div><div class="metric"><span>총 수입</span><b>${numberWithCommas(stats.totals.income)}원</b><small class="${incomeMoMRate > 0 ? "deltaDown" : incomeMoMRate < 0 ? "deltaUp" : "deltaFlat"}">지난달 대비 ${formatSignedPercent(incomeMoMRate)}</small></div><div class="metric"><span>잔여 예산</span><b>${numberWithCommas(remainingBudget)}원</b>${center.totalBudget && remainingDays ? `<small>남은 ${remainingDays}일 · 하루 ${numberWithCommas(dailyAllowance)}원</small>` : ""}</div><div class="metric"><span>예산 사용률</span><b>${center.budget.rate || 0}%</b></div><div class="metric"><span>하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="metric"><span>월말 예상</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section><section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>일별 소비 그래프</h2><p class="muted">금액이 있는 날을 누르면 그날 기록 목록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, drillBase)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(stats.categories, stats.totals.expense)}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn soft" href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>정밀 분석 도구</h2><div class="metricGrid">${patternRows}</div></section><section class="card"><h2>분류별 지출 랭킹</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th><th>비중</th></tr></thead><tbody>${topRows}</tbody></table></div></section><section class="card"><a class="btn" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}&view=calendar#calendar">캘린더로 보기</a> <a class="btn soft" href="/budgets?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}">예산관리로 이동</a></section></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><section class="hero"><h1>${escapeHtml(selected.name || "가계부")} 분석</h1><p>전월 대비 변화, 월별 흐름, 지출 구성, 반복 지출과 큰 지출까지 월간 리포트처럼 한 화면에서 확인합니다.</p>${pcHouseholdMonthFilters("/analysis", households, selected, month)}</section><section class="metricGrid"><div class="metric"><span>총 지출</span><b>${numberWithCommas(stats.totals.expense)}원</b><small class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</small></div><div class="metric"><span>총 수입</span><b>${numberWithCommas(stats.totals.income)}원</b><small class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</small></div><div class="metric"><span>잔여 예산</span><b>${numberWithCommas(remainingBudget)}원</b>${center.totalBudget && remainingDays ? `<small>남은 ${remainingDays}일 · 하루 ${numberWithCommas(dailyAllowance)}원</small>` : ""}</div><div class="metric"><span>예산 사용률</span><b>${center.budget.rate || 0}%</b></div><div class="metric"><span>하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="metric"><span>월말 예상</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section><section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>일별 소비 그래프</h2><p class="muted">금액이 있는 날을 누르면 그날 기록 목록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, drillBase)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(stats.categories, stats.totals.expense)}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn soft" href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>정밀 분석 도구</h2><div class="metricGrid">${patternRows}</div></section><section class="card"><h2>분류별 지출 랭킹</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th><th>비중</th></tr></thead><tbody>${topRows}</tbody></table></div></section><section class="card"><a class="btn" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}&view=calendar#calendar">캘린더로 보기</a> <a class="btn soft" href="/budgets?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}">예산관리로 이동</a></section></main></body></html>`;
 }
 
 async function handlePcAnalysisPage(request, env, url) {
@@ -11334,6 +11358,7 @@ async function handlePcAnalysisPage(request, env, url) {
   const yearRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [];
   const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
+  extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
@@ -11615,7 +11640,7 @@ function renderUserLoginHtml(env, error = "") {
 
 
 function myNavCss() {
-  return `.appLayout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:10px;box-shadow:0 14px 34px rgba(15,23,42,.055);z-index:5}.appMenu summary{cursor:pointer;font-weight:1000;list-style:none;padding:10px 12px;border-radius:16px;background:#111827;color:#fff}.appMenu summary::-webkit-details-marker{display:none}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#64748b;font-weight:1000;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #edf1f7;border-radius:15px;padding:11px 12px;margin:6px 0;font-weight:900}.appMenu a:hover{background:#eef2ff;border-color:#c7d2fe}.appMenu a.active{background:#0f172a;color:#fff;border-color:#0f172a}.appMenu small{font-size:11px;color:inherit;opacity:.72}.menuHint{font-size:12px;color:#64748b;line-height:1.45;padding:8px}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(max-width:960px){.appLayout{grid-template-columns:1fr}.appMenu{position:static}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0}.menuHint{grid-column:1/-1}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
+  return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:961px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:960px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
 /* v19.0 통합 디자인 시스템 — /my 화면도 다른 화면들과 같은 톤으로 통일 */
 :root{--ab-bg:#F7F8FA;--ab-surface:#FFFFFF;--ab-ink:#191919;--ab-sub:#6B7280;--ab-line:#ECEFF3;--ab-accent:#FEE500;--ab-dark:#111827;--ab-shadow:0 2px 14px rgba(15,23,42,.06);--ab-radius:20px}
 body{background:var(--ab-bg)!important}
@@ -11640,7 +11665,7 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
   const qs = `household_id=${encodeURIComponent(hid)}&month=${encodeURIComponent(month)}`;
   const isManager = ["owner", "admin"].includes(String(role || ""));
   const item = (key, href, label, hint = "") => `<a class="${current === key ? "active" : ""}" href="${href}"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</a>`;
-  return `<details class="appMenu" open><summary>☰ 메뉴 열기/접기</summary><div class="appMenuBody"><div class="menuHint">어디서든 메뉴를 접고 펼쳐 이동할 수 있습니다.</div><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/my?${qs}`, "홈", "입력/최근")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "예산·분류", "설정")}</div><div class="navGroup"><div class="navGroupTitle">운영</div>${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇 필요")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자/초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">도움말</div>${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("backup-login", "/my/backup-login", "백업 로그인", "계정")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details>`;
+  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/my?${qs}`, "홈", "입력/최근")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "예산·분류", "설정")}</div><div class="navGroup"><div class="navGroupTitle">운영</div>${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇 필요")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자/초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">도움말</div>${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("backup-login", "/my/backup-login", "백업 로그인", "계정")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<961){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
 }
 
 function renderMemberOptions(members = [], selected = "") {
@@ -15627,9 +15652,10 @@ function calculateStats(rows) {
     else totals.expense += amount;
 
     const key = row.category || (row.type === "income" ? "기타수입" : "기타지출");
-    if (!categories[key]) categories[key] = { income: 0, expense: 0, total: 0 };
-    categories[key][row.type] += amount;
+    if (!categories[key]) categories[key] = { income: 0, expense: 0, total: 0, count: 0 };
+    categories[key][row.type === "income" ? "income" : "expense"] += amount;
     categories[key].total += amount;
+    categories[key].count += 1;
 
     const day = row.transaction_date;
     if (!daily[day]) daily[day] = { income: 0, expense: 0, count: 0 };
