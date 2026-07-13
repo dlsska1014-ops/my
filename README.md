@@ -1,9 +1,9 @@
-# 똑똑한가계부 Cloudflare Bundle — V21.5.2
+# 똑똑한가계부 Cloudflare Bundle — V21.6.0
 
 현재 버전:
 
 ```text
-V21.5.2-NATURAL-INTENT-SMART-CTA-HOTFIX
+V21.6.0-ANALYSIS-STUDIO
 ```
 
 공개 도메인:
@@ -17,6 +17,25 @@ Kakao OpenBuilder Skill URL:
 ```text
 https://ttokttok-accountbook.com/skill
 ```
+
+## V21.6.0 추가 개선 — 분석 스튜디오
+
+`/my/analysis`가 토스·뱅크샐러드처럼 즉시 반응하는 인터랙티브 분석 화면으로 바뀌었습니다.
+서버는 최근 12개월 기록만 내려주고, 모든 필터·집계·차트는 브라우저에서 즉시 계산되어
+새로고침 없이 어떤 조합으로도 분석할 수 있습니다.
+
+- 기간 프리셋(이번 달/지난달/최근 7·30·90일/6·12개월) + 직접 날짜 범위 선택
+- 지출/수입/전체 탭, 분류·결제수단·구성원 다중 선택, 금액대, 텍스트 검색을 자유 조합
+- KPI 카드(지출·수입·수입-지출·하루평균·건수)와 이전 동일 기간 대비 증감률
+- 지출 흐름 차트: 기간에 따라 일/주/월 단위 자동 전환, 막대 클릭 시 해당 구간으로 드릴다운
+- 분류 도넛 차트(색상 고정 배정) + 범례 클릭으로 즉시 필터
+- 요일 패턴, 결제수단별, 구성원별 순위 막대 — 모두 클릭해서 필터 적용 가능
+- 이번 달 예산 게이지(전체 + 분류별, 80%/100% 경고색)
+- 큰 금액 TOP, 날짜별 그룹 기록 목록, 필터된 결과 CSV 내려받기
+- 필터 상태가 URL에 저장되어 새로고침·공유해도 유지
+- 모든 차트에 호버 툴팁 + 표 보기(접근성 대체 뷰) 제공
+- 기존 종합 리포트(소비몬·주간 리포트·반복지출)는 `/my/analysis?view=report`로 유지
+- 외부 라이브러리 없음: 인라인 SVG + 바닐라 JS 1파일(`/my/analysis/app.js`)이라 가볍고 빠름
 
 ## V21.5.2 추가 개선
 
@@ -79,12 +98,12 @@ https://ttokttok-accountbook.com/skill
 
 ```text
 node --check src/index.js
-node smoke_v2152.mjs
+node smoke_v2160.mjs
 ```
 
 ## 배포 후 확인
 
-1. `/health`에서 `V21.5-GUIDED-ONBOARDING-BUDGET-BUNDLE` 확인
+1. `/health`에서 `V21.6.0-ANALYSIS-STUDIO` 확인
 2. OpenBuilder Skill URL과 폴백 블록 연결 확인
 3. 신규 사용자 `/시작`부터 첫 기록까지 실제 그룹방 테스트
 4. 일반 기록 응답에 링크와 quickReplies가 없는지 확인
