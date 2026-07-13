@@ -1,0 +1,10 @@
+{
+  "version": "V20.9-MEME-CONTENT-PUBLISH-BUNDLE",
+  "grade": "전체이용가",
+  "cards": [
+    {"id":"card-alert-cat","title":"카드값 알림이 왔다","subtitle":"내 표정도 함께 멈췄다","file":"카드값_알림에_얼어버린_고양이.png","motion":"알림 카드가 살짝 튀고 고양이 표정이 멈춤"},
+    {"id":"save-rabbit","title":"오늘은 절약할 거야","subtitle":"배달앱이 먼저 말을 걸었다","file":"오늘은_절약할_거야.png","motion":"배달앱이 반짝이고 토끼가 손사래"},
+    {"id":"meeting-penguin","title":"모임비 정산 시작","subtitle":"갑자기 모두가 조용해졌다","file":"모임비_정산에_당황한_펭귄.png","motion":"단톡방 말풍선이 점점 작아짐"},
+    {"id":"budget-capybara","title":"예산 안 넘겼다","subtitle":"오늘은 나 자신 칭찬 완료","file":"예산_안_넘겼다_나_자신_칭찬해.png","motion":"체크 아이콘이 튀고 색종이 떨어짐"}
+  ]
+}
