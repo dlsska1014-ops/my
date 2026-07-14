@@ -400,8 +400,8 @@ export default {
       }
 
       if (url.pathname === "/my/analysis" && request.method === "GET") {
-        if (url.searchParams.get("view") === "report") return handleMyAnalysisPage(request, env, url);
-        return handleMyInsightPage(request, env, url);
+        if (url.searchParams.get("view") === "report") return safeHtmlRoute(request, url, () => handleMyAnalysisPage(request, env, url), "종합 리포트");
+        return safeHtmlRoute(request, url, () => handleMyInsightPage(request, env, url), "분석 스튜디오");
       }
 
       if (url.pathname === "/my/analysis/app.js" && request.method === "GET") {
@@ -1189,7 +1189,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V21.6.1-FINAL-POLISH";
+const APP_VERSION = "V21.6.2-STABILITY-UX-REVIEW";
 const APP_MODE = "kakao-skill-latency-hotfix";
 
 function normalizeBaseUrl(value = "") {
@@ -1278,7 +1278,7 @@ function businessFooterText(value = "") {
 function renderBusinessInfoFooter() {
   const info = BUSINESS_FOOTER_INFO;
   const item = (label, value) => `<span style="display:inline-flex;align-items:baseline;gap:5px;min-width:0"><b style="font-weight:700;color:#8B95A1;white-space:nowrap">${label}</b><span>${value}</span></span>`;
-  return `<footer class="abBusinessFooter" aria-label="사업자 정보" style="margin:32px -16px 0;padding:20px 16px 28px;border-top:1px solid #E8EBEF;background:transparent;color:#A9B2BC;font-size:12px;line-height:1.9;letter-spacing:-.02em;word-break:keep-all">
+  return `<footer class="abBusinessFooter" aria-label="사업자 정보" style="margin:32px 0 0;padding:20px 16px 28px;border-top:1px solid #E8EBEF;background:transparent;color:#A9B2BC;font-size:12px;line-height:1.9;letter-spacing:-.02em;word-break:keep-all;max-width:100%;box-sizing:border-box">
     <div style="max-width:1240px;margin:0 auto">
       <div style="font-weight:800;color:#8B95A1;margin-bottom:6px">${businessFooterText(info.service)}</div>
       <div style="display:flex;flex-wrap:wrap;column-gap:18px;row-gap:2px">
@@ -8055,7 +8055,9 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .txDate{display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:10px 2px 6px;border-bottom:1px solid #F2F4F6}
 .txDate b{font-size:12px;color:#6B7684;font-weight:900}
 .txDate span{font-size:12px;color:#8B95A1;font-weight:800;font-variant-numeric:tabular-nums}
-.txRow{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 2px;border-bottom:1px solid #F7F8FA}
+.txRow{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid #F7F8FA}
+a.txRow{text-decoration:none;color:inherit;border-radius:12px}
+a.txRow:hover{background:#F5F7F9}
 .txRow .dot{width:8px;height:8px;border-radius:999px}
 .txRow .mid b{display:block;font-size:14px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .txRow .mid span{display:block;font-size:12px;color:#8B95A1;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -8097,6 +8099,7 @@ svg text{font-family:inherit}
   </div>
   <div class="activeChips" id="activeChips"></div>
 </section>
+<div class="card" id="insightLoadErr" hidden><b>분석 화면을 불러오지 못했어요.</b><p class="dataNote" style="margin:6px 0 0">네트워크 문제일 수 있어요. 새로고침하거나 <a href="/my/analysis?view=report&${qs}">종합 리포트</a>를 이용해 주세요.</p></div>
 <section class="kpiRow" id="kpis"></section>
 <div class="insightChips" id="insights"></div>
 <section class="card"><div class="cardHead"><h2 id="trendTitle">지출 흐름</h2><span class="legendRow" id="trendLegend"></span></div><div class="chartBox" id="trendChart"></div><details class="twin"><summary>표로 보기</summary><div id="trendTable"></div></details></section>
@@ -8115,7 +8118,7 @@ svg text{font-family:inherit}
 </div></div></main>
 <noscript><p style="text-align:center;color:#6B7280">분석 화면은 자바스크립트가 필요합니다. <a href="/my/analysis?view=report&${qs}">종합 리포트</a>를 이용해 주세요.</p></noscript>
 <script>window.__INSIGHT__=${dataJson};</script>
-<script src="/my/analysis/app.js?v=${encodeURIComponent(APP_VERSION)}"></script>
+<script src="/my/analysis/app.js?v=${encodeURIComponent(APP_VERSION)}" onerror="(function(){var e=document.getElementById('insightLoadErr');if(e)e.hidden=false;})()"></script>
 </body></html>`;
 }
 
@@ -8278,7 +8281,13 @@ function insightClientMain() {
       var ok = false; PRESETS.forEach(function (x) { if (x.id === p && x.range) ok = true; });
       if (ok) setPreset(p);
     }
-    function list(key) { var v = sp.get(key); return v ? v.split("|").filter(Boolean) : []; }
+    function list(key) {
+      var v = sp.get(key);
+      if (!v) return [];
+      return v.split("|").filter(Boolean).map(function (x) {
+        try { return decodeURIComponent(x); } catch (e) { return x; }
+      });
+    }
     state.cats = list("c"); state.pays = list("pm"); state.whos = list("w");
     var mn = Number(sp.get("min")), mx = Number(sp.get("max"));
     if (sp.get("min") && isFinite(mn) && mn > 0) state.min = mn;
@@ -8291,9 +8300,10 @@ function insightClientMain() {
     if (state.type !== "expense") sp.set("t", state.type);
     if (state.preset !== "month") sp.set("p", state.preset);
     if (state.preset === "custom") { sp.set("s", state.start); sp.set("e", state.end); }
-    if (state.cats.length) sp.set("c", state.cats.join("|"));
-    if (state.pays.length) sp.set("pm", state.pays.join("|"));
-    if (state.whos.length) sp.set("w", state.whos.join("|"));
+    function pack(list2) { return list2.map(encodeURIComponent).join("|"); }
+    if (state.cats.length) sp.set("c", pack(state.cats));
+    if (state.pays.length) sp.set("pm", pack(state.pays));
+    if (state.whos.length) sp.set("w", pack(state.whos));
     if (state.min) sp.set("min", String(state.min));
     if (state.max) sp.set("max", String(state.max));
     if (state.q) sp.set("q", state.q);
@@ -8329,6 +8339,9 @@ function insightClientMain() {
   }
   function sumAmt(rows) { var s = 0; rows.forEach(function (r) { s += r.amount; }); return s; }
   function compLabel() { return state.type === "income" ? "수입" : "지출"; }
+  function dayEditHref(date) {
+    return "/app?month=" + encodeURIComponent(ymOf(date)) + "&household_id=" + encodeURIComponent(DATA.hid || "") + "&date=" + encodeURIComponent(date) + "&feed=all#feed";
+  }
 
   // ---------- 툴팁
   function makeTip(box) {
@@ -8859,7 +8872,9 @@ function insightClientMain() {
     $("topSub").textContent = comp.length ? "금액 순 상위 " + comp.length + "건" : "";
     if (!comp.length) { box.appendChild(el("div", "emptyBox", "기록이 없어요.")); return; }
     comp.forEach(function (r) {
-      var row = el("div", "txRow");
+      var row = el("a", "txRow");
+      row.href = dayEditHref(r.date);
+      row.title = "이 날 기록 열기·수정";
       var dot = el("span", "dot");
       dot.style.background = r.income ? C.in_ : catColor(r.cat);
       row.appendChild(dot);
@@ -8899,7 +8914,9 @@ function insightClientMain() {
         group.appendChild(head);
         box.appendChild(group);
       }
-      var row = el("div", "txRow");
+      var row = el("a", "txRow");
+      row.href = dayEditHref(r.date);
+      row.title = "이 날 기록 열기·수정";
       var dot = el("span", "dot");
       dot.style.background = r.income ? C.in_ : catColor(r.cat);
       row.appendChild(dot);
@@ -8940,6 +8957,7 @@ function insightClientMain() {
     PRESETS.forEach(function (p) {
       var b = el("button", "pchip" + (state.preset === p.id ? " on" : ""), p.label);
       b.type = "button";
+      b.setAttribute("aria-pressed", state.preset === p.id ? "true" : "false");
       b.addEventListener("click", function () {
         if (p.id === "custom") {
           state.preset = "custom";
@@ -8967,6 +8985,7 @@ function insightClientMain() {
     [["expense", "지출"], ["income", "수입"], ["all", "전체"]].forEach(function (p) {
       var b = el("button", state.type === p[0] ? "on" : "", p[1]);
       b.type = "button";
+      b.setAttribute("aria-pressed", state.type === p[0] ? "true" : "false");
       b.addEventListener("click", function () {
         if (state.type === p[0]) return;
         state.type = p[0];
@@ -8983,6 +9002,7 @@ function insightClientMain() {
       var on = state[key].indexOf(it.v) >= 0;
       var b = el("button", "tchip" + (on ? " on" : ""), it.v);
       b.type = "button";
+      b.setAttribute("aria-pressed", on ? "true" : "false");
       b.appendChild(el("small", null, fmt(it.n)));
       b.addEventListener("click", function () {
         toggleList(state[key], it.v);
@@ -9257,8 +9277,8 @@ function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [],
 .seriesCol{display:grid;justify-items:center;gap:4px;min-width:52px}
 .seriesBars{display:flex;align-items:flex-end;gap:4px;height:124px}
 .seriesBars i{display:inline-block;width:15px;border-radius:6px 6px 0 0}
-.seriesBars i.in,.seriesLegend i.in{background:#10b981}
-.seriesBars i.ex,.seriesLegend i.ex{background:#3182F6}
+.seriesBars i.in,.seriesLegend i.in{background:#1baf7a}
+.seriesBars i.ex,.seriesLegend i.ex{background:#2a78d6}
 .seriesCol b{font-size:11px;color:#334155}
 .seriesCol span{font-size:11px;color:#64748b}
 .seriesLegend{display:flex;gap:14px;margin:0 0 8px;color:#64748b;font-size:12px;align-items:center}
@@ -11314,8 +11334,8 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
 .seriesCol{display:grid;justify-items:center;gap:4px;min-width:52px}
 .seriesBars{display:flex;align-items:flex-end;gap:4px;height:124px}
 .seriesBars i{display:inline-block;width:15px;border-radius:6px 6px 0 0}
-.seriesBars i.in,.seriesLegend i.in{background:#10b981}
-.seriesBars i.ex,.seriesLegend i.ex{background:#3182F6}
+.seriesBars i.in,.seriesLegend i.in{background:#1baf7a}
+.seriesBars i.ex,.seriesLegend i.ex{background:#2a78d6}
 .seriesCol b{font-size:11px;color:#334155}
 .seriesCol span{font-size:11px;color:#64748b}
 .seriesLegend{display:flex;gap:14px;margin:0 0 8px;color:#64748b;font-size:12px;align-items:center}
