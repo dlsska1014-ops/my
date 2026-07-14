@@ -1,9 +1,9 @@
-# 똑똑한가계부 Cloudflare Bundle — V21.6.2
+# 똑똑한가계부 Cloudflare Bundle — V21.7.0
 
 현재 버전:
 
 ```text
-V21.6.2-STABILITY-UX-REVIEW
+V21.7.0-UNIFIED-PWA
 ```
 
 공개 도메인:
@@ -17,6 +17,34 @@ Kakao OpenBuilder Skill URL:
 ```text
 https://ttokttok-accountbook.com/skill
 ```
+
+## V21.7.0 추가 개선 — 홈 통일·예산 페이스·레거시 제거·PWA
+
+### 홈 화면 디자인 통일
+
+- 예산 히어로 카드: 노란 그라데이션 → 흰 카드 + 사용률에 따라 파랑/주황/빨강 게이지
+- "오늘 쓴 돈" 숫자를 잉크색으로 (지출이 초록으로 보이던 문제)
+- "나간 돈" 증감률을 지난달 같은 기간 대비로 공정 비교
+- 카테고리 비율 막대를 단일 파랑으로 (1위가 빨강 경고처럼 보이던 문제)
+- 홈 안의 레거시 링크(/budgets, /categories, /analysis)를 통합 화면으로 교체
+
+### 분석 스튜디오 — 예산 페이스 차트
+
+- 이번 달 누적 지출 곡선 vs "일정 속도로 쓸 때" 기준선을 한 차트로 비교
+- 아무 날짜에 호버하면 누적 지출·예산 페이스·초과/여유 금액 표시, 표 보기 제공
+
+### 레거시 PC 관리자 화면 제거
+
+- `/`(legacy 대시보드), `/manage`, `/admin`, `/admin-view`, `/ledger`,
+  `/analysis`, `/calendar`, `/budgets` GET 화면을 전부 통합 화면으로 리다이렉트
+  (month/household_id 유지). 수정·저장 POST API는 그대로 유지되어 /app 편집 흐름에 영향 없음
+- `/households`(참여자 승인·권한), `/categories`(분류 관리)는 운영 도구로만 유지
+
+### PWA (홈 화면에 앱처럼 설치)
+
+- `/manifest.webmanifest`, `/sw.js`, `/icons/icon-192.png`, `/icons/icon-512.png` 추가
+- 모든 HTML 응답에 manifest·아이콘·서비스워커 등록 자동 주입
+- Android/Chrome "홈 화면에 추가" 시 standalone 앱으로 실행, iOS 홈 아이콘 지원
 
 ## V21.6.2 추가 개선 — 안정화·UX 점검
 
@@ -118,12 +146,12 @@ https://ttokttok-accountbook.com/skill
 
 ```text
 node --check src/index.js
-node smoke_v2160.mjs
+node smoke_v2170.mjs
 ```
 
 ## 배포 후 확인
 
-1. `/health`에서 `V21.6.1-FINAL-POLISH` 확인
+1. `/health`에서 `V21.7.0-UNIFIED-PWA` 확인
 2. OpenBuilder Skill URL과 폴백 블록 연결 확인
 3. 신규 사용자 `/시작`부터 첫 기록까지 실제 그룹방 테스트
 4. 일반 기록 응답에 링크와 quickReplies가 없는지 확인
