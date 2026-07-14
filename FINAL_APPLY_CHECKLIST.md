@@ -1,3 +1,14 @@
+# V22.2 적용 메모
+
+- Worker `src/index.js`만 배포
+- OpenBuilder 변경 없음
+- Supabase 마이그레이션 없음
+- `/my/analysis` 신규 분석 스튜디오
+- 기존 분석은 `/my/analysis?view=report`
+- 상세 순서는 `V22_2_ROLLOUT_RUNBOOK.md` 참조
+
+---
+
 # V21.5.2 자연어 의도·스마트 CTA 핫픽스 우선 적용
 
 1. Cloudflare Worker에 이 패키지의 `src/index.js`를 배포합니다.
@@ -106,3 +117,31 @@ CANONICAL_BASE_URL=https://ttokttok-accountbook.com
 6. 실제 그룹방 테스트
 7. OpenBuilder 운영 배포
 ```
+
+
+## V22.0 추가 확인
+1. `/health`에서 `V22.0-NLU-FOUNDATION-LOW-COST-BUNDLE` 확인
+2. `/nlu-intents.json`에서 `external_ai:false` 확인
+3. `닉네임 변경`, `닉넴 바꿔줘`, `나를 인남이라고 불러줘` 시험
+4. 응답 헤더의 `x-accountbook-version`, `x-accountbook-intent`, `x-accountbook-request-id` 확인
+5. 초기 운영에서는 NLU 로그 영구저장 환경변수를 켜지 않음
+
+
+## V22.1 추가 확인
+- [ ] `/health` V22.1 확인
+- [ ] `/nlu-intents.json` Registry 21개 확인
+- [ ] `이름 변경`이 대상 선택으로 응답
+- [ ] `식비 50만원`이 지출/예산 선택으로 응답
+- [ ] `초대`가 코드 보기/코드 참여 선택으로 응답
+- [ ] `node nlu_eval_v221.mjs` 통과
+- [ ] 기존 `smoke_v220_full.mjs` 및 `latency_v2151_450.mjs` 통과
+
+
+## V22.3 추가 확인
+- [ ] `/health`가 V22.3 버전인지 확인
+- [ ] `/nlu-ops` 관리자 화면 확인
+- [ ] `/skill` 응답 헤더에 `x-accountbook-nlu-result` 확인
+- [ ] 영구 집계 미사용 시 환경변수 모두 0 유지
+- [ ] 선택 SQL 적용 시 집계와 실패 샘플 정책을 분리 활성화
+- [ ] 실패 샘플 CSV에 사용자 키·원문 개인정보가 없는지 확인
+- [ ] 자연어 거래·닉네임·초대·예산·요약 회귀시험

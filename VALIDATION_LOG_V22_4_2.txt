@@ -1,0 +1,382 @@
+## node --check
+## public smoke
+PASS: health version
+PASS: public /
+PASS: no internal platform term /
+PASS: no rigid ad placement promise /
+PASS: compact business footer /
+PASS: public /service-guide
+PASS: no internal platform term /service-guide
+PASS: no rigid ad placement promise /service-guide
+PASS: compact business footer /service-guide
+PASS: public /how-it-works
+PASS: no internal platform term /how-it-works
+PASS: no rigid ad placement promise /how-it-works
+PASS: compact business footer /how-it-works
+PASS: public /kakao-guide
+PASS: no internal platform term /kakao-guide
+PASS: no rigid ad placement promise /kakao-guide
+PASS: compact business footer /kakao-guide
+PASS: public /budget-guide
+PASS: no internal platform term /budget-guide
+PASS: no rigid ad placement promise /budget-guide
+PASS: compact business footer /budget-guide
+PASS: public /group-accountbook
+PASS: no internal platform term /group-accountbook
+PASS: no rigid ad placement promise /group-accountbook
+PASS: compact business footer /group-accountbook
+PASS: public /security
+PASS: no internal platform term /security
+PASS: no rigid ad placement promise /security
+PASS: compact business footer /security
+PASS: public /faq
+PASS: no internal platform term /faq
+PASS: no rigid ad placement promise /faq
+PASS: compact business footer /faq
+PASS: public /about
+PASS: no internal platform term /about
+PASS: no rigid ad placement promise /about
+PASS: compact business footer /about
+PASS: public /contact
+PASS: no internal platform term /contact
+PASS: no rigid ad placement promise /contact
+PASS: compact business footer /contact
+PASS: public /privacy
+PASS: no internal platform term /privacy
+PASS: no rigid ad placement promise /privacy
+PASS: compact business footer /privacy
+PASS: public /terms
+PASS: no internal platform term /terms
+PASS: no rigid ad placement promise /terms
+PASS: compact business footer /terms
+PASS: public /cookies
+PASS: no internal platform term /cookies
+PASS: no rigid ad placement promise /cookies
+PASS: compact business footer /cookies
+PASS: public /site-map
+PASS: no internal platform term /site-map
+PASS: no rigid ad placement promise /site-map
+PASS: compact business footer /site-map
+PASS: about value proposition
+PASS: no duplicated business card
+PASS: sitemap xml clean styled
+PASS: sitemap stylesheet
+PASS: cookie official links
+PASS: no misleading settings button
+PASS: privacy public language
+SMOKE_V2242_OK
+## identity smoke
+PASS: health version V22.4.1
+PASS: public page /
+PASS: public page /service-guide
+PASS: public page /how-it-works
+PASS: public page /kakao-guide
+PASS: public page /budget-guide
+PASS: public page /group-accountbook
+PASS: public page /security
+PASS: public page /faq
+PASS: public page /about
+PASS: public page /contact
+PASS: public page /privacy
+PASS: public page /terms
+PASS: public page /cookies
+PASS: robots route
+PASS: sitemap route
+PASS: ads.txt disabled without publisher id
+PASS: ads.txt generated from publisher id
+PASS: adsense verification meta tag
+PASS: actual ad script disabled by default
+PASS: ad script can be activated explicitly
+PASS: valid skill response: 가계부 생성
+PASS: create prompt exposes visible options
+PASS: valid skill response: 어떤 선택이 있는데
+PASS: options request does not loop blindly
+PASS: valid skill response: 우리집 가계부
+PASS: name-like kind input enters confirmation
+PASS: valid skill response: 이 이름으로 만들기
+PASS: confirmed name creates household
+PASS: confirmed household name persisted
+PASS: valid skill response: 가계부 생성
+PASS: second user create begins
+PASS: valid skill response: 선택
+PASS: bare 선택 shows list
+PASS: valid skill response: 그냥 가계부
+PASS: generic household name gets direct-input confirmation
+PASS: valid skill response: 종류 다시 선택
+PASS: type reselect recovers flow
+PASS: valid skill response: 가족
+PASS: natural type synonym accepted
+PASS: valid skill response: 우리집 생활비
+PASS: standard type-name flow still works
+PASS: valid skill response: 점심 12000원 국민카드
+PASS: natural transaction regression
+PASS: valid skill response: 닉네임 변경
+PASS: NLU alias regression
+SMOKE_V224_OK
+PASS: missing identity returns safe response
+PASS: missing identity does not create fallback user
+PASS: same botUserKey remains one user
+PASS: explicit household creation creates one owner membership
+PASS: page view does not promote pending user to owner
+PASS: identity audit detects multiple owners
+PASS: identity merge redirects after completion
+PASS: secondary transactions reassigned to primary
+PASS: secondary memberships removed
+PASS: primary owner membership retained
+PASS: secondary user preserved as merged audit account
+SMOKE_V2241_IDENTITY_OK
+## full regression
+PASS: health version V22.4.1
+PASS: valid skill response: /시작
+PASS: new user starts with household creation
+PASS: start has create quick reply
+PASS: valid skill response: 새 가계부 만들기
+PASS: create flow asks type
+PASS: create type uses guided quick replies
+PASS: valid skill response: 가계부 종류 가족 생활비
+PASS: create flow asks name
+PASS: valid skill response: 우리집 생활비
+PASS: household created with invite code
+PASS: household and owner membership persisted
+PASS: valid skill response: /예산설정
+PASS: budget setup starts guided root
+PASS: budget root has category choice
+PASS: valid skill response: 카테고리별 예산
+PASS: valid skill response: 예산 카테고리 식비
+PASS: valid skill response: 100만원
+PASS: budget amount confirmation
+PASS: valid skill response: 설정하기
+PASS: guided budget saved
+PASS: category budget persisted
+PASS: valid skill response: 교통비 예산설정 백만원
+PASS: direct natural-language budget setting
+PASS: direct budget persisted
+PASS: valid skill response: 남은예산
+PASS: budget status shows category amounts
+PASS: budget status has no repeated website link
+PASS: budget status has no automatic quick replies
+PASS: valid skill response: 내 예산
+PASS: 내 예산 maps to budget status without quick replies
+PASS: valid skill response: 내 이름 설정
+PASS: valid skill response: 아빠
+PASS: member alias guided setup
+PASS: valid skill response: 점심 12000원 국민카드
+PASS: saved transaction shows mapped payer
+PASS: transaction save has no website link
+PASS: normal transaction has no quick replies
+PASS: no literal backslash-n in response
+PASS: valid skill response: 오늘 요약
+PASS: date summary shows payer totals
+PASS: first summary provides natural website CTA
+PASS: valid skill response: 오늘 요약
+PASS: same CTA suppressed for 24 hours
+PASS: valid skill response: /정산
+PASS: /정산 uses settlement response instead of month summary
+PASS: valid skill response: 도움말
+PASS: help is guided and concise
+PASS: help avoids repeated links
+PASS: valid skill response: 단톡방 연결
+PASS: group link guide is returned in direct chat
+PASS: group link guide has real newlines and no repeated URL
+PASS: valid skill response: 별이반짝여
+PASS: no-match reply is concise
+PASS: no-match reply has no quick replies or URL
+PASS: valid skill response: 닉네임수정
+PASS: 닉네임수정 starts alias flow
+PASS: valid skill response: 새별명
+PASS: alias flow saves entered nickname
+PASS: valid skill response: 닉네임 인남으로 변경
+PASS: direct natural-language nickname change
+PASS: valid skill response: 초대코드
+PASS: invite code includes management CTA
+PASS: invite CTA points to scoped household management
+PASS: invite response contains exactly one URL
+PASS: valid skill response: 구성원 초대
+PASS: natural invite synonym supported
+PASS: valid skill response: 도움말
+PASS: help includes nickname natural command
+PASS: valid skill response: 예산 바꾸기
+PASS: natural budget-change synonym starts guided setup
+PASS: valid skill response: 취소
+PASS: valid skill response: 이번 달 얼마 썼어
+PASS: natural monthly spending question maps to date summary
+PASS: valid skill response: 가계부 바꾸기
+PASS: natural household switch synonym supported
+PASS: valid skill response: 단톡 연결
+PASS: natural group-link synonym supported
+PASS: valid skill response: 정산해줘
+PASS: natural settlement synonym supported
+PASS: valid skill response: 닉네임 변경
+PASS: 닉네임 변경 long-tail starts alias flow
+PASS: valid skill response: 취소
+PASS: valid skill response: 닉넴 바꿔줘
+PASS: 닉넴 typo/colloquial starts alias flow
+PASS: valid skill response: 취소
+PASS: valid skill response: 나를 인남이라고 불러줘
+PASS: natural direct alias sentence saves alias
+PASS: valid skill response: 가계부 이름 변경
+PASS: household name change is not mistaken for member alias
+PASS: valid skill response: 예산 확인하고 싶어
+PASS: budget status long-tail recognized
+PASS: valid skill response: 초대 코드 좀 보여줘
+PASS: invite-code conversational phrase recognized
+PASS: valid skill response: 이름 변경
+PASS: ambiguous name asks target
+PASS: valid skill response: 초대
+PASS: bare invite asks show/join choice
+PASS: valid skill response: 예산
+PASS: bare budget asks set/status choice
+PASS: valid skill response: 가계부
+PASS: bare household asks create/join/switch
+PASS: valid skill response: 식비 50만원
+PASS: category amount asks expense/budget
+SMOKE_V222_FULL_OK
+## nlu evaluation
+{
+  "version": "V22.1",
+  "dataset": "./nlu_eval_dataset_v221.jsonl",
+  "synthetic_dataset": true,
+  "checked": 4738,
+  "passed": 4738,
+  "failed": 0,
+  "accuracy": 1,
+  "by_intent": {
+    "START": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_CREATE": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_JOIN": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_SWITCH": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "MEMBER_ALIAS_CHANGE": {
+      "total": 227,
+      "pass": 227,
+      "accuracy": 1
+    },
+    "INVITE_CODE_SHOW": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "INVITE_MEMBER": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "BUDGET_SETUP": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "BUDGET_STATUS": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "GROUP_LINK": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "SETTLEMENT": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "SUMMARY": {
+      "total": 227,
+      "pass": 227,
+      "accuracy": 1
+    },
+    "RECENT_RECORDS": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "INPUT_EXAMPLE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "EDIT_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "KEYWORD_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "RESERVE_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "DATA_POLICY": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "CANCEL": {
+      "total": 218,
+      "pass": 218,
+      "accuracy": 1
+    },
+    "HELP": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "WEB_LINK": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "UNKNOWN": {
+      "total": 2,
+      "pass": 2,
+      "accuracy": 1
+    }
+  },
+  "failures": []
+}
+## latency
+{
+  "utterance": "점심 15000원 현대카드",
+  "group": false,
+  "elapsed": 3957,
+  "status": 200,
+  "header": "3917",
+  "text": "💸 지출 저장했어요 😊\n점심 / 15,000원 / 현대카드 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+{
+  "utterance": "@똑똑한가계부 점심 16000원 현금",
+  "group": true,
+  "elapsed": 3905,
+  "status": 200,
+  "header": "3904",
+  "text": "💸 지출 저장했어요 😊\n점심 / 16,000원 / 현금 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+{
+  "utterance": "/기록 점심 17000원 국민카드",
+  "group": true,
+  "elapsed": 3905,
+  "status": 200,
+  "header": "3905",
+  "text": "💸 지출 저장했어요 😊\n점심 / 17,000원 / 국민카드 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+LATENCY_V2151_OK
