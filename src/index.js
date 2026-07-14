@@ -8144,8 +8144,8 @@ function insightClientMain() {
   function shortWon(n) {
     var a = Math.abs(Number(n) || 0);
     if (a >= 100000000) return trim1(n / 100000000) + "억";
+    if (a >= 1000000) return fmt(Math.round(n / 10000)) + "만";
     if (a >= 10000) return trim1(n / 10000) + "만";
-    if (a >= 1000) return fmt(n);
     return fmt(n);
   }
   function s2d(s) { return new Date(s + "T00:00:00Z"); }
