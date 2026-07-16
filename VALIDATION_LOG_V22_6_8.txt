@@ -1,0 +1,23 @@
+V22.6.8-OPERATIONS-DATA-INTEGRITY
+validated_at=2026-07-15 Asia/Seoul
+node_check_src=PASS
+node_check_fixture=PASS
+smoke_static_scripts=39/39 PASS
+v2267_stabilization_assertions=150 PASS
+v2268_integrity_assertions=59 PASS
+nlu_eval=4738/4738 PASS
+concurrent_receipt_requests=24 requests / 1 persisted PASS
+concurrent_settlement_requests=16 requests / 1 persisted PASS
+cron_live_lease=skipped_without_write PASS
+cron_expired_lease=retry_database_lock PASS
+visual_routes_360=18/18 PASS
+visual_routes_390=18/18 PASS
+visual_capture_files=108
+horizontal_overflow=0
+viewport_offenders=0
+duplicate_ids=0
+unlabeled_controls=0
+hidden_feature_links=0
+footer_bottom_nav_overlap=0
+live_supabase_migration=NOT_RUN
+real_ios_android_devices=NOT_RUN

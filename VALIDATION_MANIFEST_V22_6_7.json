@@ -1,0 +1,41 @@
+{
+  "version": "V22.6.7-STABILIZATION-HIDDEN-INCOMPLETE",
+  "mode": "release-candidate-stabilization-hidden-incomplete",
+  "validated_at": "2026-07-15T15:20:49+09:00",
+  "policy": "completed_tools_free_incomplete_tools_hidden",
+  "hidden_features": [
+    "consumer_cards_and_memes",
+    "card_performance_and_benefits"
+  ],
+  "production_unlock_guard": "INCOMPLETE_FEATURE_QA_ENABLED",
+  "public_free_features": [
+    "receipt_capture",
+    "recurring_transaction_automation",
+    "advanced_settlement",
+    "weekly_monthly_reports",
+    "smart_budget_and_analysis"
+  ],
+  "validation": {
+    "syntax": "pass",
+    "smoke_scripts": { "passed": 36, "total": 36 },
+    "static_scripts": { "passed": 2, "total": 2 },
+    "v2267_assertions": { "passed": 150, "total": 150 },
+    "nlu": { "passed": 4738, "total": 4738 },
+    "visual": {
+      "390x844": { "passed": 18, "total": 18 },
+      "360x800": { "passed": 18, "total": 18 },
+      "horizontal_overflow": 0,
+      "offscreen_elements": 0,
+      "duplicate_ids": 0,
+      "unlabeled_controls": 0,
+      "hidden_feature_links": 0
+    }
+  },
+  "deployment_requirements": [
+    "backup_worker_and_supabase",
+    "keep_incomplete_feature_qa_lock_disabled",
+    "verify_hidden_routes_return_404",
+    "run_real_ios_and_android_smoke",
+    "monitor_cron_failed_and_invalid_counts"
+  ]
+}

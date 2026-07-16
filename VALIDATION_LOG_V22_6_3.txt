@@ -1,0 +1,29 @@
+V22.6.3-ACCESS-IMPORT-RESILIENCE-HOTFIX
+validated_at=2026-07-15 Asia/Seoul
+
+PASS node --check src/index.js
+PASS smoke_files 32/32
+PASS static_files 2/2
+PASS smoke_v2254_conversation_integrity assertions=321
+PASS static_v2254_state_integrity assertions=43
+PASS smoke_v2261_identity_session_recovery stale_cookie_recovery=ok multi_hop=ok post_body_preserved=ok
+PASS smoke_v2263_access_import assertions=91
+PASS import_formats csv=ok tsv=ok semicolon=ok pipe=ok json=ok natural=ok key_value=ok multi_sheet=ok
+PASS import_encoding utf16le_bom=ok euc_kr_candidate_logic=present
+PASS import_rejections invalid_date=ok invalid_amount=ok missing_amount=ok both_income_expense=ok column_mismatch=ok
+PASS access_matrix owner=rw admin=rw member=rw viewer=r pending=none blocked=none unknown=none
+PASS create_compensation orphan_household_removed=ok
+PASS join_fail_closed member_fallback=absent pending_preserved=ok
+PASS rendered_access pending_status=403 viewer_settings=403 invite_code_hidden=ok
+PASS rendered_import viewer_controls_disabled=ok json_copy=ok row_reason_ui=ok
+PASS nlu_eval_v221 checked=4738 passed=4738 failed=0 accuracy=1
+PASS latency_v2151_450 direct_ms=3935 group_ms=3905 slash_ms=3906
+PASS hidden_routes=10 premium_server_render=ok
+PASS static_ui_pages=5 h1_each=ok duplicate_ids=0 unlabeled_controls=0 maximum_scale=0
+PASS database_schema_changes=0
+PASS openbuilder_changes=0
+
+NOT_RUN chromium_pixel_render executable_binary_unavailable
+manual_required=real_problem_account,production_supabase_rls,real_import_files,ios_safari,android_chrome,horizontal_overflow,post_deploy_monitoring
+premium_verdict=free_beta_ready,paid_launch_not_ready
+verdict=release_candidate_pass_with_manual_checks

@@ -1,0 +1,51 @@
+Kakao Accountbook V22.7.0 release artifact manifest
+==================================================
+
+Runtime
+- src/index.js
+- wrangler.toml.example
+- VERSION.txt
+- README.md
+
+Database
+- OPERATIONS_DATA_INTEGRITY_AUDIT_V22_6_8.sql
+- schema_v22_6_8_operations_integrity.sql
+- schema_v22_7_0_auth_atomicity.sql
+
+User template
+- accountbook_import_template.csv
+
+V22.7 release documents
+- V22_7_0_AUTH_ATOMICITY_STABILITY_REPORT.md
+- MIGRATION_GUIDE_V22_7_0.md
+- FINAL_APPLY_CHECKLIST_V22_7_0.md
+- VALIDATION_REPORT_V22_7_0.md
+- VALIDATION_LOG_V22_7_0.txt
+- VALIDATION_MANIFEST_V22_7_0.json
+- RISK_REGISTER_V22_7_0.md
+
+Operations documents
+- CLOUDFLARE_CRON_SETUP.md
+- KAKAO_LOGIN_BUSINESS_SETUP.md
+- GROUP_CHAT_LINK_GUIDE.md
+- KAKAO_OPENBUILDER_UTTERANCES.md
+- OPENCHATBOT_CHAT_FIRST_SETUP.md
+- IDENTITY_STABILITY_RUNBOOK.md
+
+Authoritative V22.7 validation
+- smoke_v2270_auth_atomicity.mjs
+- static_sql_qa_v2270.mjs
+- static_ui_qa_v2270.mjs
+- qa_fixture_v2265.mjs
+- nlu_eval_v221.mjs
+- nlu_eval_dataset_v221.jsonl
+- visual_qa_v2267.mjs (V22.7-compatible browser runner; set output directory explicitly)
+
+Generated after staging
+- BUNDLE_FILE_CHECKSUMS_V22_7_0.sha256
+
+Excluded intentionally
+- Historical releases and old version-pinned smoke scripts
+- Historical screenshots
+- Incomplete meme/card-performance image assets
+- Secrets, production credentials, database exports, and user data

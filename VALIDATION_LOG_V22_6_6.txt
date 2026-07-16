@@ -1,0 +1,37 @@
+V22.6.6-FREE-FEATURE-ROLLOUT
+Validated at: 2026-07-15 Asia/Seoul
+
+[1] JavaScript syntax
+command: node --check src/index.js
+result: PASS
+
+[2] Full smoke/static regression
+command: for f in smoke_*.mjs static_*.mjs; do node "$f"; done
+result: PASS 37 / FAIL 0
+
+[3] Free feature rollout
+command: node smoke_v2266_free_feature_rollout.mjs
+result: SMOKE_V2266_FREE_FEATURE_ROLLOUT_OK assertions=71
+
+[4] Korean natural-language evaluation
+command: node nlu_eval_v221.mjs
+result: checked=4738 passed=4738 failed=0 accuracy=1.0
+
+[5] Mobile visual QA
+command: QA_VIEWPORT_WIDTH=390 QA_VIEWPORT_HEIGHT=844 node visual_qa_v2265.mjs visual_qa_v2266_390
+result: PASS screens=14 offenders=0 duplicate_ids=0 unlabeled_controls=0
+
+command: QA_VIEWPORT_WIDTH=360 QA_VIEWPORT_HEIGHT=780 node visual_qa_v2265.mjs visual_qa_v2266_360
+result: PASS screens=14 offenders=0 duplicate_ids=0 unlabeled_controls=0
+
+[6] Policy result
+- Completed smart tools are open by default and free to ordinary signed-in household users.
+- No checkout, subscription tier, usage paywall, or premium lock is connected.
+- Household role checks and cross-household isolation remain enforced.
+- Legacy /my/premium is retained only as a compatibility alias for /smart-tools.
+- Internal content-production routes remain non-public because they are operator tools, not user premium features.
+
+[7] Operational caveats
+- Browser OCR depends on loading Tesseract.js; direct text input remains available when it fails.
+- Card benefit results are estimates and require current issuer-term review.
+- Reports are generated automatically but are not sent to Kakao without an explicit user share action.

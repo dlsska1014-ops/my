@@ -1,0 +1,26 @@
+V22.6.9 primary runtime
+- src/index.js
+- VERSION.txt
+- README.md
+
+V22.6.9 verification
+- smoke_v2269_security_spender_privacy.mjs
+- VALIDATION_REPORT_V22_6_9.md
+- VALIDATION_LOG_V22_6_9.txt
+- VALIDATION_MANIFEST_V22_6_9.json
+- BUNDLE_FILE_CHECKSUMS_V22_6_9.sha256
+
+V22.6.9 operations
+- V22_6_9_SECURITY_SPENDER_PRIVACY_HOTFIX_REPORT.md
+- FINAL_APPLY_CHECKLIST_V22_6_9.md
+- RISK_REGISTER_V22_6_9.md
+
+Retained V22.6.8 database integrity assets
+- schema_v22_6_8_operations_integrity.sql
+- OPERATIONS_DATA_INTEGRITY_AUDIT_V22_6_8.sql
+- MIGRATION_GUIDE_V22_6_8.md
+
+Policy
+- Completed smart tools remain free.
+- Incomplete meme/card-performance routes remain hidden.
+- V22.6.9 adds no database migration.

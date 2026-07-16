@@ -1,0 +1,20 @@
+V22.6.2-UIUX-RUNTIME-ACCESSIBILITY-HOTFIX
+validated_at=2026-07-14 Asia/Seoul
+
+PASS node --check src/index.js
+PASS smoke_files 31/31
+PASS static_files 2/2
+PASS smoke_v2254_conversation_integrity assertions=321
+PASS static_v2254_state_integrity assertions=43
+PASS nlu_eval_v221 checked=4738 passed=4738 failed=0 accuracy=1
+PASS latency_v2151_450 direct_ms=3919 group_ms=3903 slash_ms=3904
+PASS smoke_v2261_identity_session_recovery stale_cookie_recovery=ok multi_hop=ok post_body_preserved=ok
+PASS smoke_v2262_uiux_runtime hidden_routes=10 parser_cases=4 rendered_app=ok
+PASS chromium_render routes=9 viewports=2 pages=18 status_200=18
+PASS chromium_ui horizontal_overflow=0 unlabeled_controls=0 duplicate_ids=0 maximum_scale=0 runtime_errors=0
+PASS chromium_mobile_runtime parser_cases=4 bottom_tabs=5 hash_active_state=ok edit_opened=ok runtime_errors=0
+PASS database_schema_changes=0
+PASS openbuilder_changes=0
+
+manual_required=real_problem_account,production_supabase_rls,ios_safari,android_chrome,post_deploy_monitoring
+verdict=release_candidate_pass
