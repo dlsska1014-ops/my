@@ -15,6 +15,7 @@ V22.8.2-AUTH-UIUX-STABILIZATION
 - 정기지출 삭제, 가계부 나가기·영구삭제, 소비 카드 삭제, 계정 통합 버튼에 danger 스타일과 확인 절차를 명시했습니다.
 - `/kakao-login-check`와 `/ops-audit`가 로그인 활성 시 카카오 환경변수를 필수로 검사하고, 로컬 구성 검증과 카카오 앱 등록값 대조를 구분해 안내합니다.
 - `/kakao-login-recovery` 화면의 미정의 변수 참조로 인한 500 오류를 수정했습니다.
+- 운영 배포 기준 전수 점검(라우트 930회 호출 + 실제 브라우저 84회 렌더)에서 발견한 UI 회귀 6건을 수정했습니다: 홈 타임라인·입력 칩의 파란 덮임 복원, 모바일 메뉴 토글 과대 확장, secondary 버튼 위계 소실, 프로필 가로 오버플로, 사용자 내비의 `/backup` 경로 불일치(→ `/my/backup` canonicalize), 제목 단어 중간 줄바꿈.
 - 데이터베이스 스키마 변경 없음. 검증은 `./validate_v2282.sh` 하나로 실행합니다.
 
 운영 적용 전에는 `FINAL_APPLY_CHECKLIST_V22_8_2.md`, 상세 내용은 `V22_8_2_AUTH_UIUX_STABILIZATION_REPORT.md`를 확인하세요.

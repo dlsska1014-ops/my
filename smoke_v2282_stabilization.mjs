@@ -194,6 +194,32 @@ try {
 
   // 11. Backup identity lookup stays inside a guarded path
   ok(/async function hasBackupLoginIdentity[\s\S]{0,400}try \{/.test(source), "backup identity lookup is wrapped in try/catch");
+
+  // 12. Backup path is canonicalized for signed-in users
+  response = await get("/backup?month=2026-07&household_id=house-home");
+  eq(response.status, 303, "admin backup center redirects signed-in users");
+  eq(response.headers.get("location"), "/my/backup?month=2026-07&household_id=house-home", "signed-in users land on their own backup page with query preserved");
+  response = await get("/menu?month=2026-07&household_id=house-home");
+  html = await response.text();
+  ok(html.includes("/my/backup?month=2026-07"), "user navigation links the user backup path");
+  ok(!/href="\/backup\?month=/.test(html), "user navigation no longer links the admin backup path");
+
+  // 13. Guided style keeps functional chips and list rows out of the blue button rule
+  response = await get("/app?month=2026-07&household_id=house-home");
+  html = await response.text();
+  ok(html.includes(".abV2281 button.homeTx:not(.danger)"), "home timeline rows stay list-styled");
+  ok(html.includes(".abV2281 .chipRow button:not(.danger)"), "quick-input chips keep their light chip styling");
+  ok(html.includes(".abV2281 button.dateChip:not(.danger)"), "date chips keep their outline styling");
+  ok(html.includes("word-break:keep-all"), "headings avoid mid-word line breaks");
+  response = await get("/reports?month=2026-07&household_id=house-home");
+  html = await response.text();
+  ok(html.includes(".abV2281 .abNavMobileTop button:not(.danger)"), "mobile nav toggle stays compact and light on unified-nav pages");
+  ok(html.includes(".abV2281 .btn:not(.light):not(.soft):not(.danger):not(.secondary)"), "secondary action links are excluded from the primary blue rule");
+
+  response = await get("/my/profile");
+  html = await response.text();
+  ok(html.includes("box-sizing:border-box"), "profile page has the border-box reset (no horizontal overflow)");
+  ok(html.includes('class="btn secondary"'), "profile secondary link is marked secondary");
 } finally {
   globalThis.fetch = fixtureFetch;
   fixture.restore();
