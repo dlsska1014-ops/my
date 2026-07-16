@@ -5,13 +5,14 @@ async function check(path, expectStatus = 200) {
   if (res.status !== expectStatus) throw new Error(`${path} status ${res.status}`);
   const text = await res.text();
   if (!text) throw new Error(`${path} empty response`);
+  if (expectStatus === 404 && !/noindex/.test(res.headers.get('x-robots-tag') || '')) throw new Error(`${path} missing noindex`);
   return text;
 }
-await check('/health');
-await check('/meme-content-center');
-await check('/meme-motion-guide');
-await check('/meme-review-check');
-await check('/meme-share-kit');
-const catalog = await check('/meme-card-catalog.json');
-if (!catalog.includes('V20.9-MEME-CONTENT-PUBLISH-BUNDLE')) throw new Error('catalog version missing');
+const health = await check('/health');
+if (!health.includes('V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX')) throw new Error('health version missing');
+await check('/meme-content-center', 404);
+await check('/meme-motion-guide', 404);
+await check('/meme-review-check', 404);
+await check('/meme-share-kit', 404);
+await check('/meme-card-catalog.json', 404);
 console.log('V20.9 smoke PASS');

@@ -1,5 +1,5 @@
 import mod from './src/index.js';
-const env = { APP_NAME:'똑똑한가계부', ADMIN_PASSWORD:'pw', SUPABASE_URL:'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY:'x' };
+const env = { APP_NAME:'똑똑한가계부', ADMIN_PASSWORD:'pw', SUPABASE_URL:'', SUPABASE_SERVICE_ROLE_KEY:'' };
 async function hit(path, headers={}) {
   const req = new Request('https://example.com'+path, { method:'GET', headers });
   const res = await mod.fetch(req, env, { waitUntil(){} });

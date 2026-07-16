@@ -23,7 +23,7 @@ checks.push(['/operation-center', await req('/operation-center', true)]);
 for (const [path, r] of checks) {
   if (r.status < 200 || r.status >= 400) throw new Error(`${path} status ${r.status}: ${r.text.slice(0,120)}`);
 }
-if (!checks[0][1].text.includes('V21.1-GROUP-CHATBOT-LAUNCH-SCALE-BUNDLE')) throw new Error('version mismatch');
+if (!checks[0][1].text.includes('V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX')) throw new Error('version mismatch');
 if (!checks[1][1].text.includes('신규 그룹 챗봇 제작 기준')) throw new Error('group launch text missing');
 if (!checks[2][1].text.includes('그룹 챗봇 대량 트래픽 준비')) throw new Error('scale text missing');
 if (!checks[3][1].text.includes('개인 주소 제거 점검')) throw new Error('personal audit text missing');

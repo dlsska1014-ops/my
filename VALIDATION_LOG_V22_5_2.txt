@@ -1,0 +1,206 @@
+{
+  "ok": true,
+  "transactions": [
+    {
+      "household_id": "h1",
+      "amount": 15001
+    },
+    {
+      "household_id": "h2",
+      "amount": 17001
+    }
+  ],
+  "settings": [
+    {
+      "key": "kakao_flow_v215:u1:qlxxgc",
+      "value": "{}"
+    },
+    {
+      "key": "kakao_selected_household_v2251:u1",
+      "value": "h1"
+    },
+    {
+      "key": "kakao_flow_v215:u1:1m3379q",
+      "value": "{\"flow\":\"household_choice\",\"step\":\"choose\",\"data\":{\"action\":\"invite\",\"household_ids\":[\"h2\",\"h1\"],\"group_key\":\"group-unlinked-2\"},\"expires_at\":1783997897040}"
+    },
+    {
+      "key": "kakao_group_links",
+      "value": "{\"group-linked\":{\"household_id\":\"h2\",\"household_name\":\"모임 가계부\",\"invite_code\":\"CODE2222\",\"linked_by\":\"u1\",\"linked_at\":\"2026-07-14T02:28:17.044Z\"}}"
+    },
+    {
+      "key": "kakao_flow_v215:u3:qlxxgc",
+      "value": "{}"
+    },
+    {
+      "key": "kakao_selected_household_v2251:u3",
+      "value": "h3"
+    },
+    {
+      "key": "kakao_flow_v215:u2:qlxxgc",
+      "value": "{}"
+    }
+  ]
+}
+{
+  "ok": true,
+  "slash_commands": [
+    "/시작",
+    "/기록",
+    "/오늘기록",
+    "/남은예산",
+    "/예산설정",
+    "/요약",
+    "/정산",
+    "/가계부전환",
+    "/초대코드",
+    "/단톡방연결"
+  ]
+}
+{
+  "version": "V22.1",
+  "dataset": "./nlu_eval_dataset_v221.jsonl",
+  "synthetic_dataset": true,
+  "checked": 4738,
+  "passed": 4738,
+  "failed": 0,
+  "accuracy": 1,
+  "by_intent": {
+    "START": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_CREATE": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_JOIN": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "HOUSEHOLD_SWITCH": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "MEMBER_ALIAS_CHANGE": {
+      "total": 227,
+      "pass": 227,
+      "accuracy": 1
+    },
+    "INVITE_CODE_SHOW": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "INVITE_MEMBER": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "BUDGET_SETUP": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "BUDGET_STATUS": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "GROUP_LINK": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "SETTLEMENT": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "SUMMARY": {
+      "total": 227,
+      "pass": 227,
+      "accuracy": 1
+    },
+    "RECENT_RECORDS": {
+      "total": 226,
+      "pass": 226,
+      "accuracy": 1
+    },
+    "INPUT_EXAMPLE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "EDIT_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "KEYWORD_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "RESERVE_GUIDE": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "DATA_POLICY": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "CANCEL": {
+      "total": 218,
+      "pass": 218,
+      "accuracy": 1
+    },
+    "HELP": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "WEB_LINK": {
+      "total": 225,
+      "pass": 225,
+      "accuracy": 1
+    },
+    "UNKNOWN": {
+      "total": 2,
+      "pass": 2,
+      "accuracy": 1
+    }
+  },
+  "failures": []
+}
+{
+  "utterance": "점심 15000원 현대카드",
+  "group": false,
+  "elapsed": 3937,
+  "status": 200,
+  "header": "3911",
+  "text": "💸 지출 저장했어요 😊\n가계부: 우리집 생활비\n점심 / 15,000원 / 현대카드 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+{
+  "utterance": "@똑똑한가계부 점심 16000원 현금",
+  "group": true,
+  "elapsed": 3904,
+  "status": 200,
+  "header": "3902",
+  "text": "💸 지출 저장했어요 😊\n가계부: 우리집 생활비\n점심 / 16,000원 / 현금 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+{
+  "utterance": "/기록 점심 17000원 국민카드",
+  "group": true,
+  "elapsed": 3903,
+  "status": 200,
+  "header": "3901",
+  "text": "💸 지출 저장했어요 😊\n가계부: 우리집 생활비\n점심 / 17,000원 / 국민카드 / 식비\n결제자: 인남\n\n수정할 번호는 ‘오늘 기록’에서 확인해 주세요."
+}
+LATENCY_V2151_OK
+ES_IMPORT_OK

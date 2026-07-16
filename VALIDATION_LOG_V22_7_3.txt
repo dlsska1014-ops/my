@@ -1,0 +1,25 @@
+V22.7.3-WEBVIEW-CSRF-USER-NAV-HOTFIX
+Validated: 2026-07-16 Asia/Seoul
+
+PASS node --check src/index.js
+PASS smoke_v2270_auth_atomicity.mjs: 170 assertions
+PASS smoke_v2273_webview_csrf_user_nav.mjs: 17 checks
+PASS smoke_v2273_webview_record_mutation.mjs: 7 checks
+PASS smoke_v2273_user_navigation.mjs: 13 checks
+PASS static_asset_qa_v2271.mjs: 25 assertions
+PASS static_my_route_qa_v2272.mjs: 5 assertions
+PASS static_sql_qa_v2270.mjs: 13 functions, 12 Worker RPCs, 155 assertions
+PASS static_ui_qa_v2270.mjs: 23 screens, 576 assertions, widths 390/360/320
+PASS nlu_eval_v221.mjs: 4,738/4,738 passed, accuracy 1.0
+
+Focused behavior confirmed:
+- Same-origin and Kakao WebView opaque POST requests reach record mutation handlers.
+- Record spender update and record delete persist with the V22.7 atomic RPC fixture.
+- Explicit foreign Origin and cross-site requests remain 403 and do not mutate data.
+- /my/households opens as a user route without a global administrator password prompt.
+- User menu routes household/member/settings/password actions through /my/*.
+- Logged-in users accidentally reaching /settings recover to personal password settings.
+
+Known historical test note:
+- Older V22.6.x smoke files pin obsolete version strings and are retained as historical regression assets; they are not the V22.7.3 release gate.
+- smoke_v2265_mobile_household_budget.mjs already returns 400 on V22.7.2 because its pre-V22.7 password fixture does not implement the atomic identity RPC. This is unchanged by V22.7.3.

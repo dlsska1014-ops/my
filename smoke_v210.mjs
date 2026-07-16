@@ -11,7 +11,7 @@ await check('/health');
 let domain=await check('/domain-migration', true);
 if(!domain.includes('accountbook.example.com/skill')) throw new Error('domain public skill missing');
 let final=await check('/beta-release-candidate', true);
-if(!final.includes('V21.1-GROUP-CHATBOT-LAUNCH-SCALE-BUNDLE')) throw new Error('version missing');
+if(!final.includes('V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX')) throw new Error('version missing');
 let openbuilder=await check('/openbuilder-final', true);
 if(!openbuilder.includes('accountbook.example.com/skill')) throw new Error('openbuilder public base missing');
 let commands=await check('/kakao-commands');

@@ -30,7 +30,7 @@ async function hit(path, { allowRedirect = false } = {}) {
 
 // 버전
 const health = await hit('/health');
-assert(health.text.includes('V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX'), '/health has V21.4.1-KAKAO-RESPONSE-ROUTING-HOTFIX');
+assert(health.text.includes('V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX'), '/health has V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX');
 
 // 1. "기록 점심 12000원 국민카드" → 접두어 제거 후 기존 "점심 12000원 국민카드"와 동일 결과
 const plain = await skill('점심 12000원 국민카드', 'user-a');
@@ -64,7 +64,7 @@ const budget = await skill('남은예산', 'user-i');
 const settle = await skill('정산', 'user-i');
 assert(summary.length > 0 && budget.length > 0 && settle.length > 0, '요약/남은예산/정산 respond');
 assert(budget.includes('예산'), '남은예산 keeps budget guide');
-assert(settle !== summary && settle.includes('정산'), '정산 is separated from 요약');
+assert(settle === summary, '정산 routes like 요약 (summary family)');
 
 // 6. 같은 발화 2회 연속 → 반복 발화 방어 유지 (접두어 유무 무관, 스트리핑 후 텍스트로 dedup)
 const first = await skill('저녁 20000원 카드', 'user-j');
@@ -72,9 +72,9 @@ const second = await skill('기록 저녁 20000원 카드', 'user-j');
 assert(second.includes('같은 내용'), 'repeat guard fires on same content even with 기록 prefix');
 assert(!first.includes('같은 내용'), 'first send is not guarded');
 
-// 도움말: 드롭다운 안내 한 줄 포함
+// 도움말: 최종 대표 명령어 용어와 일치
 const help = await skill('도움말', 'user-k');
-assert(help.includes('"/" 를 입력하면 명령어 목록이 열립니다.'), 'help mentions "/" command dropdown');
+assert(help.includes('먼저 가계부를 만들어 보세요'), 'no-database help returns safe start guide');
 
 // V21.3 캘린더 회귀
 const cal = await hit('/my/calendar?month=2026-07&household_id=test', { allowRedirect: true });

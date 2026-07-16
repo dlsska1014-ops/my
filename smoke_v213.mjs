@@ -16,9 +16,9 @@ async function hit(path, init = {}, { allowRedirect = false } = {}) {
   return { res, text };
 }
 
-// V21.3-HOME-CALENDAR-MERGE: /health 버전 확인
+// V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX: /health 버전 확인
 const health = await hit('/health');
-if (!health.text.includes('V21.3-HOME-CALENDAR-MERGE')) throw new Error('version mismatch on /health');
+if (!health.text.includes('V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX')) throw new Error('version mismatch on /health');
 
 // 구주소 /my/calendar → /app?view=calendar 리다이렉트 확인
 const cal = await hit('/my/calendar?month=2026-07&household_id=test', {}, { allowRedirect: true });
@@ -38,8 +38,8 @@ await hit('/start-guide');
 await hit('/skill', { method: 'GET' });
 await hit('/kakao-command-system');
 const menu = await hit('/skill', { method: 'POST', body: JSON.stringify({ userRequest: { utterance: '메뉴', user: { id: 'test-bot-user-key', type: 'botUserKey', properties: { botUserKey: 'test-bot-user-key' } } } }) });
-if (!menu.text.includes('quickReplies')) throw new Error('quickReplies missing for menu');
+if (menu.text.includes('quickReplies')) throw new Error('general menu must not auto-attach quickReplies');
 const raw = await hit('/skill', { method: 'POST', body: '점심 12000 삼성카드' });
-if (!raw.text.includes('quickReplies')) throw new Error('quickReplies missing for raw');
+if (raw.text.includes('quickReplies')) throw new Error('general raw response must not auto-attach quickReplies');
 await hit('/kakao-command-menu.json');
 console.log('SMOKE_V213_OK');

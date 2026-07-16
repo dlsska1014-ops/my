@@ -1,0 +1,16 @@
+V22.6.7-STABILIZATION-HIDDEN-INCOMPLETE
+validated_at=2026-07-15T15:20:49+09:00
+syntax=PASS
+smoke_scripts=36/36 PASS
+static_scripts=2/2 PASS
+v2267_assertions=150 PASS
+nlu=4738/4738 PASS
+visual_390x844=18/18 PASS
+visual_360x800=18/18 PASS
+horizontal_overflow=0
+offscreen_elements=0
+duplicate_ids=0
+unlabeled_controls=0
+hidden_feature_links=0
+hidden_routes=404,noindex
+release_candidate=PASS_WITH_REAL_DEVICE_AND_POST_DEPLOY_MONITORING

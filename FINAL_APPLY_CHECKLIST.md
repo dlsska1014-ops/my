@@ -1,9 +1,41 @@
-# 최종 적용 체크리스트 — V21.2
+# V22.2 적용 메모
+
+- Worker `src/index.js`만 배포
+- OpenBuilder 변경 없음
+- Supabase 마이그레이션 없음
+- `/my/analysis` 신규 분석 스튜디오
+- 기존 분석은 `/my/analysis?view=report`
+- 상세 순서는 `V22_2_ROLLOUT_RUNBOOK.md` 참조
+
+---
+
+# V21.5.2 자연어 의도·스마트 CTA 핫픽스 우선 적용
+
+1. Cloudflare Worker에 이 패키지의 `src/index.js`를 배포합니다.
+2. `https://ttokttok-accountbook.com/health`에서 `V21.5.2-NATURAL-INTENT-SMART-CTA-HOTFIX`를 확인합니다.
+3. OpenBuilder 시나리오명·블록명·발화·스킬 URL은 변경하지 않습니다.
+4. 운영 단톡방에서 `@똑똑한가계부 닉네임수정`을 테스트합니다.
+5. `닉네임 인남으로 변경`이 즉시 저장되는지 확인합니다.
+6. `초대코드` 응답에 초대 문구와 `참여자·초대 관리` URL 1개가 표시되는지 확인합니다.
+7. `구성원 초대`, `예산 바꾸기`, `이번 달 얼마 썼어`, `가계부 바꾸기`, `단톡 연결`, `정산해줘`를 테스트합니다.
+8. 일반 거래 저장 응답에는 URL이 없는지 확인합니다.
+9. `/skill-ops`에서 `ok`와 `latency_ms`를 확인하고 카카오 오류 1001이 재발하지 않는지 확인합니다.
+
+---
+
+# 최종 적용 체크리스트 — V21.5
 
 ## 배포 파일
 
-- `kakao-accountbook-cloudflare-v21.2-domain-mobile-calendar-skill-hotfix.zip`
-- 내부 버전: `V21.2-DOMAIN-MOBILE-CALENDAR-SKILL-HOTFIX`
+```text
+kakao-accountbook-cloudflare-v21.5-guided-onboarding-budget.zip
+```
+
+내부 버전:
+
+```text
+V21.5-GUIDED-ONBOARDING-BUDGET-BUNDLE
+```
 
 ## Cloudflare 환경변수
 
@@ -12,57 +44,104 @@ PUBLIC_BASE_URL=https://ttokttok-accountbook.com
 SERVICE_BASE_URL=https://ttokttok-accountbook.com
 APP_BASE_URL=https://ttokttok-accountbook.com
 CANONICAL_BASE_URL=https://ttokttok-accountbook.com
-CANONICAL_REDIRECT=0
 ```
 
-## 확인 순서
+기존 Supabase 환경변수와 서비스 역할 키를 유지합니다. 별도 DB 마이그레이션은 없습니다.
 
-- [ ] `/health`에서 `V21.2-DOMAIN-MOBILE-CALENDAR-SKILL-HOTFIX` 확인
-- [ ] `/my` 카카오 로그인 정상 확인
-- [ ] `/skill` 브라우저 접속 시 안내 화면 확인
-- [ ] OpenBuilder Skill URL을 `https://ttokttok-accountbook.com/skill`로 설정
-- [ ] `/start-guide` → 캘린더 클릭 시 `/my/calendar` 화면으로 이동
-- [ ] `/menu` → 캘린더/분석/백업이 사용자용 화면으로 이동
-- [ ] `/privacy`, `/terms` 정상 확인
-- [ ] `/personal-url-audit`에서 개인 계정명 노출 없음 확인
+## 1. Worker 배포 확인
 
-## 주의
+- [ ] ZIP 배포 완료
+- [ ] `/health`에서 `V21.5-GUIDED-ONBOARDING-BUDGET-BUNDLE` 확인
+- [ ] `/skill` 브라우저 안내 화면 정상
+- [ ] `POST /skill` 응답이 `version: "2.0"`과 `template.outputs`를 포함
+- [ ] `/my`, `/app`, 카카오 로그인 정상
 
-현재 운영 서버 `/health`가 `V20.8`로 보이면 최신 ZIP이 아직 배포되지 않은 상태입니다. 이 ZIP을 배포한 뒤 다시 확인하세요.
+## 2. OpenBuilder 적용
+
+- [ ] 봇 입장 블록을 `KAKAO_OPENBUILDER_UTTERANCES.md` 문구로 변경
+- [ ] 봇 입장 버튼 `시작하기`가 메시지 `시작`을 전송
+- [ ] 시작·도움말·가계부 만들기·초대코드 참여 블록을 `/skill`에 연결
+- [ ] 예산 설정·남은예산·오늘 요약·내 이름 설정·단톡방 연결 블록을 `/skill`에 연결
+- [ ] 폴백 블록을 반드시 `/skill`에 연결
+- [ ] OpenBuilder에 중복 고정 답변·중복 웹 링크를 넣지 않음
+
+## 3. 신규 사용자 실제 대화 테스트
+
+- [ ] `시작` → 가계부 만들기/초대코드 참여/사용법 보기 표시
+- [ ] 새 가계부 만들기 → 종류 선택
+- [ ] 이름 입력 → 가계부 생성·초대코드 발급
+- [ ] 초대코드 참여 정상
+- [ ] 단톡방에서 `단톡방 연결 ABC123` 정상
+- [ ] `내 이름 설정` → 표시명 저장
+- [ ] 첫 거래 저장 결과에 결제자 표시
+
+## 4. 예산 테스트
+
+- [ ] `/예산설정` → 단계형 선택
+- [ ] 카테고리별 예산 → 카테고리·금액·확인 후 저장
+- [ ] `식비 예산설정 백만원` → 1,000,000원 저장
+- [ ] 전체 월 예산 저장
+- [ ] 지난달 예산 복사
+- [ ] 일반 구성원은 예산 변경 불가
+- [ ] `남은예산` → 전체와 카테고리별 사용액·잔여액·사용률 표시
+
+## 5. 요약·응답 정책 테스트
+
+- [ ] 오늘·어제·이번 주·지난 주·이번 달·특정 날짜 요약 정상
+- [ ] 사용자별 지출 합계 정상
+- [ ] 일반 거래 저장 응답에 URL 없음
+- [ ] 일반 거래 저장 응답에 quickReplies 없음
+- [ ] 남은예산 일반 조회에 quickReplies 없음
+- [ ] 미인식 안내에 quickReplies와 URL 없음
+- [ ] 응답에 문자 `\\n`이 보이지 않고 실제 줄바꿈으로 표시
+- [ ] `/정산`이 월 요약이 아닌 정산 응답 반환
+- [ ] 동일 상세 분석 CTA가 24시간 안에 반복되지 않음
+
+## 6. 회귀 확인
+
+- [ ] 거래 중복 저장 방어 정상
+- [ ] 사용자 단위 레이트리밋 정상
+- [ ] 가계부 권한·선택 범위 정상
+- [ ] 거래 수정·삭제 정상
+- [ ] 모바일 `/app` 및 캘린더 정상
+- [ ] Supabase 기존 데이터와 호환
+
+## 배포 순서
+
+```text
+1. 현재 Worker 설정 스냅샷 저장
+2. V21.5 Worker 배포
+3. /health 및 /skill smoke
+4. OpenBuilder 개발 채널 블록 수정
+5. 개발 채널 전체 대화 테스트
+6. 실제 그룹방 테스트
+7. OpenBuilder 운영 배포
+```
 
 
-## V21.3-KAKAO-CHAT-FIRST-QUICKREPLY-BUNDLE
-- 카카오톡 안에서 먼저 처리하는 명령어 체계와 quickReplies 바로연결을 보강했습니다.
-- `/kakao-command-system`, `/kakao-command-menu.json`을 추가했습니다.
-- `/skill` 응답은 기본적으로 `version: "2.0"`, `template.outputs`, `template.quickReplies`를 포함합니다.
-- 오픈빌더 스킬 테스트에서 일반 문장 입력도 방어적으로 처리합니다.
+## V22.0 추가 확인
+1. `/health`에서 `V22.0-NLU-FOUNDATION-LOW-COST-BUNDLE` 확인
+2. `/nlu-intents.json`에서 `external_ai:false` 확인
+3. `닉네임 변경`, `닉넴 바꿔줘`, `나를 인남이라고 불러줘` 시험
+4. 응답 헤더의 `x-accountbook-version`, `x-accountbook-intent`, `x-accountbook-request-id` 확인
+5. 초기 운영에서는 NLU 로그 영구저장 환경변수를 켜지 않음
 
-## V21.3-HOME-CALENDAR-MERGE
-- [ ] `/health`에서 `V21.3-HOME-CALENDAR-MERGE` 확인
-- [ ] `/app?view=calendar` 캘린더 그리드 표시, 이전/다음달 이동 시 view 유지
-- [ ] 캘린더 날짜 클릭 → 같은 페이지 피드에 그날 기록만 표시, 수정/삭제 정상
-- [ ] 날짜 선택 상태에서 빠른입력 날짜가 그 날짜로 프리셋
-- [ ] 구주소 `https://ttokttok-accountbook.com/my/calendar?month=...&household_id=...` → `/app?view=calendar` 자동 이동
-- [ ] 시작가이드/전체메뉴/분석의 캘린더 버튼 전부 홈 캘린더로 이동
-- [ ] `/skill` POST 저장, 권한 체크, 예산 알림 회귀 없음
 
-## V21.4-KAKAO-COMMANDS
-- [ ] `/health`에서 `V21.4-KAKAO-COMMANDS` 확인
-- [ ] 관리자센터 > 그룹 챗봇 설정 > 대표 명령어 8개 등록 (순서·설명 3건은 KAKAO_OPENBUILDER_UTTERANCES.md 표 그대로)
-- [ ] `/` 입력 시 8개 명령어 드롭다운 노출 (기록·수정·단톡방 연결에만 설명 표시)
-- [ ] 드롭다운 "기록" 선택 → 이어서 입력 → 정상 저장
-- [ ] `기록` 단독 → 입력 예시 안내 / `수정` 단독 → 수정가이드
-- [ ] `오늘 기록` → 조회 응답 유지
-- [ ] 같은 발화 2회 연속 → 반복 발화 방어 유지
-- [ ] 명령어 미반영 시 봇 제거 후 재추가로 갱신
+## V22.1 추가 확인
+- [ ] `/health` V22.1 확인
+- [ ] `/nlu-intents.json` Registry 21개 확인
+- [ ] `이름 변경`이 대상 선택으로 응답
+- [ ] `식비 50만원`이 지출/예산 선택으로 응답
+- [ ] `초대`가 코드 보기/코드 참여 선택으로 응답
+- [ ] `node nlu_eval_v221.mjs` 통과
+- [ ] 기존 `smoke_v220_full.mjs` 및 `latency_v2151_450.mjs` 통과
 
-## V21.4.4-BASELINE-ALIGNMENT-HOTFIX
-- [ ] `/health`에서 `V21.4.4-BASELINE-ALIGNMENT-HOTFIX` 확인
-- [ ] 신규 사용자(가계부 없음)가 "점심 12000원" 입력 → 온보딩 1단계(가계부 만들기) 안내, 저장 안 됨
-- [ ] `가계부 만들기`/`가계부 참여`/`가계부 전환` → 웹 안내만, DB 변경 없음
-- [ ] `단톡방 연결 초대코드` → 그룹방 연결 정상 (기존 유지)
-- [ ] 연결 후 기록 → 저장 → `오늘 기록`/`요약`/`남은예산`/`정산` 정상
-- [ ] 대표 명령어 드롭다운을 온보딩 순서 8개로 재등록 (KAKAO_OPENBUILDER_UTTERANCES.md 표)
-- [ ] OpenBuilder 블록을 KAKAO_OPENBUILDER_BLOCK_MAP_V21_4_4.xlsx 기준 12업무 블록으로 정리
-- [ ] 일반 응답 URL 0개 / 링크·가계부 관리 안내만 대표 주소 1개
-- [ ] 비 JSON POST가 저장을 만들지 않음 (운영 기본값)
+
+## V22.3 추가 확인
+- [ ] `/health`가 V22.3 버전인지 확인
+- [ ] `/nlu-ops` 관리자 화면 확인
+- [ ] `/skill` 응답 헤더에 `x-accountbook-nlu-result` 확인
+- [ ] 영구 집계 미사용 시 환경변수 모두 0 유지
+- [ ] 선택 SQL 적용 시 집계와 실패 샘플 정책을 분리 활성화
+- [ ] 실패 샘플 CSV에 사용자 키·원문 개인정보가 없는지 확인
+- [ ] 자연어 거래·닉네임·초대·예산·요약 회귀시험

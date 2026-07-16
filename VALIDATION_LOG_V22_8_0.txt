@@ -1,0 +1,19 @@
+V22.8.0-ASSET-DASHBOARD-COMPLETE-STABILITY validation
+Date: 2026-07-16 Asia/Seoul
+
+[PASS] node --check src/index.js
+[PASS] smoke_v2270_auth_atomicity.mjs: assertions=170
+[PASS] smoke_v2273_webview_csrf_user_nav.mjs: checks=17
+[PASS] smoke_v2273_webview_record_mutation.mjs: checks=7
+[PASS] smoke_v2273_user_navigation.mjs: checks=13
+[PASS] smoke_v2280_asset_dashboard.mjs: checks=47, mocked RPC calls=6
+[PASS] static_asset_qa_v2271.mjs: assertions=27
+[PASS] static_asset_sql_qa_v2280.mjs: checks=33
+[PASS] static_my_route_qa_v2272.mjs: assertions=5
+[PASS] static_sql_qa_v2270.mjs: functions=13, worker RPCs=12, assertions=155
+[PASS] static_ui_qa_v2270.mjs: screens=23, widths=390/360/320, assertions=576
+[PASS] nlu_eval_v221.mjs: 4738/4738
+[PASS] visual_qa_v2267.mjs at 390x844: 18 screens, no overflow/duplicate ID/unlabeled control
+[PASS] visual_qa_v2267.mjs at 320x700: 18 screens, no overflow/duplicate ID/unlabeled control
+
+Production Supabase SQL execution and Cloudflare deployment were not performed in this local validation.

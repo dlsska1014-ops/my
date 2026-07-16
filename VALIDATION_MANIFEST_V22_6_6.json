@@ -1,0 +1,31 @@
+{
+  "version": "V22.6.6-FREE-FEATURE-ROLLOUT",
+  "generated_at": "2026-07-15T12:00:00+09:00",
+  "policy": {
+    "user_feature_tier": "FREE",
+    "billing": "NOT_CONNECTED",
+    "paywall": "NONE",
+    "legacy_premium_url": "COMPATIBILITY_ALIAS_TO_SMART_TOOLS",
+    "household_scope_enforced": true
+  },
+  "validation": {
+    "syntax": "PASS",
+    "smoke_static_scripts": { "passed": 37, "failed": 0 },
+    "free_rollout_assertions": { "passed": 71, "failed": 0 },
+    "nlu": { "passed": 4738, "failed": 0, "accuracy": 1.0 },
+    "mobile_390x844": { "screens": 14, "offenders": 0, "duplicate_ids": 0, "unlabeled_controls": 0 },
+    "mobile_360x780": { "screens": 14, "offenders": 0, "duplicate_ids": 0, "unlabeled_controls": 0 }
+  },
+  "artifacts": {
+    "src/index.js": { "bytes": 1842772, "sha256": "a8da46fa3fa875fb1b1acd55611df107acfddde2951f9eb851b0cbfb8cef8f83" },
+    "smoke_v2266_free_feature_rollout.mjs": { "bytes": 13144, "sha256": "ae20ae7cef9530e55a70f0a0ee8ada6b1a44c9c379391c0feb3a029f18fe47a7" },
+    "visual_qa_v2265.mjs": { "bytes": 8511, "sha256": "ec4f51ef2fb08fbbd034be13e3becc9e4a80fb19c18e307c5b9c98650d1c22f6" },
+    "README.md": { "bytes": 28104, "sha256": "9570153351dbf595aadacb8a618314991e1f17ff750382b1b8e5bd0e8600c922" },
+    "VERSION.txt": { "bytes": 29, "sha256": "34e71e249518cace26f0b9cfc422c2809d58a5d821665ccd8862054df52cb714" },
+    "V22_6_6_FREE_FEATURE_ROLLOUT_REPORT.md": { "bytes": 4179, "sha256": "6a2dbf20e6bed35dcfaee382a1b083abc5d85238c38234973966f39df97f5972" },
+    "VALIDATION_REPORT_V22_6_6.md": { "bytes": 2224, "sha256": "08d7cc9dde3530eb6084cacb1c9750df995905e8cb64da7d25855fd55eed518f" },
+    "FINAL_APPLY_CHECKLIST_V22_6_6.md": { "bytes": 2536, "sha256": "5aea3d3b01f130ecadf278c9eff3516850c1332395db1fb3c49ff4dab09eddfe" },
+    "RISK_REGISTER_V22_6_6.md": { "bytes": 1857, "sha256": "c8f820325c1e38b450a4e45ceefe4353507d209f27de822f6b89efc6bf447709" },
+    "CLOUDFLARE_CRON_SETUP.md": { "bytes": 1204, "sha256": "24c38d7c0a4ac88159fea29229faa0d91fef85a0128a5932be5354298fe8dd0b" }
+  }
+}

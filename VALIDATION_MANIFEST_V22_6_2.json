@@ -1,0 +1,48 @@
+{
+  "version": "V22.6.2-UIUX-RUNTIME-ACCESSIBILITY-HOTFIX",
+  "generated_at": "2026-07-14",
+  "base_attachment": {
+    "name": "kakao-accountbook-cloudflare-v22.6.1-identity-session-household-list-recovery-hotfix (1).zip",
+    "sha256": "a8c4fdaf2be7d9a16991911476a291e3eec3e91547869ad524f42ab3802e8eac"
+  },
+  "files": {
+    "src/index.js": { "sha256": "f1e4e1163c28cd3353ecbf735b00a7a59b51f9a59aed85f16d6cac5369f90fbf", "bytes": 1641124 },
+    "README.md": { "sha256": "991d30190423769790755f71ca947e54ce1df18ac69a9e685c1919bc8aea5799", "bytes": 20131 },
+    "VERSION.txt": { "sha256": "feb5158ef12c81c31dc0596de3418e11499addab29103df214d842192fd9b05a", "bytes": 42 },
+    "V22_6_2_UIUX_RUNTIME_ACCESSIBILITY_HOTFIX_REPORT.md": { "sha256": "f948d43245ed0b4dce2feb2428d61f5ae61a38051ce48118ae994f7aaf1e56a1", "bytes": 6447 },
+    "FINAL_APPLY_CHECKLIST_V22_6_2.md": { "sha256": "6f0d41474582b5118e69486e3bc0c474f1fec47a071fa29db756779dea9bff6a", "bytes": 2923 },
+    "VALIDATION_REPORT_V22_6_2.md": { "sha256": "0b5ce776fea17412b05d89e9ad61209c826f8376eb2cb3219aa024f542efe0c9", "bytes": 2480 },
+    "RISK_REGISTER_V22_6_2.md": { "sha256": "b86201bfc707380d4ca7297cb763f4adce3c613a790fcc51d8ea6b232ac374f0", "bytes": 2242 },
+    "VALIDATION_LOG_V22_6_2.txt": { "sha256": "e5daf8838c2c966900f2ffcad65ae91c1cf9c2d55b8651dbec3f00904fb4d12d", "bytes": 1054 },
+    "smoke_v2261_identity_session_recovery.mjs": { "sha256": "c6601811d283b42abca86883c1b0cf65d29a60a9e5085171f4f214c28e80e163", "bytes": 11210 },
+    "smoke_v2262_uiux_runtime.mjs": { "sha256": "2b9a085eb2c6029c39d3165e4e627afd8d937f7a996ce8c16bd4b72757066f70", "bytes": 277 },
+    "smoke_v226_premium_hidden_features.mjs": { "sha256": "4730c20f851f5c304e47382fbdd16839dbba1ddacd48aa414861a12cac23587b", "bytes": 10636 },
+    "static_v2254_state_integrity.mjs": { "sha256": "805b2925f336cf3b85b9564c63d94c1f6abf5ef76d5f8c04ca29df4d8f6c4a24", "bytes": 3558 }
+  },
+  "validation": {
+    "node_check": true,
+    "smoke_files_total": 31,
+    "smoke_files_passed": 31,
+    "static_files_total": 2,
+    "static_files_passed": 2,
+    "conversation_integrity_assertions": 321,
+    "static_integrity_assertions": 43,
+    "nlu_checked": 4738,
+    "nlu_passed": 4738,
+    "nlu_failed": 0,
+    "latency_450ms_passed": true,
+    "chromium_pages": 18,
+    "chromium_status_200": 18,
+    "chromium_horizontal_overflow": 0,
+    "chromium_unlabeled_controls": 0,
+    "chromium_duplicate_ids": 0,
+    "chromium_maximum_scale": 0,
+    "chromium_runtime_errors": 0,
+    "mobile_runtime_parser_cases": 4,
+    "mobile_bottom_tabs": 5,
+    "mobile_edit_opened": true,
+    "session_recovery_smoke": true,
+    "database_schema_changed": false,
+    "openbuilder_changed": false
+  }
+}
