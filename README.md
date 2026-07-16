@@ -1,10 +1,25 @@
-# 똑똑한가계부 Cloudflare Bundle — V22.8.1 전체 UI·UX 개편
+# 똑똑한가계부 Cloudflare Bundle — V22.8.2 인증·제출 안정화
 
 현재 버전:
 
 ```text
-V22.8.1-GUIDED-UIUX-FULL-OVERHAUL
+V22.8.2-AUTH-UIUX-STABILIZATION
 ```
+
+## V22.8.2 인증·제출 안정화 (새 기능 없음)
+
+- 카카오 로그인 Redirect URI를 접속 주소로 자동 생성하지 않습니다. `KAKAO_REDIRECT_URI` 명시값이 없으면 로그인 버튼을 비노출(fail-closed)하고, KOE006을 만드는 호스트 불일치를 차단합니다.
+- 다른 호스트(workers.dev, www 등)에서 시작한 카카오 로그인은 인가 전에 canonical 호스트로 이동시켜 state 쿠키와 callback 호스트를 일치시킵니다.
+- 카카오 callback 오류를 취소/설정/토큰/프로필/계정 단계별로 구분해 안내하고, 성공·실패·취소 모든 종료 경로에서 OAuth state 쿠키를 만료합니다. 오류 화면에는 운영 추적 코드가 표시됩니다.
+- 저장 버튼 전역 잠금이 `confirm()` 취소·검증 실패 시 더 이상 잠기지 않으며, 뒤로가기(bfcache) 복귀 시 버튼 상태를 복구합니다.
+- 정기지출 삭제, 가계부 나가기·영구삭제, 소비 카드 삭제, 계정 통합 버튼에 danger 스타일과 확인 절차를 명시했습니다.
+- `/kakao-login-check`와 `/ops-audit`가 로그인 활성 시 카카오 환경변수를 필수로 검사하고, 로컬 구성 검증과 카카오 앱 등록값 대조를 구분해 안내합니다.
+- `/kakao-login-recovery` 화면의 미정의 변수 참조로 인한 500 오류를 수정했습니다.
+- 데이터베이스 스키마 변경 없음. 검증은 `./validate_v2282.sh` 하나로 실행합니다.
+
+운영 적용 전에는 `FINAL_APPLY_CHECKLIST_V22_8_2.md`, 상세 내용은 `V22_8_2_AUTH_UIUX_STABILIZATION_REPORT.md`를 확인하세요.
+
+---
 
 ## V22.8.1 전체 UI·UX 개편
 
