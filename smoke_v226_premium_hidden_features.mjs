@@ -11,7 +11,7 @@ assert.equal(parseMobileAmountText("장보기 1만 5천원"), 15000);
 
 const healthResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/health"), {}, {});
 const health = await healthResponse.json();
-assert.equal(health.version, "V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX");
+assert.equal(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY");
 
 const source = await readFile(new URL("./src/index.js", import.meta.url), "utf8");
 assert.match(source, /envFlagEnabled\(env\.MEME_CARDS_ENABLED, false\)/);

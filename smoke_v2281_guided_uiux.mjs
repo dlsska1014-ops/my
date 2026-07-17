@@ -33,7 +33,7 @@ try {
   let response = await get("/health", "");
   eq(response.status, 200, "health endpoint stays available");
   const health = await response.json();
-  eq(health.version, "V22.8.1-GUIDED-UIUX-FULL-OVERHAUL", "release version is exposed");
+  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "release version is exposed");
 
   response = await get("/payment-methods?month=2026-07&household_id=house-home");
   eq(response.status, 200, "asset page opens");
@@ -75,7 +75,7 @@ try {
   response = await get("/menu?month=2026-07&household_id=house-home");
   eq(response.status, 200, "menu page opens");
   html = await response.text();
-  for (const text of ["처음이라면 이 순서대로", "매일 쓰는 기능", "계획과 자산", "함께 쓰기와 관리", "더 많은 도구와 도움말"]) {
+  for (const text of ["처음 사용 순서", "매일 쓰는 기능", "계획과 자산", "가계부 관리", "개인 설정과 도움말"]) {
     ok(html.includes(text), `menu renders ${text}`);
   }
   ok(html.includes("advancedGroup"), "secondary tools are collapsed");

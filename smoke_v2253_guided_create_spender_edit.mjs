@@ -73,7 +73,7 @@ function payload(userKey,utterance){return{intent:{id:'i',name:'폴백 블록'},
 async function skill(userKey,utterance){const res=await app.fetch(new Request('https://ttokttok-accountbook.com/skill',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload(userKey,utterance))}),env,{});assert.equal(res.status,200);const j=await res.json();return String(j?.template?.outputs?.[0]?.simpleText?.text||'');}
 
 let res=await app.fetch(new Request('https://ttokttok-accountbook.com/health'),env,{});
-assert.equal((await res.json()).version,'V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX');
+assert.equal((await res.json()).version,'V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY');
 
 // 5번은 이름이 아니라 직접 입력 종류 선택이다.
 let text=await skill('bot-new','/새 가계부 만들기'); assert.match(text,/어떤 용도/);

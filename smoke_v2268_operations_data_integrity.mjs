@@ -42,9 +42,9 @@ const receiptEntries = (householdId = "house-home") => [
 
 try {
   const health = await (await request("/health")).json();
-  eq(health.version, "V22.6.9-SECURITY-SPENDER-PRIVACY-HOTFIX", "health exposes V22.6.8");
-  eq(health.mode, "release-candidate-security-spender-privacy-hotfix", "health exposes integrity mode");
-  eq(health.integrity, "atomic-dedup-and-cron-lease", "health exposes the integrity profile");
+  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes V22.8.2");
+  eq(health.mode, "asset-dashboard-complete-stability", "health exposes integrity mode");
+  eq(health.integrity, "auth-atomicity-spender-audit", "health exposes the integrity profile");
 
   const receiptBefore = fixture.db.transactions.length;
   const receiptResponses = await Promise.all(Array.from({ length: 24 }, () => post("/my/receipt/save", receiptEntries())));

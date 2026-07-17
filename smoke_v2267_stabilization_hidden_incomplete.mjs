@@ -41,7 +41,7 @@ async function post(path, entries, options = {}) {
 
 try {
   const health = await (await request("/health")).json();
-  eq(health.version, "V22.8.1-GUIDED-UIUX-FULL-OVERHAUL", "health exposes current stabilization version");
+  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes current stabilization version");
   eq(health.mode, "asset-dashboard-complete-stability", "health exposes stable asset mode");
 
   const hiddenGetRoutes = [
