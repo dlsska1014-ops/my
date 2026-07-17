@@ -2742,12 +2742,61 @@ const V2285_NAV_STYLE = `
 @media(max-width:1023px){.abNavMobileDrawer .abNavItemIcon{display:none}.abNavMobileDrawer .abNavItemLabel{font-size:13px}.abNavMobileDrawer .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3}.abNavMobileDrawer .abNavGroup summary:after{content:"⌄";margin-left:auto}.abNavMobileDrawer .abNavGroup[open] summary:after{content:"⌃"}}
 `;
 
+
+const V2286_NAV_STYLE = `
+@media(min-width:1024px){
+.abAppSurface .abNavTop{padding:18px 14px 12px!important}
+.abAppSurface .abNavLogo{background:linear-gradient(135deg,#2457d6,#5b7cfa)!important;box-shadow:0 8px 18px rgba(36,87,214,.28)!important}
+.abAppSurface .abBrandMark i{background:#fff!important}
+.abAppSurface .abNavGroup summary{min-height:38px!important;color:#8a93a3!important}
+.abAppSurface .abNavGroup summary b{font-size:11.5px!important;letter-spacing:.04em!important;font-weight:700!important}
+.abAppSurface .abNavGroup summary i{font-size:13px!important;color:#b0b8c4!important}
+.abAppSurface .abNavLinks{padding:2px 0 10px 6px!important;gap:3px!important}
+.abAppSurface .abNavLinks a{min-height:44px!important;border-radius:12px!important;padding:0 10px!important;transition:background .14s ease,transform .14s ease}
+.abAppSurface .abNavItemIcon{width:30px!important;height:30px!important;flex-basis:30px!important;border-radius:10px!important;font-size:15px!important;background:#f2f4f7!important;color:inherit!important}
+.abAppSurface .abNavLinks a[data-tone="day"] .abNavItemIcon{background:#eaf2ff!important}
+.abAppSurface .abNavLinks a[data-tone="plan"] .abNavItemIcon{background:#e6f6ee!important}
+.abAppSurface .abNavLinks a[data-tone="tools"] .abNavItemIcon{background:#f3efff!important}
+.abAppSurface .abNavLinks a[data-tone="house"] .abNavItemIcon{background:#fdf1e2!important}
+.abAppSurface .abNavItemHint{margin-left:auto;padding-left:8px;color:#98a2b3;font-size:11px;font-weight:550;white-space:nowrap}
+.abAppSurface .abNavLinks a:hover{background:#f4f6f9!important;transform:translateX(1px)}
+.abAppSurface .abNavLinks a.active{background:#172033!important;color:#fff!important;box-shadow:0 10px 20px rgba(23,32,51,.2)!important}
+.abAppSurface .abNavLinks a.active:before{display:none!important}
+.abAppSurface .abNavLinks a.active .abNavItemIcon{background:rgba(255,255,255,.16)!important}
+.abAppSurface .abNavLinks a.active .abNavItemLabel{color:#fff!important}
+.abAppSurface .abNavLinks a.active .abNavItemHint{color:#aeb7c6}
+body.abNavCollapsed .abNavItemHint{display:none}
+}
+@media(max-width:1023px){
+.abNavMobileDrawer .abNavItemIcon{display:grid!important;width:26px;height:26px;flex:0 0 26px;border-radius:8px;place-items:center;font-style:normal;font-size:13px;background:#eef1f6}
+.abNavMobileDrawer .abNavLinks a{display:flex!important;align-items:center;gap:8px}
+.abNavMobileDrawer .abNavLinks a[data-tone="day"] .abNavItemIcon{background:#eaf2ff}
+.abNavMobileDrawer .abNavLinks a[data-tone="plan"] .abNavItemIcon{background:#e6f6ee}
+.abNavMobileDrawer .abNavLinks a[data-tone="tools"] .abNavItemIcon{background:#f3efff}
+.abNavMobileDrawer .abNavLinks a[data-tone="house"] .abNavItemIcon{background:#fdf1e2}
+.abNavMobileDrawer .abNavItemHint{display:none}
+.abNavMobileDrawer .abNavLinks a.active{background:#172033!important;color:#fff!important}
+.abNavMobileDrawer .abNavLinks a.active .abNavItemIcon{background:rgba(255,255,255,.16)!important}
+}
+.abPageMenu .featuredIcon{font-size:20px!important}
+.abPageMenu .featuredCard[data-tone="record"] .featuredIcon{background:#eaf2ff!important}
+.abPageMenu .featuredCard[data-tone="feed"] .featuredIcon{background:#e9eefc!important}
+.abPageMenu .featuredCard[data-tone="settle"] .featuredIcon{background:#e6f6f4!important}
+.abPageMenu .featuredCard[data-tone="insight"] .featuredIcon{background:#f3efff!important}
+.abPageMenu .menuRowIcon{font-size:14px!important;background:#f2f4f7!important;color:inherit!important}
+.abPageMenu .menuRow[data-tone="plan"] .menuRowIcon{background:#e6f6ee!important}
+.abPageMenu .menuRow[data-tone="house"] .menuRowIcon{background:#fdf1e2!important}
+.abPageMenu .menuRow[data-tone="tools"] .menuRowIcon{background:#f3efff!important}
+.abPageMenu .menuRow{border-radius:10px;transition:background .13s ease}
+.abPageMenu .menuRow:hover{background:#f8fafc}
+`;
+
 function v2285UiStyleFor(html = "") {
   const source = String(html || "");
   let css = "";
   if (source.includes("abPageMenu")) css += V2285_MENU_STYLE;
   if (source.includes("abPageLogin")) css += V2285_LOGIN_STYLE;
-  if (source.includes('class="abLayoutNav"')) css += V2285_NAV_STYLE;
+  if (source.includes('class="abLayoutNav"')) css += V2285_NAV_STYLE + V2286_NAV_STYLE;
   return css ? `<style id="v2285MobileAccessHierarchyStyle">${css}</style>` : "";
 }
 
@@ -9430,10 +9479,10 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
-    { key: "day", label: "매일 쓰는 기능", icon: "⌂", items: [["app", "홈", app, "⌂"], ["records", "기록", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "▤"], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "↔"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "▥"]] },
-    { key: "plan", label: "계획과 자산", icon: "◒", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "◴"], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "▣"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "↻"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "□"]] },
-    { key: "tools", label: "분석과 자동화", icon: "◇", items: [["smart-tools", "스마트 분석", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "◇"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "⌁"], ["reports", "자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "▥"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "!" ]] },
-    { key: "house", label: "가계부 관리", icon: "⚙", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"], ["categories", "분류·키워드", cat, "#"], ["backup-login", "개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "•"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "⇩"]] },
+    { key: "day", label: "매일 쓰는 기능", icon: "⌂", items: [["app", "홈", app, "🏠", "요약·입력"], ["records", "기록", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "🧾", "확인·수정"], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "🤝", "모임·여행"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "📊", "소비 흐름"]] },
+    { key: "plan", label: "계획과 자산", icon: "◒", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "🎯", "분류별 한도"], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "💳", "통장·카드"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "🔁", "보험·세금"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "📅", "날짜별"]] },
+    { key: "tools", label: "분석과 자동화", icon: "◇", items: [["smart-tools", "스마트 분석", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "✨", "예측·반복"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "📸", "사진·문자"], ["reports", "자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "📮", "주간·월간"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "🔔", "사용 가능액"]] },
+    { key: "house", label: "가계부 관리", icon: "⚙", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "🔀", "새·초대"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "👥", "권한"], ["categories", "분류·키워드", cat, "🏷️", "자동분류"], ["backup-login", "개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "🔐", "보안"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "💾", "CSV"]] },
     { key: "ops", label: "운영 관리", icon: "◆", items: [["operation-center", "운영센터", "/operation-center", "◆"], ["release-candidate", "릴리스 후보", "/release-candidate", "R"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "+"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "▥"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "="], ["ops-traffic", "트래픽", "/ops-traffic", "↗"], ["skill-ops", "스킬", "/skill-ops", "S"], ["diagnostics", "시스템 진단", "/diagnostics", "!"], ["deployment-check", "배포점검", "/deployment-check", "✓"], ["ui-polish-check", "화면점검", "/ui-polish-check", "□"], ["final-release", "배포 확인", "/final-release", "✓"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
@@ -9443,7 +9492,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "day";
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
-    const links = g.items.map(([key, label, href, itemIcon = "·"]) => `<a class="${key === activeKey ? "active" : ""}" href="${escapeHtml(href)}"><i class="abNavItemIcon" aria-hidden="true">${escapeHtml(itemIcon)}</i><span class="abNavItemLabel">${escapeHtml(label)}</span></a>`).join("");
+    const links = g.items.map(([key, label, href, itemIcon = "·", itemHint = ""]) => `<a class="${key === activeKey ? "active" : ""}" data-tone="${escapeHtml(g.key)}" href="${escapeHtml(href)}"><i class="abNavItemIcon" aria-hidden="true">${escapeHtml(itemIcon)}</i><span class="abNavItemLabel">${escapeHtml(label)}</span>${itemHint ? `<small class="abNavItemHint">${escapeHtml(itemHint)}</small>` : ""}</a>`).join("");
     return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}" data-nav-group="${escapeHtml(g.key)}" ${open ? "open" : ""}><summary><i>${g.icon}</i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   const bottomDefs = [
@@ -10996,43 +11045,43 @@ async function handleUnifiedMenuPage(request, env, url) {
     ? households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === hid ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
   const featured = [
-    ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "✎"],
-    ["최근 기록", `/app?${monthQs}&tab=transactions#feed`, "확인·수정·삭제", "▤"],
-    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "↔"],
-    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "▥"],
+    ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "✏️", "record"],
+    ["최근 기록", `/app?${monthQs}&tab=transactions#feed`, "확인·수정·삭제", "🧾", "feed"],
+    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "🤝", "settle"],
+    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "📊", "insight"],
   ];
   const sections = [
     ["계획과 자산", "돈의 계획과 보유 현황", [
-      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "◴"],
-      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "▣"],
-      ["정기지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "↻"],
-      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "□"],
-    ]],
+      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "🎯"],
+      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "💳"],
+      ["정기지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "🔁"],
+      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "📅"],
+    ], "plan"],
     ["가계부 관리", "사람과 분류, 데이터 관리", [
-      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "⇄"],
-      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "+"],
-      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "#"],
-      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "⇩"],
-    ]],
+      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "🔀"],
+      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "👥"],
+      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "🏷️"],
+      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "💾"],
+    ], "house"],
     ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
-      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "⌁"],
-      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "▥"],
-      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "◇"],
-      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "!"],
-    ]],
+      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "📸"],
+      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "📮"],
+      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "✨"],
+      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "🔔"],
+    ], "tools"],
   ];
   const more = [
-    ["개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "카카오 로그인 불가 시 모바일 접속", "•"],
-    ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "1"],
-    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "?"],
-    ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "K"],
-    ["이용안내", "/terms", "서비스 이용 기준", "i"],
-    ["개인정보 안내", "/privacy", "데이터 처리 안내", "○"],
+    ["개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "카카오 로그인 불가 시 모바일 접속", "🔐"],
+    ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "🌱"],
+    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "💡"],
+    ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "💬"],
+    ["이용안내", "/terms", "서비스 이용 기준", "📄"],
+    ["개인정보 안내", "/privacy", "데이터 처리 안내", "🛡️"],
   ];
-  const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
-  const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
-  const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
-  const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
+  const row = ([label, href, desc, icon], tone = "misc") => `<a class="menuRow" data-tone="${escapeHtml(tone)}" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
+  const sectionHtml = sections.map(([title, subtitle, links, tone]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map((link) => row(link, tone)).join("")}</div></section>`).join("");
+  const featuredHtml = featured.map(([label, href, desc, icon, tone]) => `<a class="featuredCard" data-tone="${escapeHtml(tone)}" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
+  const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map((link) => row(link, "misc")).join("")}</div></details>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
