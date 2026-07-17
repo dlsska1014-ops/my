@@ -7,7 +7,7 @@ const assetSql = fs.readFileSync(new URL("./schema_v22_8_0_asset_dashboard_compl
 let assertions = 0;
 const has = (text, message) => { assert.ok(source.includes(text), message); assertions += 1; };
 
-has('V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY', "version updated");
+has('V22.8.6-RECEIPT-SCREEN-OPTIMIZATION', "version updated");
 for (const kind of ["bank_account", "cash", "easy_pay", "savings", "investment", "crypto", "pension", "real_estate", "car", "asset", "loan", "credit_card", "check_card"]) has(`kind: "${kind}"`, `${kind} is supported`);
 has('side: "liability"', "liability is separated");
 has('side: "card"', "cards are separated");

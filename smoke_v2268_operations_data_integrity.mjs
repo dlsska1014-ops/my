@@ -42,7 +42,7 @@ const receiptEntries = (householdId = "house-home") => [
 
 try {
   const health = await (await request("/health")).json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes V22.8.2");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "health exposes V22.8.2");
   eq(health.mode, "asset-dashboard-complete-stability", "health exposes integrity mode");
   eq(health.integrity, "auth-atomicity-spender-audit", "health exposes the integrity profile");
 

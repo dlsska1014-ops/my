@@ -35,7 +35,7 @@ try {
   const healthResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/health"), fixture.env, {});
   eq(healthResponse.status, 200, "health remains available");
   const health = await healthResponse.json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes V22.8.4");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "health exposes V22.8.4");
 
   const appHtml = await get("/app?month=2026-07&household_id=house-home");
   ok(appHtml.includes('id="v2284UiRevalidationStyle"'), "route-aware V22.8.4 UI layer is present");
@@ -71,7 +71,7 @@ try {
   ok(source.includes("function v2284UiStyleFor"), "route-aware CSS payload filtering exists");
   ok(source.includes("function receiptCaptureClientMain"), "receipt client is maintained as a real function");
   ok(source.includes("function myBackupImportClientMain"), "backup client is maintained as a real function");
-  ok(/const \[members, rawRows, prevAppRows, budgets, reservePlans, recurring, customCategoryRows, paymentAssetRows\] = await Promise\.all/.test(source), "app data groups are fetched concurrently");
+  ok(/const \[members, rawRows, calendar, budgets\] = await Promise\.all/.test(source), "app data groups are fetched concurrently");
   ok(/const \[user, access\] = await Promise\.all/.test(source), "user and access checks are fetched concurrently");
 
   console.log("SMOKE_V2284_UI_PERFORMANCE_REVALIDATION_OK checks=" + checks);

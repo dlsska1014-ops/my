@@ -17,7 +17,7 @@ const ok = (value, message) => { assert.ok(value, message); assertions += 1; };
 const eq = (actual, expected, message) => { assert.deepEqual(actual, expected, message); assertions += 1; };
 
 const health = await app.fetch(new Request('https://ttokttok-accountbook.com/health'), {}, {});
-eq((await health.json()).version, 'V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY', 'health version');
+eq((await health.json()).version, 'V22.8.6-RECEIPT-SCREEN-OPTIMIZATION', 'health version');
 
 const aliasCases = {
   이용일시: 'date', 승인액: 'amount', 입금액: 'income', 출금액: 'expense',
@@ -94,7 +94,7 @@ for (const role of ['owner', 'admin', 'member']) ok(canWriteMyHousehold(role), `
 for (const role of ['viewer', 'pending', 'blocked', '', 'unknown']) ok(!canWriteMyHousehold(role), `${role || 'empty'} cannot write`);
 
 const source = await readFile(new URL('./src/index.js', import.meta.url), 'utf8');
-ok(source.includes('V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY'), 'release identifier in source');
+ok(source.includes('V22.8.6-RECEIPT-SCREEN-OPTIMIZATION'), 'release identifier in source');
 ok(source.includes('household_create_compensation_failed'), 'orphan household compensation exists');
 ok(source.includes('withHouseholdCreateLock'), 'same user and name creation lock exists');
 ok(source.includes('throw new Error("approval_request_failed")'), 'join fails closed');

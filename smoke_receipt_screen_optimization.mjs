@@ -36,24 +36,33 @@ ok(pageQueryCount <= 8, `receipt page stays lean (${pageQueryCount} supabase cal
 const html = await response.text();
 
 // 2. 지연 로딩과 안전한 직렬화 런타임 (V22.8.4 회귀 방지 마커)
-ok(html.includes("abPageReceipts"), "receipt UI keeps its scoped neutral design marker");
+ok(html.includes("abPageReceipts"), "receipt UI keeps its scoped design marker");
 ok(html.includes('id="receiptCaptureRuntime"'), "receipt parser ships as the safe serialized runtime");
 ok(html.includes("function loadTesseract"), "receipt OCR has a lazy loader");
 ok(!html.includes('<script src="https://cdn.jsdelivr.net/npm/tesseract.js'), "OCR is not downloaded on page entry");
 ok(source.includes("function receiptCaptureClientMain"), "receipt client is maintained as a real function");
-ok(source.includes("async function getReceiptPageContext"), "receipt page uses its lean context");
+ok(source.includes("async function fetchReceiptCategoryNames"), "receipt page keeps its lean category lookup");
+ok(source.includes("function renderReceiptCaptureV2285Html"), "receipt page keeps its dedicated renderer");
 
 // 3. 앨범 접근성: 앨범 선택은 카메라를 강제하지 않고, 카메라 촬영은 따로 제공됩니다.
-const albumTag = (html.match(/<input[^>]*id="receiptAlbum"[^>]*>/) || [])[0];
+const albumTag = (html.match(/<input[^>]*id="receiptImage"[^>]*>/) || [])[0];
 const cameraTag = (html.match(/<input[^>]*id="receiptCamera"[^>]*>/) || [])[0];
 ok(albumTag && !/capture=/.test(albumTag), "album picker does not force the camera");
 ok(cameraTag && /capture="environment"/.test(cameraTag), "camera picker still opens the rear camera");
 ok(html.includes("앨범에서 선택") && html.includes("카메라로 촬영"), "both pick actions are labeled");
-ok(html.includes('id="receiptPreview"') && html.includes('id="ocrCancel"'), "preview and cancel controls exist");
-ok(html.includes("이미지는 서버에 업로드하지 않고"), "privacy copy is preserved");
+ok(html.includes('id="receiptPreview"') && html.includes('id="clearReceiptImage"'), "preview and clear controls exist");
+ok(html.includes('id="ocrCancel"'), "OCR cancel control exists");
+ok(html.includes('id="receiptSourcePanel"'), "drag-and-drop zone exists");
+ok(html.includes("서버에 업로드하지 않고"), "privacy copy is preserved");
 ok(html.includes('aria-live="polite"'), "OCR status is announced to screen readers");
 
-// 4. 인라인 스크립트가 실제 브라우저 문법으로 컴파일되는지 확인합니다.
+// 4. 안정화 로직이 소스에 유지되는지 (타임아웃·취소·붙여넣기·쉼표 금액)
+ok(source.includes("인식이 90초를 넘겨 중단했습니다"), "OCR has a hard timeout");
+ok(source.includes('cancelOcrButton.addEventListener("click"'), "cancel button aborts a running OCR");
+ok(source.includes('document.addEventListener("paste"'), "clipboard paste selects a photo");
+ok(source.includes('toLocaleString("ko-KR")'), "manual amount input is comma formatted");
+
+// 5. 인라인 스크립트가 실제 브라우저 문법으로 컴파일되는지 확인합니다.
 const scripts = Array.from(html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi), (m) => m[1]).filter((s) => s.trim());
 ok(scripts.length > 0, "receipt page includes its browser runtime");
 scripts.forEach((script, index) => {
@@ -61,11 +70,11 @@ scripts.forEach((script, index) => {
   checks += 1;
 });
 
-// 5. 파서 정확성: 템플릿 리터럴 이스케이프로 정규식이 깨졌던 회귀를 직접 차단합니다.
+// 6. 파서 정확성: 템플릿 리터럴 이스케이프로 정규식이 깨졌던 회귀를 직접 차단합니다.
 const runtime = (html.match(/<script id="receiptCaptureRuntime">([\s\S]*?)<\/script>/) || [])[1];
 ok(runtime, "serialized runtime found");
 const windowStub = {};
-const documentStub = { getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {}, createElement: () => ({}), head: { appendChild: () => {} } };
+const documentStub = { getElementById: () => null, querySelectorAll: () => [], querySelector: () => null, addEventListener: () => {}, createElement: () => ({}), head: { appendChild: () => {} } };
 new Function("window", "document", runtime)(windowStub, documentStub);
 const parsers = windowStub.__receiptParsers;
 ok(parsers, "receipt parsers are exposed for QA");
@@ -76,7 +85,7 @@ eq(parsers.merchant("스타마트\n2026-07-15\n합계 35,400원"), "스타마트
 eq(parsers.payment("신한카드 승인 12345"), "신한카드", "payment parser detects the card brand");
 eq(parsers.category("스타마트 구매"), "장보기", "category parser maps marts to groceries");
 
-// 6. 저장 흐름: 쉼표 금액 허용, 저장 성공, 같은 영수증 중복 차단.
+// 7. 저장 흐름: 쉼표 금액 허용, 저장 성공, 같은 영수증 중복 차단.
 const form = new URLSearchParams({
   household_id: "house-home", month: "2026-07", merchant: "스타마트",
   transaction_date: "2026-07-15", amount: "35,400", category: "장보기",

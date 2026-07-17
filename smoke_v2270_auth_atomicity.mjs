@@ -125,7 +125,7 @@ function responseCookie(response, name) {
 try {
   let response = await request("/health", { cookie: "" });
   let payload = await response.json();
-  eq(payload.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes V22.8.2");
+  eq(payload.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "health exposes V22.8.2");
   eq(payload.mode, "asset-dashboard-complete-stability", "health preserves the stable asset mode");
   eq(payload.ready, true, "health is ready with all required configuration");
 

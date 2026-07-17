@@ -26,7 +26,7 @@ function mainMarkup(html) {
 try {
   let result = await get("/health", { authenticated: false, env: {} });
   eq(result.response.status, 200, "health opens");
-  eq(JSON.parse(result.html).version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "V22.8.5 is exposed");
+  eq(JSON.parse(result.html).version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "V22.8.5 is exposed");
 
   result = await get("/my", { authenticated: false, env: {} });
   eq(result.response.status, 200, "mobile fallback login opens");

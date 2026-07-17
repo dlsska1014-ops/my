@@ -26,7 +26,7 @@ eq((await post({ origin: "null", referer: "https://kauth.kakao.com/oauth/authori
 eq((await post({ origin: "null", referer: "https://evil.example/form", cookie: "ab_user=webview-session" })).status, 403, "foreign HTTP Referer stays blocked even with a session");
 eq((await post({ origin: "null", referer: "android-app://com.kakao.talk" })).status, 403, "unauthenticated opaque request without Fetch Metadata stays blocked");
 
-ok(source.includes('const APP_VERSION = "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY"'), "V22.8.2 version active");
+ok(source.includes('const APP_VERSION = "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION"'), "V22.8.2 version active");
 ok(source.includes('const APP_MODE = "asset-dashboard-complete-stability"'), "stable asset mode remains active");
 ok(source.includes('["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"]'), "global user navigation targets /my/households");
 ok(source.includes('["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"]'), "participant navigation uses user-scoped route");

@@ -71,7 +71,7 @@ try {
   let response = await get("/health", { cookie: "" });
   eq(response.status, 200, "health endpoint stays available");
   const health = await response.json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "V22.8.3 reviewed stabilization version is exposed");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "V22.8.3 reviewed stabilization version is exposed");
 
   // 2. Fail-closed: enabled but missing explicit redirect URI must not start OAuth
   const brokenEnv = { ...fixture.env, KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-key" };

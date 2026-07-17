@@ -33,7 +33,7 @@ try {
   let response = await get("/health", "");
   eq(response.status, 200, "health endpoint stays available");
   const health = await response.json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "release version is exposed");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "release version is exposed");
 
   response = await get("/payment-methods?month=2026-07&household_id=house-home");
   eq(response.status, 200, "asset page opens");

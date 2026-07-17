@@ -67,7 +67,7 @@ html = await response.text();
 ok(html.includes('href="/auth/kakao/start"'), "Kakao button appears only for a locally complete configuration");
 
 const source = await readFile(new URL("./src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY"'), "V22.8.2 version is active");
+ok(source.includes('const APP_VERSION = "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION"'), "V22.8.2 version is active");
 ok(source.includes("event.defaultPrevented"), "submit lock respects cancelled confirmation and validation");
 ok(source.includes("data-onboarding-result-check"), "onboarding requires an explicit result check");
 ok(source.includes('["영수증 기록", `/receipts?${monthQs}`'), "full menu includes receipt tools");

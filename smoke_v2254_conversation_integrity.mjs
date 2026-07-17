@@ -100,7 +100,7 @@ const match=(text,re,msg)=>{assert.match(String(text),re,msg);assertions++;};
 const noMatch=(text,re,msg)=>{assert.doesNotMatch(String(text),re,msg);assertions++;};
 
 // 1. Health and representative-command contract.
-const health=await getJson('/health'); eq(health.version,'V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY');
+const health=await getJson('/health'); eq(health.version,'V22.8.6-RECEIPT-SCREEN-OPTIMIZATION');
 const menu=await getJson('/kakao-command-menu.json');
 const reps=menu.representative_commands || menu.commands || [];
 eq(reps.length,10,'representative command count');

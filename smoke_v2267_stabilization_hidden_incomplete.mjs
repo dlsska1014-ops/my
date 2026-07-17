@@ -41,7 +41,7 @@ async function post(path, entries, options = {}) {
 
 try {
   const health = await (await request("/health")).json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes current stabilization version");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "health exposes current stabilization version");
   eq(health.mode, "asset-dashboard-complete-stability", "health exposes stable asset mode");
 
   const hiddenGetRoutes = [
@@ -87,7 +87,7 @@ try {
   ok(!skillText.includes("/meme"), "Kakao command does not expose a hidden route");
 
   body = await html("/receipts?month=2026-07&household_id=house-home");
-  ok(body.includes("이미지는 서버에 업로드하지 않고") && body.includes("직접 확인해야만 저장"), "receipt page explains privacy and explicit confirmation");
+  ok(body.includes("서버에 업로드하지 않고") && body.includes("이 내용으로 저장하는 데 동의"), "receipt page explains privacy and explicit confirmation");
   const receiptStart = fixture.db.transactions.length;
   await post("/my/receipt/save", [
     ["household_id", "house-home"], ["month", "2026-07"], ["transaction_date", "2026-07-15"],

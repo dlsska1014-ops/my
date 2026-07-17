@@ -191,7 +191,7 @@ function cookieHeaderFromSetCookie(setCookie) {
 }
 
 let health = await app.fetch(new Request('https://ttokttok-accountbook.com/health'), env, {});
-assert((await health.text()).includes('V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY'), 'health exposes V22.8.2 with V22.6.1 recovery');
+assert((await health.text()).includes('V22.8.6-RECEIPT-SCREEN-OPTIMIZATION'), 'health exposes V22.8.2 with V22.6.1 recovery');
 
 const staleLegacy = await sessionToken('secondary-1');
 let res = await app.fetch(new Request('https://ttokttok-accountbook.com/my/households', {

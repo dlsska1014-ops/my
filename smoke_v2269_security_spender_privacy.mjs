@@ -54,7 +54,7 @@ const editEntries = (userId) => [
 
 try {
   const health = await (await request("/health")).json();
-  eq(health.version, "V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY", "health exposes V22.8.2");
+  eq(health.version, "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION", "health exposes V22.8.2");
   eq(health.mode, "asset-dashboard-complete-stability", "health preserves the stable asset mode");
   eq(health.integrity, "auth-atomicity-spender-audit", "current auth and spender integrity remains active");
 

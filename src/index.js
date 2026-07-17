@@ -45,15 +45,17 @@ const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalT
 const AB_HOUSEHOLD_CREATE_LOCKS = globalThis.__AB_HOUSEHOLD_CREATE_LOCKS || (globalThis.__AB_HOUSEHOLD_CREATE_LOCKS = new Map());
 const AB_OPERATION_MUTEXES = globalThis.__AB_OPERATION_MUTEXES || (globalThis.__AB_OPERATION_MUTEXES = new Map());
 const AB_OPERATION_MEMORY_LEASES = globalThis.__AB_OPERATION_MEMORY_LEASES || (globalThis.__AB_OPERATION_MEMORY_LEASES = new Map());
+const AB_REQUEST_RAW_USER_CACHE = new WeakMap();
+const AB_REQUEST_USER_CACHE = new WeakMap();
 
 function nluOpsConfig(env = {}) {
   return {
     aggregate_metrics_enabled: String(env.NLU_METRICS_ENABLED || "0") === "1",
     failure_samples_enabled: String(env.NLU_PERSIST_FAILURE_SAMPLES || "0") === "1",
     store_redacted_text: String(env.NLU_STORE_REDACTED_TEXT || "0") === "1",
-    failure_sample_rate: Math.max(0, Math.min(1, Number(env.NLU_FAILURE_SAMPLE_RATE || 1))),
-    retention_days: Math.max(1, Math.min(90, Number(env.NLU_FAILURE_RETENTION_DAYS || 14))),
-    memory_event_limit: Math.max(100, Math.min(2000, Number(env.NLU_MEMORY_EVENT_LIMIT || 600))),
+    failure_sample_rate: boundedRuntimeNumber(env.NLU_FAILURE_SAMPLE_RATE, 1, 0, 1),
+    retention_days: boundedRuntimeNumber(env.NLU_FAILURE_RETENTION_DAYS, 14, 1, 90),
+    memory_event_limit: boundedRuntimeNumber(env.NLU_MEMORY_EVENT_LIMIT, 600, 100, 2000),
   };
 }
 
@@ -267,11 +269,54 @@ function getSkillOpsSnapshot() {
   return { activeBuckets, recent, byKind };
 }
 
+function boundedRuntimeNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  const safe = Number.isFinite(parsed) ? parsed : Number(fallback);
+  return Math.max(min, Math.min(max, safe));
+}
+
+function pruneRateBucketMap(map, now, windowMs, maxEntries = 6000) {
+  if (!(map instanceof Map) || map.size < maxEntries) return;
+  for (const [key, bucket] of map.entries()) {
+    if (!bucket || now - Number(bucket.windowStart || 0) > windowMs * 2) map.delete(key);
+  }
+  while (map.size > maxEntries) {
+    const oldest = map.keys().next();
+    if (oldest.done) break;
+    map.delete(oldest.value);
+  }
+}
+
+function pruneExpiringMap(map, now = Date.now(), maxEntries = 6000) {
+  if (!(map instanceof Map) || map.size < maxEntries) return;
+  for (const [key, value] of map.entries()) {
+    if (!value || Number(value.expires_at || 0) <= now) map.delete(key);
+  }
+  while (map.size >= maxEntries) {
+    const oldest = map.keys().next();
+    if (oldest.done) break;
+    map.delete(oldest.value);
+  }
+}
+
+function pruneTimestampMap(map, now = Date.now(), maxAgeMs = 10 * 60 * 1000, maxEntries = 6000) {
+  if (!(map instanceof Map) || map.size < maxEntries) return;
+  for (const [key, timestamp] of map.entries()) {
+    if (!timestamp || now - Number(timestamp) > maxAgeMs) map.delete(key);
+  }
+  while (map.size >= maxEntries) {
+    const oldest = map.keys().next();
+    if (oldest.done) break;
+    map.delete(oldest.value);
+  }
+}
+
 function checkSkillRateLimit(userKey = "", env = {}) {
   const key = String(userKey || "anonymous").slice(0, 120);
   const now = Date.now();
-  const windowMs = Math.max(10000, Number(env.SKILL_RATE_WINDOW_MS || 60000));
-  const limit = Math.max(10, Number(env.SKILL_RATE_LIMIT || 60));
+  const windowMs = boundedRuntimeNumber(env.SKILL_RATE_WINDOW_MS, 60000, 10000, 600000);
+  const limit = boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000);
+  pruneRateBucketMap(AB_SKILL_RATE_BUCKETS, now, windowMs);
   let bucket = AB_SKILL_RATE_BUCKETS.get(key);
   if (!bucket || now - Number(bucket.windowStart || 0) > windowMs) {
     bucket = { windowStart: now, count: 0 };
@@ -351,9 +396,9 @@ function getDuplicateOpsSnapshot() {
 
 function duplicateGuardSeconds(env = {}, source = "") {
   const src = String(source || "");
-  if (src === "kakao_skill") return Math.max(10, Number(env.KAKAO_RETRY_DEDUP_SECONDS || KAKAO_RETRY_DEDUP_SECONDS || 120));
+  if (src === "kakao_skill") return boundedRuntimeNumber(env.KAKAO_RETRY_DEDUP_SECONDS, KAKAO_RETRY_DEDUP_SECONDS || 120, 10, 3600);
   if (src === "my_import") return 0;
-  return Math.max(10, Number(env.DUPLICATE_GUARD_SECONDS || 90));
+  return boundedRuntimeNumber(env.DUPLICATE_GUARD_SECONDS, 90, 10, 3600);
 }
 
 function isDuplicateGuardSource(source = "") {
@@ -410,15 +455,15 @@ function buildOpsSnapshot(env = {}) {
     operation_integrity: getOperationIntegritySnapshot(),
     nlu: getNluOpsSnapshot(env),
     limits: {
-      traffic_guard_limit: Number(env.TRAFFIC_GUARD_LIMIT || 240),
-      traffic_guard_window_ms: Number(env.TRAFFIC_GUARD_WINDOW_MS || 60000),
-      skill_rate_limit: Number(env.SKILL_RATE_LIMIT || 60),
-      skill_rate_window_ms: Number(env.SKILL_RATE_WINDOW_MS || 60000),
-      duplicate_guard_seconds: Number(env.DUPLICATE_GUARD_SECONDS || 90),
-      kakao_retry_dedup_seconds: Number(env.KAKAO_RETRY_DEDUP_SECONDS || KAKAO_RETRY_DEDUP_SECONDS || 120),
-      kakao_repeat_guard_seconds: Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8),
-      my_import_limit: Number(env.MY_IMPORT_LIMIT || 120),
-      kakao_bulk_limit: Number(env.KAKAO_BULK_LIMIT || 25),
+      traffic_guard_limit: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000),
+      traffic_guard_window_ms: boundedRuntimeNumber(env.TRAFFIC_GUARD_WINDOW_MS, 60000, 10000, 600000),
+      skill_rate_limit: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000),
+      skill_rate_window_ms: boundedRuntimeNumber(env.SKILL_RATE_WINDOW_MS, 60000, 10000, 600000),
+      duplicate_guard_seconds: boundedRuntimeNumber(env.DUPLICATE_GUARD_SECONDS, 90, 10, 3600),
+      kakao_retry_dedup_seconds: boundedRuntimeNumber(env.KAKAO_RETRY_DEDUP_SECONDS, KAKAO_RETRY_DEDUP_SECONDS || 120, 10, 3600),
+      kakao_repeat_guard_seconds: boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600),
+      my_import_limit: boundedRuntimeNumber(env.MY_IMPORT_LIMIT, 120, 10, 1000),
+      kakao_bulk_limit: boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80),
     },
   };
 }
@@ -461,12 +506,13 @@ function checkTrafficGuard(request, env, url) {
   const method = request.method || "GET";
   if (!isTrafficGuardedPath(url?.pathname || "", method)) return { ok: true, skipped: true };
   const now = Date.now();
-  const windowMs = Math.max(10000, Number(env.TRAFFIC_GUARD_WINDOW_MS || 60000));
+  const windowMs = boundedRuntimeNumber(env.TRAFFIC_GUARD_WINDOW_MS, 60000, 10000, 600000);
   const authPath = ["/login", "/my/local-login", "/my/local-signup"].includes(String(url?.pathname || ""));
   const limit = authPath
-    ? Math.max(3, Math.min(30, Number(env.AUTH_RATE_LIMIT || 8)))
-    : Math.max(20, Number(env.TRAFFIC_GUARD_LIMIT || 240));
+    ? boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30)
+    : boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
   const key = `${trafficClientKey(request)}|${String(url?.pathname || "").slice(0, 60)}`;
+  pruneRateBucketMap(AB_TRAFFIC_BUCKETS, now, windowMs);
   let bucket = AB_TRAFFIC_BUCKETS.get(key);
   if (!bucket || now - Number(bucket.windowStart || 0) > windowMs) bucket = { windowStart: now, count: 0 };
   bucket.count += 1;
@@ -609,7 +655,7 @@ const HTML_HEADERS = {
   "referrer-policy": "no-referrer",
   "x-frame-options": "DENY",
   "strict-transport-security": "max-age=31536000; includeSubDomains",
-  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=()",
   "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net",
 };
 
@@ -1512,7 +1558,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: Number(env.SKILL_RATE_LIMIT || 60), traffic_guard_limit_per_ip_per_minute: Number(env.TRAFFIC_GUARD_LIMIT || 240), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "guided_flows_only" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "guided_flows_only" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1693,7 +1739,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.1-RECEIPT-SCREEN-OPTIMIZATION";
+const APP_VERSION = "V22.8.6-RECEIPT-SCREEN-OPTIMIZATION";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2454,6 +2500,123 @@ function mobileUiUxClientMain() {
     syncExpanded();
     new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   }
+
+  Array.from(document.querySelectorAll(".abNavBody, .abNavMobileDrawer")).forEach(function(nav) {
+    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches("details.abNavGroup"); });
+    groups.forEach(function(group) {
+      group.addEventListener("toggle", function() {
+        if (!group.open) return;
+        groups.forEach(function(other) {
+          if (other !== group) other.open = false;
+        });
+      });
+    });
+  });
+}
+
+function mobileShellUiClientMain() {
+  "use strict";
+  window.openEdit = function openEdit(id) {
+    const item = document.getElementById("tx-" + String(id || ""));
+    if (!item) {
+      location.hash = "feed";
+      return;
+    }
+    const details = item.querySelector("details");
+    if (details) details.open = true;
+    item.scrollIntoView({ behavior: "smooth", block: "center" });
+    const target = details ? details.querySelector("summary") : item;
+    if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
+    history.replaceState(null, "", "#tx-" + String(id || ""));
+  };
+
+  function canonicalBottomItems() {
+    const params = new URLSearchParams(location.search);
+    const month = params.get("month") || new Date().toISOString().slice(0, 7);
+    const household = params.get("household_id") || "";
+    const query = "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
+    return [
+      { key: "home", icon: "⌂", label: "홈", href: "/app?" + query },
+      { key: "records", icon: "📄", label: "기록", href: "/app?" + query + "&tab=transactions#feed" },
+      { key: "add", icon: "＋", label: "입력", href: "/app?" + query + "#add" },
+      { key: "settlement", icon: "↔", label: "정산", href: "/settlement-summary?" + query },
+      { key: "menu", icon: "☰", label: "메뉴", href: "/menu?" + query },
+    ];
+  }
+
+  function activeBottomKey() {
+    if (location.pathname.indexOf("settlement") >= 0) return "settlement";
+    if (location.pathname === "/menu" || location.pathname.indexOf("/my/profile") === 0 || location.pathname.indexOf("/my/settings") === 0) return "menu";
+    if (location.hash === "#add") return "add";
+    if (location.pathname === "/app" && (location.hash === "#feed" || new URLSearchParams(location.search).get("tab") === "transactions")) return "records";
+    if (location.pathname === "/app") return "home";
+    return "";
+  }
+
+  function fillBottomNav(nav) {
+    const active = activeBottomKey();
+    nav.setAttribute("aria-label", "주요 메뉴");
+    nav.innerHTML = canonicalBottomItems().map(function(item) {
+      const on = item.key === active;
+      return '<a data-key="' + item.key + '" class="' + (on ? "active " : "") + (item.key === "add" ? "abPrimary" : "") + '" ' + (on ? 'aria-current="page"' : "") + ' href="' + item.href + '"><i>' + item.icon + "</i><span>" + item.label + "</span></a>";
+    }).join("");
+  }
+
+  function syncBottomNav(nav) {
+    if (!nav) return;
+    const active = activeBottomKey();
+    Array.from(nav.querySelectorAll("a[data-key]")).forEach(function(link) {
+      const on = link.getAttribute("data-key") === active;
+      link.classList.toggle("active", on);
+      if (on) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+  }
+
+  const appBottom = document.querySelector("nav.bottom");
+  if (appBottom) {
+    fillBottomNav(appBottom);
+    window.addEventListener("hashchange", function() { syncBottomNav(appBottom); });
+    appBottom.addEventListener("click", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });
+  }
+  const unifiedBottom = document.querySelector("nav.abNavBottom");
+  if (unifiedBottom) {
+    unifiedBottom.setAttribute("aria-label", "주요 메뉴");
+    syncBottomNav(unifiedBottom);
+    window.addEventListener("hashchange", function() { syncBottomNav(unifiedBottom); });
+    unifiedBottom.addEventListener("click", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });
+  }
+  if (!appBottom && !unifiedBottom && document.querySelector(".appMenu")) {
+    const nav = document.createElement("nav");
+    nav.className = "abUxBottom";
+    fillBottomNav(nav);
+    document.body.appendChild(nav);
+    document.body.classList.add("abHasUxBottom");
+  }
+
+  const mobileToggle = document.querySelector(".abNavMobileTop button");
+  const mobileDrawer = document.querySelector(".abNavMobileDrawer");
+  if (mobileToggle && mobileDrawer) {
+    mobileDrawer.id = mobileDrawer.id || "abMobileNavDrawer";
+    mobileToggle.setAttribute("aria-controls", mobileDrawer.id);
+    const syncExpanded = function() {
+      mobileToggle.setAttribute("aria-expanded", document.body.classList.contains("abMobileNavOpen") ? "true" : "false");
+    };
+    syncExpanded();
+    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
+
+  Array.from(document.querySelectorAll(".abNavBody, .abNavMobileDrawer")).forEach(function(nav) {
+    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches("details.abNavGroup"); });
+    groups.forEach(function(group) {
+      group.addEventListener("toggle", function() {
+        if (!group.open) return;
+        groups.forEach(function(other) {
+          if (other !== group) other.open = false;
+        });
+      });
+    });
+  });
 }
 
 const UIUX_RUNTIME_STYLE = '<style id="v2262UiUxStyle">:root{--ab-focus:#2563eb}html,body{max-width:100%;overflow-x:hidden}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--ab-focus)!important;outline-offset:3px!important}.srOnly{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.homeTx:is(button){width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.homeTx:is(button):hover{background:#f8fafc}.topLine h1{margin:0;font-size:19px;font-weight:950;line-height:1.2}.metricBasis{max-width:1180px;margin:-4px auto 12px;color:#64748b;font-size:12px;line-height:1.5;padding:0 4px}.abUxBottom{display:none}.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i{width:36px;height:36px;border-radius:14px;background:#FEE500;color:#191919;display:grid;place-items:center;font-size:23px;line-height:1;box-shadow:0 6px 14px rgba(250,204,21,.25)}@media(max-width:1023px){.abNavMobileTop button,.chipRow button,.dateChip{min-height:44px!important}body.abHasUxBottom{padding-bottom:calc(116px + env(safe-area-inset-bottom,0px))!important}.abUxBottom{position:fixed;left:0;right:0;bottom:0;z-index:2200;height:calc(72px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:rgba(255,255,255,.97);backdrop-filter:blur(18px);border-top:1px solid #eef0f3;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.abUxBottom a{display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;color:#8b95a1;text-decoration:none;font-size:11px;font-weight:850;min-width:0;min-height:48px;position:relative}.abUxBottom a i{font-style:normal;font-size:20px;line-height:1}.abUxBottom a.active{color:#111827}.abUxBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 4px 4px;background:#FEE500}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}</style>';
@@ -2476,9 +2639,9 @@ body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important;fo
 .abV2281 textarea{padding-block:11px!important}.abV2281 input::placeholder,.abV2281 textarea::placeholder{color:#98a2b3!important;font-weight:400!important}
 .abV2281 label{color:#475467!important;font-size:13px!important;font-weight:600!important;line-height:1.4}
 .abV2281 button,.abV2281 .btn,.abV2281 .primaryBtn,.abV2281 .savePlan{min-height:44px;border-radius:11px!important;font-weight:650!important;letter-spacing:-.015em;transition:background .15s ease,transform .15s ease,box-shadow .15s ease}
-.abV2281 button:not(.danger):not(.delBtn):not(.secondary),.abV2281 .btn:not(.light):not(.soft):not(.danger),.abV2281 .primaryBtn,.abV2281 .savePlan{background:var(--ab-blue)!important;color:#fff!important;border-color:var(--ab-blue)!important}
+.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary),.abV2281 #smartApply,.abV2281 .btn:not(.light):not(.soft):not(.danger),.abV2281 .primaryBtn,.abV2281 .savePlan{background:var(--ab-blue)!important;color:#fff!important;border-color:var(--ab-blue)!important}
 .abV2281 button:not(:disabled):hover,.abV2281 .btn:hover{transform:translateY(-1px);box-shadow:0 7px 18px rgba(37,99,235,.15)}
-.abV2281 button:disabled{opacity:.62;cursor:wait}.abV2281 .danger,.abV2281 .delBtn{background:#fff1f0!important;color:var(--ab-danger)!important;border-color:#f3c7c4!important}
+.abV2281 button:disabled{opacity:.62;cursor:wait}.abV2281 .danger,.abV2281 .delBtn,.abV2281 .dangerZone button[type="submit"]{background:#fff1f0!important;color:var(--ab-danger)!important;border-color:#f3c7c4!important}
 .abV2281 .btn.light,.abV2281 .btn.soft,.abV2281 .addLine,.abV2281 .secondary{background:var(--ab-blue-soft)!important;color:#1d4ed8!important;border:1px solid #c8d9ff!important}
 .abV2281 .notice,.abV2281 .tip,.abV2281 .guide,.abV2281 .guideLine,.abV2281 .privacyNote,.abV2281 .warnBox,.abV2281 .legacy{border-radius:12px!important;padding:12px 14px!important;line-height:1.6!important;font-weight:400!important}
 .abV2281 .tableWrap{border:1px solid var(--ab-line);border-radius:13px;overflow:auto;background:#fff}.abV2281 table{background:#fff!important}.abV2281 th{background:#f8fafc;color:#667085!important;font-weight:600!important}.abV2281 th,.abV2281 td{border-color:#edf1f6!important;padding:12px!important}.abV2281 tr:last-child td{border-bottom:0!important}
@@ -2496,6 +2659,97 @@ body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important;fo
 @media(max-width:760px){.abAppSurface main.wrap{padding:14px 12px 104px!important}.abAppSurface .hero,.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{padding:16px!important;border-radius:14px!important;margin:12px 0!important}.abAppSurface .hero h1{font-size:23px!important}.abPageAssets .assetEmptyMain{grid-template-columns:auto 1fr}.abPageAssets .emptyCta{grid-column:1/-1;width:100%}.abPageAssets .assetCoreGrid,.abPageAssets .assetOptionalGrid{grid-template-columns:1fr}.abPageAssets .assetFormAction{display:grid;gap:8px}.abPageAssets .assetFormAction button{width:100%}.abPageReserve .metricGrid,.abPageReserve .reservePrimaryGrid,.abPageReserve .reserveSchedule,.abPageReserve .reserveOptionalGrid,.abPageBudgets .metrics,.abPageMenu .menuSteps,.abMobileAppSurface .homeOnboardingSteps{grid-template-columns:1fr!important}.abPageReserve .reserveSubmit button{width:100%}.abPageBudgets .planLine{grid-template-columns:1fr!important}.abPageBudgets .planColumn{padding:13px}.abV2281 .tableWrap:before{content:"표는 좌우로 밀어서 전체 내용을 볼 수 있어요";display:block;padding:8px 11px;color:var(--ab-muted);font-size:11px;background:#f8fafc;border-bottom:1px solid var(--ab-line)}}
 @media(prefers-reduced-motion:reduce){.abV2281 *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 </style>`;
+
+const V2284_UI_REVALIDATION_STYLE = `<style id="v2284UiRevalidationStyle">
+:root{--ab-bg:#f7f8fa;--ab-surface:#fff;--ab-text:#172033;--ab-muted:#5f6b7a;--ab-line:#dde3ea;--ab-blue:#2457d6;--ab-blue-hover:#1945b8;--ab-primary:#2457d6;--ab-primary-soft:#edf3ff;--ab-positive:#087a55;--ab-negative:#c0362c;--ab-warn:#a15c00;--ab-shadow-soft:0 2px 10px rgba(15,23,42,.045)}
+*,*:before,*:after{box-sizing:border-box}
+body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important}
+.abAppSurface .hero,.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{border-color:var(--ab-line)!important;box-shadow:var(--ab-shadow-soft)!important}
+.abAppSurface .hero{padding:22px!important}.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{padding:20px!important}
+.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary),.abV2281 form button:not([type]):not(.danger):not(.delBtn):not(.secondary):not(.light):not(.soft):not(.kwAdd):not(.kwRemove):not(.dateChip):not(.homeTx),.abV2281 #smartApply,.abV2281 .btn:not(.light):not(.soft):not(.danger),.abV2281 .primaryButton,.abV2281 .primaryBtn,.abV2281 .savePlan{background:#2457d6!important;color:#fff!important;border-color:#2457d6!important}
+.abV2281 .abNavBrandText small,.abV2281 .abNavGroup summary i,.abV2281 .appMenu .navGroupTitle{color:#5f6b7a!important;opacity:1!important}.abV2281 .dataNote{color:#5f6b7a!important}
+.abV2281 .memberFoot small{color:#5f6b7a!important}
+.abV2281 .ckNum{background:#087a55!important;color:#fff!important}.abPageAssets .groupHead .cnt,.abPageAssets .groupSum small,.abPageAssets .rowVal small,.abPageAssets .chev,.abPageAssets .assetOptional>summary span{color:#5f6b7a!important}.abPageAssets .sectionKicker{color:#1945b8!important}.abPageAssets .kindChip span{color:#344054!important}.abPageAssets .kindChip input:checked+span{color:#1945b8!important}
+.abV2281 button:not(:disabled):hover,.abV2281 .btn:hover{box-shadow:0 4px 12px rgba(36,87,214,.12);transform:none}
+.abV2281 input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]):focus,.abV2281 select:focus,.abV2281 textarea:focus{border-color:#7293e6!important;box-shadow:0 0 0 3px rgba(36,87,214,.12)!important;outline:0!important}
+.abV2281 .notice,.abV2281 .tip,.abV2281 .guide,.abV2281 .guideLine,.abV2281 .privacyNote{background:#f4f7fb!important;border-color:#dbe3ee!important;color:#475467!important}
+
+/* 모바일 홈: 파란 면을 정보 카드와 선택 상태로 분리합니다. */
+.abMobileAppSurface .homeBudget,.abMobileAppSurface .homeMetric,.abMobileAppSurface .homeCard,.abMobileAppSurface .panel{background:#fff!important;border:1px solid var(--ab-line)!important;border-radius:16px!important;box-shadow:var(--ab-shadow-soft)!important}
+.abMobileAppSurface .homeBudget{background:#fff!important;padding:20px!important}.abMobileAppSurface .homeBudget:after{display:none!important}
+.abMobileAppSurface .homeBudgetTop span,.abMobileAppSurface .homeBudgetAmount small,.abMobileAppSurface .homeBudgetFoot,.abMobileAppSurface .homeMetric span,.abMobileAppSurface .homeMetric small,.abMobileAppSurface .homeBarRow span{color:#5f6b7a!important}.abMobileAppSurface .income{color:#087a55!important}
+.abMobileAppSurface .homeToday b[style*="#059669"]{color:#087a55!important}
+.abMobileAppSurface .homeBudgetTop em{background:#fff7cc!important;color:#664d00!important;border:1px solid #f2dc7d!important;box-shadow:none!important}
+.abMobileAppSurface .homeProgress,.abMobileAppSurface .homeBar{background:#edf1f5!important}.abMobileAppSurface .homeProgress i{background:#2457d6!important}
+.abMobileAppSurface .homeQuick{gap:8px}.abMobileAppSurface .homeQuick a{min-height:64px;padding:11px 7px!important;background:#fff!important;border:1px solid var(--ab-line)!important;border-radius:13px!important;box-shadow:none!important}.abMobileAppSurface .homeQuick a:hover{background:#f8fafc!important;border-color:#b8c5d6!important;transform:none}.abMobileAppSurface .homeQuick b{color:#172033!important}.abMobileAppSurface .homeQuick span{color:#667085!important}
+.abMobileAppSurface .homeGrid{grid-template-columns:minmax(0,1.45fr) minmax(280px,.75fr);gap:12px}.abMobileAppSurface .homeCard{padding:16px!important}.abMobileAppSurface .homeCard h2{font-size:16px!important;color:#172033!important}
+.abMobileAppSurface button.homeTx{display:flex!important;width:100%!important;min-height:62px!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;padding:10px 4px!important;background:#fff!important;color:#172033!important;border:0!important;border-bottom:1px solid #edf1f5!important;border-radius:0!important;box-shadow:none!important;text-align:left!important;transform:none!important}.abMobileAppSurface button.homeTx:last-child{border-bottom:0!important}.abMobileAppSurface button.homeTx:hover{background:#f8fafc!important}.abMobileAppSurface .homeTxLeft{min-width:0}.abMobileAppSurface .homeIcon{flex:0 0 38px;width:38px;height:38px;border-radius:11px!important;background:#f1f5f9!important;box-shadow:none!important;color:#475467!important}.abMobileAppSurface .homeTx b{color:#172033!important;font-size:14px!important}.abMobileAppSurface .homeTx span{color:#667085!important;font-size:12px!important}.abMobileAppSurface .homeTxAmt{color:var(--ab-negative)!important;font-size:14px!important}.abMobileAppSurface .homeTxAmt.income{color:var(--ab-positive)!important}.abMobileAppSurface .homeTxAmt small{color:#5f6b7a!important}
+.abMobileAppSurface .homeBar .bar0{background:#d84a43!important}.abMobileAppSurface .homeBar .bar1{background:#2457d6!important}.abMobileAppSurface .homeBar .bar2{background:#bf7300!important}.abMobileAppSurface .homeBar .bar3{background:#7c8797!important}
+.abMobileAppSurface .homeNotice{margin:12px 0!important;padding:14px 16px!important;background:#eef8f5!important;color:#174b3c!important;border:1px solid #bfe2d7!important;border-radius:14px!important;box-shadow:none!important}.abMobileAppSurface .homeNotice:after{display:none!important}.abMobileAppSurface .homeNotice b{color:#087a55!important;font-size:11px!important;margin-bottom:4px!important}.abMobileAppSurface .homeNotice p{color:#174b3c!important;font-size:13px!important;font-weight:600!important}
+.abMobileAppSurface .smartLine{grid-template-columns:minmax(0,1fr) auto!important}.abMobileAppSurface #smartApply{width:auto!important;min-width:74px!important;padding-inline:15px!important}.abMobileAppSurface .chipRow{display:flex!important;flex-wrap:wrap!important;gap:7px!important}.abMobileAppSurface .chipRow button,.abMobileAppSurface .dateChip{width:auto!important;min-height:38px!important;border:1px solid #d7dee8!important;border-radius:999px!important;background:#fff!important;color:#344054!important;padding:0 12px!important;font-size:13px!important;font-weight:650!important;box-shadow:none!important;transform:none!important}.abMobileAppSurface .chipRow button:hover,.abMobileAppSurface .dateChip:hover,.abMobileAppSurface .dateChip.on{background:var(--ab-primary-soft)!important;color:#1d4ed8!important;border-color:#9eb7ef!important}.abMobileAppSurface .seg span{background:#f1f4f8!important;color:#475467!important;border:1px solid transparent!important}.abMobileAppSurface .seg input:checked+span{background:#172033!important;color:#fff!important;border-color:#172033!important}.abMobileAppSurface #add.panel .form>button[type="submit"]{background:#2457d6!important;color:#fff!important;border-color:#2457d6!important;border-radius:11px!important}
+
+/* 영수증: 보라색 장식 대신 단계와 상태를 명확히 합니다. */
+.abPageReceipts .hero{background:#fff!important;color:#172033!important;border:1px solid var(--ab-line)!important;box-shadow:var(--ab-shadow-soft)!important}.abPageReceipts .hero p{color:#5f6b7a!important}.abPageReceipts .hero .light{background:#f2f4f7!important;color:#344054!important;border:1px solid #d8dee8!important}
+.abPageReceipts .drop{background:#f8fafc!important;border:1px dashed #9eabbc!important;border-radius:13px!important;padding:16px!important}.abPageReceipts .filePick{background:#172033!important;color:#fff!important;border-radius:10px!important;font-weight:650!important}.abPageReceipts .fileRow span{color:#5f6b7a!important}.abPageReceipts .status,.abPageReceipts .note{background:#f1f6ff!important;color:#27456f!important;border-color:#c8d8ef!important}.abPageReceipts textarea{min-height:150px!important}.abPageReceipts .confirm{background:#fff9eb!important;color:#754d00!important;border-color:#ecd59c!important}.abPageReceipts .card h2{margin-top:0!important}
+
+/* 키워드 편집기: 4열 카드와 파란 삭제 버튼을 접이식 2열 목록으로 교체합니다. */
+.abPageKeywords .kwShell .keywordToolbar>button{background:#2457d6!important;color:#fff!important;border-color:#2457d6!important}.abPageKeywords .kwBox{background:#fff!important}.abPageKeywords .kwHead{color:#172033!important}.abPageKeywords .kwRemove{background:transparent!important;color:#b42318!important;border:0!important}.abPageKeywords .kwRemove:hover{background:#fee4e2!important}.abPageKeywords .kwAdd{background:#edf3ff!important;color:#1d4ed8!important;border:1px solid #bfd0f6!important}.abPageKeywords .kwChip{background:#f8fafc!important;color:#344054!important}.abPageKeywords .kwHint{color:#5f6b7a!important}.abPageKeywords .kwNewInput{background:#fff!important}.abPageKeywords .kwNoResult{border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc}
+
+/* 파일 가져오기: 화면 진입 시에는 텍스트/CSV 흐름만 보여주고 무거운 변환기는 선택 시 준비합니다. */
+.abPageBackup .hero{background:#fff!important;color:#172033!important;border:1px solid var(--ab-line)!important}.abPageBackup .hero p{color:#5f6b7a!important}.abPageBackup .fileStatus{background:#f4f7fb!important;color:#475467!important;border-color:#dbe3ee!important}
+
+@media(max-width:900px){.abMobileAppSurface .homeGrid{grid-template-columns:1fr}.abPageKeywords .kwEditorGrid{grid-template-columns:1fr!important}}
+@media(max-width:760px){.abAppSurface .hero{padding:17px!important}.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{padding:16px!important}.abMobileAppSurface .homeQuick{grid-template-columns:repeat(3,minmax(0,1fr))!important}.abMobileAppSurface .homeCard{padding:14px!important}.abMobileAppSurface button.homeTx{min-height:58px!important}.abMobileAppSurface .homeIcon{flex-basis:36px;width:36px;height:36px}.abMobileAppSurface .smartLine{grid-template-columns:1fr!important}.abMobileAppSurface #smartApply{width:100%!important}.abPageReceipts .drop{padding:13px!important}}
+@media(max-width:380px){.abMobileAppSurface .homeQuick{grid-template-columns:repeat(2,minmax(0,1fr))!important}.abMobileAppSurface .homeMetrics{grid-template-columns:1fr!important}.abMobileAppSurface .homeTxAmt{font-size:13px!important}}
+</style>`;
+
+function v2284UiStyleFor(html = "") {
+  const source = String(html || "");
+  let style = V2284_UI_REVALIDATION_STYLE;
+  const stripSection = (start, end) => {
+    const from = style.indexOf(start);
+    const to = style.indexOf(end, from + start.length);
+    if (from >= 0 && to > from) style = style.slice(0, from) + style.slice(to);
+  };
+  if (!source.includes("abMobileAppSurface")) stripSection("/* 모바일 홈", "/* 영수증");
+  if (!source.includes("abPageReceipts")) stripSection("/* 영수증", "/* 키워드");
+  if (!source.includes("abPageKeywords")) stripSection("/* 키워드", "/* 파일 가져오기");
+  if (!source.includes("abPageBackup")) stripSection("/* 파일 가져오기", "@media(max-width:900px)");
+  return style;
+}
+
+const V2285_MENU_STYLE = `
+.abPageMenu{background:#fff!important}.abPageMenu main.menuPage{width:min(100%,1280px)!important;max-width:1280px!important;padding:34px 34px 118px!important}
+.abPageMenu .menuHeader{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:28px;padding:4px 0 24px;border-bottom:1px solid #e7eaf0}.abPageMenu .menuEyebrow{display:block;color:#667085;font-size:12px;font-weight:650;margin-bottom:7px}.abPageMenu .menuHeader h1{font-size:34px!important;line-height:1.18!important;margin:0 0 7px!important;font-weight:800!important;color:#172033}.abPageMenu .menuHeader p{margin:0;color:#667085;font-size:15px;line-height:1.55}.abPageMenu .menuContext{display:grid;grid-template-columns:minmax(190px,1fr) 148px auto;gap:8px;align-items:center}.abPageMenu .menuContext select,.abPageMenu .menuContext input,.abPageMenu .menuContext button{min-height:44px!important;margin:0!important}.abPageMenu .menuContext button{white-space:nowrap;padding-inline:17px}
+.abPageMenu .menuJourney{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;padding:24px 0 28px}.abPageMenu .journeyStep{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:center;min-width:0;padding-right:34px}.abPageMenu .journeyStep:not(:last-child):after{content:"›";position:absolute;right:14px;top:50%;transform:translateY(-50%);color:#98a2b3;font-size:23px;font-weight:400}.abPageMenu .journeyNum{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#fff;border:1px solid #d6dce5;color:#667085;font-size:13px;font-weight:700}.abPageMenu .journeyStep:first-child .journeyNum{background:#dbeafe;border-color:#dbeafe;color:#1d4ed8}.abPageMenu .journeyCopy b{display:block;font-size:14px;font-weight:750;color:#172033}.abPageMenu .journeyCopy span{display:block;font-size:12px;color:#667085;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.abPageMenu .menuSection{margin:0!important;padding:0!important;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important}.abPageMenu .menuSectionHead{display:flex;align-items:end;justify-content:space-between;gap:14px;margin:0 0 12px}.abPageMenu .menuSectionHead h2{font-size:18px!important;line-height:1.3!important;font-weight:800!important;margin:0!important;color:#172033!important}.abPageMenu .menuSectionHead span{color:#667085;font-size:12px}.abPageMenu .featuredSection{padding:0 0 34px!important}.abPageMenu .featuredGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.abPageMenu .featuredCard{display:grid;grid-template-columns:44px minmax(0,1fr) 20px;align-items:center;gap:13px;min-height:88px;padding:16px 17px;text-decoration:none;color:#172033;background:#fff;border:1px solid #dce2ea;border-radius:15px;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.abPageMenu .featuredCard:hover{border-color:#8eafea;box-shadow:0 8px 22px rgba(36,87,214,.08);transform:translateY(-1px)}.abPageMenu .featuredIcon{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#edf3ff;color:#2457d6;font-size:21px;font-weight:750}.abPageMenu .featuredCopy b{display:block;font-size:16px;font-weight:750;color:#172033}.abPageMenu .featuredCopy span{display:block;margin-top:3px;color:#667085;font-size:12.5px}.abPageMenu .menuArrow{color:#98a2b3;font-size:18px;text-align:right}
+.abPageMenu .menuSecondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:34px 52px}.abPageMenu .menuList{border-top:1px solid #e7eaf0}.abPageMenu .menuRow{display:grid;grid-template-columns:30px minmax(0,1fr) minmax(130px,.8fr) 18px;align-items:center;gap:10px;min-height:55px;padding:9px 2px;text-decoration:none;color:#172033;border-bottom:1px solid #e7eaf0}.abPageMenu .menuRow:hover .menuRowTitle{color:#1d4ed8}.abPageMenu .menuRowIcon{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:#7b8494;background:#f4f5f7;font-size:15px}.abPageMenu .menuRowTitle{font-size:14px;font-weight:700;transition:color .15s}.abPageMenu .menuRowDesc{font-size:12px;color:#667085;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.abPageMenu .advancedGroup{grid-column:1/-1;margin:0!important;border:0!important;border-radius:0!important;background:transparent!important;padding:0!important;box-shadow:none!important}.abPageMenu .advancedGroup>summary{min-height:54px;border-top:1px solid #e7eaf0;border-bottom:1px solid #e7eaf0;padding:0 2px!important;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}.abPageMenu .advancedGroup>summary b{font-size:14px;font-weight:750;color:#172033}.abPageMenu .advancedGroup>summary span{font-size:12px;color:#667085}.abPageMenu .advancedGroup[open]>summary{margin-bottom:0!important}.abPageMenu .advancedGroup .menuList{border-top:0;display:grid;grid-template-columns:1fr 1fr;column-gap:52px}.abPageMenu .adminNote{margin:0 0 24px!important}
+.abPageMenu .menuArrow{color:#667085;font-weight:600}.abPageMenu .menuRowIcon{color:#475467;font-weight:600}
+@media(max-width:1100px){.abPageMenu main.menuPage{padding-inline:24px!important}.abPageMenu .menuHeader{grid-template-columns:1fr}.abPageMenu .menuContext{grid-template-columns:minmax(0,1fr) 150px auto}.abPageMenu .menuSecondary{gap:30px}}
+@media(max-width:760px){.abPageMenu main.menuPage{padding:22px 16px 108px!important}.abPageMenu .menuHeader{gap:18px;padding-bottom:18px}.abPageMenu .menuHeader h1{font-size:28px!important}.abPageMenu .menuHeader p{font-size:14px}.abPageMenu .menuContext{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.abPageMenu .menuContext button{grid-column:1/-1;width:100%}.abPageMenu .menuJourney{padding:18px 0 24px}.abPageMenu .journeyStep{grid-template-columns:28px minmax(0,1fr);gap:7px;padding-right:20px}.abPageMenu .journeyStep:not(:last-child):after{right:6px}.abPageMenu .journeyNum{width:28px;height:28px}.abPageMenu .journeyCopy b{font-size:12px}.abPageMenu .journeyCopy span{display:none}.abPageMenu .featuredSection{padding-bottom:30px!important}.abPageMenu .featuredGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.abPageMenu .featuredCard{grid-template-columns:36px minmax(0,1fr);min-height:78px;padding:13px;gap:10px}.abPageMenu .featuredIcon{width:36px;height:36px;border-radius:11px;font-size:18px}.abPageMenu .featuredCopy b{font-size:14px}.abPageMenu .featuredCopy span{font-size:11px;line-height:1.35}.abPageMenu .featuredCard>.menuArrow{display:none}.abPageMenu .menuSecondary{grid-template-columns:1fr;gap:28px}.abPageMenu .menuRow{grid-template-columns:30px minmax(0,1fr) 18px}.abPageMenu .menuRowDesc{display:none}.abPageMenu .advancedGroup .menuList{grid-template-columns:1fr;column-gap:0}}
+@media(max-width:350px){.abPageMenu .featuredGrid{grid-template-columns:1fr}.abPageMenu .menuContext{grid-template-columns:1fr}.abPageMenu .menuContext button{grid-column:auto}}
+`;
+
+const V2285_LOGIN_STYLE = `
+.abPageLogin{background:#f4f6f8!important}.abPageLogin main.loginPage{width:min(100%,960px)!important;max-width:960px!important;padding:24px 20px 96px!important}.abPageLogin .loginHero{padding:24px!important;margin:0 0 14px!important;border-radius:20px!important}.abPageLogin .loginHero h1{font-size:30px!important;margin:14px 0 8px!important}.abPageLogin .loginHero>.muted{max-width:720px;margin:0!important}.abPageLogin .loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px;align-items:start}.abPageLogin .loginCard,.abPageLogin .signupCard{margin:0!important;border-radius:18px!important;padding:20px!important}.abPageLogin .loginCard h2{font-size:20px!important}.abPageLogin .loginOptional{margin:2px 0 12px;border-top:1px solid #edf0f4;border-bottom:1px solid #edf0f4}.abPageLogin .loginOptional>summary{min-height:44px;display:flex;align-items:center;justify-content:space-between;color:#475467;font-size:13px;font-weight:650}.abPageLogin .loginOptional>summary:after{content:"선택";color:#667085;font-size:11px}.abPageLogin .signupCard>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;min-height:54px}.abPageLogin .signupCard>summary::-webkit-details-marker{display:none}.abPageLogin .signupCard>summary b{font-size:18px;color:#172033}.abPageLogin .signupCard>summary span{font-size:12px;color:#667085}.abPageLogin .signupCard>summary:after{content:"열기";grid-column:2;grid-row:1/3;color:#2457d6;font-size:12px;font-weight:700}.abPageLogin .signupCard[open]>summary:after{content:"접기"}.abPageLogin .signupBody{padding-top:12px;border-top:1px solid #edf0f4;margin-top:10px}.abPageLogin .mobileAccessHelp{background:#f1f6ff;border:1px solid #cad9f2;color:#27456f;border-radius:13px;padding:12px 13px;line-height:1.55;margin:12px 0;font-size:13px}.abPageLogin .mobileAccessHelp b{color:#1d4ed8}.abPageLogin .legacyHelp{margin:14px 0 0!important}.abPageLogin .field{margin:10px 0!important}.abPageLogin .field input{font-size:16px}.abPageLogin .loginCard button[type="submit"]{margin-top:3px}
+.abPageLogin main.loginPage{padding-top:20px!important}.abPageLogin .loginHero{padding:20px!important}.abPageLogin .loginCard,.abPageLogin .signupCard{padding:18px!important}
+@media(max-width:760px){.abPageLogin main.loginPage{padding:10px 12px calc(92px + env(safe-area-inset-bottom,0px))!important}.abPageLogin .loginHero{padding:14px!important;margin-bottom:10px!important;border-radius:16px!important}.abPageLogin .loginHero .badge{font-size:11px;padding:5px 9px}.abPageLogin .loginHero h1{font-size:24px!important;line-height:1.24!important;margin:10px 0 6px!important}.abPageLogin .loginHero>.muted{font-size:13px!important;line-height:1.5!important}.abPageLogin .loginHero .warn,.abPageLogin .loginHero .notice{padding:10px 11px!important;margin:9px 0 0!important;font-size:13px}.abPageLogin .loginGrid{grid-template-columns:1fr;gap:10px}.abPageLogin .loginCard,.abPageLogin .signupCard{padding:14px!important;border-radius:16px!important}.abPageLogin .loginCard h2{font-size:19px!important;margin-bottom:5px!important}.abPageLogin .loginCard>.muted{font-size:12.5px!important;margin:0 0 8px!important}.abPageLogin .field{gap:5px!important;margin:9px 0!important}.abPageLogin .field input{height:48px!important}.abPageLogin .signupCard>summary b{font-size:16px}.abPageLogin .legacyHelp{font-size:12.5px;padding:11px!important}}
+@media(max-width:760px){.abPageLogin .field{margin:8px 0!important}.abPageLogin .loginOptional>summary{min-height:40px}}
+`;
+
+const V2285_NAV_STYLE = `
+@media(min-width:1024px){:root{--abNavW:252px}.abAppSurface .abLayoutNav{width:252px!important}.abAppSurface .abNavBody{padding:14px 12px!important}.abAppSurface .abNavGroup{margin:4px 0!important}.abAppSurface .abNavGroup summary{min-height:42px!important}.abAppSurface .abNavGroup[open] summary{color:#172033!important}.abAppSurface .abNavGroupPrimary{padding-bottom:7px;margin-bottom:9px!important;border-bottom:1px solid #edf0f4}.abAppSurface .abNavGroupPrimary>summary{color:#172033!important}.abAppSurface .abNavLinks{padding-left:8px!important}.abAppSurface .abNavLinks a{min-height:42px!important;gap:9px!important;padding:0 9px!important}.abAppSurface .abNavItemIcon{width:28px;height:28px;flex:0 0 28px;border-radius:9px;display:grid;place-items:center;background:#f2f4f7;color:#667085;font-size:14px;font-style:normal}.abAppSurface .abNavGroupPrimary .abNavItemIcon{background:#edf3ff;color:#2457d6}.abAppSurface .abNavItemLabel{font-size:13.5px;font-weight:620}.abAppSurface .abNavGroupPrimary .abNavItemLabel{font-weight:700}.abAppSurface .abNavLinks a.active{background:#edf3ff!important;color:#1945b8!important}.abAppSurface .abNavLinks a.active .abNavItemIcon{background:#2457d6;color:#fff}.abAppSurface .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3;font-weight:600}.abAppSurface .abNavGroup summary:after{content:"⌄";margin-left:auto;color:#98a2b3;font-size:12px}.abAppSurface .abNavGroup[open] summary:after{content:"⌃"}.abAppSurface .abNavGroup summary i+ b{font-size:12px!important;text-transform:none}.abAppSurface .abNavTop{padding:17px 14px!important}}
+@media(max-width:1023px){.abNavMobileDrawer .abNavItemIcon{display:none}.abNavMobileDrawer .abNavItemLabel{font-size:13px}.abNavMobileDrawer .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3}.abNavMobileDrawer .abNavGroup summary:after{content:"⌄";margin-left:auto}.abNavMobileDrawer .abNavGroup[open] summary:after{content:"⌃"}}
+`;
+
+function v2285UiStyleFor(html = "") {
+  const source = String(html || "");
+  let css = "";
+  if (source.includes("abPageMenu")) css += V2285_MENU_STYLE;
+  if (source.includes("abPageLogin")) css += V2285_LOGIN_STYLE;
+  if (source.includes('class="abLayoutNav"')) css += V2285_NAV_STYLE;
+  return css ? `<style id="v2285MobileAccessHierarchyStyle">${css}</style>` : "";
+}
 
 const V2281_GUIDED_NAV_STYLE = `<style id="v2281GuidedNavStyle">
 :root{--abNavW:232px;--abNavCollapsed:68px}
@@ -2639,22 +2893,110 @@ function guidedUiUxClientMain() {
     section.replaceWith(details);
   }
 
+  function improveMobileOnboarding() {
+    const section = document.querySelector(".homeOnboarding[data-household-id]");
+    if (!section || section.getAttribute("data-first-record") !== "1") return;
+    const householdId = section.getAttribute("data-household-id") || "default";
+    const key = "ab:onboarding:result-checked:" + householdId;
+    try {
+      if (window.localStorage && window.localStorage.getItem(key) === "1") {
+        section.remove();
+        return;
+      }
+    } catch (err) {}
+    const link = section.querySelector("[data-onboarding-result-check]");
+    if (!link) return;
+    link.addEventListener("click", function() {
+      try { if (window.localStorage) window.localStorage.setItem(key, "1"); } catch (err) {}
+      const step = link.closest(".homeOnboardingStep");
+      if (step) {
+        step.classList.remove("current");
+        step.classList.add("done");
+        const small = step.querySelector("small");
+        if (small) small.textContent = "최근 기록에서 저장 결과 확인 완료";
+        link.remove();
+      }
+      const count = section.querySelector(".homeOnboardingHead > span");
+      if (count) count.textContent = "3/3 완료";
+    });
+  }
+
   improveReservePage();
   improveBudgetPage();
   improveGuidePage();
+  improveMobileOnboarding();
+
+  function restoreSubmitState(form) {
+    delete form.dataset.abSubmitting;
+    delete form.dataset.submitting;
+    form.querySelectorAll('[data-ab-submit-locked="1"],[aria-busy="true"]').forEach(function(button) {
+      delete button.dataset.abSubmitLocked;
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      if (button.tagName === "BUTTON" && button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+      }
+    });
+  }
+
+  function isPostForm(form) {
+    return form && form.tagName === "FORM" && String(form.getAttribute("method") || "get").toLowerCase() === "post";
+  }
+
+  function isRiskyForm(form) {
+    const action = String(form && form.getAttribute("action") || "");
+    return /\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\/identity\/merge(?:$|[?#])/.test(action);
+  }
+
+  // Large transaction pages can contain many forms. Style them once, then use
+  // one delegated submit listener instead of attaching multiple listeners to
+  // every form.
   document.querySelectorAll('form[method="post"]').forEach(function(form) {
-    form.addEventListener("submit", function() {
-      if (form.dataset.abSubmitting === "1") return;
+    if (!isRiskyForm(form)) return;
+    const submitButton = form.querySelector('button[type="submit"],input[type="submit"]');
+    if (submitButton) submitButton.classList.add("danger");
+  });
+
+  document.addEventListener("submit", function(event) {
+    const form = event.target;
+    if (!isPostForm(form)) return;
+    if (isRiskyForm(form) && !form.hasAttribute("onsubmit") && !window.confirm("이 작업은 기존 정보에 영향을 줍니다. 계속할까요?")) {
+      event.preventDefault();
+      return;
+    }
+    if (event.defaultPrevented || (typeof form.checkValidity === "function" && !form.checkValidity())) return;
+    if (form.dataset.abSubmitting === "1") {
+      event.preventDefault();
+      return;
+    }
+    const submittedButton = event.submitter && form.contains(event.submitter)
+      ? event.submitter
+      : form.querySelector('button[type="submit"],input[type="submit"]');
+    const lock = function() {
+      // Target-level validation and confirmation handlers run before this
+      // delegated listener. A cancelled submit must remain usable.
+      if (event.defaultPrevented) return;
+      if (form.dataset.abSubmitting === "1") {
+        event.preventDefault();
+        return;
+      }
+      const button = submittedButton;
+      if (!button || (button.disabled && button.getAttribute("aria-busy") !== "true")) return;
       form.dataset.abSubmitting = "1";
-      const button = form.querySelector('button[type="submit"],input[type="submit"]');
-      if (!button) return;
+      button.dataset.abSubmitLocked = "1";
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
       if (button.tagName === "BUTTON" && !button.dataset.originalText) {
         button.dataset.originalText = button.textContent || "";
-        button.textContent = "저장 중…";
       }
-    });
+      if (button.tagName === "BUTTON" && button.textContent === button.dataset.originalText) button.textContent = "저장 중…";
+    };
+    if (typeof queueMicrotask === "function") queueMicrotask(lock);
+    else Promise.resolve().then(lock);
+  });
+
+  window.addEventListener("pageshow", function() {
+    document.querySelectorAll('form[method="post"]').forEach(restoreSubmitState);
   });
 }
 
@@ -2695,9 +3037,614 @@ function approximateWonLabel(raw = "") {
   return "약 " + new Intl.NumberFormat("ko-KR").format(Math.round(value / 1000) * 1000) + "원";
 }
 
+// Keep complex browser runtimes as real functions and serialize them with
+// Function#toString. Writing these directly inside a server template literal
+// consumes regular-expression backslashes before the browser sees them.
+function receiptCaptureClientMain() {
+  var albumFile = document.getElementById("receiptImage");
+  var cameraFile = document.getElementById("receiptCamera");
+  var sourceInputs = [albumFile, cameraFile].filter(Boolean);
+  var text = document.getElementById("receiptText");
+  var status = document.getElementById("ocrStatus");
+  var analyze = document.getElementById("analyzeReceipt");
+  var readImage = document.getElementById("readReceiptImage");
+  var clearImage = document.getElementById("clearReceiptImage");
+  var fileName = document.getElementById("receiptFileName");
+  var previewWrap = document.getElementById("receiptPreview");
+  var preview = document.getElementById("receiptPreviewImage");
+  var detected = document.getElementById("receiptDetectedSummary");
+  var resultSection = document.getElementById("receiptResults");
+  var tesseractPromise = null;
+  var ocrWorkerPromise = null;
+  var ocrWorker = null;
+  var ocrWorkerIdleTimer = 0;
+  var cancelOcrButton = document.getElementById("ocrCancel");
+  var dropPanel = document.getElementById("receiptSourcePanel");
+  var selectedImage = null;
+  var previewUrl = "";
+  var ocrBusy = false;
+  var ocrRunId = 0;
+  // QA와 브라우저 콘솔에서 파서·축소 로직을 직접 검증할 수 있도록 노출합니다.
+  try {
+    window.__receiptParsers = { date: parseDate, amount: parseAmount, merchant: parseMerchant, payment: parsePayment, category: parseCategory, downscaleForOcr: optimizeImageForOcr };
+  } catch (error) {}
+  if (!text || !status) return;
+
+  function clean(value) {
+    return String(value || "").replace(/\r/g, "").trim();
+  }
+
+  function setStatus(message, state) {
+    status.textContent = message;
+    status.setAttribute("data-state", state || "");
+    status.setAttribute("aria-live", "polite");
+  }
+
+  function formatBytes(value) {
+    var bytes = Math.max(0, Number(value || 0));
+    if (bytes >= 1024 * 1024) return (Math.round(bytes / 1024 / 1024 * 10) / 10) + "MB";
+    if (bytes >= 1024) return Math.round(bytes / 1024) + "KB";
+    return bytes + "B";
+  }
+
+  function releasePreview() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = "";
+    }
+  }
+
+  function syncActionState() {
+    if (readImage) readImage.disabled = ocrBusy || !selectedImage;
+    if (analyze) analyze.disabled = ocrBusy || !clean(text.value);
+    if (clearImage) clearImage.disabled = ocrBusy || !selectedImage;
+    sourceInputs.forEach(function(input) {
+      if (input.dataset.readOnlyDisabled !== "1") input.disabled = ocrBusy;
+    });
+    var albumLabel = document.querySelector('label[for="receiptImage"]');
+    var cameraLabel = document.querySelector('label[for="receiptCamera"]');
+    [albumLabel, cameraLabel].filter(Boolean).forEach(function(label) {
+      label.classList.toggle("busy", ocrBusy);
+      label.setAttribute("aria-disabled", ocrBusy ? "true" : "false");
+    });
+    if (readImage) readImage.textContent = ocrBusy ? "사진 읽는 중…" : "선택한 사진 읽기";
+    if (cancelOcrButton) cancelOcrButton.hidden = !ocrBusy;
+  }
+
+  function setBusy(value) {
+    ocrBusy = !!value;
+    syncActionState();
+  }
+
+  function adoptImage(image, sourceLabel) {
+    if (!image || ocrBusy) return false;
+    var supported = /^image\//i.test(String(image.type || "")) || /\.(?:jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(String(image.name || ""));
+    if (!supported) {
+      setStatus("이미지 파일만 선택할 수 있습니다. JPG·PNG·HEIC 사진을 선택해 주세요.", "error");
+      return false;
+    }
+    if (image.size > 25 * 1024 * 1024) {
+      setStatus("사진 용량이 25MB를 넘습니다. 사진 크기를 줄이거나 화면을 캡처한 뒤 다시 선택해 주세요.", "error");
+      return false;
+    }
+    sourceInputs.forEach(function(other) { other.value = ""; });
+    selectedImage = image;
+    releasePreview();
+    if (preview && previewWrap) {
+      try {
+        previewUrl = URL.createObjectURL(image);
+        preview.src = previewUrl;
+        preview.alt = (image.name || "선택한 영수증") + " 미리보기";
+        previewWrap.hidden = false;
+      } catch (error) {
+        previewWrap.hidden = true;
+      }
+    }
+    if (fileName) fileName.textContent = sourceLabel + " · " + (image.name || "영수증 사진") + " · " + formatBytes(image.size);
+    setStatus("사진을 준비했습니다. 미리보기를 확인한 뒤 ‘선택한 사진 읽기’를 눌러주세요.", "ready");
+    syncActionState();
+    return true;
+  }
+
+  function selectImage(input, sourceLabel) {
+    var image = input && input.files && input.files[0];
+    if (!image) return;
+    if (!adoptImage(image, sourceLabel)) input.value = "";
+  }
+
+  function clearSelectedImage() {
+    if (ocrBusy) return;
+    selectedImage = null;
+    sourceInputs.forEach(function(input) { input.value = ""; });
+    releasePreview();
+    if (preview) preview.removeAttribute("src");
+    if (previewWrap) previewWrap.hidden = true;
+    if (fileName) fileName.textContent = "선택된 사진 없음";
+    setStatus("앨범이나 카메라에서 영수증 사진을 선택해 주세요.", "");
+    syncActionState();
+  }
+
+  function loadTesseract() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (tesseractPromise) return tesseractPromise;
+    tesseractPromise = new Promise(function(resolve, reject) {
+      var script = document.createElement("script");
+      // Keep the OCR runtime deterministic. A floating major-version URL can
+      // change underneath a deployed page and produce difficult mobile-only
+      // regressions.
+      script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+      script.async = true;
+      script.referrerPolicy = "no-referrer";
+      script.onload = function() {
+        if (window.Tesseract) resolve(window.Tesseract);
+        else {
+          tesseractPromise = null;
+          reject(new Error("문자 인식 모듈 초기화에 실패했습니다."));
+        }
+      };
+      script.onerror = function() {
+        tesseractPromise = null;
+        script.remove();
+        reject(new Error("문자 인식 모듈을 불러오지 못했습니다."));
+      };
+      document.head.appendChild(script);
+    });
+    return tesseractPromise;
+  }
+
+  function reportOcrProgress(progress) {
+    if (!progress) return;
+    if (progress.status === "recognizing text") {
+      setStatus("문자 인식 " + Math.round((progress.progress || 0) * 100) + "%", "busy");
+      return;
+    }
+    if (/language|traineddata/i.test(String(progress.status || ""))) {
+      setStatus("한국어 인식 데이터를 준비하고 있습니다. 첫 실행만 조금 더 걸립니다…", "busy");
+    }
+  }
+
+  function releaseOcrWorker() {
+    if (ocrWorkerIdleTimer) {
+      clearTimeout(ocrWorkerIdleTimer);
+      ocrWorkerIdleTimer = 0;
+    }
+    var worker = ocrWorker;
+    ocrWorker = null;
+    ocrWorkerPromise = null;
+    if (worker && typeof worker.terminate === "function") {
+      Promise.resolve(worker.terminate()).catch(function() {});
+    }
+  }
+
+  function scheduleOcrWorkerRelease() {
+    if (ocrWorkerIdleTimer) clearTimeout(ocrWorkerIdleTimer);
+    // Reuse the initialized worker when several receipts are entered in a row,
+    // then release its sizeable WebAssembly memory on an idle mobile tab.
+    ocrWorkerIdleTimer = setTimeout(releaseOcrWorker, 120000);
+  }
+
+  async function getOcrWorker() {
+    if (ocrWorkerPromise) return ocrWorkerPromise;
+    var engine = await loadTesseract();
+    ocrWorkerPromise = engine.createWorker(["kor", "eng"], 1, {
+      logger: reportOcrProgress
+    }).then(function(worker) {
+      ocrWorker = worker;
+      return worker;
+    }).catch(function(error) {
+      ocrWorker = null;
+      ocrWorkerPromise = null;
+      throw error;
+    });
+    return ocrWorkerPromise;
+  }
+
+  function decodeImage(image) {
+    if (window.createImageBitmap) {
+      return window.createImageBitmap(image, { imageOrientation: "from-image" })
+        .catch(function() { return window.createImageBitmap(image); })
+        .then(function(bitmap) {
+          return {
+            source: bitmap,
+            width: bitmap.width,
+            height: bitmap.height,
+            close: function() { if (bitmap && bitmap.close) bitmap.close(); }
+          };
+        });
+    }
+    return new Promise(function(resolve, reject) {
+      var url = URL.createObjectURL(image);
+      var element = new Image();
+      element.onload = function() {
+        resolve({
+          source: element,
+          width: element.naturalWidth || element.width,
+          height: element.naturalHeight || element.height,
+          close: function() { URL.revokeObjectURL(url); }
+        });
+      };
+      element.onerror = function() {
+        URL.revokeObjectURL(url);
+        reject(new Error("사진 미리보기를 만들 수 없습니다."));
+      };
+      element.src = url;
+    });
+  }
+
+  async function optimizeImageForOcr(image) {
+    var decoded;
+    try {
+      decoded = await decodeImage(image);
+    } catch (error) {
+      return image;
+    }
+    try {
+      var width = Math.max(1, Number(decoded.width || 0));
+      var height = Math.max(1, Number(decoded.height || 0));
+      var lowMemoryDevice = Number(navigator.deviceMemory || 0) > 0 && Number(navigator.deviceMemory) <= 4;
+      var lowCoreDevice = Number(navigator.hardwareConcurrency || 0) > 0 && Number(navigator.hardwareConcurrency) <= 4;
+      var maxDimension = lowMemoryDevice || lowCoreDevice ? 1400 : 1800;
+      var scale = Math.min(1, maxDimension / Math.max(width, height));
+      if (scale === 1 && image.size <= 4 * 1024 * 1024) return image;
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      var context = canvas.getContext("2d", { alpha: false });
+      if (!context) return image;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
+      var blob = await new Promise(function(resolve) {
+        canvas.toBlob(function(value) { resolve(value || image); }, "image/jpeg", 0.9);
+      });
+      canvas.width = 1;
+      canvas.height = 1;
+      return blob || image;
+    } finally {
+      if (decoded && decoded.close) decoded.close();
+    }
+  }
+
+  function nextPaint() {
+    return new Promise(function(resolve) {
+      if (window.requestAnimationFrame) requestAnimationFrame(function() { requestAnimationFrame(resolve); });
+      else setTimeout(resolve, 0);
+    });
+  }
+
+  function parseDate(raw) {
+    var match = raw.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
+    if (!match) match = raw.match(/(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/);
+    if (!match) return "";
+    var year = Number(match[1]);
+    if (year < 100) year += 2000;
+    var month = Number(match[2]);
+    var day = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+    return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+  }
+
+  function parseAmount(raw) {
+    var candidates = [];
+    raw.split(/\n/).forEach(function(line) {
+      var score = /(총\s*액|합\s*계|결제\s*금액|승인\s*금액|받을\s*금액|total)/i.test(line) ? 10 : 0;
+      var numbers = line.match(/\d[\d,.\s]{2,}\s*원?/g) || [];
+      numbers.forEach(function(number) {
+        var value = Number(number.replace(/[^0-9]/g, ""));
+        if (value >= 100 && value <= 2000000000) candidates.push({ value: value, score: score });
+      });
+    });
+    candidates.sort(function(left, right) {
+      return right.score - left.score || right.value - left.value;
+    });
+    return candidates.length ? candidates[0].value : 0;
+  }
+
+  function parseMerchant(raw) {
+    var excluded = /(영\s*수\s*증|사업자|대표자|전화|tel|주소|카드|승인|합계|총액|부가세|공급가|일시|날짜|매출)/i;
+    var lines = raw.split(/\n/).map(clean).filter(Boolean);
+    for (var index = 0; index < lines.length; index += 1) {
+      var value = lines[index].replace(/^[^가-힣A-Za-z0-9]+|[^가-힣A-Za-z0-9)]+$/g, "");
+      if (value.length >= 2 && value.length <= 60 && !excluded.test(value) && !/^\d[\d\s.,-]+$/.test(value)) return value;
+    }
+    return "";
+  }
+
+  function parsePayment(raw) {
+    var brands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
+    for (var index = 0; index < brands.length; index += 1) {
+      if (new RegExp(brands[index] + "\\s*(?:카드)?", "i").test(raw)) return brands[index] + "카드";
+    }
+    if (/현금/.test(raw)) return "현금";
+    if (/계좌|이체/.test(raw)) return "계좌이체";
+    return "";
+  }
+
+  function parseCategory(raw) {
+    var rules = [
+      ["장보기", /마트|슈퍼|시장|식료품|농협/],
+      ["식비", /식당|음식|점심|저녁|치킨|배달|김밥/],
+      ["카페\/간식", /카페|커피|베이커리|디저트/],
+      ["의료\/건강", /병원|약국|치과|진료/],
+      ["교통\/차량", /주유|택시|주차|교통/],
+      ["생활용품", /다이소|생활|세제|휴지/],
+      ["쇼핑", /백화점|쇼핑|의류|신발|화장품/]
+    ];
+    for (var index = 0; index < rules.length; index += 1) {
+      if (rules[index][1].test(raw)) return rules[index][0];
+    }
+    return "기타지출";
+  }
+
+  function applyReceiptText(shouldScroll) {
+    var raw = clean(text.value);
+    if (!raw) {
+      setStatus("분석할 문자가 없습니다. 사진을 읽거나 영수증 문자를 붙여넣어 주세요.", "error");
+      return;
+    }
+    var rawField = document.getElementById("receiptRaw");
+    var dateField = document.getElementById("receiptDate");
+    var amountField = document.getElementById("receiptAmount");
+    var merchantField = document.getElementById("merchant");
+    var paymentField = document.getElementById("receiptPayment");
+    var categoryField = document.getElementById("receiptCategory");
+    var date = parseDate(raw);
+    var amount = parseAmount(raw);
+    var merchant = parseMerchant(raw);
+    var payment = parsePayment(raw);
+    if (rawField) rawField.value = raw.slice(0, 500);
+    if (date && dateField) dateField.value = date;
+    if (amount && amountField) amountField.value = new Intl.NumberFormat("ko-KR").format(amount);
+    if (merchant && merchantField) merchantField.value = merchant;
+    if (payment && paymentField) paymentField.value = payment;
+    if (categoryField) categoryField.value = parseCategory(raw);
+    if (detected) {
+      var summary = [];
+      if (merchant) summary.push(merchant);
+      if (date) summary.push(date);
+      if (amount) summary.push(new Intl.NumberFormat("ko-KR").format(amount) + "원");
+      detected.textContent = summary.length ? summary.join(" · ") : "자동으로 찾지 못한 값은 아래에서 직접 입력할 수 있습니다.";
+    }
+    setStatus("인식 결과를 채웠습니다. 사진 원본과 상호·날짜·총액을 비교해 주세요.", "success");
+    if (shouldScroll && resultSection && typeof resultSection.scrollIntoView === "function") {
+      resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  sourceInputs.forEach(function(input) {
+    input.dataset.readOnlyDisabled = input.disabled ? "1" : "0";
+  });
+  if (albumFile) albumFile.addEventListener("change", function() { selectImage(albumFile, "앨범"); });
+  if (cameraFile) cameraFile.addEventListener("change", function() { selectImage(cameraFile, "카메라"); });
+  if (clearImage) clearImage.addEventListener("click", clearSelectedImage);
+  if (analyze) analyze.addEventListener("click", function() { applyReceiptText(true); });
+  text.addEventListener("input", syncActionState);
+  if (readImage) readImage.addEventListener("click", async function() {
+    if (!selectedImage || ocrBusy) return;
+    var runId = ++ocrRunId;
+    var current = function() { return runId === ocrRunId; };
+    var timeoutId = 0;
+    // 인식이 멈춰도 화면이 영구히 잠기지 않도록 상한을 둡니다.
+    var timeoutGuard = new Promise(function(resolve, reject) {
+      timeoutId = setTimeout(function() { reject(new Error("인식이 90초를 넘겨 중단했습니다. 사진을 더 작게 찍어 다시 시도해 주세요.")); }, 90000);
+    });
+    setBusy(true);
+    setStatus("휴대폰이 버벅이지 않도록 사진 크기를 줄이고 있습니다…", "busy");
+    try {
+      var preparedImage = await optimizeImageForOcr(selectedImage);
+      if (!current()) return;
+      await nextPaint();
+      setStatus("문자 인식 기능을 준비하고 있습니다. 첫 실행은 조금 더 걸릴 수 있어요.", "busy");
+      var workerPending = getOcrWorker();
+      workerPending.catch(function() {});
+      var worker = await Promise.race([workerPending, timeoutGuard]);
+      if (!current()) return;
+      setStatus("사진에서 문자를 읽는 중입니다. 다른 버튼을 여러 번 누르지 말고 잠시 기다려 주세요.", "busy");
+      var recognizePending = worker.recognize(preparedImage);
+      recognizePending.catch(function() {});
+      var result = await Promise.race([recognizePending, timeoutGuard]);
+      if (!current()) return;
+      scheduleOcrWorkerRelease();
+      text.value = clean(result && result.data && result.data.text);
+      if (!text.value) {
+        setStatus("글자를 찾지 못했습니다. 영수증이 화면을 가득 채우도록 다시 찍거나 문자를 직접 입력해 주세요.", "error");
+      } else {
+        syncActionState();
+        applyReceiptText(true);
+      }
+    } catch (error) {
+      if (!current()) return;
+      releaseOcrWorker();
+      var offline = navigator.onLine === false ? "인터넷 연결을 확인한 뒤 다시 시도해 주세요. " : "";
+      setStatus(offline + (error && error.message ? error.message + " " : "") + "JPG·PNG 사진이나 화면 캡처를 사용하면 더 안정적입니다.", "error");
+    } finally {
+      clearTimeout(timeoutId);
+      if (current()) setBusy(false);
+    }
+  });
+  if (cancelOcrButton) cancelOcrButton.addEventListener("click", function() {
+    if (!ocrBusy) return;
+    ocrRunId += 1;
+    releaseOcrWorker();
+    setBusy(false);
+    setStatus("사진 분석을 취소했습니다. 다시 시도하거나 영수증 문자를 직접 붙여넣어 주세요.", "");
+  });
+  if (dropPanel) {
+    ["dragenter", "dragover"].forEach(function(name) {
+      dropPanel.addEventListener(name, function(event) { event.preventDefault(); dropPanel.classList.add("dragOver"); });
+    });
+    ["dragleave", "drop"].forEach(function(name) {
+      dropPanel.addEventListener(name, function(event) { event.preventDefault(); dropPanel.classList.remove("dragOver"); });
+    });
+    dropPanel.addEventListener("drop", function(event) {
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) adoptImage(file, "가져온 사진");
+    });
+  }
+  document.addEventListener("paste", function(event) {
+    var file = event.clipboardData && event.clipboardData.files && event.clipboardData.files[0];
+    if (file && /^image\//i.test(String(file.type || ""))) {
+      event.preventDefault();
+      adoptImage(file, "붙여넣은 사진");
+    }
+  });
+  var amountManual = document.getElementById("receiptAmount");
+  if (amountManual) amountManual.addEventListener("input", function() {
+    var caretFromEnd = amountManual.value.length - Number(amountManual.selectionEnd || 0);
+    var digits = amountManual.value.replace(/[^0-9]/g, "");
+    var formatted = digits ? Number(digits).toLocaleString("ko-KR") : "";
+    if (formatted === amountManual.value) return;
+    amountManual.value = formatted;
+    var position = Math.max(0, formatted.length - caretFromEnd);
+    try { amountManual.setSelectionRange(position, position); } catch (error) {}
+  });
+  ["receiptHousehold", "receiptMonth"].forEach(function(id) {
+    var field = document.getElementById(id);
+    if (field) field.addEventListener("change", function() { if (field.form) field.form.submit(); });
+  });
+  window.addEventListener("pagehide", function() {
+    releasePreview();
+    releaseOcrWorker();
+  }, { once: true });
+  syncActionState();
+}
+
+function myBackupImportClientMain() {
+  var input = document.getElementById("myImportFile");
+  var area = document.getElementById("myImportText");
+  var status = document.getElementById("myImportFileStatus");
+  var form = document.getElementById("myImportForm");
+  var submit = document.getElementById("myImportSubmit");
+  var xlsxPromise = null;
+  if (!input || !area || !status || !form) return;
+
+  function setStatus(message, bad) {
+    status.textContent = message;
+    status.style.background = bad ? "#fff7ed" : "#eff6ff";
+    status.style.borderColor = bad ? "#fed7aa" : "#bfdbfe";
+    status.style.color = bad ? "#9a3412" : "#1e3a8a";
+  }
+
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (xlsxPromise) return xlsxPromise;
+    xlsxPromise = new Promise(function(resolve, reject) {
+      var script = document.createElement("script");
+      script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+      script.async = true;
+      script.onload = function() {
+        if (window.XLSX) resolve(window.XLSX);
+        else reject(new Error("엑셀 변환 모듈 초기화에 실패했습니다."));
+      };
+      script.onerror = function() {
+        reject(new Error("엑셀 변환 모듈을 불러오지 못했습니다."));
+      };
+      document.head.appendChild(script);
+    });
+    return xlsxPromise;
+  }
+
+  input.addEventListener("change", async function() {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var name = String(file.name || "").toLowerCase();
+    if (!/\.xlsx?$/.test(name)) {
+      setStatus("선택한 " + file.name + " 파일은 서버에서 제목 유사어와 자연어를 분석합니다.", false);
+      return;
+    }
+    setStatus("엑셀 변환 모듈을 준비하고 있습니다…", false);
+    try {
+      await loadXlsx();
+    } catch (error) {
+      setStatus(error.message || String(error), true);
+      return;
+    }
+    var reader = new FileReader();
+    setStatus("엑셀의 모든 시트를 변환하고 있습니다…", false);
+    reader.onload = function(event) {
+      try {
+        var workbook = window.XLSX.read(new Uint8Array(event.target.result), { type: "array", cellDates: false });
+        var chunks = [];
+        workbook.SheetNames.forEach(function(sheetName) {
+          var sheet = workbook.Sheets[sheetName];
+          var tsv = window.XLSX.utils.sheet_to_csv(sheet, { FS: "\t", RS: "\n", rawNumbers: false });
+          if (String(tsv || "").trim()) chunks.push("# 시트: " + sheetName + "\n" + String(tsv).trim());
+        });
+        if (!chunks.length) throw new Error("값이 있는 시트를 찾지 못했습니다.");
+        area.value = chunks.join("\n");
+        input.value = "";
+        setStatus("엑셀 " + workbook.SheetNames.length + "개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.", false);
+      } catch (error) {
+        setStatus(error.message || String(error), true);
+      }
+    };
+    reader.onerror = function() {
+      setStatus("엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.", true);
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  form.addEventListener("submit", function(event) {
+    var file = input.files && input.files[0];
+    if (file && /\.xlsx?$/.test(String(file.name || "").toLowerCase())) {
+      event.preventDefault();
+      setStatus("엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.", true);
+      return;
+    }
+    if (submit && !submit.disabled) {
+      submit.disabled = true;
+      submit.setAttribute("aria-busy", "true");
+      submit.textContent = "미리보기 분석 중…";
+    }
+  });
+}
+
+function deferHeavyBrowserTools(html = "") {
+  let source = String(html || "");
+  const tesseractUrl = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+  const sheetJsUrl = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+
+  if (source.includes('id="receiptImage"') && source.includes(tesseractUrl)) {
+    const marker = `<script src="${tesseractUrl}"></script><script>(function(){var file=document.getElementById('receiptImage')`;
+    const start = source.indexOf(marker);
+    const end = start < 0 ? -1 : source.indexOf("</script>", start + marker.length);
+    if (start >= 0 && end >= 0) {
+      source = source.slice(0, start) + `<script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script>` + source.slice(end + 9);
+    }
+  }
+
+  if (source.includes('id="myImportForm"') && source.includes(sheetJsUrl)) {
+    const marker = `<script src="${sheetJsUrl}"></script><script>(function(){var input=document.getElementById('myImportFile')`;
+    const start = source.indexOf(marker);
+    const end = start < 0 ? -1 : source.indexOf("</script>", start + marker.length);
+    if (start >= 0 && end >= 0) {
+      source = source.slice(0, start) + `<script id="myBackupImportRuntime">(${myBackupImportClientMain.toString()})();</script>` + source.slice(end + 9);
+    }
+  }
+
+  if (source.includes("window.__IMPORT_HOUSEHOLD_ID__") && source.includes(sheetJsUrl)) {
+    const loader = "function loadAdminSheetJs(){if(window.XLSX)return Promise.resolve(window.XLSX);if(window.__abSheetJsPromise)return window.__abSheetJsPromise;window.__abSheetJsPromise=new Promise(function(resolve,reject){var script=document.createElement('script');script.src='" + sheetJsUrl + "';script.async=true;script.onload=function(){window.XLSX?resolve(window.XLSX):reject(new Error('엑셀 변환 모듈 초기화 실패'));};script.onerror=function(){reject(new Error('엑셀 변환 모듈 다운로드 실패'));};document.head.appendChild(script);});return window.__abSheetJsPromise;}";
+    source = source.replace("window.__IMPORT_HOUSEHOLD_ID__=", loader + "window.__IMPORT_HOUSEHOLD_ID__=");
+    source = source.replace("document.getElementById('importFile').addEventListener('change',function(ev){", "document.getElementById('importFile').addEventListener('change',async function(ev){");
+    source = source.replace("if(/\\.xlsx?$/.test(name)){var reader=new FileReader();", "if(/\\.xlsx?$/.test(name)){setImportStatus('엑셀 변환 모듈을 준비하고 있습니다…','');try{await loadAdminSheetJs();}catch(err){setImportStatus(err.message||String(err),'err');return;}var reader=new FileReader();");
+    if (source.includes("function loadAdminSheetJs()") && source.includes("await loadAdminSheetJs()")) {
+      source = source.replace(`<script src="${sheetJsUrl}"></script>`, "");
+    }
+  }
+  return source;
+}
+
 function normalizeUserFacingUi(html = "") {
   let source = String(html || "").replace(/,maximum-scale=1/g, "");
   source = source.replaceAll("https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js", "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
+  source = deferHeavyBrowserTools(source);
+  // Destructive controls must remain visually explicit even when client-side
+  // enhancement is blocked or delayed.
+  source = source.replaceAll('<button type="submit">이 가계부 영구 삭제</button>', '<button class="danger" type="submit">이 가계부 영구 삭제</button>');
+  source = source.replaceAll('<button type="submit">계정 통합 실행</button>', '<button class="danger" type="submit">계정 통합 실행</button>');
+  source = source.replace(/(<form\b[^>]*action=["']\/admin\/meme\/delete["'][^>]*>[\s\S]*?)<button type="submit">삭제<\/button>/gi, '$1<button class="danger" type="submit">삭제</button>');
 
   const oldPublicSteps = '<div class="grid"><div class="step"><b>1. 내 이름과 접속코드</b><span>/my에서 본인만 아는 코드로 접속합니다.</span></div><div class="step"><b>2. 새 가계부 만들기 또는 초대 참여</b><span>가족/모임별로 가계부를 나눕니다.</span></div><div class="step"><b>3. 수입·예산 설정</b><span>분류별 예산 합계가 월 예산이 됩니다.</span></div><div class="step"><b>4. 정기지출 등록</b><span>보험, 통신비, 관리비처럼 반복되는 돈을 등록합니다.</span></div><div class="step"><b>5. 키워드 연결</b><span>자주 쓰는 표현을 분류에 연결합니다.</span></div><div class="step"><b>6. 기록/분석 확인</b><span>홈, 캘린더, 종합분석에서 흐름을 확인합니다.</span></div></div>';
   const newPublicSteps = '<div class="grid"><div class="step"><b>1. 가계부 만들기</b><span>새 가계부의 용도와 이름을 정합니다.</span></div><div class="step"><b>2. 초대·참여</b><span>초대코드를 공유하거나 받은 코드로 참여합니다.</span></div><div class="step"><b>3. 단톡방 연결</b><span>관리자가 단톡방과 사용할 가계부를 한 번 연결합니다.</span></div><div class="step"><b>4. 기록 튜토리얼</b><span>한 줄 입력 예시로 저장될 값을 확인합니다.</span></div><div class="step"><b>5. 첫 기록</b><span>첫 기록을 저장하고 오늘 기록에서 결과를 확인합니다.</span></div></div>';
@@ -2713,6 +3660,19 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace("현재 브라우저에 로그인 세션이 없으면 이 화면이 표시됩니다. 카카오 로그인이 아직 준비되지 않았으면 아래 이름 + 개인 접속코드로 접속하세요.", "카카오로 로그인하면 참여 중인 가계부를 바로 이어서 사용할 수 있습니다. 다른 접속 방법도 아래에서 선택할 수 있어요.");
     source = source.replace("<h2>가계부 접속</h2><p class=\"muted\">기존 사용자나 카카오 로그인이 준비되지 않은 경우 이름과 개인 접속코드로 들어갈 수 있습니다.</p>", "<h2>다른 방법으로 접속</h2><p class=\"muted\">미리 설정한 이름과 개인 접속코드가 있다면 여기에서 접속하세요.</p>");
     source = source.replace(/<div class="card"><h2>카카오 연동 안내<\/h2>[\s\S]*?<\/ul><\/div><\/section>/, '<div class="card"><h2>접속 도움말</h2><p class="muted">기존 가계부가 보이지 않으면 이전에 사용하던 접속 방법으로 먼저 로그인한 뒤 카카오 계정을 연결해주세요.</p><div class="warn"><b>접속코드는 본인만 사용하세요</b><br/>공용 기기에서는 사용 후 반드시 로그아웃해주세요.</div></div></section>');
+  }
+
+  if (source.includes("카카오 로그인 점검</h1>")) {
+    source = source.replace("<b>Redirect URI 형식</b>", "<b>KAKAO_REDIRECT_URI 명시값</b>");
+    source = source.replace("로컬 설정 일치 · 로그인 버튼 표시", "로컬 설정 일치 · 카카오 로그인 버튼 표시됨");
+    source = source.replace(
+      "<b>마지막 외부 확인</b><br/>",
+      "<b>로컬 구성만 확인한 상태입니다</b><br/>접속 주소 기반 자동 생성은 사용하지 않으므로, "
+    );
+    source = source.replace(
+      "이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.",
+      "이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다. 등록값이 다르면 KOE006이 발생합니다."
+    );
   }
 
   if (/프리미엄|유료 전환/.test(source)) {
@@ -2764,6 +3724,7 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace('</b><a href="/analysis?', '</h1><a href="/analysis?');
     source = source.replace(/<section id="budget" class="panel">[\s\S]*?<\/section>/, "");
     source = source.replace(/<section id="fixed" class="panel">[\s\S]*?<\/section>/, "");
+    source = source.replace("</nav><script>(function(){var q=document.getElementById('v8Search');", "</nav><script id=\"mobileAppInlineRuntime\">(function(){var q=document.getElementById('v8Search');");
   }
   source = source.replace(/\/my\/premium/g, "/smart-tools");
   source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "무료 스마트 기능");
@@ -2789,7 +3750,11 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
   if (source.includes(" · 수입·예산</title>")) bodyClasses.push("abPageBudgets");
   if (source.includes("<title>전체 메뉴</title>")) bodyClasses.push("abPageMenu");
+  if (source.includes(" · 시작</title>") && source.includes('action="/my/local-login"')) bodyClasses.push("abPageLogin");
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
+  if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
+  if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
+  if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
   source = source.replace(/<body\b([^>]*)>/i, function(full, attrs) {
     const classMatch = String(attrs || "").match(/\bclass\s*=\s*(["'])(.*?)\1/i);
     if (classMatch) {
@@ -2804,21 +3769,31 @@ function normalizeUserFacingUi(html = "") {
 function attachUiUxRuntime(html = "") {
   let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
   if (source && !source.includes('id="v2262UiUxStyle"') && source.includes("</head>")) {
-    source = source.replace("</head>", UIUX_RUNTIME_STYLE + V2281_GUIDED_UIUX_STYLE + "</head>");
+    source = source.replace("</head>", UIUX_RUNTIME_STYLE + V2281_GUIDED_UIUX_STYLE + v2284UiStyleFor(source) + v2285UiStyleFor(source) + "</head>");
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
   if (needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
-    const script = '<script id="v2262UiUxRuntime">' + parseMobileAmountText.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();</script>";
+    const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
+    const runtime = needsSmartRuntime
+      ? parseMobileAmountText.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      : "(" + mobileShellUiClientMain.toString() + ")();";
+    const script = '<script id="v2262UiUxRuntime">' + runtime + '</script>';
     source = source.replace("</body>", script + "</body>");
   }
-  if (!source.includes('id="v2281GuidedUiUxRuntime"') && source.includes("</body>")) {
+  const needsGuidedRuntime = /class=["'][^"']*\b(?:abPageReserve|abPageBudgets|abPageGuide)\b/i.test(source)
+    || source.includes("homeOnboarding")
+    || /<form\b[^>]*method=["']post["']/i.test(source)
+    || /<form\b[^>]*action=["'][^"']+["'][^>]*method=["']post["']/i.test(source);
+  if (needsGuidedRuntime && !source.includes('id="v2281GuidedUiUxRuntime"') && source.includes("</body>")) {
     const script = '<script id="v2281GuidedUiUxRuntime">(' + guidedUiUxClientMain.toString() + ')();</script>';
     source = source.replace("</body>", script + "</body>");
   }
   const needsMutationGuard = /<form[^>]+method=["']post["'][^>]+action=["']\/my\/(?:create|join)["']/i.test(source)
     || /<form[^>]+action=["']\/my\/(?:create|join)["'][^>]+method=["']post["']/i.test(source);
   if (needsMutationGuard && !source.includes('id="v2263MutationGuard"') && source.includes("</body>")) {
-    const guard = `<script id="v2263MutationGuard">(function(){document.querySelectorAll('form[method="post"][action="/my/create"],form[method="post"][action="/my/join"]').forEach(function(form){form.addEventListener('submit',function(){if(form.dataset.submitting==='1')return;form.dataset.submitting='1';var button=form.querySelector('button[type="submit"],input[type="submit"]');if(!button)return;button.disabled=true;button.setAttribute('aria-busy','true');if(button.tagName==='BUTTON')button.textContent=form.action.indexOf('/join')>=0?'참여 요청 중…':'가계부 만드는 중…';});});})();</script>`;
+    // The shared submit lock owns disabling and bfcache restoration. This
+    // helper only supplies a contextual label after that lock succeeds.
+    const guard = `<script id="v2263MutationGuard">(function(){document.querySelectorAll('form[method="post"][action="/my/create"],form[method="post"][action="/my/join"]').forEach(function(form){form.addEventListener('submit',function(event){var button=event.submitter&&form.contains(event.submitter)?event.submitter:form.querySelector('button[type="submit"],input[type="submit"]');var label=function(){if(event.defaultPrevented||!button||button.dataset.abSubmitLocked!=="1")return;if(button.tagName==="BUTTON")button.textContent=form.action.indexOf('/join')>=0?'참여 요청 중…':'가계부 만드는 중…';};if(typeof queueMicrotask==="function")queueMicrotask(label);else Promise.resolve().then(label);});});})();</script>`;
     source = source.replace("</body>", guard + "</body>");
   }
   return source;
@@ -2876,7 +3851,7 @@ function operationLeaseOwner(prefix = "worker") {
 async function claimOperationLease(env, { key, owner = operationLeaseOwner(), leaseSeconds = 600 } = {}) {
   const operationKey = String(key || "").trim().slice(0, 180);
   const cleanOwner = String(owner || operationLeaseOwner()).trim().slice(0, 180);
-  const seconds = Math.max(15, Math.min(3600, Math.round(Number(leaseSeconds || 600))));
+  const seconds = Math.round(boundedRuntimeNumber(leaseSeconds, 600, 15, 3600));
   if (!operationKey) throw new Error("operation lease key is required");
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_claim_operation", {
@@ -2953,6 +3928,21 @@ function htmlResponse(html, status = 200, headers = {}) {
   });
 }
 
+function responseHeadersWithCookies(baseHeaders = {}, cookies = []) {
+  const headers = new Headers(baseHeaders);
+  for (const cookie of cookies) {
+    if (cookie) headers.append("set-cookie", cookie);
+  }
+  return headers;
+}
+
+function htmlResponseWithCookies(html, status = 200, cookies = [], headers = {}) {
+  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(html)), {
+    status,
+    headers: responseHeadersWithCookies({ ...HTML_HEADERS, ...headers }, cookies),
+  });
+}
+
 function csvResponse(csv, filename = "accountbook_backup.csv") {
   const safeName = String(filename || "accountbook_backup.csv").replace(/[^\x20-\x7E]+/g, "_").replace(/"/g, "");
   const encodedName = encodeURIComponent(String(filename || "accountbook_backup.csv"));
@@ -2979,6 +3969,17 @@ function redirectResponse(location, headers = {}) {
   });
 }
 
+function redirectResponseWithCookies(location, cookies = [], headers = {}) {
+  return new Response(null, {
+    status: 303,
+    headers: responseHeadersWithCookies({
+      location,
+      "cache-control": "no-store",
+      ...headers,
+    }, cookies),
+  });
+}
+
 function getCookie(request, name) {
   const cookie = request.headers.get("cookie") || "";
   const parts = cookie.split(";");
@@ -2987,7 +3988,10 @@ function getCookie(request, name) {
     if (idx < 0) continue;
     const k = part.slice(0, idx).trim();
     const v = part.slice(idx + 1).trim();
-    if (k === name) return decodeURIComponent(v);
+    if (k === name) {
+      try { return decodeURIComponent(v); }
+      catch (err) { return ""; }
+    }
   }
   return "";
 }
@@ -3199,8 +4203,8 @@ async function recordAuthAttempt(env, request, path = "login", success = false) 
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({
         p_key: fingerprint,
-        p_limit: Math.max(3, Math.min(30, Number(env.AUTH_RATE_LIMIT || 8))),
-        p_window_seconds: Math.max(60, Math.min(86400, Number(env.AUTH_RATE_WINDOW_SECONDS || 900))),
+        p_limit: boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30),
+        p_window_seconds: boundedRuntimeNumber(env.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400),
         p_success: !!success,
       }),
     });
@@ -3685,20 +4689,20 @@ function keywordEditorCategories(keywordMap = {}, customCategories = []) {
   return mergedOptions([...guideNames, ...defaultExpenseBudgetNames(customCategories), ...customNames, ...mappedNames], []).slice(0, 48);
 }
 
-function keywordEditorCard(name = "", keywordMap = {}) {
+function keywordEditorCard(name = "", keywordMap = {}, initiallyOpen = false) {
   const guide = keywordGuideForCategory(name, "expense");
   const type = guide?.type === "income" ? "income" : "expense";
   const stored = normalizeCategoryKeywords(keywordMap[categoryKeywordKey(type, name)] || []);
   const defaults = normalizeCategoryKeywords(stored.length ? stored : guide?.examples || []);
   const keywords = defaults.slice(0, 16);
-  const chips = keywords.map((kw) => `<span class="kwChip" data-kw="${escapeHtml(kw)}">${escapeHtml(kw)}<button type="button" class="kwRemove" aria-label="삭제">×</button></span>`).join("");
-  return `<div class="kwBox" data-type="${escapeHtml(type)}" data-name="${escapeHtml(name)}"><div class="kwHead"><b>${escapeHtml(name)}</b><button type="button" class="kwAdd" aria-label="키워드 추가">+</button></div><div class="kwChips">${chips}<span class="kwHint">+ 버튼으로 추가</span></div><input type="hidden" class="kwHidden" value="${escapeHtml(keywords.join(","))}"/></div>`;
+  const chips = keywords.map((kw) => `<span class="kwChip" data-kw="${escapeHtml(kw)}">${escapeHtml(kw)}<button type="button" class="kwRemove" aria-label="${escapeHtml(kw)} 키워드 삭제">×</button></span>`).join("");
+  return `<details class="kwBox" data-type="${escapeHtml(type)}" data-name="${escapeHtml(name)}" ${initiallyOpen ? "open" : ""}><summary class="kwHead"><span><b>${escapeHtml(name)}</b><small class="kwCount">${keywords.length}개</small></span><span class="kwToggle" aria-hidden="true">펼치기</span></summary><div class="kwBody"><div class="kwChips">${chips}<span class="kwHint">등록된 키워드가 없습니다.</span></div><div class="kwAddRow"><input type="text" class="kwNewInput" maxlength="40" placeholder="새 키워드" aria-label="${escapeHtml(name)} 새 키워드"/><button type="button" class="kwAdd">추가</button></div><input type="hidden" class="kwHidden" value="${escapeHtml(keywords.join(","))}"/></div></details>`;
 }
 
 function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCategories = [], compact = false }) {
   const cats = keywordEditorCategories(keywordMap, customCategories);
-  const cards = cats.map((name) => keywordEditorCard(name, keywordMap)).join("");
-  return `<style>${keywordEditorCss()}</style><form method="post" action="/my/category-keywords/bulk-save" id="keywordBulkForm" class="kwShell ${compact ? "compactKeywords" : ""}"><input type="hidden" name="household_id" value="${escapeHtml(selected?.id || "")}"/><input type="hidden" name="month" value="${escapeHtml(month || currentMonthKst())}"/><div class="keywordToolbar"><div><b>카테고리별 키워드</b><p class="muted">빨간 ×로 제거, 초록 +로 추가한 뒤 아래 저장 버튼 한 번으로 전체 저장합니다. 저장 전 기본 추천 키워드도 화면에 표시됩니다.</p></div><button type="submit">전체 키워드 저장</button></div><div class="kwEditorGrid">${cards}</div></form><script>
+  const cards = cats.map((name, index) => keywordEditorCard(name, keywordMap, index < 2)).join("");
+  return `<style>${keywordEditorCss()}</style><form method="post" action="/my/category-keywords/bulk-save" id="keywordBulkForm" class="kwShell ${compact ? "compactKeywords" : ""}"><input type="hidden" name="household_id" value="${escapeHtml(selected?.id || "")}"/><input type="hidden" name="month" value="${escapeHtml(month || currentMonthKst())}"/><div class="keywordToolbar"><div><b>카테고리별 키워드</b><p class="muted">카테고리를 펼쳐 키워드를 추가하거나 삭제하세요. 변경을 마치면 한 번만 저장하면 됩니다.</p></div><button type="submit">변경사항 저장</button></div><div class="keywordFilter"><label for="keywordFilterInput">카테고리·키워드 찾기</label><input id="keywordFilterInput" type="search" placeholder="예: 식비, 커피, 교통" autocomplete="off"/></div><div class="kwEditorGrid">${cards}</div><p class="kwNoResult" hidden>검색 결과가 없습니다.</p></form><script>
 (function(){
   function syncBox(box){
     const values = Array.from(box.querySelectorAll('.kwChip')).map(function(chip){ return chip.getAttribute('data-kw') || chip.firstChild.textContent || ''; }).map(function(v){ return v.trim(); }).filter(Boolean);
@@ -3706,6 +4710,8 @@ function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCateg
     if (hidden) hidden.value = Array.from(new Set(values)).join(',');
     const hint = box.querySelector('.kwHint');
     if (hint) hint.style.display = values.length ? 'none' : 'inline-flex';
+    const count = box.querySelector('.kwCount');
+    if (count) count.textContent = values.length + '개';
   }
   function addKeyword(box, value){
     value = String(value || '').trim();
@@ -3734,10 +4740,32 @@ function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCateg
         syncBox(box);
       }
       if (e.target.classList.contains('kwAdd')) {
-        const value = prompt('추가할 키워드를 입력하세요');
+        const input = box.querySelector('.kwNewInput');
+        const value = input ? input.value : '';
         addKeyword(box, value);
+        if (input) { input.value = ''; input.focus(); }
       }
     });
+    const input = box.querySelector('.kwNewInput');
+    if (input) input.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      addKeyword(box, input.value);
+      input.value = '';
+    });
+  });
+  const filter = document.getElementById('keywordFilterInput');
+  if (filter) filter.addEventListener('input', function(){
+    const q = String(filter.value || '').trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.kwBox').forEach(function(box){
+      const hay = ((box.getAttribute('data-name') || '') + ' ' + Array.from(box.querySelectorAll('.kwChip')).map(function(chip){ return chip.getAttribute('data-kw') || ''; }).join(' ')).toLowerCase();
+      const show = !q || hay.indexOf(q) >= 0;
+      box.hidden = !show;
+      if (show) { visible += 1; if (q) box.open = true; }
+    });
+    const empty = document.querySelector('.kwNoResult');
+    if (empty) empty.hidden = visible > 0;
   });
   const form = document.getElementById('keywordBulkForm');
   if (form) {
@@ -3763,7 +4791,7 @@ function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCateg
 }
 
 function keywordEditorCss() {
-  return `.kwShell{display:block;width:100%}.keywordToolbar{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}.keywordToolbar b{font-size:18px}.kwEditorGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.kwBox{border:1px solid #e8edf4;background:#f8fafc;border-radius:20px;padding:14px;min-width:0;box-shadow:0 8px 22px rgba(15,23,42,.035)}.kwHead{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px}.kwHead b{font-size:16px}.kwAdd{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:34px!important;height:34px!important;border:0!important;border-radius:999px!important;background:#22c55e!important;color:#fff!important;padding:0!important;font-size:21px!important;font-weight:1000!important;line-height:1!important;cursor:pointer!important}.kwChips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;align-items:center}.kwChip,.kwHint{display:inline-flex;align-items:center;gap:6px;border-radius:999px;background:#fff;border:1px solid #dbe4ef;padding:6px 8px;font-size:12px;font-weight:900;line-height:1.2}.kwRemove{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:18px!important;height:18px!important;border:0!important;border-radius:999px!important;background:#ef4444!important;color:#fff!important;padding:0!important;font-size:13px!important;line-height:1!important;cursor:pointer!important}.kwHint{color:#94a3b8;font-weight:700}.compactKeywords .kwEditorGrid{max-height:620px;overflow:auto;padding-right:4px}@media(max-width:760px){.keywordToolbar{display:block}.keywordToolbar button{width:100%;margin-top:8px}.kwEditorGrid{grid-template-columns:1fr}.kwBox{padding:12px}}`;
+  return `.kwShell{display:block;width:100%}.keywordToolbar{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.keywordToolbar b{font-size:18px}.keywordToolbar p{margin:5px 0 0}.keywordToolbar>button{flex:0 0 auto}.keywordFilter{display:grid;grid-template-columns:auto minmax(220px,360px);gap:12px;align-items:center;padding:12px 14px;margin-bottom:12px;border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc}.keywordFilter label{font-size:13px;font-weight:700;color:#344054}.keywordFilter input{min-height:42px}.kwEditorGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.kwBox{border:1px solid #e2e8f0;background:#fff;border-radius:14px;min-width:0;box-shadow:none;overflow:hidden}.kwBox[hidden]{display:none}.kwHead{display:flex;justify-content:space-between;gap:12px;align-items:center;min-height:56px;padding:0 14px;margin:0;background:#fff}.kwHead>span:first-child{display:flex;align-items:center;gap:8px;min-width:0}.kwHead b{font-size:15px}.kwCount{display:inline-flex;color:#667085;background:#f2f4f7;border-radius:999px;padding:3px 7px;font-size:11px;font-weight:600}.kwToggle{color:#667085;font-size:12px;font-weight:600}.kwBox[open] .kwToggle{font-size:0}.kwBox[open] .kwToggle:after{content:'접기';font-size:12px}.kwBody{border-top:1px solid #edf1f6;padding:12px 14px 14px}.kwChips{display:flex;flex-wrap:wrap;gap:7px;align-items:center;min-height:34px}.kwChip,.kwHint{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#f8fafc;border:1px solid #dbe4ef;padding:6px 7px 6px 10px;font-size:12px;font-weight:650;line-height:1.2;color:#344054}.kwRemove{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:20px!important;height:20px!important;min-height:20px!important;border:0!important;border-radius:999px!important;background:transparent!important;color:#b42318!important;padding:0!important;font-size:15px!important;font-weight:700!important;line-height:1!important;cursor:pointer!important;box-shadow:none!important;transform:none!important}.kwRemove:hover{background:#fee4e2!important}.kwHint{color:#98a2b3;font-weight:500;border-style:dashed}.kwAddRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:11px}.kwNewInput{min-height:40px!important}.kwAdd{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:64px!important;min-height:40px!important;height:40px!important;border:1px solid #c8d9ff!important;border-radius:10px!important;background:#eaf2ff!important;color:#1d4ed8!important;padding:0 13px!important;font-size:13px!important;font-weight:700!important;line-height:1!important;cursor:pointer!important;box-shadow:none!important;transform:none!important}.kwNoResult{text-align:center;color:#667085;padding:24px}.compactKeywords .kwEditorGrid{max-height:none;overflow:visible;padding-right:0}@media(max-width:760px){.keywordToolbar{display:block}.keywordToolbar>button{width:100%;margin-top:10px}.keywordFilter{grid-template-columns:1fr;gap:6px}.kwEditorGrid{grid-template-columns:1fr}.kwHead{min-height:54px}}`;
 }
 
 function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
@@ -4559,7 +5587,7 @@ function renderReserveStatusCards(statuses = [], canManage = true) {
   if (!statuses.length) return `<div class="empty"><b>아직 등록한 정기지출이 없어요.</b><span>보험료·세금처럼 큰 금액부터 하나만 등록해 보세요.</span>${canManage ? `<a class="btn light" href="#reserveAdd">첫 정기지출 추가</a>` : ""}</div>`;
   return statuses.map((s) => {
     const p = s.plan;
-    return `<div class="reserveCard ${s.alert ? "alert" : ""}"><div><b>${escapeHtml(p.name)}</b><span>${escapeHtml(recurrenceLabel(p.recurrence))} · ${escapeHtml(p.category || "")}</span><span>다음 납부일 ${escapeHtml(s.due_date)} · ${numberWithCommas(s.days_left)}일 남음</span></div><div class="reserveAmt"><strong>${numberWithCommas(p.amount)}원</strong><small>월 준비 ${numberWithCommas(s.monthly_reserve)}원</small><small>지금부터 준비 ${numberWithCommas(s.catchup_monthly)}원/월</small></div>${canManage ? `<form method="post" action="/admin/reserve-plan/delete"><input type="hidden" name="household_id" value="${escapeHtml(p.household_id || "")}"/><input type="hidden" name="id" value="${escapeHtml(p.id)}"/><button type="submit">삭제</button></form>` : ""}</div>`;
+    return `<div class="reserveCard ${s.alert ? "alert" : ""}"><div><b>${escapeHtml(p.name)}</b><span>${escapeHtml(recurrenceLabel(p.recurrence))} · ${escapeHtml(p.category || "")}</span><span>다음 납부일 ${escapeHtml(s.due_date)} · ${numberWithCommas(s.days_left)}일 남음</span></div><div class="reserveAmt"><strong>${numberWithCommas(p.amount)}원</strong><small>월 준비 ${numberWithCommas(s.monthly_reserve)}원</small><small>지금부터 준비 ${numberWithCommas(s.catchup_monthly)}원/월</small></div>${canManage ? `<form method="post" action="/admin/reserve-plan/delete" onsubmit="return confirm('이 정기지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(p.household_id || "")}"/><input type="hidden" name="id" value="${escapeHtml(p.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`;
   }).join("");
 }
 
@@ -8170,6 +9198,7 @@ async function handlePaymentMethodsPage(request, env, url) {
 async function buildProductionOpsAudit(env) {
   const adminSecurity = await getAdminSecurityState(env);
   const adminCredentialReady = !!(adminSecurity.password_hash && adminSecurity.password_salt) || !!env.ADMIN_PASSWORD;
+  const kakaoConfig = inspectKakaoLoginConfig(env);
   const envStatus = {
     SUPABASE_URL: !!env.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: !!env.SUPABASE_SERVICE_ROLE_KEY,
@@ -8178,8 +9207,12 @@ async function buildProductionOpsAudit(env) {
     USER_SESSION_SECRET: !!env.USER_SESSION_SECRET,
     ADMIN_API_TOKEN: !!env.ADMIN_API_TOKEN,
     MY_IMPORT_TOKEN_SECRET: !!env.MY_IMPORT_TOKEN_SECRET,
-    KAKAO_REST_API_KEY: !!env.KAKAO_REST_API_KEY,
-    KAKAO_REDIRECT_URI: !!env.KAKAO_REDIRECT_URI,
+    KAKAO_LOGIN_ENABLED: kakaoConfig.enabled,
+    KAKAO_REST_API_KEY: kakaoConfig.apiKeyConfigured,
+    PUBLIC_BASE_URL: !!kakaoConfig.publicBase && !kakaoConfig.issues.includes("public_base_url_invalid"),
+    KAKAO_REDIRECT_URI: !!kakaoConfig.redirectUri && !kakaoConfig.issues.includes("redirect_uri_invalid") && !kakaoConfig.issues.includes("redirect_origin_mismatch"),
+    KAKAO_CLIENT_SECRET: kakaoConfig.clientSecretConfigured,
+    KAKAO_CONFIG_READY: kakaoConfig.ready,
   };
   const households = await optionalSupabase(env, "/rest/v1/households?select=id,name&limit=50", { method: "GET" }, []);
   const tablePairs = {
@@ -8195,6 +9228,7 @@ async function buildProductionOpsAudit(env) {
     accountbook_transaction_audit: await tableCheckPair(env, "accountbook_transaction_audit"),
   };
   const requiredEnvOk = !!(envStatus.SUPABASE_URL && envStatus.SUPABASE_SERVICE_ROLE_KEY && envStatus.ADMIN_CREDENTIAL && envStatus.ADMIN_SESSION_SECRET && envStatus.USER_SESSION_SECRET && envStatus.ADMIN_API_TOKEN && envStatus.MY_IMPORT_TOKEN_SECRET);
+  const kakaoConfigOk = !kakaoConfig.enabled || kakaoConfig.ready;
   const userSessionOk = !!(envStatus.USER_SESSION_SECRET && envStatus.ADMIN_SESSION_SECRET);
   const dbOk = Object.values(tablePairs).every((pair) => !!pair[0]);
   const backupRoutes = ["/backup", "/backup/preview", "/backup/compare", "/backup/select", "/backup/final-check", "/backup/apply", "/backup/import-history", "/backup/rollback-candidates", "/backup/rollback-final-check"];
@@ -8202,13 +9236,15 @@ async function buildProductionOpsAudit(env) {
   return {
     version: APP_VERSION,
     generated_at: new Date().toISOString(),
-    ok: requiredEnvOk && dbOk,
+    ok: requiredEnvOk && dbOk && kakaoConfigOk,
     envStatus,
+    kakaoConfig,
     tablePairs,
     households_count: households.length,
     checks: [
       ["필수 환경변수", requiredEnvOk, requiredEnvOk ? "DB·관리자 인증·세션·API·가져오기 Secret 설정됨" : "필수 Secret 또는 관리자 인증값 확인 필요"],
       ["세션 Secret", userSessionOk, userSessionOk ? "사용자·관리자 세션 Secret 설정됨" : "USER_SESSION_SECRET / ADMIN_SESSION_SECRET 설정 필요"],
+      ["카카오 로그인", kakaoConfigOk, !kakaoConfig.enabled ? "명시적으로 비활성화됨 · 로컬 로그인 사용 가능" : kakaoConfig.ready ? "공개 주소·Redirect URI·앱 키 로컬 설정 일치" : `설정 불일치로 로그인 버튼 자동 차단: ${kakaoConfig.issues.join(", ")}`],
       ["DB 연결", dbOk, dbOk ? "주요 테이블 접근 가능" : "Supabase 테이블/권한 확인 필요"],
       ["기본 가계부", households.length > 0, households.length ? `${households.length}개` : "운영 전 /households에서 생성 필요"],
       ["UI 단일 메뉴", true, "통합메뉴 + 상단 탭 중복 숨김 유지"],
@@ -8238,14 +9274,21 @@ async function handleProductionOpsAuditPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const audit = await buildProductionOpsAudit(env);
   const tableRows = Object.entries(audit.tablePairs).map(([name, pair]) => `<tr><td>${escapeHtml(name)}</td><td><span class="${pair[0] ? "okb" : "badb"}">${pair[0] ? "정상" : "확인필요"}</span></td><td>${escapeHtml(pair[1] || "")}</td></tr>`).join("");
-  const optionalEnv = new Set(["KAKAO_REST_API_KEY", "KAKAO_REDIRECT_URI"]);
-  const envRows = Object.entries(audit.envStatus).map(([name, ok]) => `<tr><td>${escapeHtml(name)}</td><td><span class="${ok || optionalEnv.has(name) ? "okb" : "badb"}">${ok ? "설정됨" : optionalEnv.has(name) ? "선택" : "미설정"}</span></td><td>${optionalEnv.has(name) ? "카카오 로그인을 사용할 때 설정" : "운영 필수"}</td></tr>`).join("");
+  const kakaoEnv = new Set(["KAKAO_LOGIN_ENABLED", "KAKAO_REST_API_KEY", "PUBLIC_BASE_URL", "KAKAO_REDIRECT_URI", "KAKAO_CLIENT_SECRET", "KAKAO_CONFIG_READY"]);
+  const envRows = Object.entries(audit.envStatus).map(([name, ok]) => {
+    if (!kakaoEnv.has(name)) return `<tr><td>${escapeHtml(name)}</td><td><span class="${ok ? "okb" : "badb"}">${ok ? "설정됨" : "미설정"}</span></td><td>운영 필수</td></tr>`;
+    if (!audit.kakaoConfig.enabled) return `<tr><td>${escapeHtml(name)}</td><td><span class="okb">비활성</span></td><td>카카오 로그인 기능을 켤 때 설정</td></tr>`;
+    const optionalSecret = name === "KAKAO_CLIENT_SECRET" && !audit.kakaoConfig.clientSecretRequired;
+    const acceptable = ok || optionalSecret;
+    return `<tr><td>${escapeHtml(name)}</td><td><span class="${acceptable ? "okb" : "badb"}">${ok ? "설정됨" : optionalSecret ? "선택" : "확인필요"}</span></td><td>${optionalSecret ? "카카오 앱에서 Client Secret을 켠 경우 필수" : "카카오 로그인 사용 시 필수"}</td></tr>`;
+  }).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>배포운영 점검</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.okb,.badb{border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.routeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.routeLink{display:block;text-decoration:none;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:10px;font-weight:900;overflow-wrap:anywhere}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}@media(max-width:720px){.wrap{padding:12px}.hero h1{font-size:24px}.card{padding:14px}table{min-width:680px}.readableTrendGrid{grid-template-columns:repeat(3,1fr)}.weekdayTrendGrid{grid-template-columns:repeat(2,1fr)}}</style></head><body>${renderUnifiedNav("ops-audit")}<main class="wrap"><section class="hero"><h1>배포운영 점검</h1><p>실제 운영 배포 전후로 환경변수, DB 연결, 메뉴/모바일/백업 안전 흐름을 한 화면에서 확인합니다.</p><p class="note">버전: ${escapeHtml(audit.version)}</p><p><a class="btn light" href="/menu">통합메뉴</a></p></section><section class="grid"><div class="metric"><span>운영 상태</span><b>${audit.ok ? "정상" : "확인필요"}</b></div><div class="metric"><span>가계부</span><b>${numberWithCommas(audit.households_count)}개</b></div><div class="metric"><span>UI 경로</span><b>${numberWithCommas(audit.uiRoutes.length)}개</b></div><div class="metric"><span>백업 경로</span><b>${numberWithCommas(audit.backupRoutes.length)}개</b></div></section><section class="card"><h2>운영 체크</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${renderOpsAuditRows(audit.checks)}</tbody></table></div></section><section class="card"><h2>환경변수</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>비고</th></tr></thead><tbody>${envRows}</tbody></table></div></section><section class="card"><h2>DB 연결</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card"><h2>운영 주요 경로</h2><div class="routeGrid">${renderOpsRouteLinks(audit.uiRoutes)}</div></section><section class="card"><h2>백업/복구 안전 경로</h2><p class="warnBox">실제 저장/삭제 기능은 반드시 백업, 후보 선택, 비밀번호 재확인, 확인 문구, 결과 리포트를 거치는 흐름으로 운영하세요.</p><div class="routeGrid">${renderOpsRouteLinks(audit.backupRoutes)}</div></section></main></body></html>`);
 }
 
 async function handleDiagnosticsPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const adminSecurity = await getAdminSecurityState(env);
+  const kakaoConfig = inspectKakaoLoginConfig(env);
   const envStatus = [
     ["SUPABASE_URL", !!env.SUPABASE_URL],
     ["SUPABASE_SERVICE_ROLE_KEY", !!env.SUPABASE_SERVICE_ROLE_KEY],
@@ -8254,8 +9297,7 @@ async function handleDiagnosticsPage(request, env, url) {
     ["USER_SESSION_SECRET", !!env.USER_SESSION_SECRET],
     ["ADMIN_API_TOKEN", !!env.ADMIN_API_TOKEN],
     ["MY_IMPORT_TOKEN_SECRET", !!env.MY_IMPORT_TOKEN_SECRET],
-    ["KAKAO_REST_API_KEY", !!env.KAKAO_REST_API_KEY],
-    ["KAKAO_REDIRECT_URI", !!env.KAKAO_REDIRECT_URI],
+    ["KAKAO_LOGIN_CONFIG", !kakaoConfig.enabled || kakaoConfig.ready],
   ];
   const households = await optionalSupabase(env, "/rest/v1/households?select=id,name&limit=50", { method: "GET" }, []);
   const checks = [
@@ -8271,6 +9313,7 @@ async function handleDiagnosticsPage(request, env, url) {
     ["관리자 보안 테이블", ...(await tableCheckPair(env, "accountbook_admin_security"))],
     ["인증 제한 테이블", ...(await tableCheckPair(env, "accountbook_auth_attempts"))],
     ["거래 변경 감사 테이블", ...(await tableCheckPair(env, "accountbook_transaction_audit"))],
+    ["카카오 로그인", !kakaoConfig.enabled || kakaoConfig.ready, !kakaoConfig.enabled ? "명시적으로 비활성화됨" : kakaoConfig.ready ? "공개 주소·Redirect URI·앱 키 로컬 설정 일치" : `설정 불일치로 버튼 자동 차단: ${kakaoConfig.issues.join(", ")}`],
     ["소비 카드/밈 숨김", !memeCardsEnabled(env), "미완성 상태: 메뉴·공유·직접 URL 404"],
     ["카드 실적/혜택 숨김", !cardPerformanceEnabled(env), "미완성 상태: 메뉴·직접 URL 404"],
     ["무료 스마트 도구", premiumBetaEnabled(env), "/smart-tools · 월말예측·반복지출·이상지출"],
@@ -8387,11 +9430,11 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
-    { key: "day", label: "매일 쓰는 기능", icon: "⌂", items: [["app", "홈", app], ["records", "기록", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`]] },
-    { key: "plan", label: "계획과 자산", icon: "◒", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`]] },
-    { key: "tools", label: "분석과 자동화", icon: "◇", items: [["smart-tools", "스마트 분석", `/smart-tools?month=${encodeURIComponent(month)}${hh}`], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`], ["reports", "자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`]] },
-    { key: "house", label: "가계부 관리", icon: "⚙", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`], ["categories", "분류·키워드", cat], ["backup-login", "개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`], ["backup", "백업·복구", `/backup?month=${encodeURIComponent(month)}${hh}`]] },
-    { key: "ops", label: "운영 관리", icon: "◆", items: [["operation-center", "운영센터", "/operation-center"], ["release-candidate", "릴리스 후보", "/release-candidate"], ["household-create-join", "가계부 생성·참여", "/household-create-join"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard"], ["ops-duplicates", "중복 방어", "/ops-duplicates"], ["ops-traffic", "트래픽", "/ops-traffic"], ["skill-ops", "스킬", "/skill-ops"], ["diagnostics", "시스템 진단", "/diagnostics"], ["deployment-check", "배포점검", "/deployment-check"], ["ui-polish-check", "화면점검", "/ui-polish-check"], ["final-release", "배포 확인", "/final-release"]] },
+    { key: "day", label: "매일 쓰는 기능", icon: "⌂", items: [["app", "홈", app, "⌂"], ["records", "기록", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "▤"], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "↔"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "▥"]] },
+    { key: "plan", label: "계획과 자산", icon: "◒", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "◴"], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "▣"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "↻"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "□"]] },
+    { key: "tools", label: "분석과 자동화", icon: "◇", items: [["smart-tools", "스마트 분석", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "◇"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "⌁"], ["reports", "자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "▥"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "!" ]] },
+    { key: "house", label: "가계부 관리", icon: "⚙", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"], ["categories", "분류·키워드", cat, "#"], ["backup-login", "개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "•"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "⇩"]] },
+    { key: "ops", label: "운영 관리", icon: "◆", items: [["operation-center", "운영센터", "/operation-center", "◆"], ["release-candidate", "릴리스 후보", "/release-candidate", "R"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "+"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "▥"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "="], ["ops-traffic", "트래픽", "/ops-traffic", "↗"], ["skill-ops", "스킬", "/skill-ops", "S"], ["diagnostics", "시스템 진단", "/diagnostics", "!"], ["deployment-check", "배포점검", "/deployment-check", "✓"], ["ui-polish-check", "화면점검", "/ui-polish-check", "□"], ["final-release", "배포 확인", "/final-release", "✓"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
   const backupKeys = new Set(["backup-preview", "backup-compare", "backup-select", "backup-final", "backup-apply", "import-history", "rollback-candidates", "rollback-final"]);
@@ -8400,8 +9443,8 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "day";
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
-    const links = g.items.map(([key, label, href]) => `<a class="${key === activeKey ? "active" : ""}" href="${escapeHtml(href)}"><span>${escapeHtml(label)}</span></a>`).join("");
-    return `<details class="abNavGroup" ${open ? "open" : ""}><summary><i>${g.icon}</i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
+    const links = g.items.map(([key, label, href, itemIcon = "·"]) => `<a class="${key === activeKey ? "active" : ""}" href="${escapeHtml(href)}"><i class="abNavItemIcon" aria-hidden="true">${escapeHtml(itemIcon)}</i><span class="abNavItemLabel">${escapeHtml(label)}</span></a>`).join("");
+    return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}" data-nav-group="${escapeHtml(g.key)}" ${open ? "open" : ""}><summary><i>${g.icon}</i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   const bottomDefs = [
     ["home", "홈", "⌂", app],
@@ -8782,15 +9825,17 @@ async function handleKakaoGroupLinksPage(request, env, url) {
 
 async function handleKakaoLoginRecoveryGuidePage(request, env, url) {
   const title = escapeHtml(appName(env));
-  const kakaoKeyReady = !!kakaoRestApiKey(env);
-  const redirectUri = `${url.origin}/auth/kakao/callback`;
+  const config = inspectKakaoLoginConfig(env);
+  const kakaoKeyReady = config.ready;
+  const origin = config.publicOrigin || "미설정";
+  const redirectUri = config.redirectUri || (config.publicOrigin ? `${config.publicOrigin}/auth/kakao/callback` : "미설정");
   const rows = [
     ["카카오 로그인 성공", "카카오 계정으로 /my에 들어오고 기존 가계부가 보이는지 확인"],
     ["카카오 로그인 실패", "백업 로그인 화면에서 이름/접속코드로 먼저 진입"],
     ["기존 계정 연결", "로그인 후 /my/kakao-link 또는 카카오 로그인 버튼으로 계정 연결"],
     ["심사/운영 확인", "카카오 Developers Redirect URI와 Web domain이 Worker 주소와 일치하는지 확인"],
   ].map(([a,b]) => `<div class="flowCard"><b>${escapeHtml(a)}</b><p>${escapeHtml(b)}</p></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 로그인 복구</title><style>${kakaoGroupFlowBaseStyle()}</style></head><body>${renderUnifiedNav("kakao-login-recovery")}<main class="wrap"><section class="hero"><span class="tag">카카오 로그인 ${kakaoKeyReady ? "설정됨" : "설정 확인 필요"}</span><h1>카카오 로그인 실패·백업 로그인 안내</h1><p>카카오 로그인은 편의 기능이고, 기존 접속코드 계정은 백업 진입 수단으로 유지합니다. 로그인 실패 시 사용자가 막히지 않도록 복구 흐름을 분리합니다.</p><p><a class="btn kakao" href="/auth/kakao/start">카카오 로그인 시작</a><a class="btn" href="/my/backup-login">백업 로그인</a><a class="btn light" href="/kakao-login-check">로그인 설정 확인</a></p></section><section class="grid">${rows}</section><section class="card"><h2>카카오 Developers 설정값</h2><div class="copyBox">Web domain: ${escapeHtml(origin)}\nRedirect URI: ${escapeHtml(redirectUri)}\nWorker callback: /auth/kakao/callback\nBackup login: /my/backup-login</div></section><section class="card"><h2>운영 문구</h2><div class="ok">카카오 로그인이 안 되면 백업 로그인으로 먼저 들어가세요. 기록은 가계부 기준으로 보관되며, 로그인 방식이 바뀌어도 가계부 참여 권한이 맞으면 계속 사용할 수 있습니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 로그인 복구</title><style>${kakaoGroupFlowBaseStyle()}</style></head><body>${renderUnifiedNav("kakao-login-recovery")}<main class="wrap"><section class="hero"><span class="tag">카카오 로그인 ${kakaoKeyReady ? "로컬 설정 일치" : "설정 확인 필요"}</span><h1>카카오 로그인 실패·백업 로그인 안내</h1><p>카카오 로그인은 편의 기능이고, 기존 접속코드 계정은 백업 진입 수단으로 유지합니다. 로그인 실패 시 사용자가 막히지 않도록 복구 흐름을 분리합니다.</p><p>${kakaoKeyReady ? `<a class="btn kakao" href="/auth/kakao/start">카카오 로그인 시작</a>` : ""}<a class="btn" href="/my">다른 방법으로 로그인</a><a class="btn light" href="/kakao-login-check">로그인 설정 확인</a></p></section><section class="grid">${rows}</section><section class="card"><h2>카카오 Developers 설정값</h2><div class="copyBox">Web domain: ${escapeHtml(origin)}\nRedirect URI: ${escapeHtml(redirectUri)}\nWorker callback: /auth/kakao/callback\nBackup login: /my/backup-login</div><div class="notice">표시된 Redirect URI와 완전히 같은 주소를 동일한 카카오 앱에 등록해야 합니다. 외부 관리자센터 등록 여부는 별도 확인 항목입니다.</div></section><section class="card"><h2>운영 문구</h2><div class="ok">카카오 로그인이 안 되면 다른 로그인 방법으로 먼저 들어가세요. 기록은 가계부 기준으로 보관되며, 로그인 방식이 바뀌어도 가계부 참여 권한이 맞으면 계속 사용할 수 있습니다.</div></section></main></body></html>`);
 }
 
 function openBuilderFinalRows(origin = "") {
@@ -9570,7 +10615,7 @@ async function handleTrafficOpsPage(request, env, url) {
   const skill = getSkillOpsSnapshot();
   const trafficRows = traffic.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
   const skillKind = Object.entries(skill.byKind || {}).map(([k,v]) => `<span>${escapeHtml(k)} ${numberWithCommas(v)}건</span>`).join("") || "<span>스킬 이벤트 없음</span>";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 트래픽 운영</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#7c2d12);color:#fff}.hero p{color:#fed7aa;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px;margin-top:5px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{border-radius:999px;padding:7px 10px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.note{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}</style></head><body><main class="wrap"><section class="hero"><h1>트래픽 운영센터</h1><p>쓰기 요청과 카카오 스킬 요청의 과도 호출을 1차로 방어하고, 최근 제한 이벤트를 확인합니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/deployment-check">배포점검</a></p></section><section class="grid"><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets)}</b></div><div class="box"><span>Traffic 제한 이벤트</span><b>${numberWithCommas(traffic.recent.length)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(Number(env.TRAFFIC_GUARD_LIMIT || 240))}/분</b></div></section><section class="card"><h2>스킬 이벤트 요약</h2><div class="chips">${skillKind}</div><p class="note">인스턴스 메모리 기반 임시 상태입니다. 장기 통계가 필요하면 다음 단계에서 Supabase 운영 로그 테이블 또는 외부 로그 저장소로 분리합니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 트래픽 운영</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#7c2d12);color:#fff}.hero p{color:#fed7aa;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px;margin-top:5px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{border-radius:999px;padding:7px 10px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.note{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}</style></head><body><main class="wrap"><section class="hero"><h1>트래픽 운영센터</h1><p>쓰기 요청과 카카오 스킬 요청의 과도 호출을 1차로 방어하고, 최근 제한 이벤트를 확인합니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/deployment-check">배포점검</a></p></section><section class="grid"><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets)}</b></div><div class="box"><span>Traffic 제한 이벤트</span><b>${numberWithCommas(traffic.recent.length)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000))}/분</b></div></section><section class="card"><h2>스킬 이벤트 요약</h2><div class="chips">${skillKind}</div><p class="note">인스턴스 메모리 기반 임시 상태입니다. 장기 통계가 필요하면 다음 단계에서 Supabase 운영 로그 테이블 또는 외부 로그 저장소로 분리합니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section></main></body></html>`);
 }
 
 
@@ -9710,7 +10755,7 @@ async function handleSkillOpsPage(request, env, url) {
   const snap = getSkillOpsSnapshot();
   const rows = snap.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td><span class="kind ${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span></td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>`;
   const kindRows = Object.entries(snap.byKind || {}).map(([k, v]) => `<span>${escapeHtml(k)} ${numberWithCommas(v)}건</span>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 스킬 운영상태</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff}.hero p{color:#e9d5ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:12px}.kind{border-radius:999px;padding:5px 9px;background:#f1f5f9;font-weight:900}.rate_limited{background:#ffedd5;color:#9a3412}.error,.bad_json{background:#fee2e2;color:#991b1b}.ok{background:#dcfce7;color:#166534}.muted{color:#667085;line-height:1.6}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 스킬 운영상태</h1><p>이 화면은 현재 Worker 인스턴스의 최근 /skill 이벤트와 과도 요청 제한 상태를 보여줍니다.</p></section><section class="grid"><div class="box"><span>활성 요청 버킷</span><b>${numberWithCommas(snap.activeBuckets)}</b></div><div class="box"><span>최근 이벤트</span><b>${numberWithCommas(snap.recent.length)}</b></div><div class="box"><span>기본 제한</span><b>${numberWithCommas(Number(env.SKILL_RATE_LIMIT || 60))}/분</b></div></section><section class="card"><h2>이벤트 요약</h2><div class="chips">${kindRows || "<span>이벤트 없음</span>"}</div><p class="muted">Cloudflare Worker 메모리 기반 임시 로그라 인스턴스 재시작 시 초기화됩니다. 장기 로그가 필요하면 별도 DB 로그 테이블을 추가하세요.</p></section><section class="card"><h2>최근 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>사용자키</th><th>발화</th><th>상세</th></tr></thead><tbody>${rows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 스킬 운영상태</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff}.hero p{color:#e9d5ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:12px}.kind{border-radius:999px;padding:5px 9px;background:#f1f5f9;font-weight:900}.rate_limited{background:#ffedd5;color:#9a3412}.error,.bad_json{background:#fee2e2;color:#991b1b}.ok{background:#dcfce7;color:#166534}.muted{color:#667085;line-height:1.6}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 스킬 운영상태</h1><p>이 화면은 현재 Worker 인스턴스의 최근 /skill 이벤트와 과도 요청 제한 상태를 보여줍니다.</p></section><section class="grid"><div class="box"><span>활성 요청 버킷</span><b>${numberWithCommas(snap.activeBuckets)}</b></div><div class="box"><span>최근 이벤트</span><b>${numberWithCommas(snap.recent.length)}</b></div><div class="box"><span>기본 제한</span><b>${numberWithCommas(boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000))}/분</b></div></section><section class="card"><h2>이벤트 요약</h2><div class="chips">${kindRows || "<span>이벤트 없음</span>"}</div><p class="muted">Cloudflare Worker 메모리 기반 임시 로그라 인스턴스 재시작 시 초기화됩니다. 장기 로그가 필요하면 별도 DB 로그 테이블을 추가하세요.</p></section><section class="card"><h2>최근 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>사용자키</th><th>발화</th><th>상세</th></tr></thead><tbody>${rows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleOpenBuilderGuidePage(request, env, url) {
@@ -9812,10 +10857,11 @@ function renderUserStartGuideHtml({ env, user, households = [], month = currentM
   const hasKakaoRow = ckRows.some((r) => String(r.source || "").includes("kakao"));
   const hasGroupLink = ckGroupLinks.some((item) => String(item?.household_id || "") === String(selected.id));
   const hasFirstRecord = firstRecordCount > 0;
+  const hasCheckedResult = hasFirstRecord && ck.resultChecked === true;
   const steps = [
     { name: "가계부 확인", done: households.length > 0, href: "/my/households", hint: `${selected.name} 선택됨` },
     { name: "첫 기록 남기기", done: hasFirstRecord, href: "/app?" + qs + "#add", hint: hasFirstRecord ? `기록 ${firstRecordCount}건 저장됨` : "금액과 내용만 입력해 저장하세요" },
-    { name: "저장 결과 확인", done: hasFirstRecord, href: "/app?" + qs + "&tab=transactions#feed", hint: hasFirstRecord ? "최근 기록에서 바로 확인할 수 있어요" : "저장 후 기록 목록에서 결과를 확인하세요" },
+    { name: "저장 결과 확인", done: hasCheckedResult, href: "/app?" + qs + "&tab=transactions&onboard_check=1#feed", hint: hasCheckedResult ? "최근 기록에서 저장 결과를 확인했어요" : hasFirstRecord ? "최근 기록에서 금액·내용·가계부를 확인하세요" : "저장 후 기록 목록에서 결과를 확인하세요" },
   ];
   const doneCount = steps.filter((st) => st.done).length;
   const stepPercent = Math.round((doneCount / steps.length) * 100);
@@ -9829,10 +10875,11 @@ function renderUserStartGuideHtml({ env, user, households = [], month = currentM
     ["백업", false, "/my/backup?" + qs],
   ];
   const optionalHtml = `<details class="card"><summary><b>함께 쓰기·예산 등 추가 설정</b></summary><p class="muted" style="color:#667085">처음부터 모두 설정하지 않아도 됩니다. 필요한 항목만 선택하세요.</p><div class="tabBtns">${optionalSteps.map(([name, done, href]) => `<a class="goBtn" href="${escapeHtml(href)}">${done ? "✓ " : ""}${escapeHtml(name)}</a>`).join("")}</div></details>`;
-  const checklistHtml = checklist ? `<section class="card"><h2>처음 3단계</h2><p class="muted" style="color:#667085">완료 ${doneCount}/${steps.length} · 지금 필요한 한 단계만 진행하세요.</p><div class="ckBar"><i style="width:${stepPercent}%"></i></div><ol class="ckList">${steps.map((st, i) => `<li class="${st.done ? "done" : ""}"><span class="ckNum">${st.done ? "✓" : i + 1}</span><div class="ckBody"><b>${escapeHtml(st.name)}</b><small>${escapeHtml(st.hint)}</small></div><a href="${escapeHtml(st.href)}">${st.done ? "보기" : "하러가기"}</a></li>`).join("")}</ol></section>${optionalHtml}` : "";
+  const checklistHtml = checklist ? `<section class="card" data-start-household="${escapeHtml(selected.id)}"><h2>처음 3단계</h2><p class="muted" style="color:#667085">완료 <span data-start-count>${doneCount}/${steps.length}</span> · 지금 필요한 한 단계만 진행하세요.</p><div class="ckBar"><i style="width:${stepPercent}%"></i></div><ol class="ckList">${steps.map((st, i) => `<li class="${st.done ? "done" : ""}" ${i === 2 ? "data-start-result-step" : ""}><span class="ckNum">${st.done ? "✓" : i + 1}</span><div class="ckBody"><b>${escapeHtml(st.name)}</b><small>${escapeHtml(st.hint)}</small></div><a href="${escapeHtml(st.href)}">${st.done ? "보기" : "하러가기"}</a></li>`).join("")}</ol></section>${optionalHtml}` : "";
   const buttons = tabs.map(([id,label],i)=>`<button type="button" class="tabBtn ${i===0?'active':''}" data-tab="${id}">${escapeHtml(label)}</button>`).join("");
   const panels = tabs.map(([id,label,href,desc,detail],i)=>`<section class="tabPanel ${i===0?'active':''}" data-panel="${id}"><h3>${escapeHtml(label)}</h3><p>${escapeHtml(desc)}</p><div class="tip">${escapeHtml(detail)}</div><p><a class="goBtn" href="${escapeHtml(href)}">바로가기</a></p></section>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작가이드</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:30px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#2563eb);color:#fff}.hero p{color:#dbeafe}.tabBtns{display:flex;flex-wrap:wrap;gap:8px}.tabBtn{border:1px solid #dbe4ef;background:#f8fafc;color:#111827;border-radius:999px;padding:10px 13px;font-weight:1000;cursor:pointer}.tabBtn.active{background:#111827;color:#fff}.tabPanel{display:none;border:1px solid #e8edf4;border-radius:22px;padding:18px;margin-top:12px;background:#fff}.tabPanel.active{display:block}.tabPanel h3{margin-top:0}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}.goBtn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}.ckBar{height:10px;border-radius:999px;background:#e8edf4;overflow:hidden;margin:10px 0 14px}.ckBar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a);border-radius:999px}.ckList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.ckList li{display:grid;grid-template-columns:34px 1fr auto;gap:11px;align-items:center;border:1px solid #e8edf4;border-radius:18px;padding:12px;background:#fff}.ckList li.done{background:#f0fdf4;border-color:#bbf7d0}.ckNum{width:30px;height:30px;border-radius:999px;background:#eef2f7;color:#334155;display:flex;align-items:center;justify-content:center;font-weight:1000}.ckList li.done .ckNum{background:#22c55e;color:#fff}.ckBody b{display:block}.ckBody small{display:block;color:#667085;margin-top:2px;line-height:1.4}.ckList a{background:#111827;color:#fff!important;text-decoration:none;border-radius:12px;padding:9px 12px;font-weight:1000;white-space:nowrap}.ckList li.done a{background:#dcfce7;color:#166534!important}@media(max-width:560px){.ckList li{grid-template-columns:30px 1fr}.ckList a{grid-column:2;justify-self:start}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "guide")}<div class="pageMain"><section class="hero"><h1>${userName}님 시작가이드</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 필요한 기능만 탭으로 골라 보고 바로 이동하세요.</p></section>${checklistHtml}<section class="card"><h2>화면별 안내</h2><div class="tabBtns">${buttons}</div>${panels}</section><section class="card"><h2>입력 예시</h2><p class="tip">점심 12000원 국민카드<br/>커피 5000원 현금<br/>월급 250만원<br/>오늘 기록<br/>남은예산<br/>01번 금액 13000원</p></section></div></div></main><script>
+(function(){try{var card=document.querySelector('[data-start-household]');if(!card)return;var hid=card.getAttribute('data-start-household')||'default';if(window.localStorage&&window.localStorage.getItem('ab:onboarding:result-checked:'+hid)==='1'){var step=card.querySelector('[data-start-result-step]');if(step&&!step.classList.contains('done')){step.classList.add('done');var num=step.querySelector('.ckNum');if(num)num.textContent='✓';var small=step.querySelector('.ckBody small');if(small)small.textContent='최근 기록에서 저장 결과를 확인했어요';var link=step.querySelector('a');if(link){link.textContent='보기';link.href='/app?household_id='+encodeURIComponent(hid)+'#feed';}var count=card.querySelector('[data-start-count]');if(count)count.textContent='3/3';var bar=card.querySelector('.ckBar i');if(bar)bar.style.width='100%';}}}catch(e){}})();
 document.querySelectorAll('.tabBtn').forEach(function(btn){
   btn.addEventListener('click', function(){
     const id = btn.getAttribute('data-tab');
@@ -9876,6 +10923,7 @@ async function handleBeginnerGuidePage(request, env, url) {
           rows,
           groupLinks,
           firstRecordCount,
+          resultChecked: url.searchParams.get("result_checked") === "1",
         };
       }
       return htmlResponse(renderUserStartGuideHtml({ env, user, households, month, checklist, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
@@ -9928,8 +10976,10 @@ async function handleUnifiedMenuPage(request, env, url) {
     if (adminOk) {
       households = await fetchAdminHouseholds(env);
     } else {
-      const user = await fetchUserById(env, userId);
-      const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+      const [user, access] = await Promise.all([
+        fetchUserById(env, userId),
+        getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
+      ]);
       if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
       households = access.households;
       selectedHousehold = access.selected;
@@ -9945,40 +10995,45 @@ async function handleUnifiedMenuPage(request, env, url) {
   const householdOptions = households.length
     ? households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === hid ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
-  const groups = [
-    ["매일 쓰는 기능", [
-      ["홈·기록 입력", `/app?${monthQs}`, "금액과 내용만 빠르게 기록"],
-      ["최근 기록", `/app?${monthQs}&tab=transactions#feed`, "내역 확인·수정·삭제"],
-      ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리"],
-      ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름 확인"],
+  const featured = [
+    ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "✎"],
+    ["최근 기록", `/app?${monthQs}&tab=transactions#feed`, "확인·수정·삭제", "▤"],
+    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "↔"],
+    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "▥"],
+  ];
+  const sections = [
+    ["계획과 자산", "돈의 계획과 보유 현황", [
+      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "◴"],
+      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "▣"],
+      ["정기지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "↻"],
+      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "□"],
     ]],
-    ["계획과 자산", [
-      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도"],
-      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출 관리"],
-      ["정기지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출 준비"],
-      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출 확인"],
+    ["가계부 관리", "사람과 분류, 데이터 관리", [
+      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "⇄"],
+      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "+"],
+      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "#"],
+      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "⇩"],
     ]],
-    ["함께 쓰기와 관리", [
-      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부 만들기와 초대코드 참여"],
-      ["참여자·초대", `/my/members?${monthQs}`, "가족·모임 구성원과 권한 관리"],
-      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 키워드와 분류 관리"],
-      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 안전하게 보관"],
-    ]],
-    ["더 많은 도구와 도움말", [
-      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액 확인"],
-      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출 확인"],
-      ["개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "내 계정의 보조 로그인 설정"],
-      ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트"],
-      ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄·날짜별 입력 예시"],
-      ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화와 사용법"],
-      ["이용안내", "/terms", "서비스 이용 기준"],
-      ["개인정보 안내", "/privacy", "데이터 처리 안내"],
+    ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
+      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "⌁"],
+      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "▥"],
+      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "◇"],
+      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "!"],
     ]],
   ];
-  const groupHtml = groups.map(([title, links], index) => index === groups.length - 1
-    ? `<details class="group advancedGroup"><summary><h2>${escapeHtml(title)}</h2><span>필요할 때 열기</span></summary><div class="linkGrid">${links.map(([label, href, desc]) => `<a class="menuCard" href="${escapeHtml(href)}"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></a>`).join("")}</div></details>`
-    : `<section class="group"><h2>${escapeHtml(title)}</h2><div class="linkGrid">${links.map(([label, href, desc]) => `<a class="menuCard" href="${escapeHtml(href)}"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></a>`).join("")}</div></section>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#2563eb);color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:32px}.hero p{line-height:1.65;opacity:.94}.context{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.context select,.context input,.context button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;color:#111827;font:inherit}.context button{background:#111827;color:#fff;font-weight:1000}.group{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:14px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.group h2{margin:0 0 12px}.linkGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.menuCard{display:block;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.menuCard b{display:block;font-size:17px;color:#111827}.menuCard span{display:block;color:#64748b;margin-top:7px;line-height:1.45}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px 12px 96px}.hero h1{font-size:24px}.linkGrid{grid-template-columns:1fr}.context select,.context input,.context button{width:100%}}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap"><section class="hero"><h1>전체 메뉴</h1><p>일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.</p><form class="context" method="get" action="/menu"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">기준 변경</button></form></section><p class="note">추천 흐름: 홈·입력 → 기록 보기 → 예산알림 → 분석 → 백업·복구. 새 모임이나 여행은 가계부 전환·추가에서 만드세요.</p>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영/점검 메뉴는 <b>/operation-center</b>에서 별도로 확인하세요.</p>` : ""}${groupHtml}</main></body></html>`);
+  const more = [
+    ["개인 비밀번호", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "카카오 로그인 불가 시 모바일 접속", "•"],
+    ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "1"],
+    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "?"],
+    ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "K"],
+    ["이용안내", "/terms", "서비스 이용 기준", "i"],
+    ["개인정보 안내", "/privacy", "데이터 처리 안내", "○"],
+  ];
+  const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
+  const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
+  const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
+  const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
@@ -10117,7 +11172,7 @@ async function makeUserSession(env, userId) {
   return `${data}.${sig}`;
 }
 
-async function verifyRawUserSession(request, env) {
+async function verifyRawUserSessionUncached(request, env) {
   const token = getCookie(request, "ab_user");
   if (!token) return "";
   const dot = token.lastIndexOf(".");
@@ -10135,6 +11190,23 @@ async function verifyRawUserSession(request, env) {
   const currentVersion = await getUserSessionVersion(env, userId);
   if (!Number.isFinite(tokenVersion) || tokenVersion !== currentVersion) return "";
   return userId;
+}
+
+async function verifyRawUserSession(request, env) {
+  if (!request || (typeof request !== "object" && typeof request !== "function")) {
+    return verifyRawUserSessionUncached(request, env);
+  }
+  let pending = AB_REQUEST_RAW_USER_CACHE.get(request);
+  if (!pending) {
+    pending = verifyRawUserSessionUncached(request, env);
+    AB_REQUEST_RAW_USER_CACHE.set(request, pending);
+  }
+  try {
+    return await pending;
+  } catch (error) {
+    AB_REQUEST_RAW_USER_CACHE.delete(request);
+    throw error;
+  }
 }
 
 function identityMergeRedirectSettingsKey(secondaryUserId = "") {
@@ -10157,6 +11229,7 @@ function cacheEffectiveUserId(sourceUserId = "", effectiveUserId = "") {
   const source = String(sourceUserId || "").trim();
   const effective = String(effectiveUserId || "").trim();
   if (!source || !effective) return;
+  pruneExpiringMap(AB_EFFECTIVE_USER_CACHE);
   AB_EFFECTIVE_USER_CACHE.set(source, { user_id: effective, expires_at: Date.now() + 10 * 60 * 1000 });
   if (source === effective) return;
   AB_EFFECTIVE_USER_CACHE.set(effective, { user_id: effective, expires_at: Date.now() + 10 * 60 * 1000 });
@@ -10177,6 +11250,7 @@ function rewireEffectiveUserCache(secondaryUserId = "", primaryUserId = "") {
   const secondary = String(secondaryUserId || "").trim();
   const primary = String(primaryUserId || "").trim();
   if (!secondary || !primary || secondary === primary) return;
+  pruneExpiringMap(AB_EFFECTIVE_USER_CACHE);
   const expiresAt = Date.now() + 10 * 60 * 1000;
   for (const [key, value] of AB_EFFECTIVE_USER_CACHE.entries()) {
     if (key === secondary || String(value?.user_id || "") === secondary) {
@@ -10237,13 +11311,33 @@ async function resolveEffectiveUserId(env, userId = "") {
 }
 
 async function verifyUserSession(request, env) {
-  const rawUserId = await verifyRawUserSession(request, env);
-  if (!rawUserId) return "";
-  return await resolveEffectiveUserId(env, rawUserId);
+  if (!request || (typeof request !== "object" && typeof request !== "function")) {
+    const rawUserId = await verifyRawUserSession(request, env);
+    return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+  }
+  let pending = AB_REQUEST_USER_CACHE.get(request);
+  if (!pending) {
+    pending = (async () => {
+      const rawUserId = await verifyRawUserSession(request, env);
+      return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+    })();
+    AB_REQUEST_USER_CACHE.set(request, pending);
+  }
+  try {
+    return await pending;
+  } catch (error) {
+    AB_REQUEST_USER_CACHE.delete(request);
+    throw error;
+  }
 }
 
 function isMergedSessionRecoveryPath(pathname = "") {
   const path = String(pathname || "");
+  // This script is fetched immediately after the analysis HTML. Running the
+  // account-merge recovery lookup again for a static asset adds database
+  // latency to first paint without any recovery benefit; the parent page has
+  // already performed the same check.
+  if (path === "/my/analysis/app.js") return false;
   return path === "/my" || path.startsWith("/my/") || [
     "/app", "/households", "/keyword-guide", "/payment-methods", "/reserve-plans",
     "/analysis", "/calendar", "/budgets", "/categories",
@@ -10257,7 +11351,7 @@ async function mergedUserSessionRecoveryResponse(request, env, url) {
     if (url.pathname === "/my/logout" || url.pathname.startsWith("/auth/kakao/")) return null;
     const rawUserId = await verifyRawUserSession(request, env);
     if (!rawUserId) return null;
-    const effectiveUserId = await resolveEffectiveUserId(env, rawUserId);
+    const effectiveUserId = await verifyUserSession(request, env);
     if (!effectiveUserId || effectiveUserId === rawUserId) return null;
     const session = await makeUserSession(env, effectiveUserId);
     return redirectResponse(`${url.pathname}${url.search}`, {
@@ -10270,8 +11364,63 @@ async function mergedUserSessionRecoveryResponse(request, env, url) {
   }
 }
 
-function getKakaoRedirectUri(env, url) {
-  return String(env.KAKAO_REDIRECT_URI || `${url.origin}/auth/kakao/callback`).trim();
+function configuredPublicBaseUrl(env = {}) {
+  return normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || "");
+}
+
+function getKakaoRedirectUri(env = {}, _url = null) {
+  // OAuth callback must never be derived from the current request host. Preview,
+  // workers.dev and www/non-www hosts otherwise produce a Kakao KOE006 error.
+  return String(env.KAKAO_REDIRECT_URI || "").trim();
+}
+
+function inspectKakaoLoginConfig(env = {}) {
+  const enabled = envFlagEnabled(env.KAKAO_LOGIN_ENABLED, false);
+  const apiKeyConfigured = !!kakaoRestApiKey(env);
+  const clientSecretConfigured = !!kakaoClientSecret(env);
+  const clientSecretRequired = envFlagEnabled(env.KAKAO_CLIENT_SECRET_REQUIRED, false);
+  const publicBase = configuredPublicBaseUrl(env);
+  const redirectUri = getKakaoRedirectUri(env);
+  const issues = [];
+  let publicUrl = null;
+  let redirectUrl = null;
+
+  if (enabled) {
+    if (!apiKeyConfigured) issues.push("rest_api_key_missing");
+    if (!publicBase) issues.push("public_base_url_missing");
+    if (!redirectUri) issues.push("redirect_uri_missing");
+    if (clientSecretRequired && !clientSecretConfigured) issues.push("client_secret_missing");
+  }
+  if (publicBase) {
+    try {
+      publicUrl = new URL(publicBase);
+      if (publicUrl.protocol !== "https:" || publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash) issues.push("public_base_url_invalid");
+    } catch (err) {
+      issues.push("public_base_url_invalid");
+    }
+  }
+  if (redirectUri) {
+    try {
+      redirectUrl = new URL(redirectUri);
+      if (redirectUrl.protocol !== "https:" || redirectUrl.pathname !== "/auth/kakao/callback" || redirectUrl.search || redirectUrl.hash) issues.push("redirect_uri_invalid");
+    } catch (err) {
+      issues.push("redirect_uri_invalid");
+    }
+  }
+  if (publicUrl && redirectUrl && publicUrl.origin !== redirectUrl.origin) issues.push("redirect_origin_mismatch");
+
+  const uniqueIssues = [...new Set(issues)];
+  return {
+    enabled,
+    ready: enabled && uniqueIssues.length === 0,
+    apiKeyConfigured,
+    clientSecretConfigured,
+    clientSecretRequired,
+    publicBase,
+    redirectUri,
+    publicOrigin: publicUrl?.origin || "",
+    issues: uniqueIssues,
+  };
 }
 
 function randomState() {
@@ -10283,15 +11432,12 @@ function randomState() {
   return out;
 }
 
-function kakaoLoginEnabled(env) {
-  const value = String(env.KAKAO_LOGIN_ENABLED || "").trim().toLowerCase();
-  if (["0", "false", "off", "no", "disabled"].includes(value)) return false;
-  if (["1", "true", "on", "yes", "enabled"].includes(value)) return true;
-  return !!kakaoRestApiKey(env);
+function kakaoLoginEnabled(env = {}) {
+  return envFlagEnabled(env.KAKAO_LOGIN_ENABLED, false);
 }
 
-function kakaoLoginAvailable(env) {
-  return kakaoLoginEnabled(env) && !!kakaoRestApiKey(env);
+function kakaoLoginAvailable(env = {}) {
+  return inspectKakaoLoginConfig(env).ready;
 }
 
 function kakaoLoginUserKey(kakaoId = "") {
@@ -10459,10 +11605,17 @@ async function findUserByLocalLoginIdentity(env, nickname = "", accessCode = "")
 async function hasBackupLoginIdentity(env, user = {}) {
   const uid = String(user?.id || "").trim();
   if (!uid) return false;
-  if (await fetchStrongIdentityForUser(env, "local", uid)) return true;
-  if (String(user?.kakao_user_key || "").startsWith("local_web:")) return true;
-  const links = await fetchUserIdentityLinks(env);
-  return Object.entries(safeObject(links)).some(([key, value]) => String(key || "").startsWith("local_web:") && String(safeObject(value).user_id || "") === uid);
+  try {
+    if (await fetchStrongIdentityForUser(env, "local", uid)) return true;
+    if (String(user?.kakao_user_key || "").startsWith("local_web:")) return true;
+    const links = await fetchUserIdentityLinks(env);
+    return Object.entries(safeObject(links)).some(([key, value]) => String(key || "").startsWith("local_web:") && String(safeObject(value).user_id || "") === uid);
+  } catch (err) {
+    // A temporary identity lookup problem must not break login, household, or
+    // password-setting screens. Fall back to the cheapest local signal.
+    rememberOpsEvent({ kind: "backup_identity_lookup_failed", severity: "warn", path: "", method: "", detail: safeError(err) });
+    return String(user?.kakao_user_key || "").startsWith("local_web:");
+  }
 }
 
 async function findUserByKakaoLoginId(env, kakaoId = "") {
@@ -10513,29 +11666,34 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
 }
 
 async function handleKakaoLoginStart(request, env, url) {
-  if (!kakaoLoginEnabled(env)) {
+  const config = inspectKakaoLoginConfig(env);
+  if (!config.enabled) {
     return htmlResponse(renderUserLoginHtml(env, "카카오 로그인을 잠시 사용할 수 없습니다. 아래 다른 방법으로 접속해주세요."));
   }
-  if (!kakaoRestApiKey(env)) {
-    return htmlResponse(renderUserLoginHtml(env, "카카오 로그인을 준비하고 있습니다. 아래 다른 방법으로 접속해주세요."));
+  if (!config.ready) {
+    rememberOpsEvent({ kind: "kakao_login_config_blocked", severity: "error", path: "/auth/kakao/start", method: "GET", detail: config.issues.join(",") || "invalid config" });
+    return htmlResponse(renderUserLoginHtml(env, "카카오 로그인 설정을 확인하고 있습니다. 오류 화면으로 보내지 않도록 로그인을 잠시 막았으며, 아래 다른 방법으로 접속할 수 있습니다."), 503);
+  }
+  if (config.publicOrigin && url.origin !== config.publicOrigin) {
+    return redirectResponse(`${config.publicOrigin}/auth/kakao/start${url.search}`);
   }
   const linkMode = url.searchParams.get("link") === "1";
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse("/my?err=login_required");
   const state = randomState();
-  const redirectUri = getKakaoRedirectUri(env, url);
+  const redirectUri = config.redirectUri;
   const qs = new URLSearchParams();
   qs.set("client_id", kakaoRestApiKey(env));
   qs.set("redirect_uri", redirectUri);
   qs.set("response_type", "code");
   qs.set("state", state);
-  const headers = new Headers({
-    location: `https://kauth.kakao.com/oauth/authorize?${qs.toString()}`,
-    "cache-control": "no-store",
-  });
-  headers.append("set-cookie", `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
-  if (linkMode && currentUserId) headers.append("set-cookie", `kakao_oauth_link_user=${encodeURIComponent(currentUserId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
-  return new Response(null, { status: 303, headers });
+  const cookies = [
+    `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
+    linkMode && currentUserId
+      ? `kakao_oauth_link_user=${encodeURIComponent(currentUserId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
+      : "kakao_oauth_link_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+  ];
+  return redirectResponseWithCookies(`https://kauth.kakao.com/oauth/authorize?${qs.toString()}`, cookies);
 }
 
 async function fetchKakaoProfileByCode(env, url, code = "") {
@@ -10553,42 +11711,110 @@ async function fetchKakaoProfileByCode(env, url, code = "") {
     body: tokenBody,
   });
   const tokenText = await tokenRes.text();
-  if (!tokenRes.ok) throw new Error(`Kakao token ${tokenRes.status}: ${tokenText.slice(0, 300)}`);
-  const token = JSON.parse(tokenText);
+  if (!tokenRes.ok) throw kakaoStageError("token", `Kakao token endpoint returned ${tokenRes.status}`);
+  let token = null;
+  try {
+    token = JSON.parse(tokenText);
+  } catch (err) {
+    throw kakaoStageError("token", "Kakao token response was not valid JSON");
+  }
+  if (!token?.access_token) throw kakaoStageError("token", "Kakao access token missing");
 
   const meRes = await fetch("https://kapi.kakao.com/v2/user/me", {
     headers: { authorization: `Bearer ${token.access_token}` },
   });
   const meText = await meRes.text();
-  if (!meRes.ok) throw new Error(`Kakao profile ${meRes.status}: ${meText.slice(0, 300)}`);
-  const me = JSON.parse(meText);
+  if (!meRes.ok) throw kakaoStageError("profile", `Kakao profile endpoint returned ${meRes.status}`);
+  let me = null;
+  try {
+    me = JSON.parse(meText);
+  } catch (err) {
+    throw kakaoStageError("profile", "Kakao profile response was not valid JSON");
+  }
   const kakaoId = String(me.id || "");
   const nickname = String(me?.properties?.nickname || me?.kakao_account?.profile?.nickname || "카카오사용자").slice(0, 80);
-  if (!kakaoId) throw new Error("Kakao id missing");
+  if (!kakaoId) throw kakaoStageError("profile", "Kakao id missing");
   return { kakaoId, nickname, raw: me };
 }
 
+function kakaoStageError(stage, message) {
+  const err = new Error(message);
+  err.kakaoStage = stage;
+  return err;
+}
+
+function kakaoLoginTraceId() {
+  return `K${randomState().slice(0, 7).toUpperCase()}`;
+}
+
+function kakaoCallbackErrorMessage(stage = "", traceId = "") {
+  const suffix = traceId ? ` 문제가 계속되면 관리자에게 오류 코드 ${traceId}를 알려주세요.` : "";
+  const messages = {
+    cancelled: "카카오 로그인을 취소했습니다. 다시 시도하거나 아래 다른 방법으로 접속할 수 있습니다.",
+    provider: `카카오에서 로그인 요청을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.${suffix}`,
+    state: "로그인 확인 시간이 지났습니다. 카카오 로그인을 처음부터 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
+    config: "카카오 로그인 설정을 확인하고 있습니다. 오류 화면으로 보내지 않도록 로그인을 잠시 막았으며, 아래 다른 방법으로 접속할 수 있습니다.",
+    token: `카카오 인증 확인에 실패했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.${suffix}`,
+    profile: `카카오 프로필을 불러오지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.${suffix}`,
+    account: `로그인은 확인됐지만 계정 정보를 저장하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`,
+  };
+  return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
+}
+
 async function handleKakaoLoginCallback(request, env, url) {
+  const clearOauthCookies = [
+    "kakao_oauth_state=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    "kakao_oauth_link_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+  ];
+  const traceId = kakaoLoginTraceId();
+  const errorResponse = (stage, status = 500) => htmlResponseWithCookies(
+    renderUserLoginHtml(env, kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config"].includes(stage) ? "" : traceId)),
+    status,
+    clearOauthCookies
+  );
+  let stage = "state";
   try {
+    const oauthError = String(url.searchParams.get("error") || "");
+    if (oauthError) {
+      const cancelled = oauthError === "access_denied";
+      rememberOpsEvent({
+        kind: cancelled ? "kakao_login_cancelled" : "kakao_login_provider_error",
+        severity: cancelled ? "info" : "warn",
+        path: "/auth/kakao/callback",
+        method: "GET",
+        detail: `error=${oauthError.slice(0, 80)};trace=${traceId}`,
+      });
+      return errorResponse(cancelled ? "cancelled" : "provider", 400);
+    }
+    const config = inspectKakaoLoginConfig(env);
+    if (!config.ready) {
+      rememberOpsEvent({ kind: "kakao_login_config_blocked", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: `${config.issues.join(",") || "disabled"};trace=${traceId}` });
+      return errorResponse("config", 503);
+    }
     const code = String(url.searchParams.get("code") || "");
     const state = String(url.searchParams.get("state") || "");
     const savedState = getCookie(request, "kakao_oauth_state");
-    if (!code || !state || !savedState || state !== savedState) {
-      return htmlResponse(renderUserLoginHtml(env, "로그인 확인 시간이 지났습니다. 카카오 로그인을 다시 시도하거나 아래 다른 방법으로 접속해주세요."), 400);
+    if (!code || !state || !savedState || !constantTimeTextEqual(state, savedState)) {
+      rememberOpsEvent({
+        kind: "kakao_login_state_mismatch",
+        severity: "warn",
+        path: "/auth/kakao/callback",
+        method: "GET",
+        detail: `code=${code ? "set" : "missing"};state=${state ? "set" : "missing"};cookie=${savedState ? "set" : "missing"};trace=${traceId}`,
+      });
+      return errorResponse("state", 400);
     }
-    if (!kakaoRestApiKey(env)) {
-      return htmlResponse(renderUserLoginHtml(env, "카카오 로그인을 준비하고 있습니다. 아래 다른 방법으로 접속해주세요."), 500);
-    }
+    stage = "token";
     const profile = await fetchKakaoProfileByCode(env, url, code);
+    stage = "account";
     const linkUserId = getCookie(request, "kakao_oauth_link_user");
     const currentUserId = await verifyUserSession(request, env);
     if (linkUserId && currentUserId && linkUserId === currentUserId) {
       await linkKakaoLoginToUser(env, profile.kakaoId, currentUserId, profile);
-      return redirectResponse("/my?msg=kakao_linked", {
-        "set-cookie": "kakao_oauth_link_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
-      });
+      return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
     let user = await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname);
+    if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     if (user?.id && profile.nickname && isPlaceholderUserNickname(user.nickname) && !isPlaceholderUserNickname(profile.nickname)) {
       await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(user.id)}`, {
         method: "PATCH",
@@ -10605,13 +11831,15 @@ async function handleKakaoLoginCallback(request, env, url) {
       : needsBackup
         ? `/my/backup-login?first=1&return_to=${encodeURIComponent("/my")}`
         : "/my";
-    return redirectResponse(next, {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    });
+    return redirectResponseWithCookies(next, [
+      ...clearOauthCookies,
+      `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+    ]);
   } catch (err) {
-    console.error("[kakao-login]", safeError(err));
-    rememberOpsEvent({ kind: "kakao_login_error", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: safeError(err) });
-    return htmlResponse(renderUserLoginHtml(env, "카카오 로그인을 완료하지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요."), 500);
+    const failedStage = String(err?.kakaoStage || stage || "unknown");
+    console.error("[kakao-login]", failedStage, traceId, safeError(err));
+    rememberOpsEvent({ kind: "kakao_login_error", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: `stage=${failedStage};trace=${traceId};${safeError(err)}` });
+    return errorResponse(failedStage, 500);
   }
 }
 
@@ -11156,7 +12384,7 @@ async function handleMyImport(request, env) {
 
   let csvText = String(form.get("csv_text") || "");
   const file = form.get("csv_file");
-  const maxBytes = Math.min(15 * 1024 * 1024, Math.max(1024 * 1024, Number(env.MY_IMPORT_MAX_BYTES || 5 * 1024 * 1024)));
+  const maxBytes = boundedRuntimeNumber(env.MY_IMPORT_MAX_BYTES, 5 * 1024 * 1024, 1024 * 1024, 15 * 1024 * 1024);
   const fileName = String(file?.name || "").toLowerCase();
   const isExcelBinary = /\.xlsx?$/.test(fileName) || /(?:spreadsheetml|ms-excel)/i.test(String(file?.type || ""));
   if (!csvText.trim() && isExcelBinary) {
@@ -11177,7 +12405,7 @@ async function handleMyImport(request, env) {
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
   const parsed = parseFlexibleImportRecords(csvText, selected.id, userId, { source: "my_import", maxRows: 5000 });
-  const importLimit = Math.min(1000, Math.max(10, Number(env.MY_IMPORT_LIMIT || 120)));
+  const importLimit = boundedRuntimeNumber(env.MY_IMPORT_LIMIT, 120, 10, 1000);
   const entries = parsed.accepted.slice(0, importLimit);
   const outcomes = parsed.rejected.slice();
   const limited = Math.max(0, parsed.accepted.length - entries.length);
@@ -11574,17 +12802,23 @@ async function handleMyBudgetBulkSave(request, env) {
 async function getMyPageContext(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return { redirect: redirectResponse("/my") };
-  const user = await fetchUserById(env, userId);
-  if (!user) return { redirect: handleMyLogout() };
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const [user, access] = await Promise.all([
+    fetchUserById(env, userId),
+    getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
+  ]);
+  if (!user) return { redirect: handleMyLogout() };
+  const { households, selected, restricted } = access;
   if (restricted) return { redirect: myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month }) };
   if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
-  const members = await fetchHouseholdMembers(env, selected.id);
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: selected.id, type: "all" }), members);
-  const calendar = await getCalendar(env, selected.id, month);
+  const [members, rawRows, calendar, budgets] = await Promise.all([
+    fetchHouseholdMembers(env, selected.id),
+    fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
+    getCalendar(env, selected.id, month),
+    fetchBudgets(env, selected.id, month),
+  ]);
+  const rows = attachSpenderNames(rawRows, members);
   const stats = calculateStats(rows);
-  const budgets = await fetchBudgets(env, selected.id, month);
   const budget = budgetSummary(rows, budgets);
   const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
   return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis };
@@ -11790,46 +13024,41 @@ function renderFreeReportsHtml({ env, month, selected, live = {}, preference = {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#fff}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:6px}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:520px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.settings{display:grid;gap:10px}.settings label{border:1px solid #e5e7eb;border-radius:15px;padding:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.share{width:100%;min-height:220px;border:1px solid #cbd5e1;border-radius:15px;padding:13px;font:inherit;line-height:1.6}.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}@media(max-width:760px){.wrap{padding:12px}.btn,button{width:100%;margin:4px 0}}@media print{.abLayoutNav,.abNavMobileTop,.abNavMobileDrawer,.abNavBottom,.noPrint{display:none!important}body{padding:0!important;background:#fff}.wrap{max-width:none}.hero{background:#fff!important;color:#111827!important}.hero p{color:#475569!important}}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${msg === "preference_saved" ? `<div class="ok">자동 리포트 설정을 저장했습니다.</div>` : ""}${err ? `<div class="error">설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요.</div>` : ""}<section class="hero"><h1>주간·월간 무료 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 현재 기록을 즉시 요약하고, 설정 시 매주 일요일과 매월 말에 중복 없이 스냅샷을 생성합니다.</p><p class="noPrint"><a class="btn light" href="/smart-tools?${qs}">스마트 도구</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section><section class="grid"><div class="metric"><span>수입</span><b>${numberWithCommas(live.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(live.expense)}원</b></div><div class="metric"><span>잔액</span><b>${numberWithCommas(live.balance)}원</b></div><div class="metric"><span>기록</span><b>${numberWithCommas(live.transaction_count)}건</b></div><div class="metric"><span>지출한 날</span><b>${numberWithCommas(live.spend_days)}일</b></div></section><section class="card"><h2>지출 상위 분류</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows(live)}</tbody></table></div></section><section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1" ${preference.enabled ? "checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1" ${preference.weekly ? "checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1" ${preference.monthly ? "checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
 }
 
-async function fetchReceiptCategoryNames(env, householdId, month) {
-  // 영수증 화면의 분류 자동완성에는 분류 이름만 필요합니다.
-  // 전체 컬럼 대신 category만 읽어 응답 크기와 조회 시간을 줄입니다.
+async function fetchReceiptCategoryNames(env, householdId = "") {
   try {
     const params = new URLSearchParams();
-    params.set("select", "category");
-    params.set("household_id", `eq.${householdId}`);
-    params.set("transaction_date", `gte.${month}-01`);
-    params.append("transaction_date", `lt.${nextMonthStart(month)}`);
-    params.set("limit", "500");
-    const rows = safeArray(await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }));
-    return [...new Set(rows.map((row) => String(row.category || "").trim()).filter(Boolean))];
-  } catch (err) {
-    // 자동완성은 보조 기능이므로 조회 실패가 화면 전체를 막지 않습니다.
-    return [];
+    params.set("select", "name,type");
+    if (householdId) params.set("household_id", `eq.${householdId}`);
+    params.set("order", "sort_order.asc,created_at.asc");
+    params.set("limit", "120");
+    const rows = await supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" });
+    return safeArray(rows).filter((row) => row.type !== "income").map((row) => String(row.name || "").trim()).filter(Boolean);
+  } catch (error) {
+    const rows = await fetchSettingsCategories(env, householdId);
+    return safeArray(rows).filter((row) => row.type !== "income").map((row) => String(row.name || "").trim()).filter(Boolean);
   }
 }
 
-async function getReceiptPageContext(request, env, url) {
-  // 영수증 화면은 멤버·캘린더·예산·분석 데이터를 쓰지 않으므로
-  // 전체 getMyPageContext 대신 필요한 조회만 병렬로 수행합니다.
-  const userId = await verifyUserSession(request, env);
-  if (!userId) return { redirect: redirectResponse("/my") };
-  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const [user, householdContext] = await Promise.all([
-    fetchUserById(env, userId),
-    getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
-  ]);
-  if (!user) return { redirect: handleMyLogout() };
-  const { households, selected, restricted } = householdContext;
-  if (restricted) return { redirect: myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month }) };
-  if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
-  const categoryNames = await fetchReceiptCategoryNames(env, selected.id, month);
-  return { userId, user, month, households, selected, categoryNames };
-}
-
 async function handleReceiptCapturePage(request, env, url) {
-  const ctx = await getReceiptPageContext(request, env, url);
-  if (ctx.redirect) return ctx.redirect;
-  return htmlResponse(renderReceiptCaptureHtml({ env, ...ctx, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  if (access.restricted) {
+    const user = await fetchUserById(env, userId);
+    return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+  }
+  if (!access.selected) return redirectResponse("/my/households?err=no_household#create");
+  const categoryNames = await fetchReceiptCategoryNames(env, access.selected.id);
+  return htmlResponse(renderReceiptCaptureV2285Html({
+    env,
+    month,
+    households: access.households,
+    selected: access.selected,
+    categoryNames,
+    msg: url.searchParams.get("msg") || "",
+    err: url.searchParams.get("err") || "",
+  }));
 }
 
 async function findHouseholdReceiptDuplicate(env, row = {}) {
@@ -11900,384 +13129,34 @@ async function handleReceiptConfirmedSave(request, env) {
   }
 }
 
-function receiptCaptureClientMain() {
-  "use strict";
-  var TESSERACT_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-  var OCR_TIMEOUT_MS = 90000;
-  var MAX_FILE_BYTES = 20 * 1024 * 1024;
-  var MAX_OCR_EDGE = 1600;
-
-  function clean(value) { return String(value || "").replace(/\r/g, "").trim(); }
-
-  function parseReceiptDate(raw) {
-    var m = raw.match(/(20\d{2})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})/);
-    if (!m) m = raw.match(/(\d{2})\s*[.\-\/]\s*(\d{1,2})\s*[.\-\/]\s*(\d{1,2})/);
-    if (!m) return "";
-    var y = Number(m[1]);
-    if (y < 100) y += 2000;
-    var mo = Number(m[2]), d = Number(m[3]);
-    if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
-    return y + "-" + String(mo).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-  }
-
-  function parseReceiptAmount(raw) {
-    var candidates = [];
-    raw.split(/\n/).forEach(function (line) {
-      var score = /(총\s*액|합\s*계|결제\s*금액|승인\s*금액|받을\s*금액|total)/i.test(line) ? 10 : 0;
-      (line.match(/\d[\d,.\s]{2,}\s*원?/g) || []).forEach(function (n) {
-        var v = Number(n.replace(/[^0-9]/g, ""));
-        if (v >= 100 && v <= 2000000000) candidates.push({ v: v, s: score });
-      });
-    });
-    candidates.sort(function (a, b) { return b.s - a.s || b.v - a.v; });
-    return candidates.length ? candidates[0].v : 0;
-  }
-
-  function parseReceiptMerchant(raw) {
-    var bad = /(영\s*수\s*증|사업자|대표자|전화|tel|주소|카드|승인|합계|총액|부가세|공급가|일시|날짜|매출)/i;
-    var lines = raw.split(/\n/).map(clean).filter(Boolean);
-    for (var i = 0; i < lines.length; i++) {
-      var x = lines[i].replace(/^[^가-힣A-Za-z0-9]+|[^가-힣A-Za-z0-9)]+$/g, "");
-      if (x.length >= 2 && x.length <= 60 && !bad.test(x) && !/^\d[\d\s.,-]+$/.test(x)) return x;
-    }
-    return "";
-  }
-
-  function parseReceiptPayment(raw) {
-    var brands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-    for (var i = 0; i < brands.length; i++) {
-      if (new RegExp(brands[i] + "\\s*(?:카드)?", "i").test(raw)) return brands[i] + "카드";
-    }
-    if (/현금/.test(raw)) return "현금";
-    if (/계좌|이체/.test(raw)) return "계좌이체";
-    return "";
-  }
-
-  function parseReceiptCategory(raw) {
-    var rules = [["장보기", /마트|슈퍼|시장|식료품|농협/], ["식비", /식당|음식|점심|저녁|치킨|배달|김밥/], ["카페/간식", /카페|커피|베이커리|디저트/], ["의료/건강", /병원|약국|치과|진료/], ["교통/차량", /주유|택시|주차|교통/], ["생활용품", /다이소|생활|세제|휴지/], ["쇼핑", /백화점|쇼핑|의류|신발|화장품/]];
-    for (var i = 0; i < rules.length; i++) if (rules[i][1].test(raw)) return rules[i][0];
-    return "기타지출";
-  }
-
-  // QA와 브라우저 콘솔에서 파서와 축소 로직을 직접 검증할 수 있도록 노출합니다.
-  try {
-    window.__receiptParsers = { date: parseReceiptDate, amount: parseReceiptAmount, merchant: parseReceiptMerchant, payment: parseReceiptPayment, category: parseReceiptCategory, downscaleForOcr: downscaleForOcr };
-  } catch (e) {}
-
-  var doc = document;
-  function el(id) { return doc.getElementById(id); }
-  var albumInput = el("receiptAlbum"), cameraInput = el("receiptCamera"), textBox = el("receiptText"),
-    statusBox = el("ocrStatus"), progressWrap = el("ocrProgress"), progressBar = el("ocrProgressBar"),
-    analyzeBtn = el("analyzeReceipt"), cancelBtn = el("ocrCancel"),
-    previewWrap = el("receiptPreviewWrap"), previewImg = el("receiptPreview"), previewMeta = el("receiptFileMeta"),
-    clearBtn = el("receiptClear"), dropZone = el("receiptDrop"), amountInput = el("receiptAmount");
-  if (!textBox || !statusBox) return;
-
-  var initiallyDisabled = [];
-  [albumInput, cameraInput, analyzeBtn].forEach(function (node) { if (node && node.disabled) initiallyDisabled.push(node); });
-  var state = { busy: false, runId: 0, scriptPromise: null, workerPromise: null, worker: null, onStage: null, previewUrl: "" };
-
-  function setStatus(message, kind) {
-    statusBox.textContent = message;
-    statusBox.className = "status" + (kind ? " " + kind : "");
-  }
-
-  function setProgress(ratio) {
-    if (!progressWrap || !progressBar) return;
-    if (ratio == null) { progressWrap.hidden = true; progressBar.style.width = "0%"; return; }
-    progressWrap.hidden = false;
-    progressBar.style.width = Math.max(2, Math.min(100, Math.round(ratio * 100))) + "%";
-  }
-
-  function setBusy(busy) {
-    state.busy = busy;
-    [albumInput, cameraInput, analyzeBtn].forEach(function (node) {
-      if (node && initiallyDisabled.indexOf(node) < 0) node.disabled = busy;
-    });
-    if (cancelBtn) cancelBtn.hidden = !busy;
-    if (!busy) setProgress(null);
-  }
-
-  function loadTesseract() {
-    if (window.Tesseract) return Promise.resolve(window.Tesseract);
-    if (state.scriptPromise) return state.scriptPromise;
-    state.scriptPromise = new Promise(function (resolve, reject) {
-      var script = doc.createElement("script");
-      script.src = TESSERACT_SRC;
-      script.async = true;
-      script.onload = function () {
-        if (window.Tesseract) resolve(window.Tesseract);
-        else { state.scriptPromise = null; reject(new Error("ocr_module_missing")); }
-      };
-      script.onerror = function () {
-        state.scriptPromise = null;
-        if (script.parentNode) script.parentNode.removeChild(script);
-        reject(new Error("ocr_script_failed"));
-      };
-      (doc.head || doc.documentElement).appendChild(script);
-    });
-    return state.scriptPromise;
-  }
-
-  function describeOcrStage(m) {
-    var status = String((m && m.status) || "").toLowerCase();
-    if (status.indexOf("core") >= 0) return "문자 인식 엔진을 내려받는 중";
-    if (status.indexOf("language") >= 0) return "한국어·영어 인식 데이터를 준비하는 중";
-    if (status.indexOf("initializing") >= 0) return "인식 엔진을 준비하는 중";
-    if (status === "recognizing text") return "사진에서 문자를 읽는 중";
-    return "";
-  }
-
-  function stageLogger(m) {
-    if (typeof state.onStage === "function") state.onStage(m);
-  }
-
-  function getOcrWorker() {
-    if (state.workerPromise) return state.workerPromise;
-    state.workerPromise = loadTesseract().then(function (T) {
-      if (typeof T.createWorker !== "function") return null;
-      return Promise.resolve(T.createWorker("kor+eng", 1, { logger: stageLogger })).then(function (worker) {
-        state.worker = worker;
-        return worker;
-      });
-    });
-    state.workerPromise.catch(function () { state.workerPromise = null; state.worker = null; });
-    return state.workerPromise;
-  }
-
-  function resetOcrWorker() {
-    var worker = state.worker;
-    state.worker = null;
-    state.workerPromise = null;
-    if (worker && typeof worker.terminate === "function") { try { worker.terminate(); } catch (e) {} }
-  }
-
-  function downscaleForOcr(file) {
-    // 고해상도 원본을 그대로 인식하면 수십 초가 걸립니다.
-    // 긴 변 1600px로 줄이면 정확도 손실 없이 인식 시간이 크게 줄어듭니다.
-    if (typeof createImageBitmap !== "function") return Promise.resolve(file);
-    return createImageBitmap(file, { imageOrientation: "from-image" })
-      .catch(function () { return createImageBitmap(file); })
-      .then(function (bitmap) {
-        var scale = Math.min(1, MAX_OCR_EDGE / Math.max(bitmap.width, bitmap.height));
-        if (scale >= 1) { if (bitmap.close) bitmap.close(); return file; }
-        var canvas = doc.createElement("canvas");
-        canvas.width = Math.round(bitmap.width * scale);
-        canvas.height = Math.round(bitmap.height * scale);
-        var context = canvas.getContext("2d");
-        if (!context) { if (bitmap.close) bitmap.close(); return file; }
-        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        if (bitmap.close) bitmap.close();
-        return new Promise(function (resolve) {
-          if (canvas.toBlob) canvas.toBlob(function (blob) { resolve(blob || file); }, "image/jpeg", 0.9);
-          else resolve(file);
-        });
-      })
-      .catch(function () { return file; });
-  }
-
-  function formatBytes(size) {
-    var value = Number(size || 0);
-    if (value >= 1048576) return (value / 1048576).toFixed(1) + "MB";
-    if (value >= 1024) return Math.round(value / 1024) + "KB";
-    return value + "B";
-  }
-
-  function formatAmountDigits(value) {
-    var digits = String(value || "").replace(/[^0-9]/g, "");
-    return digits ? Number(digits).toLocaleString("ko-KR") : "";
-  }
-
-  function showPreview(file) {
-    if (!previewWrap || !previewImg) return;
-    if (state.previewUrl) { try { URL.revokeObjectURL(state.previewUrl); } catch (e) {} state.previewUrl = ""; }
-    try { state.previewUrl = URL.createObjectURL(file); } catch (e) { return; }
-    previewImg.src = state.previewUrl;
-    previewWrap.hidden = false;
-    if (previewMeta) previewMeta.textContent = (file.name || "선택한 사진") + " · " + formatBytes(file.size);
-  }
-
-  function clearPreview() {
-    if (state.previewUrl) { try { URL.revokeObjectURL(state.previewUrl); } catch (e) {} state.previewUrl = ""; }
-    if (previewImg) previewImg.removeAttribute("src");
-    if (previewWrap) previewWrap.hidden = true;
-    if (previewMeta) previewMeta.textContent = "선택된 사진 없음";
-  }
-
-  function applyParsedText(options) {
-    var raw = clean(textBox.value);
-    if (!raw) {
-      setStatus("분석할 문자가 없습니다. 사진을 선택하거나 영수증 문자를 붙여넣어 주세요.", "warn");
-      return false;
-    }
-    var rawField = el("receiptRaw");
-    if (rawField) rawField.value = raw.slice(0, 500);
-    var date = parseReceiptDate(raw), amount = parseReceiptAmount(raw), merchant = parseReceiptMerchant(raw), payment = parseReceiptPayment(raw);
-    if (date && el("receiptDate")) el("receiptDate").value = date;
-    if (amount && amountInput) amountInput.value = formatAmountDigits(amount);
-    if (merchant && el("merchant")) el("merchant").value = merchant;
-    if (payment && el("receiptPayment")) el("receiptPayment").value = payment;
-    if (el("receiptCategory")) el("receiptCategory").value = parseReceiptCategory(raw);
-    var missing = [];
-    if (!merchant) missing.push("상호");
-    if (!date) missing.push("날짜");
-    if (!amount) missing.push("총액");
-    if (missing.length) setStatus("자동값을 채웠지만 " + missing.join("·") + "은(는) 인식하지 못했습니다. 빈 칸을 직접 채운 뒤 확인 체크를 해주세요.", "warn");
-    else setStatus("자동값을 채웠습니다. 원본과 비교해 틀린 부분을 고친 뒤 확인 체크를 해주세요.", "good");
-    var resultCard = el("receiptResultCard");
-    if (resultCard && options && options.reveal) {
-      try { resultCard.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
-      var merchantField = el("merchant");
-      if (merchantField && !merchantField.disabled) { try { merchantField.focus({ preventScroll: true }); } catch (e) {} }
-    }
-    return true;
-  }
-
-  function recognizeFile(file) {
-    if (!file) return;
-    if (file.type && file.type.indexOf("image/") !== 0) {
-      setStatus("이미지 파일만 인식할 수 있습니다. 사진(JPG·PNG)을 선택하거나 문자를 붙여넣어 주세요.", "bad");
-      return;
-    }
-    if (Number(file.size || 0) > MAX_FILE_BYTES) {
-      setStatus("사진이 20MB를 넘어 인식할 수 없습니다. 화면 캡처나 더 작은 사진으로 다시 시도해 주세요.", "bad");
-      return;
-    }
-    if (state.busy) {
-      setStatus("이미 사진을 분석하는 중입니다. 끝나기를 기다리거나 ‘분석 취소’를 눌러 주세요.", "warn");
-      return;
-    }
-    showPreview(file);
-    var runId = ++state.runId;
-    function stale() { return runId !== state.runId; }
-    setBusy(true);
-    setStatus("문자 인식 도구를 준비하는 중입니다. 처음 한 번만 내려받아 시간이 걸릴 수 있습니다.");
-    setProgress(0);
-    state.onStage = function (m) {
-      if (stale()) return;
-      var label = describeOcrStage(m);
-      if (!label) return;
-      var progress = m && typeof m.progress === "number" ? m.progress : null;
-      setStatus(label + (progress != null ? " " + Math.round(progress * 100) + "%" : "") + "…");
-      if (String(m.status || "") === "recognizing text" && progress != null) setProgress(progress);
-    };
-    var timeoutId = 0;
-    var timeout = new Promise(function (resolve, reject) {
-      timeoutId = window.setTimeout(function () { reject(new Error("ocr_timeout")); }, OCR_TIMEOUT_MS);
-    });
-    var work = downscaleForOcr(file).then(function (image) {
-      if (stale()) throw new Error("ocr_cancelled");
-      return getOcrWorker().then(function (worker) {
-        if (stale()) throw new Error("ocr_cancelled");
-        if (worker) return worker.recognize(image);
-        return window.Tesseract.recognize(image, "kor+eng", { logger: stageLogger });
-      });
-    });
-    Promise.race([work, timeout]).then(function (result) {
-      if (stale()) return;
-      window.clearTimeout(timeoutId);
-      setBusy(false);
-      var recognized = clean(result && result.data && result.data.text);
-      if (!recognized) {
-        setStatus("사진에서 문자를 찾지 못했습니다. 더 밝고 수평인 사진으로 다시 찍거나 문자를 직접 붙여넣어 주세요.", "warn");
-        return;
-      }
-      textBox.value = recognized;
-      applyParsedText({ reveal: true });
-    }).catch(function (err) {
-      window.clearTimeout(timeoutId);
-      if (stale()) return;
-      setBusy(false);
-      var code = String((err && err.message) || "");
-      if (code === "ocr_cancelled") return;
-      if (code === "ocr_timeout") {
-        resetOcrWorker();
-        setStatus("인식이 너무 오래 걸려 중단했습니다. 사진을 더 작게 찍어 다시 시도하거나 문자를 직접 붙여넣어 주세요.", "bad");
-      } else if (code === "ocr_script_failed" || code === "ocr_module_missing") {
-        setStatus("문자 인식 모듈을 내려받지 못했습니다. 네트워크를 확인한 뒤 사진을 다시 선택하거나 문자를 직접 붙여넣어 주세요.", "bad");
-      } else {
-        setStatus("사진을 읽지 못했습니다. 아이폰 HEIC 사진이라면 스크린샷으로 다시 시도하거나 문자를 직접 붙여넣어 주세요.", "bad");
-      }
-    });
-  }
-
-  function cancelOcr() {
-    if (!state.busy) return;
-    state.runId += 1;
-    resetOcrWorker();
-    setBusy(false);
-    setStatus("사진 분석을 취소했습니다. 다른 사진을 선택하거나 문자를 직접 붙여넣어 주세요.");
-  }
-
-  function onPick(event) {
-    var input = event.target;
-    var file = input && input.files && input.files[0];
-    // 같은 사진을 연속으로 선택해도 change 이벤트가 다시 발생하도록 초기화합니다.
-    if (input) input.value = "";
-    if (file) recognizeFile(file);
-  }
-
-  if (albumInput) albumInput.addEventListener("change", onPick);
-  if (cameraInput) cameraInput.addEventListener("change", onPick);
-  if (analyzeBtn) analyzeBtn.addEventListener("click", function () { applyParsedText({ reveal: true }); });
-  if (cancelBtn) cancelBtn.addEventListener("click", cancelOcr);
-  if (clearBtn) clearBtn.addEventListener("click", function () { cancelOcr(); clearPreview(); setStatus("사진을 지웠습니다. 다시 선택하거나 문자를 붙여넣어 주세요."); });
-
-  if (dropZone) {
-    ["dragenter", "dragover"].forEach(function (name) {
-      dropZone.addEventListener(name, function (event) { event.preventDefault(); dropZone.classList.add("dragOver"); });
-    });
-    ["dragleave", "drop"].forEach(function (name) {
-      dropZone.addEventListener(name, function (event) { event.preventDefault(); dropZone.classList.remove("dragOver"); });
-    });
-    dropZone.addEventListener("drop", function (event) {
-      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-      if (file) recognizeFile(file);
-    });
-  }
-
-  doc.addEventListener("paste", function (event) {
-    var file = event.clipboardData && event.clipboardData.files && event.clipboardData.files[0];
-    if (file && file.type && file.type.indexOf("image/") === 0) {
-      event.preventDefault();
-      recognizeFile(file);
-    }
-  });
-
-  if (amountInput) {
-    amountInput.addEventListener("input", function () {
-      var caretFromEnd = amountInput.value.length - Number(amountInput.selectionEnd || 0);
-      var formatted = formatAmountDigits(amountInput.value);
-      if (formatted === amountInput.value) return;
-      amountInput.value = formatted;
-      var position = Math.max(0, formatted.length - caretFromEnd);
-      try { amountInput.setSelectionRange(position, position); } catch (e) {}
-    });
-  }
-
-  Array.prototype.forEach.call(doc.querySelectorAll("[data-autosubmit]"), function (field) {
-    field.addEventListener("change", function () { if (field.form) field.form.submit(); });
-  });
-}
-
-function renderReceiptCaptureHtml({ env, month, households = [], selected, categoryNames = [], msg = "", err = "" }) {
+function renderReceiptCaptureV2285Html({ env, month, households = [], selected, categoryNames = [], msg = "", err = "" }) {
   const writable = canWriteMyHousehold(selected.role);
-  const householdOptions = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
-  const categories = [...new Set([...safeArray(categoryNames).map((name) => String(name).trim()), ...CATEGORY_RULES.filter((r) => r.type === "expense").map((r) => r.name), "기타지출"].filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "ko"));
+  const householdOptions = safeArray(households).map((household) => `<option value="${escapeHtml(household.id)}" ${String(household.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(household.name || "가계부")}</option>`).join("");
+  const categories = [...new Set([
+    ...DEFAULT_CATEGORIES,
+    ...safeArray(categoryNames),
+    ...CATEGORY_RULES.filter((rule) => rule.type === "expense").map((rule) => rule.name),
+    "기타지출",
+  ].map((name) => String(name || "").trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, "ko"));
   const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
   const today = formatDate(nowKstDate());
-  const disabledAttr = writable ? "" : "disabled";
-  const messageBanner = msg === "receipt_saved" ? `<div class="ok" role="status">확인한 영수증을 지출 기록으로 저장했습니다.</div>` : msg === "duplicate_receipt" ? `<div class="ok" role="status">같은 날짜·금액·상호의 기록이 이미 있어 중복 저장하지 않았습니다.</div>` : "";
+  const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}`;
   const errorMessages = {
-    write_not_allowed: "조회 전용 권한에서는 영수증을 저장할 수 없습니다. 가계부 관리자에게 기록 권한을 요청해 주세요.",
-    confirmation_required: "저장 전에 인식 결과를 원본 영수증과 비교했다는 확인 체크가 필요합니다.",
-    invalid_receipt: "영수증의 날짜와 0원보다 큰 금액을 확인해 주세요.",
-    save_failed: "일시적인 오류로 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    write_not_allowed: "현재 가계부는 조회 전용이라 저장할 수 없습니다. 관리자에게 기록 권한을 요청해 주세요.",
+    confirmation_required: "사진 원본과 인식 결과를 확인했다는 체크가 필요합니다.",
+    invalid_receipt: "날짜와 0원보다 큰 총액을 다시 확인해 주세요.",
+    save_failed: "저장을 완료하지 못했습니다. 입력 내용은 유지되지 않았으므로 연결 상태를 확인한 뒤 한 번만 다시 시도해 주세요.",
   };
-  const errorBanner = err ? `<div class="error" role="alert">${escapeHtml(errorMessages[err] || "영수증을 저장하지 못했습니다. 날짜·금액·확인 체크와 가계부 권한을 확인해 주세요.")}</div>` : "";
-  const filePicker = `<div class="fileRow"><label class="filePick ${writable ? "" : "disabled"}" for="receiptAlbum">🖼️ 앨범에서 선택</label><label class="filePick alt ${writable ? "" : "disabled"}" for="receiptCamera">📷 카메라로 촬영</label><input class="receiptFile" id="receiptAlbum" type="file" accept="image/*" ${disabledAttr}/><input class="receiptFile" id="receiptCamera" type="file" accept="image/*" capture="environment" ${disabledAttr}/></div><div class="previewWrap" id="receiptPreviewWrap" hidden><img id="receiptPreview" alt="선택한 영수증 사진 미리보기"/><div class="previewMeta"><span id="receiptFileMeta">선택된 사진 없음</span><button type="button" class="ghost danger small" id="receiptClear">사진 지우기</button></div></div>`;
-  const runtimeScript = `<script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 영수증 스마트 기록</title><style>*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:18px 18px 104px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:#111827;color:#fff}.hero p{color:#d1d5db;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{display:grid;gap:6px}.field label{font-size:12px;color:#475569;font-weight:1000}.field input,.field select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}textarea{min-height:170px;line-height:1.55}.full{grid-column:1/-1}.drop{border:2px dashed #94a3b8;border-radius:18px;padding:16px;background:#f8fafc}.drop.dragOver{border-color:#0f766e;background:#f0fdfa}.fileRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.receiptFile{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;overflow:hidden!important}.filePick{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;padding:0 15px;font-weight:1000;cursor:pointer}.filePick.alt{background:#fff;color:#111827;border:1px solid #cbd5e1}.filePick.disabled{opacity:.5;cursor:not-allowed}.previewWrap{display:flex;gap:12px;align-items:center;margin-top:12px}.previewWrap img{width:96px;height:96px;object-fit:cover;border-radius:12px;border:1px solid #e2e8f0;background:#fff}.previewMeta{display:grid;gap:8px;min-width:0}.previewMeta span{color:#475569;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.light{background:#e2e8f0!important;color:#0f172a!important}.ghost{background:#fff!important;color:#b91c1c!important;border:1px solid #fecaca!important}.ghost.small{min-height:36px;font-size:13px;justify-self:start}.rowButtons{display:flex;gap:8px;flex-wrap:wrap}.status,.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.status,.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}.status.good{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}.status.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}.status.bad{background:#fef2f2;color:#991b1b;border-color:#fecaca}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.progress{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin:8px 0}.progress>div{height:100%;width:0;background:#0f766e;transition:width .25s ease}.confirm{display:block;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:15px;padding:12px}.privacy{font-size:13px;color:#475569;line-height:1.6}@media(max-width:700px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.fileRow{display:grid;grid-template-columns:1fr}.filePick{width:100%}.full{grid-column:auto}.btn,button{width:100%;margin:4px 0}.rowButtons{display:grid;grid-template-columns:1fr}.previewMeta{flex:1}}</style></head><body class="abPageReceipts">${renderUnifiedNav("receipts", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${messageBanner}${errorBanner}<section class="hero"><h1>영수증 스마트 기록</h1><p>앨범 사진, 카메라 촬영, 영수증 문자를 읽어 상호·날짜·총액을 채웁니다. 자동 인식 결과를 사용자가 직접 확인해야만 저장됩니다.</p><p><a class="btn light" href="/smart-tools?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}">스마트 도구</a></p></section><section class="card"><form method="get" action="/receipts"><div class="grid"><div class="field"><label for="receiptHousehold">가계부</label><select id="receiptHousehold" name="household_id" data-autosubmit>${householdOptions}</select></div><div class="field"><label for="receiptMonth">기록 월</label><input id="receiptMonth" type="month" name="month" value="${escapeHtml(month)}" data-autosubmit/></div></div><p><button type="submit" class="light secondary">가계부 바꾸기</button></p></form></section><section class="card"><h2>1. 사진 또는 문자 읽기</h2><div class="drop" id="receiptDrop">${filePicker}<p class="privacy">이미지는 서버에 업로드하지 않고 이 브라우저 안에서 문자 인식에만 사용합니다. PC에서는 사진을 이 영역에 끌어다 놓거나 붙여넣기(Ctrl+V)해도 됩니다. 인식이 어렵다면 아래 칸에 영수증 문자를 직접 붙여넣으세요.</p></div><div id="ocrStatus" class="status" role="status" aria-live="polite">사진을 선택하면 자동으로 문자를 읽습니다. 문자를 붙여넣었다면 ‘내용 분석’을 누르세요.</div><div class="progress" id="ocrProgress" hidden><div id="ocrProgressBar"></div></div><p class="rowButtons"><button type="button" id="analyzeReceipt" ${disabledAttr}>내용 분석</button><button type="button" class="ghost danger" id="ocrCancel" hidden>분석 취소</button></p><textarea id="receiptText" placeholder="예: 스타마트&#10;2026-07-15&#10;합계 35,400원&#10;신한카드" ${disabledAttr}></textarea></section><section class="card" id="receiptResultCard"><h2>2. 인식 결과 확인</h2>${writable ? "" : `<div class="note">조회 전용 권한에서는 영수증 분석 결과를 저장할 수 없습니다.</div>`}<form method="post" action="/my/receipt/save" id="receiptForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><textarea name="receipt_text" id="receiptRaw" hidden></textarea><div class="grid"><div class="field full"><label for="merchant">상호·내용</label><input id="merchant" name="merchant" maxlength="160" placeholder="예: 스타마트" required ${disabledAttr}/></div><div class="field"><label for="receiptDate">날짜</label><input id="receiptDate" type="date" name="transaction_date" value="${escapeHtml(today)}" required ${disabledAttr}/></div><div class="field"><label for="receiptAmount">총액</label><input id="receiptAmount" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 35,400" required ${disabledAttr}/></div><div class="field"><label for="receiptCategory">분류</label><input id="receiptCategory" name="category" list="receiptCategories" placeholder="자동 추천 또는 직접 입력" ${disabledAttr}/><datalist id="receiptCategories">${categoryOptions}</datalist></div><div class="field"><label for="receiptPayment">결제수단</label><input id="receiptPayment" name="payment_method" placeholder="예: 신한카드, 현금" ${disabledAttr}/></div></div><p class="confirm"><label><input type="checkbox" name="confirmed" value="yes" required ${disabledAttr}/> 사진 원본과 상호·날짜·총액을 비교했고 이 내용으로 저장하는 데 동의합니다.</label></p><button type="submit" ${disabledAttr}>확인한 지출 저장</button></form></section><section class="card"><h2>인식하지 못할 때</h2><div class="note">흐린 사진, 기울어진 영수증, 여러 합계 금액, 손글씨, 잘린 날짜는 자동 인식이 어려울 수 있습니다. 사진을 밝고 수평으로 다시 찍거나, 인식된 문자를 수정해 저장하세요. 아이폰 HEIC 사진이 인식되지 않으면 영수증 화면을 캡처해 다시 선택해 주세요. 자동값이 비어도 직접 입력은 가능합니다.</div></section></main>${runtimeScript}</body></html>`;
+  const successMessage = msg === "receipt_saved"
+    ? `<div class="receiptBanner success" role="status"><b>영수증을 지출 기록으로 저장했습니다.</b><a href="/app?${qs}&tab=transactions#feed">저장한 기록 확인</a></div>`
+    : msg === "duplicate_receipt"
+      ? `<div class="receiptBanner success" role="status"><b>같은 영수증 기록이 이미 있어 중복 저장하지 않았습니다.</b><a href="/app?${qs}&tab=transactions#feed">기존 기록 확인</a></div>`
+      : "";
+  const errorMessage = err ? `<div class="receiptBanner error" role="alert">${escapeHtml(errorMessages[err] || "영수증을 저장하지 못했습니다. 입력값과 가계부 권한을 확인해 주세요.")}</div>` : "";
+  const disabled = writable ? "" : "disabled";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#f5f7fb"/><title>${escapeHtml(appName(env))} · 영수증 스마트 기록</title><style>
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#f5f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.receiptPanel.dragOver{border-color:#2457d6;background:#f3f7ff}.receiptWrap{width:min(100%,1120px);margin:0 auto;padding:28px 24px 120px}.receiptHeader{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:0 0 18px}.receiptHeader h1{margin:4px 0 6px;font-size:clamp(26px,3vw,36px);letter-spacing:-.04em}.receiptHeader p{margin:0;color:#667085;line-height:1.6}.receiptEyebrow{display:block;color:#1d4ed8;font-size:13px;font-weight:750}.receiptBack{display:inline-flex;align-items:center;min-height:42px;padding:0 13px;border:1px solid #d9e1ec;border-radius:11px;background:#fff;color:#344054;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap}.receiptContext{display:grid;grid-template-columns:minmax(180px,1fr) minmax(160px,.8fr) auto;gap:10px;align-items:end;background:#fff;border:1px solid #e1e7ef;border-radius:16px;padding:14px 16px;margin-bottom:16px;box-shadow:0 4px 14px rgba(23,32,51,.035)}.receiptField{display:grid;gap:6px;min-width:0}.receiptField>label,.receiptTextLabel{color:#475467;font-size:13px;font-weight:650}.receiptField input,.receiptField select,.receiptTextArea{width:100%;min-height:46px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.receiptTextArea{min-height:190px;padding:12px;line-height:1.55;resize:vertical}.receiptContext button,.receiptPrimary,.receiptSecondary,.receiptSave{display:inline-flex;align-items:center;justify-content:center;min-height:46px;border:1px solid transparent;border-radius:11px;padding:0 15px;font:inherit;font-weight:700;cursor:pointer}.receiptContext button,.receiptPrimary,.receiptSave{background:#2457d6;color:#fff}.receiptSecondary{background:#f4f6f9;color:#344054;border-color:#d8e0eb}.receiptGrid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(360px,.92fr);gap:16px;align-items:start}.receiptPanel{min-width:0;background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(23,32,51,.045)}.receiptPanelHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.receiptStep{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ff;color:#1d4ed8;font-weight:800}.receiptPanelHead h2{margin:1px 0 3px;font-size:19px}.receiptPanelHead p{margin:0;color:#667085;font-size:13px;line-height:1.55}.receiptSourceActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.receiptSourcePick{display:flex;align-items:center;gap:12px;min-height:72px;border:1px solid #d7e0ec;border-radius:14px;padding:12px 14px;background:#f9fbfd;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.receiptSourcePick:hover{border-color:#9eb9ef;background:#f3f7ff;transform:translateY(-1px)}.receiptSourcePick.busy{opacity:.65;cursor:wait;transform:none}.receiptSourceIcon{display:grid;place-items:center;flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:#eaf2ff;color:#1d4ed8;font-size:18px;font-weight:800}.receiptSourcePick b,.receiptSourcePick small{display:block}.receiptSourcePick b{font-size:14px}.receiptSourcePick small{margin-top:2px;color:#667085;font-size:12px}.receiptFile{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.receiptPrivacy{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;color:#667085;font-size:12.5px;line-height:1.55}.receiptPreview{margin-top:14px;border:1px solid #e0e6ee;border-radius:14px;overflow:hidden;background:#f3f5f8}.receiptPreview img{display:block;width:100%;height:260px;object-fit:contain;background:#eef1f5}.receiptPreviewMeta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fff}.receiptPreviewMeta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475467;font-size:12px}.receiptPreviewMeta button{flex:0 0 auto;min-height:34px!important;padding:0 10px!important}.receiptStatus{position:relative;margin:14px 0 0;border:1px solid #d8e3f4;border-radius:12px;padding:12px 13px;background:#f4f8ff;color:#27456f;font-size:13px;line-height:1.55}.receiptStatus[data-state="busy"]{padding-left:40px;background:#eef4ff;color:#1d4ed8}.receiptStatus[data-state="busy"]:before{content:"";position:absolute;left:15px;top:15px;width:14px;height:14px;border:2px solid #b8caf0;border-top-color:#2457d6;border-radius:50%;animation:receiptSpin .7s linear infinite}.receiptStatus[data-state="success"]{background:#edf8f1;border-color:#c6e5d1;color:#17633a}.receiptStatus[data-state="error"]{background:#fff3f1;border-color:#f1cbc5;color:#9d3328}.receiptActions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.receiptActions>*{flex:1 1 170px}.receiptDivider{height:1px;background:#edf0f4;margin:18px 0}.receiptTextHelp{margin:6px 0 10px;color:#667085;font-size:12.5px;line-height:1.55}.receiptDetected{min-height:43px;margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#f7f9fc;color:#475467;font-size:13px;line-height:1.55}.receiptResultGrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.receiptFull{grid-column:1/-1}.receiptConfirm{display:flex;gap:9px;align-items:flex-start;margin:15px 0;padding:12px 13px;border:1px solid #ead8a4;border-radius:12px;background:#fffaf0;color:#6d5011;font-size:13px;line-height:1.55}.receiptConfirm input{flex:0 0 auto;width:19px;height:19px;margin-top:1px}.receiptSave{width:100%}.receiptBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:13px;padding:12px 14px;margin:0 0 12px;line-height:1.5}.receiptBanner.success{background:#edf8f1;border:1px solid #c6e5d1;color:#17633a}.receiptBanner.error{background:#fff2ef;border:1px solid #f1cbc5;color:#9d3328}.receiptBanner a{color:inherit;font-weight:750}.receiptHelp{margin-top:16px;border-top:1px solid #e6eaf0;padding:15px 2px 0;color:#475467}.receiptHelp summary{cursor:pointer;font-weight:700}.receiptHelp ul{margin:10px 0 0;padding-left:20px;color:#667085;font-size:13px;line-height:1.7}.receiptReadOnly{margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#fff7ed;color:#9a3412;font-size:13px}.receiptPrimary:disabled,.receiptSecondary:disabled,.receiptSave:disabled,.receiptContext button:disabled{opacity:.55;cursor:not-allowed;transform:none!important}@keyframes receiptSpin{to{transform:rotate(360deg)}}@media(max-width:900px){.receiptGrid{grid-template-columns:1fr}.receiptPanel{padding:18px}}@media(max-width:700px){.receiptWrap{padding:18px 12px 100px}.receiptHeader{display:block}.receiptBack{margin-top:13px}.receiptContext{grid-template-columns:1fr;padding:14px}.receiptContext input,.receiptContext select,.receiptContext button,.receiptTextArea,.receiptResultGrid input{font-size:16px}.receiptSourceActions{grid-template-columns:1fr}.receiptSourcePick{min-height:68px}.receiptPreview img{height:220px}.receiptResultGrid{grid-template-columns:1fr}.receiptFull{grid-column:auto}.receiptPanel{border-radius:16px;padding:16px}.receiptActions{display:grid;grid-template-columns:1fr}.receiptActions>*{width:100%}.receiptBanner{align-items:flex-start;flex-direction:column}.receiptHeader h1{font-size:28px}}@media(prefers-reduced-motion:reduce){.receiptSourcePick{transition:none}.receiptStatus[data-state="busy"]:before{animation-duration:1.4s}}
+</style></head><body>${renderUnifiedNav("receipts", { month, householdId: selected.id, householdName: selected.name })}<main class="receiptWrap">${successMessage}${errorMessage}<header class="receiptHeader"><div><span class="receiptEyebrow">스마트 기록</span><h1>영수증 등록</h1><p>앨범 사진이나 지금 촬영한 사진에서 글자를 읽고, 확인한 내용만 가계부에 저장합니다.</p></div><a class="receiptBack" href="/smart-tools?${qs}">스마트 도구로 돌아가기</a></header><form class="receiptContext" method="get" action="/receipts"><div class="receiptField"><label for="receiptHousehold">가계부</label><select id="receiptHousehold" name="household_id">${householdOptions}</select></div><div class="receiptField"><label for="receiptMonth">기록 월</label><input id="receiptMonth" type="month" name="month" value="${escapeHtml(month)}"/></div><button type="submit">선택 적용</button></form><div class="receiptGrid"><section class="receiptPanel" id="receiptSourcePanel" aria-labelledby="receiptSourceTitle"><div class="receiptPanelHead"><span class="receiptStep">1</span><div><h2 id="receiptSourceTitle">영수증 가져오기</h2><p>앨범과 카메라 중 편한 방법을 선택하세요. 사진을 고르는 것만으로 분석이 시작되지는 않습니다.</p></div></div><div class="receiptSourceActions"><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptImage"><span class="receiptSourceIcon" aria-hidden="true">▧</span><span><b>앨범에서 선택</b><small>저장된 영수증 사진</small></span></label><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptCamera"><span class="receiptSourceIcon" aria-hidden="true">◎</span><span><b>카메라로 촬영</b><small>지금 영수증 찍기</small></span></label><input class="receiptFile" id="receiptImage" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" ${disabled}/><input class="receiptFile" id="receiptCamera" type="file" accept="image/*" capture="environment" ${disabled}/></div><p class="receiptPrivacy"><span aria-hidden="true">✓</span><span>사진은 서버에 업로드하지 않고 현재 브라우저에서만 문자 인식에 사용합니다. 앨범·카메라 접근은 해당 버튼을 눌렀을 때만 요청됩니다. PC에서는 사진을 이 카드에 끌어다 놓거나 붙여넣기(Ctrl+V)해도 됩니다.</span></p><div class="receiptPreview" id="receiptPreview" hidden><img id="receiptPreviewImage" alt=""/><div class="receiptPreviewMeta"><span id="receiptFileName">선택된 사진 없음</span><button class="receiptSecondary" id="clearReceiptImage" type="button">선택 취소</button></div></div><div class="receiptStatus" id="ocrStatus" role="status" aria-live="polite">앨범이나 카메라에서 영수증 사진을 선택해 주세요.</div><div class="receiptActions"><button class="receiptPrimary" type="button" id="readReceiptImage" disabled>선택한 사진 읽기</button><button class="receiptSecondary" type="button" id="ocrCancel" hidden>분석 취소</button></div><div class="receiptDivider"></div><label class="receiptTextLabel" for="receiptText">문자가 있다면 직접 붙여넣기</label><p class="receiptTextHelp">카카오톡이나 문자로 받은 전자영수증은 내용을 복사해 아래에 붙여넣는 편이 더 빠릅니다.</p><textarea class="receiptTextArea" id="receiptText" placeholder="예: 스타마트&#10;2026-07-15&#10;합계 35,400원&#10;신한카드" ${disabled}></textarea><div class="receiptActions"><button class="receiptSecondary" type="button" id="analyzeReceipt" disabled>붙여넣은 문자 분석</button></div></section><section class="receiptPanel" id="receiptResults" aria-labelledby="receiptResultTitle"><div class="receiptPanelHead"><span class="receiptStep">2</span><div><h2 id="receiptResultTitle">인식 결과 확인</h2><p>자동 인식은 틀릴 수 있습니다. 상호·날짜·총액 세 항목을 원본과 꼭 비교하세요.</p></div></div>${writable ? "" : `<div class="receiptReadOnly">조회 전용 권한에서는 인식 결과를 저장할 수 없습니다.</div>`}<div class="receiptDetected" id="receiptDetectedSummary">사진이나 문자를 분석하면 찾은 값이 여기에 표시됩니다.</div><form method="post" action="/my/receipt/save" id="receiptForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><textarea name="receipt_text" id="receiptRaw" hidden></textarea><div class="receiptResultGrid"><div class="receiptField receiptFull"><label for="merchant">상호·내용</label><input id="merchant" name="merchant" maxlength="160" autocomplete="off" placeholder="예: 스타마트" required ${disabled}/></div><div class="receiptField"><label for="receiptDate">날짜</label><input id="receiptDate" type="date" name="transaction_date" value="${escapeHtml(today)}" required ${disabled}/></div><div class="receiptField"><label for="receiptAmount">총액</label><input id="receiptAmount" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 35,400" required ${disabled}/></div><div class="receiptField"><label for="receiptCategory">분류</label><input id="receiptCategory" name="category" list="receiptCategories" placeholder="자동 추천 또는 직접 입력" ${disabled}/><datalist id="receiptCategories">${categoryOptions}</datalist></div><div class="receiptField"><label for="receiptPayment">결제수단</label><input id="receiptPayment" name="payment_method" autocomplete="off" placeholder="예: 신한카드, 현금" ${disabled}/></div></div><label class="receiptConfirm"><input type="checkbox" name="confirmed" value="yes" required ${disabled}/><span>사진 원본과 상호·날짜·총액을 비교했고, 이 내용으로 저장하는 데 동의합니다.</span></label><button class="receiptSave" type="submit" ${disabled}>확인한 지출 저장</button></form><details class="receiptHelp"><summary>사진이 잘 읽히지 않을 때</summary><ul><li>영수증이 화면을 세로로 가득 채우도록 촬영하세요.</li><li>그림자와 구김을 줄이고 영수증을 수평으로 놓아주세요.</li><li>HEIC에서 오류가 나면 사진을 화면 캡처해 JPG·PNG로 다시 선택하세요.</li><li>자동값이 비어도 오른쪽 입력란에서 직접 적어 저장할 수 있습니다.</li></ul></details></section></div></main><script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script></body></html>`;
 }
 
 function renderMiniCategoryRows(stats = {}) {
@@ -14493,7 +15372,7 @@ async function handleMyHouseholdsPage(request, env, url) {
     : `<div class="field"><label>로그인 이름 <small>표시 이름과 별도로 유지됩니다</small></label><input name="login_name" value="${escapeHtml(user.nickname || "")}" minlength="2" autocomplete="username" placeholder="로그인할 때 사용할 이름" required/></div><div class="field"><label>내 개인 비밀번호 <small>분실·재로그인용, 8자리 이상</small></label><input name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" required/></div><div class="field"><label>개인 비밀번호 확인</label><input name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" required/></div>`;
 
   const leaveForm = selected && selected.role !== "owner"
-    ? `<form method="post" action="/my/household/leave" class="dangerZone" onsubmit="return confirm('이 가계부에서 나갈까요? 기존 기록은 지출자 정보와 함께 유지됩니다.')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><h3>가계부에서 나가기</h3><p>내 참여 권한만 해제됩니다. 이미 남긴 기록은 공동 정산과 변경 이력을 위해 삭제되지 않습니다.</p><label>내 개인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label><label class="check"><input name="understand_history" type="checkbox" value="1" required/> 기존 기록은 지출 당시 참여자 기록으로 유지됨을 이해했습니다.</label><button type="submit">이 가계부에서 나가기</button></form>`
+    ? `<form method="post" action="/my/household/leave" class="dangerZone" onsubmit="return confirm('이 가계부에서 나갈까요? 기존 기록은 지출자 정보와 함께 유지됩니다.')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><h3>가계부에서 나가기</h3><p>내 참여 권한만 해제됩니다. 이미 남긴 기록은 공동 정산과 변경 이력을 위해 삭제되지 않습니다.</p><label>내 개인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label><label class="check"><input name="understand_history" type="checkbox" value="1" required/> 기존 기록은 지출 당시 참여자 기록으로 유지됨을 이해했습니다.</label><button class="danger" type="submit">이 가계부에서 나가기</button></form>`
     : "";
 
   const selectedManage = selected && canReadMyHousehold(selected.role) ? `<section class="card manageCard" id="manage"><div class="sectionHead"><div><span class="eyebrow">가계부별 옵션</span><h2>${escapeHtml(selected.name)}</h2><p>${escapeHtml(userHouseholdRoleLabel(selected.role || "member"))} · 참여자 ${numberWithCommas(selectedMembers.filter((m) => m.role !== "blocked").length)}명</p></div><a class="closeLink" href="/my/households?month=${encodeURIComponent(month)}">목록만 보기</a></div><div class="optionGrid"><a href="/my/members?${qsFor(selected)}"><b>참여자·초대</b><span>초대코드와 멤버 확인</span></a><a href="/my/settings?${qsFor(selected)}"><b>수입·예산</b><span>분류별 합계 설정</span></a><a href="/my/backup-login?return_to=${encodeURIComponent(`/my/households?${qsFor(selected)}&manage=${selected.id}#manage`)}"><b>개인 비밀번호</b><span>저장 후 이 화면으로 복귀</span></a><a href="/my/backup?${qsFor(selected)}"><b>백업·가져오기</b><span>삭제 전 CSV 보관</span></a><a href="/my/groups?${qsFor(selected)}"><b>단톡방 연결</b><span>가계부별 연결 확인</span></a><a href="/app?${qsFor(selected)}"><b>가계부 열기</b><span>홈과 기록으로 이동</span></a></div>${canManageMyHousehold(selected.role) ? `<div class="manageGrid"><form method="post" action="/my/household/update" class="settingsForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><h3>가계부 이름 변경</h3><label>새 이름<input name="household_name" value="${escapeHtml(selected.name || "")}" minlength="2" maxlength="40" required/></label><button type="submit">이름 저장</button></form>${selected.role === "owner" ? `<form method="post" action="/my/household/delete" class="dangerZone" onsubmit="return confirm('이 가계부의 모든 기록과 설정을 영구 삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><h3>가계부 영구 삭제</h3><p>먼저 <a href="/my/backup?${qsFor(selected)}">CSV 백업</a>을 권장합니다. 삭제 후 복구할 수 없습니다.</p><label>가계부 이름을 그대로 입력<input name="confirm_name" placeholder="${escapeHtml(selected.name || "")}" autocomplete="off" required/></label><label>내 개인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label><label class="check"><input name="understand_members" type="checkbox" value="1" required/> 참여자 ${numberWithCommas(selectedMembers.length)}명과 모든 기록이 삭제됨을 이해했습니다.</label><button type="submit">이 가계부 영구 삭제</button></form>` : ""}</div>` : `<div class="readOnlyNote">이름·멤버·삭제 관리는 가계부 소유자 또는 관리자만 할 수 있습니다.</div>`}${leaveForm}</section>` : "";
@@ -15514,7 +16393,7 @@ async function handleMemeReact(request, env) {
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
   const type = String(form.get("type") || "like").trim();
-  const returnTo = String(form.get("return_to") || "/meme-archive");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/meme-archive");
   const field = type === "share" ? "share_count" : "like_count";
   try {
     const row = await loadSavedMemeCardById(env, id);
@@ -15576,7 +16455,7 @@ async function handleMemeSave(request, env) {
 async function handleMemeDelete(request, env) {
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
-  const returnTo = String(form.get("return_to") || "/meme-archive");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/meme-archive");
   if (!id) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 카드 ID가 없습니다." }));
   try {
     const row = await loadSavedMemeCardById(env, id);
@@ -15953,7 +16832,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>📅 ${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">캘린더 닫기 ✕</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 아래 목록에 그날 기록만 표시되고, 빠른 입력 날짜도 그 날짜로 맞춰집니다. 기록 없는 날은 흐리게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, stats, prevStats = null, budgets, reservePlans = [], budget, recurring, meme, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", balert = "", homeView = "", calendarRows = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", balert = "", homeView = "", calendarRows = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true }) {
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
@@ -15980,8 +16859,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const hasMobileFilter = filterType !== "all" || filterQ || filterQuality !== "all" || filterDate || filterCategory || filterPayment;
   const feedMode = mobileFeed === "all" ? "all" : mobileFeed === "30" ? "30" : "10";
   const currentPath = `${baseAppPath}${feedMode !== "10" ? `&feed=${encodeURIComponent(feedMode)}` : ""}`;
-  const feedLimit = feedMode === "all" ? rows.length : feedMode === "30" ? 30 : 10;
-  const feedRows = rows.slice(0, feedLimit).map((row) => ({ ...row, __spenderMembers: members, __canEditSpender: appIsManager }));
+  const feedSource = Array.isArray(filteredRows) ? filteredRows : rows;
+  const feedLimit = feedMode === "all" ? feedSource.length : feedMode === "30" ? 30 : 10;
+  const feedRows = feedSource.slice(0, feedLimit).map((row) => ({ ...row, __spenderMembers: members, __canEditSpender: appIsManager }));
   const todayStr = formatDate(nowKstDate());
   const todaySpend = rows.filter((r) => r.type !== "income" && String(r.transaction_date || "") === todayStr).reduce((a, r) => a + Number(r.amount || 0), 0);
   const isCurrentMonth = todayStr.slice(0, 7) === month;
@@ -16013,8 +16893,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const payFreq = {};
   for (const r of rows) { const pm = String(r.payment_method || "").trim(); if (pm) payFreq[pm] = (payFreq[pm] || 0) + 1; }
   const payChips = Object.entries(payFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([pm]) => `<button type="button" data-pay-only="${escapeHtml(pm)}">${escapeHtml(pm)}</button>`).join("");
-  const feedLabel = feedMode === "all" ? `전체 ${rows.length}건` : `최근 ${Math.min(feedLimit, rows.length)}건`;
-  const feedLinks = `<div class="feedControls"><span>${escapeHtml(feedLabel)} 표시 중${hasMobileFilter ? ` · 필터 적용 ${numberWithCommas(rows.length)}건` : ""}</span><a class="${feedMode === "10" ? "active" : ""}" href="${escapeHtml(baseAppPath)}#feed">최근 10건</a><a class="${feedMode === "30" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=30`)}#feed">최근 30건</a><a class="${feedMode === "all" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 조회</a></div>`;
+  const feedLabel = feedMode === "all" ? `전체 ${feedSource.length}건` : `최근 ${Math.min(feedLimit, feedSource.length)}건`;
+  const feedLinks = `<div class="feedControls"><span>${escapeHtml(feedLabel)} 표시 중${hasMobileFilter ? ` · 필터 적용 ${numberWithCommas(feedSource.length)}건` : ""}</span><a class="${feedMode === "10" ? "active" : ""}" href="${escapeHtml(baseAppPath)}#feed">최근 10건</a><a class="${feedMode === "30" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=30`)}#feed">최근 30건</a><a class="${feedMode === "all" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 조회</a></div>`;
   const mobileFilterForm = `<form class="mobileFilterForm" method="get" action="/app"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${homeView === "calendar" ? `<input type="hidden" name="view" value="calendar"/>` : ""}<input name="q" value="${escapeHtml(filterQ)}" placeholder="내용 검색: 커피, 병원, 카드"/><div class="filterQuick"><select name="type"><option value="all" ${filterType === "all" ? "selected" : ""}>수입·지출 전체</option><option value="expense" ${filterType === "expense" ? "selected" : ""}>지출만</option><option value="income" ${filterType === "income" ? "selected" : ""}>수입만</option></select><select name="quality"><option value="all" ${filterQuality === "all" ? "selected" : ""}>정리상태 전체</option><option value="missing_any" ${filterQuality === "missing_any" ? "selected" : ""}>정리 필요</option><option value="missing_category" ${filterQuality === "missing_category" ? "selected" : ""}>미분류</option><option value="missing_payment" ${filterQuality === "missing_payment" ? "selected" : ""}>결제수단 미입력</option></select></div><details class="filterAdvanced" ${filterDate || filterCategory || filterPayment ? "open" : ""}><summary>날짜·분류·결제수단 상세 필터</summary><div class="filterAdvancedGrid"><input type="date" name="date" value="${escapeHtml(filterDate)}"/><input name="category" list="categoryList" value="${escapeHtml(filterCategory)}" placeholder="분류"/><input name="payment_method" list="paymentList" value="${escapeHtml(filterPayment)}" placeholder="결제수단"/></div></details><div class="filterQuick"><button type="submit">검색 적용</button><a href="${escapeHtml(resetAppPath)}#feed">필터 초기화</a></div></form>`;
   const hidden = `<input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/>`;
   const today = formatDate(nowKstDate());
@@ -16035,9 +16915,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
   const displayBudgetPercent = Math.max(0, Math.min(100, budgetPercent || 0));
   const firstRecordDone = rows.length > 0;
-  const budgetSetupDone = budgetTotal > 0;
-  const onboardingDone = 1 + (firstRecordDone ? 1 : 0) + (budgetSetupDone ? 1 : 0);
-  const onboardingHtml = firstRecordDone && budgetSetupDone ? "" : `<section class="homeOnboarding" aria-labelledby="homeOnboardingTitle"><div class="homeOnboardingHead"><div><h2 id="homeOnboardingTitle">첫 설정 3단계</h2><p class="muted">지금 필요한 한 단계만 완료하면 됩니다.</p></div><span>${onboardingDone}/3 완료</span></div><div class="homeOnboardingSteps"><div class="homeOnboardingStep done"><b>1. 가계부 준비</b><small>${escapeHtml(selectedHousehold?.name || "가계부")} 선택 완료</small></div><div class="homeOnboardingStep ${firstRecordDone ? "done" : "current"}"><b>2. 첫 기록</b><small>${firstRecordDone ? "첫 기록 완료" : "한 줄로 지출을 남겨보세요"}</small>${firstRecordDone ? "" : `<a href="#add">기록하러 가기 →</a>`}</div><div class="homeOnboardingStep ${budgetSetupDone ? "done" : firstRecordDone ? "current" : ""}"><b>3. 예산 설정</b><small>${budgetSetupDone ? "월 예산 설정 완료" : "첫 기록 후 설정해도 됩니다"}</small>${budgetSetupDone || !firstRecordDone ? "" : `<a href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">예산 정하기 →</a>`}</div></div></section>`;
+  const onboardingDone = 1 + (firstRecordDone ? 1 : 0);
+  const onboardingHtml = `<section class="homeOnboarding" data-household-id="${escapeHtml(householdId || "default")}" data-first-record="${firstRecordDone ? "1" : "0"}" aria-labelledby="homeOnboardingTitle"><div class="homeOnboardingHead"><div><h2 id="homeOnboardingTitle">첫 사용 3단계</h2><p class="muted">필수 흐름만 끝낸 뒤 예산·자산 설정은 필요할 때 추가하세요.</p></div><span>${onboardingDone}/3 완료</span></div><div class="homeOnboardingSteps"><div class="homeOnboardingStep done"><b>1. 가계부 준비</b><small>${escapeHtml(selectedHousehold?.name || "가계부")} 선택 완료</small></div><div class="homeOnboardingStep ${firstRecordDone ? "done" : "current"}"><b>2. 첫 기록</b><small>${firstRecordDone ? "첫 기록 완료" : "한 줄로 지출을 남겨보세요"}</small>${firstRecordDone ? "" : `<a href="#add">기록하러 가기 →</a>`}</div><div class="homeOnboardingStep ${firstRecordDone ? "current" : ""}"><b>3. 저장 결과 확인</b><small>${firstRecordDone ? "최근 기록에서 금액·내용을 확인하세요" : "첫 기록을 저장하면 확인할 수 있어요"}</small>${firstRecordDone ? `<a href="#feed" data-onboarding-result-check>최근 기록 확인 →</a>` : ""}</div></div></section>`;
   const reserveInfo = reserveDashboard(reservePlans || []);
   const topCatsForHome = stats.categories.filter((c) => c.expense > 0).slice(0, 4);
   const topCatTotal = topCatsForHome.reduce((a, c) => a + Number(c.expense || 0), 0) || Number(stats.totals.expense || 0) || 1;
@@ -16068,6 +16947,10 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const categoryList = categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
   const paymentList = paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("");
   const appMomRate = prevStats ? percentChange(Number(stats.totals.expense || 0), Number(prevStats.totals.expense || 0)) : null;
+  // The remaining template uses rows.length only for the feed's "view all"
+  // affordance. Dashboard summaries above have already been built from all
+  // monthly rows, so switch that final count to the filtered feed source.
+  rows = feedSource;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#2563eb"/><title>${title} · 모바일</title><style>${MOBILE_V81_CSS}</style></head><body><header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1><nav class="topActions" aria-label="현재 가계부 메뉴"><a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">분석</a><a class="menuLink" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">메뉴</a></nav></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(err)}</div>` : ""}${balert ? `<div class="notice ${balert.indexOf("🚨") >= 0 ? "budgetOver" : "budgetWarn"}">${escapeHtml(balert)}</div>` : ""}${onboardingHtml}<section class="homeBudget">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>
     <div class="homeBudgetAmount"><b>${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
@@ -16077,46 +16960,95 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
 if(smartBtn)smartBtn.addEventListener('click',applySmart);if(smart)smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart();}});var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`;
 }
 
+async function fetchMonthAmountRows(env, month, householdId) {
+  if (!householdId) return [];
+  const params = new URLSearchParams();
+  params.set("select", "type,amount");
+  params.set("transaction_date", `gte.${month}-01`);
+  params.append("transaction_date", `lt.${nextMonthStart(month)}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("order", "transaction_date.desc");
+  return fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`, { maxRows: 10000 });
+}
+
+function filterMobileTransactionRows(rows = [], filters = {}) {
+  const type = filters.type === "income" ? "income" : filters.type === "expense" ? "expense" : "all";
+  const needle = String(filters.q || "").trim().toLowerCase();
+  const quality = String(filters.quality || "all");
+  const date = String(filters.date || "");
+  const category = String(filters.category || "");
+  const payment = String(filters.payment_method || "");
+  return safeArray(rows).filter((row) => {
+    if (type !== "all" && row.type !== type) return false;
+    if (date && String(row.transaction_date || "") !== date) return false;
+    if (needle && !String(`${row.memo || ""} ${row.category || ""} ${row.payment_method || ""} ${row.raw_text || ""}`).toLowerCase().includes(needle)) return false;
+    if (category && !(category === "__missing" ? isMissingCategory(row.category) : String(row.category || "") === category)) return false;
+    if (payment && !(payment === "__missing" ? isMissingPayment(row.payment_method) : String(row.payment_method || "") === payment)) return false;
+    if (quality === "missing_category" && !isMissingCategory(row.category)) return false;
+    if (quality === "missing_payment" && !(row.type === "expense" && isMissingPayment(row.payment_method))) return false;
+    if (quality === "missing_any" && !(isMissingCategory(row.category) || (row.type === "expense" && isMissingPayment(row.payment_method)))) return false;
+    if (quality === "kakao_only" && !String(row.source || "").includes("kakao")) return false;
+    if (quality === "web_only" && !String(row.source || "").includes("web")) return false;
+    return true;
+  });
+}
+
 async function handleMobileV8Page(request, env, url) {
-  const userId = await verifyUserSession(request, env);
-  const adminOk = await verifyAdminSession(request, env);
+  const [userId, adminOk] = await Promise.all([
+    verifyUserSession(request, env),
+    verifyAdminSession(request, env),
+  ]);
   if (!userId && !adminOk) return redirectResponse("/my");
   const title = escapeHtml(appName(env));
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   let households = [];
   let selectedHousehold = null;
   if (userId) {
-    const user = await fetchUserById(env, userId);
     const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
-    if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+    if (access.restricted) {
+      const user = await fetchUserById(env, userId);
+      return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+    }
     households = access.households;
     selectedHousehold = access.selected;
-    if (!selectedHousehold) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
+    if (!selectedHousehold) {
+      const user = await fetchUserById(env, userId);
+      return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
+    }
   } else {
     households = await fetchAdminHouseholds(env);
     const requestedId = url.searchParams.get("household_id") || households[0]?.id || "";
     selectedHousehold = households.find((h) => h.id === requestedId) || households[0] || null;
   }
   const householdId = selectedHousehold?.id || "";
-  const members = selectedHousehold ? await fetchHouseholdMembers(env, selectedHousehold.id) : [];
   const mobileType = url.searchParams.get("type") === "income" ? "income" : url.searchParams.get("type") === "expense" ? "expense" : "all";
   const mobileQ = String(url.searchParams.get("q") || "").trim();
   const mobileQuality = ["missing_any", "missing_category", "missing_payment", "kakao_only", "web_only"].includes(String(url.searchParams.get("quality") || "")) ? String(url.searchParams.get("quality")) : "all";
   const mobileDate = isValidTransactionDateString(url.searchParams.get("date") || "") ? String(url.searchParams.get("date")) : "";
   const mobileCategory = String(url.searchParams.get("category") || "").trim();
   const mobilePayment = String(url.searchParams.get("payment_method") || "").trim();
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: selectedHousehold?.id || "", type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }), members);
+  const canLoadWriteOptions = !!selectedHousehold && (adminOk || canWriteMyHousehold(String(selectedHousehold.role || "")));
+  const [members, rawMonthlyRows, prevAmountRows, budgets, reservePlans, paymentAssetRows] = await Promise.all([
+    selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id) : [],
+    selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
+    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId) : [],
+    selectedHousehold ? fetchBudgets(env, householdId, month) : [],
+    selectedHousehold && month === currentMonthKst() ? fetchReservePlans(env, householdId) : [],
+    canLoadWriteOptions ? fetchPaymentAssets(env, householdId) : [],
+  ]);
+  const rows = attachSpenderNames(rawMonthlyRows, members);
+  const filteredRows = filterMobileTransactionRows(rows, {
+    type: mobileType,
+    q: mobileQ,
+    quality: mobileQuality,
+    date: mobileDate,
+    category: mobileCategory,
+    payment_method: mobilePayment,
+  });
   const stats = calculateStats(rows);
-  const prevAppRows = selectedHousehold ? await fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId: selectedHousehold.id, type: "all" }) : [];
-  const prevStats = calculateStats(prevAppRows);
-  const budgets = await fetchBudgets(env, selectedHousehold?.id || "", month);
-  const reservePlans = await fetchReservePlans(env, selectedHousehold?.id || "");
-  const recurring = await fetchRecurring(env, selectedHousehold?.id || "");
+  const prevStats = calculateStats(prevAmountRows);
   const budget = budgetSummary(rows, budgets);
-  const meme = memeCardFor({ rows, stats, budget, month });
-  const customCategoryRows = await fetchCustomCategories(env, selectedHousehold?.id || "");
-  const paymentAssetRows = await fetchPaymentAssets(env, selectedHousehold?.id || "");
-  const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, [...customCategoryRows.map((c) => c.name).filter(Boolean), ...rows.map((r) => r.category).filter(Boolean)]);
+  const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, rows.map((r) => r.category).filter(Boolean));
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, [...paymentAssetRows.map((p) => p.name).filter(Boolean), ...rows.map((r) => r.payment_method).filter(Boolean)]);
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
@@ -16124,12 +17056,8 @@ async function handleMobileV8Page(request, env, url) {
   const focusTab = url.searchParams.get("tab") === "transactions" ? "transactions" : "home";
   const balert = String(url.searchParams.get("balert") || "").slice(0, 120);
   const homeView = url.searchParams.get("view") === "calendar" ? "calendar" : "";
-  const hasFeedFilter = mobileType !== "all" || !!mobileQ || mobileQuality !== "all" || !!mobileDate || !!mobileCategory || !!mobilePayment;
-  // 캘린더 그리드는 월 전체 rows가 필요. 피드 필터(date 등)가 없으면 이미 가진 rows를 그대로 재사용
-  const calendarRows = homeView === "calendar" && hasFeedFilter && selectedHousehold
-    ? await fetchAdminRows(env, { month, householdId: selectedHousehold.id, type: "all" })
-    : rows;
-  return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, stats, prevStats, budgets, reservePlans, budget, recurring, meme, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, balert, homeView, calendarRows, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk }));
+  const calendarRows = rows;
+  return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, balert, homeView, calendarRows, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk }));
 }
 
 
@@ -16138,7 +17066,7 @@ async function handleBudgetSave(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const returnTo = String(form.get("return_to") || `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
@@ -16173,7 +17101,7 @@ async function handleBudgetDelete(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const category = String(form.get("category") || "").trim();
-  const returnTo = String(form.get("return_to") || `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
@@ -16195,18 +17123,23 @@ async function pcScopedContext(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return null;
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const user = await fetchUserById(env, userId);
-  const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const [user, access] = await Promise.all([
+    fetchUserById(env, userId),
+    getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
+  ]);
   if (access.restricted) return { userId, user, month, households: access.households, selectedHousehold: null, restricted: access.restricted };
   const households = access.households;
   const selectedHousehold = access.selected;
   if (!selectedHousehold) return { userId, month, households, selectedHousehold: null, members: [], rows: [], stats: calculateStats([]), budgets: [], budget: budgetSummary([], []), calendar: [] };
-  const members = await fetchHouseholdMembers(env, selectedHousehold.id);
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: selectedHousehold.id, type: "all" }), members);
+  const [members, rawRows, budgets, calendar] = await Promise.all([
+    fetchHouseholdMembers(env, selectedHousehold.id),
+    fetchAdminRows(env, { month, householdId: selectedHousehold.id, type: "all" }),
+    fetchBudgets(env, selectedHousehold.id, month),
+    getCalendar(env, selectedHousehold.id, month),
+  ]);
+  const rows = attachSpenderNames(rawRows, members);
   const stats = calculateStats(rows);
-  const budgets = await fetchBudgets(env, selectedHousehold.id, month);
   const budget = budgetSummary(rows, budgets);
-  const calendar = await getCalendar(env, selectedHousehold.id, month);
   return { userId, month, households, selectedHousehold, members, rows, stats, budgets, budget, calendar };
 }
 
@@ -16592,7 +17525,7 @@ async function handleRecurringSave(request, env) {
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "").trim();
-  const returnTo = String(form.get("return_to") || "/app#fixed");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/app#fixed");
   const members = await fetchHouseholdMembers(env, householdId);
   const spenderId = String(form.get("user_id") || "").trim();
   const row = {
@@ -16627,7 +17560,7 @@ async function handleRecurringDelete(request, env) {
     return redirectResponse("/?legacy=1");
   }
   const id = String(form.get("id") || "");
-  const returnTo = String(form.get("return_to") || "/app#fixed");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/app#fixed");
   if (!id) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
   try {
     const deleted = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(_hh)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
@@ -16650,7 +17583,7 @@ async function handleRecurringApply(request, env) {
   }
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const returnTo = String(form.get("return_to") || `/app?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/app?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
       method: "POST",
@@ -16688,7 +17621,7 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "카카오사용자");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 가계부 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래 두 가지 중 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section><section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div><script>(function(){document.querySelectorAll('form[action="/my/create"],form[action="/my/join"]').forEach(function(form){form.addEventListener('submit',function(){var button=form.querySelector('button[type="submit"]');if(!button||button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='처리 중…';});});})();</script></main></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래 두 가지 중 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section><section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
 
 
@@ -16796,14 +17729,14 @@ async function handleMyLocalSignup(request, env) {
 
 
 function kakaoLoginStatusBlock(env) {
-  if (kakaoLoginAvailable(env)) {
+  const config = inspectKakaoLoginConfig(env);
+  if (config.ready) {
     return `<a class="kakaoBtn" href="/auth/kakao/start">💬 카카오로 로그인하기</a><div class="notice"><b>가장 간편한 방법</b><br/>카카오 계정으로 로그인하면 참여 중인 가계부를 바로 이어서 사용할 수 있습니다.</div><div class="sep">다른 방법으로 접속</div>`;
   }
-  const disabled = ["0", "false", "off", "no", "disabled"].includes(String(env.KAKAO_LOGIN_ENABLED || "").trim().toLowerCase());
-  if (disabled) {
-    return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>아래 이름과 개인 접속코드로 안전하게 접속할 수 있습니다.</div>`;
+  if (!config.enabled) {
+    return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 개인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 개인 비밀번호에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;
   }
-  return `<div class="warn"><b>카카오 로그인을 준비하고 있어요</b><br/>그동안은 아래 이름과 개인 접속코드로 접속할 수 있습니다.</div>`;
+  return `<div class="warn"><b>카카오 로그인 설정을 확인하고 있어요</b><br/>주소나 앱 설정이 맞기 전에는 오류 페이지로 이동하지 않도록 버튼을 숨깁니다.</div><div class="mobileAccessHelp"><b>지금 모바일에서 접속하려면</b><br/>PC의 전체 메뉴 → 개인 비밀번호에서 보조 로그인을 설정한 뒤 아래 기존 계정 로그인을 사용하세요.</div>`;
 }
 
 
@@ -16825,7 +17758,12 @@ async function handleMyBackupLoginSave(request, env) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
-  const hasBackup = await hasBackupLoginIdentity(env, user);
+  let hasBackup = false;
+  try {
+    hasBackup = await hasBackupLoginIdentity(env, user);
+  } catch (err) {
+    rememberOpsEvent({ kind: "backup_login_status_deferred", severity: "warn", path: "/my/backup-login", method: "POST", detail: safeError(err) });
+  }
   const form = await request.formData();
   const loginName = String(form.get("login_name") || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
   const accessCode = String(form.get("access_code") || "").trim();
@@ -16855,19 +17793,28 @@ function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, has
 
 function renderKakaoLoginCheckHtml(env, url) {
   const title = escapeHtml(appName(env));
-  const enabled = kakaoLoginEnabled(env);
-  const apiKey = !!kakaoRestApiKey(env);
-  const redirectUri = getKakaoRedirectUri(env, url);
-  const ready = kakaoLoginAvailable(env);
+  const config = inspectKakaoLoginConfig(env);
+  const originMatch = !config.issues.includes("redirect_origin_mismatch") && !!config.publicBase && !!config.redirectUri;
+  const redirectFormatOk = !config.issues.includes("redirect_uri_invalid") && !!config.redirectUri;
+  const issueLabels = {
+    rest_api_key_missing: "REST API 키 없음",
+    public_base_url_missing: "공개 기준 주소 없음",
+    public_base_url_invalid: "공개 기준 주소 형식 오류",
+    redirect_uri_missing: "Redirect URI 없음",
+    redirect_uri_invalid: "Redirect URI 형식 오류",
+    redirect_origin_mismatch: "공개 주소와 Redirect URI 호스트 불일치",
+    client_secret_missing: "활성화된 Client Secret 없음",
+  };
+  const issues = config.issues.map((item) => issueLabels[item] || item).join(", ");
   const row = (name, ok, detail) => `<tr><td><b>${escapeHtml(name)}</b></td><td><span class="${ok ? "ok" : "bad"}">${ok ? "정상" : "확인"}</span></td><td>${detail}</td></tr>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 카카오 로그인 점검</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left}.ok{color:#166534;background:#dcfce7;border-radius:999px;padding:5px 9px;font-weight:1000}.bad{color:#991b1b;background:#fee2e2;border-radius:999px;padding:5px 9px;font-weight:1000}code{background:#f1f5f9;border-radius:8px;padding:2px 6px}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}</style></head><body><main class="wrap"><section class="card"><h1>카카오 로그인 점검</h1><p>카카오 로그인을 사용하려면 아래 항목이 맞아야 합니다.</p><table><tbody>${row("KAKAO_LOGIN_ENABLED", enabled, "<code>1</code>, <code>true</code>, <code>on</code> 모두 허용")}${row("KAKAO_REST_API_KEY", apiKey, "Cloudflare 환경변수에 REST API 키 입력")}${row("Redirect URI", !!redirectUri, `<code>${escapeHtml(redirectUri || "")}</code>`)}${row("사용 가능 상태", ready, ready ? "카카오 로그인 버튼 표시됨" : "설정 후 다시 확인")}</tbody></table><p><a class="btn" href="/my">/my로 돌아가기</a></p></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 카카오 로그인 점검</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}.ok{color:#166534;background:#dcfce7;border-radius:999px;padding:5px 9px;font-weight:1000}.bad{color:#991b1b;background:#fee2e2;border-radius:999px;padding:5px 9px;font-weight:1000}code{background:#f1f5f9;border-radius:8px;padding:2px 6px;overflow-wrap:anywhere}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>카카오 로그인 점검</h1><p>카카오 로그인은 명시적으로 켜고, 공개 주소와 Redirect URI가 정확히 일치할 때만 사용자에게 표시됩니다.</p><table><tbody>${row("KAKAO_LOGIN_ENABLED", config.enabled, "명시적으로 <code>1</code> 설정")}${row("KAKAO_REST_API_KEY", config.apiKeyConfigured, "카카오 앱의 REST API 키 설정")}${row("PUBLIC_BASE_URL", !!config.publicBase && !config.issues.includes("public_base_url_invalid"), `<code>${escapeHtml(config.publicBase || "미설정")}</code>`)}${row("Redirect URI 형식", redirectFormatOk, `<code>${escapeHtml(config.redirectUri || "미설정")}</code>`)}${row("공개 주소와 호스트 일치", originMatch, originMatch ? "같은 HTTPS 호스트" : "PUBLIC_BASE_URL과 Redirect URI의 호스트를 같게 설정")}${row("Client Secret", !config.clientSecretRequired || config.clientSecretConfigured, config.clientSecretRequired ? "필수 모드: Secret 설정 필요" : "카카오 앱에서 Client Secret을 켰을 때만 설정")}${row("사용 가능 상태", config.ready, config.ready ? "로컬 설정 일치 · 로그인 버튼 표시" : escapeHtml(issues || "기능이 꺼져 있음"))}</tbody></table><p class="warn"><b>마지막 외부 확인</b><br/>위 Redirect URI와 완전히 같은 주소를 동일한 카카오 앱의 Redirect URI 목록에 등록해야 합니다. 이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.</p><p><a class="btn" href="/my">로그인 화면으로 돌아가기</a></p></section></main></body></html>`;
 }
 
 function renderUserLoginHtml(env, error = "") {
   const title = escapeHtml(appName(env));
   const kakaoPart = kakaoLoginStatusBlock(env);
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 50%,#eef2f7 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1040px;margin:0 auto;padding:18px}.hero,.card{background:rgba(255,255,255,.97);border:1px solid #e8edf4;border-radius:28px;box-shadow:0 18px 46px rgba(15,23,42,.07);padding:24px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:34px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:grid;gap:7px;margin:12px 0}.field label{font-size:13px;font-weight:900;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:14px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:900;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:14px;line-height:1.6;margin:12px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:14px;line-height:1.6;margin:12px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:12px;margin:12px 0}.sep{text-align:center;color:#94a3b8;font-weight:900;margin:12px 0}.small{font-size:13px;color:#667085;line-height:1.6}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.card h2{margin-top:0}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:27px}.hero,.card{padding:19px;border-radius:20px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 가계부에 안전하게 접속하세요.</h1><p class="muted">표시 이름을 바꿔도 로그인 이름은 유지됩니다. 처음 사용하는 경우에는 반드시 “새 계정 만들기”에서 계정을 만든 뒤 가계부를 생성하거나 초대코드로 참여하세요.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="grid"><div class="card"><h2>기존 계정 로그인</h2><p class="muted">이미 만든 계정의 로그인 이름과 비밀번호를 입력하세요. 잘못 입력해도 새 계정이 자동 생성되지 않습니다.</p><form method="post" action="/my/local-login"><div class="field"><label>로그인 이름</label><input name="login_name" autocomplete="username" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label>비밀번호</label><input name="access_code" type="password" autocomplete="current-password" minlength="4" placeholder="기존 4자리 접속코드도 로그인 가능" required/></div><div class="field"><label>초대코드 (선택)</label><input name="invite_code" autocomplete="off" placeholder="로그인과 동시에 참여할 때만 입력"/></div><button type="submit">로그인</button></form></div><div class="card"><h2>처음이라면 새 계정 만들기</h2><p class="muted">로그인 이름과 가계부에 보일 이름을 따로 정합니다. 계정을 만든 다음 가계부 생성·참여 화면으로 이어집니다.</p><form method="post" action="/my/local-signup"><div class="field"><label>로그인 이름</label><input name="login_name" autocomplete="username" minlength="2" placeholder="로그인할 때 계속 사용할 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 바뀌지 않습니다.</div><div class="field"><label>가계부에 표시할 이름</label><input name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label>새 비밀번호</label><input name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" required/></div><div class="field"><label>새 비밀번호 확인</label><input name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" required/></div><div class="field"><label>초대코드 (선택)</label><input name="invite_code" autocomplete="off" placeholder="받은 코드가 있으면 입력"/></div><button class="secondary" type="submit">새 계정 만들기</button></form></div></section><section class="warn"><b>기존 사용자 안내</b><br/>예전 버전에서 사용하던 이름과 4자리 이상 접속코드도 그대로 로그인할 수 있습니다. 올바르게 로그인하면 새 보안 방식으로 자동 이관됩니다.</section></main></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 개인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login"><div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="개인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" required/></div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main></body></html>`;
 }
 
 
@@ -18218,7 +19165,7 @@ function kakaoNluRuntimeConfig(env = {}) {
   return {
     engine: "deterministic-registry",
     external_ai: false,
-    persistent_success_log_sample_rate: Math.max(0, Math.min(1, Number(env.NLU_SUCCESS_LOG_SAMPLE_RATE || 0))),
+    persistent_success_log_sample_rate: boundedRuntimeNumber(env.NLU_SUCCESS_LOG_SAMPLE_RATE, 0, 0, 1),
     persistent_fallback_logs: String(env.NLU_PERSIST_FALLBACK_LOGS || "0") === "1",
     raw_utterance_storage: false,
     registry_intents: Object.keys(KAKAO_INTENT_REGISTRY).length,
@@ -18293,6 +19240,37 @@ function kakaoMemeUnavailableText(origin = "") {
   ].filter(Boolean).join("\n");
 }
 
+function isKakaoReceiptCommand(utterance = "") {
+  const text = normalizeText(stripKakaoBotMention(utterance));
+  return /^(?:영수증|영수증\s*(?:등록|기록|사진|읽기|스캔)|사진\s*영수증)$/.test(text);
+}
+
+function kakaoReceiptCaptureGuideText(origin = "") {
+  return [
+    "🧾 영수증 사진 등록",
+    "",
+    "현재 카카오톡 대화방의 사진 파일을 봇이 직접 읽지는 않습니다.",
+    "사진을 휴대폰에 저장한 뒤 아래 영수증 등록 화면에서 ‘앨범에서 선택’을 눌러주세요.",
+    "",
+    "사진은 서버에 올리지 않고 휴대폰 브라우저에서 글자를 읽습니다.",
+    origin ? `영수증 등록 열기\n${origin}/receipts` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function hasKakaoImageAttachment(payload = {}) {
+  const params = {
+    ...safeObject(payload?.userRequest?.params),
+    ...safeObject(payload?.action?.params),
+    ...safeObject(payload?.action?.detailParams),
+  };
+  return Object.entries(params).some(([key, value]) => {
+    if (!/(?:image|photo|media|receipt|영수증|사진)/i.test(String(key || ""))) return false;
+    let sample = "";
+    try { sample = typeof value === "string" ? value : JSON.stringify(value); } catch (error) { sample = ""; }
+    return /https?:\/\//i.test(sample) || /(?:image|photo|media)/i.test(sample);
+  });
+}
+
 async function kakaoHouseholdSwitchText(env, user = {}, origin = "") {
   const households = await fetchUserHouseholds(env, user.id);
   if (!households.length) {
@@ -18326,6 +19304,7 @@ async function kakaoHouseholdSwitchText(env, user = {}, origin = "") {
 
 function kakaoPublicCommandReply(utterance = "", origin = "", env = {}) {
   if (isCommandMenuCommand(utterance)) return kakaoCommandMenuText(origin);
+  if (isKakaoReceiptCommand(utterance)) return kakaoReceiptCaptureGuideText(origin);
   if (isLinkCommand(utterance)) return linkText(origin, "");
   if (isOpenBuilderGuideCommand(utterance)) return kakaoOpenBuilderGuideText(origin);
   if (isBrandGuideCommand(utterance)) return kakaoBrandGuideText(origin, env);
@@ -18915,15 +19894,13 @@ async function optionalWithin(promise, timeoutMs, fallback) {
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}, payload = {}) {
   const text = normalizeText(stripLeadingCommand(utterance));
   if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditTarget(text) || isKakaoTransactionSpenderChangeCommand(text) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
-  const windowMs = Math.max(2000, Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8) * 1000);
+  const windowMs = boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600) * 1000;
   const now = Date.now();
   const conversationScope = getKakaoBotGroupKey(payload) || "direct";
   const key = `${String(userKey || "unknown").slice(0, 80)}|${stableShortHash(conversationScope)}|${stableShortHash(text)}`;
   const last = AB_KAKAO_REPEAT_GUARD.get(key) || 0;
+  pruneTimestampMap(AB_KAKAO_REPEAT_GUARD, now);
   AB_KAKAO_REPEAT_GUARD.set(key, now);
-  for (const [k, ts] of AB_KAKAO_REPEAT_GUARD.entries()) {
-    if (!ts || now - Number(ts) > 10 * 60 * 1000) AB_KAKAO_REPEAT_GUARD.delete(k);
-  }
   if (last && now - Number(last) < windowMs) return { ok: false, elapsedMs: now - Number(last), windowMs };
   return { ok: true, elapsedMs: last ? now - Number(last) : 0, windowMs };
 }
@@ -20083,7 +21060,10 @@ async function handleKakaoSkill(request, env) {
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
 
-  if (!utterance) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  if (!utterance) {
+    if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoReceiptCaptureGuideText(origin));
+    return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  }
 
   const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
@@ -20364,7 +21344,7 @@ ${formatRecentTransactions(rows)}`);
   ]);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
-  const kakaoBulkLimit = Math.min(80, Math.max(1, Number(env.KAKAO_BULK_LIMIT || 25)));
+  const kakaoBulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   const limitedParsedList = finalParsedList.slice(0, kakaoBulkLimit);
   const rowsToInsert = limitedParsedList.map((parsed) => ({
     household_id: household.id, user_id: user.id, type: parsed.type, amount: parsed.amount,
@@ -20419,7 +21399,7 @@ async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
 
 async function insertKakaoTransactions(env, rows) {
   if (!Array.isArray(rows) || !rows.length) return [];
-  const bulkLimit = Math.min(80, Math.max(1, Number(env.KAKAO_BULK_LIMIT || 25)));
+  const bulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   const originalCount = rows.length;
   if (originalCount > bulkLimit) rememberDuplicateEvent({ kind: "bulk_limited", source: "kakao_skill", detail: `${originalCount} requested, ${bulkLimit} processed`, path: "/skill", method: "POST" });
   rows = rows.slice(0, bulkLimit);
@@ -22407,15 +23387,15 @@ async function handleGroupChatbotLaunchGuidePage(request, env, url) {
 
 async function handleGroupChatbotTrafficScalePage(request, env, url) {
   const publicBase = publicBaseUrl(env, url);
-  const skillLimit = Number(env.SKILL_RATE_LIMIT || 60);
-  const trafficLimit = Number(env.TRAFFIC_GUARD_LIMIT || 240);
+  const skillLimit = boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000);
+  const trafficLimit = boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
   const rows = [
     ["/skill IP 가드", "비활성", "카카오 서버 IP/UA에 사용자가 몰리는 문제를 피하고 botUserKey 단위로 제한"],
     ["사용자별 스킬 제한", `${skillLimit}/분`, "SKILL_RATE_LIMIT 환경변수로 조정"],
     ["웹/관리 쓰기 제한", `${trafficLimit}/분`, "TRAFFIC_GUARD_LIMIT 환경변수로 조정"],
-    ["중복 저장 방어", `${Number(env.DUPLICATE_GUARD_SECONDS || 90)}초`, "동일 거래/재전송 방어"],
-    ["카카오 재전송 방어", `${Number(env.KAKAO_RETRY_DEDUP_SECONDS || 120)}초`, "같은 요청 재전송 중복 방지"],
-    ["반복 발화 방어", `${Number(env.KAKAO_REPEAT_GUARD_SECONDS || 8)}초`, "같은 사용자의 빠른 반복 입력 방지"],
+    ["중복 저장 방어", `${boundedRuntimeNumber(env.DUPLICATE_GUARD_SECONDS, 90, 10, 3600)}초`, "동일 거래/재전송 방어"],
+    ["카카오 재전송 방어", `${boundedRuntimeNumber(env.KAKAO_RETRY_DEDUP_SECONDS, 120, 10, 3600)}초`, "같은 요청 재전송 중복 방지"],
+    ["반복 발화 방어", `${boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600)}초`, "같은 사용자의 빠른 반복 입력 방지"],
     ["공개 기준 URL", publicBase, publicBase.includes("workers.dev") ? "커스텀 도메인 권장" : "정상"],
     ["운영 스냅샷", "/ops-snapshot.json", "최근 제한/스킬 이벤트 확인"],
   ].map(([a,b,c]) => `<tr><th>${escapeHtml(a)}</th><td>${escapeHtml(b)}</td><td><span class="badge">${escapeHtml(c)}</span></td></tr>`).join("");
