@@ -1,0 +1,22 @@
+Release: V22.8.2-AUTH-UI-STABILITY
+
+Database:
+- No new migration is required.
+- Keep schema_v22_8_0_asset_dashboard_complete.sql applied.
+
+Deploy:
+- src/index.js
+
+Read before production:
+- README.md
+- FINAL_APPLY_CHECKLIST_V22_8_2.md
+- STABILITY_REPORT_V22_8_2.md
+- VALIDATION_REPORT_V22_8_2.md
+
+Validation:
+- ./validate_v2282.sh
+- smoke_v2282_auth_ui_stability.mjs
+- 6,176 checks passed
+
+Checksums:
+- BUNDLE_FILE_CHECKSUMS_V22_8_2.sha256

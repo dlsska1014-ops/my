@@ -1,0 +1,21 @@
+V22.7.0 validation summary — 2026-07-15 KST
+
+$ node --check src/index.js
+PASS
+
+$ node smoke_v2270_auth_atomicity.mjs
+SMOKE_V2270_AUTH_ATOMICITY_OK assertions=169
+
+$ node static_sql_qa_v2270.mjs
+STATIC_SQL_V2270_OK functions=13 worker_rpcs=12 assertions=155
+
+$ node static_ui_qa_v2270.mjs
+PASS mode=server-html-dom-css targetWidths=390,360,320 screens=23 assertions=566
+
+$ node nlu_eval_v221.mjs
+PASS checked=4738 passed=4738 failed=0 accuracy=1
+
+Important limits:
+- V22.7 pixel screenshots were not generated because Chromium was unavailable in the execution environment.
+- The migration was statically validated but was not executed against the production Supabase database.
+- Live Kakao OAuth/OpenBuilder/group-chat behavior requires production credentials and real-room testing.

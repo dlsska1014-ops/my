@@ -1,0 +1,25 @@
+Release: V22.8.4-UI-PERFORMANCE-REVALIDATION
+
+Database:
+- No new migration is required.
+- Keep schema_v22_8_0_asset_dashboard_complete.sql applied.
+
+Deploy:
+- src/index.js
+
+Read before production:
+- README.md
+- FINAL_APPLY_CHECKLIST_V22_8_4.md
+- V22_8_4_FULL_UI_PERFORMANCE_REVALIDATION_REPORT.md
+
+Validation:
+- ./validate_v2284.sh
+- smoke_v2284_ui_performance_revalidation.mjs
+- 6,307 existing regression checks passed
+- 49 V22.8.4 package checks passed
+- 25 browser interaction checks passed
+- 23 primary screens passed at 320px and 1365px
+- 19 primary screens passed automated contrast checks with 0 failures
+
+Checksums:
+- BUNDLE_FILE_CHECKSUMS_V22_8_4.sha256

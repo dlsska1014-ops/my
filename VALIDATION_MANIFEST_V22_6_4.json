@@ -1,0 +1,53 @@
+{
+  "version": "V22.6.4-IMPORT-PREVIEW-OPERATIONS-HOTFIX",
+  "generated_at": "2026-07-15T11:21:07+09:00",
+  "base_attachment": {
+    "name": "kakao-accountbook-cloudflare-v22.6.1-identity-session-household-list-recovery-hotfix (1).zip",
+    "sha256": "a8c4fdaf2be7d9a16991911476a291e3eec3e91547869ad524f42ab3802e8eac",
+    "bytes": 9832702
+  },
+  "parent_release": {
+    "version": "V22.6.3-ACCESS-IMPORT-RESILIENCE-HOTFIX",
+    "zip_sha256": "9c04b435abb54647ca0ed109474d2e1605c9f6cc18edea68c89e8b7b9c447c8b"
+  },
+  "files": {
+    "src/index.js": { "sha256": "aaf8d6f229b6798276265ee399c860e288d5cf9a2f223a1e10beb9e95b62b6ce", "bytes": 1718294 },
+    "README.md": { "sha256": "0e83288a7f64fc1334d64adf0e52569e363d8f80c005048772771119b350c901", "bytes": 24211 },
+    "VERSION.txt": { "sha256": "53ead4b6a7c614bee24495f0909bdb3299ad03fc68afbba4edebe49d70b3557a", "bytes": 41 },
+    "V22_6_4_IMPORT_PREVIEW_OPERATIONS_REPORT.md": { "sha256": "e095f4bc52fa8d4f0dbfce96a55ef287aeafa67eeb945f67cc60e244305deaf2", "bytes": 4505 },
+    "IMPORT_MIGRATION_GUIDE_V22_6_4.md": { "sha256": "d18a9f5826073464a10b5022fae0718c48be058e692cc1caac3dd39eb34ccebd", "bytes": 2225 },
+    "FINAL_APPLY_CHECKLIST_V22_6_4.md": { "sha256": "9837ed9189aa080a7fc83aea4928fbe179e0bd3fdfa9b68990422f3825fb60be", "bytes": 2644 },
+    "RISK_REGISTER_V22_6_4.md": { "sha256": "2ab392b49e13a33d54bab30c5355772abb35b9167924aaeb5cf28acbb77b980c", "bytes": 1680 },
+    "VALIDATION_REPORT_V22_6_4.md": { "sha256": "7a005b05a5b7d5457a46c04289a5e273af0e9009f49df0e469c097dcd8483aea", "bytes": 2250 },
+    "VALIDATION_LOG_V22_6_4.txt": { "sha256": "432ff11ca5feb00e8529666efc38ea973a4ba8b5949a8f1f163df2fd36619e5c", "bytes": 947 },
+    "smoke_v2264_import_preview_operations.mjs": { "sha256": "8ad03a7b90f6425344aaba0dc4a3dab6221b53863e4e8cc071e1a71ac08b5c89", "bytes": 11197 }
+  },
+  "validation": {
+    "node_syntax": "PASS",
+    "test_files": { "passed": 35, "failed": 0 },
+    "v22_6_4_assertions": { "passed": 43, "failed": 0 },
+    "v22_6_3_assertions": { "passed": 91, "failed": 0 },
+    "conversation_state_assertions": { "passed": 321, "failed": 0 },
+    "conversation_static_assertions": { "passed": 43, "failed": 0 },
+    "natural_language_cases": { "passed": 4738, "total": 4738, "failed": 0 },
+    "mock_latency_450ms": { "direct_ms": 3942, "group_ms": 3907, "slash_ms": 3907, "result": "PASS" },
+    "import_preview": {
+      "no_write_before_confirmation": "PASS",
+      "selected_rows_only": "PASS",
+      "tamper_rejection": "PASS",
+      "expiry_rejection": "PASS",
+      "replay_no_extra_insert": "PASS",
+      "deterministic_transaction_uuid": "PASS",
+      "reason_aggregation": "PASS"
+    },
+    "static_ui": { "duplicate_ids": 0, "zoom_locks": 0, "accessible_row_labels": "PASS" },
+    "chromium_pixel_overflow_automation": "NOT_RUN_NO_BROWSER_BINARY",
+    "production_supabase_rls": "NOT_RUN_REQUIRES_DEPLOYMENT_ENVIRONMENT",
+    "kakao_openbuilder_e2e": "NOT_RUN_REQUIRES_EXTERNAL_ENVIRONMENT",
+    "ios_android_real_device": "NOT_RUN_REQUIRES_REAL_DEVICE"
+  },
+  "release_verdict": {
+    "free_beta": "RELEASE_CANDIDATE_AFTER_PRODUCTION_CHECKLIST",
+    "paid_premium": "NOT_READY"
+  }
+}

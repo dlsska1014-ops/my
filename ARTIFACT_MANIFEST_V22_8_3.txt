@@ -1,0 +1,22 @@
+Release: V22.8.3-REVIEWED-STABILITY
+
+Database:
+- No new migration is required.
+- Keep schema_v22_8_0_asset_dashboard_complete.sql applied.
+
+Deploy:
+- src/index.js
+
+Read before production:
+- README.md
+- FINAL_APPLY_CHECKLIST_V22_8_3.md
+- V22_8_3_CLAUDE_MERGE_STABILITY_REPORT.md
+- VALIDATION_REPORT_V22_8_3.md
+
+Validation:
+- ./validate_v2283.sh
+- smoke_v2283_reviewed_stability.mjs
+- 6,241 automated checks passed
+
+Checksums:
+- BUNDLE_FILE_CHECKSUMS_V22_8_3.sha256

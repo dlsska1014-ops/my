@@ -1,0 +1,34 @@
+{
+  "version": "V22.6.8-OPERATIONS-DATA-INTEGRITY",
+  "validated_at": "2026-07-15T16:39:34+09:00",
+  "results": {
+    "javascript_syntax": "pass",
+    "smoke_static": { "passed": 39, "total": 39 },
+    "v2267_assertions": { "passed": 150, "total": 150 },
+    "v2268_assertions": { "passed": 59, "total": 59 },
+    "nlu": { "passed": 4738, "total": 4738 },
+    "concurrency": {
+      "receipt_requests": 24,
+      "receipt_rows": 1,
+      "settlement_requests": 16,
+      "settlement_history_rows": 1
+    },
+    "visual": {
+      "viewports": ["360x780", "390x844"],
+      "routes_per_viewport": 18,
+      "screens_passed": 36,
+      "capture_files": 108,
+      "horizontal_overflow": 0,
+      "viewport_offenders": 0,
+      "duplicate_ids": 0,
+      "unlabeled_controls": 0,
+      "hidden_feature_links": 0,
+      "footer_nav_overlap": 0
+    }
+  },
+  "not_executed": [
+    "live Supabase migration",
+    "Cloudflare production deployment",
+    "physical iPhone/Android device test"
+  ]
+}

@@ -1,0 +1,27 @@
+Release: V22.8.5-MOBILE-ACCESS-MENU-HIERARCHY
+
+Database:
+- No new migration is required.
+- Keep schema_v22_8_0_asset_dashboard_complete.sql applied.
+
+Deploy:
+- src/index.js
+
+Read before production:
+- README.md
+- FINAL_APPLY_CHECKLIST_V22_8_5.md
+- V22_8_5_MOBILE_ACCESS_MENU_HIERARCHY_REPORT.md
+
+Validation:
+- ./validate_v2285.sh
+- smoke_v2285_mobile_access_menu_hierarchy.mjs
+- 28 V22.8.5 focused checks passed
+- 642 responsive server-DOM checks passed across 23 primary screens
+- 23 primary screens passed browser layout checks at 320px, 768px, and 1365px
+- Mobile menu and login passed focused checks at 390px and wide desktop at 1860px
+- Login plus 19 authenticated screens passed automated contrast checks with 0 failures
+- 23 primary screens passed browser runtime error checks with 0 failures
+- Analysis main markup is byte-identical to V22.8.4 fixture output
+
+Checksums:
+- BUNDLE_FILE_CHECKSUMS_V22_8_5.sha256
