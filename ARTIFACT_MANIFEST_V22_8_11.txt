@@ -1,0 +1,45 @@
+Kakao Accountbook Cloudflare V22.8.11
+Home UX Shell Expansion
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- Current validation, release history, and durable project memory
+- No nested ZIP, screenshot, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 32 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_11.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,125,420
+- src/index.js SHA-256: cc58f25336b28c2c42bfb72930a0242bbbcdc5964752f870d3736891a13cbcac
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ASSETS
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+- New: /assets/accountbook-shell-v22811.css
+- New: /assets/mobile-home-shell-v22811.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- Home UX shell and performance: 94 checks
+- Total: 265 checks
+
+KEY CONTENT
+- 00_READ_FIRST_V22_8_11.md
+- CHANGELOG.md / HISTORY_INDEX.md
+- DEPLOYMENT_MATRIX.md / SQL_HISTORY.md
+- RELEASE-CHECKLIST.md
+- V22_8_11_HOME_UX_SHELL_EXPANSION_REPORT.md
+- VALIDATION_REPORT_V22_8_11.md
+- validation/validate-performance-v22811.mjs

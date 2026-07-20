@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.10-HOME-PERFORMANCE-LEAN-PACKAGE";
+const APP_VERSION = "V22.8.11-HOME-UX-SHELL-EXPANSION";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3906,6 +3906,20 @@ function normalizeUserFacingUi(html = "") {
   }
 
   if (source.includes(" · 모바일</title>")) {
+    source = source.replace('<meta name="theme-color" content="#2563eb"/>', '<meta name="theme-color" content="#3182f6"/>');
+    source = source.replace(
+      `<link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>`,
+      `<link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/><link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`
+    );
+    source = source.replace('<nav class="bottom">', '<nav class="bottom" aria-label="모바일 주요 메뉴">');
+    source = source.replace('<a class="tab active" href="#top">', '<a class="tab active" aria-current="page" href="#top">');
+    source = source.replace(
+      /<a class="tab" href="(\/budgets\?[^"]*)"><i>📊<\/i><span>예산<\/span><\/a>/,
+      (_full, href) => `<a class="tab" href="${href.replace("/budgets?", "/settlement-summary?")}"><i>↔</i><span>정산</span></a>`
+    );
+    if (!source.includes('class="homeDesktopNav"')) {
+      source = source.replace(/<body\b[^>]*>/i, (bodyTag) => `${bodyTag}${mobileHomeDesktopNavFromHtml(source)}`);
+    }
     source = source.replace('<div class="topLine"><b>', '<div class="topLine"><h1>');
     source = source.replace('</b><a href="/analysis?', '</h1><a href="/analysis?');
     source = source.replace(/<section id="budget" class="panel">[\s\S]*?<\/section>/, "");
@@ -3915,7 +3929,7 @@ function normalizeUserFacingUi(html = "") {
     const runtimeEnd = runtimeStart < 0 ? -1 : source.indexOf("</script>", runtimeStart + runtimeMarker.length);
     if (runtimeStart >= 0 && runtimeEnd > runtimeStart) {
       source = source.slice(0, runtimeStart)
-        + `<script id="mobileAppInlineRuntime" src="${MOBILE_HOME_JS_ASSET_PATH}" defer></script>`
+        + `<script id="mobileAppInlineRuntime" src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}" defer></script>`
         + source.slice(runtimeEnd + 9);
     }
   }
@@ -3933,8 +3947,18 @@ function normalizeUserFacingUi(html = "") {
   source = source.replaceAll("오늘 쓴 돈 ☀️", "오늘 쓴 돈");
   source = source.replaceAll("들어온 돈 💰", "들어온 돈");
   source = source.replaceAll("나간 돈 💸", "나간 돈");
-  if (source.includes('<aside class="abLayoutNav">') && !source.includes('id="v2281GuidedNavStyle"')) {
-    source = source.replace('</style><aside class="abLayoutNav">', `</style>${V2281_GUIDED_NAV_STYLE}<aside class="abLayoutNav">`);
+  if (source.includes('<aside class="abLayoutNav"') && !source.includes('id="v2281GuidedNavStyle"')) {
+    source = source.replace('</style><aside class="abLayoutNav"', `</style>${V2281_GUIDED_NAV_STYLE}<aside class="abLayoutNav"`);
+  }
+  for (const styleId of ["unifiedNavStyle", "v2281GuidedNavStyle"]) {
+    const marker = `<style id="${styleId}">`;
+    const start = source.indexOf(marker);
+    const end = start < 0 ? -1 : source.indexOf("</style>", start + marker.length);
+    if (start >= 0 && end > start && source.indexOf("</head>") >= 0 && start > source.indexOf("</head>")) {
+      const styleBlock = source.slice(start, end + 8);
+      source = source.slice(0, start) + source.slice(end + 8);
+      source = source.replace("</head>", `${styleBlock}</head>`);
+    }
   }
   const bodyClasses = ["abV2281"];
   if (source.includes('class="abLayoutNav"')) bodyClasses.push("abAppSurface");
@@ -3948,6 +3972,21 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
+  const hasLegacyAdminPageMarker = source.includes('class="desktopLedger') || source.includes('class="pcSidebar');
+  if (hasLegacyAdminPageMarker) source = source.replaceAll('data-nav-scope="user"', 'data-nav-scope="admin"');
+  const hasUserNavScope = source.includes('data-nav-scope="user"');
+  const hasRestrictedShellScope = source.includes('data-nav-scope="ops"')
+    || source.includes('data-nav-scope="admin"')
+    || hasLegacyAdminPageMarker;
+  const useV22811Shell = !hasRestrictedShellScope && (
+    hasUserNavScope
+      || source.includes('class="appMenu"')
+      || source.includes('id="smartInput"')
+      || source.includes('action="/my/local-login"')
+      || source.includes('action="/my/backup-login"')
+      || source.includes(" · 가계부 시작</title>")
+  );
+  if (useV22811Shell) bodyClasses.push("abV22811Shell");
   source = source.replace(/<body\b([^>]*)>/i, function(full, attrs) {
     const classMatch = String(attrs || "").match(/\bclass\s*=\s*(["'])(.*?)\1/i);
     if (classMatch) {
@@ -3956,15 +3995,22 @@ function normalizeUserFacingUi(html = "") {
     }
     return `<body class="${bodyClasses.join(" ")}"${attrs || ""}>`;
   });
+  if (useV22811Shell && !source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`) && source.includes("</head>")) {
+    source = source.replace("</head>", `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/></head>`);
+  }
   return source;
 }
 
 function attachUiUxRuntime(html = "") {
   let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
   const optimizedMobileHome = source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
-    && source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`);
+    && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
   if (!optimizedMobileHome && source && !source.includes('id="v2262UiUxStyle"') && source.includes("</head>")) {
     source = source.replace("</head>", UIUX_RUNTIME_STYLE + V2281_GUIDED_UIUX_STYLE + v2284UiStyleFor(source) + v2285UiStyleFor(source) + "</head>");
+  }
+  const v22811ShellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
+  if (source.includes(v22811ShellLink) && source.includes("</head>")) {
+    source = source.replaceAll(v22811ShellLink, "").replace("</head>", `${v22811ShellLink}</head>`);
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
@@ -9674,8 +9720,15 @@ function renderUnifiedNav(active = "home", opts = {}) {
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
   const backupKeys = new Set(["backup-preview", "backup-compare", "backup-select", "backup-final", "backup-apply", "import-history", "rollback-candidates", "rollback-final"]);
-  const opsKeys = new Set(["ops-audit", "ops-dashboard", "ops-duplicates", "duplicate-safety", "ops-events", "ops-health", "ops-traffic", "skill-ops", "nav-audit", "route-audit", "ui-audit", "flow-audit", "filter-audit", "deployment-check", "ui-polish-check", "final-release", "feature-map", "deploy-runbook", "diagnostics", "review-ready", "beta-ready"]);
-  const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : active;
+  const opsKeys = new Set(["operation-center", "release-candidate", "ops-audit", "ops-dashboard", "ops-duplicates", "duplicate-safety", "ops-events", "ops-health", "ops-traffic", "skill-ops", "nav-audit", "route-audit", "ui-audit", "flow-audit", "filter-audit", "deployment-check", "ui-polish-check", "final-release", "feature-map", "deploy-runbook", "release-check", "user-ready-check", "release-dry-run", "diagnostics", "review-ready", "beta-ready"]);
+  const adminKeys = new Set(["settings", "identity-audit"]);
+  const implicitAdminScope = adminKeys.has(active) || (active === "households" && Object.keys(opts || {}).length === 0);
+  const requestedScope = String(opts.scope || "").trim().toLowerCase();
+  const navScope = ["user", "ops", "admin"].includes(requestedScope)
+    ? requestedScope
+    : (implicitAdminScope ? "admin" : opts.showOps || opsKeys.has(active) ? "ops" : "user");
+  const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["members", "households"]]);
+  const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : activeAliases.get(active) || active;
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "day";
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
@@ -9696,7 +9749,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
       || (key === "menu" && ["my-households", "households", "members", "group-household-links", "settings", "backup-login", "categories", "keyword-guide", "budgets", "budget-alerts", "smart-tools", "receipts", "reports", "backup", "payment-methods", "reserve-plans", "profile"].includes(activeKey));
     return `<a data-key="${escapeHtml(key)}" class="${on ? "active " : ""}${key === "add" ? "abPrimary" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i>${escapeHtml(icon)}</i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
-  return `<style id="unifiedNavStyle">
+  return `<div class="abNavScope" data-nav-scope="${navScope}" hidden></div><style id="unifiedNavStyle">
 :root{--abNavW:260px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
 .abLayoutNav{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#111827}
 @media(min-width:1024px){
@@ -17189,8 +17242,60 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
+let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
+
+const ACCOUNTBOOK_SHELL_CSS = `
+body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
+body.abV22811Shell .homeDesktopNav{display:none}
+body.abV22811Shell .appTop{background:rgba(242,244,246,.94)!important;border-bottom:1px solid var(--ab11-line)!important;box-shadow:none!important}
+body.abV22811Shell .topLine h1{color:var(--ab11-text);font-size:20px!important;font-weight:900!important}
+body.abV22811Shell .topActions a{background:var(--ab11-surface)!important;color:var(--ab11-muted)!important;border:1px solid var(--ab11-line)}
+body.abV22811Shell .topActions a.menuLink{background:var(--ab11-text)!important;color:#fff!important;border-color:var(--ab11-text)}
+body.abV22811Shell :is(input,select,textarea){border-color:var(--ab11-line)!important;border-radius:14px!important;color:var(--ab11-text)}
+body.abV22811Shell :is(.homeBudget,.homeMetric,.homeCard,.homeQuick a,.panel,.stat,.v8-stat,.card,.record,.startPanel){background:var(--ab11-surface)!important;border:1px solid var(--ab11-line)!important;border-radius:var(--ab11-radius)!important;box-shadow:var(--ab11-shadow)!important}
+body.abV22811Shell .homeBudget{padding:22px!important}body.abV22811Shell .homeBudget:after{display:none!important}
+body.abV22811Shell :is(.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.smartHint,.homeEmpty,.muted,.note){color:var(--ab11-muted)!important}
+body.abV22811Shell .homeBudgetTop em{background:var(--ab11-accent-soft)!important;color:#1b64da!important;border:0!important;box-shadow:none!important}
+body.abV22811Shell .homeBudgetAmount b{color:var(--ab11-text);font-size:36px!important;font-weight:900}
+body.abV22811Shell :is(.homeProgress,.homeBar){background:#edf0f3!important}body.abV22811Shell .homeProgress i{background:var(--ab11-accent)!important}
+body.abV22811Shell :is(.homeMetric b,.homeTx b,.homeCard h2,.panel h2,.card h2){color:var(--ab11-text)}
+body.abV22811Shell .homeQuick a{min-height:68px;box-shadow:none!important}body.abV22811Shell .homeQuick a:hover,body.abV22811Shell .homeQuick a:active{transform:none!important;background:#f8f9fa!important;box-shadow:none!important}
+body.abV22811Shell .homeIcon{background:#f2f4f6!important;box-shadow:none!important}
+body.abV22811Shell .homeNotice{background:var(--ab11-text)!important;border-radius:var(--ab11-radius)!important;box-shadow:var(--ab11-shadow)!important}
+body.abV22811Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"]){background:var(--ab11-action)!important;color:#fff!important;border-radius:14px!important}
+body.abV22811Shell .smartLine input{background:#fff!important;border:1px solid var(--ab11-line)!important}body.abV22811Shell .smartLine button{min-height:48px}
+body.abV22811Shell :is(.seg input:checked+span,.feedControls a.active){background:var(--ab11-accent-soft)!important;color:#1b64da!important;border:1px solid #b7d8ff!important}
+body.abV22811Shell .bottom{background:rgba(255,255,255,.98)!important;border-top:1px solid var(--ab11-line)!important;box-shadow:0 -4px 16px rgba(15,23,42,.035)}
+body.abV22811Shell .bottom a{color:#8b95a1!important;min-height:48px}body.abV22811Shell .bottom a.active{background:transparent!important;border:0!important;color:var(--ab11-accent)!important}
+body.abV22811Shell .bottom a.tabAdd i{background:var(--ab11-accent)!important;box-shadow:0 6px 16px rgba(49,130,246,.26)}
+body.abV22811Shell .abLayoutNav{background:#fff!important;border-right:1px solid var(--ab11-line)!important;box-shadow:none!important}
+body.abV22811Shell .abNavLinks a.active,body.abV22811Shell .abNavMobileDrawer .abNavLinks a.active{background:var(--ab11-accent-soft)!important;color:#1b64da!important;box-shadow:none!important}
+body.abV22811Shell .abNavBottom a.active{color:var(--ab11-accent)!important}body.abV22811Shell .abNavBottom a.active:before{background:var(--ab11-accent)!important}
+body.abV22811Shell .appLayout{grid-template-columns:238px minmax(0,1fr)!important}
+body.abV22811Shell .appMenu{background:#fff!important;border-color:var(--ab11-line)!important;box-shadow:none!important}
+body.abV22811Shell .appMenu a.active{background:var(--ab11-accent-soft)!important;color:#1b64da!important}
+body.abV22811Shell :is(a,button,input,select,textarea,summary):focus-visible{outline:3px solid var(--ab11-accent)!important;outline-offset:3px!important}
+@media(max-width:1023px){body.abV22811Shell :is(input,select,textarea){font-size:16px!important}body.abV22811Shell :is(.topActions a,.bottom a,.homeQuick a,.chipRow button,.dateChip,.feedControls a,.abNavBottom a,.appMenu summary,.appMenu a,button,.btn){min-height:44px!important}body.abV22811Shell .appLayout{grid-template-columns:1fr!important}}
+@media(min-width:1024px){
+  body.abV22811Shell.abMobileAppSurface{padding-left:238px!important;padding-bottom:24px!important}
+  body.abV22811Shell.abAppSurface{padding-left:238px!important}
+  body.abV22811Shell.abAppSurface .abLayoutNav{width:238px!important}
+  body.abV22811Shell.abAppSurface.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}
+  body.abV22811Shell.abAppSurface.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)!important}
+  body.abV22811Shell .homeDesktopNav{position:fixed;inset:0 auto 0 0;z-index:80;width:238px;background:#fff;border-right:1px solid var(--ab11-line);padding:22px 14px;display:flex;flex-direction:column}
+  body.abV22811Shell .homeDesktopBrand{display:flex;align-items:center;gap:10px;color:var(--ab11-text);text-decoration:none;font-size:17px;font-weight:900;padding:0 10px 20px}
+  body.abV22811Shell .homeDesktopBrand i{width:36px;height:36px;border-radius:13px;background:var(--ab11-accent);color:#fff;display:grid;place-items:center;font-style:normal}
+  body.abV22811Shell .homeDesktopNav nav{display:flex;flex:1;flex-direction:column;gap:4px}body.abV22811Shell .homeDesktopNav nav a{display:flex;align-items:center;min-height:46px;border-radius:14px;padding:0 14px;color:var(--ab11-muted);text-decoration:none;font-size:14px;font-weight:800}
+  body.abV22811Shell .homeDesktopNav nav a:hover{background:#f5f7f9;color:var(--ab11-text)}body.abV22811Shell .homeDesktopNav nav a.active{background:var(--ab11-accent-soft);color:#1b64da}
+  body.abV22811Shell .homeDesktopMore{margin-top:auto!important;border-top:1px solid var(--ab11-line);padding-top:12px!important}
+  body.abV22811Shell .appTop{padding:16px 22px!important}body.abV22811Shell .wrap{padding:22px!important}body.abV22811Shell .bottom{display:none!important}
+}
+@media(prefers-reduced-motion:reduce){body.abV22811Shell{scroll-behavior:auto!important}body.abV22811Shell *,body.abV22811Shell *:before,body.abV22811Shell *:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+`;
 
 function unwrapStyleElement(style = "") {
   return String(style || "")
@@ -17253,18 +17358,107 @@ function mobileHomeJsAsset() {
   return AB_MOBILE_HOME_JS_CACHE;
 }
 
+function mobileHomeNavStateClientMain() {
+  var mobileLinks = Array.from(document.querySelectorAll(".bottom a.tab"));
+  var desktopLinks = Array.from(document.querySelectorAll(".homeDesktopNav nav a"));
+  if (!mobileLinks.length && !desktopLinks.length) return;
+  var desktopMedia = typeof window.matchMedia === "function" ? window.matchMedia("(min-width:1024px)") : null;
+  var allLinks = mobileLinks.concat(desktopLinks);
+  function sectionKey(link) {
+    var href = String(link?.getAttribute("href") || "");
+    if (href === "#feed") return "feed";
+    if (href === "#add") return "add";
+    if (href === "#top") return "top";
+    return "";
+  }
+  function hashKey() {
+    var hash = String(window.location?.hash || "");
+    return hash === "#feed" ? "feed" : hash === "#add" ? "add" : "top";
+  }
+  function activeMobileKey() {
+    var active = mobileLinks.find(function(link) { return link.classList.contains("active") && sectionKey(link); });
+    return active ? sectionKey(active) : hashKey();
+  }
+  function setCurrent(key) {
+    var nextKey = ["top", "feed", "add"].includes(key) ? key : "top";
+    allLinks.forEach(function(link) {
+      var matches = sectionKey(link) === nextKey;
+      if (sectionKey(link)) link.classList.toggle("active", matches);
+      link.removeAttribute("aria-current");
+    });
+    var visibleLinks = desktopMedia?.matches ? desktopLinks : mobileLinks;
+    var current = visibleLinks.find(function(link) { return sectionKey(link) === nextKey; });
+    if (current) current.setAttribute("aria-current", "location");
+  }
+  function syncAfterScroll() {
+    var run = function() { setCurrent(activeMobileKey()); };
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+    else run();
+  }
+  allLinks.forEach(function(link) {
+    link.addEventListener("click", function() {
+      var key = sectionKey(link);
+      if (key) setCurrent(key);
+    });
+  });
+  window.addEventListener("hashchange", function() { setCurrent(hashKey()); });
+  window.addEventListener("scroll", syncAfterScroll, { passive: true });
+  if (desktopMedia) {
+    var syncMedia = function() { setCurrent(activeMobileKey()); };
+    if (typeof desktopMedia.addEventListener === "function") desktopMedia.addEventListener("change", syncMedia);
+    else if (typeof desktopMedia.addListener === "function") desktopMedia.addListener(syncMedia);
+  }
+  setCurrent(window.location?.hash ? hashKey() : activeMobileKey());
+}
+
+function mobileHomeShellJsAsset() {
+  if (!AB_MOBILE_HOME_SHELL_JS_CACHE) {
+    AB_MOBILE_HOME_SHELL_JS_CACHE = [
+      mobileHomeJsAsset(),
+      `(${mobileHomeNavStateClientMain.toString()})();`,
+    ].join("\n");
+  }
+  return AB_MOBILE_HOME_SHELL_JS_CACHE;
+}
+
+function mobileHomeDesktopNavFromHtml(source = "") {
+  const findRouteHref = (route, fallback) => {
+    const escapedRoute = String(route || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = String(source || "").match(new RegExp(`<a\\b[^>]*href="([^"]*${escapedRoute}[^"]*)"`, "i"));
+    return match?.[1] || fallback;
+  };
+  const analysisHref = findRouteHref("/my/analysis", "/my/analysis");
+  const menuHref = findRouteHref("/menu", "/menu");
+  const budgetHref = findRouteHref("/budgets", "/budgets");
+  const contextQuery = analysisHref.includes("?") ? analysisHref.slice(analysisHref.indexOf("?")) : "";
+  const settlementHref = findRouteHref("/settlement-summary", `/settlement-summary${contextQuery}`);
+  return `<aside class="homeDesktopNav" aria-label="주요 메뉴"><a class="homeDesktopBrand" href="#top"><i aria-hidden="true">₩</i><span>똑똑한 가계부</span></a><nav><a class="active" href="#top">홈</a><a href="#feed">기록</a><a href="#add">입력</a><a href="${escapeHtml(settlementHref)}">정산</a><a href="${escapeHtml(analysisHref)}">분석</a><a href="${escapeHtml(budgetHref)}">예산</a><a class="homeDesktopMore" href="${escapeHtml(menuHref)}">전체 메뉴</a></nav></aside>`;
+}
+
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  if (![MOBILE_HOME_CSS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH].includes(path)) return null;
-  const isCss = path === MOBILE_HOME_CSS_ASSET_PATH;
-  const content = isCss ? mobileHomeCssAsset() : mobileHomeJsAsset();
+  if (![MOBILE_HOME_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH].includes(path)) return null;
+  const isCss = path === MOBILE_HOME_CSS_ASSET_PATH || path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH;
+  const content = path === MOBILE_HOME_CSS_ASSET_PATH
+    ? mobileHomeCssAsset()
+    : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
+      ? ACCOUNTBOOK_SHELL_CSS
+      : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
+        ? mobileHomeShellJsAsset()
+        : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
     "cache-control": "public, max-age=31536000, immutable",
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
-    etag: isCss ? '"mobile-home-v22810-css"' : '"mobile-home-v22810-js"',
+    etag: path === MOBILE_HOME_CSS_ASSET_PATH
+      ? '"mobile-home-v22810-css"'
+      : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
+        ? '"accountbook-shell-v22811-css"'
+        : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
+          ? '"mobile-home-shell-v22811-js"'
+          : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }

@@ -1,50 +1,48 @@
-# 똑똑한 가계부 V22.8.10 경량 누적 배포본
+# 똑똑한 가계부 V22.8.11 홈 UX 셸 확장본
 
-이 배포본은 V22.8.9까지의 계정·가계부 보안 분리, 카카오 그룹 응답 기준, 영수증 안정화와 분석 화면 보호를 모두 유지하면서 홈 화면 속도와 ZIP 구성을 정리한 누적본입니다.
+V22.8.10의 홈 성능 최적화와 모든 보안·카카오·영수증·분석 보호 기준을 유지하면서, 승인된 UI 방향을 홈과 주요 사용자 화면의 공통 디자인 셸로 승격한 누적 배포본입니다.
 
-부분 패치가 아닙니다. `src/index.js` 한 파일을 기존 Cloudflare Worker 코드와 전체 교체합니다.
+부분 패치가 아닙니다. 운영에 적용할 때는 검증된 `src/index.js`를 기존 Cloudflare Worker 코드와 전체 교체합니다.
 
 ## 이번 버전 핵심
 
-| 개선 | V22.8.9 기준 | V22.8.10 | 결과 |
-|---|---:|---:|---:|
-| `/my` 데이터 요청 | 7회 | 4회 | 43% 감소 |
-| `/app` 홈 데이터 요청 | 16회 | 9회 | 44% 감소 |
-| 개인 홈 HTML | 106,841 bytes | 24,490 bytes | 77% 감소 |
-| 배포 ZIP 항목 | 374개 | 경량 구성 | 과거 개별 로그·중복 검증본 제외 |
+- 공통 토큰: `#f2f4f6`, `#fff`, `#191f28`, `#6b7684`, `#e9ebee`, `#3182f6`
+- PC 홈: 238px 흰색 사이드바와 파란 활성 메뉴
+- 모바일: 기존 홈·기록·입력·정산·메뉴 동선 유지
+- 주요 사용자 화면: 홈, 통합 내비게이션, 개인 메뉴, 로그인, 계정 보안, 가계부 시작 화면
+- 공통 셸 CSS는 `body.abV22811Shell`로 제한하고 각 대상 HTML에 마지막 cascade로 한 번만 연결
+- V22.8.10 기본 자산의 바이트와 ETag 보존
 
-홈의 공통 CSS·JavaScript 약 82KB는 버전이 붙은 정적 경로로 분리했습니다. 처음 한 번 받은 뒤 브라우저가 1년 동안 재사용하므로 화면을 다시 열 때 개인 HTML만 새로 받습니다.
+## 정적 자원
 
-데이터 조회는 다음처럼 정리했습니다.
+| 경로 | 역할 |
+|---|---|
+| `/assets/mobile-home-v22810.css` | 바이트가 보존된 홈 기본 CSS |
+| `/assets/mobile-home-v22810.js` | 바이트가 보존된 레거시 홈 런타임 |
+| `/assets/accountbook-shell-v22811.css` | 공통 디자인 셸 |
+| `/assets/mobile-home-shell-v22811.js` | 레거시 홈 기능과 현재 메뉴 동기화 런타임 |
 
-- 가계부 목록을 가계부마다 한 번씩 읽지 않고 ID 묶음으로 한 번에 조회
-- 참여자 프로필을 참여자마다 읽지 않고 ID 묶음으로 한 번에 조회
-- 홈에서 예산·표시 이름·정기지출·결제수단 설정을 한 번에 조회
-- 예산의 설정값과 테이블값을 직렬 조회하지 않고 동시에 조회
-- 짧은 거래 목록 뒤에 비어 있는 다음 페이지를 한 번 더 요청하던 동작 제거
-- `/my`가 바로 홈으로 이동할 때 사용하지 않는 사용자 프로필 재조회 제거
+모든 정적 자원은 DB를 조회하지 않고 `public, max-age=31536000, immutable`로 제공됩니다. 개인 데이터 HTML은 계속 `no-store`입니다.
+
+## 성능 기준
+
+| 항목 | 기준 |
+|---|---:|
+| `/my` 데이터 요청 | 4회 이하 |
+| `/app` 데이터 요청 | 9회 이하 |
+| 개인 홈 HTML | 35KB 미만 |
+| 정적 자원 DB 요청 | 0회 |
 
 ## 적용 판단
 
-| 항목 | 적용 여부 | 작업 |
-|---|---:|---|
-| Cloudflare Worker `src/index.js` | 필요 | 전체 교체 |
-| Supabase SQL | 불필요 | 신규 SQL·스키마·RPC 없음 |
-| 기존 SQL 재실행 | 금지 | 이번 업데이트와 무관 |
-| Cloudflare 환경변수 | 변경 없음 | 기존 값 유지 |
-| Kakao Developers | 변경 없음 | 기존 앱 키·Redirect URI 유지 |
-| OpenBuilder | 변경 없음 | 기존 Skill URL·블록 유지 |
-
-이번 쿼리 묶기는 기존 `id`, `key`, `household_id`, `month`, `transaction_date` 필드만 사용합니다. 신규 SQL은 필요하지 않습니다. 운영 데이터가 커진 뒤에도 느리다면 추측으로 인덱스를 추가하지 않고 Supabase 실행 계획을 먼저 확인하는 것이 다음 단계입니다.
-
-## 적용 순서
-
-1. 현재 Worker 코드와 환경변수를 백업합니다.
-2. ZIP의 `src/index.js`를 기존 Worker 코드와 전체 교체합니다.
-3. SQL은 실행하지 않습니다.
-4. 배포 후 `/health`, `/my`, `/app`, `/my/households`, `/receipts`, `/my/analysis`, `/skill`을 확인합니다.
-5. 브라우저 개발자 도구에서 `/assets/mobile-home-v22810.css`와 `.js`가 200으로 한 번 로드되고 이후 캐시되는지 확인합니다.
-6. 가계부 전환, 기록 저장, 예산 표시, 참여자 표시 이름이 기존과 같은지 확인합니다.
+| 항목 | 작업 |
+|---|---|
+| Cloudflare Worker | `src/index.js` 전체 교체 필요 |
+| Supabase SQL·스키마·RLS·RPC | 변경 없음 |
+| Cloudflare 환경변수·Secret | 변경 없음 |
+| Kakao Developers | 변경 없음 |
+| OpenBuilder | 변경 없음 |
+| 운영 배포·실기기 확인 | 별도 수동 승인·실행 필요 |
 
 ## 자동 검증
 
@@ -54,29 +52,24 @@ npm run validate:kakao-group
 npm run validate:household-security
 npm run validate:ux-principles
 npm run validate:performance
-npm run build
-npm run validate
+node .codex/scripts/verify-repository.mjs
 ```
 
-- 영수증·보호 화면: 55개
-- 카카오 1:1·그룹 응답: 18개
-- 가계부·계정 보안 분리: 43개
-- UX 원칙·분석 고정: 55개
-- 홈 성능·경량 자원: 32개
-- 합계: 203개 자동 확인과 빌드 ESM 검증
+- 영수증 55개
+- 카카오 18개
+- 가계부·계정 보안 43개
+- UX·분석 보호 55개
+- 홈 UX 셸·성능 94개
+- 합계 265개와 ESM `default.fetch`
 
-## ZIP 정리 원칙
+## 적용 후 확인
 
-최신 ZIP에는 배포에 필요한 현재 코드, 현재 검증, 적용 문서, 누적 변경 이력, 카카오·UX 프로젝트 메모만 넣습니다. 과거 버전의 개별 소스, 반복 체크섬, 이미지, 빌드 폴더, 원본 학습 ZIP, 오래된 검증 로그는 넣지 않습니다.
-
-과거 적용 방식과 변경 이력은 삭제하지 않고 다음 문서에 합쳤습니다.
-
-- `CHANGELOG.md`: 버전별 누적 변경
-- `HISTORY_INDEX.md`: 버전 계보와 원본 보관 위치
-- `SQL_HISTORY.md`: 과거 SQL의 성격과 이번 버전 실행 여부
-- `DEPLOYMENT_MATRIX.md`: SQL·index.js·환경변수·카카오 작업 판정
-- `docs/kakao-manual/PROJECT_MEMORY_V22_8_10.md`: 카카오 매뉴얼 기반 보호 기준
+1. `/health`의 버전이 `V22.8.11-HOME-UX-SHELL-EXPANSION`인지 확인합니다.
+2. PC Chrome에서 `/my → /app`과 주요 메뉴를 확인합니다.
+3. iPhone Safari와 Android Chrome에서 입력 글자, 터치 영역, 하단 메뉴를 확인합니다.
+4. 새 CSS·JavaScript 두 경로와 V22.8.10 기본 자원 두 경로가 모두 200인지 확인합니다.
+5. 기록 저장, 가계부 전환, 계정 보안, 분석, 영수증 OCR, 카카오 1:1·그룹을 확인합니다.
 
 ## 롤백
 
-V22.8.10은 DB 변경이 없습니다. 문제가 생기면 V22.8.9 `src/index.js`로 코드만 되돌리고 SQL은 롤백하지 않습니다. V22.8.10의 정적 자원 경로는 버전에 묶여 있어 이전 코드로 되돌리면 이전 화면 동작으로 함께 복귀합니다.
+DB 변경이 없으므로 문제가 생기면 직전 V22.8.10 `src/index.js`로 Worker 코드만 전체 롤백합니다. SQL·환경변수·외부 콘솔 롤백은 없습니다.
