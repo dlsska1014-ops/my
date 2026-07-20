@@ -1,4 +1,4 @@
-# V22.8.12 배포 검증표
+# V22.8.13 배포 검증표
 
 ## 저장소 판정
 
@@ -18,21 +18,21 @@
 - [x] 홈 `SMART NOTICE` 제목·본문 대비 토큰
 - [x] 분석 보조 텍스트와 inline `#8B95A1` 교정
 - [x] placeholder와 모바일 활성·비활성 메뉴 대비 토큰
-- [x] 새 CSS·JavaScript GET·HEAD·MIME·immutable·ETag·DB 0회
-- [x] 사용자 화면에 새 CSS·JavaScript를 정확히 한 번 연결
+- [x] 새 CSS와 보존된 테마 JavaScript의 GET·HEAD·MIME·immutable·ETag·DB 0회
+- [x] 사용자 화면에 V22.8.13 CSS와 테마 JavaScript를 정확히 한 번 연결
 - [x] 공개·운영·레거시 관리자·계정 감사 화면에서 새 셸 제외
 - [x] `/my` DB 요청 4회 이하
 - [x] `/app` DB 요청 9회 이하
 - [x] 개인 홈 HTML 35KB 미만과 `no-store`
 - [x] 모바일 입력 16px, 터치 44px, focus-visible, reduced-motion
-- [x] 영수증 55개, 카카오 18개, 보안 43개, UX 55개, 접근성 테마 112개
-- [x] 총 283개 자동 검사와 ESM `default.fetch`
+- [x] 영수증 55개, 카카오 18개, 보안 43개, UX 55개, 다크모드 전체 범위 118개
+- [x] 총 289개 자동 검사와 ESM `default.fetch`
 
 ## 운영 배포 전
 
 - [ ] 현재 Worker 코드 백업
 - [ ] 현재 환경변수 이름 목록 백업
-- [ ] V22.8.12 체크섬 확인
+- [ ] V22.8.13 체크섬 확인
 - [ ] 배포 승인 확인
 
 ## 운영 적용
@@ -46,7 +46,7 @@
 ## 운영·실기기 확인
 
 - [ ] `/health` 버전 확인
-- [ ] 새 CSS·JavaScript 두 경로의 200·MIME·immutable·ETag
+- [ ] V22.8.13 CSS와 V22.8.12 테마 JavaScript의 200·MIME·immutable·ETag
 - [ ] 보존된 V22.8.11·V22.8.10 네 경로의 200
 - [ ] 전체 메뉴에서 시스템·라이트·다크 선택
 - [ ] 네 가지 컬러톤 선택과 새로고침 후 유지
@@ -61,8 +61,8 @@
 
 ## 실패 시
 
-- [ ] 직전 V22.8.11 `src/index.js`로 전체 코드 롤백
+- [ ] 직전 V22.8.12 `src/index.js`로 전체 코드 롤백
 - [ ] SQL·환경변수·외부 콘솔 롤백 없음
-- [ ] 캐시 문제면 V22.8.11 자원 경로 복귀 확인
+- [ ] 캐시 문제면 V22.8.12 CSS 자원 경로 복귀 확인
 
 미완료 항목은 실제 운영 도메인과 기기가 필요한 수동 작업이며 자동 통과로 간주하지 않습니다.

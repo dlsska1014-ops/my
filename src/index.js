@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.12-ACCESSIBLE-THEME-CONTRAST";
+const APP_VERSION = "V22.8.13-DARK-MODE-FULL-COVERAGE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3966,6 +3966,8 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("<title>자산·결제수단</title>")) bodyClasses.push("abPageAssets");
   if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
   if (source.includes(" · 수입·예산</title>")) bodyClasses.push("abPageBudgets");
+  if (source.includes(" · 고급 정산</title>")) bodyClasses.push("abPageSettlement");
+  if (source.includes(" · 설정</title>") && source.includes('action="/my/settings"')) bodyClasses.push("abPageSettings");
   if (source.includes("<title>전체 메뉴</title>")) bodyClasses.push("abPageMenu");
   if (source.includes(" · 시작</title>") && source.includes('action="/my/local-login"')) bodyClasses.push("abPageLogin");
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
@@ -17251,7 +17253,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22812.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22813.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
@@ -17327,6 +17329,7 @@ body.abV22812Shell .homeNotice b{color:var(--ab12-notice-title)!important}
 body.abV22812Shell .homeNotice p{color:var(--ab12-notice-text)!important}
 body.abV22812Shell :is(.bottom a,.abNavBottom a,.abUxBottom a){color:var(--ab12-nav-inactive)!important}
 body.abV22812Shell :is(.bottom a.active,.abNavBottom a.active,.abUxBottom a.active){color:var(--ab12-accent)!important}
+body.abV22812Shell :is(.seg button:not(.on),.seg input:not(:checked)+span){color:var(--ab12-nav-inactive)!important}
 body.abV22812Shell :is(.bottom a.active:before,.abNavBottom a.active:before,.abUxBottom a.active:before){background:var(--ab12-accent)!important}
 body.abV22812Shell :is(.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){background:var(--ab12-action)!important;color:#fff!important}
 body.abV22812Shell :is(.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
@@ -17353,6 +17356,23 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeQuick a:hover,.h
 html[data-ab-resolved-theme="dark"] body.abV22812Shell *{color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a,.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn,a.primaryBtn,a.primaryButton,a.savePlan,.filters a.dark,.heroBtns a.dark){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn.secondary,a.btn.light,a.secondaryBtn,a.secondaryButton){background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.hero,.planColumn,.planLine label,.weight,.itemSplit,.checks label,.note,.copy,.incomeSummary li,.incomeSummary .emptyIncome,details.fold,.keywordCard){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.eyebrow,.sectionHead>b,.addLine,.addBtn){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.guide,.legacy,.sectionNote){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.ok,.notice.ok){background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.error,.notice.error){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageBudgets :is(.metric.actual,.metric.plan,.empty,.usageCard dl div){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettlement :is(.metric,.weight,.itemSplit,.checks label,.note,.copy){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings :is(.summaryBox,.incomeSummary li,.incomeSummary .emptyIncome,details.fold,.keywordCard){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings a.btn.secondary{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwBox,.kwHead,.kwBody,.kwChip,.kwCount,.kwNoResult){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwHead b,.kwToggle){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwCount,.kwHint){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .kwRemove{background:transparent!important;color:#fca5a5!important;border-color:transparent!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .kwAdd{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .keywordToolbar>button{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .pchip.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .seg button.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.income,.up,.positive,.homeTxAmt.income){color:#6ee7b7!important}
@@ -17631,7 +17651,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22812-css"'
+        ? '"accountbook-shell-v22813-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
