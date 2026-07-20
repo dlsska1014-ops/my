@@ -41,7 +41,10 @@ Secrets, Kakao Developers, OpenBuilder, and production deployment.
 3. Make the smallest coherent change. Preserve protected behavior in `BASELINE.md`.
 4. Do not weaken tests, remove checksum coverage, or change expected hashes merely to make a
    failure pass.
-5. Do not use subagents unless the user explicitly requests delegation or parallel agents.
+5. Use one agent for routine work. When at least two independent domains or review tracks
+   materially benefit from parallelism, route through `$orchestrate-kakao-accountbook-graph`
+   and keep exactly one writer. When this loop is already running inside that graph, do not
+   route back to the graph; complete only the assigned branch or writer attempt.
 
 ## 4. Verify the attempt
 
