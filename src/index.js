@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.13-DARK-MODE-FULL-COVERAGE";
+const APP_VERSION = "V22.8.14-HOME-FEED-BUTTON-CONTRAST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3825,6 +3825,7 @@ function deferHeavyBrowserTools(html = "") {
 function normalizeUserFacingUi(html = "") {
   let source = String(html || "").replace(/,maximum-scale=1/g, "");
   source = source.replaceAll("https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js", "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
+  source = source.replace('<a class="btn" style="margin-top:10px" href=', '<a class="btn homeFeedAllBtn" style="margin-top:10px" href=');
   source = deferHeavyBrowserTools(source);
   // Destructive controls must remain visually explicit even when client-side
   // enhancement is blocked or delayed.
@@ -17253,7 +17254,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22813.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22814.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
@@ -17357,6 +17358,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell *{color:var(--ab12-text)!
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a,.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn,a.primaryBtn,a.primaryButton,a.savePlan,.filters a.dark,.heroBtns a.dark){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface #feed>a.btn.homeFeedAllBtn{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn.secondary,a.btn.light,a.secondaryBtn,a.secondaryButton){background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.hero,.planColumn,.planLine label,.weight,.itemSplit,.checks label,.note,.copy,.incomeSummary li,.incomeSummary .emptyIncome,details.fold,.keywordCard){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.eyebrow,.sectionHead>b,.addLine,.addBtn){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
@@ -17651,7 +17653,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22813-css"'
+        ? '"accountbook-shell-v22814-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
