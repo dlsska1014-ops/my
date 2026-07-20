@@ -1,0 +1,30 @@
+Release: V22.8.7-GROUP-CHAT-RESPONSE-MANUAL-ALIGNMENT
+
+Package format:
+- Based on the first V22.8.5 cumulative bundle.
+- Historical MD, SQL, validation scripts, datasets, and Kakao manuals retained.
+- 466 historical visual-QA PNG files excluded as non-deployment artifacts.
+- Sites development scaffold is not included.
+
+Database:
+- No new migration is required for V22.8.7.
+- Keep the existing V22.8.0-era production schema applied.
+- Historical SQL files are included for audit/rebuild history; do not rerun them for this update.
+
+Deploy:
+- src/index.js
+
+Read before production:
+- README.md
+- DEPLOYMENT_MATRIX.md
+- FINAL_APPLY_CHECKLIST_V22_8_7.md
+- V22_8_7_GROUP_CHAT_RESPONSE_MANUAL_ALIGNMENT_REPORT.md
+- NEXT_UPDATE_PLAN.md
+
+Validation:
+- bash validate_v2287.sh
+- 18 Kakao direct/group response checks
+- 55 receipt/protected-screen checks
+
+Checksums:
+- BUNDLE_FILE_CHECKSUMS_V22_8_7.sha256

@@ -1558,7 +1558,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "guided_flows_only" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1739,7 +1739,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.5-MOBILE-ACCESS-MENU-RECEIPT-PERFORMANCE-STABILITY";
+const APP_VERSION = "V22.8.8-PREDICTABLE-ACTION-FEEDBACK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2926,17 +2926,76 @@ function guidedUiUxClientMain() {
   improveGuidePage();
   improveMobileOnboarding();
 
+  function submitControlLabel(button) {
+    if (!button) return "";
+    return String(button.tagName === "INPUT" ? button.value : button.textContent || "").trim();
+  }
+
+  function pendingSubmitLabel(form, button) {
+    const action = String(form && form.getAttribute("action") || "").toLowerCase();
+    const label = submitControlLabel(button);
+    const context = action + " " + label;
+    if (/local-login|auth\/kakao/.test(action) || /로그인/.test(label)) return "로그인 중…";
+    if (/local-signup/.test(action) || /계정\s*(?:만들|생성)|회원\s*가입/.test(label)) return "계정 만드는 중…";
+    if (/\/my\/create(?:$|[?#])/.test(action) || /가계부\s*(?:만들|생성)/.test(label)) return "가계부 만드는 중…";
+    if (/\/my\/join(?:$|[?#])/.test(action) || /참여|가입\s*요청/.test(label)) return "참여 요청 중…";
+    if (/logout|로그아웃/.test(context)) return "로그아웃 중…";
+    if (/identity\/merge|계정\s*통합/.test(context)) return "계정 통합 중…";
+    if (/\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return "삭제 중…";
+    if (/\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return "탈퇴 처리 중…";
+    if (/upload|import|가져오기|업로드/.test(context)) return "가져오는 중…";
+    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return "저장 중…";
+    return "처리 중…";
+  }
+
+  function riskySubmitMessage(form, button) {
+    const action = String(form && form.getAttribute("action") || "").toLowerCase();
+    const label = submitControlLabel(button) || "이 작업";
+    const context = action + " " + label;
+    if (/identity\/merge|계정\s*통합/.test(context)) return "계정을 통합할까요?\n계정 연결 정보가 변경됩니다.";
+    if (/\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return "가계부에서 탈퇴할까요?\n다시 참여하려면 초대가 필요할 수 있습니다.";
+    if (/\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return "삭제할까요?\n삭제한 정보는 되돌리기 어려울 수 있습니다.";
+    return label + "을 진행할까요?\n기존 정보에 영향을 줄 수 있습니다.";
+  }
+
+  function ensureSubmitStatus(form) {
+    let status = form.querySelector('[data-ab-submit-status="1"]');
+    if (status) return status;
+    status = document.createElement("span");
+    status.dataset.abSubmitStatus = "1";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.style.position = "absolute";
+    status.style.width = "1px";
+    status.style.height = "1px";
+    status.style.padding = "0";
+    status.style.margin = "-1px";
+    status.style.overflow = "hidden";
+    status.style.clip = "rect(0,0,0,0)";
+    status.style.whiteSpace = "nowrap";
+    status.style.border = "0";
+    form.appendChild(status);
+    return status;
+  }
+
   function restoreSubmitState(form) {
     delete form.dataset.abSubmitting;
     delete form.dataset.submitting;
-    form.querySelectorAll('[data-ab-submit-locked="1"],[aria-busy="true"]').forEach(function(button) {
+    form.removeAttribute("aria-busy");
+    form.querySelectorAll('[data-ab-submit-locked="1"]').forEach(function(button) {
       delete button.dataset.abSubmitLocked;
       button.disabled = false;
       button.removeAttribute("aria-busy");
       if (button.tagName === "BUTTON" && button.dataset.originalText) {
         button.textContent = button.dataset.originalText;
       }
+      if (button.tagName === "INPUT" && button.dataset.originalValue) {
+        button.value = button.dataset.originalValue;
+      }
     });
+    const status = form.querySelector('[data-ab-submit-status="1"]');
+    if (status) status.textContent = "";
+    try { form.dispatchEvent(new Event("ab:submit-restored")); } catch (err) {}
   }
 
   function isPostForm(form) {
@@ -2960,7 +3019,10 @@ function guidedUiUxClientMain() {
   document.addEventListener("submit", function(event) {
     const form = event.target;
     if (!isPostForm(form)) return;
-    if (isRiskyForm(form) && !form.hasAttribute("onsubmit") && !window.confirm("이 작업은 기존 정보에 영향을 줍니다. 계속할까요?")) {
+    const submittedButton = event.submitter && form.contains(event.submitter)
+      ? event.submitter
+      : form.querySelector('button[type="submit"],input[type="submit"]');
+    if (isRiskyForm(form) && !form.hasAttribute("onsubmit") && !window.confirm(riskySubmitMessage(form, submittedButton))) {
       event.preventDefault();
       return;
     }
@@ -2969,9 +3031,6 @@ function guidedUiUxClientMain() {
       event.preventDefault();
       return;
     }
-    const submittedButton = event.submitter && form.contains(event.submitter)
-      ? event.submitter
-      : form.querySelector('button[type="submit"],input[type="submit"]');
     const lock = function() {
       // Target-level validation and confirmation handlers run before this
       // delegated listener. A cancelled submit must remain usable.
@@ -2983,13 +3042,20 @@ function guidedUiUxClientMain() {
       const button = submittedButton;
       if (!button || (button.disabled && button.getAttribute("aria-busy") !== "true")) return;
       form.dataset.abSubmitting = "1";
+      form.setAttribute("aria-busy", "true");
       button.dataset.abSubmitLocked = "1";
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
+      const pendingLabel = pendingSubmitLabel(form, button);
       if (button.tagName === "BUTTON" && !button.dataset.originalText) {
         button.dataset.originalText = button.textContent || "";
       }
-      if (button.tagName === "BUTTON" && button.textContent === button.dataset.originalText) button.textContent = "저장 중…";
+      if (button.tagName === "INPUT" && !button.dataset.originalValue) {
+        button.dataset.originalValue = button.value || "";
+      }
+      if (button.tagName === "BUTTON" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;
+      if (button.tagName === "INPUT" && button.value === button.dataset.originalValue) button.value = pendingLabel;
+      ensureSubmitStatus(form).textContent = pendingLabel;
     };
     if (typeof queueMicrotask === "function") queueMicrotask(lock);
     else Promise.resolve().then(lock);
@@ -2998,6 +3064,54 @@ function guidedUiUxClientMain() {
   window.addEventListener("pageshow", function() {
     document.querySelectorAll('form[method="post"]').forEach(restoreSubmitState);
   });
+}
+
+function passwordMatchFeedbackClientMain(config) {
+  var password = document.getElementById(config.passwordId);
+  var confirmation = document.getElementById(config.confirmationId);
+  var status = document.getElementById(config.statusId);
+  var button = document.getElementById(config.buttonId);
+  var form = button && button.form;
+  if (!password || !confirmation || !status || !button || !form) return;
+
+  function setFeedback(message, state, invalidMessage, disableButton) {
+    status.textContent = message;
+    status.dataset.state = state;
+    confirmation.setCustomValidity(invalidMessage || "");
+    button.disabled = !!disableButton;
+    button.setAttribute("aria-disabled", disableButton ? "true" : "false");
+  }
+
+  function syncPasswordFeedback() {
+    var first = String(password.value || "");
+    var second = String(confirmation.value || "");
+    if (!first && !second) {
+      setFeedback("비밀번호는 8자리 이상 입력해 주세요.", "hint", "", false);
+      return;
+    }
+    if (first.length < 8) {
+      setFeedback("비밀번호를 8자리 이상 입력해 주세요.", "error", "비밀번호를 8자리 이상 입력해 주세요.", true);
+      return;
+    }
+    if (!second) {
+      setFeedback("확인을 위해 같은 비밀번호를 한 번 더 입력해 주세요.", "hint", "같은 비밀번호를 한 번 더 입력해 주세요.", true);
+      return;
+    }
+    if (first !== second) {
+      setFeedback("두 비밀번호가 다릅니다. 다시 확인해 주세요.", "error", "두 비밀번호가 일치하지 않습니다.", true);
+      return;
+    }
+    setFeedback("두 비밀번호가 일치합니다.", "success", "", false);
+  }
+
+  password.addEventListener("input", syncPasswordFeedback);
+  confirmation.addEventListener("input", syncPasswordFeedback);
+  password.addEventListener("change", syncPasswordFeedback);
+  confirmation.addEventListener("change", syncPasswordFeedback);
+  form.addEventListener("ab:submit-restored", syncPasswordFeedback);
+  window.addEventListener("pageshow", syncPasswordFeedback);
+  syncPasswordFeedback();
+  window.setTimeout(syncPasswordFeedback, 250);
 }
 
 function accessibleFieldLabel(name = "", placeholder = "") {
@@ -3058,9 +3172,27 @@ function receiptCaptureClientMain() {
   var ocrWorkerPromise = null;
   var ocrWorker = null;
   var ocrWorkerIdleTimer = 0;
+  var ocrWorkerGeneration = 0;
+  var cancelOcrButton = document.getElementById("ocrCancel");
+  var dropPanel = document.getElementById("receiptSourcePanel");
   var selectedImage = null;
   var previewUrl = "";
   var ocrBusy = false;
+  var ocrRunId = 0;
+  var dragDepth = 0;
+  // 직렬화된 브라우저 런타임의 파서가 실제 정규식을 유지하는지 QA에서 검증합니다.
+  try {
+    var receiptParsers = {
+      date: parseDate,
+      amount: parseAmount,
+      merchant: parseMerchant,
+      payment: parsePayment,
+      category: parseCategory,
+      downscaleForOcr: optimizeImageForOcr
+    };
+    if (Object.freeze) Object.freeze(receiptParsers);
+    Object.defineProperty(window, "__receiptParsers", { value: receiptParsers, configurable: true });
+  } catch (error) {}
   if (!text || !status) return;
 
   function clean(value) {
@@ -3088,9 +3220,12 @@ function receiptCaptureClientMain() {
   }
 
   function syncActionState() {
-    if (readImage) readImage.disabled = ocrBusy || !selectedImage;
-    if (analyze) analyze.disabled = ocrBusy || !clean(text.value);
-    if (clearImage) clearImage.disabled = ocrBusy || !selectedImage;
+    var readOnly = sourceInputs.length > 0 && sourceInputs.every(function(input) {
+      return input.dataset.readOnlyDisabled === "1";
+    });
+    if (readImage) readImage.disabled = readOnly || ocrBusy || !selectedImage;
+    if (analyze) analyze.disabled = readOnly || ocrBusy || !clean(text.value);
+    if (clearImage) clearImage.disabled = readOnly || ocrBusy || !selectedImage;
     sourceInputs.forEach(function(input) {
       if (input.dataset.readOnlyDisabled !== "1") input.disabled = ocrBusy;
     });
@@ -3101,6 +3236,7 @@ function receiptCaptureClientMain() {
       label.setAttribute("aria-disabled", ocrBusy ? "true" : "false");
     });
     if (readImage) readImage.textContent = ocrBusy ? "사진 읽는 중…" : "선택한 사진 읽기";
+    if (cancelOcrButton) cancelOcrButton.hidden = !ocrBusy;
   }
 
   function setBusy(value) {
@@ -3108,23 +3244,25 @@ function receiptCaptureClientMain() {
     syncActionState();
   }
 
-  function selectImage(input, sourceLabel) {
-    var image = input && input.files && input.files[0];
-    if (!image) return;
+  function adoptImage(image, sourceLabel) {
+    if (!image || ocrBusy) return false;
+    var readOnly = sourceInputs.length > 0 && sourceInputs.every(function(input) {
+      return input.dataset.readOnlyDisabled === "1";
+    });
+    if (readOnly) {
+      setStatus("현재 가계부는 조회 전용이라 영수증을 등록할 수 없습니다.", "error");
+      return false;
+    }
     var supported = /^image\//i.test(String(image.type || "")) || /\.(?:jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(String(image.name || ""));
     if (!supported) {
-      input.value = "";
       setStatus("이미지 파일만 선택할 수 있습니다. JPG·PNG·HEIC 사진을 선택해 주세요.", "error");
-      return;
+      return false;
     }
     if (image.size > 25 * 1024 * 1024) {
-      input.value = "";
       setStatus("사진 용량이 25MB를 넘습니다. 사진 크기를 줄이거나 화면을 캡처한 뒤 다시 선택해 주세요.", "error");
-      return;
+      return false;
     }
-    sourceInputs.forEach(function(other) {
-      if (other !== input) other.value = "";
-    });
+    sourceInputs.forEach(function(input) { input.value = ""; });
     selectedImage = image;
     releasePreview();
     if (preview && previewWrap) {
@@ -3140,6 +3278,13 @@ function receiptCaptureClientMain() {
     if (fileName) fileName.textContent = sourceLabel + " · " + (image.name || "영수증 사진") + " · " + formatBytes(image.size);
     setStatus("사진을 준비했습니다. 미리보기를 확인한 뒤 ‘선택한 사진 읽기’를 눌러주세요.", "ready");
     syncActionState();
+    return true;
+  }
+
+  function selectImage(input, sourceLabel) {
+    var image = input && input.files && input.files[0];
+    if (!image) return;
+    if (!adoptImage(image, sourceLabel)) input.value = "";
   }
 
   function clearSelectedImage() {
@@ -3198,11 +3343,21 @@ function receiptCaptureClientMain() {
       clearTimeout(ocrWorkerIdleTimer);
       ocrWorkerIdleTimer = 0;
     }
+    ocrWorkerGeneration += 1;
     var worker = ocrWorker;
+    var pendingWorker = ocrWorkerPromise;
     ocrWorker = null;
     ocrWorkerPromise = null;
     if (worker && typeof worker.terminate === "function") {
       Promise.resolve(worker.terminate()).catch(function() {});
+    }
+    // 취소 시 아직 생성 중이던 워커도 완료되는 즉시 해제해 메모리에 남지 않게 합니다.
+    if (pendingWorker) {
+      Promise.resolve(pendingWorker).then(function(candidate) {
+        if (candidate && candidate !== worker && typeof candidate.terminate === "function") {
+          return candidate.terminate();
+        }
+      }).catch(function() {});
     }
   }
 
@@ -3213,20 +3368,30 @@ function receiptCaptureClientMain() {
     ocrWorkerIdleTimer = setTimeout(releaseOcrWorker, 120000);
   }
 
-  async function getOcrWorker() {
+  function getOcrWorker() {
     if (ocrWorkerPromise) return ocrWorkerPromise;
-    var engine = await loadTesseract();
-    ocrWorkerPromise = engine.createWorker(["kor", "eng"], 1, {
-      logger: reportOcrProgress
+    var generation = ocrWorkerGeneration;
+    var pending = loadTesseract().then(function(engine) {
+      if (generation !== ocrWorkerGeneration) throw new Error("사진 분석이 취소되었습니다.");
+      return engine.createWorker(["kor", "eng"], 1, { logger: reportOcrProgress });
     }).then(function(worker) {
+      if (generation !== ocrWorkerGeneration) {
+        if (worker && typeof worker.terminate === "function") {
+          Promise.resolve(worker.terminate()).catch(function() {});
+        }
+        throw new Error("사진 분석이 취소되었습니다.");
+      }
       ocrWorker = worker;
       return worker;
-    }).catch(function(error) {
-      ocrWorker = null;
-      ocrWorkerPromise = null;
-      throw error;
     });
-    return ocrWorkerPromise;
+    ocrWorkerPromise = pending;
+    pending.catch(function() {
+      if (ocrWorkerPromise === pending) {
+        ocrWorker = null;
+        ocrWorkerPromise = null;
+      }
+    });
+    return pending;
   }
 
   function decodeImage(image) {
@@ -3386,7 +3551,7 @@ function receiptCaptureClientMain() {
     var payment = parsePayment(raw);
     if (rawField) rawField.value = raw.slice(0, 500);
     if (date && dateField) dateField.value = date;
-    if (amount && amountField) amountField.value = String(amount);
+    if (amount && amountField) amountField.value = new Intl.NumberFormat("ko-KR").format(amount);
     if (merchant && merchantField) merchantField.value = merchant;
     if (payment && paymentField) paymentField.value = payment;
     if (categoryField) categoryField.value = parseCategory(raw);
@@ -3413,15 +3578,27 @@ function receiptCaptureClientMain() {
   text.addEventListener("input", syncActionState);
   if (readImage) readImage.addEventListener("click", async function() {
     if (!selectedImage || ocrBusy) return;
+    var runId = ++ocrRunId;
+    var current = function() { return runId === ocrRunId; };
+    var timeoutId = setTimeout(function() {
+      if (!current()) return;
+      ocrRunId += 1;
+      releaseOcrWorker();
+      setBusy(false);
+      setStatus("인식이 90초를 넘겨 중단했습니다. 사진을 더 작게 찍거나 화면을 캡처해 다시 시도해 주세요.", "error");
+    }, 90000);
     setBusy(true);
     setStatus("휴대폰이 버벅이지 않도록 사진 크기를 줄이고 있습니다…", "busy");
     try {
       var preparedImage = await optimizeImageForOcr(selectedImage);
+      if (!current()) return;
       await nextPaint();
       setStatus("문자 인식 기능을 준비하고 있습니다. 첫 실행은 조금 더 걸릴 수 있어요.", "busy");
       var worker = await getOcrWorker();
+      if (!current()) return;
       setStatus("사진에서 문자를 읽는 중입니다. 다른 버튼을 여러 번 누르지 말고 잠시 기다려 주세요.", "busy");
       var result = await worker.recognize(preparedImage);
+      if (!current()) return;
       scheduleOcrWorkerRelease();
       text.value = clean(result && result.data && result.data.text);
       if (!text.value) {
@@ -3431,12 +3608,84 @@ function receiptCaptureClientMain() {
         applyReceiptText(true);
       }
     } catch (error) {
+      if (!current()) return;
       releaseOcrWorker();
       var offline = navigator.onLine === false ? "인터넷 연결을 확인한 뒤 다시 시도해 주세요. " : "";
       setStatus(offline + (error && error.message ? error.message + " " : "") + "JPG·PNG 사진이나 화면 캡처를 사용하면 더 안정적입니다.", "error");
     } finally {
-      setBusy(false);
+      clearTimeout(timeoutId);
+      if (current()) setBusy(false);
     }
+  });
+  if (cancelOcrButton) cancelOcrButton.addEventListener("click", function() {
+    if (!ocrBusy) return;
+    ocrRunId += 1;
+    releaseOcrWorker();
+    setBusy(false);
+    setStatus("사진 분석을 취소했습니다. 다시 시도하거나 영수증 문자를 직접 붙여넣어 주세요.", "");
+  });
+  if (dropPanel) {
+    dropPanel.addEventListener("dragenter", function(event) {
+      event.preventDefault();
+      dragDepth += 1;
+      dropPanel.classList.add("dragOver");
+    });
+    dropPanel.addEventListener("dragover", function(event) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      dropPanel.classList.add("dragOver");
+    });
+    dropPanel.addEventListener("dragleave", function(event) {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) dropPanel.classList.remove("dragOver");
+    });
+    dropPanel.addEventListener("drop", function(event) {
+      event.preventDefault();
+      dragDepth = 0;
+      dropPanel.classList.remove("dragOver");
+      var files = event.dataTransfer && event.dataTransfer.files ? Array.from(event.dataTransfer.files) : [];
+      var image = files.find(function(file) {
+        return /^image\//i.test(String(file.type || "")) || /\.(?:jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(String(file.name || ""));
+      });
+      if (image) adoptImage(image, "가져온 사진");
+      else setStatus("끌어놓은 파일에서 영수증 이미지를 찾지 못했습니다.", "error");
+    });
+  }
+  document.addEventListener("paste", function(event) {
+    var files = event.clipboardData && event.clipboardData.files ? Array.from(event.clipboardData.files) : [];
+    var image = files.find(function(file) { return /^image\//i.test(String(file.type || "")); });
+    if (image && adoptImage(image, "붙여넣은 사진")) event.preventDefault();
+  });
+  var amountManual = document.getElementById("receiptAmount");
+  if (amountManual) amountManual.addEventListener("input", function() {
+    var original = amountManual.value;
+    var selectionStart = Number(amountManual.selectionStart == null ? original.length : amountManual.selectionStart);
+    var digitsBeforeCaret = original.slice(0, selectionStart).replace(/[^0-9]/g, "").length;
+    var digits = original.replace(/[^0-9]/g, "");
+    var formatted = digits ? Number(digits).toLocaleString("ko-KR") : "";
+    if (formatted === original) return;
+    amountManual.value = formatted;
+    var position = 0;
+    var seen = 0;
+    while (position < formatted.length && seen < digitsBeforeCaret) {
+      if (/\d/.test(formatted.charAt(position))) seen += 1;
+      position += 1;
+    }
+    try { amountManual.setSelectionRange(position, position); } catch (error) {}
+  });
+  ["receiptHousehold", "receiptMonth"].forEach(function(id) {
+    var field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener("change", function() {
+      if (!field.form) return;
+      if (typeof field.form.requestSubmit === "function") field.form.requestSubmit();
+      else field.form.submit();
+    });
+  });
+  window.addEventListener("blur", function() {
+    dragDepth = 0;
+    if (dropPanel) dropPanel.classList.remove("dragOver");
   });
   window.addEventListener("pagehide", function() {
     releasePreview();
@@ -12984,7 +13233,7 @@ async function handleReceiptCapturePage(request, env, url) {
   }
   if (!access.selected) return redirectResponse("/my/households?err=no_household#create");
   const categoryNames = await fetchReceiptCategoryNames(env, access.selected.id);
-  return htmlResponse(renderReceiptCaptureV2285Html({
+  return htmlResponse(renderReceiptCaptureHtml({
     env,
     month,
     households: access.households,
@@ -13063,7 +13312,7 @@ async function handleReceiptConfirmedSave(request, env) {
   }
 }
 
-function renderReceiptCaptureV2285Html({ env, month, households = [], selected, categoryNames = [], msg = "", err = "" }) {
+function renderReceiptCaptureHtml({ env, month, households = [], selected, categoryNames = [], msg = "", err = "" }) {
   const writable = canWriteMyHousehold(selected.role);
   const householdOptions = safeArray(households).map((household) => `<option value="${escapeHtml(household.id)}" ${String(household.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(household.name || "가계부")}</option>`).join("");
   const categories = [...new Set([
@@ -13089,8 +13338,8 @@ function renderReceiptCaptureV2285Html({ env, month, households = [], selected, 
   const errorMessage = err ? `<div class="receiptBanner error" role="alert">${escapeHtml(errorMessages[err] || "영수증을 저장하지 못했습니다. 입력값과 가계부 권한을 확인해 주세요.")}</div>` : "";
   const disabled = writable ? "" : "disabled";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#f5f7fb"/><title>${escapeHtml(appName(env))} · 영수증 스마트 기록</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.receiptWrap{width:min(100%,1120px);margin:0 auto;padding:28px 24px 120px}.receiptHeader{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:0 0 18px}.receiptHeader h1{margin:4px 0 6px;font-size:clamp(26px,3vw,36px);letter-spacing:-.04em}.receiptHeader p{margin:0;color:#667085;line-height:1.6}.receiptEyebrow{display:block;color:#1d4ed8;font-size:13px;font-weight:750}.receiptBack{display:inline-flex;align-items:center;min-height:42px;padding:0 13px;border:1px solid #d9e1ec;border-radius:11px;background:#fff;color:#344054;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap}.receiptContext{display:grid;grid-template-columns:minmax(180px,1fr) minmax(160px,.8fr) auto;gap:10px;align-items:end;background:#fff;border:1px solid #e1e7ef;border-radius:16px;padding:14px 16px;margin-bottom:16px;box-shadow:0 4px 14px rgba(23,32,51,.035)}.receiptField{display:grid;gap:6px;min-width:0}.receiptField>label,.receiptTextLabel{color:#475467;font-size:13px;font-weight:650}.receiptField input,.receiptField select,.receiptTextArea{width:100%;min-height:46px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.receiptTextArea{min-height:190px;padding:12px;line-height:1.55;resize:vertical}.receiptContext button,.receiptPrimary,.receiptSecondary,.receiptSave{display:inline-flex;align-items:center;justify-content:center;min-height:46px;border:1px solid transparent;border-radius:11px;padding:0 15px;font:inherit;font-weight:700;cursor:pointer}.receiptContext button,.receiptPrimary,.receiptSave{background:#2457d6;color:#fff}.receiptSecondary{background:#f4f6f9;color:#344054;border-color:#d8e0eb}.receiptGrid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(360px,.92fr);gap:16px;align-items:start}.receiptPanel{min-width:0;background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(23,32,51,.045)}.receiptPanelHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.receiptStep{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ff;color:#1d4ed8;font-weight:800}.receiptPanelHead h2{margin:1px 0 3px;font-size:19px}.receiptPanelHead p{margin:0;color:#667085;font-size:13px;line-height:1.55}.receiptSourceActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.receiptSourcePick{display:flex;align-items:center;gap:12px;min-height:72px;border:1px solid #d7e0ec;border-radius:14px;padding:12px 14px;background:#f9fbfd;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.receiptSourcePick:hover{border-color:#9eb9ef;background:#f3f7ff;transform:translateY(-1px)}.receiptSourcePick.busy{opacity:.65;cursor:wait;transform:none}.receiptSourceIcon{display:grid;place-items:center;flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:#eaf2ff;color:#1d4ed8;font-size:18px;font-weight:800}.receiptSourcePick b,.receiptSourcePick small{display:block}.receiptSourcePick b{font-size:14px}.receiptSourcePick small{margin-top:2px;color:#667085;font-size:12px}.receiptFile{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.receiptPrivacy{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;color:#667085;font-size:12.5px;line-height:1.55}.receiptPreview{margin-top:14px;border:1px solid #e0e6ee;border-radius:14px;overflow:hidden;background:#f3f5f8}.receiptPreview img{display:block;width:100%;height:260px;object-fit:contain;background:#eef1f5}.receiptPreviewMeta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fff}.receiptPreviewMeta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475467;font-size:12px}.receiptPreviewMeta button{flex:0 0 auto;min-height:34px!important;padding:0 10px!important}.receiptStatus{position:relative;margin:14px 0 0;border:1px solid #d8e3f4;border-radius:12px;padding:12px 13px;background:#f4f8ff;color:#27456f;font-size:13px;line-height:1.55}.receiptStatus[data-state="busy"]{padding-left:40px;background:#eef4ff;color:#1d4ed8}.receiptStatus[data-state="busy"]:before{content:"";position:absolute;left:15px;top:15px;width:14px;height:14px;border:2px solid #b8caf0;border-top-color:#2457d6;border-radius:50%;animation:receiptSpin .7s linear infinite}.receiptStatus[data-state="success"]{background:#edf8f1;border-color:#c6e5d1;color:#17633a}.receiptStatus[data-state="error"]{background:#fff3f1;border-color:#f1cbc5;color:#9d3328}.receiptActions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.receiptActions>*{flex:1 1 170px}.receiptDivider{height:1px;background:#edf0f4;margin:18px 0}.receiptTextHelp{margin:6px 0 10px;color:#667085;font-size:12.5px;line-height:1.55}.receiptDetected{min-height:43px;margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#f7f9fc;color:#475467;font-size:13px;line-height:1.55}.receiptResultGrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.receiptFull{grid-column:1/-1}.receiptConfirm{display:flex;gap:9px;align-items:flex-start;margin:15px 0;padding:12px 13px;border:1px solid #ead8a4;border-radius:12px;background:#fffaf0;color:#6d5011;font-size:13px;line-height:1.55}.receiptConfirm input{flex:0 0 auto;width:19px;height:19px;margin-top:1px}.receiptSave{width:100%}.receiptBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:13px;padding:12px 14px;margin:0 0 12px;line-height:1.5}.receiptBanner.success{background:#edf8f1;border:1px solid #c6e5d1;color:#17633a}.receiptBanner.error{background:#fff2ef;border:1px solid #f1cbc5;color:#9d3328}.receiptBanner a{color:inherit;font-weight:750}.receiptHelp{margin-top:16px;border-top:1px solid #e6eaf0;padding:15px 2px 0;color:#475467}.receiptHelp summary{cursor:pointer;font-weight:700}.receiptHelp ul{margin:10px 0 0;padding-left:20px;color:#667085;font-size:13px;line-height:1.7}.receiptReadOnly{margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#fff7ed;color:#9a3412;font-size:13px}.receiptPrimary:disabled,.receiptSecondary:disabled,.receiptSave:disabled,.receiptContext button:disabled{opacity:.55;cursor:not-allowed;transform:none!important}@keyframes receiptSpin{to{transform:rotate(360deg)}}@media(max-width:900px){.receiptGrid{grid-template-columns:1fr}.receiptPanel{padding:18px}}@media(max-width:700px){.receiptWrap{padding:18px 12px 100px}.receiptHeader{display:block}.receiptBack{margin-top:13px}.receiptContext{grid-template-columns:1fr;padding:14px}.receiptContext input,.receiptContext select,.receiptContext button,.receiptTextArea,.receiptResultGrid input{font-size:16px}.receiptSourceActions{grid-template-columns:1fr}.receiptSourcePick{min-height:68px}.receiptPreview img{height:220px}.receiptResultGrid{grid-template-columns:1fr}.receiptFull{grid-column:auto}.receiptPanel{border-radius:16px;padding:16px}.receiptActions{display:grid;grid-template-columns:1fr}.receiptActions>*{width:100%}.receiptBanner{align-items:flex-start;flex-direction:column}.receiptHeader h1{font-size:28px}}@media(prefers-reduced-motion:reduce){.receiptSourcePick{transition:none}.receiptStatus[data-state="busy"]:before{animation-duration:1.4s}}
-</style></head><body>${renderUnifiedNav("receipts", { month, householdId: selected.id, householdName: selected.name })}<main class="receiptWrap">${successMessage}${errorMessage}<header class="receiptHeader"><div><span class="receiptEyebrow">스마트 기록</span><h1>영수증 등록</h1><p>앨범 사진이나 지금 촬영한 사진에서 글자를 읽고, 확인한 내용만 가계부에 저장합니다.</p></div><a class="receiptBack" href="/smart-tools?${qs}">스마트 도구로 돌아가기</a></header><form class="receiptContext" method="get" action="/receipts"><div class="receiptField"><label for="receiptHousehold">가계부</label><select id="receiptHousehold" name="household_id">${householdOptions}</select></div><div class="receiptField"><label for="receiptMonth">기록 월</label><input id="receiptMonth" type="month" name="month" value="${escapeHtml(month)}"/></div><button type="submit">선택 적용</button></form><div class="receiptGrid"><section class="receiptPanel" aria-labelledby="receiptSourceTitle"><div class="receiptPanelHead"><span class="receiptStep">1</span><div><h2 id="receiptSourceTitle">영수증 가져오기</h2><p>앨범과 카메라 중 편한 방법을 선택하세요. 사진을 고르는 것만으로 분석이 시작되지는 않습니다.</p></div></div><div class="receiptSourceActions"><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptImage"><span class="receiptSourceIcon" aria-hidden="true">▧</span><span><b>앨범에서 선택</b><small>저장된 영수증 사진</small></span></label><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptCamera"><span class="receiptSourceIcon" aria-hidden="true">◎</span><span><b>카메라로 촬영</b><small>지금 영수증 찍기</small></span></label><input class="receiptFile" id="receiptImage" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" ${disabled}/><input class="receiptFile" id="receiptCamera" type="file" accept="image/*" capture="environment" ${disabled}/></div><p class="receiptPrivacy"><span aria-hidden="true">✓</span><span>사진은 서버에 업로드하지 않고 현재 브라우저에서만 문자 인식에 사용합니다. 앨범·카메라 접근은 해당 버튼을 눌렀을 때만 요청됩니다.</span></p><div class="receiptPreview" id="receiptPreview" hidden><img id="receiptPreviewImage" alt=""/><div class="receiptPreviewMeta"><span id="receiptFileName">선택된 사진 없음</span><button class="receiptSecondary" id="clearReceiptImage" type="button">선택 취소</button></div></div><div class="receiptStatus" id="ocrStatus" role="status">앨범이나 카메라에서 영수증 사진을 선택해 주세요.</div><div class="receiptActions"><button class="receiptPrimary" type="button" id="readReceiptImage" disabled>선택한 사진 읽기</button></div><div class="receiptDivider"></div><label class="receiptTextLabel" for="receiptText">문자가 있다면 직접 붙여넣기</label><p class="receiptTextHelp">카카오톡이나 문자로 받은 전자영수증은 내용을 복사해 아래에 붙여넣는 편이 더 빠릅니다.</p><textarea class="receiptTextArea" id="receiptText" placeholder="예: 스타마트&#10;2026-07-15&#10;합계 35,400원&#10;신한카드" ${disabled}></textarea><div class="receiptActions"><button class="receiptSecondary" type="button" id="analyzeReceipt" disabled>붙여넣은 문자 분석</button></div></section><section class="receiptPanel" id="receiptResults" aria-labelledby="receiptResultTitle"><div class="receiptPanelHead"><span class="receiptStep">2</span><div><h2 id="receiptResultTitle">인식 결과 확인</h2><p>자동 인식은 틀릴 수 있습니다. 상호·날짜·총액 세 항목을 원본과 꼭 비교하세요.</p></div></div>${writable ? "" : `<div class="receiptReadOnly">조회 전용 권한에서는 인식 결과를 저장할 수 없습니다.</div>`}<div class="receiptDetected" id="receiptDetectedSummary">사진이나 문자를 분석하면 찾은 값이 여기에 표시됩니다.</div><form method="post" action="/my/receipt/save" id="receiptForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><textarea name="receipt_text" id="receiptRaw" hidden></textarea><div class="receiptResultGrid"><div class="receiptField receiptFull"><label for="merchant">상호·내용</label><input id="merchant" name="merchant" maxlength="160" autocomplete="off" placeholder="예: 스타마트" required ${disabled}/></div><div class="receiptField"><label for="receiptDate">날짜</label><input id="receiptDate" type="date" name="transaction_date" value="${escapeHtml(today)}" required ${disabled}/></div><div class="receiptField"><label for="receiptAmount">총액</label><input id="receiptAmount" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 35400" required ${disabled}/></div><div class="receiptField"><label for="receiptCategory">분류</label><input id="receiptCategory" name="category" list="receiptCategories" placeholder="자동 추천 또는 직접 입력" ${disabled}/><datalist id="receiptCategories">${categoryOptions}</datalist></div><div class="receiptField"><label for="receiptPayment">결제수단</label><input id="receiptPayment" name="payment_method" autocomplete="off" placeholder="예: 신한카드, 현금" ${disabled}/></div></div><label class="receiptConfirm"><input type="checkbox" name="confirmed" value="yes" required ${disabled}/><span>사진 원본과 상호·날짜·총액을 비교했고, 이 내용으로 저장하는 데 동의합니다.</span></label><button class="receiptSave" type="submit" ${disabled}>확인한 지출 저장</button></form><details class="receiptHelp"><summary>사진이 잘 읽히지 않을 때</summary><ul><li>영수증이 화면을 세로로 가득 채우도록 촬영하세요.</li><li>그림자와 구김을 줄이고 영수증을 수평으로 놓아주세요.</li><li>HEIC에서 오류가 나면 사진을 화면 캡처해 JPG·PNG로 다시 선택하세요.</li><li>자동값이 비어도 오른쪽 입력란에서 직접 적어 저장할 수 있습니다.</li></ul></details></section></div></main><script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script></body></html>`;
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#f5f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.receiptWrap{width:min(100%,1120px);margin:0 auto;padding:28px 24px 120px}.receiptHeader{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:0 0 18px}.receiptHeader h1{margin:4px 0 6px;font-size:clamp(26px,3vw,36px);letter-spacing:-.04em}.receiptHeader p{margin:0;color:#667085;line-height:1.6}.receiptEyebrow{display:block;color:#1d4ed8;font-size:13px;font-weight:750}.receiptBack{display:inline-flex;align-items:center;min-height:42px;padding:0 13px;border:1px solid #d9e1ec;border-radius:11px;background:#fff;color:#344054;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap}.receiptContext{display:grid;grid-template-columns:minmax(180px,1fr) minmax(160px,.8fr) auto;gap:10px;align-items:end;background:#fff;border:1px solid #e1e7ef;border-radius:16px;padding:14px 16px;margin-bottom:16px;box-shadow:0 4px 14px rgba(23,32,51,.035)}.receiptField{display:grid;gap:6px;min-width:0}.receiptField>label,.receiptTextLabel{color:#475467;font-size:13px;font-weight:650}.receiptField input,.receiptField select,.receiptTextArea{width:100%;min-height:46px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.receiptTextArea{min-height:190px;padding:12px;line-height:1.55;resize:vertical}.receiptContext button,.receiptPrimary,.receiptSecondary,.receiptSave{display:inline-flex;align-items:center;justify-content:center;min-height:46px;border:1px solid transparent;border-radius:11px;padding:0 15px;font:inherit;font-weight:700;cursor:pointer}.receiptContext button,.receiptPrimary,.receiptSave{background:#2457d6;color:#fff}.receiptSecondary{background:#f4f6f9;color:#344054;border-color:#d8e0eb}.receiptGrid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(360px,.92fr);gap:16px;align-items:start}.receiptPanel{min-width:0;background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(23,32,51,.045)}.receiptPanel.dragOver{border-color:#2457d6;background:#f3f7ff;box-shadow:0 0 0 3px rgba(36,87,214,.12)}.receiptPanelHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.receiptStep{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ff;color:#1d4ed8;font-weight:800}.receiptPanelHead h2{margin:1px 0 3px;font-size:19px}.receiptPanelHead p{margin:0;color:#667085;font-size:13px;line-height:1.55}.receiptSourceActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.receiptSourcePick{display:flex;align-items:center;gap:12px;min-height:72px;border:1px solid #d7e0ec;border-radius:14px;padding:12px 14px;background:#f9fbfd;cursor:pointer;transition:border-color .15s ease,background .15s ease,transform .15s ease}.receiptSourcePick:hover{border-color:#9eb9ef;background:#f3f7ff;transform:translateY(-1px)}.receiptSourcePick.busy{opacity:.65;cursor:wait;transform:none}.receiptSourceIcon{display:grid;place-items:center;flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:#eaf2ff;color:#1d4ed8;font-size:18px;font-weight:800}.receiptSourcePick b,.receiptSourcePick small{display:block}.receiptSourcePick b{font-size:14px}.receiptSourcePick small{margin-top:2px;color:#667085;font-size:12px}.receiptFile{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.receiptPrivacy{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;color:#667085;font-size:12.5px;line-height:1.55}.receiptPreview{margin-top:14px;border:1px solid #e0e6ee;border-radius:14px;overflow:hidden;background:#f3f5f8}.receiptPreview img{display:block;width:100%;height:260px;object-fit:contain;background:#eef1f5}.receiptPreviewMeta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fff}.receiptPreviewMeta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475467;font-size:12px}.receiptPreviewMeta button{flex:0 0 auto;min-height:34px!important;padding:0 10px!important}.receiptStatus{position:relative;margin:14px 0 0;border:1px solid #d8e3f4;border-radius:12px;padding:12px 13px;background:#f4f8ff;color:#27456f;font-size:13px;line-height:1.55}.receiptStatus[data-state="busy"]{padding-left:40px;background:#eef4ff;color:#1d4ed8}.receiptStatus[data-state="busy"]:before{content:"";position:absolute;left:15px;top:15px;width:14px;height:14px;border:2px solid #b8caf0;border-top-color:#2457d6;border-radius:50%;animation:receiptSpin .7s linear infinite}.receiptStatus[data-state="success"]{background:#edf8f1;border-color:#c6e5d1;color:#17633a}.receiptStatus[data-state="error"]{background:#fff3f1;border-color:#f1cbc5;color:#9d3328}.receiptActions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.receiptActions>*{flex:1 1 170px}.receiptDivider{height:1px;background:#edf0f4;margin:18px 0}.receiptTextHelp{margin:6px 0 10px;color:#667085;font-size:12.5px;line-height:1.55}.receiptDetected{min-height:43px;margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#f7f9fc;color:#475467;font-size:13px;line-height:1.55}.receiptResultGrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.receiptFull{grid-column:1/-1}.receiptConfirm{display:flex;gap:9px;align-items:flex-start;margin:15px 0;padding:12px 13px;border:1px solid #ead8a4;border-radius:12px;background:#fffaf0;color:#6d5011;font-size:13px;line-height:1.55}.receiptConfirm input{flex:0 0 auto;width:19px;height:19px;margin-top:1px}.receiptSave{width:100%}.receiptBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:13px;padding:12px 14px;margin:0 0 12px;line-height:1.5}.receiptBanner.success{background:#edf8f1;border:1px solid #c6e5d1;color:#17633a}.receiptBanner.error{background:#fff2ef;border:1px solid #f1cbc5;color:#9d3328}.receiptBanner a{color:inherit;font-weight:750}.receiptHelp{margin-top:16px;border-top:1px solid #e6eaf0;padding:15px 2px 0;color:#475467}.receiptHelp summary{cursor:pointer;font-weight:700}.receiptHelp ul{margin:10px 0 0;padding-left:20px;color:#667085;font-size:13px;line-height:1.7}.receiptReadOnly{margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#fff7ed;color:#9a3412;font-size:13px}.receiptPrimary:disabled,.receiptSecondary:disabled,.receiptSave:disabled,.receiptContext button:disabled{opacity:.55;cursor:not-allowed;transform:none!important}@keyframes receiptSpin{to{transform:rotate(360deg)}}@media(max-width:900px){.receiptGrid{grid-template-columns:1fr}.receiptPanel{padding:18px}}@media(max-width:700px){.receiptWrap{padding:18px 12px 100px}.receiptHeader{display:block}.receiptBack{margin-top:13px}.receiptContext{grid-template-columns:1fr;padding:14px}.receiptContext input,.receiptContext select,.receiptContext button,.receiptTextArea,.receiptResultGrid input{font-size:16px}.receiptSourceActions{grid-template-columns:1fr}.receiptSourcePick{min-height:68px}.receiptPreview img{height:220px}.receiptResultGrid{grid-template-columns:1fr}.receiptFull{grid-column:auto}.receiptPanel{border-radius:16px;padding:16px}.receiptActions{display:grid;grid-template-columns:1fr}.receiptActions>*{width:100%}.receiptBanner{align-items:flex-start;flex-direction:column}.receiptHeader h1{font-size:28px}}@media(prefers-reduced-motion:reduce){.receiptSourcePick{transition:none}.receiptStatus[data-state="busy"]:before{animation-duration:1.4s}}
+</style></head><body>${renderUnifiedNav("receipts", { month, householdId: selected.id, householdName: selected.name })}<main class="receiptWrap">${successMessage}${errorMessage}<header class="receiptHeader"><div><span class="receiptEyebrow">스마트 기록</span><h1>영수증 등록</h1><p>앨범 사진이나 지금 촬영한 사진에서 글자를 읽고, 확인한 내용만 가계부에 저장합니다.</p></div><a class="receiptBack" href="/smart-tools?${qs}">스마트 도구로 돌아가기</a></header><form class="receiptContext" method="get" action="/receipts"><div class="receiptField"><label for="receiptHousehold">가계부</label><select id="receiptHousehold" name="household_id">${householdOptions}</select></div><div class="receiptField"><label for="receiptMonth">기록 월</label><input id="receiptMonth" type="month" name="month" value="${escapeHtml(month)}"/></div><button type="submit">선택 적용</button></form><div class="receiptGrid"><section class="receiptPanel" id="receiptSourcePanel" aria-labelledby="receiptSourceTitle"><div class="receiptPanelHead"><span class="receiptStep">1</span><div><h2 id="receiptSourceTitle">영수증 가져오기</h2><p>앨범과 카메라 중 편한 방법을 선택하세요. 사진을 고르는 것만으로 분석이 시작되지는 않습니다.</p></div></div><div class="receiptSourceActions"><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptImage"><span class="receiptSourceIcon" aria-hidden="true">▧</span><span><b>앨범에서 선택</b><small>저장된 영수증 사진</small></span></label><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptCamera"><span class="receiptSourceIcon" aria-hidden="true">◎</span><span><b>카메라로 촬영</b><small>지금 영수증 찍기</small></span></label><input class="receiptFile" id="receiptImage" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" ${disabled}/><input class="receiptFile" id="receiptCamera" type="file" accept="image/*" capture="environment" ${disabled}/></div><p class="receiptPrivacy"><span aria-hidden="true">✓</span><span>사진은 서버에 업로드하지 않고 현재 브라우저에서만 문자 인식에 사용합니다. 앨범·카메라 접근은 해당 버튼을 눌렀을 때만 요청됩니다. PC에서는 사진을 이 카드에 끌어다 놓거나 붙여넣기(Ctrl+V)해도 됩니다.</span></p><div class="receiptPreview" id="receiptPreview" hidden><img id="receiptPreviewImage" alt=""/><div class="receiptPreviewMeta"><span id="receiptFileName">선택된 사진 없음</span><button class="receiptSecondary" id="clearReceiptImage" type="button">선택 취소</button></div></div><div class="receiptStatus" id="ocrStatus" role="status" aria-live="polite">앨범이나 카메라에서 영수증 사진을 선택해 주세요.</div><div class="receiptActions"><button class="receiptPrimary" type="button" id="readReceiptImage" disabled>선택한 사진 읽기</button><button class="receiptSecondary" type="button" id="ocrCancel" hidden>분석 취소</button></div><div class="receiptDivider"></div><label class="receiptTextLabel" for="receiptText">문자가 있다면 직접 붙여넣기</label><p class="receiptTextHelp">카카오톡이나 문자로 받은 전자영수증은 내용을 복사해 아래에 붙여넣는 편이 더 빠릅니다.</p><textarea class="receiptTextArea" id="receiptText" placeholder="예: 스타마트&#10;2026-07-15&#10;합계 35,400원&#10;신한카드" ${disabled}></textarea><div class="receiptActions"><button class="receiptSecondary" type="button" id="analyzeReceipt" disabled>붙여넣은 문자 분석</button></div></section><section class="receiptPanel" id="receiptResults" aria-labelledby="receiptResultTitle"><div class="receiptPanelHead"><span class="receiptStep">2</span><div><h2 id="receiptResultTitle">인식 결과 확인</h2><p>자동 인식은 틀릴 수 있습니다. 상호·날짜·총액 세 항목을 원본과 꼭 비교하세요.</p></div></div>${writable ? "" : `<div class="receiptReadOnly">조회 전용 권한에서는 인식 결과를 저장할 수 없습니다.</div>`}<div class="receiptDetected" id="receiptDetectedSummary">사진이나 문자를 분석하면 찾은 값이 여기에 표시됩니다.</div><form method="post" action="/my/receipt/save" id="receiptForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><textarea name="receipt_text" id="receiptRaw" hidden></textarea><div class="receiptResultGrid"><div class="receiptField receiptFull"><label for="merchant">상호·내용</label><input id="merchant" name="merchant" maxlength="160" autocomplete="off" placeholder="예: 스타마트" required ${disabled}/></div><div class="receiptField"><label for="receiptDate">날짜</label><input id="receiptDate" type="date" name="transaction_date" value="${escapeHtml(today)}" required ${disabled}/></div><div class="receiptField"><label for="receiptAmount">총액</label><input id="receiptAmount" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 35,400" required ${disabled}/></div><div class="receiptField"><label for="receiptCategory">분류</label><input id="receiptCategory" name="category" list="receiptCategories" placeholder="자동 추천 또는 직접 입력" ${disabled}/><datalist id="receiptCategories">${categoryOptions}</datalist></div><div class="receiptField"><label for="receiptPayment">결제수단</label><input id="receiptPayment" name="payment_method" autocomplete="off" placeholder="예: 신한카드, 현금" ${disabled}/></div></div><label class="receiptConfirm"><input type="checkbox" name="confirmed" value="yes" required ${disabled}/><span>사진 원본과 상호·날짜·총액을 비교했고, 이 내용으로 저장하는 데 동의합니다.</span></label><button class="receiptSave" type="submit" ${disabled}>확인한 지출 저장</button></form><details class="receiptHelp"><summary>사진이 잘 읽히지 않을 때</summary><ul><li>영수증이 화면을 세로로 가득 채우도록 촬영하세요.</li><li>그림자와 구김을 줄이고 영수증을 수평으로 놓아주세요.</li><li>HEIC에서 오류가 나면 사진을 화면 캡처해 JPG·PNG로 다시 선택하세요.</li><li>자동값이 비어도 오른쪽 입력란에서 직접 적어 저장할 수 있습니다.</li></ul></details></section></div></main><script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script></body></html>`;
 }
 
 function renderMiniCategoryRows(stats = {}) {
@@ -17722,7 +17971,9 @@ async function handleMyBackupLoginSave(request, env) {
 function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, returnTo = "/my/households", msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "사용자");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 개인 비밀번호 설정</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>${first ? "카카오 로그인 완료" : "개인 비밀번호 설정"}</h1><p class="muted">카카오 로그인을 사용할 수 없을 때 본인 계정을 복구하는 개인용 비밀번호입니다. 가계부 구성원과 공유하는 공용 비밀번호가 아닙니다.</p>${hasBackup ? `<div class="ok">개인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label>로그인 이름</label><input name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label>개인 비밀번호</label><input name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" required/></div><div class="field"><label>개인 비밀번호 확인</label><input name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" required/></div><button type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 개인 비밀번호 설정</title><style>
+*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
+</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>${first ? "카카오 로그인 완료" : "개인 비밀번호 설정"}</h1><p class="muted">카카오 로그인을 사용할 수 없을 때 본인 계정을 복구하는 개인용 비밀번호입니다. 가계부 구성원과 공유하는 공용 비밀번호가 아닙니다.</p>${hasBackup ? `<div class="ok">개인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">개인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">개인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
 }
 
 function renderKakaoLoginCheckHtml(env, url) {
@@ -17748,7 +17999,7 @@ function renderUserLoginHtml(env, error = "") {
   const title = escapeHtml(appName(env));
   const kakaoPart = kakaoLoginStatusBlock(env);
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 개인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login"><div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="개인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" required/></div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 개인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login"><div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="개인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
 }
 
 
@@ -19326,6 +19577,67 @@ function kakaoText(text, quickReplies = null) {
     version: "2.0",
     template,
   });
+}
+
+const KAKAO_GROUP_SUPPORTED_OUTPUTS = new Set([
+  "simpleText",
+  "simpleImage",
+  "textCard",
+  "basicCard",
+  "listCard",
+  "itemCard",
+]);
+
+function kakaoGroupTextChoices(quickReplies = []) {
+  const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : []).slice(0, 5);
+  if (!replies.length) return "";
+  const lines = replies.map((reply, index) => {
+    const command = String(reply.messageText || reply.label || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    return command ? `${index + 1}. ${command}` : "";
+  }).filter(Boolean);
+  if (!lines.length) return "";
+  return ["선택하려면 아래 문구를 그대로 입력해 주세요.", ...lines].join("\n");
+}
+
+async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
+  if (!getKakaoBotGroupKey(payload)) return response;
+  try {
+    const raw = await response.clone().text();
+    const data = JSON.parse(raw || "{}");
+    const template = data?.template && typeof data.template === "object" ? { ...data.template } : {};
+    const textChoices = kakaoGroupTextChoices(template.quickReplies);
+    delete template.quickReplies;
+
+    const outputs = (Array.isArray(template.outputs) ? template.outputs : []).map((output) => {
+      if (!output || typeof output !== "object") return null;
+      const supportedKey = Object.keys(output).find((key) => KAKAO_GROUP_SUPPORTED_OUTPUTS.has(key));
+      return supportedKey ? { [supportedKey]: output[supportedKey] } : null;
+    }).filter(Boolean).slice(0, 3);
+
+    if (!outputs.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
+    if (textChoices) {
+      const simpleTextOutput = outputs.find((output) => output?.simpleText?.text);
+      if (simpleTextOutput) {
+        simpleTextOutput.simpleText = {
+          ...simpleTextOutput.simpleText,
+          text: kakaoSafeText(`${simpleTextOutput.simpleText.text}\n\n${textChoices}`),
+        };
+      } else if (outputs.length < 3) {
+        outputs.push({ simpleText: { text: kakaoSafeText(textChoices) } });
+      }
+    }
+
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    headers.set("cache-control", "no-store");
+    return new Response(JSON.stringify({ ...data, version: "2.0", template: { ...template, outputs } }), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (err) {
+    return kakaoText(kakaoSkillSafeFallbackText(origin));
+  }
 }
 
 
@@ -20931,14 +21243,14 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   const rate = checkSkillRateLimit(userKey, env);
   if (!rate.ok) {
     rememberSkillEvent({ kind: "rate_limited", user_key: userKey, utterance, detail: `${rate.count}/${rate.limit}` });
-    return rateLimitedKakaoText(origin);
+    return kakaoGroupCompatibleResponse(rateLimitedKakaoText(origin), payload, origin);
   }
 
   const repeat = checkKakaoRepeatGuard(userKey, utterance, env, payload);
   if (!repeat.ok) {
     rememberSkillEvent({ kind: "repeat_guard", user_key: userKey, utterance, detail: `${repeat.elapsedMs}ms` });
     rememberDuplicateEvent({ kind: "kakao_repeat", source: "kakao_skill", user_id: userKey, detail: utterance, path: "/skill", method: "POST" });
-    return kakaoText(kakaoRepeatGuardText(origin));
+    return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin)), payload, origin);
   }
 
   try {
@@ -20951,7 +21263,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       body: JSON.stringify(payload || {}),
     });
     const response = await handleKakaoSkill(cloned, env);
-    const safeResponse = await normalizeKakaoSkillResponse(response, origin);
+    const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
+    const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -20973,7 +21286,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
-    const fallback = kakaoText(kakaoSkillSafeFallbackText(origin));
+    const fallback = await kakaoGroupCompatibleResponse(kakaoText(kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
     headers.set("x-accountbook-intent", intentMatch.intent);

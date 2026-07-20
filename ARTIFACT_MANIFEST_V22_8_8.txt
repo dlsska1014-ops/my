@@ -1,0 +1,46 @@
+V22.8.8 cumulative release artifact manifest
+================================================
+
+DEPLOYABLE SOURCE
+- src/index.js                         Cloudflare Worker full replacement source
+
+CURRENT RELEASE DOCUMENTATION
+- README.md
+- VERSION.txt
+- CHANGELOG.md
+- BASELINE.md
+- DEPLOYMENT_MATRIX.md
+- KNOWN-ISSUES.md
+- RELEASE-CHECKLIST.md
+- NEXT_UPDATE_PLAN.md
+- V22_8_8_PREDICTABLE_ACTION_FEEDBACK_REPORT.md
+- VALIDATION_REPORT_V22_8_8.md
+
+CURRENT VALIDATION
+- smoke_v2288_ux_principles_action_feedback.mjs
+- smoke_v2287_kakao_group_manual_alignment.mjs
+- smoke_v2286_receipt_screen_optimization.mjs
+- validate_v2288.sh
+
+PROJECT MEMORY AND CUMULATIVE HISTORY
+- docs/ux/UX_PRINCIPLES_BRUNCH_110_PROJECT_MEMORY.md
+- docs/kakao-manual/                    provided Kakao manuals and learned summaries
+- historical release reports, SQL, tests, and application instructions retained
+
+INTEGRITY
+- ARTIFACT_MANIFEST_V22_8_8.txt         this file
+- BUNDLE_FILE_CHECKSUMS_V22_8_8.sha256  SHA-256 for all files except itself
+
+INTENTIONALLY EXCLUDED
+- worker/, dist/, .openai/              build and Sites scaffold
+- package.json and source-only scripts  not needed for Worker copy/paste deployment
+- PNG screenshots                       historical visual QA is documented in Markdown
+- .git/, node_modules/                  development metadata and dependencies
+- secrets and live environment values   never packaged
+- new SQL                               not required for V22.8.8
+
+DEPLOYMENT DECISION
+- Replace src/index.js: YES
+- Run SQL: NO
+- Change Cloudflare environment: NO
+- Change Kakao OpenBuilder: NO
