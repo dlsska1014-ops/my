@@ -1,0 +1,38 @@
+Kakao Accountbook Cloudflare V22.8.10
+Home Performance + Lean Cumulative Package
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- Complete version/application history retained in Markdown
+- Only current validation scripts and durable project memory retained
+- No nested ZIP, screenshot, previous deploy duplicate, build output, dependency tree, or cache file
+
+FINAL FILE COUNT
+- 32 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_10.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,109,871
+- src/index.js SHA-256: dbbe336ea7b75fade6906c3ae144c2e2945fbd7e009a00159e8c1f35fea05d3b
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+DATABASE DECISION
+- SQL migration: not required
+- Database schema change: not required
+- Index addition: not included; decide only after production query-plan evidence
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX principles: 55 checks
+- Home performance/cleanup: 32 checks
+- Total: 203 checks
+
+KEY CONTENT
+- 00_READ_FIRST_V22_8_10.md: first application guide
+- CHANGELOG.md / HISTORY_INDEX.md: cumulative version history
+- DEPLOYMENT_MATRIX.md / SQL_HISTORY.md: per-version application and SQL decision
+- NEXT_UPDATE_PLAN.md: next version roadmap
+- docs/kakao-manual/: Kakao rules and updated project memory
+- validation/: standalone regression checks
