@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.11-HOME-UX-SHELL-EXPANSION";
+const APP_VERSION = "V22.8.12-ACCESSIBLE-THEME-CONTRAST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3978,7 +3978,7 @@ function normalizeUserFacingUi(html = "") {
   const hasRestrictedShellScope = source.includes('data-nav-scope="ops"')
     || source.includes('data-nav-scope="admin"')
     || hasLegacyAdminPageMarker;
-  const useV22811Shell = !hasRestrictedShellScope && (
+  const useV22812Shell = !hasRestrictedShellScope && (
     hasUserNavScope
       || source.includes('class="appMenu"')
       || source.includes('id="smartInput"')
@@ -3986,7 +3986,7 @@ function normalizeUserFacingUi(html = "") {
       || source.includes('action="/my/backup-login"')
       || source.includes(" · 가계부 시작</title>")
   );
-  if (useV22811Shell) bodyClasses.push("abV22811Shell");
+  if (useV22812Shell) bodyClasses.push("abV22812Shell");
   source = source.replace(/<body\b([^>]*)>/i, function(full, attrs) {
     const classMatch = String(attrs || "").match(/\bclass\s*=\s*(["'])(.*?)\1/i);
     if (classMatch) {
@@ -3995,8 +3995,15 @@ function normalizeUserFacingUi(html = "") {
     }
     return `<body class="${bodyClasses.join(" ")}"${attrs || ""}>`;
   });
-  if (useV22811Shell && !source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`) && source.includes("</head>")) {
-    source = source.replace("</head>", `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/></head>`);
+  if (useV22812Shell && source.includes("</head>")) {
+    const themeScript = `<script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script>`;
+    const shellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
+    if (!source.includes(`src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"`)) {
+      source = source.replace("</head>", `${themeScript}</head>`);
+    }
+    if (!source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)) {
+      source = source.replace("</head>", `${shellLink}</head>`);
+    }
   }
   return source;
 }
@@ -4008,9 +4015,9 @@ function attachUiUxRuntime(html = "") {
   if (!optimizedMobileHome && source && !source.includes('id="v2262UiUxStyle"') && source.includes("</head>")) {
     source = source.replace("</head>", UIUX_RUNTIME_STYLE + V2281_GUIDED_UIUX_STYLE + v2284UiStyleFor(source) + v2285UiStyleFor(source) + "</head>");
   }
-  const v22811ShellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
-  if (source.includes(v22811ShellLink) && source.includes("</head>")) {
-    source = source.replaceAll(v22811ShellLink, "").replace("</head>", `${v22811ShellLink}</head>`);
+  const v22812ShellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
+  if (source.includes(v22812ShellLink) && source.includes("</head>")) {
+    source = source.replaceAll(v22812ShellLink, "").replace("</head>", `${v22812ShellLink}</head>`);
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
@@ -11322,7 +11329,8 @@ async function handleUnifiedMenuPage(request, env, url) {
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
   const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
   const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
@@ -17242,13 +17250,16 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
+const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22812.css";
+const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
+let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
-const ACCOUNTBOOK_SHELL_CSS = `
+const ACCOUNTBOOK_SHELL_V22811_CSS = `
 body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
 body.abV22811Shell .homeDesktopNav{display:none}
 body.abV22811Shell .appTop{background:rgba(242,244,246,.94)!important;border-bottom:1px solid var(--ab11-line)!important;box-shadow:none!important}
@@ -17296,6 +17307,164 @@ body.abV22811Shell :is(a,button,input,select,textarea,summary):focus-visible{out
 }
 @media(prefers-reduced-motion:reduce){body.abV22811Shell{scroll-behavior:auto!important}body.abV22811Shell *,body.abV22811Shell *:before,body.abV22811Shell *:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 `;
+
+const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
+  .replaceAll("abV22811Shell", "abV22812Shell")
+  .replaceAll("--ab11", "--ab12")
+  + `
+body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f8fafc;--ab12-text:#191f28;--ab12-muted:#52606f;--ab12-line:#d8dee8;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f0ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff}
+html[data-ab-tone="emerald"] body.abV22812Shell{--ab12-accent:#047857;--ab12-action:#047857;--ab12-accent-soft:#dff7ed}
+html[data-ab-tone="violet"] body.abV22812Shell{--ab12-accent:#6d28d9;--ab12-action:#6d28d9;--ab12-accent-soft:#f0e8ff}
+html[data-ab-tone="amber"] body.abV22812Shell{--ab12-accent:#92400e;--ab12-action:#92400e;--ab12-accent-soft:#fff3d6}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-bg:#0f172a;--ab12-surface:#172033;--ab12-surface-raised:#1e293b;--ab12-text:#f8fafc;--ab12-muted:#cbd5e1;--ab12-line:#3b475a;--ab12-accent:#93c5fd;--ab12-action:#2563eb;--ab12-accent-soft:#1e3a5f;--ab12-placeholder:#cbd5e1;--ab12-nav-inactive:#cbd5e1;--ab12-notice-bg:#080f1d;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#111827;--ab12-shadow:0 6px 20px rgba(0,0,0,.22)}
+html[data-ab-resolved-theme="dark"][data-ab-tone="emerald"] body.abV22812Shell{--ab12-accent:#6ee7b7;--ab12-action:#047857;--ab12-accent-soft:#123c33}
+html[data-ab-resolved-theme="dark"][data-ab-tone="violet"] body.abV22812Shell{--ab12-accent:#c4b5fd;--ab12-action:#6d28d9;--ab12-accent-soft:#35255d}
+html[data-ab-resolved-theme="dark"][data-ab-tone="amber"] body.abV22812Shell{--ab12-accent:#fcd34d;--ab12-action:#92400e;--ab12-accent-soft:#49351a}
+body.abV22812Shell :is(input,select,textarea){background:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell :is(input,textarea)::placeholder{color:var(--ab12-placeholder)!important;opacity:1!important}
+body.abV22812Shell .homeNotice{background:var(--ab12-notice-bg)!important;border:1px solid color-mix(in srgb,var(--ab12-notice-title) 28%,transparent)!important}
+body.abV22812Shell .homeNotice b{color:var(--ab12-notice-title)!important}
+body.abV22812Shell .homeNotice p{color:var(--ab12-notice-text)!important}
+body.abV22812Shell :is(.bottom a,.abNavBottom a,.abUxBottom a){color:var(--ab12-nav-inactive)!important}
+body.abV22812Shell :is(.bottom a.active,.abNavBottom a.active,.abUxBottom a.active){color:var(--ab12-accent)!important}
+body.abV22812Shell :is(.bottom a.active:before,.abNavBottom a.active:before,.abUxBottom a.active:before){background:var(--ab12-accent)!important}
+body.abV22812Shell :is(.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){background:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell :is(.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+body.abV22812Shell :is(.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,details.twin th,.dataNote){color:var(--ab12-muted)!important}
+body.abV22812Shell [style*="color:#8B95A1"],body.abV22812Shell [style*="color:#8b95a1"]{color:var(--ab12-muted)!important}
+body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span){color:var(--ab12-muted)!important}
+body.abV22812Shell a{color:var(--ab12-accent)}
+body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}
+.abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
+.abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
+.abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{background:var(--ab12-bg)!important;color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeBudget,.homeMetric,.homeCard,.homeOnboarding,.homeQuick a,.homeTx,.panel,.stat,.v8-stat,.v8-tx,.tx,.card,.record,.startPanel,.kpi,.iChip,.tchip,.metric,.summaryBox,.usageCard,.moneyList li,.stepCard,.tabPanel,.kwBox,.featuredCard,.menuRow,.menuStep,.appMenu,.abLayoutNav,.homeDesktopNav,.bottom,.abUxBottom,.abNavBottom,.appTop,.tableWrap,.scroll,table){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .hero:has(.heroTop){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuPage,.wrap,.pageMain,.menuSecondary,.menuSection,.featuredSection){background:transparent!important;color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(h1,h2,h3,h4,strong,label,.menuRowTitle,.featuredCopy b,.journeyCopy b,.homeQuick b,.homeTx b,.metric b,.summaryBox b,.appMenu summary){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeIcon,.homeProgress,.homeBar,.homeOnboardingStep,.hTrack,.meterBig,.miniBar,.progress,.summaryBox,.keywordFilter,.assetOptional,.memberUse,.basisGrid>div,.menuLink,.homeCalendarToggle a,.filterQuick a,.feedControls a,.filterAdvanced,.seg span,.seg button,.appMenuBody .navGroup a,.heroBtns a,.pchip,.fBtn,.fPanel,.csvBtn){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.abNavLogo,.abNavToggle,.abNavItemIcon,.abNavGuide,.journeyNum,.featuredIcon,.menuRowIcon){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(th,.tableWrap:before){background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(td,tr,.menuList,.menuRow,.txRow,.bRow,.txDate){border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuHeader,.menuList,.advancedGroup>summary,.privacyDisclosure,.assetFormStep){border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeQuick a:hover,.homeTx:hover,.menuRow:hover,.featuredCard:hover,.dRow:hover,.hRow:hover,a.txRow:hover){background:var(--ab12-surface-raised)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell *{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a,.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .pchip.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .seg button.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.income,.up,.positive,.homeTxAmt.income){color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.expense,.down,.negative,.homeTxAmt:not(.income)){color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeToday b[style*="#059669"]{color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.danger,.delBtn,.dangerZone button[type="submit"]){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button,.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .bottom :is(a.tabAdd,a.abPrimary) i{background:var(--ab12-action)!important;color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice b{color:var(--ab12-notice-title)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice p{color:var(--ab12-notice-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu .advancedGroup .menuRow .menuRowTitle{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
+@media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
+`;
+
+function accountbookThemeClientMain() {
+  var root = document.documentElement;
+  var themeKey = "ab:appearance:theme";
+  var toneKey = "ab:appearance:tone";
+  var themes = ["system", "light", "dark"];
+  var tones = ["blue", "emerald", "violet", "amber"];
+  var media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function read(key, fallback) {
+    try { return window.localStorage?.getItem(key) || fallback; } catch (_error) { return fallback; }
+  }
+  function write(key, value) {
+    try { window.localStorage?.setItem(key, value); } catch (_error) {}
+  }
+  function valid(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
+  }
+  function currentTheme() {
+    return valid(read(themeKey, "system"), themes, "system");
+  }
+  function currentTone() {
+    return valid(read(toneKey, "blue"), tones, "blue");
+  }
+  function resolved(theme) {
+    return theme === "system" ? (media?.matches ? "dark" : "light") : theme;
+  }
+  function syncMeta(mode, tone) {
+    var light = { blue: "#1d4ed8", emerald: "#047857", violet: "#6d28d9", amber: "#92400e" };
+    var dark = { blue: "#0f172a", emerald: "#0f172a", violet: "#0f172a", amber: "#0f172a" };
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", (mode === "dark" ? dark : light)[tone] || "#1d4ed8");
+  }
+  function syncControls(theme, tone, announce) {
+    document.querySelectorAll("[data-ab-theme-choice]").forEach(function(button) {
+      button.setAttribute("aria-pressed", String(button.getAttribute("data-ab-theme-choice") === theme));
+    });
+    document.querySelectorAll("[data-ab-tone-choice]").forEach(function(button) {
+      button.setAttribute("aria-pressed", String(button.getAttribute("data-ab-tone-choice") === tone));
+    });
+    var status = document.getElementById("abAppearanceStatus");
+    if (status) {
+      var themeLabel = { system: "시스템 설정", light: "라이트 모드", dark: "다크 모드" }[theme];
+      var toneLabel = { blue: "블루", emerald: "그린", violet: "바이올렛", amber: "앰버" }[tone];
+      status.textContent = (announce ? "저장했습니다. " : "") + themeLabel + " · " + toneLabel + " 컬러톤";
+    }
+  }
+  function apply(theme, tone, announce) {
+    theme = valid(theme, themes, "system");
+    tone = valid(tone, tones, "blue");
+    var mode = resolved(theme);
+    root.setAttribute("data-ab-theme", theme);
+    root.setAttribute("data-ab-resolved-theme", mode);
+    root.setAttribute("data-ab-tone", tone);
+    root.style.colorScheme = mode;
+    syncMeta(mode, tone);
+    syncControls(theme, tone, announce);
+  }
+  function bind() {
+    document.querySelectorAll("[data-ab-theme-choice]").forEach(function(button) {
+      if (button.getAttribute("data-ab-bound") === "1") return;
+      button.setAttribute("data-ab-bound", "1");
+      button.addEventListener("click", function() {
+        var theme = valid(button.getAttribute("data-ab-theme-choice"), themes, "system");
+        write(themeKey, theme);
+        apply(theme, currentTone(), true);
+      });
+    });
+    document.querySelectorAll("[data-ab-tone-choice]").forEach(function(button) {
+      if (button.getAttribute("data-ab-bound") === "1") return;
+      button.setAttribute("data-ab-bound", "1");
+      button.addEventListener("click", function() {
+        var tone = valid(button.getAttribute("data-ab-tone-choice"), tones, "blue");
+        write(toneKey, tone);
+        apply(currentTheme(), tone, true);
+      });
+    });
+    apply(currentTheme(), currentTone(), false);
+  }
+  apply(currentTheme(), currentTone(), false);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true });
+  else bind();
+  if (media) {
+    var onSystemChange = function() { if (currentTheme() === "system") apply("system", currentTone(), false); };
+    if (typeof media.addEventListener === "function") media.addEventListener("change", onSystemChange);
+    else if (typeof media.addListener === "function") media.addListener(onSystemChange);
+  }
+  window.addEventListener("storage", function(event) {
+    if (event.key === themeKey || event.key === toneKey) apply(currentTheme(), currentTone(), false);
+  });
+  window.addEventListener("pageshow", function() { apply(currentTheme(), currentTone(), false); });
+}
+
+function accountbookThemeJsAsset() {
+  if (!AB_ACCOUNTBOOK_THEME_JS_CACHE) {
+    AB_ACCOUNTBOOK_THEME_JS_CACHE = `(${accountbookThemeClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_THEME_JS_CACHE;
+}
 
 function unwrapStyleElement(style = "") {
   return String(style || "")
@@ -17438,12 +17607,17 @@ function mobileHomeDesktopNavFromHtml(source = "") {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  if (![MOBILE_HOME_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH].includes(path)) return null;
-  const isCss = path === MOBILE_HOME_CSS_ASSET_PATH || path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH;
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH];
+  if (!assetPaths.includes(path)) return null;
+  const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
     ? mobileHomeCssAsset()
+    : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
+      ? ACCOUNTBOOK_SHELL_V22811_CSS
     : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
       ? ACCOUNTBOOK_SHELL_CSS
+      : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
+        ? accountbookThemeJsAsset()
       : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
         ? mobileHomeShellJsAsset()
         : mobileHomeJsAsset();
@@ -17454,8 +17628,12 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "cross-origin-resource-policy": "same-origin",
     etag: path === MOBILE_HOME_CSS_ASSET_PATH
       ? '"mobile-home-v22810-css"'
-      : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
+      : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
+      : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
+        ? '"accountbook-shell-v22812-css"'
+        : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
+          ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22811-js"'
           : '"mobile-home-v22810-js"',

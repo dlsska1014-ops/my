@@ -1,5 +1,12 @@
 # 알려진 제한과 운영 확인 사항
 
+## V22.8.12 접근성 테마
+
+- 화면 모드와 컬러톤은 개인정보를 저장하지 않는 브라우저 `localStorage`에 기기별로 저장됩니다. 다른 PC나 휴대전화에는 자동 동기화되지 않습니다.
+- `시스템` 모드는 운영체제의 라이트·다크 설정 변경을 즉시 반영합니다. 브라우저가 색상 선호 미디어 쿼리를 지원하지 않으면 라이트 모드로 동작합니다.
+- 자동 검증은 테마 자원, 저장 동작, 고정 대비 토큰과 주요 HTML 연결을 확인하지만 PC Chrome, iPhone Safari, Android Chrome의 실제 화면을 대신하지 않습니다.
+- 운영 배포 후 `/assets/accountbook-shell-v22812.css`와 `/assets/accountbook-theme-v22812.js`의 200 응답, MIME, immutable 캐시와 네 가지 컬러톤을 확인해야 합니다.
+
 ## V22.8.11 홈 UX 셸 수동 확인 범위
 
 - 자동 검증은 마크업, 정적 자원, 접근성 보호, 성능 예산을 확인하지만 PC Chrome, iPhone Safari, Android Chrome의 실제 보이는 결과를 대신하지 않습니다.
