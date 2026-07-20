@@ -61,17 +61,19 @@ npm run validate:kakao-group
 npm run validate:household-security
 npm run validate:ux-principles
 npm run validate:performance
-npm run validate
-git diff --check
+node .codex/scripts/verify-repository.mjs
 ```
 
-`npm run validate`는 Bash가 필요하다. Windows에서는 Git Bash에서 실행한다.
-전체 검증은 영수증 55개, 카카오 그룹 18개, 가계부 보안 43개,
-UX 55개, 홈 성능 32개로 총 203개와 ESM `default.fetch`를 확인해야 한다.
+저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
+원본 배포 묶음 체크섬 31개, 영수증 55개, 카카오 그룹 18개, 가계부 보안 43개,
+UX 55개, 홈 성능 32개로 총 203개, ESM `default.fetch`, 작업 트리와
+스테이징 영역의 공백 오류를 확인해야 한다. 세부 절차는
+`docs/codex/VERIFICATION.md`를 따른다.
 
-문서만 변경했더라도 `npm run validate`와 `git diff --check`를 실행해 기준선이
-그대로인지 확인한다. 운영 환경 수동 확인이 필요한 항목은 자동 통과로
-간주하지 말고 `RELEASE-CHECKLIST.md`에 따라 별도로 보고한다.
+기존 `npm run validate`는 원본 배포 묶음 호환용이며 Bash가 필요하다.
+문서만 변경했더라도 저장소 하네스를 실행해 기준선이 그대로인지 확인한다.
+운영 환경 수동 확인이 필요한 항목은 자동 통과로 간주하지 말고
+`RELEASE-CHECKLIST.md`에 따라 별도로 보고한다.
 
 ## 완료 기준
 
