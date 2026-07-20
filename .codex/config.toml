@@ -1,0 +1,9 @@
+# Shared safety defaults for trusted clones of this repository.
+# Model and reasoning effort remain user-controlled.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+writable_roots = []
+network_access = false
