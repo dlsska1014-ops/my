@@ -253,12 +253,28 @@ try {
   ok(cancelReply.includes("취소했어요"), "[E2E·수락9] 취소 즉시 종료");
 
   // 삭제 + 복구 (2단계 + 되돌리기)
+  const undoBufferRow = () => fixture.db.accountbook_settings.find((r) => String(r.key).startsWith("kakao_edit_undo_v4:") && String(r.key).endsWith("kakao_login:2265"));
   const delReply = await say("삭제 02번");
   ok(delReply.includes("삭제했어요") && delReply.includes("복구 02번"), "[E2E] 삭제 02번 → 삭제 + 복구 안내");
   ok(!txById("tx-edit-2"), "[E2E] DB에서 삭제됨");
+  // 복구 INSERT의 NOT NULL 컬럼(household_id)이 버퍼에 저장되는지 — 운영 복구 실패 재발 방지
+  eq(JSON.parse(undoBufferRow().value).row.household_id, "house-home", "[E2E·회귀] 복구 버퍼에 household_id 저장");
   const restoreReply = await say("복구 02번");
   ok(restoreReply.includes("복구했어요"), "[E2E] 복구 02번 → 복구 응답");
   ok(txById("tx-edit-2"), "[E2E] DB에 복구됨");
+
+  // 레거시 버퍼 회귀: household_id 없이 저장된 기존 버퍼도 복구 시점에 보충되어 성공해야 한다
+  await say("삭제 02번");
+  ok(!txById("tx-edit-2"), "[E2E·회귀] 두 번째 삭제");
+  {
+    const buffer = undoBufferRow();
+    const parsed = JSON.parse(buffer.value);
+    delete parsed.row.household_id;
+    buffer.value = JSON.stringify(parsed);
+  }
+  const legacyRestore = await say("복구 02번");
+  ok(legacyRestore.includes("복구했어요"), "[E2E·회귀] household_id 없는 레거시 버퍼도 복구 성공");
+  eq(txById("tx-edit-2")?.household_id, "house-home", "[E2E·회귀] 복구된 행에 household_id 보충됨");
 
   // [수락12] 두 사용자의 세션 격리 — 서로 다른 항목을 동시에 수정
   const binMenu = await say("수정 01번", "kakao_login:2265");

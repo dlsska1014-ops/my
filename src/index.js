@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.16-KAKAO-EDIT-FLOW-V4";
+const APP_VERSION = "V22.8.17-KAKAO-EDIT-RESTORE-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -21344,7 +21344,8 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (!row) {
       return sendKakaoEditReplyV4(env, ctx, session, `삭제하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘 기록 보기’로 번호를 다시 확인해 주세요.`, null);
     }
-    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row, seq: Number(session.entryNo) || 0 });
+    // 조회 select 목록에는 household_id가 없다 — 복구 INSERT의 NOT NULL 컬럼이므로 버퍼에 채워 저장한다.
+    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row: { ...row, household_id: session.householdId }, seq: Number(session.entryNo) || 0 });
     await deleteKakaoRowById(env, row.id);
     return sendKakaoEditReplyV4(env, ctx, session, result.reply, null);
   }
@@ -21430,17 +21431,45 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (restoreTarget) {
     const undo = await takeKakaoEditUndoV4(env, kakaoUserKey, payload, restoreTarget.seq);
     if (!undo) return kakaoText("복구할 삭제 기록이 없어요.\n삭제 직후 안내된 번호로만 복구할 수 있어요. ‘오늘 기록 보기’로 현재 기록을 확인해 주세요.");
-    let restored = undo.row;
-    try {
-      const inserted = await supabase(env, "/rest/v1/transactions", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify(undo.row),
-      });
-      restored = (Array.isArray(inserted) && inserted[0]) || undo.row;
-    } catch (err) {
+    // 조회 select 목록에는 household_id가 없어 과거 버퍼에는 빠져 있을 수 있다.
+    // NOT NULL 컬럼이므로 재삽입 전에 반드시 채운다.
+    const baseRow = { ...undo.row, household_id: undo.row.household_id || household.id };
+    let restored = null;
+    // 직전 시도가 응답 단계에서만 실패해 이미 복구됐을 수 있으므로 먼저 존재를 확인한다.
+    if (baseRow.id) {
+      restored = await getKakaoRowById(env, baseRow.household_id, user.id, kakaoUserKey, baseRow.id);
+    }
+    let lastError = null;
+    if (!restored) {
+      // id가 생성 전용 컬럼이거나 충돌하는 환경을 대비해 id·created_at 제외 재시도까지 순차 수행한다.
+      const attempts = [baseRow];
+      if (baseRow.id !== undefined) {
+        const withoutId = { ...baseRow };
+        delete withoutId.id;
+        attempts.push(withoutId);
+        const withoutCreatedAt = { ...withoutId };
+        delete withoutCreatedAt.created_at;
+        attempts.push(withoutCreatedAt);
+      }
+      for (const body of attempts) {
+        try {
+          const inserted = await supabase(env, "/rest/v1/transactions", {
+            method: "POST",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify(body),
+          });
+          restored = (Array.isArray(inserted) && inserted[0]) || body;
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+    }
+    if (!restored) {
       await saveKakaoEditUndoV4(env, kakaoUserKey, payload, undo); // 복구 기회 유지
-      return kakaoText("복구가 잠시 지연되고 있어요. 잠시 후 다시 ‘복구’를 입력해 주세요.");
+      await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: twoDigitSeq(Number(undo.seq || 0)), input: String((lastError && lastError.message) || lastError || "").slice(0, 280), type: "restore_error" });
+      return kakaoText("복구가 잠시 지연되고 있어요. 잠시 후 다시 ‘복구’를 입력해 주세요.\n계속 안 되면 ‘오늘 기록 보기’에서 확인 후 새로 입력해 주세요.");
     }
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(undo.seq || 0) || 1;
     return kakaoText(`↩️ 기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}`);
@@ -21450,7 +21479,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (deleteTarget) {
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
-    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row, seq });
+    // 조회 select 목록에는 household_id가 없다 — 복구 INSERT의 NOT NULL 컬럼이므로 버퍼에 채워 저장한다.
+    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row: { ...row, household_id: household.id }, seq });
     await deleteKakaoRowById(env, row.id);
     await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
     return kakaoText(`🗑️ ${twoDigitSeq(seq)}번 기록을 삭제했어요.\n되돌리려면: 복구 ${twoDigitSeq(seq)}번`);

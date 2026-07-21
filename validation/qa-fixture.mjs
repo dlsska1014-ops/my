@@ -227,6 +227,11 @@ export async function createV2265QaFixture() {
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];
+      // 운영 transactions 테이블의 NOT NULL 제약을 그대로 재현한다.
+      // household_id 없는 INSERT가 검증을 통과해 운영에서만 실패하는 회귀를 막는다.
+      if (table === "transactions" && items.some((item) => !item.household_id || !item.user_id)) {
+        return new Response(JSON.stringify({ code: "23502", message: "null value in column violates not-null constraint" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
       if (table === "transactions" && items.some((item) => transactionUniqueConflict(db.transactions, item))) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }
