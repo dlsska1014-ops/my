@@ -175,7 +175,7 @@ try {
   const externalScripts = Array.from(homeHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi), (match) => match[1]);
   ok(homeBytes < 35000, `personal home HTML stays below 35KB (${homeBytes} bytes)`);
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22810.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22814.css"'), 1, "home loads the V22.8.14 shell stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22815.css"'), 1, "home loads the V22.8.15 shell stylesheet once");
   ok(externalScripts.length === 2 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22811.js"), "home loads the V22.8.12 theme runtime and preserved mobile runtime");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(homeHtml.includes('class="abV2281 abMobileAppSurface abV22812Shell"'), "home opts into the scoped V22.8.12 shell");
@@ -208,7 +208,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22810.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22814.css"];
+  const cssPaths = ["/assets/mobile-home-v22810.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22815.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -264,9 +264,9 @@ try {
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22814.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22815.css");
   const shellCss = await shellCssResponse.text();
-  const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff");
+  const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
     ["#86efac", "#111827"],
     ["#d1fae5", "#111827"],
@@ -281,11 +281,15 @@ try {
     ["#6ee7b7", "#172033"],
     ["#c4b5fd", "#172033"],
     ["#fcd34d", "#172033"],
+    ["#191919", "#fee500"],
+    ["#d1fae5", "#123c33"],
+    ["#fcd34d", "#49351a"],
   ];
   ok(shellCss.includes("body.abV22812Shell") && shellCss.includes("--ab12-accent:#1d4ed8") && shellCss.includes("--abNavW:238px") && verifiedContrastPairs.every(([foreground, background]) => normalizedShellCss.includes(foreground) && normalizedShellCss.includes(background) && contrastRatio(foreground, background) >= 4.5), "shared shell is body-scoped and every declared text/background pair meets WCAG AA");
   ok(shellCss.includes("prefers-reduced-motion") && shellCss.includes("focus-visible") && shellCss.includes("font-size:16px"), "shared shell includes motion, focus, and mobile input safeguards");
   ok(shellCss.includes("--ab12-action:#1d4ed8") && shellCss.includes("background:var(--ab12-action)!important;color:#fff!important"), "white-text form actions use the contrast-safe action token");
-  ok(shellCss.includes('html[data-ab-resolved-theme="dark"]') && shellCss.includes('html[data-ab-tone="emerald"]') && shellCss.includes('html[data-ab-tone="violet"]') && shellCss.includes('html[data-ab-tone="amber"]') && shellCss.includes("body.abV22812Shell *{color:var(--ab12-text)!important}") && shellCss.includes(".homeOnboardingStep") && shellCss.includes(".appMenuBody .navGroup a") && shellCss.includes(".seg button.on"), "shared shell includes dark mode, legacy-cascade repairs, and all approved color tones");
+  ok(shellCss.includes('html[data-ab-resolved-theme="dark"]') && shellCss.includes('html[data-ab-tone="emerald"]') && shellCss.includes('html[data-ab-tone="violet"]') && shellCss.includes('html[data-ab-tone="amber"]') && shellCss.includes("body.abV22812Shell:not(.abPageLogin):not(.abPageAccountSecurity) *{color:var(--ab12-text)!important}") && !shellCss.includes("body.abV22812Shell *{color:var(--ab12-text)!important}") && shellCss.includes(".homeOnboardingStep") && shellCss.includes(".appMenuBody .navGroup a") && shellCss.includes(".seg button.on"), "shared shell scopes the legacy color repair away from authentication surfaces and keeps all approved color tones");
+  ok(shellCss.includes(":is(.badge,.kakaoBtn){background:#FEE500!important;color:#191919!important") && shellCss.includes(".notice:not(.error):not(.ok){background:#123c33!important;color:#d1fae5!important") && shellCss.includes(":is(.warn,.guide){background:#49351a!important;color:#fcd34d!important") && shellCss.includes("body.abV22812Shell.abPageLogin .mobileAccessHelp") && shellCss.includes("body.abV22812Shell.abPageAccountSecurity .identity") && shellCss.includes("body.abV22812Shell.abPageAccountSecurity main.wrap a.btn.secondary"), "dark authentication surfaces preserve Kakao, notice, warning, mobile help, identity, and secondary-action foregrounds");
   ok(shellCss.includes(".homeNotice b{color:var(--ab12-notice-title)!important}") && shellCss.includes(".homeNotice p{color:var(--ab12-notice-text)!important}"), "smart notice foreground follows its dark background");
   ok(shellCss.includes("a.btn,a.primaryBtn") && shellCss.includes("a.btn.secondary,a.btn.light") && shellCss.includes("color:#fff!important"), "dark-mode primary and secondary link buttons keep explicit contrasting foregrounds");
   ok(shellCss.includes("#feed>a.btn.homeFeedAllBtn") && shellCss.includes("background:var(--ab12-action)!important;color:#fff!important"), "dark home full-feed button has an ID-scoped white-text action rule that wins the legacy cascade");
@@ -308,21 +312,23 @@ try {
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22814.css"'), 1, "accountbook management loads the shell once");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22815.css"'), 1, "accountbook management loads the shell once");
   ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("가계부 전환·관리"), "management shell preserves the accountbook management surface");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22814.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22815.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22814.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22815.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
+  ok(backupHtml.includes("abPageAccountSecurity"), "account security receives its isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22814.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22815.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
+  ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
   const context = "month=2026-07&household_id=house-home";
   const userShellPaths = [
@@ -343,7 +349,7 @@ try {
     const hasUserNavigation = path.startsWith("/my/settings?")
       ? html.includes('class="appMenu"')
       : html.includes('data-nav-scope="user"');
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22814.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation, `${path} receives the user-scoped theme shell exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22815.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation, `${path} receives the user-scoped theme shell exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement"), "settlement receives its dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
@@ -383,7 +389,7 @@ try {
     const response = await request(item.path, { cookie: "", headers: item.headers, public: item.public });
     const html = await response.text();
     const hasExpectedScope = !item.scope || html.includes(`data-nav-scope="${item.scope}"`);
-    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !html.includes("accountbook-shell-v22814") && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellLink=${html.includes("accountbook-shell-v22814")}, shellClass=${html.includes("abV22812Shell")})`);
+    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !html.includes("accountbook-shell-v22815") && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellLink=${html.includes("accountbook-shell-v22815")}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
   console.log(`smoke_home_feed_button_contrast: ${passed} checks passed`);

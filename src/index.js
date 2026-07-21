@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.14-HOME-FEED-BUTTON-CONTRAST";
+const APP_VERSION = "V22.8.15-DARK-AUTH-SURFACE-CONTRAST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3824,6 +3824,7 @@ function deferHeavyBrowserTools(html = "") {
 
 function normalizeUserFacingUi(html = "") {
   let source = String(html || "").replace(/,maximum-scale=1/g, "");
+  source = source.replace(".sep{text-align:center;color:#7b8494;", ".sep{text-align:center;color:#667085;");
   source = source.replaceAll("https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js", "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
   source = source.replace('<a class="btn" style="margin-top:10px" href=', '<a class="btn homeFeedAllBtn" style="margin-top:10px" href=');
   source = deferHeavyBrowserTools(source);
@@ -3971,6 +3972,7 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes(" · 설정</title>") && source.includes('action="/my/settings"')) bodyClasses.push("abPageSettings");
   if (source.includes("<title>전체 메뉴</title>")) bodyClasses.push("abPageMenu");
   if (source.includes(" · 시작</title>") && source.includes('action="/my/local-login"')) bodyClasses.push("abPageLogin");
+  if (source.includes(" · 내 계정·보안</title>") && source.includes('action="/my/backup-login"')) bodyClasses.push("abPageAccountSecurity");
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
   if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
@@ -17254,7 +17256,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22814.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22815.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
@@ -17354,7 +17356,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(th,.tableWrap:before)
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(td,tr,.menuList,.menuRow,.txRow,.bRow,.txDate){border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuHeader,.menuList,.advancedGroup>summary,.privacyDisclosure,.assetFormStep){border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeQuick a:hover,.homeTx:hover,.menuRow:hover,.featuredCard:hover,.dRow:hover,.hRow:hover,a.txRow:hover){background:var(--ab12-surface-raised)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell *{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:not(.abPageLogin):not(.abPageAccountSecurity) *{color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a,.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn,a.primaryBtn,a.primaryButton,a.savePlan,.filters a.dark,.heroBtns a.dark){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
@@ -17386,6 +17388,18 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .botto
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice b{color:var(--ab12-notice-title)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice p{color:var(--ab12-notice-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu .advancedGroup .menuRow .menuRowTitle{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) :is(.hero,.card){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) :is(h1,h2,h3,strong,b,label,summary){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) :is(.muted,.hint,.credentialFeedback,.sep,.signupCard summary span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) :is(.badge,.kakaoBtn){background:#FEE500!important;color:#191919!important;border-color:#d6c100!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .notice:not(.error):not(.ok){background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) :is(.warn,.guide){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .mobileAccessHelp{background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .mobileAccessHelp b{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity .identity{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity main.wrap a.btn.secondary{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="error"]{color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="success"]{color:#6ee7b7!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
 @media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
 `;
@@ -17653,7 +17667,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22814-css"'
+        ? '"accountbook-shell-v22815-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
