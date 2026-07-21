@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.15-DARK-AUTH-SURFACE-CONTRAST";
+const APP_VERSION = "V22.8.19-COLOR-CONTRAST-HOTFIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -1903,7 +1903,7 @@ function businessFooterText(value = "") {
 function renderBusinessInfoFooter() {
   const info = BUSINESS_FOOTER_INFO;
   return `<style>
-  .abBusinessFooter{margin:18px 0 0;padding:13px 0 2px;border-top:1px solid #e5e7eb;color:#64748b;font-size:11px;line-height:1.45;letter-spacing:-.015em}
+  .abBusinessFooter{margin:18px 0 0;padding:13px 0 2px;border-top:1px solid #e5e7eb;color:#596579;font-size:11px;line-height:1.45;letter-spacing:-.015em}
   .abBusinessFooterInner{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
   .abBusinessFooterTitle{font-weight:1000;color:#334155;white-space:nowrap}
   .abBusinessFooterItem{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
@@ -1926,12 +1926,12 @@ function publicSupportEmail(env = {}) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : "";
 }
 
-function adsensePublisherId(env = {}) {
-  const raw = String(env.ADSENSE_PUBLISHER_ID || env.GOOGLE_ADSENSE_ACCOUNT || "").trim();
-  const match = raw.match(/(?:ca-)?pub-\d{10,20}/i);
-  if (!match) return "";
-  const id = match[0].toLowerCase();
-  return id.startsWith("ca-") ? id : `ca-${id}`;
+const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-8422696710972974";
+
+function adsensePublisherId(_env = {}) {
+  // The review owner is intentionally pinned. Existing production variables may
+  // contain a previous publisher and must not override this reviewed identity.
+  return DEFAULT_ADSENSE_PUBLISHER_ID;
 }
 
 function adsensePublisherIdForTxt(env = {}) {
@@ -1941,13 +1941,9 @@ function adsensePublisherIdForTxt(env = {}) {
 function publicAdsenseHead(env = {}) {
   const client = adsensePublisherId(env);
   if (!client) return "";
-  const meta = `<meta name="google-adsense-account" content="${escapeHtml(client)}"/>`;
-  const enabled = String(env.ADSENSE_ENABLED || "0") === "1";
-  const autoAds = String(env.ADSENSE_AUTO_ADS || "0") === "1";
-  const script = enabled && autoAds
-    ? `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}" crossorigin="anonymous"></script>`
-    : "";
-  return meta + script;
+  // AdSense review mode is ownership-only. Ad runtime, slots, and ad cookies
+  // remain disabled until a later, separately reviewed release enables them.
+  return `<meta name="google-adsense-account" content="${escapeHtml(client)}"/>`;
 }
 
 const PUBLIC_CONTENT_PATHS = Object.freeze([
@@ -2198,7 +2194,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home") {
     ...(key === "faq" ? { mainEntity: safeArray(page.faqs).map(([q,a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#312e81"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="website"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f7f9fc;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.pubHeader{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4}.pubHeaderInner{max-width:1180px;margin:0 auto;min-height:66px;padding:10px 18px;display:flex;align-items:center;gap:18px}.pubBrand{display:flex;align-items:center;gap:9px;text-decoration:none;color:#111827;white-space:nowrap}.pubBrand span{width:36px;height:36px;border-radius:13px;background:#FEE500;display:flex;align-items:center;justify-content:center;font-weight:1000}.pubBrand b{font-size:18px}.pubDesktopNav{display:flex;align-items:center;gap:4px;flex:1;overflow:auto}.pubHeader nav a{color:#596579;text-decoration:none;font-size:13px;font-weight:900;padding:9px 10px;border-radius:12px;white-space:nowrap}.pubHeader nav a:hover,.pubHeader nav a.active{background:#eef2ff;color:#312e81}.pubStart{display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:#111827;color:#fff;text-decoration:none;border-radius:13px;padding:0 14px;font-weight:1000;white-space:nowrap}.pubMobileMenu{display:none;position:relative}.pubMobileMenu summary{display:flex;align-items:center;justify-content:center;min-height:44px;list-style:none;border-radius:13px;background:#eef2f7;color:#111827;padding:0 12px;font-weight:900;cursor:pointer}.pubMobileMenu summary::-webkit-details-marker{display:none}.pubMobileMenu nav{position:absolute;right:0;top:50px;width:min(86vw,320px);display:grid;background:#fff;border:1px solid #e4eaf2;border-radius:18px;padding:8px;box-shadow:0 18px 44px rgba(15,23,42,.16)}.pubWrap{max-width:1080px;margin:0 auto;padding:24px 18px 56px}.pubHero{background:linear-gradient(135deg,#111827 0%,#312e81 58%,#6d28d9 100%);color:#fff;border-radius:32px;padding:42px;margin:14px 0 22px;box-shadow:0 24px 60px rgba(49,46,129,.22)}.pubEyebrow{display:inline-flex;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.pubHero h1{font-size:42px;line-height:1.12;letter-spacing:-.06em;margin:18px 0 14px;max-width:760px}.pubHero p{max-width:800px;color:#e5e7eb;line-height:1.82;font-size:17px}.pubHeroActions{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.pubBtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#FEE500;color:#191919;text-decoration:none;font-weight:1000;padding:0 16px}.pubBtn.secondary{background:#fff;color:#111827}.pubGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0 24px}.pubFeature,.pubSection{background:#fff;border:1px solid #e4eaf2;border-radius:24px;padding:20px;box-shadow:0 12px 32px rgba(15,23,42,.055)}.pubFeature h2,.pubSection h2{margin-top:0}.pubFeature h2{font-size:18px}.pubFeature p,.pubSection p,.pubSection li{color:#526075;line-height:1.78}.pubSection{margin:14px 0;padding:26px}.pubSection h2{font-size:26px;letter-spacing:-.045em}.pubSection ul{padding-left:22px}.pubLinks{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}.pubLinks a{display:inline-flex;align-items:center;min-height:38px;border-radius:12px;background:#eef2ff;color:#3730a3;text-decoration:none;padding:0 12px;font-size:13px;font-weight:1000}.pubNote{background:#eefbf5;border:1px solid #b7ecd3;color:#116149;border-radius:17px;padding:14px;line-height:1.65;font-weight:800}.pubFaq{display:grid;gap:9px}.pubFaq details{border:1px solid #e4eaf2;border-radius:17px;padding:0 15px;background:#fbfcfe}.pubFaq summary{cursor:pointer;padding:15px 0;font-weight:1000}.pubFaq p{margin-top:0;padding-bottom:4px}.pubFooter{display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:30px;padding:26px 4px;border-top:1px solid #dfe6ef;color:#64748b}.pubFooter b{color:#263247}.pubFooter p{max-width:650px;line-height:1.65}.pubFooterLinks{display:flex;flex-wrap:wrap;align-content:flex-start;gap:10px}.pubFooterLinks a{color:#475569;text-decoration:none;font-size:13px;font-weight:900}@media(max-width:900px){.pubGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.pubDesktopNav{display:none}.pubMobileMenu{display:block}.pubHeaderInner{justify-content:space-between}.pubHero{padding:32px 25px}.pubHero h1{font-size:34px}.pubFooter{grid-template-columns:1fr}}@media(max-width:560px){.pubWrap{padding:12px 12px 42px}.pubHeaderInner{padding:8px 12px}.pubBrand b{font-size:16px}.pubStart{display:none}.pubHero{border-radius:24px;padding:27px 20px}.pubHero h1{font-size:29px}.pubHero p{font-size:15px}.pubGrid{grid-template-columns:1fr}.pubSection{padding:20px;border-radius:20px}.pubSection h2{font-size:22px}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f7f9fc;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.pubHeader{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4}.pubHeaderInner{max-width:1180px;margin:0 auto;min-height:66px;padding:10px 18px;display:flex;align-items:center;gap:18px}.pubBrand{display:flex;align-items:center;gap:9px;text-decoration:none;color:#111827;white-space:nowrap}.pubBrand span{width:36px;height:36px;border-radius:13px;background:#FEE500;display:flex;align-items:center;justify-content:center;font-weight:1000}.pubBrand b{font-size:18px}.pubDesktopNav{display:flex;align-items:center;gap:4px;flex:1;overflow:auto}.pubHeader nav a{color:#596579;text-decoration:none;font-size:13px;font-weight:900;padding:9px 10px;border-radius:12px;white-space:nowrap}.pubHeader nav a:hover,.pubHeader nav a.active{background:#eef2ff;color:#312e81}.pubStart{display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:#111827;color:#fff;text-decoration:none;border-radius:13px;padding:0 14px;font-weight:1000;white-space:nowrap}.pubMobileMenu{display:none;position:relative}.pubMobileMenu summary{display:flex;align-items:center;justify-content:center;min-height:44px;list-style:none;border-radius:13px;background:#eef2f7;color:#111827;padding:0 12px;font-weight:900;cursor:pointer}.pubMobileMenu summary::-webkit-details-marker{display:none}.pubMobileMenu nav{position:absolute;right:0;top:50px;width:min(86vw,320px);display:grid;background:#fff;border:1px solid #e4eaf2;border-radius:18px;padding:8px;box-shadow:0 18px 44px rgba(15,23,42,.16)}.pubWrap{max-width:1080px;margin:0 auto;padding:24px 18px 56px}.pubHero{background:linear-gradient(135deg,#111827 0%,#312e81 58%,#6d28d9 100%);color:#fff;border-radius:32px;padding:42px;margin:14px 0 22px;box-shadow:0 24px 60px rgba(49,46,129,.22)}.pubEyebrow{display:inline-flex;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.pubHero h1{font-size:42px;line-height:1.12;letter-spacing:-.06em;margin:18px 0 14px;max-width:760px}.pubHero p{max-width:800px;color:#e5e7eb;line-height:1.82;font-size:17px}.pubHeroActions{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.pubBtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#FEE500;color:#191919;text-decoration:none;font-weight:1000;padding:0 16px}.pubBtn.secondary{background:#fff;color:#111827}.pubGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0 24px}.pubFeature,.pubSection{background:#fff;border:1px solid #e4eaf2;border-radius:24px;padding:20px;box-shadow:0 12px 32px rgba(15,23,42,.055)}.pubFeature h2,.pubSection h2{margin-top:0}.pubFeature h2{font-size:18px}.pubFeature p,.pubSection p,.pubSection li{color:#526075;line-height:1.78}.pubSection{margin:14px 0;padding:26px}.pubSection h2{font-size:26px;letter-spacing:-.045em}.pubSection ul{padding-left:22px}.pubLinks{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}.pubLinks a{display:inline-flex;align-items:center;min-height:38px;border-radius:12px;background:#eef2ff;color:#3730a3;text-decoration:none;padding:0 12px;font-size:13px;font-weight:1000}.pubNote{background:#eefbf5;border:1px solid #b7ecd3;color:#116149;border-radius:17px;padding:14px;line-height:1.65;font-weight:800}.pubFaq{display:grid;gap:9px}.pubFaq details{border:1px solid #e4eaf2;border-radius:17px;padding:0 15px;background:#fbfcfe}.pubFaq summary{cursor:pointer;padding:15px 0;font-weight:1000}.pubFaq p{margin-top:0;padding-bottom:4px}.pubFooter{display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:30px;padding:26px 4px;border-top:1px solid #dfe6ef;color:#596579}.pubFooter b{color:#263247}.pubFooter p{max-width:650px;line-height:1.65}.pubFooterLinks{display:flex;flex-wrap:wrap;align-content:flex-start;gap:10px}.pubFooterLinks a{color:#475569;text-decoration:none;font-size:13px;font-weight:900}@media(max-width:900px){.pubGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.pubDesktopNav{display:none}.pubMobileMenu{display:block}.pubHeaderInner{justify-content:space-between}.pubHero{padding:32px 25px}.pubHero h1{font-size:34px}.pubFooter{grid-template-columns:1fr}}@media(max-width:560px){.pubWrap{padding:12px 12px 42px}.pubHeaderInner{padding:8px 12px}.pubBrand b{font-size:16px}.pubStart{display:none}.pubHero{border-radius:24px;padding:27px 20px}.pubHero h1{font-size:29px}.pubHero p{font-size:15px}.pubGrid{grid-template-columns:1fr}.pubSection{padding:20px;border-radius:20px}.pubSection h2{font-size:22px}}
 </style></head><body>${publicSiteNav(key)}<main class="pubWrap"><section class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "똑똑한가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p><div class="pubHeroActions"><a class="pubBtn" href="/my">가계부 시작하기</a><a class="pubBtn secondary" href="/how-it-works">사용 방법 보기</a></div></section>${cards ? `<section class="pubGrid">${cards}</section>` : ""}${sections}${faqs}${publicSiteFooter()}</main></body></html>`;
 }
 
@@ -3919,6 +3915,13 @@ function normalizeUserFacingUi(html = "") {
       /<a class="tab" href="(\/budgets\?[^"]*)"><i>📊<\/i><span>예산<\/span><\/a>/,
       (_full, href) => `<a class="tab" href="${href.replace("/budgets?", "/settlement-summary?")}"><i>↔</i><span>정산</span></a>`
     );
+    source = source.replace(/<nav class="bottom"[^>]*>[\s\S]*?<\/nav>/, (nav) => {
+      const settlementHref = nav.match(/href="(\/settlement-summary\?[^"]*)"/)?.[1] || "/settlement-summary";
+      const menuHref = nav.match(/href="(\/menu\?[^"]*)"/)?.[1] || "/menu";
+      const analysisHref = menuHref.replace("/menu?", "/my/analysis?");
+      const budgetHref = menuHref.replace("/menu?", "/budgets?");
+      return `<nav class="bottom" aria-label="모바일 주요 메뉴"><a class="tab active" aria-current="page" href="#top"><i>⌂</i><span>홈</span></a><a class="tab" href="#feed"><i>▤</i><span>거래</span></a><a class="tab" href="${settlementHref}"><i>↔</i><span>정산</span></a><a class="tab" href="${analysisHref}"><i>▥</i><span>분석</span></a><a class="tab" href="${budgetHref}"><i>◴</i><span>예산</span></a></nav>`;
+    });
     if (!source.includes('class="homeDesktopNav"')) {
       source = source.replace(/<body\b[^>]*>/i, (bodyTag) => `${bodyTag}${mobileHomeDesktopNavFromHtml(source)}`);
     }
@@ -3968,6 +3971,8 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("<title>자산·결제수단</title>")) bodyClasses.push("abPageAssets");
   if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
   if (source.includes(" · 수입·예산</title>")) bodyClasses.push("abPageBudgets");
+  if (source.includes(" · 가계부 전환·관리</title>")) bodyClasses.push("abPageHouseholds");
+  if (source.includes(" · 참여자·초대</title>")) bodyClasses.push("abPageMembers");
   if (source.includes(" · 고급 정산</title>")) bodyClasses.push("abPageSettlement");
   if (source.includes(" · 설정</title>") && source.includes('action="/my/settings"')) bodyClasses.push("abPageSettings");
   if (source.includes("<title>전체 메뉴</title>")) bodyClasses.push("abPageMenu");
@@ -3977,6 +3982,9 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
+  if (source.includes('id="filterBar"') && source.includes('id="kpis"')) bodyClasses.push("abPageInsight");
+  if (source.includes(" · 종합 리포트</title>") || (source.includes(" · 분석</title>") && source.includes("핵심 인사이트"))) bodyClasses.push("abPageAnalysisReport");
+  if (source.includes(" · 캘린더</title>")) bodyClasses.push("abPageCalendar");
   const hasLegacyAdminPageMarker = source.includes('class="desktopLedger') || source.includes('class="pcSidebar');
   if (hasLegacyAdminPageMarker) source = source.replaceAll('data-nav-scope="user"', 'data-nav-scope="admin"');
   const hasUserNavScope = source.includes('data-nav-scope="user"');
@@ -4048,6 +4056,12 @@ function attachUiUxRuntime(html = "") {
     // helper only supplies a contextual label after that lock succeeds.
     const guard = `<script id="v2263MutationGuard">(function(){document.querySelectorAll('form[method="post"][action="/my/create"],form[method="post"][action="/my/join"]').forEach(function(form){form.addEventListener('submit',function(event){var button=event.submitter&&form.contains(event.submitter)?event.submitter:form.querySelector('button[type="submit"],input[type="submit"]');var label=function(){if(event.defaultPrevented||!button||button.dataset.abSubmitLocked!=="1")return;if(button.tagName==="BUTTON")button.textContent=form.action.indexOf('/join')>=0?'참여 요청 중…':'가계부 만드는 중…';};if(typeof queueMicrotask==="function")queueMicrotask(label);else Promise.resolve().then(label);});});})();</script>`;
     source = source.replace("</body>", guard + "</body>");
+  }
+  if (source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)
+    && !source.includes(`src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}"`)
+    && source.includes("</body>")) {
+    const stage4Nav = `<script id="v22818Stage4NavRuntime" src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}" defer></script>`;
+    source = source.replace("</body>", stage4Nav + "</body>");
   }
   return source;
 }
@@ -9724,10 +9738,10 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
-    { key: "day", label: "매일 쓰는 기능", icon: "⌂", items: [["app", "홈", app, "⌂"], ["records", "기록", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "▤"], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "↔"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "▥"]] },
-    { key: "plan", label: "계획과 자산", icon: "◒", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "◴"], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "▣"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "↻"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "□"]] },
-    { key: "tools", label: "분석과 자동화", icon: "◇", items: [["smart-tools", "스마트 분석", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "◇"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "⌁"], ["reports", "자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "▥"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "!" ]] },
-    { key: "house", label: "가계부 관리", icon: "⚙", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"], ["categories", "분류·키워드", cat, "#"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "•"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "⇩"]] },
+    { key: "day", label: "기록", icon: "▤", items: [["app", "홈", app, "⌂"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "▤"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "□"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "↻"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "⌁"]] },
+    { key: "report", label: "리포트", icon: "▥", items: [["analysis", "소비 분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "▥"], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "◴"], ["reports", "월 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "▦"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "◇"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "!"]] },
+    { key: "together", label: "함께", icon: "↔", items: [["settlement", "부부 정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "↔"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"]] },
+    { key: "manage", label: "관리", icon: "⚙", items: [["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "▣"], ["categories", "분류·키워드", cat, "#"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "⇩"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "•"]] },
     { key: "ops", label: "운영 관리", icon: "◆", items: [["operation-center", "운영센터", "/operation-center", "◆"], ["release-candidate", "릴리스 후보", "/release-candidate", "R"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "+"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "▥"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "="], ["ops-traffic", "트래픽", "/ops-traffic", "↗"], ["skill-ops", "스킬", "/skill-ops", "S"], ["diagnostics", "시스템 진단", "/diagnostics", "!"], ["deployment-check", "배포점검", "/deployment-check", "✓"], ["ui-polish-check", "화면점검", "/ui-polish-check", "□"], ["final-release", "배포 확인", "/final-release", "✓"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
@@ -9749,17 +9763,16 @@ function renderUnifiedNav(active = "home", opts = {}) {
   }).join("");
   const bottomDefs = [
     ["home", "홈", "⌂", app],
-    ["records", "기록", "▤", `${app}&tab=transactions#feed`],
-    ["add", "입력", "＋", `${app}#add`],
+    ["records", "거래", "▤", `${app}&tab=transactions#feed`],
     ["settlement", "정산", "↔", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
-    ["menu", "메뉴", "☰", `/menu?month=${encodeURIComponent(month)}${hh}`],
+    ["analysis", "분석", "▥", `/my/analysis?month=${encodeURIComponent(month)}${hh}`],
+    ["budgets", "예산", "◴", `/budgets?month=${encodeURIComponent(month)}${hh}`],
   ];
   const bottomLinks = bottomDefs.map(([key, label, icon, href]) => {
     const on = key === activeKey
       || (key === "home" && activeKey === "app")
-      || (key === "records" && ["analysis", "calendar"].includes(activeKey))
-      || (key === "menu" && ["my-households", "households", "members", "group-household-links", "settings", "backup-login", "categories", "keyword-guide", "budgets", "budget-alerts", "smart-tools", "receipts", "reports", "backup", "payment-methods", "reserve-plans", "profile"].includes(activeKey));
-    return `<a data-key="${escapeHtml(key)}" class="${on ? "active " : ""}${key === "add" ? "abPrimary" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i>${escapeHtml(icon)}</i><span>${escapeHtml(label)}</span></a>`;
+      || (key === "records" && activeKey === "calendar");
+    return `<a data-key="${escapeHtml(key)}" class="${on ? "active" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i>${escapeHtml(icon)}</i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
   return `<div class="abNavScope" data-nav-scope="${navScope}" hidden></div><style id="unifiedNavStyle">
 :root{--abNavW:260px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
@@ -9904,7 +9917,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style><aside class="abLayoutNav"><div class="abNavTop"><a class="abNavBrand" href="${escapeHtml(app)}"><span class="abNavLogo">💛</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-label="메뉴 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>🌱 시작가이드</span><small>처음이라면 여기부터</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}">💛 ${escapeHtml(householdName)}</a><button type="button" onclick="toggleAbMobileNav()">메뉴</button></div><nav class="abNavMobileDrawer">${groupHtml}</nav><nav class="abNavBottom">${bottomLinks}</nav><script>(function(){try{if(localStorage.getItem("abNavCollapsed")==="1")document.body.classList.add("abNavCollapsed")}catch(e){}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer a");if(link){document.body.classList.remove("abMobileNavOpen");return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top){document.body.classList.remove("abMobileNavOpen");}});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")document.body.classList.remove("abMobileNavOpen");});var abLastY=0,abTicking=false;window.addEventListener("scroll",function(){if(abTicking)return;abTicking=true;requestAnimationFrame(function(){var y=window.scrollY||0;if(document.body.classList.contains("abMobileNavOpen")){abLastY=y;abTicking=false;return;}if(y>abLastY+6&&y>96){document.body.classList.add("abTopHidden");}else if(y<abLastY-6||y<=96){document.body.classList.remove("abTopHidden");}abLastY=y;abTicking=false;});},{passive:true});})();function toggleAbSideNav(){try{document.body.classList.toggle("abNavCollapsed");localStorage.setItem("abNavCollapsed",document.body.classList.contains("abNavCollapsed")?"1":"0")}catch(e){document.body.classList.toggle("abNavCollapsed")}}function toggleAbMobileNav(){document.body.classList.toggle("abMobileNavOpen")}</script>`;
+</style><aside class="abLayoutNav" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true">₩</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-label="사이드바 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>시작가이드</span><small>처음이라면 여기부터</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span aria-hidden="true">₩</span> ${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abMobileMenuDrawer" aria-expanded="false">전체 메뉴</button></div><nav id="abMobileMenuDrawer" class="abNavMobileDrawer" aria-label="가계부 전체 메뉴">${groupHtml}</nav><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav><script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}window.syncAbMobileMenu=syncMobileMenu;try{if(localStorage.getItem("abNavCollapsed")==="1")document.body.classList.add("abNavCollapsed")}catch(e){}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer a");if(link){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});var abLastY=0,abTicking=false;window.addEventListener("scroll",function(){if(abTicking)return;abTicking=true;requestAnimationFrame(function(){var y=window.scrollY||0;if(document.body.classList.contains("abMobileNavOpen")){abLastY=y;abTicking=false;return;}if(y>abLastY+6&&y>96){document.body.classList.add("abTopHidden");}else if(y<abLastY-6||y<=96){document.body.classList.remove("abTopHidden");}abLastY=y;abTicking=false;});},{passive:true});})();function toggleAbSideNav(){try{document.body.classList.toggle("abNavCollapsed");localStorage.setItem("abNavCollapsed",document.body.classList.contains("abNavCollapsed")?"1":"0")}catch(e){document.body.classList.toggle("abNavCollapsed")}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`;
 }
 
 
@@ -10065,7 +10078,7 @@ async function handleHouseholdFlowGuidePage(request, env, url) {
     ["여행 가계부", "여행 기간의 지출을 모아보고 참여자별로 확인합니다."],
     ["단발성 정산", "한 번 쓰고 보관하거나 읽기 전용으로 남길 수 있는 장부 흐름입니다."],
   ].map(([a,b]) => betaInfoCard(a,b,"/my/households","전환·추가")).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 여러 가계부</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0891b2);color:#fff}.hero p{color:#cffafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.betaCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.betaCard p{color:#64748b}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>여러 가계부 운영 흐름</h1><p>가족 장부와 모임/여행/단발성 장부를 분리하되, 모든 화면은 내가 참여한 household 범위만 보여야 합니다.</p><p><a class="btn" href="/my/households">가계부 전환·추가</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="grid">${cards}</section><section class="card"><h2>내가 참여한 가계부</h2><table><thead><tr><th>가계부</th><th>권한</th><th>진입</th></tr></thead><tbody>${items}</tbody></table></section><section class="card"><h2>운영 기준</h2><div class="note">초대코드를 받은 사용자는 참여 후 권한에 따라 입력/수정/삭제 범위가 달라집니다. viewer는 조회만, member는 자기 기록 중심, owner/admin은 전체 관리가 기본입니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 여러 가계부</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0e7490);color:#fff}.hero p{color:#fff;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.betaCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.betaCard p{color:#64748b}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>여러 가계부 운영 흐름</h1><p>가족 장부와 모임/여행/단발성 장부를 분리하되, 모든 화면은 내가 참여한 household 범위만 보여야 합니다.</p><p><a class="btn" href="/my/households">가계부 전환·추가</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="grid">${cards}</section><section class="card"><h2>내가 참여한 가계부</h2><table><thead><tr><th>가계부</th><th>권한</th><th>진입</th></tr></thead><tbody>${items}</tbody></table></section><section class="card"><h2>운영 기준</h2><div class="note">초대코드를 받은 사용자는 참여 후 권한에 따라 입력/수정/삭제 범위가 달라집니다. viewer는 조회만, member는 자기 기록 중심, owner/admin은 전체 관리가 기본입니다.</div></section></main></body></html>`);
 }
 
 async function handleBackupSafetyGuidePage(request, env, url) {
@@ -10077,12 +10090,12 @@ async function handleBackupSafetyGuidePage(request, env, url) {
     ["4. 최종 확인", "/backup/final-check", "가져오기 전 확인 문구와 권한을 다시 확인합니다."],
     ["5. 이력 확인", "/backup/import-history", "적용 후 언제 어떤 자료가 들어갔는지 확인합니다."],
   ].map(([a,b,c]) => `<div class="step"><b>${escapeHtml(a)}</b><p>${escapeHtml(c)}</p><a href="${escapeHtml(b)}">열기</a></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 백업 안전가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff}.hero p{color:#ffedd5;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.step p{color:#64748b}.step a,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>백업·복구 안전가이드</h1><p>베타 운영에서는 새 기능보다 복구 가능성이 먼저입니다. 배포 전후에는 이 순서를 기준으로 움직입니다.</p><p><a class="btn" href="/backup">백업센터</a><a class="btn" href="/operation-center">운영센터</a></p></section><section class="grid">${steps}</section><section class="card"><h2>주의</h2><div class="warn">가져오기와 되돌리기는 전체 데이터를 직접 바꾸는 작업입니다. 반드시 백업 파일을 저장한 뒤, 미리보기 → 비교 → 최종 확인 순서로 진행하세요.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 백업 안전가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#92400e);color:#fff}.hero p{color:#fff;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.step p{color:#64748b}.step a,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>백업·복구 안전가이드</h1><p>베타 운영에서는 새 기능보다 복구 가능성이 먼저입니다. 배포 전후에는 이 순서를 기준으로 움직입니다.</p><p><a class="btn" href="/backup">백업센터</a><a class="btn" href="/operation-center">운영센터</a></p></section><section class="grid">${steps}</section><section class="card"><h2>주의</h2><div class="warn">가져오기와 되돌리기는 전체 데이터를 직접 바꾸는 작업입니다. 반드시 백업 파일을 저장한 뒤, 미리보기 → 비교 → 최종 확인 순서로 진행하세요.</div></section></main></body></html>`);
 }
 
 
 function kakaoGroupFlowBaseStyle() {
-  return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#FEE500);color:#111827}.hero h1{margin:0;font-size:31px;letter-spacing:-.06em}.hero p{line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.flowCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.flowCard span,.tag{display:inline-flex;border-radius:999px;background:#fef9c3;color:#713f12;font-size:12px;font-weight:1000;padding:6px 10px}.flowCard b{display:block;margin-top:10px;font-size:18px}.flowCard p,.muted{color:#64748b;line-height:1.55}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500!important;color:#191919!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:13px;line-height:1.6}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}code,.cmd{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;color:#334155}.commandList{display:grid;gap:8px}.commandList div{border:1px solid #e5e7eb;border-radius:16px;padding:12px;background:#fff}.commandList b{display:block}.commandList span{color:#64748b;font-size:13px}.copyBox{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:12px;white-space:pre-wrap;line-height:1.6}.pillRow{display:flex;flex-wrap:wrap;gap:7px}.pillRow span{display:inline-flex;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:1000;font-size:12px;padding:7px 10px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.grid{grid-template-columns:1fr}table{min-width:680px}}`;
+  return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#0b1739,#153878);color:#fff}.hero h1{margin:0;font-size:31px;letter-spacing:-.06em}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.flowCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.flowCard span,.tag{display:inline-flex;border-radius:999px;background:#fef9c3;color:#713f12;font-size:12px;font-weight:1000;padding:6px 10px}.flowCard b{display:block;margin-top:10px;font-size:18px}.flowCard p,.muted{color:#64748b;line-height:1.55}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500!important;color:#191919!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:13px;line-height:1.6}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}code,.cmd{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;color:#334155}.commandList{display:grid;gap:8px}.commandList div{border:1px solid #e5e7eb;border-radius:16px;padding:12px;background:#fff}.commandList b{display:block}.commandList span{color:#64748b;font-size:13px}.copyBox{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:12px;white-space:pre-wrap;line-height:1.6}.pillRow{display:flex;flex-wrap:wrap;gap:7px}.pillRow span{display:inline-flex;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:1000;font-size:12px;padding:7px 10px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.grid{grid-template-columns:1fr}table{min-width:680px}}`;
 }
 
 function kakaoFlowCard(step = "", title = "", text = "", href = "", label = "열기") {
@@ -10469,7 +10482,7 @@ async function handleKakaoCommandsPage(request, env, url) {
     ["도움말", "기본 사용법 안내"],
   ].map(([a,b]) => `<tr><td><code>${escapeHtml(a)}</code></td><td>${escapeHtml(b)}</td></tr>`).join("");
   const openbuilder = ["웰컴", "도움말", "요약", "오늘 기록", "입력 예시", "수정가이드", "폴백"].map((x) => `<span>${escapeHtml(x)} → /skill</span>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 명령어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#FEE500);color:#111827}.hero p{line-height:1.65}.skill{background:#111827;color:#fff;border-radius:16px;padding:13px;word-break:break-all;font-weight:1000}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}@media(max-width:760px){.wrap{padding:12px}table{font-size:13px}}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 챗봇 명령어</h1><p>베타 운영에서는 사용자가 가장 많이 쓰는 문장과 오입력 안내를 먼저 안정화합니다.</p><div class="skill">Skill URL: ${escapeHtml(origin)}/skill</div><p><a class="btn" href="/openbuilder-guide">오픈빌더 설정</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="card"><h2>대표 발화</h2><table><thead><tr><th>발화</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></section><section class="card"><h2>OpenBuilder 연결 기준</h2><div class="chips">${openbuilder}</div><p>폴백 블록까지 /skill로 연결되어야 “이해하기 어려워요” 대신 서비스 안내와 입력 예시가 표시됩니다.</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 명령어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#0b1739,#153878);color:#fff}.hero p{color:#dbeafe;line-height:1.65}.skill{background:#111827;color:#fff;border-radius:16px;padding:13px;word-break:break-all;font-weight:1000}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}@media(max-width:760px){.wrap{padding:12px}table{font-size:13px}}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 챗봇 명령어</h1><p>베타 운영에서는 사용자가 가장 많이 쓰는 문장과 오입력 안내를 먼저 안정화합니다.</p><div class="skill">Skill URL: ${escapeHtml(origin)}/skill</div><p><a class="btn" href="/openbuilder-guide">오픈빌더 설정</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="card"><h2>대표 발화</h2><table><thead><tr><th>발화</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></section><section class="card"><h2>OpenBuilder 연결 기준</h2><div class="chips">${openbuilder}</div><p>폴백 블록까지 /skill로 연결되어야 “이해하기 어려워요” 대신 서비스 안내와 입력 예시가 표시됩니다.</p></section></main></body></html>`);
 }
 
 async function handleOpsSnapshotJson(request, env, url) {
@@ -17256,12 +17269,14 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22815.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22819.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-stage4-nav-v22818.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
+let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
 const ACCOUNTBOOK_SHELL_V22811_CSS = `
@@ -17345,42 +17360,91 @@ body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard bu
 .abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
 .abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
 .abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(span,small){color:#854d0e!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{background:var(--ab12-bg)!important;color:var(--ab12-text)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeBudget,.homeMetric,.homeCard,.homeOnboarding,.homeQuick a,.homeTx,.panel,.stat,.v8-stat,.v8-tx,.tx,.card,.record,.startPanel,.kpi,.iChip,.tchip,.metric,.summaryBox,.usageCard,.moneyList li,.stepCard,.tabPanel,.kwBox,.featuredCard,.menuRow,.menuStep,.appMenu,.abLayoutNav,.homeDesktopNav,.bottom,.abUxBottom,.abNavBottom,.appTop,.tableWrap,.scroll,table){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 :is(select,textarea){background:var(--ab12-input-bg)!important;background-color:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;-webkit-text-fill-color:var(--ab12-text)!important;border-color:var(--ab12-line)!important;color-scheme:dark}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeBudget,.homeMetric,.homeCard,.homeOnboarding,.homeQuick a,.homeTx,.panel,.stat,.v8-stat,.v8-tx,.tx,.card,.record,.startPanel,.kpi,.iChip,.tchip,.metric,.summaryBox,.usageCard,.moneyList li,.stepCard,.tabPanel,.kwBox,.featuredCard,.menuRow,.menuStep,.appMenu,.abLayoutNav,.homeDesktopNav,.bottom,.abUxBottom,.abNavBottom,.appTop,.tableWrap,.scroll,table,.accountSecurity,.hhCard,.inviteStage,.settingsForm,.readOnlyNote,.empty){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .hero:has(.heroTop){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuPage,.wrap,.pageMain,.menuSecondary,.menuSection,.featuredSection){background:transparent!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(h1,h2,h3,h4,strong,label,.menuRowTitle,.featuredCopy b,.journeyCopy b,.homeQuick b,.homeTx b,.metric b,.summaryBox b,.appMenu summary){color:var(--ab12-text)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeIcon,.homeProgress,.homeBar,.homeOnboardingStep,.hTrack,.meterBig,.miniBar,.progress,.summaryBox,.keywordFilter,.assetOptional,.memberUse,.basisGrid>div,.menuLink,.homeCalendarToggle a,.filterQuick a,.feedControls a,.filterAdvanced,.seg span,.seg button,.appMenuBody .navGroup a,.heroBtns a,.pchip,.fBtn,.fPanel,.csvBtn){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeIcon,.homeProgress,.homeBar,.homeOnboardingStep,.hTrack,.meterBig,.miniBar,.progress,.summaryBox,.keywordFilter,.assetOptional,.memberUse,.basisGrid>div,.basisGrid li,.menuLink,.homeCalendarToggle a,.filterQuick a,.feedControls a,.filterAdvanced,.seg span,.seg button,.appMenuBody .navGroup a,.heroBtns a,.pchip,.fBtn,.fPanel,.csvBtn,.optionGrid a,.hhActions a:not(.primary),.stageActions a,.accountSecurity>a,.reauthButton,.box,.gaugeCard,.dailyCell,.weekdayCell,.trendChart,.seriesChart,.insight,.insightList li,.feature,.candidate,.criteria,.identity,.emptyTree){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.abNavLogo,.abNavToggle,.abNavItemIcon,.abNavGuide,.journeyNum,.featuredIcon,.menuRowIcon){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(th,.tableWrap:before){background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(td,tr,.menuList,.menuRow,.txRow,.bRow,.txDate){border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuHeader,.menuList,.advancedGroup>summary,.privacyDisclosure,.assetFormStep){border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeQuick a:hover,.homeTx:hover,.menuRow:hover,.featuredCard:hover,.dRow:hover,.hRow:hover,a.txRow:hover){background:var(--ab12-surface-raised)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell:not(.abPageLogin):not(.abPageAccountSecurity) *{color:var(--ab12-text)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a,.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn,a.primaryBtn,a.primaryButton,a.savePlan,.filters a.dark,.heroBtns a.dark){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.hero p,.homeBudgetTop span,.homeBudgetFoot,.homeBudgetFoot span,.homeMetric span,.homeTx span,.homeBarRow span,.tchip small,.kpi small:not(.up):not(.down),.cardHead .sub,.dRow .pct,.hTop span small,.txDate span,.txRow .mid span,.emptyBox,.dataNote,.abAppearanceHead p,.abAppearanceDevice,.abAppearanceStatus,.navGroupTitle){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abLayoutNav :is(b,strong){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abLayoutNav :is(small,i){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell a{color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeDesktopNav nav a.active,.abNavLinks a.active,.appMenu a.active,.feedControls a.active,.seg input:checked+span,.menuPage .abAppearanceChoices button[aria-pressed="true"]){color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 :is(a.btn,a.primaryBtn,a.primaryButton,a.savePlan,.filters a.dark,.heroBtns a.dark){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface #feed>a.btn.homeFeedAllBtn{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(a.btn.secondary,a.btn.light,a.secondaryBtn,a.secondaryButton){background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 :is(a.btn.secondary,a.btn.light,a.secondaryBtn,a.secondaryButton){background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.hero,.planColumn,.planLine label,.weight,.itemSplit,.checks label,.note,.copy,.incomeSummary li,.incomeSummary .emptyIncome,details.fold,.keywordCard){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeBudget,.homeMetric,.homeCard,.homeOnboarding,.homeQuick a,.homeTx,.panel,.stat,.v8-stat,.v8-tx,.tx,.card,.record,.startPanel,.kpi,.iChip,.tchip,.metric,.summaryBox,.usageCard,.moneyList li,.stepCard,.tabPanel,.kwBox,.featuredCard,.menuRow,.menuStep,.appMenu,.accountSecurity,.hhCard,.inviteStage,.settingsForm,.readOnlyNote,.empty,.optionGrid a,.box,.gaugeCard,.dailyCell,.weekdayCell,.trendChart,.seriesChart,.insight,.insightList li,.feature,.candidate,.criteria,.identity) :is(h1,h2,h3,h4,b,strong,label,summary,p,span,small,em,dt,dd,li){color:inherit!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.eyebrow,.sectionHead>b,.addLine,.addBtn){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.guide,.legacy,.sectionNote){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.ok,.notice.ok){background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.error,.notice.error){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.tip,.budgetOk,.status.ok,.modeTag.auto,.okmsg,.reauthOk){background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.budgetWarn,.status.warn,.warn,.foot,.guideLine,.inviteFold code,.inviteCode){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.status.bad,.errmsg,.dangerZone){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.guide,.guideLine,.legacy,.sectionNote,.ok,.notice.ok,.error,.notice.error,.tip,.budgetOk,.status.ok,.modeTag.auto,.okmsg,.reauthOk,.budgetWarn,.status.warn,.warn,.foot,.privacyNote,.unregBox,.inviteFold code,.inviteCode,.status.bad,.errmsg,.dangerZone,.receiptConfirm,.receiptReadOnly) :is(b,strong,p,span,small,label){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .modeTag.manual{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu :is(.menuEyebrow,.menuHeader p,.journeyCopy span,.menuSectionHead span,.featuredCopy span,.menuRowDesc,.advancedGroup>summary span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu .advancedGroup>summary b{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.donut i,.assetRow,.assetRow>summary,.rowBody,.editBox,.assetOptional,.assetOptionalGrid .chk,.kindChip span){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.donut i,.assetRow,.rowBody,.editBox,.assetOptional,.assetOptionalGrid .chk,.kindChip span) :is(b,strong,label,summary,span,small,em){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.rowMain small,.rowVal small,.groupSum small,.assetLegend em,.assetOptional>summary span,.assetCoreGrid label small,.assetOptionalGrid .chk small){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .timeBadge{background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.assetKindField legend,.assetFormStep h3){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .badge.okb{background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.privacyNote,.unregBox,.preset.warn,.regLink){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard :is(b,strong,span,small){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard:not(.alert) :is(span,small){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard.alert{background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptContext,.receiptPanel,.receiptPreviewMeta){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptBack,.receiptSourcePick,.receiptPreview,.receiptDetected,.receiptSecondary){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptContext,.receiptPanel,.receiptSourcePick,.receiptPreview,.receiptPreviewMeta,.receiptDetected) :is(h2,b,strong,label,p,span,small){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptHeader p,.receiptPanelHead p,.receiptSourcePick small,.receiptPrivacy,.receiptTextHelp,.receiptPreviewMeta span,.receiptHelp,.receiptHelp ul){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptEyebrow,.receiptStep,.receiptSourceIcon,.receiptBack){color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptStep,.receiptSourceIcon,.receiptStatus){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptConfirm,.receiptReadOnly){background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds .hhCard.active{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds :is(.flow span,.stepBadge,.hhMain em){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds .hhActions a.primary{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageBudgets :is(.metric.actual,.metric.plan,.empty,.usageCard dl div){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettlement :is(.metric,.weight,.itemSplit,.checks label,.note,.copy){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings :is(.summaryBox,.incomeSummary li,.incomeSummary .emptyIncome,details.fold,.keywordCard){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings a.btn.secondary{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwBox,.kwHead,.kwBody,.kwChip,.kwCount,.kwNoResult){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwHead b,.kwToggle){color:var(--ab12-text)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords :is(.kwCount,.kwHint){color:var(--ab12-muted)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .kwRemove{background:transparent!important;color:#fca5a5!important;border-color:transparent!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .kwAdd{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageSettings.abPageKeywords .keywordToolbar>button{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords :is(.kwBox,.kwHead,.kwBody,.kwChip,.kwCount,.kwNoResult,.guideCard){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords :is(.kwBox,.kwHead,.kwBody,.kwChip,.kwNoResult,.guideCard) :is(b,strong,p,span,small,code){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords :is(.kwHead b,.kwToggle){color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .kwCount{background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .kwHint{background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .guideCard span{color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .guideCard code{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .kwRemove{background:transparent!important;color:#fca5a5!important;border-color:transparent!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .kwAdd{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageKeywords .keywordToolbar>button{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMembers .inviteBox{background:#49351a!important;color:#fcd34d!important;border-color:#765b26!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMembers .inviteBox :is(code,b,strong,span){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMembers .ownerBadge{background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageBackup .alias{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageBackup .alias :is(b,strong,span){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageBackup .alias span{color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageGuide :is(.tabBtn,.ckList li){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageGuide .ckList li :is(b,strong,small){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageGuide .ckList li:not(.done) small{color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageGuide .ckList li.done{background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageGuide .ckList li a{background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .pchip.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .seg button.on{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.income,.up,.positive,.homeTxAmt.income){color:#6ee7b7!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.expense,.down,.negative,.homeTxAmt:not(.income)){color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.income,.up,.positive,.plus,.homeTxAmt.income){color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.expense,.down,.negative,.minus,.homeTxAmt:not(.income)){color:#fca5a5!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeToday b[style*="#059669"]{color:#6ee7b7!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.danger,.delBtn,.dangerZone button[type="submit"]){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button,.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){color:#fff!important}
@@ -17401,7 +17465,223 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity mai
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="error"]{color:#fca5a5!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="success"]{color:#6ee7b7!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
+
+/* V22.8.17 V2 information hierarchy and review-safe contrast layer */
+body.abV22812Shell.abMobileAppSurface :is(.homeSpendHero,.homeBudget,.homeMetric,.homeCard,.homeQuick a,.homeCalendar){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero{margin:12px 0;padding:24px;background:var(--ab12-surface);border:1px solid var(--ab12-line);color:var(--ab12-text)}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>span{display:block;color:var(--ab12-muted);font-size:13px;font-weight:900}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{display:block;margin:7px 0 3px;color:var(--ab12-text);font-size:38px;line-height:1.12;letter-spacing:-.055em;overflow-wrap:anywhere}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>p{margin:0;font-size:13px;font-weight:850;line-height:1.5}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendUp{color:#b42318}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendDown{color:#067647}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendFlat{color:var(--ab12-muted)}
+body.abV22812Shell.abMobileAppSurface .homeSpendMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:850}
+body.abV22812Shell.abMobileAppSurface .homeSpendMeta b{color:var(--ab12-accent)}
+body.abV22812Shell.abMobileAppSurface .homeBudget{background:var(--ab12-surface)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell.abMobileAppSurface .homeBudget:after{display:none!important}
+body.abV22812Shell.abMobileAppSurface .homeProgress i{background:var(--ab12-action)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:20px!important;overflow:visible}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calHead h2{font-size:20px}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calClose,
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calNav a{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important;box-shadow:none!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:3px}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padding:7px 2px;border:1px solid transparent!important;border-radius:11px;background:transparent!important;color:var(--ab12-text)!important;opacity:1!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.noRec{background:transparent!important;color:var(--ab12-muted)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec.sel{background:var(--ab12-action)!important;border-color:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.isToday b{display:grid;place-items:center;width:24px;height:24px;margin:-2px auto 1px;border-radius:50%;background:var(--ab12-action);color:#fff!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sun:not(.sel):not(.isToday) b{color:#b4233e!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sat:not(.sel):not(.isToday) b{color:#1d4ed8!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay strong{color:#b42318!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay em{color:#067647!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small,
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calHint,
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow{color:var(--ab12-muted)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow.sun{color:#b4233e!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow.sat{color:#1d4ed8!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calSelected{background:var(--ab12-accent-soft)!important;color:var(--ab12-text)!important;border:1px solid var(--ab12-line)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calSelected a{color:var(--ab12-accent)!important}
+
+body.abV22812Shell.abPageInsight .filterBar{top:8px;margin:12px 0;padding:12px;background:var(--ab12-surface)!important;background:color-mix(in srgb,var(--ab12-surface) 96%,transparent)!important;border:1px solid var(--ab12-line)!important;border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.rangeRow input,.searchBox input,.moreBtn,.csvBtn){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell.abPageInsight .seg{background:var(--ab12-surface-raised)!important;border:1px solid var(--ab12-line)!important}
+body.abV22812Shell.abPageInsight .seg button{color:var(--ab12-muted)!important}
+body.abV22812Shell.abPageInsight :is(.pchip.on,.fBtn.on,.seg button.on,.tchip.on,.applyBtn){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important;box-shadow:none!important}
+body.abV22812Shell.abPageInsight .tchip.on small{color:#fff!important}
+body.abV22812Shell.abPageInsight .fPanel{background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell.abPageInsight .fGroup>b{color:var(--ab12-muted)!important}
+body.abV22812Shell.abPageInsight .aChip{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important}
+body.abV22812Shell.abPageInsight :is(.dRow.sel,.hRow.sel){background:var(--ab12-accent-soft)!important;color:var(--ab12-text)!important}
+body.abV22812Shell.abPageInsight :is(.dRow:hover,.hRow:hover,a.txRow:hover){background:var(--ab12-surface-raised)!important}
+body.abV22812Shell.abPageInsight :is(.card,.kpi){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageInsight .kpiRow{gap:10px}
+body.abV22812Shell.abPageInsight .kpi{min-height:108px;padding:17px}
+body.abV22812Shell.abPageInsight .kpi b{font-size:23px}
+body.abV22812Shell.abPageInsight :is(.hTrack,.meterBig){background:var(--ab12-surface-raised)!important;border:1px solid var(--ab12-line)!important}
+body.abV22812Shell .appMenu>summary{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell .appMenu>summary:after{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .appMenu>summary{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .appMenu>summary:after{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}
+body.abV22812Shell.abPageInsight svg [stroke="#EEF1F4"],body.abV22812Shell.abPageInsight svg [stroke="#D9DEE4"]{stroke:var(--ab12-line)!important}
+body.abV22812Shell.abPageInsight svg [fill="#191F28"],body.abV22812Shell.abPageInsight svg [fill="#4E5968"],body.abV22812Shell.abPageInsight svg [fill="#8B95A1"]{fill:var(--ab12-text)!important}
+
+body.abV22812Shell.abPageAnalysisReport :is(.hero,.card,.box,.gaugeCard){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageAnalysisReport .hero{background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border:1px solid var(--ab12-line)!important}
+body.abV22812Shell.abPageAnalysisReport .hero p{color:var(--ab12-muted)!important}
+body.abV22812Shell.abPageCalendar .hero{background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important;box-shadow:none!important}
+body.abV22812Shell.abPageCalendar .hero p{color:var(--ab12-muted)!important}
+body.abV22812Shell.abPageCalendar :is(.card,.day){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageCalendar .fullCalendar summary{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+body.abV22812Shell.abPageCalendar .day.emptyDay{background:transparent!important;border-color:transparent!important;color:var(--ab12-muted)!important;opacity:1!important}
+body.abV22812Shell.abPageCalendar .day.hasSpend{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
+body.abV22812Shell.abPageCalendar .day :is(em,small){color:var(--ab12-muted)!important}
+body.abV22812Shell.abPageCalendar .day span{color:var(--ab12-accent)!important}
+
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendUp{color:#fca5a5}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendDown{color:#6ee7b7}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sun:not(.sel):not(.isToday) b{color:#fda4af!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sat:not(.sel):not(.isToday) b{color:#93c5fd!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow.sun{color:#fda4af!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow.sat{color:#93c5fd!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay strong{color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay em{color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .filterBar{box-shadow:0 10px 26px rgba(0,0,0,.24)}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight :is(.pchip.on,.fBtn.on,.seg button.on,.tchip.on,.applyBtn){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .tchip.on small{color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .kpi small.up{color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .kpi small.down{color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.good{background:rgba(6,95,70,.28)!important;border-color:#34d399!important;color:#a7f3d0!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.bad{background:rgba(127,29,29,.32)!important;border-color:#f87171!important;color:#fecaca!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.hasRec.sel :is(b,strong,em,small){color:#fff!important}
+
+@media(min-width:1024px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:28px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:44px}body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:20px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:34px}body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:5px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
+@media(max-width:360px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:8px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:2px}}
 @media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
+
+/* V22.8.18 UI/UX stage 4: supplied unified dashboard + navigation system. */
+body.abV22812Shell{
+  --bg:var(--ab12-bg);--card:var(--ab12-surface);--card-2:var(--ab12-surface-raised);
+  --text:var(--ab12-text);--sub:var(--ab12-muted);--faint:var(--ab12-muted);--line:var(--ab12-line);
+  --accent:var(--ab12-accent);--accent-weak:var(--ab12-accent-soft);--on-accent:#fff;
+  --pos:#087a55;--neg:#c0362c;--warn:#a15c00;--purple:#7b6fe0;
+  --radius:20px;--radius-sm:12px;--radius-xs:10px;
+  --shadow:0 1px 4px rgba(25,31,40,.05);--shadow-2:0 6px 22px rgba(25,31,40,.08);
+  background:var(--bg)!important;color:var(--text)!important;
+  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+  font-feature-settings:"tnum";letter-spacing:-.01em
+}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{
+  --pos:#6ee7b7;--neg:#fca5a5;--warn:#fcd34d;--purple:#c4b5fd;
+  --shadow:0 1px 4px rgba(0,0,0,.3);--shadow-2:0 6px 22px rgba(0,0,0,.4)
+}
+body.abV22812Shell :is(h1,h2,h3){letter-spacing:-.03em}
+body.abV22812Shell main.wrap{max-width:1180px;margin-inline:auto;padding:22px}
+body.abV22812Shell :is(.hero,.card,.panel,.metric,.kpi,.homeBudget,.homeMetric,.homeCard,.homeCalendar){
+  background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;
+  border-radius:var(--radius)!important;box-shadow:var(--shadow)!important
+}
+/* V22.8.19 contrast hotfix: semantic heroes and empty states outrank the shared card cascade. */
+body.abV22812Shell.abPageAssets .hero{background:linear-gradient(135deg,#0b1739,#153878)!important;color:#fff!important;border-color:transparent!important}
+body.abV22812Shell.abPageAssets .hero :is(h1,h2,h3,b,strong,span){color:#fff!important}
+body.abV22812Shell.abPageAssets .hero :is(p,.heroLabel,.heroDelta,.note){color:#dbeafe!important}
+body.abV22812Shell.abPageAssets .heroChips span{background:rgba(255,255,255,.1)!important;color:#fff!important;border-color:rgba(255,255,255,.22)!important}
+body.abV22812Shell.abPageAssets .assetEmptyMark{background:var(--accent-weak)!important;color:var(--accent)!important}
+body.abV22812Shell.abPageAssets .preset{background:var(--card-2)!important;color:var(--text)!important;border-color:var(--line)!important}
+body.abV22812Shell.abPageAssets .presetRow>span{color:var(--sub)!important}
+body.abV22812Shell.abPageAssets .emptyCta{background:var(--accent)!important;color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.zero,.orText){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .assetEmptyMark{background:#1e3a5f!important;color:#bfdbfe!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .preset{background:var(--ab12-surface-raised)!important;color:#bfdbfe!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .emptyCta{background:#1d4ed8!important;color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.flowCard,.copyBox){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .flowCard :is(b,p,span){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .flowCard>span{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .insightList>div{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .insightList>div :is(b,span){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .insightList>div .muted{color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .trendLabel{color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport :is(.trendValue,.seriesLegend span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .deltaUp{color:#fca5a5!important}
+body.abV22812Shell :is(.card,.panel){padding:20px 22px!important}
+body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}
+body.abV22812Shell :is(button,.btn){transition:filter .12s ease,background .12s ease,border-color .12s ease;box-shadow:none}
+body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}
+body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost):hover{background:var(--card-2)!important;color:var(--text)!important}
+body.abV22812Shell :is(input,select,textarea){background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--radius-xs)!important}
+body.abV22812Shell :is(input,textarea)::placeholder{color:var(--faint)!important;opacity:1}
+body.abV22812Shell :is(.field label,.formField label){font-size:11.5px;font-weight:700;color:var(--sub)!important}
+body.abV22812Shell :is(.filterCard,.filterBar,.filterAdvanced,.fPanel){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:var(--shadow)!important}
+body.abV22812Shell :is(.chip,.pchip,.fBtn,.tchip,.aChip,.feedControls a,.dateChip){background:var(--card-2)!important;color:var(--sub)!important;border-color:transparent!important;border-radius:999px!important;box-shadow:none!important}
+body.abV22812Shell :is(.chip.blue,.pchip.on,.fBtn.on,.tchip.on,.aChip,.feedControls a.active,.dateChip.on){background:var(--accent-weak)!important;color:var(--accent)!important;border-color:var(--line)!important}
+body.abV22812Shell :is(.tableWrap,.scroll){background:var(--card)!important;border:1px solid var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:none!important}
+body.abV22812Shell table{background:var(--card)!important;color:var(--text)!important;border-collapse:collapse}
+body.abV22812Shell :is(th,td){border-color:var(--line)!important}
+body.abV22812Shell th{background:var(--card-2)!important;color:var(--sub)!important;font-size:11.5px;font-weight:700}
+body.abV22812Shell :is(.txItem,.txRow,.record){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:none!important}
+body.abV22812Shell :is(.txMeta span,.txCount,.txLiveCount,.summaryBox,.emptyBox){background:var(--card-2)!important;color:var(--sub)!important;border-color:var(--line)!important}
+body.abV22812Shell .tabs{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;background:var(--card)!important;border-radius:var(--radius-sm);padding:7px;box-shadow:var(--shadow);scrollbar-width:none}
+body.abV22812Shell .tabs::-webkit-scrollbar{display:none}
+body.abV22812Shell .tab{flex:0 0 auto;background:transparent!important;color:var(--sub)!important;border-radius:var(--radius-xs)}
+body.abV22812Shell .tab.active{background:var(--text)!important;color:var(--bg)!important}
+
+body.abV22812Shell .abLayoutNav{font-family:inherit!important;color:var(--text)!important;background:var(--card)!important;border-right:1px solid var(--line)!important;box-shadow:none!important}
+body.abV22812Shell .abNavTop{padding:16px 14px!important;border-color:var(--line)!important}
+body.abV22812Shell .abNavBrand{gap:10px!important;color:var(--text)!important;font-weight:800!important}
+body.abV22812Shell .abNavLogo{width:38px!important;height:38px!important;flex:none;border-radius:12px!important;background:var(--accent)!important;color:var(--on-accent)!important;box-shadow:var(--shadow)!important;font-size:19px!important;font-weight:800!important}
+body.abV22812Shell .abNavBrandText small{color:var(--faint)!important;font-weight:700!important}
+body.abV22812Shell .abNavToggle{width:34px!important;height:34px!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
+body.abV22812Shell .abNavBody{padding:10px 10px 16px!important}
+body.abV22812Shell .abNavGroup{margin:4px 0!important;border-radius:14px!important}
+body.abV22812Shell .abNavGroup summary{min-height:42px!important;padding:0 12px!important;border-radius:12px!important;background:transparent!important;color:var(--sub)!important;box-shadow:none!important;font-weight:700!important}
+body.abV22812Shell .abNavGroup summary:hover{background:var(--card-2)!important;color:var(--text)!important}
+body.abV22812Shell .abNavGroup[open] summary{color:var(--text)!important}
+body.abV22812Shell .abNavGroup summary i{width:24px!important;flex:0 0 24px!important;color:var(--faint)!important;font-size:16px!important}
+body.abV22812Shell .abNavGroup summary b{font-size:12.5px!important;font-weight:700!important;text-transform:none!important}
+body.abV22812Shell .abNavLinks{display:flex!important;flex-direction:column!important;gap:2px!important;padding:4px 0 8px!important}
+body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:11px!important;background:transparent!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:600!important;box-shadow:none!important}
+body.abV22812Shell .abNavLinks a:hover{background:var(--card-2)!important;color:var(--text)!important}
+body.abV22812Shell .abNavLinks a.active{background:var(--accent-weak)!important;color:var(--accent)!important;font-weight:800!important}
+body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:15px!important}
+body.abV22812Shell .abNavFooter{padding:12px 10px!important;border-color:var(--line)!important}
+body.abV22812Shell .abNavGuide{background:var(--card-2)!important;border:1px solid var(--line)!important;color:var(--accent)!important;border-radius:12px!important;box-shadow:none!important}
+body.abV22812Shell .abNavGuide small{color:var(--sub)!important}
+body.abV22812Shell .abNavMobileTop,body.abV22812Shell .abNavMobileDrawer,body.abV22812Shell .abNavBottom{background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}
+body.abV22812Shell .abNavMobileTop a{color:var(--text)!important}
+body.abV22812Shell .abNavMobileTop a>span{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:6px;border-radius:9px;background:var(--accent);color:var(--on-accent)}
+body.abV22812Shell .abNavMobileTop button{background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
+body.abV22812Shell .abNavBottom a{color:var(--faint)!important;font-weight:700!important}
+body.abV22812Shell .abNavBottom a.active{color:var(--accent)!important}
+body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!important}
+
+@media(min-width:1024px){
+  :root{--abNavW:248px;--abNavCollapsed:72px}
+  body.abV22812Shell{--abNavW:248px}
+  body.abV22812Shell.abAppSurface,body.abV22812Shell.abMobileAppSurface{padding-left:var(--abNavW)!important}
+  body.abV22812Shell .abLayoutNav{width:var(--abNavW)!important}
+  body.abV22812Shell.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}
+  body.abV22812Shell.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)!important}
+  body.abV22812Shell.abNavCollapsed .abNavLinks a,body.abV22812Shell.abNavCollapsed .abNavGroup summary{justify-content:center!important;padding-inline:0!important}
+  body.abV22812Shell.abNavCollapsed .abNavLinks{display:flex!important;padding-inline:5px!important}
+  body.abV22812Shell.abNavCollapsed .abNavItemLabel,body.abV22812Shell.abNavCollapsed .abNavGroup summary b{display:none!important}
+  body.abV22812Shell .homeDesktopNav{width:var(--abNavW)!important;background:var(--card)!important;border-color:var(--line)!important;padding:22px 14px!important}
+  body.abV22812Shell .homeDesktopNav nav a{min-height:44px!important;border-radius:11px!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:650!important}
+  body.abV22812Shell .homeDesktopNav nav a:hover{background:var(--card-2)!important;color:var(--text)!important}
+  body.abV22812Shell .homeDesktopNav nav a.active{background:var(--accent-weak)!important;color:var(--accent)!important}
+}
+@media(max-width:1023px){
+  body.abV22812Shell.abAppSurface,body.abV22812Shell.abMobileAppSurface{padding-top:calc(52px + var(--abSafeTop))!important;padding-bottom:calc(74px + var(--abSafeBottom))!important}
+  body.abV22812Shell .abNavMobileTop{height:calc(52px + var(--abSafeTop))!important;padding:var(--abSafeTop) 16px 0!important}
+  body.abV22812Shell .abNavMobileDrawer{top:calc(52px + var(--abSafeTop))!important;border-radius:0!important;box-shadow:0 18px 36px rgba(15,23,42,.12)!important}
+  body.abV22812Shell .abNavMobileDrawer .abNavLinks{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;padding:4px 0 10px!important}
+  body.abV22812Shell .abNavMobileDrawer .abNavLinks a{background:var(--card-2)!important;border:1px solid var(--line)!important;min-height:44px!important}
+  body.abV22812Shell .abNavBottom{height:calc(64px + var(--abSafeBottom))!important;padding-bottom:var(--abSafeBottom)!important;backdrop-filter:none!important}
+  body.abV22812Shell .abNavBottom a{gap:3px!important;min-height:44px!important}
+  body.abV22812Shell .abNavBottom a i{font-size:20px!important}
+  body.abV22812Shell main.wrap{padding:14px!important}
+}
+@media(max-width:560px){body.abV22812Shell .abNavMobileDrawer .abNavLinks{grid-template-columns:1fr!important}}
 `;
 
 function accountbookThemeClientMain() {
@@ -17626,6 +17906,56 @@ function mobileHomeShellJsAsset() {
   return AB_MOBILE_HOME_SHELL_JS_CACHE;
 }
 
+function accountbookStage4NavClientMain() {
+  "use strict";
+  function contextQuery() {
+    var params = new URLSearchParams(location.search);
+    var month = params.get("month") || new Date().toISOString().slice(0, 7);
+    var household = params.get("household_id") || "";
+    return "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
+  }
+  function items() {
+    var query = contextQuery();
+    return [
+      { key: "home", icon: "⌂", label: "홈", href: "/app?" + query },
+      { key: "records", icon: "▤", label: "거래", href: "/app?" + query + "&tab=transactions#feed" },
+      { key: "settlement", icon: "↔", label: "정산", href: "/settlement-summary?" + query },
+      { key: "analysis", icon: "▥", label: "분석", href: "/my/analysis?" + query },
+      { key: "budgets", icon: "◴", label: "예산", href: "/budgets?" + query },
+    ];
+  }
+  function activeKey() {
+    var path = String(location.pathname || "");
+    if (path.indexOf("settlement") >= 0) return "settlement";
+    if (path.indexOf("analysis") >= 0) return "analysis";
+    if (path.indexOf("budgets") >= 0) return "budgets";
+    if (path === "/app" && (location.hash === "#feed" || new URLSearchParams(location.search).get("tab") === "transactions")) return "records";
+    if (path === "/app") return "home";
+    return "";
+  }
+  function render(nav) {
+    var active = activeKey();
+    nav.setAttribute("aria-label", "모바일 주요 메뉴");
+    nav.innerHTML = items().map(function(item) {
+      var on = item.key === active;
+      return '<a data-key="' + item.key + '" class="' + (on ? "active" : "") + '" ' + (on ? 'aria-current="page" ' : "") + 'href="' + item.href + '"><i aria-hidden="true">' + item.icon + "</i><span>" + item.label + "</span></a>";
+    }).join("");
+  }
+  function apply() {
+    Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
+  }
+  apply();
+  window.addEventListener("hashchange", apply);
+  window.addEventListener("pageshow", apply);
+}
+
+function accountbookStage4NavJsAsset() {
+  if (!AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE) {
+    AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = `(${accountbookStage4NavClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE;
+}
+
 function mobileHomeDesktopNavFromHtml(source = "") {
   const findRouteHref = (route, fallback) => {
     const escapedRoute = String(route || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -17643,7 +17973,7 @@ function mobileHomeDesktopNavFromHtml(source = "") {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -17656,6 +17986,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? accountbookThemeJsAsset()
       : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
         ? mobileHomeShellJsAsset()
+      : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
+        ? accountbookStage4NavJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -17667,11 +17999,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22815-css"'
+        ? '"accountbook-shell-v22819-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22811-js"'
+        : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
+          ? '"accountbook-stage4-nav-v22818-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -17695,19 +18029,23 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   const mon = Number(month.slice(5, 7));
   const daysInMonth = new Date(year, mon, 0).getDate();
   const firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
-  const weekHead = ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="calDow${i === 0 ? " sun" : ""}">${w}</span>`).join("");
+  const today = formatDate(nowKstDate());
+  const weekHead = ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="calDow${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</span>`).join("");
   const blanks = Array.from({ length: firstDow }, () => `<span class="calDay blank"></span>`).join("");
   const cells = Array.from({ length: daysInMonth }, (_, i) => {
     const day = i + 1;
     const date = `${month}-${String(day).padStart(2, "0")}`;
+    const dow = new Date(Date.UTC(year, mon - 1, day)).getUTCDay();
+    const dayClass = `${dow === 0 ? " sun" : dow === 6 ? " sat" : ""}${today === date ? " isToday" : ""}`;
+    const current = today === date ? ' aria-current="date"' : "";
     const v = dayMap[date];
-    if (!v || !v.count) return `<span class="calDay noRec"><b>${day}</b></span>`;
+    if (!v || !v.count) return `<span class="calDay noRec${dayClass}"${current}><b>${day}</b></span>`;
     const href = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar&date=${encodeURIComponent(date)}&feed=all#feed`;
-    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}" href="${escapeHtml(href)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
+    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
   }).join("");
   const clearHref = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`;
   const closeHref = `/app?month=${encodeURIComponent(month)}${hh}`;
-  return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>📅 ${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">캘린더 닫기 ✕</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 아래 목록에 그날 기록만 표시되고, 빠른 입력 날짜도 그 날짜로 맞춰집니다. 기록 없는 날은 흐리게 표시됩니다.</p></section>`;
+  return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 아래 목록에 그날 기록만 표시되고, 빠른 입력 날짜도 그 날짜로 맞춰집니다. 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
 function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", balert = "", homeView = "", calendarRows = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true }) {
@@ -17825,11 +18163,22 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const categoryList = categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
   const paymentList = paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("");
   const appMomRate = prevStats ? percentChange(Number(stats.totals.expense || 0), Number(prevStats.totals.expense || 0)) : null;
+  const previousExpense = Number(prevStats?.totals?.expense || 0);
+  const expenseDeltaAmount = Number(stats.totals.expense || 0) - previousExpense;
+  const expenseDeltaText = !prevStats
+    ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
+    : expenseDeltaAmount > 0
+      ? `지난달보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
+      : expenseDeltaAmount < 0
+        ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
+        : "지난달과 같은 금액을 썼어요.";
+  const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
+  const homeSpendHero = `<section class="homeSpendHero" aria-labelledby="homeSpendTitle"><span id="homeSpendTitle">${Number(month.slice(5, 7))}월 지출</span><strong>${numberWithCommas(stats.totals.expense || 0)}원</strong><p class="${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</p><div class="homeSpendMeta"><span>수입 <b>${numberWithCommas(stats.totals.income || 0)}원</b></span><span>${budgetTotal ? "남은 예산" : "수입-지출"} <b>${numberWithCommas(budgetRemaining)}원</b></span></div></section>`;
   // The remaining template uses rows.length only for the feed's "view all"
   // affordance. Dashboard summaries above have already been built from all
   // monthly rows, so switch that final count to the filtered feed source.
   rows = feedSource;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#2563eb"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body><header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1><nav class="topActions" aria-label="현재 가계부 메뉴"><a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">분석</a><a class="menuLink" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">메뉴</a></nav></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(err)}</div>` : ""}${balert ? `<div class="notice ${balert.indexOf("🚨") >= 0 ? "budgetOver" : "budgetWarn"}">${escapeHtml(balert)}</div>` : ""}${onboardingHtml}<section class="homeBudget">
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#2563eb"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body><header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1><nav class="topActions" aria-label="현재 가계부 메뉴"><a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">분석</a><a class="menuLink" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">메뉴</a></nav></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(err)}</div>` : ""}${balert ? `<div class="notice ${balert.indexOf("🚨") >= 0 ? "budgetOver" : "budgetWarn"}">${escapeHtml(balert)}</div>` : ""}${homeSpendHero}${onboardingHtml}<section class="homeBudget">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>
     <div class="homeBudgetAmount"><b>${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
     <div class="homeProgress"><i style="width:${displayBudgetPercent}%"></i></div>
@@ -18704,7 +19053,7 @@ function renderUserLoginHtml(env, error = "") {
 
 
 function myNavCss() {
-  return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:961px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:960px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
+  return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:1024px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:1023px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
 /* v19.0 통합 디자인 시스템 — /my 화면도 다른 화면들과 같은 톤으로 통일 */
 :root{--ab-bg:#F7F8FA;--ab-surface:#FFFFFF;--ab-ink:#191919;--ab-sub:#6B7280;--ab-line:#ECEFF3;--ab-accent:#FEE500;--ab-dark:#111827;--ab-shadow:0 2px 14px rgba(15,23,42,.06);--ab-radius:20px}
 body{background:var(--ab-bg)!important}
@@ -18739,7 +19088,7 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
   };
   const securityHref = `/my/backup-login?return_to=${encodeURIComponent(returnByMenu[current] || `/my/households?${qs}`)}`;
   const item = (key, href, label, hint = "") => `<a class="${current === key ? "active" : ""}" href="${href}"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</a>`;
-  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "무료 스마트 도구", "예측·자동화")}${item("receipts", `/receipts?${qs}`, "영수증 기록", "사진·문자")}${item("reports", `/reports?${qs}`, "자동 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<961){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
+  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "무료 스마트 도구", "예측·자동화")}${item("receipts", `/receipts?${qs}`, "영수증 기록", "사진·문자")}${item("reports", `/reports?${qs}`, "자동 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<1024){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
 }
 
 function renderMemberOptions(members = [], selected = "") {

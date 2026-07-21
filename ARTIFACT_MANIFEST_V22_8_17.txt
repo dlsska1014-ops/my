@@ -1,0 +1,46 @@
+Kakao Accountbook Cloudflare V22.8.17
+AdSense Review Safe + V2 UX Selective Integration
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- No nested ZIP, screenshot, V2 prototype, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 33 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_17.sha256
+- 32 files covered by the checksum manifest
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,176,026
+- src/index.js SHA-256: 6066e288d2c07dd8452f9a3134ccb247a9763416ab86f1449f5c20bf8db7903e
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ADSENSE REVIEW BOUNDARY
+- Pinned owner: ca-pub-8422696710972974
+- ads.txt: google.com, pub-8422696710972974, DIRECT, f08c47fec0942fa0
+- Ownership metadata: home plus policy and major public content pages
+- Advertising runtime, slots, and advertising-cookie code: disabled
+- Personal, transaction, analysis, receipt, settings, backup, administrator, and operations surfaces: excluded
+
+ASSETS
+- New: /assets/accountbook-shell-v22817.css
+- Preserved: /assets/accountbook-theme-v22812.js
+- Preserved: /assets/accountbook-shell-v22811.css
+- Preserved: /assets/mobile-home-shell-v22811.js
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged; legacy publisher values cannot override the pinned review owner
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- User surfaces, home feed button, theme, and performance: 134 checks
+- AdSense review and V2 UX: 228 checks
+- Total: 533 checks

@@ -1,0 +1,52 @@
+Kakao Accountbook Cloudflare V22.8.18
+UI/UX Stage 4 Review Safe Cumulative Release
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- No nested ZIP, screenshot, supplied prototype, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 34 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_18.sha256
+- 33 files covered by the checksum manifest
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,191,117
+- src/index.js SHA-256: 37d1a46e03fac1de6f304e29c0802c37fa851b4ab3bba57db5951371d51bb7b9
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+UI/UX STAGE 4 BOUNDARY
+- Applied: unified navigation groups, 248px desktop sidebar, mobile Home/Transactions/Settlement/Analysis/Budget navigation, shared light/dark/tone tokens, cards, forms, filters, tables, accessibility state
+- Preserved: real Supabase data, authentication, permissions, household separation, transaction and analysis behavior
+- Excluded: prototype localStorage data, fake records, demo authentication, duplicate business logic
+
+ADSENSE REVIEW BOUNDARY
+- Pinned owner: ca-pub-8422696710972974
+- ads.txt: google.com, pub-8422696710972974, DIRECT, f08c47fec0942fa0
+- Ownership metadata: home plus policy and major public content pages
+- Advertising runtime, slots, and advertising-cookie code: disabled
+- Personal, transaction, analysis, receipt, settings, backup, administrator, and operations surfaces: excluded
+
+ASSETS
+- New: /assets/accountbook-shell-v22818.css
+- New: /assets/accountbook-stage4-nav-v22818.js
+- Preserved: /assets/accountbook-theme-v22812.js
+- Preserved: /assets/accountbook-shell-v22811.css
+- Preserved: /assets/mobile-home-shell-v22811.js
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- User surfaces, theme, and performance: 141 checks
+- AdSense review and UI/UX stage 4: 246 checks
+- Total: 558 checks
