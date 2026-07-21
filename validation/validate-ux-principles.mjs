@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.15-DARK-AUTH-SURFACE-CONTRAST"'), "runtime reports the V22.8.15 release");
+ok(source.includes('const APP_VERSION = "V22.8.16-KAKAO-EDIT-FLOW-V4"'), "runtime reports the V22.8.16 release");
 
 // The user-approved analysis experience is a protected surface in this release.
 eq(functionBlockHash("function insightClientMain("), "b73386dfddd66aa42000b7b34b6c03b7deeda3ac5824b75468db3aa269087a5d", "analysis client source is byte-identical to V22.8.7");

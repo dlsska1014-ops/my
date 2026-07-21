@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.15-DARK-AUTH-SURFACE-CONTRAST";
+const APP_VERSION = "V22.8.16-KAKAO-EDIT-FLOW-V4";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -1835,7 +1835,7 @@ const KAKAO_REPRESENTATIVE_COMMANDS = Object.freeze([
 
 const KAKAO_SECONDARY_COMMANDS = Object.freeze([
   { command: "/도움말", messageText: "도움말", description: "전체 사용법 확인" },
-  { command: "/내이름설정", messageText: "내 이름 설정", description: "가계부에서 표시할 결제자 이름 설정" },
+  { command: "/내이름설정", messageText: "내 이름 설정", description: "가계부에서 표시할 지출자 이름 설정" },
   { command: "/수정", messageText: "수정가이드", description: "오늘 기록의 번호로 수정·삭제하는 방법" },
 ]);
 
@@ -19800,9 +19800,10 @@ function kakaoEditSimpleGuideText(origin = "") {
     "먼저 ‘오늘 기록 보기’를 입력해 번호를 확인해 주세요.",
     "",
     "예시",
-    "• 수정 01번 금액 13000원",
-    "• 수정 01번 현금",
-    "• 수정 01번 삭제",
+    "• 수정 01번  ← 메뉴로 하나씩 선택",
+    "• 수정 01번 금액 13000",
+    "• 수정 01번 지출자 엄마",
+    "• 삭제 01번",
   ].join("\n");
 }
 
@@ -20345,44 +20346,83 @@ function kakaoEditConversationScope(payload = {}) {
   return getKakaoBotGroupKey(payload) || "direct";
 }
 
-function kakaoEditStateKey(householdId = "", userId = "", payload = {}) {
-  return `kakao_edit_v2254:${String(householdId || "")}:${String(userId || "")}:${stableShortHash(kakaoEditConversationScope(payload))}`;
+// 세션 키는 방(단톡방 또는 1:1)과 카카오 사용자 조합. 같은 방의 다른 가족이
+// 동시에 다른 항목을 수정해도 세션이 충돌하지 않는다.
+function kakaoEditSessionKeyV4(kakaoUserKey = "", payload = {}) {
+  return `kakao_edit_v4:${stableShortHash(kakaoEditConversationScope(payload))}:${String(kakaoUserKey || "").slice(0, 120)}`;
 }
 
-async function getKakaoEditState(env, householdId = "", userId = "", payload = {}) {
+// 반복 가드(checkKakaoRepeatGuard)가 세션 중 입력을 삼키지 않도록 하는
+// 인메모리 힌트. 가드 맵과 같은 isolate 수명을 가지므로 신뢰 수준이 동일하다.
+const AB_KAKAO_EDIT_SESSION_HINTS = new Map();
+
+function kakaoEditSessionHintKey(kakaoUserKey = "", payload = {}) {
+  return `${String(kakaoUserKey || "").slice(0, 80)}|${stableShortHash(kakaoEditConversationScope(payload))}`;
+}
+
+function hasKakaoEditSessionHint(kakaoUserKey = "", payload = {}) {
+  const at = AB_KAKAO_EDIT_SESSION_HINTS.get(kakaoEditSessionHintKey(kakaoUserKey, payload)) || 0;
+  return !!at && Date.now() - at < SESSION_TTL_MS + 60 * 1000;
+}
+
+async function getKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}) {
   try {
-    const raw = await getSettingValue(env, kakaoEditStateKey(householdId, userId, payload));
+    const raw = await getSettingValue(env, kakaoEditSessionKeyV4(kakaoUserKey, payload));
     if (!raw) return null;
     const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!obj || !obj.id || !["edit", "delete", "spender"].includes(String(obj.action || "edit"))) return null;
-    if (obj.expires_at && Date.now() > Number(obj.expires_at)) {
-      await clearKakaoEditState(env, householdId, userId, payload);
-      return null;
-    }
+    if (!obj || !obj.entryNo || !obj.entryId || !obj.step) return null;
+    AB_KAKAO_EDIT_SESSION_HINTS.set(kakaoEditSessionHintKey(kakaoUserKey, payload), Date.now());
     return obj;
   } catch (err) {
     return null;
   }
 }
 
-async function saveKakaoEditState(env, householdId = "", userId = "", payload = {}, state = {}) {
+// I6: reply 전송과 세션 저장은 원자적 쌍 — 저장 실패를 조용히 삼키면
+// lastBotMsg·repeatCount가 무력화되어 루프가 재발하므로 여기서는 throw를 허용한다.
+async function saveKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}, session = null) {
+  const hintKey = kakaoEditSessionHintKey(kakaoUserKey, payload);
+  if (session) AB_KAKAO_EDIT_SESSION_HINTS.set(hintKey, Date.now());
+  else AB_KAKAO_EDIT_SESSION_HINTS.delete(hintKey);
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key: kakaoEditSessionKeyV4(kakaoUserKey, payload), value: session ? JSON.stringify(session) : "" }),
+  });
+}
+
+function kakaoEditUndoKeyV4(kakaoUserKey = "", payload = {}) {
+  return `kakao_edit_undo_v4:${stableShortHash(kakaoEditConversationScope(payload))}:${String(kakaoUserKey || "").slice(0, 120)}`;
+}
+
+const KAKAO_EDIT_UNDO_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function saveKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}, data = {}) {
   try {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: kakaoEditStateKey(householdId, userId, payload), value: JSON.stringify({ ...state, expires_at: Date.now() + 10 * 60 * 1000 }) }),
+      body: JSON.stringify({ key: kakaoEditUndoKeyV4(kakaoUserKey, payload), value: JSON.stringify({ ...data, expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS }) }),
     });
   } catch (err) {}
 }
 
-async function clearKakaoEditState(env, householdId = "", userId = "", payload = {}) {
+async function takeKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}, seq = 0) {
   try {
+    const raw = await getSettingValue(env, kakaoEditUndoKeyV4(kakaoUserKey, payload));
+    if (!raw) return null;
+    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!obj?.row?.id || (obj.expires_at && Date.now() > Number(obj.expires_at))) return null;
+    if (seq && Number(obj.seq || 0) !== Number(seq)) return null;
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: kakaoEditStateKey(householdId, userId, payload), value: "" }),
+      body: JSON.stringify({ key: kakaoEditUndoKeyV4(kakaoUserKey, payload), value: "" }),
     });
-  } catch (err) {}
+    return obj;
+  } catch (err) {
+    return null;
+  }
 }
 
 function twoDigitSeq(n = 0) {
@@ -20467,78 +20507,58 @@ function isKakaoEditCancelCommand(text = "") {
   return /^(취소|수정취소|수정 취소|그만|취소취소|선택취소|선택 취소)$/i.test(normalizeText(text));
 }
 
-function parseKakaoEditTarget(text = "") {
-  const raw = normalizeText(text);
-  const compact = raw.replace(/\s+/g, "");
-  const seqMatch = raw.match(/(?:^|\s)(\d{1,2})\s*번/);
-  const latest = /(방금|최근|마지막)/.test(raw) && /(수정|변경|바꿔|고쳐|삭제|지워|제거|금액|가격|분류|카테고리|결제수단|결제|내용|메모|날짜|일자|지출자|결제자)/.test(raw);
-  const hasTarget = !!seqMatch || latest;
-  if (!hasTarget) return null;
-  const explicitDate = hasDateHint(raw) ? extractDate(raw) : "";
-  const date = explicitDate || formatDate(nowKstDate());
-  return {
-    seq: seqMatch ? Number(seqMatch[1]) : 0,
-    latest,
-    date,
-    wantsDelete: /(삭제|지워|제거)/.test(raw),
-    confirm: /(확인|맞아|예|네|응|ㅇㅇ|삭제확인)/.test(compact),
-    wantsMenu: /(수정|변경|바꿔|고쳐|내용수정|내용\s*수정)/.test(raw),
-  };
-}
+// ---- V4 최상위 명령 파서 (지침서 3장 1·2단계) ----
+// "수정 NN번 [나머지]"가 표준 문법이고, 안내되어 온 레거시 "NN번 [나머지]"와
+// 날짜 접두("어제 01번 …")도 같은 단일 경로로 흡수한다.
 
-function cleanEditValueText(value = "") {
-  return normalizeText(value)
-    .replace(/^(해줘|해주세요|수정|변경|바꿔|바꿔줘|고쳐|고쳐줘)\s*/g, "")
-    .replace(/\s*(으로|로)?\s*(수정|변경|바꿔|바꿔줘|고쳐|고쳐줘|해줘|해주세요)\s*$/g, "")
-    .trim();
-}
-
-function stripKakaoEditTargetWords(text = "") {
+function stripKakaoEditDatePrefixV4(text = "") {
   return normalizeText(text)
-    .replace(/(?:^|\s)\d{1,2}\s*번/g, " ")
-    .replace(/방금|최근|마지막/g, " ")
-    .replace(/내용\s*수정|수정해줘|수정|변경|바꿔줘|바꿔|고쳐줘|고쳐/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/^(오늘|어제|그제|그저께|엊그제)\s+/, "")
+    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}\s*일?\s+(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
     .trim();
 }
 
-function extractKakaoEditPatch(text = "", currentRow = null) {
+function parseKakaoDeleteCommandV4(text = "") {
   const raw = normalizeText(text);
-  const compact = raw.replace(/\s+/g, "");
-  const withoutTarget = stripKakaoEditTargetWords(raw);
-  const patch = {};
-  const amountInfo = extractAmount(withoutTarget);
-  if (amountInfo && (/(금액|가격|돈|얼마)/.test(raw) || /원|만원|천원|만|천/.test(withoutTarget))) {
-    patch.amount = amountInfo.amount;
+  if (!raw) return null;
+  const explicitDate = hasDateHint(raw) ? extractDate(raw) : "";
+  const body = stripKakaoEditDatePrefixV4(raw);
+  const m = body.match(/^(?:삭제|지워|지우기)\s*(\d{1,2})\s*번$/) || body.match(/^(\d{1,2})\s*번\s*(?:삭제|제거|지워줘?)(?:해줘)?$/);
+  if (m) return { seq: Number(m[1]), latest: false, date: explicitDate || formatDate(nowKstDate()) };
+  if (/^(방금 삭제|방금삭제|최근 입력 삭제|최근입력삭제|마지막 삭제|마지막삭제|방금 거 삭제|방금거삭제)$/.test(body)) {
+    return { seq: 0, latest: true, date: explicitDate || formatDate(nowKstDate()) };
   }
+  return null;
+}
 
-  let m = raw.match(/(?:분류|카테고리)\s+(.{1,50})$/);
+function parseKakaoRestoreCommandV4(text = "") {
+  const raw = normalizeText(text);
+  const m = raw.match(/^복구\s*(\d{1,2})?\s*번?$/) || raw.match(/^(\d{1,2})\s*번\s*복구$/);
+  if (!m) return null;
+  return { seq: m[1] ? Number(m[1]) : 0 };
+}
+
+function parseKakaoEditCommandV4(text = "") {
+  const raw = normalizeText(text);
+  if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
+  const explicitDate = hasDateHint(raw) ? extractDate(raw) : "";
+  const body = stripKakaoEditDatePrefixV4(raw);
+  let seq = 0;
+  let latest = false;
+  let rest = "";
+  const m = body.match(/^수정\s*(\d{1,2})\s*번\s*(.*)$/) || body.match(/^(\d{1,2})\s*번\s*(.*)$/);
   if (m) {
-    const v = cleanEditValueText(m[1]).replace(amountInfo?.raw || "", "").trim();
-    if (v) patch.category = v.slice(0, 80);
+    seq = Number(m[1]);
+    rest = m[2] || "";
+  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)/.test(body)) {
+    latest = true;
+    rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
+  } else {
+    return null;
   }
-
-  m = raw.match(/(?:내용|메모)\s+(.{1,80})$/);
-  if (m) {
-    let v = cleanEditValueText(m[1]);
-    if (!/^(수정|변경|바꿔|고쳐|해줘|해주세요)?$/.test(v) && v) patch.memo = v.slice(0, 160);
-  }
-
-  const payment = detectPaymentMethod(withoutTarget) || (/^현금$/.test(withoutTarget) ? "현금" : "");
-  if (payment && !/(분류|카테고리|내용|메모)/.test(raw)) {
-    patch.payment_method = payment;
-  }
-  if (/(결제수단|결제|카드|현금|수단)/.test(raw)) {
-    const explicitPayment = detectPaymentMethod(raw);
-    if (explicitPayment) patch.payment_method = explicitPayment;
-  }
-
-  const dateWords = withoutTarget.replace(amountInfo?.raw || "", "");
-  if (/(날짜|일자|오늘|어제|그제|그저께|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|20\d{2}|월\s*\d{1,2}|일\b|\d{1,2}[.\/]\d{1,2})/.test(raw) && /(날짜|일자|오늘|어제|그제|그저께|내일|지난|저번|이번|이달|다음|담달|20\d{2}|\d{1,2}\s*월|\d{1,2}[.\/]\d{1,2})/.test(dateWords)) {
-    patch.transaction_date = extractDate(raw);
-  }
-
-  return patch;
+  // "01번 수정해줘"류의 동사만 남은 나머지는 메뉴 요청으로 정규화한다.
+  rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
+  return { seq, latest, date: explicitDate || formatDate(nowKstDate()), rest: normalizeText(rest) };
 }
 
 function isKakaoTransactionSpenderChangeCommand(text = "") {
@@ -20559,57 +20579,14 @@ function kakaoActiveSpenderMembers(members = []) {
   return safeArray(members).filter((m) => m?.user_id && ["owner", "admin", "member"].includes(String(m.role || "member")));
 }
 
-function resolveKakaoSpenderChoice(text = "", members = []) {
-  const candidates = kakaoActiveSpenderMembers(members);
-  const raw = normalizeText(text).replace(/\s+/g, " ").trim();
-  const numberOnly = raw.match(/^(\d{1,2})(?:\s*번)?$/);
-  if (numberOnly) return { member: candidates[Number(numberOnly[1]) - 1] || null, candidates };
-  const value = parseKakaoSpenderChoiceValue(raw);
-  if (!value || /^(변경|수정|바꾸기|바꿔|해줘)$/.test(value)) return { member: null, candidates };
-  const key = value.toLowerCase();
-  const exact = candidates.filter((m) => [m.nickname, m.base_nickname, m.display_alias].filter(Boolean).some((v) => normalizeText(v).toLowerCase() === key));
-  if (exact.length === 1) return { member: exact[0], candidates };
-  const partial = candidates.filter((m) => [m.nickname, m.base_nickname, m.display_alias].filter(Boolean).some((v) => normalizeText(v).toLowerCase().includes(key)));
-  return { member: partial.length === 1 ? partial[0] : null, candidates, ambiguous: exact.length > 1 || partial.length > 1 };
-}
-
-function kakaoSpenderChoicePrompt(household = {}, row = {}, seq = 0, members = []) {
-  const candidates = kakaoActiveSpenderMembers(members);
+// V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
+function kakaoEditMenuTextV4(row = {}, seq = 0) {
   return [
-    "👤 지출자 변경",
-    `가계부: ${household.name || "가계부"}`,
     kakaoRowLabel(row, seq),
-    "",
-    candidates.length ? "변경할 구성원을 선택해 주세요." : "변경할 수 있는 구성원이 없습니다.",
-    ...candidates.slice(0, 20).map((m, i) => `${i + 1}. ${m.nickname || "구성원"} · ${userHouseholdRoleLabel(m.role || "member")}`),
-    "",
-    candidates.length ? "번호 또는 구성원 이름을 입력해 주세요." : "먼저 가계부 구성원을 초대해 주세요.",
-    "내 표시 이름을 바꾸려는 경우에는 ‘내 이름 설정’을 입력해 주세요.",
-  ].filter(Boolean).join("\n");
-}
-
-function kakaoEditMenuText(row = {}, seq = 0) {
-  return [
-    "무엇을 바꿀까요?",
-    "",
-    kakaoRowLabel(row, seq),
-    "",
-    "1. 금액",
-    "2. 분류",
-    "3. 결제수단",
-    "4. 내용",
-    "5. 날짜",
-    "6. 지출자",
-    "7. 삭제",
-    "",
-    "예:",
-    "금액 13000원",
-    "분류 카페/간식",
-    "현금",
-    "내용 점심",
-    "날짜 어제",
-    "지출자 변경",
-    "삭제",
+    "무엇을 바꿀까요? 번호를 보내주세요.",
+    "1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. 지출자  7. 삭제",
+    "한 줄로도 돼요: 지출자 엄마 / 금액 13000",
+    "(그만하려면: 취소)",
   ].join("\n");
 }
 
@@ -20618,165 +20595,883 @@ function kakaoEditGuideText(origin = "") {
     "✏️ 챗봇 수정 방법",
     "",
     "저장된 기록은 매일 00시 기준으로 01번부터 번호가 붙습니다.",
+    "번호는 ‘오늘 기록 보기’로 확인해요.",
     "",
-    "예:",
-    "점심 12000원 국민카드",
-    "→ 01번 - 점심 / 12,000원 / 국민카드 / 식비",
+    "메뉴로 차근차근:",
+    "수정 01번",
     "",
-    "수정:",
-    "01번 내용 수정해줘",
-    "01번 금액 13000원",
-    "01번 분류 카페/간식",
-    "01번 현금",
-    "01번 날짜 어제",
-    "01번 지출자 엄마",
-    "지출자 변경  ← 방금 저장한 기록의 지출자를 선택",
-    "01번 삭제",
+    "한 줄로 바로:",
+    "수정 01번 금액 13000",
+    "수정 01번 분류 카페/간식",
+    "수정 01번 결제수단 현금",
+    "수정 01번 내용 점심",
+    "수정 01번 날짜 어제",
+    "수정 01번 지출자 엄마",
+    "",
+    "삭제: 삭제 01번",
+    "되돌리기: 복구 01번",
     "",
     "날짜가 다르면 이렇게 입력하세요.",
-    "어제 01번 금액 13000원",
-    "7월 2일 02번 삭제",
+    "어제 01번 금액 13000",
     "",
     origin ? `자세한 가이드\n${origin}/chatbot-edit-guide` : "",
   ].filter(Boolean).join("\n");
 }
 
-async function handleKakaoDailyEditFlow(env, { utterance, household, user, kakaoUserKey, payload, origin }) {
-  const raw = normalizeText(utterance);
-  if (isKakaoEditGuideCommand(raw)) return kakaoEditGuideText(origin);
+// =====================================================================
+// 똑똑한가계부 — 수정(edit) 파서 V4 (동봉 모듈 edit-parser-v4.js 이식본)
+// "무한루프 원천 차단 + 이탈율 최소화" 전면 강화판
+// ---------------------------------------------------------------------
+// 방어선
+//  [L1] 오타 허용 fuzzy 매칭 (편집거리 1까지: "지츨자", "금엑" 인식)
+//  [L2] 값 자동 추론: 필드 없이 값만 와도 처리 (숫자→금액, 구성원명→지출자,
+//       날짜어→날짜, 카드/현금→결제수단)
+//  [L3] 추론이 애매하면 예/아니오 확인 단계 (awaiting_confirm)
+//  [L4] 탈출 키워드 상시 인식: 취소/그만/됐어/나가기 → 즉시 세션 종료
+//  [L5] 도움말 상시 인식: 도움말/도움/? → 전체 사용법
+//  [L6] 실패 문구 회전(rotation): 같은 실패 문구 2회 연속 전송 물리적 차단
+//  [L7] 전역 동일응답 가드: 어떤 경로든 직전 봇 메시지와 동일하면 변형 강제
+//  [L8] 세션 TTL 만료 감지 + 만료 시 친절한 재시작 안내
+//  [L9] 실패 시 항상 "복사해서 그대로 보낼 수 있는" 완성 예시 제공 (번호 포함)
+//  [L10] 미인식 입력 텔레메트리 반환 → Supabase 적재 → 동의어 사전 지속 개선
+// =====================================================================
 
-  if (isKakaoEditCancelCommand(raw)) {
-    await clearKakaoEditState(env, household.id, user.id, payload);
-    return "수정 선택을 취소했어요.";
+// ------------------------- 사전 -------------------------
+const FIELD_SYNONYMS = {
+  amount:   ["금액", "가격", "얼마", "액수", "돈", "값"],
+  category: ["분류", "카테고리", "항목", "분류변경"],
+  method:   ["결제수단", "결재수단", "수단", "지불수단", "지불방법", "결제방법", "카드변경"],
+  content:  ["내용", "이름", "품목", "제목", "메모"],
+  date:     ["날짜", "일자", "날자"],
+  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람"],
+  delete:   ["삭제", "지우기", "지워", "삭제해줘"],
+};
+
+const FIELD_BY_NUMBER = {
+  1: "amount", 2: "category", 3: "method", 4: "content",
+  5: "date", 6: "payer", 7: "delete",
+};
+
+const FIELD_LABEL = {
+  amount: "금액", category: "분류", method: "결제수단",
+  content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
+};
+
+const FILLER_TOKENS = new Set([
+  "변경", "바꿔", "바꾸기", "바꿔줘", "수정", "수정해줘",
+  "으로", "로", "을", "를", "해줘", "해", "좀", "제발",
+]);
+
+// [L4] 탈출 / [L5] 도움말 — 어느 단계에서든 최우선 처리
+const CANCEL_WORDS = new Set(["취소", "그만", "됐어", "안해", "안할래", "나가기", "종료", "stop", "그만할래"]);
+const HELP_WORDS   = new Set(["도움말", "도움", "help", "?", "사용법", "어떻게"]);
+const YES_WORDS    = new Set(["네", "응", "예", "맞아", "맞음", "ㅇㅇ", "ㅇ", "yes", "y", "그래", "웅"]);
+const NO_WORDS     = new Set(["아니", "아니오", "아니요", "ㄴㄴ", "ㄴ", "no", "n", "노"]);
+
+// [L2] 값 자동 추론용 사전
+const DATE_WORDS = new Set(["오늘", "어제", "그제", "그저께", "엊그제", "내일", "모레"]);
+const METHOD_WORDS = ["현금", "체크카드", "신용카드", "카드", "계좌이체", "이체", "페이", "카카오페이", "네이버페이", "삼성페이"];
+
+// ------------------------- 유틸 -------------------------
+function normalize(s) {
+  return String(s || "").trim().replace(/\s+/g, " ");
+}
+
+function compact(s) {
+  return normalize(s).replace(/\s/g, "").toLowerCase();
+}
+
+// 받침 유무에 따라 을/를, 으로/로 조사만 반환 — "지출자을(를)" 같은 어색함 제거
+// 숫자로 끝나면 읽는 소리 기준 (0,3,6,7,8→받침 있음 / 1→ㄹ받침 / 2,4,5,9→받침 없음)
+function josa(word, pair) {
+  const last = String(word).trim().slice(-1);
+  let hasBatchim = false, isRieul = false;
+  if (/[0-9]/.test(last)) {
+    hasBatchim = "013678".includes(last);
+    isRieul = last === "1"; // 일, 칠·팔은 ㄹ 아님 — 1만 ㄹ
+  } else {
+    const code = last.charCodeAt(0);
+    const isHangul = code >= 0xac00 && code <= 0xd7a3;
+    const jong = isHangul ? (code - 0xac00) % 28 : 0;
+    hasBatchim = isHangul && jong !== 0;
+    isRieul = jong === 8;
   }
+  if (pair === "을를") return hasBatchim ? "을" : "를";
+  if (pair === "으로로") return hasBatchim && !isRieul ? "으로" : "로";
+  return "";
+}
+
+// [L1] 편집거리 (레벤슈타인) — 짧은 한글 단어 오타 허용용
+function editDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 1) return 99;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+// 토큰 → 필드: 정확일치 단계 (번호 → 완전일치 → 접두일치)
+function tokenToField(tokenRaw) {
+  const token = normalize(tokenRaw).replace(/번$/, "");
+  if (/^[1-7]$/.test(token)) return FIELD_BY_NUMBER[Number(token)];
+  const c = compact(token);
+  if (!c) return null;
+  for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
+    if (words.some((w) => c === w || c.startsWith(w))) return field;
+  }
+  return null;
+}
+
+// [L1] fuzzy 단계 — 반드시 "고신뢰 값 추론" 검사 이후에만 호출할 것.
+//      (안 그러면 "엄마"→"얼마(금액)", "어제"→"삭제" 같은 오인 발생)
+function tokenToFieldFuzzy(tokenRaw) {
+  const c = compact(normalize(tokenRaw).replace(/번$/, ""));
+  if (!c || c.length < 2) return null;
+  for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
+    if (words.some((w) => w.length >= 2 && editDistance(c, w) <= 1)) return field;
+  }
+  return null;
+}
+
+// [L2] 값만 보고 필드 추론. config.members = 그룹 구성원 이름 배열
+function inferFieldFromValue(textRaw, config = {}) {
+  const c = compact(textRaw);
+  if (!c) return null;
+  // 숫자(+원) → 금액
+  if (/^\d[\d,]*원?$/.test(c)) return { field: "amount", value: c.replace(/[원,]/g, ""), confidence: "high" };
+  // 날짜 표현 → 날짜
+  if (DATE_WORDS.has(c) || /^\d{1,2}월\d{1,2}일$/.test(c) || /^\d{1,2}[\/.]\d{1,2}$/.test(c)) {
+    return { field: "date", value: normalize(textRaw), confidence: "high" };
+  }
+  // 구성원 이름 → 지출자
+  const members = (config.members || ["엄마", "아빠", "아들", "딸"]).map(compact);
+  if (members.includes(c)) return { field: "payer", value: normalize(textRaw), confidence: "high" };
+  // 결제수단 어휘 → 결제수단 (등록 카드명 포함 가능: config.methods)
+  const methods = [...METHOD_WORDS, ...(config.methods || [])];
+  if (methods.some((w) => c === compact(w) || c.endsWith("카드") || c.endsWith("페이"))) {
+    return { field: "method", value: normalize(textRaw), confidence: "high" };
+  }
+  // 그 외 짧은 텍스트 → 내용일 가능성. 확신 낮음 → [L3] 확인 단계로
+  // 단, 자모 나열(ㅁㄴㅇㄹ/ㅋㅋㅋ)이나 특수문자 나열은 의미 없는 입력으로 간주해 제외
+  const meaningless = /^[ㄱ-ㅎㅏ-ㅣ]+$/.test(c) || /^[^가-힣a-z0-9]+$/.test(c);
+  if (!meaningless && c.length <= 10) {
+    return { field: "content", value: normalize(textRaw), confidence: "low" };
+  }
+  return null;
+}
+
+// ------------------------- 파서 -------------------------
+// 우선순위: ①정확 필드 매칭 → ②고신뢰 값 추론 → ③fuzzy 필드 매칭 → ④저신뢰 값 추론
+// ②가 ③보다 앞이어야 "엄마"(지출자 값)가 "얼마"(금액 필드)로 오인되지 않음
+function parseEditInput(textRaw, config = {}) {
+  const text = normalize(textRaw);
+  if (!text) return null;
+
+  const tokens = text.split(" ");
+
+  const buildFieldResult = (field) => {
+    const valueTokens = tokens.slice(1).filter((t) => {
+      const clean = t.replace(/[,.!?]/g, "");
+      return clean && !FILLER_TOKENS.has(clean) && tokenToField(clean) !== field;
+    });
+    let value = valueTokens.join(" ") || null;
+    if (field === "amount" && value) {
+      const num = value.replace(/[원,\s]/g, "");
+      value = /^\d+$/.test(num) ? num : null;
+    }
+    if (field === "delete") value = "confirm";
+    return { field, value, via: "field" };
+  };
+
+  // ① 정확 필드 매칭
+  const exact = tokenToField(tokens[0]);
+  if (exact) return buildFieldResult(exact);
+
+  // ② 고신뢰 값 추론 (숫자/구성원명/날짜어/결제수단)
+  const inferred = inferFieldFromValue(text, config);
+  if (inferred && inferred.confidence === "high") return { ...inferred, via: "infer" };
+
+  // ③ fuzzy 필드 매칭 (오타: "지츨자")
+  const fuzzy = tokenToFieldFuzzy(tokens[0]);
+  if (fuzzy) return buildFieldResult(fuzzy);
+
+  // ④ 저신뢰 값 추론 (확인 질문으로 이어짐)
+  if (inferred) return { ...inferred, via: "infer" };
+  return null;
+}
+
+// ------------------------- 응답 문구 (회전) -------------------------
+// [L6] 같은 실패 문구가 2회 연속 나갈 수 없도록 회차별 상이한 문구
+function failMessage(session, userText) {
+  const n = session.repeatCount || 0; // 이번이 n+1회차
+  const no = session.entryNo;
+  const variants = [
+    // 1회차: 짧은 재안내
+    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: 지출자 엄마 / 금액 13000 / 6`,
+    // 2회차: 원문 echo + 근접 후보 + 복사용 완성 예시 [L9]
+    (() => {
+      const guess = nearestField(userText);
+      let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
+      if (guess) msg += `\n혹시 ${FIELD_LABEL[guess]} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess)}`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제`;
+      return msg;
+    })(),
+    // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
+  ];
+  return variants[Math.min(n, variants.length - 1)];
+}
+
+function nearestField(text) {
+  const c = compact(text);
+  if (!c) return null;
+  let best = null, bestDist = 99;
+  for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
+    for (const w of words) {
+      const d = editDistance(c, w);
+      if (d < bestDist) { bestDist = d; best = field; }
+      if (c.includes(w.slice(0, 2)) && bestDist > 1) { bestDist = 1; best = field; }
+    }
+  }
+  return bestDist <= 2 ? best : null;
+}
+
+function exampleFor(field) {
+  return {
+    amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
+    content: "내용 점심", date: "날짜 어제", payer: "지출자 엄마", delete: "삭제",
+  }[field];
+}
+
+// [V4 핵심] 값 단계도 숫자 우선.
+// 선택형(지출자/결제수단/분류/날짜)은 숫자 옵션 리스트를 제시하고,
+// 입력형(금액/내용)만 자연어·숫자 직접 입력을 받는다.
+// → 오타가 날 수 있는 모든 선택 지점이 숫자로 대체됨.
+function buildValuePrompt(field, config = {}) {
+  const numbered = (arr) => arr.map((v, i) => `${i + 1}. ${v}`).join("  ");
+
+  if (field === "payer") {
+    const options = config.members || ["아빠", "엄마"];
+    return { prompt: `지출자를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
+  }
+  if (field === "method") {
+    const options = [...new Set([...(config.methods || []), "현금", "체크카드", "신용카드", "계좌이체"])];
+    return { prompt: `결제수단을 번호로 골라주세요.\n${numbered(options)}`, options };
+  }
+  if (field === "category") {
+    const options = config.categories || ["식비", "카페/간식", "교통", "생활", "의료", "교육", "문화", "기타"];
+    return { prompt: `분류를 번호로 골라주세요.\n${numbered(options)}`, options };
+  }
+  if (field === "date") {
+    const options = ["오늘", "어제", "그제"];
+    return { prompt: `날짜를 번호로 고르거나 직접 입력해주세요.\n${numbered(options)}  (직접 입력 예: 7월 20일)`, options, allowFreeText: true };
+  }
+  if (field === "amount") {
+    return { prompt: "얼마로 바꿀까요? 숫자만 보내주세요. 예: 13000", options: null };
+  }
+  // content — 유일한 완전 자유 입력란
+  return { prompt: "내용을 무엇으로 바꿀까요? 예: 점심", options: null };
+}
+
+const HELP_TEXT = (no) =>
+  `📖 수정 방법 안내\n` +
+  `① 숫자로 차근차근 (가장 안전):\n` +
+  `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제\n` +
+  `② 한 줄로 바로 (가장 빠름):\n` +
+  `👉 지출자 엄마 / 금액 13000 / 날짜 어제\n` +
+  `그만하려면: 취소`;
+
+// ------------------------- 세션 상태머신 -------------------------
+// session = { entryNo, step: "awaiting_field"|"awaiting_value"|"awaiting_confirm",
+//             field, pendingField, pendingValue, repeatCount, lastBotMsg, updatedAt }
+// 세션 키: `${roomId}:${userId}` / [L8] TTL 5분
+
+const SESSION_TTL_MS = 5 * 60 * 1000;
+const MAX_FAILS = 3;
+// 상태와 무관한 최종 안전장치: 한 수정 세션의 총 턴 수 상한.
+// 확인 질문·필드 재선택이 뒤섞여도 이 상한에서 반드시 종료된다.
+const MAX_TOTAL_TURNS = 8;
+
+function isSessionExpired(session, nowMs = Date.now()) {
+  return !session || !session.updatedAt || nowMs - session.updatedAt > SESSION_TTL_MS;
+}
+
+// [L8] 만료 세션의 메시지 처리 — 오래된 세션에 조용히 무반응하면 그것도 이탈 요인
+function expiredReply(session) {
+  return {
+    action: "cancel",
+    reply:
+      `⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 종료했어요.\n` +
+      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 지출자 엄마`,
+    nextSession: null,
+  };
+}
+
+function handleEditMessage(session, textRaw, config = {}) {
+  const now = config.now || Date.now();
+  if (isSessionExpired(session, now)) return expiredReply(session);
+
+  // ---- [최종 안전장치] 총 턴 수 상한: 어떤 상태 조합이든 여기서 끊긴다 ----
+  const totalTurns = (session.totalTurns || 0) + 1;
+  session = { ...session, totalTurns };
+  if (totalTurns > MAX_TOTAL_TURNS) {
+    return {
+      action: "cancel",
+      log: { type: "turn_limit_cancel", entryNo: session.entryNo },
+      reply:
+        `😅 대화가 길어져 ${session.entryNo}번 수정을 종료했어요.\n` +
+        `한 줄로 다시 보내주시면 바로 돼요:\n` +
+        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 금액 13000`,
+      nextSession: null,
+    };
+  }
+
+  const text = normalize(textRaw);
+  const c = compact(text);
+
+  // ---- [L4] 탈출 키워드: 어느 단계든 최우선 ----
+  if (CANCEL_WORDS.has(c)) {
+    return {
+      action: "cancel",
+      reply: `👌 ${session.entryNo}번 수정을 취소했어요. 언제든 다시 불러주세요!`,
+      nextSession: null,
+    };
+  }
+
+  // ---- [L5] 도움말: 어느 단계든 ----
+  if (HELP_WORDS.has(c)) {
+    return finish(session, {
+      action: "reprompt",
+      reply: HELP_TEXT(session.entryNo),
+      nextSession: { ...session, updatedAt: now }, // 도움말은 실패 카운트 증가 없음
+    });
+  }
+
+  // ---- [L3] awaiting_confirm: 예/아니오 ----
+  if (session.step === "awaiting_confirm") {
+    if (YES_WORDS.has(c)) {
+      return applyResult(session, session.pendingField, session.pendingValue);
+    }
+    if (NO_WORDS.has(c)) {
+      return finish(session, {
+        action: "reprompt",
+        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)`,
+        nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
+      });
+    }
+    // 예/아니오가 아닌 새 입력이면 확인을 버리고 새 입력으로 재파싱 (아래로 통과)
+    session = { ...session, step: "awaiting_field", pendingField: null, pendingValue: null };
+  }
+
+  // ---- awaiting_value: 이번 입력 전체가 값 [V4: 숫자 옵션 우선] ----
+  if (session.step === "awaiting_value") {
+    let value = text;
+    const opts = session.valueOptions;
+
+    // 숫자 선택 (선택형 필드)
+    if (opts && /^\d+번?$/.test(c)) {
+      const idx = Number(c.replace(/번$/, "")) - 1;
+      if (idx >= 0 && idx < opts.length) {
+        return applyResult(session, session.field, opts[idx]);
+      }
+      return fail(session, now, text, `1~${opts.length} 사이의 번호로 골라주세요.`);
+    }
+    // 옵션 이름 직접 입력도 허용 (예: "엄마") — 공백 무시 비교
+    if (opts) {
+      const hit = opts.find((o) => compact(o) === c);
+      if (hit) return applyResult(session, session.field, hit);
+      // 선택형인데 목록 밖 텍스트 → 날짜처럼 자유 입력 허용 필드만 통과
+      if (session.field !== "date") {
+        return fail(session, now, text, `목록의 번호로 골라주세요.\n${opts.map((v, i) => `${i + 1}. ${v}`).join("  ")}`);
+      }
+    }
+    if (session.field === "amount") {
+      const num = text.replace(/[원,\s]/g, "");
+      if (!/^\d+$/.test(num)) return fail(session, now, text, `금액은 숫자로 입력해 주세요. 예: 13000`);
+      value = num;
+    }
+    if (!value) return fail(session, now, text);
+    return applyResult(session, session.field, value);
+  }
+
+  // ---- awaiting_field: 필드(+값) 파싱 [L1][L2] ----
+  const parsed = parseEditInput(text, config);
+
+  if (!parsed) return fail(session, now, text);
+
+  if (parsed.field === "delete") {
+    return finish(session, {
+      action: "delete",
+      reply: `🗑️ ${session.entryNo}번 지출을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
+      nextSession: null,
+    });
+  }
+
+  // [L3] 값 추론 confidence 낮음 → 확인 질문
+  if (parsed.via === "infer" && parsed.confidence === "low") {
+    return finish(session, {
+      action: "confirm",
+      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} '${parsed.value}'${josa(parsed.value, "으로로")} 바꾸는 건가요? (네/아니오)`,
+      // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
+      // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
+      nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
+    });
+  }
+
+  if (parsed.value) return applyResult(session, parsed.field, parsed.value);
+
+  // 필드만 → 값 되묻기 [V4: 선택형은 숫자 옵션 제시]
+  const vp = buildValuePrompt(parsed.field, config);
+  return finish(session, {
+    action: "ask_value",
+    reply: `✏️ ${vp.prompt}\n(그만하려면: 취소)`,
+    nextSession: { ...session, step: "awaiting_value", field: parsed.field, valueOptions: vp.options, repeatCount: 0, updatedAt: now },
+  });
+}
+
+function applyResult(session, field, value) {
+  return finish(session, {
+    action: "apply",
+    field,
+    value,
+    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} '${value}'${josa(value, "으로로")} 변경했어요.`,
+    nextSession: null,
+  });
+}
+
+// ---- 실패 처리: 회차별 문구 회전 [L6] + 상한 도달 시 종료 + 텔레메트리 [L10] ----
+function fail(session, now, userText, customMsg) {
+  const count = (session.repeatCount || 0) + 1;
+
+  if (count >= MAX_FAILS) {
+    return {
+      action: "cancel",
+      log: { type: "unrecognized_final", entryNo: session.entryNo, input: userText },
+      reply:
+        `😅 계속 이해하지 못해서 ${session.entryNo}번 수정을 취소했어요.\n` +
+        `아래 예시를 그대로 복사해서 한 줄로 보내면 바로 돼요:\n` +
+        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 금액 13000\n` +
+        `👉 수정 ${session.entryNo}번 날짜 어제`,
+      nextSession: null,
+    };
+  }
+
+  const reply = customMsg ? `⚠️ ${customMsg}` : failMessage({ ...session, repeatCount: count - 1 }, userText);
+  return finish(session, {
+    action: "reprompt",
+    log: { type: "unrecognized", entryNo: session.entryNo, input: userText, attempt: count },
+    reply,
+    nextSession: { ...session, repeatCount: count, updatedAt: now },
+  });
+}
+
+// ---- [L7] 전역 동일응답 가드: 직전 봇 메시지와 같으면 변형 강제 ----
+function finish(session, result) {
+  if (result.nextSession && result.reply === session.lastBotMsg) {
+    result.reply += `\n(입력이 계속 인식되지 않으면 '취소' 또는 '도움말'을 보내보세요)`;
+  }
+  if (result.nextSession) result.nextSession.lastBotMsg = result.reply;
+  return result;
+}
+
+// ------------------------- [자동 검증] 예시문 = 테스트 -------------------------
+// 규칙(I7): 봇 안내문에 등장하는 모든 예시 입력은 이 목록에 반드시 존재해야 한다.
+const MENU_EXAMPLES = [
+  { input: "금액 13000원",     expect: { field: "amount", value: "13000" } },
+  { input: "금액 13000",       expect: { field: "amount", value: "13000" } },
+  { input: "분류 카페/간식",   expect: { field: "category", value: "카페/간식" } },
+  { input: "결제수단 현금",    expect: { field: "method", value: "현금" } },
+  { input: "내용 점심",        expect: { field: "content", value: "점심" } },
+  { input: "날짜 어제",        expect: { field: "date", value: "어제" } },
+  { input: "지출자 변경",      expect: { field: "payer", value: null } },
+  { input: "지출자 변경 엄마", expect: { field: "payer", value: "엄마" } },
+  { input: "지출자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "결재자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "결제자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "지츨자 엄마",      expect: { field: "payer", value: "엄마" } },   // fuzzy
+  { input: "6",               expect: { field: "payer", value: null } },
+  { input: "6번 엄마",         expect: { field: "payer", value: "엄마" } },
+  { input: "삭제",             expect: { field: "delete", value: "confirm" } },
+  { input: "엄마",             expect: { field: "payer", value: "엄마" } },   // 값 추론
+  { input: "13000",           expect: { field: "amount", value: "13000" } }, // 값 추론
+  { input: "어제",             expect: { field: "date", value: "어제" } },    // 값 추론
+  { input: "체크카드",         expect: { field: "method", value: "체크카드" } },
+];
+
+function selfTest(config = {}) {
+  const failures = [];
+  for (const { input, expect } of MENU_EXAMPLES) {
+    const got = parseEditInput(input, config);
+    const ok = got && got.field === expect.field && got.value === expect.value;
+    if (!ok) failures.push({ input, expect, got });
+  }
+  if (failures.length) {
+    throw new Error("안내문 예시 파싱 실패:\n" + JSON.stringify(failures, null, 2));
+  }
+  return `selfTest OK — ${MENU_EXAMPLES.length}건 전부 통과`;
+}
+
+// ------------------------- [자동 검증 2] 루프 fuzz 테스트 -------------------------
+// 랜덤·비정상 입력을 연속 투입해도 ① 동일 응답 2연속 없음 ② MAX_FAILS 이내 세션 종료
+// ③ 예외 0건 임을 보장. 배포 스크립트에서 selfTest()와 함께 호출할 것.
+function loopFuzzTest(config = {}, rounds = 200) {
+  const garbagePool = [
+    "ㅁㄴㅇㄹ", "ㅋㅋㅋㅋㅋ", "!@#$%^", "……", "🤔🤔🤔", "asdfgh", "12345678901234567890",
+    "지출자변경변경", "수정수정", "ㅇ", "?", "....", "금액금액", "@봇아", "왜안돼",
+    "아니그게아니고", "ㅏㅏㅏㅏ", "~~~", "번", "0", "99", "-1", "지출", "결", "엄",
+  ];
+  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  let failures = [];
+
+  for (let r = 0; r < rounds; r++) {
+    let session = {
+      entryNo: "03", step: "awaiting_field", repeatCount: 0,
+      lastBotMsg: "", updatedAt: Date.now(),
+    };
+    let prevReply = null;
+    let turns = 0;
+    try {
+      while (session && turns < MAX_TOTAL_TURNS + 3) {
+        turns++;
+        const input = rand(garbagePool);
+        const res = handleEditMessage(session, input, config);
+        if (res.reply === prevReply) {
+          failures.push({ round: r, turn: turns, input, reason: "duplicate consecutive reply", reply: res.reply });
+          break;
+        }
+        prevReply = res.reply;
+        session = res.nextSession;
+        if (!session) break; // cancel/apply — 정상 종료
+      }
+      if (session && turns >= MAX_TOTAL_TURNS + 3) {
+        failures.push({ round: r, reason: `session not terminated within ${MAX_TOTAL_TURNS + 3} turns` });
+      }
+    } catch (e) {
+      failures.push({ round: r, reason: "exception", message: String(e) });
+    }
+  }
+  if (failures.length) {
+    throw new Error(`loopFuzzTest 실패 ${failures.length}건:\n` + JSON.stringify(failures.slice(0, 5), null, 2));
+  }
+  return `loopFuzzTest OK — ${rounds}회 시퀀스에서 중복응답 0건, 미종료 세션 0건, 예외 0건`;
+}
+
+// =====================================================================
+// V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
+// =====================================================================
+
+// 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
+async function buildKakaoEditConfigV4(env, householdId = "") {
+  const [members, paymentAssets, categoryRows] = await Promise.all([
+    fetchHouseholdMembers(env, householdId).catch(() => []),
+    fetchPaymentAssets(env, householdId).catch(() => []),
+    fetchCustomCategories(env, householdId).catch(() => []),
+  ]);
+  const labelCounts = new Map();
+  const memberOptions = kakaoActiveSpenderMembers(members).slice(0, 20).map((m) => {
+    const base = String(m.nickname || "구성원").trim().slice(0, 20) || "구성원";
+    const count = (labelCounts.get(base) || 0) + 1;
+    labelCounts.set(base, count);
+    return { label: count > 1 ? `${base}·${count}` : base, user_id: m.user_id };
+  });
+  const methods = [];
+  for (const asset of safeArray(paymentAssets)) {
+    const name = String(asset?.name || "").trim().slice(0, 20);
+    if (name && !methods.includes(name)) methods.push(name);
+    if (methods.length >= 10) break;
+  }
+  const categories = [];
+  for (const categoryRow of safeArray(categoryRows)) {
+    const name = String(categoryRow?.name || "").trim();
+    if (name && !categories.includes(name)) categories.push(name);
+    if (categories.length >= 12) break;
+  }
+  if (categories.length && !categories.includes("기타")) {
+    if (categories.length >= 12) categories.pop();
+    categories.push("기타");
+  }
+  return {
+    members: memberOptions.map((m) => m.label),
+    memberOptions,
+    methods,
+    categories: categories.length ? categories : undefined,
+  };
+}
+
+// 6장: 미인식 입력 텔레메트리 — 실패해도 응답 흐름을 막지 않는다.
+async function logKakaoEditTelemetryV4(env, payload = {}, entry = {}) {
+  try {
+    await supabase(env, "/rest/v1/unrecognized_inputs", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        room_id: kakaoEditConversationScope(payload).slice(0, 120),
+        user_id: String(entry.userKey || "").slice(0, 120),
+        entry_no: String(entry.entryNo || "").slice(0, 10),
+        input: String(entry.input || "").slice(0, 300),
+        attempt: Number(entry.attempt || 0) || null,
+        type: String(entry.type || "unrecognized").slice(0, 40),
+      }),
+    });
+  } catch (err) {}
+}
+
+// 5-2장: 최후 방어선 — 수정 플로우의 모든 응답은 예외 없이 이 함수로만 전송한다.
+// 직전 봇 메시지와 동일하면 루프를 끊고 흔적(duplicate_reply_guard)을 남긴다.
+async function sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, reply, nextSession) {
+  let finalReply = String(reply || "");
+  let finalNext = nextSession || null;
+  if (session && finalReply && finalReply === String(session.lastBotMsg || "")) {
+    const guard = (Number(session.guardCount) || 0) + 1;
+    if (guard >= 2) {
+      // 가드조차 2회면 세션을 강제 폐기하고 탈출 안내
+      finalReply = `😅 응답이 반복되어 ${session.entryNo}번 수정을 종료했어요.\n` +
+        `다시 하려면: 수정 ${session.entryNo}번 지출자 엄마`;
+      finalNext = null;
+    } else {
+      finalReply += `\n(같은 안내가 반복됐어요 — '취소'로 나가거나 '도움말'을 보내주세요)`;
+      if (finalNext) finalNext.guardCount = guard;
+    }
+    await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: session.entryNo, type: "duplicate_reply_guard" });
+  }
+  if (finalNext) {
+    finalNext.lastBotMsg = finalReply;
+    finalNext.guardCount = Number(finalNext.guardCount) || 0;
+  }
+  await saveKakaoEditSessionV4(env, kakaoUserKey, payload, finalNext); // I6: 전송과 원자적 쌍
+  return kakaoText(finalReply);
+}
+
+// 필드 → transactions 컬럼 반영. DB 검증(구성원 존재 등)은 여기서 최종 수행한다.
+async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply }) {
+  const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
+  if (!row) {
+    return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘 기록 보기’로 번호를 다시 확인해 주세요.`, nextSession: null };
+  }
+  const patch = {};
+  if (field === "amount") {
+    const amount = Number(String(value).replace(/[^\d]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return {
+        reply: `⚠️ 금액은 1 이상의 숫자로 보내주세요. 예: 13000`,
+        nextSession: { ...session, step: "awaiting_value", field: "amount", valueOptions: null, updatedAt: Date.now() },
+      };
+    }
+    patch.amount = amount;
+  } else if (field === "category") {
+    patch.category = String(value).slice(0, 80);
+  } else if (field === "method") {
+    patch.payment_method = String(value).slice(0, 80);
+  } else if (field === "content") {
+    patch.memo = String(value).slice(0, 160);
+  } else if (field === "date") {
+    patch.transaction_date = extractDate(String(value));
+  } else if (field === "payer") {
+    const options = safeArray(config.memberOptions);
+    if (!options.length) {
+      return { reply: `변경할 수 있는 구성원이 없어요. 먼저 웹에서 가계부 구성원을 초대해 주세요.`, nextSession: null };
+    }
+    const hit = options.find((m) => compact(m.label) === compact(String(value)));
+    if (!hit) {
+      // I2: 실패에는 메뉴 재출력 대신 구체 피드백 + 정확한 다음 행동(숫자 옵션)
+      const count = (Number(session.repeatCount) || 0) + 1;
+      if (count >= MAX_FAILS) {
+        return {
+          log: { type: "unrecognized_final", entryNo: session.entryNo, input: String(value) },
+          reply:
+            `😅 구성원 이름을 찾지 못해 ${session.entryNo}번 수정을 취소했어요.\n` +
+            `아래 예시를 그대로 복사해 한 줄로 보내면 바로 돼요:\n` +
+            `👉 수정 ${session.entryNo}번 지출자 ${options[0].label}\n` +
+            `👉 수정 ${session.entryNo}번 금액 13000`,
+          nextSession: null,
+        };
+      }
+      return {
+        log: { type: "unrecognized", entryNo: session.entryNo, input: String(value), attempt: count },
+        reply:
+          `⚠️ '${value}'${josa(String(value), "을를")} 구성원 목록에서 찾지 못했어요.\n` +
+          `번호로 골라주세요.\n${options.map((m, i) => `${i + 1}. ${m.label}`).join("  ")}`,
+        nextSession: { ...session, step: "awaiting_value", field: "payer", valueOptions: options.map((m) => m.label), pendingField: null, pendingValue: null, repeatCount: count, updatedAt: Date.now() },
+      };
+    }
+    patch.user_id = hit.user_id;
+  } else {
+    return { reply: moduleReply, nextSession: null };
+  }
+  try {
+    await updateTransaction(env, session.entryId, patch);
+  } catch (err) {
+    return {
+      reply: `입력은 확인했어요. 지금 저장이 잠시 지연되고 있어요.\n잠시 후 같은 내용을 한 번만 다시 보내주세요.`,
+      nextSession: { ...session, updatedAt: Date.now() },
+    };
+  }
+  return { reply: moduleReply, nextSession: null };
+}
+
+// 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
+async function processKakaoEditResultV4(env, ctx, session, result, config) {
+  const { kakaoUserKey, payload } = ctx;
+  if (result?.log) {
+    await logKakaoEditTelemetryV4(env, payload, {
+      userKey: kakaoUserKey,
+      entryNo: result.log.entryNo || session.entryNo,
+      input: result.log.input || "",
+      attempt: result.log.attempt || 0,
+      type: result.log.type || "unrecognized",
+    });
+  }
+  if (result?.action === "apply") {
+    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply });
+    if (applied.log) {
+      await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: applied.log.entryNo || session.entryNo, input: applied.log.input || "", attempt: applied.log.attempt || 0, type: applied.log.type });
+    }
+    return sendKakaoEditReplyV4(env, ctx, session, applied.reply, applied.nextSession || null);
+  }
+  if (result?.action === "delete") {
+    const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
+    if (!row) {
+      return sendKakaoEditReplyV4(env, ctx, session, `삭제하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘 기록 보기’로 번호를 다시 확인해 주세요.`, null);
+    }
+    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row, seq: Number(session.entryNo) || 0 });
+    await deleteKakaoRowById(env, row.id);
+    return sendKakaoEditReplyV4(env, ctx, session, result.reply, null);
+  }
+  // ask_value / confirm / reprompt / cancel — 모듈의 reply와 nextSession을 그대로 따른다.
+  return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null);
+}
+
+// 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
+async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin }) {
+  const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload);
+  if (!session) return null;
+  const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
+  const config = await buildKakaoEditConfigV4(env, session.householdId);
+  const result = handleEditMessage(session, text, { ...config, now: Date.now() });
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+}
+
+async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
+  if (target.latest) {
+    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
+    const row = recent[0] || null;
+    if (!row) return { row: null, seq: 0 };
+    const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, row)) || 1;
+    return { row, seq };
+  }
+  const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
+  return { row: found.row, seq: Number(target.seq || 0) };
+}
+
+function kakaoEditRowNotFoundTextV4(target = {}) {
+  const date = target.date || formatDate(nowKstDate());
+  const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
+  return `${date}${seqText} 기록을 찾지 못했어요.\n"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`;
+}
+
+// 3장 1단계: "수정 NN번 [나머지]" — 나머지가 없으면 메뉴, 있으면 모듈 파서로.
+// 즉시 반영(apply)되면 세션은 저장되지 않는다.
+async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
+  const { kakaoUserKey, payload, household, user, origin } = ctx;
+  const prior = await getKakaoEditSessionV4(env, kakaoUserKey, payload);
+  const session = {
+    entryNo: twoDigitSeq(seq),
+    entryId: row.id,
+    entryDate: row.transaction_date || "",
+    householdId: household.id,
+    userId: user.id,
+    step: "awaiting_field",
+    field: null,
+    valueOptions: null,
+    pendingField: null,
+    pendingValue: null,
+    repeatCount: 0,
+    totalTurns: 0,
+    // 직전 세션의 마지막 봇 메시지를 승계해 같은 메뉴의 2연속 전송(I1)을 차단한다.
+    guardCount: Number(prior?.guardCount) || 0,
+    lastBotMsg: String(prior?.lastBotMsg || ""),
+    updatedAt: Date.now(),
+  };
+  if (!rest) {
+    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, kakaoEditMenuTextV4(row, seq), session);
+  }
+  const config = await buildKakaoEditConfigV4(env, household.id);
+  const result = handleEditMessage(session, rest, { ...config, now: Date.now() });
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+}
+
+// 3장 1·2단계 + 조회·복구: 최상위 수정 관련 명령 라우터.
+// 어떤 이해 실패도 메뉴 재출력으로 이어지지 않는다(I8) — 실패는 모듈 fail 경로뿐.
+async function handleKakaoEditCommandV4(env, ctx) {
+  const { utterance, household, user, kakaoUserKey, payload, origin } = ctx;
+  const raw = normalizeText(utterance);
+
+  if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
   if (isKakaoDailyListCommand(raw)) {
     const date = extractDate(raw);
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
-    if (!rows.length) return [`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "기록이 없습니다."].join("\n");
-    return [`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), "", "수정 예: 01번 금액 13000원", "삭제 예: 01번 삭제"].join("\n");
+    if (!rows.length) return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "기록이 없습니다."].join("\n"));
+    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), "", `수정: "수정 01번" 또는 "수정 01번 금액 13000"`, `삭제: "삭제 01번"`].join("\n"));
   }
 
-  const target = parseKakaoEditTarget(raw);
-  let state = await getKakaoEditState(env, household.id, user.id, payload);
-
-  if (!target && !state && /^(삭제|기록 삭제|거래 삭제)$/i.test(raw)) {
-    return "삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 01번 삭제";
-  }
-
-  if (!target && !state && /^(방금 삭제|방금삭제|최근 입력 삭제|최근입력삭제|마지막 삭제|마지막삭제|입력 취소|입력취소|방금 거 삭제)$/i.test(raw)) {
-    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
-    const row = recent[0] || null;
-    if (!row) return "삭제할 최근 입력 내역이 없습니다.";
-    const seq = await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, row) || 1;
-    await saveKakaoEditState(env, household.id, user.id, payload, { id: row.id, date: row.transaction_date, seq, action: "delete" });
-    return `정말 삭제할까요?\n${kakaoRowLabel(row, seq)}\n\n삭제하려면 “삭제 확인”이라고 입력해 주세요.`;
-  }
-
-  if (!target && !state && isKakaoTransactionSpenderChangeCommand(raw)) {
-    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
-    const row = recent[0] || null;
-    if (!row) return "변경할 최근 기록이 없어요. 먼저 ‘오늘 기록 보기’에서 번호를 확인해 주세요.";
-    const seq = await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, row) || 1;
-    const members = await fetchHouseholdMembers(env, household.id);
-    await saveKakaoEditState(env, household.id, user.id, payload, { id: row.id, date: row.transaction_date, seq, action: "spender" });
-    return kakaoSpenderChoicePrompt(household, row, seq, members);
-  }
-
-  if (!target && !state) return "";
-
-  if (!target && state) {
-    const stateRow = await getKakaoRowById(env, household.id, user.id, kakaoUserKey, state.id);
-    if (!stateRow) {
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return "수정하려던 기록을 찾지 못했어요. ‘오늘 기록 보기’를 다시 확인해 주세요.";
+  const restoreTarget = parseKakaoRestoreCommandV4(raw);
+  if (restoreTarget) {
+    const undo = await takeKakaoEditUndoV4(env, kakaoUserKey, payload, restoreTarget.seq);
+    if (!undo) return kakaoText("복구할 삭제 기록이 없어요.\n삭제 직후 안내된 번호로만 복구할 수 있어요. ‘오늘 기록 보기’로 현재 기록을 확인해 주세요.");
+    let restored = undo.row;
+    try {
+      const inserted = await supabase(env, "/rest/v1/transactions", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(undo.row),
+      });
+      restored = (Array.isArray(inserted) && inserted[0]) || undo.row;
+    } catch (err) {
+      await saveKakaoEditUndoV4(env, kakaoUserKey, payload, undo); // 복구 기회 유지
+      return kakaoText("복구가 잠시 지연되고 있어요. 잠시 후 다시 ‘복구’를 입력해 주세요.");
     }
-    const stateSeq = await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, stateRow) || state.seq || 0;
-    if (state.action === "spender") {
-      const members = await fetchHouseholdMembers(env, household.id);
-      const resolved = resolveKakaoSpenderChoice(raw, members);
-      if (!resolved.member) return kakaoSpenderChoicePrompt(household, stateRow, stateSeq, members) + (resolved.ambiguous ? "\n\n동일하거나 비슷한 이름이 있어 번호로 선택해 주세요." : "");
-      await updateTransaction(env, stateRow.id, { user_id: resolved.member.user_id });
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return [`✅ 지출자를 변경했어요.`, `가계부: ${household.name || "가계부"}`, kakaoRowLabel(stateRow, stateSeq), `지출자: ${resolved.member.nickname || "구성원"}`].join("\n");
-    }
-    if (/^(삭제확인|삭제 확인)$/i.test(raw)) {
-      if (state.action !== "delete") {
-        await saveKakaoEditState(env, household.id, user.id, payload, { ...state, action: "delete" });
-        return `정말 삭제할까요?\n${kakaoRowLabel(stateRow, stateSeq)}\n\n삭제하려면 "삭제 확인"이라고 입력해주세요.`;
-      }
-      await deleteKakaoRowById(env, stateRow.id);
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return `삭제 완료했어요.\n${kakaoRowLabel(stateRow, stateSeq)}`;
-    }
-    if (/^(삭제)$/i.test(raw)) {
-      await saveKakaoEditState(env, household.id, user.id, payload, { id: stateRow.id, date: stateRow.transaction_date, seq: stateSeq, action: "delete" });
-      return `정말 삭제할까요?\n${kakaoRowLabel(stateRow, stateSeq)}\n\n삭제하려면 "삭제 확인"이라고 입력해주세요.`;
-    }
-    const patch = extractKakaoEditPatch(raw, stateRow);
-    if (Object.keys(patch).length) {
-      const updated = await updateTransaction(env, stateRow.id, patch);
-      const finalRow = updated || { ...stateRow, ...patch };
-      const finalSeq = await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, finalRow) || stateSeq;
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return `수정 완료했어요 😊\n${kakaoRowLabel(finalRow, finalSeq)}`;
-    }
-    return kakaoEditMenuText(stateRow, stateSeq);
+    const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(undo.seq || 0) || 1;
+    return kakaoText(`↩️ 기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}`);
   }
 
-  let row = null;
-  let rows = [];
-  if (target.latest) {
-    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
-    row = recent[0] || null;
-    rows = row ? await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date) : [];
-  } else {
-    const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-    row = found.row;
-    rows = found.rows;
+  const deleteTarget = parseKakaoDeleteCommandV4(raw);
+  if (deleteTarget) {
+    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
+    await saveKakaoEditUndoV4(env, kakaoUserKey, payload, { row, seq });
+    await deleteKakaoRowById(env, row.id);
+    await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
+    return kakaoText(`🗑️ ${twoDigitSeq(seq)}번 기록을 삭제했어요.\n되돌리려면: 복구 ${twoDigitSeq(seq)}번`);
   }
-  if (!row) {
-    return `${target.date} ${twoDigitSeq(target.seq)}번 기록을 찾지 못했어요.\n"${target.date} 기록"이라고 입력해서 번호를 다시 확인해주세요.`;
-  }
-  const seq = rows.findIndex((r) => String(r.id) === String(row.id)) + 1 || target.seq || await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, row);
 
+  const editTarget = parseKakaoEditCommandV4(raw);
+  if (editTarget) {
+    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget));
+    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest });
+  }
+
+  // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
-    const members = await fetchHouseholdMembers(env, household.id);
-    const resolved = resolveKakaoSpenderChoice(raw, members);
-    if (resolved.member) {
-      await updateTransaction(env, row.id, { user_id: resolved.member.user_id });
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return [`✅ 지출자를 변경했어요.`, `가계부: ${household.name || "가계부"}`, kakaoRowLabel(row, seq), `지출자: ${resolved.member.nickname || "구성원"}`].join("\n");
-    }
-    await saveKakaoEditState(env, household.id, user.id, payload, { id: row.id, date: row.transaction_date, seq, action: "spender" });
-    return kakaoSpenderChoicePrompt(household, row, seq, members) + (resolved.ambiguous ? "\n\n동일하거나 비슷한 이름이 있어 번호로 선택해 주세요." : "");
+    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
+    if (!row) return kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘 기록 보기’에서 번호를 확인해 주세요.");
+    const value = parseKakaoSpenderChoiceValue(raw);
+    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자" });
   }
 
-  if (target.wantsDelete) {
-    if (target.confirm) {
-      await deleteKakaoRowById(env, row.id);
-      await clearKakaoEditState(env, household.id, user.id, payload);
-      return `삭제 완료했어요.\n${kakaoRowLabel(row, seq)}`;
-    }
-    await saveKakaoEditState(env, household.id, user.id, payload, { id: row.id, date: row.transaction_date, seq, action: "delete" });
-    return `정말 삭제할까요?\n${kakaoRowLabel(row, seq)}\n\n삭제하려면 "삭제 확인"이라고 입력해주세요.`;
-  }
-
-  const patch = extractKakaoEditPatch(raw, row);
-  if (Object.keys(patch).length) {
-    const updated = await updateTransaction(env, row.id, patch);
-    const finalRow = updated || { ...row, ...patch };
-    const finalSeq = await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, finalRow) || seq;
-    await clearKakaoEditState(env, household.id, user.id, payload);
-    return `수정 완료했어요 😊\n${kakaoRowLabel(finalRow, finalSeq)}`;
-  }
-
-  if (target.wantsMenu || target.seq || target.latest) {
-    await saveKakaoEditState(env, household.id, user.id, payload, { id: row.id, date: row.transaction_date, seq, action: "edit" });
-    return kakaoEditMenuText(row, seq);
-  }
-
-  return "";
+  return null;
 }
 
 
@@ -20809,7 +21504,7 @@ function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   if (/예산\s*(설정|변경)|초대코드|단톡방\s*연결|가계부\s*(참여|만들기|생성)/.test(raw)) return false;
   if (isHelpCommand(raw) || isSummaryCommand(raw) || isRecentCommand(raw) || isBudgetCommand(raw) ||
       isSettlementCommand(raw) || isLinkCommand(raw) || isInviteCommand(raw) || isUndoCommand(raw) ||
-      !!parseKakaoEditTarget(raw) || isKakaoTransactionSpenderChangeCommand(raw) ||
+      !!parseKakaoEditCommandV4(raw) || !!parseKakaoDeleteCommandV4(raw) || !!parseKakaoRestoreCommandV4(raw) || isKakaoTransactionSpenderChangeCommand(raw) ||
       isInputExampleCommand(raw) || isKakaoGuidedCommand(raw) || !!parseKakaoSummaryRange(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
@@ -20839,7 +21534,7 @@ async function optionalWithin(promise, timeoutMs, fallback) {
 
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}, payload = {}) {
   const text = normalizeText(stripLeadingCommand(utterance));
-  if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditTarget(text) || isKakaoTransactionSpenderChangeCommand(text) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
+  if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditCommandV4(text) || !!parseKakaoDeleteCommandV4(text) || !!parseKakaoRestoreCommandV4(text) || isKakaoTransactionSpenderChangeCommand(text) || hasKakaoEditSessionHint(userKey, payload) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
   const windowMs = boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600) * 1000;
   const now = Date.now();
   const conversationScope = getKakaoBotGroupKey(payload) || "direct";
@@ -21065,6 +21760,7 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
   if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자)/.test(t)) return true;
+  if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
   return false;
 }
@@ -21601,7 +22297,7 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
     `수입: ${numberWithCommas(income)}원`,
     "",
     categories.length ? "카테고리" : "", ...categories,
-    users.length ? "" : "", users.length ? "결제자" : "", ...users,
+    users.length ? "" : "", users.length ? "지출자" : "", ...users,
   ].filter(Boolean).join("\n") + cta;
 }
 
@@ -22014,6 +22710,15 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
   }
 
+  // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
+  // handleEditMessage가 소비하고 다른 어떤 핸들러로도 보내지 않는다.
+  // (새 "수정/삭제/복구 NN번" 명령은 아래 본 라우터의 1·2단계에서 새로 시작한다.)
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && kakaoUserKey &&
+      !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin });
+    if (editSessionReply) return editSessionReply;
+  }
+
   const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
@@ -22252,10 +22957,10 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원`, [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]]);
   }
 
-  if (!strongTransactionInput) {
-    const kakaoEditReply = await handleKakaoDailyEditFlow(env, { utterance, household, user, kakaoUserKey, payload, origin });
-    if (kakaoEditReply) return kakaoText(kakaoEditReply);
-  }
+  // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
+  // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
+  const kakaoEditCommandReply = await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin });
+  if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
   if (isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
 
@@ -22284,7 +22989,7 @@ ${formatRecentTransactions(rows)}`);
   }
 
   if (isUndoCommand(utterance)) {
-    return kakaoText("삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 01번 삭제\n\n방금 입력을 지우려면 ‘방금 삭제’라고 입력한 뒤 확인해 주세요.");
+    return kakaoText("삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 삭제 01번\n\n방금 입력을 지우려면 ‘방금 삭제’라고 입력해 주세요.\n삭제한 기록은 ‘복구’로 되돌릴 수 있어요.");
   }
 
   const parsedList = preParsedList;
@@ -22330,8 +23035,8 @@ ${formatRecentTransactions(rows)}`);
   ]);
   const payerName = aliases?.[user.id] || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
-  const editGuide = seq ? `\n\n수정: ${twoDigitSeq(seq)}번 금액 13000원\n삭제: ${twoDigitSeq(seq)}번 삭제` : `\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${icon} ${typeText} 저장했어요 😊\n가계부: ${household.name}\n${numberedLine}\n결제자: ${payerName}${editGuide}`);
+  const editGuide = seq ? `\n\n수정: "수정 ${twoDigitSeq(seq)}번" 또는 "수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.`;
+  return kakaoText(`${icon} ${typeText} 저장했어요 😊\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}`);
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
@@ -23691,6 +24396,7 @@ function extractDate(text) {
   const now = nowKstDate();
   if (/그저께|그제/.test(raw)) return formatDate(addDays(now, -2));
   if (/어제|전날/.test(raw)) return formatDate(addDays(now, -1));
+  if (/모레/.test(raw)) return formatDate(addDays(now, 2));
   if (/내일/.test(raw)) return formatDate(addDays(now, 1));
   if (/오늘|금일|지금|방금/.test(raw)) return formatDate(now);
 
@@ -24411,6 +25117,22 @@ function releaseCandidateDomainStyle() {
 }
 
 export {
+  parseEditInput,
+  handleEditMessage,
+  isSessionExpired,
+  selfTest,
+  loopFuzzTest,
+  buildValuePrompt,
+  SESSION_TTL_MS,
+  MAX_FAILS,
+  MAX_TOTAL_TURNS,
+  FIELD_SYNONYMS,
+  FIELD_BY_NUMBER,
+  FIELD_LABEL,
+  parseKakaoEditCommandV4,
+  parseKakaoDeleteCommandV4,
+  parseKakaoRestoreCommandV4,
+  kakaoEditMenuTextV4,
   detectKakaoNaturalIntent,
   normalizeKakaoIntentText,
   detectKakaoAmbiguity,

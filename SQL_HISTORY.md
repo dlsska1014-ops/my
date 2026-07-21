@@ -1,5 +1,24 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.16
+
+- 필수 SQL·스키마·RLS·RPC·인덱스: 없음 — 수정 세션은 기존 `accountbook_settings` 키-값 저장을 사용
+- 선택 SQL: 미인식 입력 텔레메트리 테이블 (실행하지 않아도 수정 플로우는 정상 동작, 텔레메트리 적재만 생략)
+
+```sql
+create table if not exists unrecognized_inputs (
+  id bigint generated always as identity primary key,
+  room_id text, user_id text, entry_no text,
+  input text not null, attempt int,
+  type text,                        -- unrecognized | unrecognized_final | turn_limit_cancel | duplicate_reply_guard
+  created_at timestamptz default now()
+);
+```
+
+- 운영 활용: `type='unrecognized_final'` 주간 집계로 동의어 사전 보강, `duplicate_reply_guard`는 1건이라도 발생 시 즉시 조사 (0건이 정상)
+- 실행 여부는 운영 승인 후 별도로 결정하며 이 저장소 작업에서는 실행하지 않음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
 ## V22.8.15
 
 - 신규 SQL·스키마·RLS·RPC·인덱스: 없음
@@ -39,6 +58,7 @@
 
 | 버전 | 업데이트 때 SQL 실행 | 비고 |
 |---|---:|---|
+| V22.8.16 | 선택 | 카카오 수정 플로우 V4 (텔레메트리 테이블만 선택) |
 | V22.8.15 | 없음 | 다크 인증 화면 대비 |
 | V22.8.14 | 없음 | 홈 전체 조회 버튼 대비 |
 | V22.8.13 | 없음 | 다크모드 전체 보정 |

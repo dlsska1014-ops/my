@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.15-DARK-AUTH-SURFACE-CONTRAST"'), "runtime reports the V22.8.15 release");
+ok(source.includes('const APP_VERSION = "V22.8.16-KAKAO-EDIT-FLOW-V4"'), "runtime reports the V22.8.16 release");
 ok(source.includes('qs.set("prompt", "login")'), "Kakao deletion reauthentication forces an explicit login prompt");
 ok(source.includes('purpose: "household-delete"'), "deletion reauthentication token is purpose-bound");
 ok(source.includes('household_id: String(householdId'), "deletion reauthentication token is household-bound");

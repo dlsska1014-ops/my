@@ -201,6 +201,23 @@ export async function createV2265QaFixture() {
         db.accountbook_settings = db.accountbook_settings.filter((item) => !String(item.key || "").includes(householdId));
         return new Response(JSON.stringify({ deleted: true, household_id: householdId }), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (rpcName === "accountbook_update_transaction_v227") {
+        const transactionId = String(data?.p_transaction_id || "");
+        const householdId = String(data?.p_household_id || "");
+        const patch = data?.p_patch && typeof data.p_patch === "object" ? data.p_patch : {};
+        const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
+        if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        Object.assign(row, patch);
+        return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_delete_transaction_v227") {
+        const transactionId = String(data?.p_transaction_id || "");
+        const householdId = String(data?.p_household_id || "");
+        const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
+        if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
+        return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
+      }
       return new Response(JSON.stringify({ code: "PGRST202", message: "RPC not found" }), { status: 404, headers: { "content-type": "application/json" } });
     }
     const table = url.pathname.split("/").filter(Boolean).at(-1);
