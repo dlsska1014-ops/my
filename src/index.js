@@ -595,7 +595,7 @@ function csrfOriginAllowed(request, url) {
 
 function csrfRejectedResponse(url) {
   if (String(url?.pathname || "").startsWith("/api/")) {
-    return jsonResponse({ ok: false, error: "cross_site_request_blocked" }, 403);
+    return jsonResponse({ ok: false, error: "cross_site_request_blocked", reason: "cross_site_request_blocked", message: "보안 확인에 실패했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요." }, 403);
   }
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>요청을 확인할 수 없습니다</title></head><body><main style="max-width:680px;margin:48px auto;padding:20px;font-family:system-ui,sans-serif"><h1>요청을 안전하게 차단했습니다.</h1><p>다른 사이트에서 전송된 변경 요청으로 확인됐습니다. 가계부 화면을 새로 열어 다시 시도해주세요.</p><p><a href="/my">내 가계부로 이동</a></p></main></body></html>`, 403);
 }
@@ -618,7 +618,7 @@ function getTrafficOpsSnapshot() {
 function trafficLimitedResponse(url, request, result = {}, env = {}) {
   const retry = Math.max(1, Math.ceil(Number(result.resetInMs || 0) / 1000));
   if (url?.pathname === "/skill") return rateLimitedKakaoText(publicBaseUrl(env, url));
-  if (String(url?.pathname || "").startsWith("/api/")) return jsonResponse({ ok: false, error: "rate_limited", retry_after_seconds: retry }, 429);
+  if (String(url?.pathname || "").startsWith("/api/")) return jsonResponse({ ok: false, error: "rate_limited", reason: "rate_limited", message: "요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.", retry_after_seconds: retry }, 429);
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>요청이 잠시 제한되었어요</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:720px;margin:38px auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:22px;box-shadow:0 18px 44px rgba(15,23,42,.08)}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.muted{color:#64748b;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>잠시 후 다시 시도해주세요</h1><p class="muted">짧은 시간에 저장·수정 요청이 많아 데이터 중복을 막기 위해 잠깐 제한했습니다. 약 ${retry}초 뒤 다시 시도해주세요.</p><a class="btn" href="/my">내 가계부로 이동</a></section></main></body></html>`, 429, { "retry-after": String(retry) });
 }
 
@@ -1092,7 +1092,7 @@ export default {
       if (url.pathname === "/ready") {
         const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ADMIN_SESSION_SECRET", "USER_SESSION_SECRET", "ADMIN_API_TOKEN", "MY_IMPORT_TOKEN_SECRET"];
         const missing = required.filter((name) => !String(env[name] || "").trim());
-        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", missing_count: missing.length }, 503);
+        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
         const checks = await Promise.all([checkTableAvailable(env, "transactions"), checkTableAvailable(env, "accountbook_user_identities"), checkTableAvailable(env, "accountbook_transaction_audit")]);
         const failed = checks.map((item, index) => ({ item, table: ["transactions", "accountbook_user_identities", "accountbook_transaction_audit"][index] })).filter((entry) => !entry.item.ok).map((entry) => entry.table);
         return jsonResponse({ ok: failed.length === 0, ready: failed.length === 0, version: APP_VERSION, failed_tables: failed, time: new Date().toISOString() }, failed.length ? 503 : 200);
@@ -1703,7 +1703,7 @@ export default {
         return handleApi(request, env, url);
       }
 
-      return jsonResponse({ ok: false, error: "not_found" }, 404);
+      return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     } catch (err) {
       console.error(err);
       try {
@@ -1742,7 +1742,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.17-KAKAO-EDIT-RESTORE-FIX";
+const APP_VERSION = "V22.8.18-WEBAPP-INLINE-FEEDBACK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3069,6 +3069,105 @@ function guidedUiUxClientMain() {
   });
 }
 
+// V22.8.18 (B) 결과 피드백 — 제출한 자리 인라인 표기.
+// POST 제출 직전에 form action을 기억해 두고, redirect로 돌아온 화면에서
+// 상단 결과 배너(.ok/.error/.err/.notice)를 "제출한 폼의 버튼 바로 아래"로
+// 옮긴다. 매칭되는 폼이 없거나 여러 개면 기존 상단 표시를 그대로 유지한다
+// (기능 삭제 없음 — 순수 점진 개선). 실패 배너가 화면 밖이면 그 자리로
+// 스크롤해 사유를 반드시 보게 한다. 서버가 escapeHtml로 렌더한 노드를
+// 그대로 이동하므로 새 마크업 주입이 없다(XSS 안전).
+function inlineActionResultClientMain() {
+  var KEY_ACTION = "abInlineResultAction";
+  var KEY_AT = "abInlineResultAt";
+  function actionPathOf(raw) {
+    var link = document.createElement("a");
+    link.href = String(raw || "");
+    return link.pathname || String(raw || "");
+  }
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || form.tagName !== "FORM") return;
+    if (String(form.getAttribute("method") || "get").toLowerCase() !== "post") return;
+    try {
+      sessionStorage.setItem(KEY_ACTION, actionPathOf(form.getAttribute("action") || location.pathname));
+      sessionStorage.setItem(KEY_AT, String(Date.now()));
+    } catch (err) {}
+  }, true);
+
+  function findTopBanner() {
+    var parents = ["main", ".wrap", ".pageMain"];
+    var kinds = [
+      { selector: "div.notice.error", error: true }, { selector: "div.error", error: true }, { selector: "div.err", error: true },
+      { selector: "div.notice.ok", error: false }, { selector: "div.ok", error: false },
+    ];
+    for (var k = 0; k < kinds.length; k++) {
+      for (var p = 0; p < parents.length; p++) {
+        var el = document.querySelector(parents[p] + " > " + kinds[k].selector);
+        if (el && String(el.textContent || "").trim()) return { el: el, error: kinds[k].error };
+      }
+    }
+    return null;
+  }
+
+  function findSubmittedForm(actionPath) {
+    if (!actionPath) return null;
+    var forms = document.querySelectorAll('form[method="post"]');
+    var hit = null;
+    var count = 0;
+    for (var i = 0; i < forms.length; i++) {
+      if (actionPathOf(forms[i].getAttribute("action") || "") === actionPath) {
+        count += 1;
+        hit = forms[i];
+      }
+    }
+    return count === 1 ? hit : null; // 같은 action 폼이 여럿이면 특정 불가 → 이동하지 않음
+  }
+
+  function run() {
+    var banner = findTopBanner();
+    if (!banner) return;
+    var el = banner.el;
+    if (!el.getAttribute("role")) el.setAttribute("role", banner.error ? "alert" : "status");
+    var actionPath = "";
+    var at = 0;
+    try {
+      actionPath = sessionStorage.getItem(KEY_ACTION) || "";
+      at = Number(sessionStorage.getItem(KEY_AT) || 0);
+      sessionStorage.removeItem(KEY_ACTION);
+      sessionStorage.removeItem(KEY_AT);
+    } catch (err) {}
+    var fresh = at && Date.now() - at < 45000;
+    var form = fresh ? findSubmittedForm(actionPath) : null;
+    if (form) {
+      var slot = form.querySelector(".abActionResult");
+      if (!slot) {
+        slot = document.createElement("div");
+        slot.className = "abActionResult";
+        var submitControl = form.querySelector('button[type="submit"],input[type="submit"]');
+        if (submitControl && submitControl.parentNode) submitControl.parentNode.insertBefore(slot, submitControl.nextSibling);
+        else form.appendChild(slot);
+      }
+      slot.appendChild(el);
+      el.classList.add("abInlineResult");
+    }
+    var rect = el.getBoundingClientRect();
+    var viewHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    var offscreen = rect.bottom < 0 || rect.top > viewHeight;
+    if (offscreen && (banner.error || form)) {
+      var reduceMotion = false;
+      try { reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (err) {}
+      el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    }
+    if (!banner.error) {
+      setTimeout(function () { el.classList.add("abResultFaded"); }, 3500);
+    }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+  else run();
+}
+
+const V22818_INLINE_RESULT_STYLE = '<style id="v22818InlineResultStyle">.abActionResult{margin-top:10px}.abActionResult .abInlineResult{margin:10px 0!important}.abResultFaded{opacity:.55;transition:opacity .6s ease}@media (prefers-reduced-motion:reduce){.abResultFaded{transition:none}html{scroll-behavior:auto}}</style>';
+
 function passwordMatchFeedbackClientMain(config) {
   var password = document.getElementById(config.passwordId);
   var confirmation = document.getElementById(config.confirmationId);
@@ -4039,6 +4138,25 @@ function attachUiUxRuntime(html = "") {
     || /<form\b[^>]*action=["'][^"']+["'][^>]*method=["']post["']/i.test(source);
   if (!optimizedMobileHome && needsGuidedRuntime && !source.includes('id="v2281GuidedUiUxRuntime"') && source.includes("</body>")) {
     const script = '<script id="v2281GuidedUiUxRuntime">(' + guidedUiUxClientMain.toString() + ')();</script>';
+    source = source.replace("</body>", script + "</body>");
+  }
+  // V22.8.18 (B) 제출 위치 인라인 결과: POST 폼 또는 상단 결과 배너가 있는
+  // 모든 사용자 화면에 부착한다. 모바일 홈(optimizedMobileHome)도 빠른 입력의
+  // 저장 결과가 상단에만 떠서 안 보이는 문제가 있으므로 예외 없이 포함한다.
+  const needsInlineResultRuntime = /<form\b[^>]*method=["']post["']/i.test(source)
+    || /class="(?:notice )?(?:ok|error|err)"/.test(source);
+  if (needsInlineResultRuntime && !source.includes('id="v22818InlineResult"') && source.includes("</body>")) {
+    if (!source.includes('id="v22818InlineResultStyle"') && source.includes("</head>")) {
+      // 셸 CSS 링크는 항상 마지막 스타일 캐스케이드여야 한다(다크모드 보호 규칙).
+      // 셸 링크가 있으면 그 앞에, 없으면 </head> 직전에 넣는다.
+      const shellLinkTag = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
+      if (source.includes(shellLinkTag)) {
+        source = source.replace(shellLinkTag, `${V22818_INLINE_RESULT_STYLE}${shellLinkTag}`);
+      } else {
+        source = source.replace("</head>", `${V22818_INLINE_RESULT_STYLE}</head>`);
+      }
+    }
+    const script = '<script id="v22818InlineResult">(' + inlineActionResultClientMain.toString() + ')();</script>';
     source = source.replace("</body>", script + "</body>");
   }
   const needsMutationGuard = /<form[^>]+method=["']post["'][^>]+action=["']\/my\/(?:create|join)["']/i.test(source)
@@ -10475,7 +10593,7 @@ async function handleKakaoCommandsPage(request, env, url) {
 async function handleOpsSnapshotJson(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
   const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
   return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
 }
 
@@ -11011,7 +11129,7 @@ async function nluAdminAuthorized(request, env, url) {
 }
 
 async function handleNluOpsJson(request, env, url) {
-  if (!(await nluAdminAuthorized(request, env, url))) return jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!(await nluAdminAuthorized(request, env, url))) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
   const hours = Math.max(1, Math.min(2160, Number(url.searchParams.get("hours") || 168)));
   const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") || 14)));
   const [metrics, failures] = await Promise.all([fetchPersistentNluMetrics(env, hours), fetchPersistentNluFailures(env, days, 300)]);
@@ -11024,7 +11142,7 @@ async function handleNluOpsJson(request, env, url) {
 }
 
 async function handleNluFailuresCsv(request, env, url) {
-  if (!(await nluAdminAuthorized(request, env, url))) return jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!(await nluAdminAuthorized(request, env, url))) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
   const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") || 14)));
   const rows = await fetchPersistentNluFailures(env, days, 1000);
   const lines = [["sample_hash", "redacted_sample", "intent", "result", "reason", "version", "hit_count", "first_seen", "last_seen"].map(csvCell).join(",")];
@@ -13024,7 +13142,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 async function handleRecurringCronApply(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
   const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
+  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || currentMonthKst(), today: url.searchParams.get("today") || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -13398,7 +13516,7 @@ async function runAutomaticReports(env, opts = {}) {
 async function handleAutomaticReportCron(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
   const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized" }, 401);
+  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   const result = await runAutomaticReports(env, { today: url.searchParams.get("today") || "", force: url.searchParams.get("force") === "1" });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -23136,7 +23254,7 @@ async function handleKakaoRecentDebug(request, env, url) {
 
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
-    return jsonResponse({ ok: false, error: "unauthorized" }, 401);
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
 
   const method = request.method;
@@ -23164,15 +23282,15 @@ async function handleApi(request, env, url) {
   if (path === "/api/transactions/batch" && method === "PATCH") {
     const body = await readJson(request);
     const ids = [...new Set((body.ids || []).map((x) => String(x || "").trim()).filter(Boolean))];
-    if (!ids.length) return jsonResponse({ ok: false, error: "ids_required" }, 400);
+    if (!ids.length) return jsonResponse({ ok: false, error: "ids_required", reason: "ids_required", message: "처리할 기록을 먼저 선택해 주세요." }, 400);
     const patch = normalizeApiTransactionBody(body, true);
-    if (!Object.keys(patch).length) return jsonResponse({ ok: false, error: "empty_patch" }, 400);
+    if (!Object.keys(patch).length) return jsonResponse({ ok: false, error: "empty_patch", reason: "empty_patch", message: "변경할 내용이 없습니다." }, 400);
     const targets = await fetchTransactionRowsByIds(env, ids);
     const householdIds = [...new Set(targets.map((row) => String(row.household_id || "")).filter(Boolean))];
-    if (targets.length !== ids.length || householdIds.length !== 1) return jsonResponse({ ok: false, error: "household_scope_mismatch" }, 409);
+    if (targets.length !== ids.length || householdIds.length !== 1) return jsonResponse({ ok: false, error: "household_scope_mismatch", reason: "household_scope_mismatch", message: "다른 가계부의 기록이 섞여 있어 처리할 수 없습니다." }, 409);
     if (patch.user_id) {
       const members = await fetchHouseholdMembers(env, householdIds[0]);
-      if (!memberExists(members, patch.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member" }, 400);
+      if (!memberExists(members, patch.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 참여자가 아닙니다." }, 400);
     }
     await bulkTransactionsAtomic(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
     return jsonResponse({ ok: true, updatedCount: ids.length });
@@ -23182,14 +23300,14 @@ async function handleApi(request, env, url) {
   if (txMatch && method === "PATCH") {
     const body = normalizeApiTransactionBody(await readJson(request), true);
     const target = await fetchTransactionRowById(env, txMatch[1]);
-    if (!target) return jsonResponse({ ok: false, error: "not_found" }, 404);
+    if (!target) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     const updated = await updateTransaction(env, txMatch[1], body, { householdId: target.household_id, actorKind: "admin_api" });
     return jsonResponse({ ok: true, item: updated });
   }
 
   if (txMatch && method === "DELETE") {
     const target = await fetchTransactionRowById(env, txMatch[1]);
-    if (!target) return jsonResponse({ ok: false, error: "not_found" }, 404);
+    if (!target) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     await deleteTransactionWithAudit(env, txMatch[1], target.household_id, { actorKind: "admin_api" });
     return jsonResponse({ ok: true });
   }
@@ -23208,7 +23326,7 @@ async function handleApi(request, env, url) {
     return jsonResponse({ ok: true, month, days: calendar });
   }
 
-  return jsonResponse({ ok: false, error: "api_not_found" }, 404);
+  return jsonResponse({ ok: false, error: "api_not_found", reason: "api_not_found", message: "요청한 API를 찾지 못했습니다." }, 404);
 }
 
 

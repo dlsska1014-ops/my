@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.17-KAKAO-EDIT-RESTORE-FIX"'), "runtime reports the V22.8.17 release");
+ok(source.includes('const APP_VERSION = "V22.8.18-WEBAPP-INLINE-FEEDBACK"'), "runtime reports the V22.8.18 release");
 
 // The user-approved analysis experience is a protected surface in this release.
 eq(functionBlockHash("function insightClientMain("), "b73386dfddd66aa42000b7b34b6c03b7deeda3ac5824b75468db3aa269087a5d", "analysis client source is byte-identical to V22.8.7");
@@ -243,6 +243,30 @@ try {
     }), fixture.env, {});
     eq(response.status, 200, `${path} remains available`);
   }
+
+  // V22.8.18 제출 위치 인라인 결과 (웹앱-속도피드백-개선지침서 B·C)
+  const inlineRuntime = source.match(/function inlineActionResultClientMain\(\)[\s\S]*?\n}\n/);
+  ok(inlineRuntime, "inline action result runtime is present");
+  ok(inlineRuntime[0].includes("sessionStorage"), "inline result remembers the submitted form across the redirect");
+  ok(inlineRuntime[0].includes("scrollIntoView"), "offscreen results are pulled into view at the submit location");
+  ok(inlineRuntime[0].includes("prefers-reduced-motion"), "inline result respects reduced-motion users");
+  ok(inlineRuntime[0].includes('count === 1 ? hit : null'), "banner only relocates when the submitted form is unambiguous");
+  ok(!/innerHTML\s*=/.test(inlineRuntime[0]), "inline result runtime never assigns innerHTML (XSS-safe node move only)");
+  const appWithMessage = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-07&msg=%EC%A0%80%EC%9E%A5%ED%96%88%EC%96%B4%EC%9A%94", {
+    headers: { cookie: fixture.cookie },
+  }), fixture.env, {});
+  const appMessageHtml = await appWithMessage.text();
+  ok(appMessageHtml.includes('id="v22818InlineResult"'), "mobile home carries the inline result runtime");
+  ok(appMessageHtml.includes('id="v22818InlineResultStyle"'), "mobile home carries the inline result style");
+  ok(appMessageHtml.length < 35 * 1024, "inline result addition keeps the personal home under the 35KB budget");
+  const styleIndex = appMessageHtml.indexOf('id="v22818InlineResultStyle"');
+  const shellIndex = appMessageHtml.lastIndexOf('href="/assets/accountbook-shell-v22815.css"');
+  ok(styleIndex >= 0 && shellIndex > styleIndex, "inline result style never outranks the shell stylesheet cascade");
+
+  // V22.8.18 B-0 응답 규약: 실패 JSON은 사용자용 한국어 message를 포함한다
+  ok(!/jsonResponse\(\{ ok: false, error: "(?:admin_required|unauthorized|not_found|api_not_found|ids_required|empty_patch)" \}/.test(source), "bare machine-code-only JSON failures are gone");
+  ok(source.includes('reason: "unauthorized", message: "로그인이 필요합니다.'), "unauthorized JSON failures explain themselves in Korean");
+  ok(source.includes('reason: "api_not_found", message: "요청한 API를 찾지 못했습니다."'), "unknown API JSON failures explain themselves in Korean");
 } finally {
   fixture.restore();
 }

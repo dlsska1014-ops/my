@@ -1,0 +1,40 @@
+Kakao Accountbook Cloudflare V22.8.18
+Webapp Inline Submit Feedback and Response Convention
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- No nested ZIP, screenshot, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 33 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_18.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,194,913
+- src/index.js SHA-256: 56b535ddd3f45d55c1685055aa392de555c15e31496a4579fd7bda821815eaa2
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ASSETS
+- Unchanged: /assets/accountbook-shell-v22815.css
+- Unchanged: /assets/accountbook-theme-v22812.js
+- Unchanged: /assets/accountbook-shell-v22811.css
+- Unchanged: /assets/mobile-home-shell-v22811.js
+- Unchanged: /assets/mobile-home-v22810.css
+- Unchanged: /assets/mobile-home-v22810.js
+- No new static asset files (client improvement is inlined at HTML runtime stage)
+
+DATABASE AND CONSOLE DECISION
+- Required SQL migration: none
+- Optional SQL (unchanged from V22.8.16): unrecognized_inputs telemetry table (see SQL_HISTORY.md)
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 56 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 69 checks
+- Authentication surfaces, home feed button, theme, and performance: 123 checks
+- Kakao edit flow V4 incl. undo restore regression: 120 checks
+- Total: 429 checks
