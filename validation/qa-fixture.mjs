@@ -201,6 +201,23 @@ export async function createV2265QaFixture() {
         db.accountbook_settings = db.accountbook_settings.filter((item) => !String(item.key || "").includes(householdId));
         return new Response(JSON.stringify({ deleted: true, household_id: householdId }), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (rpcName === "accountbook_update_transaction_v227") {
+        const transactionId = String(data?.p_transaction_id || "");
+        const householdId = String(data?.p_household_id || "");
+        const patch = data?.p_patch && typeof data.p_patch === "object" ? data.p_patch : {};
+        const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
+        if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        Object.assign(row, patch);
+        return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_delete_transaction_v227") {
+        const transactionId = String(data?.p_transaction_id || "");
+        const householdId = String(data?.p_household_id || "");
+        const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
+        if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
+        return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
+      }
       return new Response(JSON.stringify({ code: "PGRST202", message: "RPC not found" }), { status: 404, headers: { "content-type": "application/json" } });
     }
     const table = url.pathname.split("/").filter(Boolean).at(-1);
@@ -210,6 +227,19 @@ export async function createV2265QaFixture() {
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];
+      if (table === "accountbook_settings" && db.__fail_next_settings_write) {
+        db.__fail_next_settings_write = false;
+        return new Response(JSON.stringify({ code: "QA_SETTINGS_WRITE_FAILED", message: "simulated settings write failure" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      if (table === "transactions" && Number(db.__fail_transaction_writes || 0) > 0) {
+        db.__fail_transaction_writes = Number(db.__fail_transaction_writes || 0) - 1;
+        return new Response(JSON.stringify({ code: "QA_TRANSACTION_WRITE_FAILED", message: "simulated transaction write failure" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      // 운영 transactions 테이블의 NOT NULL 제약을 그대로 재현한다.
+      // household_id 없는 INSERT가 검증을 통과해 운영에서만 실패하는 회귀를 막는다.
+      if (table === "transactions" && items.some((item) => !item.household_id || !item.user_id)) {
+        return new Response(JSON.stringify({ code: "23502", message: "null value in column violates not-null constraint" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
       if (table === "transactions" && items.some((item) => transactionUniqueConflict(db.transactions, item))) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }

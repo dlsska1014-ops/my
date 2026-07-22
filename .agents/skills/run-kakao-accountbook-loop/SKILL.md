@@ -26,7 +26,7 @@ released product baseline and separate repository changes from production operat
 Classify the task separately for Worker code, SQL or schema, environment variables or
 Secrets, Kakao Developers, OpenBuilder, and production deployment.
 
-- Keep V22.8.17 SQL, schema, environment variables, Kakao Developers, and OpenBuilder
+- Keep V22.8.20 SQL, schema, environment variables, Kakao Developers, and OpenBuilder
   unchanged unless the request and repository evidence require a change.
 - Do not invent an index or SQL for a performance concern without production query-plan
   evidence.
@@ -53,6 +53,7 @@ Run the narrow validation that matches the changed area:
 ```sh
 npm run validate:receipt
 npm run validate:kakao-group
+npm run validate:kakao-edit
 npm run validate:household-security
 npm run validate:ux-principles
 npm run validate:performance
@@ -67,7 +68,7 @@ node .codex/scripts/verify-repository.mjs
 
 Inspect the complete diff and confirm that:
 
-- all 32 release checksums, 533 automated checks, and `default.fetch` pass;
+- all 34 release checksums, 705 automated checks, and `default.fetch` pass;
 - the source hash changes only when an authorized source change requires it;
 - no unrelated, generated, secret, environment, screenshot, or archive files entered the diff;
 - SQL, environment, console, deployment, and real-device requirements are reported separately.

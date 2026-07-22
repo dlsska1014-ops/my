@@ -236,7 +236,7 @@ try {
   ok(insightHtml.includes("abPageInsight"), "interactive analysis receives its isolated V2 scope");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.19-COLOR-CONTRAST-HOTFIX'), "analysis keeps the protected external runtime with the new cache version");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.20-KAKAO-EDIT-INLINE-FEEDBACK'), "analysis keeps the protected external runtime with the new cache version");
   eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "analysis loads the V22.8.19 shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });

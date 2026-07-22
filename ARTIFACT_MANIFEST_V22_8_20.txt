@@ -1,0 +1,29 @@
+Kakao Accountbook Cloudflare V22.8.20
+Kakao Edit V4 and Inline Feedback Integrated Cumulative Release
+
+DEPLOYMENT
+- Full replacement source: src/index.js
+- Version: V22.8.20-KAKAO-EDIT-INLINE-FEEDBACK
+- src/index.js bytes: 2,238,109
+- src/index.js SHA-256: 3051bd4459da3b90732626120b67031269804c73f89c3c758f9617b182bd7856
+
+INTEGRATED
+- Kakao numbered-entry edit, delete, and restore V4
+- Conversation/user-scoped edit sessions and repeat-loop guard
+- Web form inline success/error feedback
+- JSON message and reason response contract
+
+PRESERVED
+- V22.8.19 color contrast shell and theme/color-tone behavior
+- AdSense ownership metadata, ads.txt, pre-approval ad disablement
+- Authentication, household separation, analysis, receipts, performance budgets
+
+EXTERNAL CHANGES
+- SQL/schema/RLS/RPC/index: none
+- Environment variables and Secrets: none
+- Kakao Developers: none
+- OpenBuilder: none
+
+VALIDATION
+- 705 automated checks
+- ESM default.fetch and whitespace checks

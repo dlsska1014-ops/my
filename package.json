@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.19-release-validation",
+  "name": "kakao-accountbook-v22.8.20-release-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "validate:ux-principles": "node validation/validate-ux-principles.mjs",
     "validate:performance": "node validation/validate-performance-v22811.mjs",
     "validate:adsense-v2": "node validation/validate-adsense-v2-v22817.mjs",
-    "validate": "bash validate_v22819.sh"
+    "validate:kakao-edit": "node validation/validate-kakao-edit-flow.mjs",
+    "validate": "bash validate_v22820.sh"
   }
 }
