@@ -1,0 +1,47 @@
+Kakao Accountbook Cloudflare V22.8.13
+Dark Mode Full Coverage
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- Current validation, release history, and durable project memory
+- No nested ZIP, screenshot, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 32 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_13.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,148,303
+- src/index.js SHA-256: 5394374300f0287bc0d63fd069f9433d6dd38ac667fef6b6453b6281392e4e0a
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ASSETS
+- New: /assets/accountbook-shell-v22813.css
+- Preserved: /assets/accountbook-theme-v22812.js
+- Preserved: /assets/accountbook-shell-v22811.css
+- Preserved: /assets/mobile-home-shell-v22811.js
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- Dark-mode full coverage and performance: 118 checks
+- Total: 289 checks
+
+KEY CONTENT
+- 00_READ_FIRST_V22_8_13.md
+- CHANGELOG.md / HISTORY_INDEX.md
+- DEPLOYMENT_MATRIX.md / SQL_HISTORY.md
+- RELEASE-CHECKLIST.md
+- V22_8_13_DARK_MODE_FULL_COVERAGE_REPORT.md
+- VALIDATION_REPORT_V22_8_13.md
+- validation/validate-performance-v22811.mjs

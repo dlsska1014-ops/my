@@ -1,0 +1,4 @@
+interface:
+  display_name: "똑똑한 가계부 그래프 오케스트레이션"
+  short_description: "복합 작업을 역할·승인·검증 경로로 안전하게 조율"
+  default_prompt: "Use $orchestrate-kakao-accountbook-graph to coordinate this complex repository task with bounded agents and approval gates."

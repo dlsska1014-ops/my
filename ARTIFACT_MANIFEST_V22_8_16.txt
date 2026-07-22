@@ -1,0 +1,37 @@
+Kakao Accountbook Cloudflare V22.8.16
+User Surface Contrast Hotfix
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- No nested ZIP, screenshot, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 32 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_16.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,161,710
+- src/index.js SHA-256: 313175bc798a829bdfa40323fa971d20dbdbec23c6c6b428e8f98545262e7eda
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ASSETS
+- New: /assets/accountbook-shell-v22816.css
+- Preserved: /assets/accountbook-theme-v22812.js
+- Preserved: /assets/accountbook-shell-v22811.css
+- Preserved: /assets/mobile-home-shell-v22811.js
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- User surfaces, home feed button, theme, and performance: 134 checks
+- Total: 305 checks

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+node validation/validate-receipt.mjs
+node validation/validate-kakao-group.mjs
+node validation/validate-kakao-edit-flow.mjs
+node validation/validate-household-security.mjs
+node validation/validate-ux-principles.mjs
+node validation/validate-performance-v22811.mjs
+node validation/validate-adsense-v2-v22817.mjs
+
+echo "V22.8.20 validation complete: 705 checks passed"

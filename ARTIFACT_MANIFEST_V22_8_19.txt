@@ -1,0 +1,25 @@
+Kakao Accountbook Cloudflare V22.8.19
+Color Contrast Hotfix Cumulative Release
+
+DEPLOYMENT
+- Full replacement source: src/index.js
+- src/index.js bytes: 2,194,084
+- src/index.js SHA-256: c4acf85410556d83cdb6428b411444c85c03bf31a6ff5d46ca8534ce0e0d8270
+
+NEW ASSET
+- /assets/accountbook-shell-v22819.css
+
+PRESERVED
+- Authentication, permissions, household separation, transactions, analysis, receipts
+- AdSense ownership metadata and ads.txt review boundary
+- /assets/accountbook-stage4-nav-v22818.js and earlier immutable assets
+
+EXTERNAL CHANGES
+- SQL/schema/RLS/RPC/index: none
+- Environment variables and Secrets: none
+- Kakao Developers: none
+- OpenBuilder: none
+
+VALIDATION
+- 573 automated checks
+- Browser contrast audit across light, dark, and four color tones

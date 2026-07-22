@@ -82,14 +82,39 @@
 - 밈 카드: 공유본에 메모·상호명·실명 기본 숨김. 챗봇엔 요약 1장+짧은 문구, 도감은 웹으로.
 - 출시 우선순위: ①권한 모델 ②기록/수정/취소/중복방지 ③모바일 관리 화면 ④예산·고정지출·알림 ⑤엑셀 양방향 ⑥분석·소비몬.
 
-## 4. 현 코드(V19.5-SMART-FLOW) 대비 갭 체크
+## 4. 현 코드(V22.8.10) 적용 결과
 
 | 매뉴얼 규칙 | 현 상태 | 필요 조치 |
 |---|---|---|
-| plusfriendUserKey 미사용 | ✅ 점검 완료 — getKakaoUserKey에서 botUserKey→appUserId 우선이며 plusfriendUserKey는 최후순위 레거시 폴백으로만 존재 | 유지 (제거 시 구키로 저장된 기존 사용자 매칭 파손 위험). 신규 로직에서 참조 금지 |
-| SkillResponse 미지원 타입 회피 | ✅ 점검 완료 — QuickReplies/CommerceCard/Carousel 사용 0건, simpleText 중심 | 유지 |
+| plusfriendUserKey 미사용 | ✅ `getKakaoUserKey`에서 botUserKey→appUserId 우선이며 plusfriendUserKey는 최후순위 레거시 폴백으로만 존재 | 제거 시 구키로 저장된 기존 사용자 매칭 파손 위험. 신규 로직에서 참조 금지 |
+| SkillResponse 미지원 타입 회피 | ✅ `botGroupKey`가 있는 그룹 응답은 QuickReplies를 제거하고 번호형 SimpleText로 보존. 1:1 QuickReplies는 유지 | 그룹/1:1 분기와 지원 output 허용 목록을 자동 검증 |
 | 개인정보 표현 | /privacy·도움말 문구 점검 필요 | 금지 표현 없는지, 저장·보관 기간 명시 여부 확인 |
 | 선톡 월 2회 vs 알림 블록 분리 | 예산/정기지출 알림 설계 시 적용 | 알림 기능은 알림 전용 블록 + 빈 outputs 스킵 패턴 |
-| 멱등키 중복 방지 | /skill 저장 로직 점검 필요 | 카카오 재전송 대비 멱등 처리 확인 (V19.6 후보) |
+| 멱등키 중복 방지 | ✅ 기존 카카오 재전송·반복 발화·거래 중복 방어 유지 | 회귀 테스트 유지 |
 | URL 랜딩 쿼리 신뢰 금지 | 세션 검증 준수 중 | 유지 |
 | 웰컴/설명 문구 길이 | OpenBuilder 설정 영역 | 채널 설정 시 참고 |
+| 삭제·연결해제 그룹 기록 | ✅ 다른 가계부로 fallback하지 않고 저장 0건, 미저장 문구 표시 | 가계부 보유 여부 2가지와 stale link를 자동 검증 |
+| 카카오 영구 삭제 재인증 | ✅ 기존 REST OAuth callback, `prompt=login`, 연결 Kakao ID 일치 검증 | 실제 PC·iPhone·Android에서 취소·다른 계정·만료 수동 확인 |
+
+### V22.8.7 프로젝트 메모
+
+- 그룹 요청 판정은 `botGroupKey` 존재 여부를 단일 기준으로 사용한다.
+- 그룹에서 QuickReplies를 조용히 버리지 않고 사용자가 입력할 수 있는 최대 5개 번호형 문장으로 변환한다.
+- 1:1 채팅 QuickReplies까지 제거하지 않는다.
+- 그룹 output 허용 목록은 SimpleText, SimpleImage, TextCard, BasicCard, ListCard, ItemCard다.
+- Event API와 선톡은 이번 릴리스 범위 밖이며 명시 승인 없이 추가하지 않는다.
+- 다음 배포에서도 beta 문서 최신성, SQL 필요 여부, `index.js` 교체 여부를 각각 다시 판정한다.
+
+### V22.8.9 추가 메모
+
+- 가계부에는 비밀번호가 없으며 초대코드는 참여·단톡방 연결용이다.
+- 삭제됐거나 연결이 해제된 그룹의 기록형 입력은 `어디에도 저장하지 않았어요`를 명시한다.
+- 카카오 재인증은 OpenBuilder 기능이 아니라 기존 웹 Kakao Login OAuth 흐름이다.
+- 같은 Redirect URI를 재사용하며 OpenBuilder 블록·엔티티·파라미터 변경은 없다.
+
+### V22.8.10 추가 메모
+
+- 웹 홈의 가계부·참여자 묶음 조회는 동일한 사용자 세션과 가계부 역할 범위를 유지한다.
+- 웹 공통 CSS·JavaScript 정적 분리는 `/skill`과 카카오 SkillResponse 형식에 영향을 주지 않는다.
+- SQL, Kakao Developers, OpenBuilder 변경은 없고 Worker `src/index.js`만 전체 교체한다.
+- 경량 ZIP에서도 본 문서, 정본 충돌 요약, 프로젝트 메모를 남기며 원본 전체·중첩 ZIP은 과거 보관본에 둔다.

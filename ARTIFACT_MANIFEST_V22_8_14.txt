@@ -1,0 +1,37 @@
+Kakao Accountbook Cloudflare V22.8.14
+Home Feed Button Contrast Hotfix
+
+PACKAGE POLICY
+- One top-level release directory
+- Full replacement source: src/index.js
+- No nested ZIP, screenshot, build output, dependency tree, cache, Secret, or environment file
+
+FINAL FILE COUNT
+- 32 files including this manifest and BUNDLE_FILE_CHECKSUMS_V22_8_14.sha256
+
+SOURCE INTEGRITY
+- src/index.js bytes: 2,148,648
+- src/index.js SHA-256: 1e6ba9d358a90522e67a451a50cc0712566b3087a05549b6d21420ccde268542
+- Deployment method: replace the existing Worker source with src/index.js as a whole
+
+ASSETS
+- New: /assets/accountbook-shell-v22814.css
+- Preserved: /assets/accountbook-theme-v22812.js
+- Preserved: /assets/accountbook-shell-v22811.css
+- Preserved: /assets/mobile-home-shell-v22811.js
+- Preserved: /assets/mobile-home-v22810.css
+- Preserved: /assets/mobile-home-v22810.js
+
+DATABASE AND CONSOLE DECISION
+- SQL migration: not required
+- Schema, RLS, RPC, index: unchanged
+- Environment variables and Secrets: unchanged
+- Kakao Developers and OpenBuilder: unchanged
+
+VALIDATION
+- Receipt: 55 checks
+- Kakao group: 18 checks
+- Household security: 43 checks
+- UX and protected analysis: 55 checks
+- Home feed button, theme, and performance: 120 checks
+- Total: 291 checks

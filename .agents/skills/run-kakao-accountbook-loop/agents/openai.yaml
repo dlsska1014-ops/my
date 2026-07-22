@@ -1,0 +1,4 @@
+interface:
+  display_name: "똑똑한 가계부 작업 루프"
+  short_description: "가계부 변경을 검증 가능한 반복 작업으로 안전하게 완료"
+  default_prompt: "Use $run-kakao-accountbook-loop to implement this repository change with bounded retries and complete verification."
