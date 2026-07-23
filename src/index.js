@@ -1770,7 +1770,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.31-V5-GOALS";
+const APP_VERSION = "V22.8.32-V5-RECURRING-DETECT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -24707,6 +24707,18 @@ async function handleUserNotifications(request, env, url) {
   if (pending.length) {
     notifs.push({ key: "recurring-pending", level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
       body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  }
+
+  // 4b) 반복 지출 자동감지 (§3.4): 최근 3개월 반복 메모 → 정기지출 후보 추천 (기존 detectRecurringCandidates 재사용)
+  const detectStart = `${addMonthsYm(month, -2)}-01`;
+  const detectEnd = nextMonthStart(month);
+  const historyRows = await fetchAdminRowsRange(env, { householdId: household.id, start: detectStart, end: detectEnd, limit: 8000 }).catch(() => []);
+  const candidates = detectRecurringCandidates(historyRows, month, recurring);
+  if (candidates.length) {
+    const names = candidates.slice(0, 3).map((c) => String(c.memo || "").trim()).filter(Boolean).join(", ");
+    notifs.push({ key: "recurring-detect", level: "info", title: `반복되는 지출 ${candidates.length}건이 감지됐어요`,
+      body: `${names}${candidates.length > 3 ? " 외" : ""} · 정기지출로 등록하면 예산 예측이 정확해져요.`,
       href: `/reserve-plans?month=${mq}${hh}` });
   }
 
