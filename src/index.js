@@ -18422,6 +18422,14 @@ body.abV22812Shell .abNavSearchBtn{display:grid;place-items:center;width:34px;he
 body.abV22812Shell .abNavSearchBtn:hover{color:var(--text)!important}
 body.abV22812Shell .abNavSearchBtn:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
 body.abV22812Shell.abNavCollapsed .abNavTopActions{flex-direction:column;gap:8px}
+/* P1-4: 238px 데스크톱 헤더에서 긴 가계부명 + 검색·알림·토글이 한 줄에 몰려 깨지는 문제 해결.
+   펼침 상태에서는 브랜드(로고+이름)를 첫 줄 전체폭(말줄임)으로, 액션 버튼들을 둘째 줄로 내린다. */
+@media(min-width:900px){
+  body.abV22812Shell:not(.abNavCollapsed) .abNavTop{flex-wrap:wrap;gap:6px 8px}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavBrand{flex:1 1 100%;min-width:0}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavBrandText{max-width:100%}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavTopActions{flex:1 1 100%;justify-content:flex-end;flex-wrap:nowrap}
+}
 body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-radius:14px}
 @keyframes abV5FocusPulse{0%{box-shadow:0 0 0 0 var(--accent-weak),0 0 0 2px var(--accent)}30%{box-shadow:0 0 0 6px var(--accent-weak),0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0),0 0 0 0 rgba(0,0,0,0)}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abV5Focus{animation:none;box-shadow:0 0 0 2px var(--accent)}}
