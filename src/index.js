@@ -1707,6 +1707,10 @@ export default {
         return handleUserNotifications(request, env, url);
       }
 
+      if (url.pathname === "/u/api/favorites" && (request.method === "GET" || request.method === "POST")) {
+        return handleUserFavorites(request, env, url);
+      }
+
       if (url.pathname.startsWith("/api/")) {
         return handleApi(request, env, url);
       }
@@ -1750,7 +1754,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.27-V5-NOTIFICATIONS";
+const APP_VERSION = "V22.8.28-V5-FAVORITES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -17484,11 +17488,11 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22827.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22828.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22826.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22828.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
@@ -18065,6 +18069,14 @@ body.abV22812Shell .abV5Banner b{display:block;font-size:13.5px;font-weight:800}
 body.abV22812Shell .abV5Banner span{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell .abV5BannerClose{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
 @media(min-width:900px){body.abV22812Shell .abV5Banner{left:calc(50% + var(--abNavW)/2);top:20px}body.abV22812Shell.abNavCollapsed .abV5Banner{left:calc(50% + var(--abNavCollapsed)/2)}}
+/* V22.8.28 검색 결과 즐겨찾기(★) 토글. */
+body.abV22812Shell .abV5SearchRow{gap:8px}
+body.abV22812Shell .abV5SearchRowLink{flex:1;min-width:0;display:flex;align-items:center;gap:12px;justify-content:space-between;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5SearchFav{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:8px}
+body.abV22812Shell .abV5SearchFav.isFav{color:#f5a623!important}
+body.abV22812Shell .abV5SearchFav:hover{background:var(--card-2)!important}
+body.abV22812Shell .abV5SearchFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
+body.abV22812Shell .abV5SearchFavHead{padding:8px 10px 2px;color:var(--faint)!important;font-size:11px;font-weight:800}
 `;
 
 function accountbookThemeClientMain() {
@@ -18484,6 +18496,8 @@ function accountbookSearchClientMain() {
   var resultsBox = document.getElementById("abV5SearchResults");
   var timer = null;
   var lastQ = null;
+  var favIds = {};
+  var favList = [];
   function currentHousehold() {
     try {
       var p = new URLSearchParams(location.search);
@@ -18506,51 +18520,97 @@ function accountbookSearchClientMain() {
     lastQ = null;
     setTimeout(function () { if (input) { input.focus(); input.select(); } }, 30);
     run(input ? input.value : "");
+    loadFavorites();
   }
   function close() {
     overlay.hidden = true;
     overlay.setAttribute("aria-hidden", "true");
     document.body.classList.remove("abV5SearchOpen");
   }
+  function buildRow(r) {
+    var row = document.createElement("div");
+    row.className = "abV5SearchRow";
+    var a = document.createElement("a");
+    a.className = "abV5SearchRowLink";
+    a.href = "/app?month=" + encodeURIComponent(r.month || "")
+      + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
+      + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
+      + "&abfa=" + encodeURIComponent(String(r.amount || ""))
+      + "#feed";
+    a.setAttribute("role", "option");
+    var main = document.createElement("div");
+    main.className = "abV5SearchRowMain";
+    var memo = document.createElement("b");
+    memo.textContent = r.memo || r.category || "(메모 없음)";
+    var meta = document.createElement("small");
+    var parts = [];
+    if (r.transaction_date) parts.push(r.transaction_date);
+    if (r.category) parts.push(r.category);
+    if (r.payment_method) parts.push(r.payment_method);
+    if (r.member) parts.push(r.member);
+    meta.textContent = parts.join(" · ");
+    main.appendChild(memo);
+    main.appendChild(meta);
+    var amt = document.createElement("span");
+    amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
+    amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
+    a.appendChild(main);
+    a.appendChild(amt);
+    var star = document.createElement("button");
+    star.type = "button";
+    star.className = "abV5SearchFav" + (favIds[r.id] ? " isFav" : "");
+    star.setAttribute("aria-label", "즐겨찾기");
+    star.setAttribute("aria-pressed", favIds[r.id] ? "true" : "false");
+    star.textContent = "★";
+    star.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); toggleFav(r, star); });
+    row.appendChild(a);
+    row.appendChild(star);
+    return row;
+  }
   function render(data) {
     resultsBox.textContent = "";
     var list = (data && data.results) || [];
     if (!list.length) { setMessage("검색 결과가 없어요."); return; }
-    list.forEach(function (r) {
-      var a = document.createElement("a");
-      a.className = "abV5SearchRow";
-      a.href = "/app?month=" + encodeURIComponent(r.month || "")
-        + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
-        + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
-        + "&abfa=" + encodeURIComponent(String(r.amount || ""))
-        + "#feed";
-      a.setAttribute("role", "option");
-      var main = document.createElement("div");
-      main.className = "abV5SearchRowMain";
-      var memo = document.createElement("b");
-      memo.textContent = r.memo || r.category || "(메모 없음)";
-      var meta = document.createElement("small");
-      var parts = [];
-      if (r.transaction_date) parts.push(r.transaction_date);
-      if (r.category) parts.push(r.category);
-      if (r.payment_method) parts.push(r.payment_method);
-      if (r.member) parts.push(r.member);
-      meta.textContent = parts.join(" · ");
-      main.appendChild(memo);
-      main.appendChild(meta);
-      var amt = document.createElement("span");
-      amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
-      amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
-      a.appendChild(main);
-      a.appendChild(amt);
-      resultsBox.appendChild(a);
-    });
+    list.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function renderFavorites() {
+    resultsBox.textContent = "";
+    if (!favList.length) { setMessage("메모·분류·결제수단·금액으로 검색하거나 ★로 자주 보는 거래를 즐겨찾기하세요."); return; }
+    var head = document.createElement("div");
+    head.className = "abV5SearchFavHead";
+    head.textContent = "즐겨찾기";
+    resultsBox.appendChild(head);
+    favList.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function loadFavorites() {
+    var url = "/u/api/favorites";
+    var hh = currentHousehold();
+    if (hh) url += "?household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) {
+        favList = (json && json.favorites) || [];
+        favIds = {};
+        favList.forEach(function (f) { favIds[f.id] = true; });
+        if (isOpen() && !String((input && input.value) || "").trim()) renderFavorites();
+      })
+      .catch(function () {});
+  }
+  function toggleFav(r, btn) {
+    var on = !favIds[r.id];
+    favIds[r.id] = on;
+    if (btn) { btn.classList.toggle("isFav", on); btn.setAttribute("aria-pressed", on ? "true" : "false"); }
+    var body = on ? { household: currentHousehold(), id: r.id, tx: r } : { household: currentHousehold(), id: r.id, remove: true };
+    fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })
+      .catch(function () { favIds[r.id] = !on; if (btn) { btn.classList.toggle("isFav", !on); btn.setAttribute("aria-pressed", !on ? "true" : "false"); } });
   }
   function run(q) {
     var query = String(q || "").trim();
     if (query === lastQ) return;
     lastQ = query;
-    if (!query) { setMessage("메모·분류·결제수단·금액으로 검색해 보세요."); return; }
+    if (!query) { renderFavorites(); return; }
     setMessage("검색 중…");
     var url = "/u/api/tx/search?q=" + encodeURIComponent(query);
     var hh = currentHousehold();
@@ -18773,7 +18833,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22827-css"'
+        ? '"accountbook-shell-v22828-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -18781,7 +18841,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22824-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22826-js"'
+          ? '"accountbook-search-v22828-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
           ? '"accountbook-notif-v22827-js"'
           : '"mobile-home-v22810-js"',
@@ -24378,6 +24438,69 @@ async function handleUserNotifications(request, env, url) {
   });
 
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
+}
+
+// V22.8.28 V5 즐겨찾기: 스키마 없이 accountbook_settings 키-값 저장소에 (가계부·사용자)별 스냅샷 보관.
+function favoritesKey(householdId, userKey) {
+  return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
+}
+function normalizeFavoriteSnapshot(x) {
+  const o = safeObject(x);
+  const id = String(o.id || "").trim();
+  if (!id) return null;
+  return {
+    id: id.slice(0, 64),
+    type: o.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(o.amount || 0))),
+    category: String(o.category || "").slice(0, 80),
+    memo: String(o.memo || "").slice(0, 200),
+    payment_method: String(o.payment_method || "").slice(0, 80),
+    transaction_date: String(o.transaction_date || "").slice(0, 10),
+    month: String(o.month || String(o.transaction_date || "").slice(0, 7)).slice(0, 7),
+  };
+}
+function normalizeFavoriteList(value) {
+  let raw = value;
+  if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = {};
+  const out = [];
+  for (const x of arr) {
+    const s = normalizeFavoriteSnapshot(x);
+    if (!s || seen[s.id]) continue;
+    seen[s.id] = true;
+    out.push(s);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+async function handleUserFavorites(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const method = request.method;
+  const body = method === "POST" ? await readJson(request) : {};
+  const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const key = favoritesKey(household.id, scope.userId || "shared");
+  let list = normalizeFavoriteList(await getSettingValue(env, key).catch(() => ""));
+  if (method === "POST") {
+    const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+    if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
+    if (body.remove) {
+      list = list.filter((f) => f.id !== id);
+    } else {
+      const snap = normalizeFavoriteSnapshot(body.tx || body);
+      if (!snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
+      list = [snap, ...list.filter((f) => f.id !== snap.id)].slice(0, 100);
+    }
+    await saveSettingValue(env, key, JSON.stringify(list));
+  }
+  return jsonResponse({ ok: true, household_id: household.id, count: list.length, ids: list.map((f) => f.id), favorites: list });
 }
 
 

@@ -120,3 +120,11 @@
 - **격리**: 검색과 동일 패턴(오버레이 `</body>` 앞 주입, 전용 JS 에셋, 레거시 마크업 무변경). 결과 렌더는 DOM API(textContent)로 XSS 차단.
 - **판단(스키마 없이)**: 명세의 `notif_state` 서버 테이블 대신 프로토타입식 localStorage dismiss 채택 → 무스키마·무마이그레이션. 규칙 6(목표 저축)은 이 레포에 goals 테이블이 없어 정기지출 준비(reserve)로 대체. 카드 결제일(규칙 5 카드 특화)·자동감지(규칙 4 원형)는 후속 증분.
 - **검증**: `node --check` 통과. Playwright 13개 항목 통과(벨 오픈·목록/레벨 렌더·dismiss→뱃지·배너 제거·Esc·새로고침 영속·홈 배너 노출·user 스코프 URL).
+
+### V22.8.28 — 즐겨찾기(★) + 검색 통합 (Phase 3) ✅
+- **API**: `GET/POST /u/api/favorites?household=` — user 세션 스코프. **스키마 변경 없이** `accountbook_settings` 키-값 저장소에 (가계부·사용자)별 거래 스냅샷 보관(최대 100). POST `{tx}` 추가 / `{id,remove:true}` 제거.
+- **재사용**: `getSettingValue`/`saveSettingValue`(reserve_plans와 동일 저장 패턴) · `getScopedHouseholdsForPage`/`selectScopedHousehold`.
+- **검색 통합**(명세 §3.15): 검색 결과·즐겨찾기 행에 ★ 토글 버튼, **빈 쿼리 시 즐겨찾기 목록 노출**(헤더 포함). 행을 `<a>`→`div>a+button` 구조로 재편(중첩 anchor/button 무효 회피).
+- **판단(스키마 없이)**: 프로토타입은 favIds를 localStorage에 저장했으나, 여기서는 **설정 저장소로 서버 영속**(크로스 디바이스) + 무마이그레이션. 스냅샷 저장으로 빈 쿼리 즐겨찾기 표시 시 tx 재조회 불필요. 레거시 거래목록 행의 ★(명세 §3.2)은 후속 증분.
+- **격리**: 신규 API + 기존 검색 오버레이 확장만. 레거시 마크업 무변경.
+- **검증**: `node --check` 통과. Playwright 통과(★ 토글 on/off · 서버 저장/제거 · 빈 쿼리 즐겨찾기 목록·헤더 · 상태 반영).
