@@ -23867,8 +23867,9 @@ async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", ki
 
 function kakaoInviteManagementText(household = {}, origin = "") {
   const code = String(household?.invite_code || "-").trim() || "-";
-  const householdId = String(household?.id || "").trim();
-  const href = origin ? `${origin}/my/households${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}` : "";
+  // P1-1: 초대 응답 메시지에는 내부 household_id(UUID)를 노출하지 않는다. 참여는 초대코드만으로 충분하며,
+  // 관리 링크는 로그인 세션이 본인 가계부를 해석하는 /my/households 로만 연결한다.
+  const href = origin ? `${origin}/my/households` : "";
   return [
     "👥 구성원 초대하기",
     `가계부: ${household?.name || "가계부"}`,
