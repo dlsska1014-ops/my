@@ -120,3 +120,33 @@
 - **격리**: 검색과 동일 패턴(오버레이 `</body>` 앞 주입, 전용 JS 에셋, 레거시 마크업 무변경). 결과 렌더는 DOM API(textContent)로 XSS 차단.
 - **판단(스키마 없이)**: 명세의 `notif_state` 서버 테이블 대신 프로토타입식 localStorage dismiss 채택 → 무스키마·무마이그레이션. 규칙 6(목표 저축)은 이 레포에 goals 테이블이 없어 정기지출 준비(reserve)로 대체. 카드 결제일(규칙 5 카드 특화)·자동감지(규칙 4 원형)는 후속 증분.
 - **검증**: `node --check` 통과. Playwright 13개 항목 통과(벨 오픈·목록/레벨 렌더·dismiss→뱃지·배너 제거·Esc·새로고침 영속·홈 배너 노출·user 스코프 URL).
+
+### V22.8.28 — 즐겨찾기(★) + 검색 통합 (Phase 3) ✅
+- **API**: `GET/POST /u/api/favorites?household=` — user 세션 스코프. **스키마 변경 없이** `accountbook_settings` 키-값 저장소에 (가계부·사용자)별 거래 스냅샷 보관(최대 100). POST `{tx}` 추가 / `{id,remove:true}` 제거.
+- **재사용**: `getSettingValue`/`saveSettingValue`(reserve_plans와 동일 저장 패턴) · `getScopedHouseholdsForPage`/`selectScopedHousehold`.
+- **검색 통합**(명세 §3.15): 검색 결과·즐겨찾기 행에 ★ 토글 버튼, **빈 쿼리 시 즐겨찾기 목록 노출**(헤더 포함). 행을 `<a>`→`div>a+button` 구조로 재편(중첩 anchor/button 무효 회피).
+- **판단(스키마 없이)**: 프로토타입은 favIds를 localStorage에 저장했으나, 여기서는 **설정 저장소로 서버 영속**(크로스 디바이스) + 무마이그레이션. 스냅샷 저장으로 빈 쿼리 즐겨찾기 표시 시 tx 재조회 불필요. 레거시 거래목록 행의 ★(명세 §3.2)은 후속 증분.
+- **격리**: 신규 API + 기존 검색 오버레이 확장만. 레거시 마크업 무변경.
+- **검증**: `node --check` 통과. Playwright 통과(★ 토글 on/off · 서버 저장/제거 · 빈 쿼리 즐겨찾기 목록·헤더 · 상태 반영).
+
+### V22.8.29 — 연간 리포트·연말정산 (Phase 3, §3.12) ✅
+- **신규 페이지** `GET /annual?year=YYYY&household_id=` (별칭 `/annual-report`) — user 세션 스코프. budget-alerts/reserve-plans와 동일한 `renderUnifiedNav`+인라인 style 패턴 → 셸·다크모드 자동 참여.
+- **재사용**: `fetchAdminRowsRange`(연 단위 전 거래) · `getScopedHouseholdsForPage`/`selectScopedHousehold`.
+- **내용**: 연도 네비게이터(미래 연도 비활성) · 연간 수입/지출/저축(적자)·월 평균 · 월별 지출 12칸 막대(당월 강조) · 연간 카테고리 TOP6 · 연말정산 참고(신용카드 15% / 체크·현금·간편결제 30% 안내 + "실제 공제는 국세청 기준" 면책) · PDF(브라우저 인쇄, `@media print`로 내비 숨김).
+- **판단**: 자산·계좌(§3.6)는 이미 `/payment-methods`로 구현되어 격차가 아님을 확인 → 진짜 미구현인 연간 리포트를 선택. 레거시 마크업 무변경(신규 라우트+렌더만), 무스키마.
+- **검증**: `node --check` 통과. `buildAnnualReportModel` 단위 테스트(수입/지출/저축/월평균/공제 분류/카테고리 TOP) 통과. Playwright 렌더 검증(런타임 에러 0·h1·지표 4·12막대·당월 강조·카테고리·연말정산 2박스·미래연도 비활성·PDF 버튼) 통과 + 스크린샷 확인.
+
+### V22.8.30 — 연간 리포트 진입점(내비) ✅
+- `renderUnifiedNav`의 리포트 그룹에 **연간 리포트** 항목 추가(`/annual?year=<현재연도>&household_id=`) → 모든 셸 페이지에서 도달 가능. 연간 페이지 active 키를 `annual`로 맞춰 하이라이트·그룹 open 처리.
+- **판단**: 신규 기능은 도달 가능해야 가치가 있다 → 데이터 기반 내비(map)에 한 항목만 추가하는 최소 변경으로 실효성 확보. 레거시 무변경.
+- **검증**: `node --check` 통과, 항목 문자열이 형제 항목과 동일 형식(`[key,label,href,icon]`)·`renderUnifiedNav("annual")` 배선 확인.
+
+### V22.8.31 — 저축·목표(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) ✅
+- **저축·목표**: 신규 V5 네이티브 **클라이언트 렌더 페이지** `/goals`(별칭 `/savings-goals`) + `GET/POST /u/api/goals`(user 스코프). 스키마 없이 `accountbook_settings` 키-값 저장소에 가계부별 목표 보관(최대 50).
+  - 전체 진행률(총저축/총목표) · 목표 카드(진행률 바·마감월·남은 개월·월납입 vs 필요 월납입 → 순조/부족/달성) · **원터치 납입**(+월납입) · 추가/삭제. `enrichGoal`로 서버에서 진행률·상태 계산.
+- **로딩 스켈레톤/Undo(§3.17)**: 이 목표 서피스에 레퍼런스 구현.
+  - **스켈레톤**: 서버가 shimmer 카드 3개를 먼저 렌더 → 클라이언트가 API 응답 후 교체(`prefers-reduced-motion` 대응).
+  - **완료 Undo**: 납입/삭제는 **낙관적 업데이트 + 토스트("…했어요 · 실행취소")**, 5초 내 실행취소 시 **서버 커밋 취소**(POST 미발생)·즉시 롤백, 미취소 시 서버 커밋. 다른 액션 시작 시 이전 pending 자동 커밋.
+- **판단(무스키마·격리)**: goals 테이블 대신 설정 저장소. 앱 전역 Undo는 레거시 변경 플로우(POST→리다이렉트) 강결합이라 위험 → **V5 네이티브 서피스에서 먼저 실현**하고 레거시 확장은 후속으로 분리. 목표 요소는 셸 토큰(`var(--card)` 등)으로 다크모드 자동 대응.
+- **내비**: 자산 그룹에 '저축·목표' 항목 추가.
+- **검증**: `node --check` 통과. `normalizeGoal`/`enrichGoal` 단위 테스트(진행률·남은개월·필요월납입·순조/부족/달성) 통과. Playwright: 로드·납입 낙관적+토스트·**Undo 서버 커밋 방지**·5초 후 커밋·추가·삭제·삭제 커밋 전부 통과 + 서버 셸 렌더 스크린샷 확인.

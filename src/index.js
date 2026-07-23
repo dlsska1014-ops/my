@@ -1145,6 +1145,18 @@ export default {
         }, "정기지출 준비");
       }
 
+      if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleAnnualReportPage(request, env, url);
+        }, "연간 리포트");
+      }
+
+      if ((url.pathname === "/goals" || url.pathname === "/savings-goals") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleGoalsPage(request, env, url);
+        }, "저축·목표");
+      }
+
       if (url.pathname === "/admin/reserve-plan/create" && request.method === "POST") {
         return handleReservePlanCreate(request, env);
       }
@@ -1707,6 +1719,14 @@ export default {
         return handleUserNotifications(request, env, url);
       }
 
+      if (url.pathname === "/u/api/favorites" && (request.method === "GET" || request.method === "POST")) {
+        return handleUserFavorites(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/goals" && (request.method === "GET" || request.method === "POST")) {
+        return handleUserGoals(request, env, url);
+      }
+
       if (url.pathname.startsWith("/api/")) {
         return handleApi(request, env, url);
       }
@@ -1750,7 +1770,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.27-V5-NOTIFICATIONS";
+const APP_VERSION = "V22.8.31-V5-GOALS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -9952,8 +9972,8 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
     { key: "day", label: "기록", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "recurring"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "receipt"]] },
-    { key: "assets", label: "자산", icon: "wallet", items: [["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
-    { key: "report", label: "리포트", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"]] },
+    { key: "assets", label: "자산", icon: "wallet", items: [["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"]] },
+    { key: "report", label: "리포트", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"]] },
     { key: "together", label: "함께", icon: "users", items: [["settlement", "부부 정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"], ["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"]] },
     { key: "manage", label: "관리", icon: "tools", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
     { key: "ops", label: "운영 관리", icon: "shield", items: [["operation-center", "운영센터", "/operation-center", "tools"], ["release-candidate", "릴리스 후보", "/release-candidate", "check"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "users"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "report"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "shield"], ["ops-traffic", "트래픽", "/ops-traffic", "report"], ["skill-ops", "스킬", "/skill-ops", "sparkle"], ["diagnostics", "시스템 진단", "/diagnostics", "tools"], ["deployment-check", "배포점검", "/deployment-check", "check"], ["ui-polish-check", "화면점검", "/ui-polish-check", "check"], ["final-release", "배포 확인", "/final-release", "check"]] },
@@ -10792,6 +10812,266 @@ function budgetAlertKakaoHint(model) {
   if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
+}
+
+// V22.8.29 V5 연간 리포트·연말정산 (§3.12) — 신규 user 페이지. fetchAdminRowsRange 재사용, 레거시 무변경.
+function classifyDeductionPay(pm) {
+  const s = String(pm || "");
+  if (/체크/.test(s)) return "check";
+  if (/현금/.test(s)) return "cash";
+  if (/(카카오페이|네이버페이|페이|간편|토스|toss)/i.test(s)) return "simple";
+  if (/카드|신용/.test(s)) return "credit";
+  return "other";
+}
+function buildAnnualReportModel(rows, year) {
+  const monthsExp = new Array(12).fill(0);
+  const monthsInc = new Array(12).fill(0);
+  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
+  const catExp = {};
+  for (const r of safeArray(rows)) {
+    const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
+    const amt = Number(r.amount || 0);
+    if (r.type === "income") {
+      totalInc += amt;
+      if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
+    } else {
+      totalExp += amt;
+      if (mi >= 0 && mi < 12) monthsExp[mi] += amt;
+      const c = r.category || "미분류";
+      catExp[c] = (catExp[c] || 0) + amt;
+      const kind = classifyDeductionPay(r.payment_method);
+      if (kind === "credit") creditSpend += amt;
+      else if (kind !== "other") deductibleSpend += amt;
+    }
+  }
+  const catTop = Object.keys(catExp).map((k) => ({ category: k, amount: catExp[k] }))
+    .sort((a, b) => b.amount - a.amount).slice(0, 6);
+  return {
+    year, monthsExp, monthsInc, totalExp, totalInc,
+    savings: totalInc - totalExp,
+    monthAvgExp: Math.round(totalExp / 12),
+    catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
+  };
+}
+async function handleAnnualReportPage(request, env, url) {
+  const scoped = await getScopedHouseholdsForPage(request, env);
+  if (scoped.scope === "none") return redirectResponse("/my");
+  const households = scoped.households;
+  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  if (!selected) return redirectResponse("/my");
+  const nowYear = Number(currentMonthKst().slice(0, 4));
+  const nowMonthIdx = Number(currentMonthKst().slice(5, 7)) - 1;
+  let year = Math.round(Number(url.searchParams.get("year") || nowYear));
+  if (!Number.isFinite(year)) year = nowYear;
+  year = Math.max(2000, Math.min(nowYear, year));
+  const rows = await fetchAdminRowsRange(env, { householdId: selected.id, start: `${year}-01-01`, end: `${year + 1}-01-01`, type: "all", limit: 20000 });
+  const model = buildAnnualReportModel(rows, year);
+  return htmlResponse(renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }));
+}
+function renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }) {
+  const title = escapeHtml(appName(env));
+  const hh = `&household_id=${encodeURIComponent(selected.id)}`;
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const curMonthHighlight = model.year === nowYear ? nowMonthIdx : -1;
+  const barsHtml = model.monthsExp.map((v, i) => {
+    const h = Math.max(2, Math.round((v / model.maxMonth) * 100));
+    return `<div class="annualBarCol"><div class="annualBarTrack"><div class="annualBar${i === curMonthHighlight ? " cur" : ""}" style="height:${h}%" title="${i + 1}월 ${numberWithCommas(v)}원"></div></div><span>${i + 1}</span></div>`;
+  }).join("");
+  const catMax = Math.max(1, ...model.catTop.map((c) => c.amount));
+  const catHtml = model.catTop.length
+    ? model.catTop.map((c) => `<li><div class="catRow"><b>${escapeHtml(c.category)}</b><span>${numberWithCommas(c.amount)}원</span></div><div class="miniBar"><span style="width:${Math.round(c.amount / catMax * 100)}%"></span></div></li>`).join("")
+    : `<li class="muted">이 해에는 지출 기록이 없습니다.</li>`;
+  const prevY = model.year - 1;
+  const nextY = model.year + 1;
+  const nextDisabled = nextY > nowYear;
+  const savingsLabel = model.savings >= 0 ? `저축 ${numberWithCommas(model.savings)}원` : `적자 ${numberWithCommas(Math.abs(model.savings))}원`;
+  const creditDeduct = Math.round(model.creditSpend * 0.15);
+  const otherDeduct = Math.round(model.deductibleSpend * 0.30);
+  const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:1fr 130px;gap:8px;margin-top:12px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style></head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section><section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section></main></body></html>`;
+}
+
+// V22.8.31 V5 저축·목표 페이지(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) — V5 네이티브 클라이언트 서피스.
+async function handleGoalsPage(request, env, url) {
+  const scoped = await getScopedHouseholdsForPage(request, env);
+  if (scoped.scope === "none") return redirectResponse("/my");
+  const households = scoped.households;
+  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  if (!selected) return redirectResponse("/my");
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  return htmlResponse(renderGoalsHtml({ env, households, selected, month }));
+}
+function renderGoalsHtml({ env, households, selected, month }) {
+  const title = escapeHtml(appName(env));
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const skel = `<div class="goalCard goalSkel"><div class="skLine skWide"></div><div class="skBar"></div><div class="skLine"></div></div>`.repeat(3);
+  const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.overall{margin-top:14px}.overall .obar{height:12px;background:rgba(255,255,255,.22);border-radius:999px;overflow:hidden;margin-top:8px}.overall .obar span{display:block;height:100%;background:#5eead4;border-radius:999px;transition:width .5s}.overall b{font-size:22px}.filters{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:14px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.goalForm{display:grid;grid-template-columns:1.4fr .6fr 1fr 1fr 1fr auto;gap:8px}.goalForm input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 12px;font:inherit;min-width:0}.goalForm button{height:44px;border:0;border-radius:12px;background:#0f766e;color:#fff;font-weight:1000;padding:0 16px;cursor:pointer}.goalCard{background:var(--card,#fff);color:var(--text,#111827);border:1px solid var(--line,#e8edf4);border-radius:20px;padding:16px;margin:10px 0}.goalHead{display:flex;align-items:center;gap:10px}.goalEmoji{font-size:22px}.goalHead b{font-size:16px}.goalHead small{display:block;color:var(--sub,#64748b);font-size:12px;margin-top:2px}.goalStatus{margin-left:auto;flex:none;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:900}.st-done{background:#dcfce7;color:#166534}.st-onTrack{background:#e0f2fe;color:#075985}.st-behind{background:#fef3c7;color:#92400e}.goalBar{height:12px;background:var(--card-2,#eef2f7);border-radius:999px;overflow:hidden;margin:12px 0 8px}.goalBar span{display:block;height:100%;background:var(--accent,#0f766e);border-radius:999px;transition:width .4s}.goalMeta{display:flex;justify-content:space-between;gap:10px;color:var(--sub,#64748b);font-size:13px;flex-wrap:wrap}.goalMeta b{color:var(--text,#111827)}.goalActions{display:flex;gap:8px;margin-top:12px}.goalActions button{height:40px;border-radius:11px;font-weight:900;padding:0 14px;cursor:pointer;font:inherit;border:1px solid var(--line,#e8edf4)}.goalActions .fund{background:var(--accent,#0f766e);color:#fff;border:0}.goalActions .del{background:transparent;color:var(--sub,#64748b)}.goalEmpty{padding:26px;text-align:center;color:var(--sub,#64748b)}.skLine{height:12px;border-radius:6px;background:#eef2f7;margin:8px 0}.skWide{width:60%}.skBar{height:12px;border-radius:999px;background:#eef2f7;margin:14px 0}.goalSkel{position:relative;overflow:hidden}.goalSkel:after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);animation:goalShimmer 1.2s infinite}@keyframes goalShimmer{100%{transform:translateX(100%)}}.goalToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:2600;display:flex;align-items:center;gap:14px;background:#111827;color:#fff;border-radius:14px;padding:12px 16px;box-shadow:0 14px 34px rgba(15,23,42,.3);font-weight:700}.goalToast[hidden]{display:none}.goalToast button{background:transparent;border:0;color:#5eead4;font-weight:900;cursor:pointer;font:inherit}@media(min-width:900px){.goalToast{bottom:24px}}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero h1{font-size:24px}.goalForm{grid-template-columns:1fr 1fr}.goalForm input,.goalForm button{font-size:16px}}@media(prefers-reduced-motion:reduce){.goalSkel:after{animation:none}}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 저축·목표</title><style>${style}</style></head><body>${renderUnifiedNav("goals", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>저축·목표</h1><p>목표를 정하고 매월 조금씩 모아보세요. 원터치로 납입하고, 실수하면 바로 실행취소할 수 있어요.</p><div class="overall"><span>전체 진행률 <b id="goalsOverallPct">–</b></span><div class="obar"><span id="goalsOverallBar" style="width:0%"></span></div><small id="goalsOverallSub" style="color:#ccfbf1"></small></div><form class="filters" method="get" action="/goals"><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="card"><h2>목표 추가</h2><form id="goalAddForm" class="goalForm" autocomplete="off"><input name="name" placeholder="목표 이름 (예: 여행자금)" aria-label="목표 이름"/><input name="emoji" value="🎯" maxlength="4" aria-label="이모지"/><input name="target" inputmode="numeric" placeholder="목표 금액" aria-label="목표 금액"/><input name="monthly" inputmode="numeric" placeholder="월 납입액" aria-label="월 납입액"/><input name="deadline" type="month" aria-label="마감월"/><button type="submit">추가</button></form></section><div id="goalsRoot">${skel}</div><div id="goalToast" class="goalToast" role="status" hidden><span id="goalToastMsg"></span><button type="button" id="goalToastUndo">실행취소</button></div></main><script src="${ACCOUNTBOOK_GOALS_JS_ASSET_PATH}" defer></script></body></html>`;
+}
+function accountbookGoalsClientMain() {
+  var root = document.getElementById("goalsRoot");
+  if (!root) return;
+  var overallPct = document.getElementById("goalsOverallPct");
+  var overallBar = document.getElementById("goalsOverallBar");
+  var overallSub = document.getElementById("goalsOverallSub");
+  var addForm = document.getElementById("goalAddForm");
+  var toast = document.getElementById("goalToast");
+  var toastMsg = document.getElementById("goalToastMsg");
+  var toastUndo = document.getElementById("goalToastUndo");
+  var state = { goals: [], total_saved: 0, total_target: 0, overall_progress: 0 };
+  var pending = null;
+  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
+  function api(body) {
+    return fetch("/u/api/goals", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(Object.assign({ household: hh() }, body)) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); });
+  }
+  function statusLabel(s) { return s === "done" ? "달성" : s === "behind" ? "부족" : "순조"; }
+  function setOverall() {
+    if (overallPct) overallPct.textContent = state.overall_progress + "%";
+    if (overallBar) overallBar.style.width = Math.min(100, state.overall_progress) + "%";
+    if (overallSub) overallSub.textContent = fmt(state.total_saved) + "원 / " + fmt(state.total_target) + "원";
+  }
+  function applyPayload(p) {
+    state.goals = (p && p.goals) || [];
+    state.total_saved = (p && p.total_saved) || 0;
+    state.total_target = (p && p.total_target) || 0;
+    state.overall_progress = (p && p.overall_progress) || 0;
+  }
+  function render() {
+    setOverall();
+    root.textContent = "";
+    if (!state.goals.length) {
+      var e = document.createElement("div");
+      e.className = "card goalEmpty";
+      e.textContent = "아직 목표가 없어요. 위에서 첫 목표를 추가해 보세요.";
+      root.appendChild(e);
+      return;
+    }
+    state.goals.forEach(function (g) {
+      var card = document.createElement("div");
+      card.className = "card goalCard";
+      var head = document.createElement("div"); head.className = "goalHead";
+      var em = document.createElement("span"); em.className = "goalEmoji"; em.textContent = g.emoji || "🎯";
+      var titleWrap = document.createElement("div");
+      var b = document.createElement("b"); b.textContent = g.name;
+      var small = document.createElement("small");
+      var sub = [];
+      if (g.deadline) sub.push(g.deadline);
+      if (g.monthsLeft != null) sub.push("남은 " + g.monthsLeft + "개월");
+      small.textContent = sub.join(" · ") || "마감월 없음";
+      titleWrap.appendChild(b); titleWrap.appendChild(small);
+      var st = document.createElement("span"); st.className = "goalStatus st-" + g.status; st.textContent = statusLabel(g.status);
+      head.appendChild(em); head.appendChild(titleWrap); head.appendChild(st);
+      var bar = document.createElement("div"); bar.className = "goalBar";
+      var barIn = document.createElement("span"); barIn.style.width = Math.min(100, g.progress) + "%"; bar.appendChild(barIn);
+      var meta = document.createElement("div"); meta.className = "goalMeta";
+      var m1 = document.createElement("span"); m1.innerHTML = "<b>" + fmt(g.saved) + "원</b> / " + fmt(g.target) + "원 (" + g.progress + "%)";
+      var m2 = document.createElement("span");
+      m2.textContent = "월 " + fmt(g.monthly) + "원" + (g.neededMonthly != null ? " · 필요 " + fmt(g.neededMonthly) + "원" : "");
+      meta.appendChild(m1); meta.appendChild(m2);
+      var actions = document.createElement("div"); actions.className = "goalActions";
+      var fund = document.createElement("button"); fund.type = "button"; fund.className = "fund"; fund.textContent = "+" + fmt(g.monthly || 0) + "원 납입";
+      fund.disabled = !(g.monthly > 0);
+      fund.addEventListener("click", function () { doFund(g.id); });
+      var del = document.createElement("button"); del.type = "button"; del.className = "del"; del.textContent = "삭제";
+      del.addEventListener("click", function () { doDelete(g.id); });
+      actions.appendChild(fund); actions.appendChild(del);
+      card.appendChild(head); card.appendChild(bar); card.appendChild(meta); card.appendChild(actions);
+      root.appendChild(card);
+    });
+  }
+  function recomputeTotals() {
+    state.total_saved = state.goals.reduce(function (a, g) { return a + Number(g.saved || 0); }, 0);
+    state.total_target = state.goals.reduce(function (a, g) { return a + Number(g.target || 0); }, 0);
+    state.overall_progress = state.total_target > 0 ? Math.min(100, Math.round(state.total_saved / state.total_target * 100)) : 0;
+    state.goals.forEach(function (g) {
+      g.progress = g.target > 0 ? Math.min(100, Math.round(g.saved / g.target * 100)) : 0;
+      if (g.target > 0 && g.saved >= g.target) g.status = "done";
+    });
+  }
+  function commitPending() {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    var body = pending.commit;
+    pending = null;
+    hideToast();
+    api(body).then(function (p) { applyPayload(p); render(); }).catch(function () { load(); });
+  }
+  function showToast(msg, undoFn) {
+    toastMsg.textContent = msg;
+    toast.hidden = false;
+    pending.undo = undoFn;
+    pending.timer = setTimeout(commitPending, 5000);
+  }
+  function hideToast() { toast.hidden = true; }
+  function startPending(commitBody, optimistic, undoLocal, msg) {
+    if (pending) commitPending();
+    pending = { commit: commitBody };
+    optimistic();
+    recomputeTotals();
+    render();
+    showToast(msg, undoLocal);
+  }
+  function doFund(id) {
+    var g = state.goals.filter(function (x) { return x.id === id; })[0];
+    if (!g || !(g.monthly > 0)) return;
+    var amount = g.monthly;
+    startPending({ action: "fund", id: id, amount: amount },
+      function () { g.saved = Math.max(0, g.saved + amount); },
+      function () { g.saved = Math.max(0, g.saved - amount); recomputeTotals(); render(); },
+      g.name + "에 " + fmt(amount) + "원 납입했어요");
+  }
+  function doDelete(id) {
+    var idx = -1;
+    for (var i = 0; i < state.goals.length; i++) { if (state.goals[i].id === id) { idx = i; break; } }
+    if (idx < 0) return;
+    var removed = state.goals[idx];
+    startPending({ action: "delete", id: id },
+      function () { state.goals.splice(idx, 1); },
+      function () { state.goals.splice(idx, 0, removed); recomputeTotals(); render(); },
+      removed.name + " 목표를 삭제했어요");
+  }
+  if (toastUndo) toastUndo.addEventListener("click", function () {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    var undo = pending.undo;
+    pending = null;
+    hideToast();
+    if (undo) undo();
+  });
+  if (addForm) addForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (pending) commitPending();
+    var f = addForm;
+    var body = {
+      action: "create",
+      name: f.name.value,
+      emoji: f.emoji.value,
+      target: String(f.target.value || "").replace(/[^0-9]/g, ""),
+      monthly: String(f.monthly.value || "").replace(/[^0-9]/g, ""),
+      deadline: f.deadline.value,
+    };
+    if (!String(body.name || "").trim()) { f.name.focus(); return; }
+    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function () {});
+  });
+  function load() {
+    var url = "/u/api/goals";
+    var h = hh();
+    if (h) url += "?household=" + encodeURIComponent(h);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (p) { applyPayload(p); render(); })
+      .catch(function (err) { root.textContent = ""; var e = document.createElement("div"); e.className = "card goalEmpty"; e.textContent = err === 401 ? "로그인이 필요해요." : "목표를 불러오지 못했어요."; root.appendChild(e); });
+  }
+  window.addEventListener("beforeunload", commitPending);
+  load();
+}
+function accountbookGoalsJsAsset() {
+  if (!AB_ACCOUNTBOOK_GOALS_JS_CACHE) {
+    AB_ACCOUNTBOOK_GOALS_JS_CACHE = `(${accountbookGoalsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_GOALS_JS_CACHE;
 }
 
 async function handleBudgetAlertPolishPage(request, env, url) {
@@ -17484,18 +17764,20 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22827.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22828.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22826.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22828.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
+const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22831.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
 let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
 let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
 let AB_ACCOUNTBOOK_NOTIF_JS_CACHE = "";
+let AB_ACCOUNTBOOK_GOALS_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
 // V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
@@ -18065,6 +18347,14 @@ body.abV22812Shell .abV5Banner b{display:block;font-size:13.5px;font-weight:800}
 body.abV22812Shell .abV5Banner span{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell .abV5BannerClose{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
 @media(min-width:900px){body.abV22812Shell .abV5Banner{left:calc(50% + var(--abNavW)/2);top:20px}body.abV22812Shell.abNavCollapsed .abV5Banner{left:calc(50% + var(--abNavCollapsed)/2)}}
+/* V22.8.28 검색 결과 즐겨찾기(★) 토글. */
+body.abV22812Shell .abV5SearchRow{gap:8px}
+body.abV22812Shell .abV5SearchRowLink{flex:1;min-width:0;display:flex;align-items:center;gap:12px;justify-content:space-between;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5SearchFav{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:8px}
+body.abV22812Shell .abV5SearchFav.isFav{color:#f5a623!important}
+body.abV22812Shell .abV5SearchFav:hover{background:var(--card-2)!important}
+body.abV22812Shell .abV5SearchFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
+body.abV22812Shell .abV5SearchFavHead{padding:8px 10px 2px;color:var(--faint)!important;font-size:11px;font-weight:800}
 `;
 
 function accountbookThemeClientMain() {
@@ -18484,6 +18774,8 @@ function accountbookSearchClientMain() {
   var resultsBox = document.getElementById("abV5SearchResults");
   var timer = null;
   var lastQ = null;
+  var favIds = {};
+  var favList = [];
   function currentHousehold() {
     try {
       var p = new URLSearchParams(location.search);
@@ -18506,51 +18798,97 @@ function accountbookSearchClientMain() {
     lastQ = null;
     setTimeout(function () { if (input) { input.focus(); input.select(); } }, 30);
     run(input ? input.value : "");
+    loadFavorites();
   }
   function close() {
     overlay.hidden = true;
     overlay.setAttribute("aria-hidden", "true");
     document.body.classList.remove("abV5SearchOpen");
   }
+  function buildRow(r) {
+    var row = document.createElement("div");
+    row.className = "abV5SearchRow";
+    var a = document.createElement("a");
+    a.className = "abV5SearchRowLink";
+    a.href = "/app?month=" + encodeURIComponent(r.month || "")
+      + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
+      + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
+      + "&abfa=" + encodeURIComponent(String(r.amount || ""))
+      + "#feed";
+    a.setAttribute("role", "option");
+    var main = document.createElement("div");
+    main.className = "abV5SearchRowMain";
+    var memo = document.createElement("b");
+    memo.textContent = r.memo || r.category || "(메모 없음)";
+    var meta = document.createElement("small");
+    var parts = [];
+    if (r.transaction_date) parts.push(r.transaction_date);
+    if (r.category) parts.push(r.category);
+    if (r.payment_method) parts.push(r.payment_method);
+    if (r.member) parts.push(r.member);
+    meta.textContent = parts.join(" · ");
+    main.appendChild(memo);
+    main.appendChild(meta);
+    var amt = document.createElement("span");
+    amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
+    amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
+    a.appendChild(main);
+    a.appendChild(amt);
+    var star = document.createElement("button");
+    star.type = "button";
+    star.className = "abV5SearchFav" + (favIds[r.id] ? " isFav" : "");
+    star.setAttribute("aria-label", "즐겨찾기");
+    star.setAttribute("aria-pressed", favIds[r.id] ? "true" : "false");
+    star.textContent = "★";
+    star.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); toggleFav(r, star); });
+    row.appendChild(a);
+    row.appendChild(star);
+    return row;
+  }
   function render(data) {
     resultsBox.textContent = "";
     var list = (data && data.results) || [];
     if (!list.length) { setMessage("검색 결과가 없어요."); return; }
-    list.forEach(function (r) {
-      var a = document.createElement("a");
-      a.className = "abV5SearchRow";
-      a.href = "/app?month=" + encodeURIComponent(r.month || "")
-        + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
-        + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
-        + "&abfa=" + encodeURIComponent(String(r.amount || ""))
-        + "#feed";
-      a.setAttribute("role", "option");
-      var main = document.createElement("div");
-      main.className = "abV5SearchRowMain";
-      var memo = document.createElement("b");
-      memo.textContent = r.memo || r.category || "(메모 없음)";
-      var meta = document.createElement("small");
-      var parts = [];
-      if (r.transaction_date) parts.push(r.transaction_date);
-      if (r.category) parts.push(r.category);
-      if (r.payment_method) parts.push(r.payment_method);
-      if (r.member) parts.push(r.member);
-      meta.textContent = parts.join(" · ");
-      main.appendChild(memo);
-      main.appendChild(meta);
-      var amt = document.createElement("span");
-      amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
-      amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
-      a.appendChild(main);
-      a.appendChild(amt);
-      resultsBox.appendChild(a);
-    });
+    list.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function renderFavorites() {
+    resultsBox.textContent = "";
+    if (!favList.length) { setMessage("메모·분류·결제수단·금액으로 검색하거나 ★로 자주 보는 거래를 즐겨찾기하세요."); return; }
+    var head = document.createElement("div");
+    head.className = "abV5SearchFavHead";
+    head.textContent = "즐겨찾기";
+    resultsBox.appendChild(head);
+    favList.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function loadFavorites() {
+    var url = "/u/api/favorites";
+    var hh = currentHousehold();
+    if (hh) url += "?household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) {
+        favList = (json && json.favorites) || [];
+        favIds = {};
+        favList.forEach(function (f) { favIds[f.id] = true; });
+        if (isOpen() && !String((input && input.value) || "").trim()) renderFavorites();
+      })
+      .catch(function () {});
+  }
+  function toggleFav(r, btn) {
+    var on = !favIds[r.id];
+    favIds[r.id] = on;
+    if (btn) { btn.classList.toggle("isFav", on); btn.setAttribute("aria-pressed", on ? "true" : "false"); }
+    var body = on ? { household: currentHousehold(), id: r.id, tx: r } : { household: currentHousehold(), id: r.id, remove: true };
+    fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })
+      .catch(function () { favIds[r.id] = !on; if (btn) { btn.classList.toggle("isFav", !on); btn.setAttribute("aria-pressed", !on ? "true" : "false"); } });
   }
   function run(q) {
     var query = String(q || "").trim();
     if (query === lastQ) return;
     lastQ = query;
-    if (!query) { setMessage("메모·분류·결제수단·금액으로 검색해 보세요."); return; }
+    if (!query) { renderFavorites(); return; }
     setMessage("검색 중…");
     var url = "/u/api/tx/search?q=" + encodeURIComponent(query);
     var hh = currentHousehold();
@@ -18743,7 +19081,7 @@ function accountbookNotifJsAsset() {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -18762,6 +19100,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? accountbookSearchJsAsset()
       : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
         ? accountbookNotifJsAsset()
+      : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
+        ? accountbookGoalsJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -18773,7 +19113,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22827-css"'
+        ? '"accountbook-shell-v22828-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -18781,9 +19121,11 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22824-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22826-js"'
+          ? '"accountbook-search-v22828-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
           ? '"accountbook-notif-v22827-js"'
+        : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
+          ? '"accountbook-goals-v22831-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -24378,6 +24720,174 @@ async function handleUserNotifications(request, env, url) {
   });
 
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
+}
+
+// V22.8.28 V5 즐겨찾기: 스키마 없이 accountbook_settings 키-값 저장소에 (가계부·사용자)별 스냅샷 보관.
+function favoritesKey(householdId, userKey) {
+  return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
+}
+function normalizeFavoriteSnapshot(x) {
+  const o = safeObject(x);
+  const id = String(o.id || "").trim();
+  if (!id) return null;
+  return {
+    id: id.slice(0, 64),
+    type: o.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(o.amount || 0))),
+    category: String(o.category || "").slice(0, 80),
+    memo: String(o.memo || "").slice(0, 200),
+    payment_method: String(o.payment_method || "").slice(0, 80),
+    transaction_date: String(o.transaction_date || "").slice(0, 10),
+    month: String(o.month || String(o.transaction_date || "").slice(0, 7)).slice(0, 7),
+  };
+}
+function normalizeFavoriteList(value) {
+  let raw = value;
+  if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = {};
+  const out = [];
+  for (const x of arr) {
+    const s = normalizeFavoriteSnapshot(x);
+    if (!s || seen[s.id]) continue;
+    seen[s.id] = true;
+    out.push(s);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+async function handleUserFavorites(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const method = request.method;
+  const body = method === "POST" ? await readJson(request) : {};
+  const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const key = favoritesKey(household.id, scope.userId || "shared");
+  let list = normalizeFavoriteList(await getSettingValue(env, key).catch(() => ""));
+  if (method === "POST") {
+    const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+    if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
+    if (body.remove) {
+      list = list.filter((f) => f.id !== id);
+    } else {
+      const snap = normalizeFavoriteSnapshot(body.tx || body);
+      if (!snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
+      list = [snap, ...list.filter((f) => f.id !== snap.id)].slice(0, 100);
+    }
+    await saveSettingValue(env, key, JSON.stringify(list));
+  }
+  return jsonResponse({ ok: true, household_id: household.id, count: list.length, ids: list.map((f) => f.id), favorites: list });
+}
+
+// V22.8.31 V5 저축·목표(§3.7) — 스키마 없이 accountbook_settings 키-값 저장소에 가계부별 목표 보관.
+function goalsKey(householdId) {
+  return `goals:v5:${String(householdId || "default").trim() || "default"}`;
+}
+function normalizeGoal(x) {
+  const o = safeObject(x);
+  const name = String(o.name || "").trim().slice(0, 60);
+  if (!name) return null;
+  return {
+    id: String(o.id || `goal_${Math.random().toString(36).slice(2, 10)}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 64),
+    name,
+    emoji: String(o.emoji || "🎯").slice(0, 8),
+    target: Math.max(0, Math.round(Number(o.target || 0))),
+    saved: Math.max(0, Math.round(Number(o.saved || 0))),
+    monthly: Math.max(0, Math.round(Number(o.monthly || 0))),
+    deadline: /^\d{4}-\d{2}$/.test(String(o.deadline || "")) ? String(o.deadline) : "",
+    created_at: o.created_at || new Date().toISOString(),
+  };
+}
+function normalizeGoalList(value) {
+  let raw = value;
+  if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = {};
+  const out = [];
+  for (const x of arr) {
+    const g = normalizeGoal(x);
+    if (!g || seen[g.id]) continue;
+    seen[g.id] = true;
+    out.push(g);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+function enrichGoal(g) {
+  const progress = g.target > 0 ? Math.min(100, Math.round((g.saved / g.target) * 100)) : 0;
+  const remaining = Math.max(0, g.target - g.saved);
+  let monthsLeft = null, neededMonthly = null, status;
+  if (g.target > 0 && g.saved >= g.target) {
+    status = "done";
+  } else if (g.deadline) {
+    const [ny, nm] = currentMonthKst().split("-").map(Number);
+    const [dy, dm] = g.deadline.split("-").map(Number);
+    monthsLeft = Math.max(1, (dy - ny) * 12 + (dm - nm) + 1);
+    neededMonthly = Math.ceil(remaining / monthsLeft);
+    status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+  } else {
+    status = g.monthly > 0 ? "onTrack" : "behind";
+  }
+  return { ...g, progress, remaining, monthsLeft, neededMonthly, status };
+}
+function goalsPayload(householdId, list) {
+  const goals = list.map(enrichGoal);
+  const totalTarget = goals.reduce((a, g) => a + g.target, 0);
+  const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
+  return {
+    ok: true, household_id: householdId, count: goals.length,
+    total_target: totalTarget, total_saved: totalSaved,
+    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0,
+    goals,
+  };
+}
+async function handleUserGoals(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const method = request.method;
+  const body = method === "POST" ? await readJson(request) : {};
+  const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const key = goalsKey(household.id);
+  let list = normalizeGoalList(await getSettingValue(env, key).catch(() => ""));
+  if (method === "POST") {
+    const action = String(body.action || "").trim();
+    if (action === "create") {
+      const g = normalizeGoal({ name: body.name, emoji: body.emoji, target: body.target, saved: body.saved, monthly: body.monthly, deadline: body.deadline });
+      if (!g) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
+      list = [...list, g].slice(0, 50);
+    } else if (action === "restore") {
+      const g = normalizeGoal(body.goal);
+      if (g) list = [...list.filter((x) => x.id !== g.id), g].slice(0, 50);
+    } else if (action === "fund" || action === "update" || action === "delete") {
+      const id = String(body.id || "").trim();
+      const idx = list.findIndex((x) => x.id === id);
+      if (idx < 0) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "목표를 찾지 못했습니다." }, 404);
+      if (action === "delete") {
+        list = list.filter((x) => x.id !== id);
+      } else if (action === "fund") {
+        const delta = Math.round(Number(body.amount || 0));
+        list[idx] = normalizeGoal({ ...list[idx], saved: Math.max(0, list[idx].saved + delta) });
+      } else {
+        list[idx] = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: body.target ?? list[idx].target, monthly: body.monthly ?? list[idx].monthly, deadline: body.deadline ?? list[idx].deadline });
+      }
+    } else {
+      return jsonResponse({ ok: false, error: "bad_action", reason: "bad_action", message: "지원하지 않는 요청입니다." }, 400);
+    }
+    await saveSettingValue(env, key, JSON.stringify(list));
+  }
+  return jsonResponse(goalsPayload(household.id, list));
 }
 
 
