@@ -1095,7 +1095,12 @@ export default {
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
         const checks = await Promise.all([checkTableAvailable(env, "transactions"), checkTableAvailable(env, "accountbook_user_identities"), checkTableAvailable(env, "accountbook_transaction_audit")]);
         const failed = checks.map((item, index) => ({ item, table: ["transactions", "accountbook_user_identities", "accountbook_transaction_audit"][index] })).filter((entry) => !entry.item.ok).map((entry) => entry.table);
-        return jsonResponse({ ok: failed.length === 0, ready: failed.length === 0, version: APP_VERSION, failed_tables: failed, time: new Date().toISOString() }, failed.length ? 503 : 200);
+        // P0-2: 저장 경로가 의존하는 핵심 v227 RPC 존재를 확인해, 함수 미적용 상태를 준비 점검에서 잡는다.
+        const coreRpcs = ["accountbook_set_local_identity_v227", "accountbook_create_local_user_v227", "accountbook_update_transaction_v227", "accountbook_delete_transaction_v227"];
+        const rpcResults = await Promise.all(coreRpcs.map((name) => checkRpcAvailable(env, name)));
+        const missingRpcs = coreRpcs.filter((_name, i) => !rpcResults[i].ok);
+        const ready = failed.length === 0 && missingRpcs.length === 0;
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, failed_tables: failed, missing_rpcs: missingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -7703,6 +7708,25 @@ async function checkTableAvailable(env, table) {
 async function tableCheckPair(env, table) {
   const r = await checkTableAvailable(env, table);
   return [r.ok, r.detail];
+}
+
+// P0-2: /ready 준비 점검에서 핵심 RPC 존재 여부를 확인한다.
+// PostgREST는 함수명이 없어도, 인자 시그니처가 안 맞아도 PGRST202를 낸다. 다만 이름이 존재하면
+// 올바른 시그니처를 힌트("Perhaps you meant to call the function ...")로 돌려주므로 이를 근거로
+// '이름 존재(인자 불일치)'와 '함수 없음'을 구분한다. 빈 인자로 호출하므로 데이터는 변경되지 않는다.
+// 애매하면 fail-open(존재로 간주)해 정상 배포를 막지 않는다.
+async function checkRpcAvailable(env, rpcName) {
+  try {
+    await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: "{}" });
+    return { ok: true, detail: "실행됨" };
+  } catch (err) {
+    const msg = safeError(err);
+    if (/PGRST202|Could not find the function/i.test(msg)) {
+      const nameExists = /Perhaps you meant/i.test(msg) && msg.includes(rpcName);
+      return { ok: nameExists, detail: nameExists ? "존재(인자 불일치)" : "함수 없음" };
+    }
+    return { ok: true, detail: "존재(실행 오류)" };
+  }
 }
 
 
