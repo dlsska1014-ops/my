@@ -110,3 +110,13 @@
 - **결과 하이라이트(자기완결형)**: 검색 결과 링크에 `date·abfm(메모)·abfa(금액)` 파라미터를 실어 점프. 목적지에서 검색 에셋이 **메모+금액이 모두 일치하는 첫 행**(`.txRow/.txItem/.timelineItem`)을 폴링(~3.6s)으로 찾아 스크롤·펄스 강조 후 자동 해제. 피드 렌더러 무수정 → 결합 0.
 - **판단**: `/app` 피드는 클라이언트 렌더이며 행이 tx id를 노출하지 않아(일자 링크 기반) 진짜 per-tx 하이라이트는 피드 렌더러 개조가 필요. 원칙(격리·최소 blast radius)에 따라 **DOM 텍스트 기반 best-effort 휴리스틱**으로 구현하고, 정밀 앵커링은 별도 증분으로 분리.
 - **검증**: `node --check` 통과. Playwright 브라우저 검증 8개 항목 통과(버튼 오픈·Ctrl+K 토글·Esc 닫기·결과 렌더·딥링크·정확 행 하이라이트·오탐 0).
+
+### V22.8.27 — 알림센터 + 홈 예산위험 배너 (Phase 3) ✅
+- **API**: `GET /u/api/notifications?household=` — user 세션 스코프. 5개 규칙 평가(생성 순):
+  1) 총 예산 초과(danger)/월말초과·85%↑(warn) 2) 분류별 예산 초과 상위 3 3) 미분류 지출 4) 이번 달 반영 대기 정기지출 5) 준비 납부 임박 상위 3.
+- **재사용**: `buildBudgetAlertPolishModel`(예산 규칙 1·2·4) · `reserveDashboard`/`reservePlanStatus`(규칙 5) · `isMissingCategory`(규칙 3) · `fetchBudgets`/`fetchRecurring`/`fetchReservePlans`. 신규 계산 로직 최소화.
+- **UI**: 나브에 벨 버튼(뱃지) 추가(데스크톱·모바일) + 알림 오버레이 패널. 홈(`/app`)에서 최상위 danger/warn 배너를 fixed 카드로 노출(탭 시 예산 화면 이동).
+- **dismiss**: 프로토타입과 동일하게 **localStorage per household**(무스키마). 개별 dismiss → 뱃지·배너 즉시 갱신, 새로고침 후 영속.
+- **격리**: 검색과 동일 패턴(오버레이 `</body>` 앞 주입, 전용 JS 에셋, 레거시 마크업 무변경). 결과 렌더는 DOM API(textContent)로 XSS 차단.
+- **판단(스키마 없이)**: 명세의 `notif_state` 서버 테이블 대신 프로토타입식 localStorage dismiss 채택 → 무스키마·무마이그레이션. 규칙 6(목표 저축)은 이 레포에 goals 테이블이 없어 정기지출 준비(reserve)로 대체. 카드 결제일(규칙 5 카드 특화)·자동감지(규칙 4 원형)는 후속 증분.
+- **검증**: `node --check` 통과. Playwright 13개 항목 통과(벨 오픈·목록/레벨 렌더·dismiss→뱃지·배너 제거·Esc·새로고침 영속·홈 배너 노출·user 스코프 URL).

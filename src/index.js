@@ -1703,6 +1703,10 @@ export default {
         return handleUserTxSearch(request, env, url);
       }
 
+      if (url.pathname === "/u/api/notifications" && request.method === "GET") {
+        return handleUserNotifications(request, env, url);
+      }
+
       if (url.pathname.startsWith("/api/")) {
         return handleApi(request, env, url);
       }
@@ -1746,7 +1750,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.26-V5-SEARCH-TRIGGER";
+const APP_VERSION = "V22.8.27-V5-NOTIFICATIONS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4125,9 +4129,11 @@ function normalizeUserFacingUi(html = "") {
     }
   }
   if (useV22812Shell && source.includes("</body>") && !source.includes('id="abV5Search"')) {
-    const searchOverlay = ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML
-      + `<script src="${ACCOUNTBOOK_SEARCH_JS_ASSET_PATH}" defer></script>`;
-    source = source.replace("</body>", `${searchOverlay}</body>`);
+    const overlays = ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML
+      + ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML
+      + `<script src="${ACCOUNTBOOK_SEARCH_JS_ASSET_PATH}" defer></script>`
+      + `<script src="${ACCOUNTBOOK_NOTIF_JS_ASSET_PATH}" defer></script>`;
+    source = source.replace("</body>", `${overlays}</body>`);
   }
   return source;
 }
@@ -10127,7 +10133,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><div class="abNavTopActions"><button type="button" class="abNavSearchBtn" data-abv5-search-open aria-label="통합 검색" title="검색 (Ctrl/⌘K)"><span aria-hidden="true">🔍</span></button><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><div class="abNavMobileActions"><button type="button" class="abNavSearchBtn abNavSearchBtnMobile" data-abv5-search-open aria-label="통합 검색" title="검색"><span aria-hidden="true">🔍</span></button><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><div class="abNavTopActions"><button type="button" class="abNavSearchBtn" data-abv5-search-open aria-label="통합 검색" title="검색 (Ctrl/⌘K)"><span aria-hidden="true">🔍</span></button><button type="button" class="abNavSearchBtn abNavBellBtn" data-abv5-notif-open aria-label="알림" title="알림"><span aria-hidden="true">🔔</span><span class="abV5NotifBadge" hidden></span></button><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><div class="abNavMobileActions"><button type="button" class="abNavSearchBtn abNavSearchBtnMobile" data-abv5-search-open aria-label="통합 검색" title="검색"><span aria-hidden="true">🔍</span></button><button type="button" class="abNavSearchBtn abNavBellBtn" data-abv5-notif-open aria-label="알림" title="알림"><span aria-hidden="true">🔔</span><span class="abV5NotifBadge" hidden></span></button><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 
@@ -17478,20 +17484,25 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22826.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22827.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22826.js";
+const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
 let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
 let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
+let AB_ACCOUNTBOOK_NOTIF_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
 // V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
 const ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML = `<div id="abV5Search" class="abV5SearchOverlay" hidden aria-hidden="true"><div class="abV5SearchScrim" data-abv5-search-close></div><div class="abV5SearchPanel" role="dialog" aria-modal="true" aria-label="통합 검색"><div class="abV5SearchBar"><span class="abV5SearchIcon" aria-hidden="true">🔍</span><input id="abV5SearchInput" type="search" autocomplete="off" placeholder="메모·분류·결제수단·금액 검색" aria-label="검색어"/><button type="button" class="abV5SearchClose" data-abv5-search-close aria-label="검색 닫기">Esc</button></div><div id="abV5SearchResults" class="abV5SearchResults" role="listbox" aria-live="polite"></div><div class="abV5SearchHint">전 기간 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>`;
+
+// V22.8.27 알림 센터 전역 오버레이 — V5 신규 기능(격리 추가).
+const ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML = `<div id="abV5Notif" class="abV5NotifOverlay" hidden aria-hidden="true"><div class="abV5NotifScrim" data-abv5-notif-close></div><div class="abV5NotifPanel" role="dialog" aria-modal="true" aria-label="알림 센터"><div class="abV5NotifHead"><b>알림</b><button type="button" class="abV5NotifClose" data-abv5-notif-close aria-label="알림 닫기">Esc</button></div><div id="abV5NotifList" class="abV5NotifList" aria-live="polite"></div></div></div>`;
 
 const ACCOUNTBOOK_SHELL_V22811_CSS = `
 body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
@@ -18025,6 +18036,35 @@ body.abV22812Shell.abNavCollapsed .abNavTopActions{flex-direction:column;gap:8px
 body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-radius:14px}
 @keyframes abV5FocusPulse{0%{box-shadow:0 0 0 0 var(--accent-weak),0 0 0 2px var(--accent)}30%{box-shadow:0 0 0 6px var(--accent-weak),0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0),0 0 0 0 rgba(0,0,0,0)}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abV5Focus{animation:none;box-shadow:0 0 0 2px var(--accent)}}
+/* V22.8.27 알림 센터 + 홈 예산위험 배너. */
+body.abV22812Shell .abNavBellBtn{position:relative}
+body.abV22812Shell .abV5NotifBadge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--neg)!important;color:#fff!important;font-size:10px;font-weight:800;line-height:16px;text-align:center}
+body.abV22812Shell .abV5NotifBadge[hidden]{display:none}
+body.abV22812Shell .abV5NotifOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:flex-end;padding:12px}
+body.abV22812Shell .abV5NotifOverlay[hidden]{display:none}
+body.abV22812Shell .abV5NotifScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
+body.abV22812Shell .abV5NotifPanel{position:relative;width:min(100%,400px);max-height:min(80vh,640px);display:flex;flex-direction:column;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden}
+body.abV22812Shell .abV5NotifHead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)!important}
+body.abV22812Shell .abV5NotifHead b{font-size:15px}
+body.abV22812Shell .abV5NotifClose{border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5NotifList{overflow:auto;padding:8px}
+body.abV22812Shell .abV5NotifItem{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;border:1px solid var(--line)!important;margin:6px 0;background:var(--card-2)!important;border-left:4px solid var(--sub)!important}
+body.abV22812Shell .abV5NotifItem.lvl-danger{border-left-color:var(--neg)!important}
+body.abV22812Shell .abV5NotifItem.lvl-warn{border-left-color:var(--warn)!important}
+body.abV22812Shell .abV5NotifItem.lvl-info{border-left-color:var(--accent)!important}
+body.abV22812Shell .abV5NotifItemBody{min-width:0;flex:1}
+body.abV22812Shell .abV5NotifItemBody a{text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5NotifItemBody b{display:block;font-size:13.5px;font-weight:700}
+body.abV22812Shell .abV5NotifItemBody span{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px;line-height:1.45}
+body.abV22812Shell .abV5NotifDismiss{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px}
+body.abV22812Shell .abV5NotifEmpty{padding:28px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
+body.abV22812Shell .abV5Banner{position:fixed;left:50%;transform:translateX(-50%);top:calc(60px + var(--abSafeTop));z-index:2050;width:min(calc(100% - 24px),560px);display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card)!important;border:1px solid var(--line)!important;border-left:4px solid var(--neg)!important;border-radius:14px;box-shadow:0 14px 34px rgba(15,23,42,.16)}
+body.abV22812Shell .abV5Banner.lvl-warn{border-left-color:var(--warn)!important}
+body.abV22812Shell .abV5Banner a{flex:1;min-width:0;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5Banner b{display:block;font-size:13.5px;font-weight:800}
+body.abV22812Shell .abV5Banner span{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.abV22812Shell .abV5BannerClose{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
+@media(min-width:900px){body.abV22812Shell .abV5Banner{left:calc(50% + var(--abNavW)/2);top:20px}body.abV22812Shell.abNavCollapsed .abV5Banner{left:calc(50% + var(--abNavCollapsed)/2)}}
 `;
 
 function accountbookThemeClientMain() {
@@ -18584,10 +18624,126 @@ function accountbookSearchJsAsset() {
   return AB_ACCOUNTBOOK_SEARCH_JS_CACHE;
 }
 
+function accountbookNotifClientMain() {
+  var overlay = document.getElementById("abV5Notif");
+  var listBox = document.getElementById("abV5NotifList");
+  var badges = document.querySelectorAll(".abV5NotifBadge");
+  var openers = document.querySelectorAll("[data-abv5-notif-open]");
+  if (!overlay || !listBox || !openers.length) return;
+  var data = [];
+  var dismissed = {};
+  function currentHousehold() {
+    try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; }
+  }
+  var storeKey = "abV5NotifDismissed:" + currentHousehold();
+  function loadDismissed() {
+    try {
+      var raw = localStorage.getItem(storeKey);
+      var arr = raw ? JSON.parse(raw) : [];
+      dismissed = {};
+      (arr || []).forEach(function (k) { dismissed[k] = true; });
+    } catch (e) { dismissed = {}; }
+  }
+  function saveDismissed() {
+    try { localStorage.setItem(storeKey, JSON.stringify(Object.keys(dismissed))); } catch (e) {}
+  }
+  function visible() { return data.filter(function (n) { return !dismissed[n.key]; }); }
+  function isOpen() { return !overlay.hidden; }
+  function setBadge() {
+    var n = visible().length;
+    Array.prototype.forEach.call(badges, function (b) {
+      if (n > 0) { b.textContent = n > 99 ? "99+" : String(n); b.hidden = false; }
+      else { b.hidden = true; }
+    });
+  }
+  function open() { overlay.hidden = false; overlay.setAttribute("aria-hidden", "false"); document.body.classList.add("abV5SearchOpen"); renderList(); }
+  function close() { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); document.body.classList.remove("abV5SearchOpen"); }
+  function dismiss(key) { dismissed[key] = true; saveDismissed(); renderList(); setBadge(); renderBanner(); }
+  function renderList() {
+    listBox.textContent = "";
+    var list = visible();
+    if (!list.length) {
+      var e = document.createElement("div");
+      e.className = "abV5NotifEmpty";
+      e.textContent = "새 알림이 없어요.";
+      listBox.appendChild(e);
+      return;
+    }
+    list.forEach(function (n) {
+      var item = document.createElement("div");
+      item.className = "abV5NotifItem lvl-" + (n.level || "info");
+      var body = document.createElement("div");
+      body.className = "abV5NotifItemBody";
+      var a = document.createElement("a");
+      a.href = n.href || "#";
+      var b = document.createElement("b"); b.textContent = n.title || "";
+      var s = document.createElement("span"); s.textContent = n.body || "";
+      a.appendChild(b); a.appendChild(s);
+      body.appendChild(a);
+      var x = document.createElement("button");
+      x.type = "button"; x.className = "abV5NotifDismiss"; x.setAttribute("aria-label", "이 알림 지우기"); x.textContent = "×";
+      x.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); dismiss(n.key); });
+      item.appendChild(body); item.appendChild(x);
+      listBox.appendChild(item);
+    });
+  }
+  function renderBanner() {
+    var existing = document.getElementById("abV5Banner");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    if (location.pathname !== "/app") return;
+    var list = visible();
+    var top = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].banner && (list[i].level === "danger" || list[i].level === "warn")) { top = list[i]; break; }
+    }
+    if (!top) return;
+    var bar = document.createElement("div");
+    bar.id = "abV5Banner";
+    bar.className = "abV5Banner lvl-" + top.level;
+    var a = document.createElement("a"); a.href = top.href || "#";
+    var b = document.createElement("b"); b.textContent = top.title || "";
+    var s = document.createElement("span"); s.textContent = top.body || "";
+    a.appendChild(b); a.appendChild(s);
+    var x = document.createElement("button");
+    x.type = "button"; x.className = "abV5BannerClose"; x.setAttribute("aria-label", "배너 닫기"); x.textContent = "×";
+    x.addEventListener("click", function (ev) { ev.preventDefault(); dismiss(top.key); });
+    bar.appendChild(a); bar.appendChild(x);
+    document.body.appendChild(bar);
+  }
+  function load() {
+    var url = "/u/api/notifications";
+    var hh = currentHousehold();
+    if (hh) url += "?household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { data = (json && json.notifications) || []; setBadge(); renderBanner(); if (isOpen()) renderList(); })
+      .catch(function () { data = []; setBadge(); });
+  }
+  Array.prototype.forEach.call(openers, function (btn) {
+    btn.addEventListener("click", function (ev) { ev.preventDefault(); if (isOpen()) close(); else open(); });
+  });
+  overlay.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest("[data-abv5-notif-close]")) close();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && isOpen()) { ev.preventDefault(); close(); }
+  });
+  loadDismissed();
+  load();
+}
+
+function accountbookNotifJsAsset() {
+  if (!AB_ACCOUNTBOOK_NOTIF_JS_CACHE) {
+    AB_ACCOUNTBOOK_NOTIF_JS_CACHE = `(${accountbookNotifClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_NOTIF_JS_CACHE;
+}
+
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -18604,6 +18760,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? accountbookStage4NavJsAsset()
       : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
         ? accountbookSearchJsAsset()
+      : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
+        ? accountbookNotifJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -18615,7 +18773,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22826-css"'
+        ? '"accountbook-shell-v22827-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -18624,6 +18782,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-nav-v22824-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22826-js"'
+        : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
+          ? '"accountbook-notif-v22827-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -24146,6 +24306,78 @@ async function handleUserTxSearch(request, env, url) {
     if (matched.length >= 50) break;
   }
   return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
+}
+
+// V22.8.27 V5 알림센터: user 세션 스코프로 예산·분류·미분류·정기·준비 규칙을 평가한다.
+// 기존 검증된 헬퍼(buildBudgetAlertPolishModel/reserveDashboard/isMissingCategory) 재사용.
+async function handleUserNotifications(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const requested = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const members = await fetchHouseholdMembers(env, household.id);
+  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: household.id, type: "all" }), members);
+  const budgets = await fetchBudgets(env, household.id, month).catch(() => []);
+  const recurring = await fetchRecurring(env, household.id).catch(() => []);
+  const plans = await fetchReservePlans(env, household.id).catch(() => []);
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring });
+  const hh = `&household_id=${encodeURIComponent(household.id)}`;
+  const mq = encodeURIComponent(month);
+  const notifs = [];
+
+  // 1) 총 예산 상태 (danger: 초과 / warn: 월말초과·85%↑)
+  if (model.totalBudget) {
+    if (model.status === "over") {
+      notifs.push({ key: "budget-over", level: "danger", banner: true, title: "이번 달 예산을 초과했어요",
+        body: `사용 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
+        href: `/budget-alerts?month=${mq}${hh}` });
+    } else if (model.status === "forecast" || model.status === "warning") {
+      notifs.push({ key: "budget-warn", level: "warn", banner: true,
+        title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "예산의 85% 이상 사용했어요",
+        body: `사용 ${numberWithCommas(model.spent)}원 · 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
+        href: `/budget-alerts?month=${mq}${hh}` });
+    }
+  }
+
+  // 2) 분류별 예산 초과 (상위 3)
+  safeArray(model.dangerCategories).slice(0, 3).forEach((c) => {
+    notifs.push({ key: `cat-${c.category}`, level: "danger", title: `${c.category || "미분류"} 예산 초과`,
+      body: `사용 ${numberWithCommas(c.spent)}원 / 예산 ${numberWithCommas(c.budget)}원 (${numberWithCommas(c.rate)}%)`,
+      href: `/app?month=${mq}${hh}&type=expense&category=${encodeURIComponent(c.category || "")}&feed=all#feed` });
+  });
+
+  // 3) 미분류 지출
+  const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
+  if (uncategorized.length) {
+    notifs.push({ key: "uncat", level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+      body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
+      href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
+  }
+
+  // 4) 이번 달 반영 대기 정기지출
+  const pending = safeArray(model.pendingRecurring);
+  if (pending.length) {
+    notifs.push({ key: "recurring-pending", level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
+      body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  }
+
+  // 5) 준비 납부 임박 (상위 3)
+  const dash = reserveDashboard(plans);
+  safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
+    notifs.push({ key: `reserve-${s.plan?.id || idx}`, level: s.days_left <= 7 ? "warn" : "info",
+      title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
+      body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  });
+
+  return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
 }
 
 
