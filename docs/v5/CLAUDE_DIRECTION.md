@@ -155,3 +155,17 @@
 - 알림센터(`/u/api/notifications`)에 **반복 지출 자동감지** 규칙(4b) 추가: 최근 3개월에서 반복된 동일 메모 지출을 감지해 "정기지출로 등록" 딥링크와 함께 알림.
 - **판단(중복 방지)**: 구현 중 `detectRecurringCandidates`(+`normalizeRecurringKey`)가 **이미 존재**함을 발견(분석 페이지 `renderRecurringInsightList`로 노출). 내가 새로 만든 중복 정의를 **제거하고 기존 검증 함수를 그대로 재사용** → 진짜 격차였던 "알림센터 노출"만 신규 추가. registered 인자로 기존 정기지출을 제외.
 - **검증**: `node --check` 통과. 기존 `detectRecurringCandidates` 재사용 단위 테스트(인터넷 3개월·휴대폰 2개월 감지, 등록분·1회성 제외) 통과.
+
+### V22.8.33 — 거래목록 행 즐겨찾기(★, §3.2) ✅
+- 거래 피드 행에 ★ 토글 추가. 검색 오버레이와 **동일한 콘텐츠 기반 키**(`date|type|amount|memo`)로 통일.
+- **판단(피드 특성)**: `/app` 피드 데이터는 `window.__INSIGHT__`에 **압축 배열로 주입되며 tx id가 없음**(35KB 홈 성능 최적화). tx id 주입은 성능 역행 → **콘텐츠 키** 채택.
+- **격리 설계**: 피드 렌더러에는 **데이터 속성 2개(`data-fav-key`, `data-fav-tx`)만 추가**. ★ 주입·상태·토글 로직은 **분리된 전용 에셋**(`accountbook-favrows`)에서 처리 → 에셋이 실패해도 피드 렌더링 무영향. `MutationObserver`로 비동기 렌더 행까지 강화. 행은 `<a>`이므로 ★는 `<span role=button>`(유효 중첩) + preventDefault/stopPropagation으로 네비 차단.
+- 검색 오버레이도 `favKeyOf`로 같은 키를 쓰도록 통일 → 검색·피드 즐겨찾기 상태 교차 일관.
+- **검증**: `node --check` 통과. Playwright: ★ 주입(2행)·사전 즐겨찾기 표시·토글 add/remove 서버 반영·행 클릭 네비 차단·MutationObserver 동적행 강화 전부 통과.
+
+---
+
+## 6. Phase 4 조사 결론 (Claude 판단)
+- **멱등성(§5): 이미 완전 구현, 명세 초과** → 새로 만들지 않음. 2단계 방어: ① `checkKakaoRepeatGuard`(인메모리, user+대화스코프+발화해시, 8초) ② `findExactDuplicateTransaction`(DB 콘텐츠 정확 일치, 120초, 저장 직전). §5의 external_key 요구를 DB 백엔드로 더 견고하게 달성. 새 컬럼 추가는 중복+게이트된 스키마 마이그레이션이라 부적절.
+- **푸시 알림: 범위 외**(사용자 결정) — 카카오 API 유료화 예정 + 외부 연동(채널·Secret·스케줄러·opt-in) 필요. 기록 피드백 메시지로 대체.
+- **결론: V5 Phase 1–3 신규 기능 실질 완료.** 남은 것은 제품 결정이 필요한 푸시뿐.
