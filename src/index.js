@@ -1770,7 +1770,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.33-V5-ROW-FAVORITES";
+const APP_VERSION = "V22.8.34-STABILIZE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4148,13 +4148,9 @@ function normalizeUserFacingUi(html = "") {
       source = source.replace("</head>", `${shellLink}</head>`);
     }
   }
-  if (useV22812Shell && source.includes("</body>") && !source.includes('id="abV5Search"')) {
-    const overlays = ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML
-      + ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML
-      + `<script src="${ACCOUNTBOOK_SEARCH_JS_ASSET_PATH}" defer></script>`
-      + `<script src="${ACCOUNTBOOK_NOTIF_JS_ASSET_PATH}" defer></script>`
-      + `<script src="${ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH}" defer></script>`;
-    source = source.replace("</body>", `${overlays}</body>`);
+  if (useV22812Shell && source.includes("</body>") && !source.includes(ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH)) {
+    // V22.8.34: 검색·알림·행즐겨찾기를 단일 immutable 번들로 주입(오버레이 마크업은 번들 JS가 생성).
+    source = source.replace("</body>", `<script src="${ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH}" defer></script></body>`);
   }
   return source;
 }
@@ -11142,6 +11138,16 @@ function accountbookFavRowsJsAsset() {
   return AB_ACCOUNTBOOK_FAVROWS_JS_CACHE;
 }
 
+// V22.8.34: V5 오버레이 3종(검색·알림·행즐겨찾기)을 1개 immutable 에셋으로 번들링하고
+// 오버레이 마크업도 여기서 생성 → 페이지 HTML(홈 35KB 예산)에서 스크립트·마크업 제거.
+function accountbookV5BundleJsAsset() {
+  if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
+    const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
+}
+
 async function handleBudgetAlertPolishPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -17845,6 +17851,7 @@ const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22833.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22831.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22833.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22834.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -17853,6 +17860,7 @@ let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
 let AB_ACCOUNTBOOK_NOTIF_JS_CACHE = "";
 let AB_ACCOUNTBOOK_GOALS_JS_CACHE = "";
 let AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = "";
+let AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
 // V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
@@ -19166,7 +19174,7 @@ function accountbookNotifJsAsset() {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -19189,6 +19197,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? accountbookGoalsJsAsset()
       : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
         ? accountbookFavRowsJsAsset()
+      : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
+        ? accountbookV5BundleJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -19215,6 +19225,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-goals-v22831-js"'
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22833-js"'
+        : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
+          ? '"accountbook-v5-v22834-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
