@@ -1770,7 +1770,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.32-V5-RECURRING-DETECT";
+const APP_VERSION = "V22.8.33-V5-ROW-FAVORITES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4152,7 +4152,8 @@ function normalizeUserFacingUi(html = "") {
     const overlays = ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML
       + ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML
       + `<script src="${ACCOUNTBOOK_SEARCH_JS_ASSET_PATH}" defer></script>`
-      + `<script src="${ACCOUNTBOOK_NOTIF_JS_ASSET_PATH}" defer></script>`;
+      + `<script src="${ACCOUNTBOOK_NOTIF_JS_ASSET_PATH}" defer></script>`
+      + `<script src="${ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH}" defer></script>`;
     source = source.replace("</body>", `${overlays}</body>`);
   }
   return source;
@@ -11074,6 +11075,73 @@ function accountbookGoalsJsAsset() {
   return AB_ACCOUNTBOOK_GOALS_JS_CACHE;
 }
 
+// V22.8.33 거래목록 행 즐겨찾기(★, §3.2): 피드 렌더러와 분리된 에셋으로 [data-fav-key] 행을 강화.
+// 콘텐츠 기반 키(date|type|amount|memo)로 검색 오버레이와 일관.
+function accountbookFavRowsClientMain() {
+  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  var favSet = {};
+  var loaded = false;
+  function apiUrl() { var u = "/u/api/favorites"; var h = hh(); if (h) u += "?household=" + encodeURIComponent(h); return u; }
+  function markAll() {
+    var rows = document.querySelectorAll("[data-fav-key]");
+    Array.prototype.forEach.call(rows, function (row) {
+      var key = row.getAttribute("data-fav-key");
+      var star = row.querySelector(".abV5RowFav");
+      if (star) { var on = !!favSet[key]; star.classList.toggle("isFav", on); star.setAttribute("aria-pressed", on ? "true" : "false"); }
+    });
+  }
+  function doToggle(row, key, star) {
+    var on = !favSet[key];
+    favSet[key] = on;
+    star.classList.toggle("isFav", on);
+    star.setAttribute("aria-pressed", on ? "true" : "false");
+    var tx; try { tx = JSON.parse(row.getAttribute("data-fav-tx") || "{}"); } catch (e) { tx = { id: key }; }
+    var body = on ? { household: hh(), id: key, tx: tx } : { household: hh(), id: key, remove: true };
+    fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); markAll(); })
+      .catch(function () { favSet[key] = !on; star.classList.toggle("isFav", !on); star.setAttribute("aria-pressed", !on ? "true" : "false"); });
+  }
+  function enhance() {
+    var rows = document.querySelectorAll("[data-fav-key]");
+    Array.prototype.forEach.call(rows, function (row) {
+      if (row.__favDone) return;
+      row.__favDone = true;
+      var key = row.getAttribute("data-fav-key");
+      var star = document.createElement("span");
+      star.className = "abV5RowFav" + (favSet[key] ? " isFav" : "");
+      star.setAttribute("role", "button");
+      star.setAttribute("tabindex", "0");
+      star.setAttribute("aria-label", "즐겨찾기");
+      star.setAttribute("aria-pressed", favSet[key] ? "true" : "false");
+      star.textContent = "★";
+      function toggle(ev) { ev.preventDefault(); ev.stopPropagation(); doToggle(row, key, star); }
+      star.addEventListener("click", toggle);
+      star.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") toggle(ev); });
+      row.appendChild(star);
+    });
+  }
+  function load() {
+    fetch(apiUrl(), { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); loaded = true; enhance(); markAll(); })
+      .catch(function () { loaded = true; enhance(); });
+  }
+  var target = document.getElementById("txList") || document.body;
+  if (window.MutationObserver && target) {
+    var obs = new MutationObserver(function () { enhance(); markAll(); });
+    obs.observe(target, { childList: true, subtree: true });
+  }
+  load();
+  setTimeout(function () { enhance(); markAll(); }, 500);
+}
+function accountbookFavRowsJsAsset() {
+  if (!AB_ACCOUNTBOOK_FAVROWS_JS_CACHE) {
+    AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = `(${accountbookFavRowsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_FAVROWS_JS_CACHE;
+}
+
 async function handleBudgetAlertPolishPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -15265,6 +15333,11 @@ function insightClientMain() {
       var row = el("a", "txRow");
       row.href = dayEditHref(r.date);
       row.title = "이 날 기록 열기·수정";
+      var favMemo = String(r.memo || r.cat || "").trim();
+      var favType = r.income ? "income" : "expense";
+      var favKey = r.date + "|" + favType + "|" + r.amount + "|" + favMemo;
+      row.setAttribute("data-fav-key", favKey);
+      row.setAttribute("data-fav-tx", JSON.stringify({ id: favKey, type: favType, amount: r.amount, memo: favMemo, category: r.cat || "", payment_method: (r.pay && r.pay !== "미지정") ? r.pay : "", transaction_date: r.date, month: String(r.date).slice(0, 7) }));
       var dot = el("span", "dot");
       dot.style.background = r.income ? C.in_ : catColor(r.cat);
       row.appendChild(dot);
@@ -17764,13 +17837,14 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22828.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22833.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22828.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22833.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22831.js";
+const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22833.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -17778,6 +17852,7 @@ let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
 let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
 let AB_ACCOUNTBOOK_NOTIF_JS_CACHE = "";
 let AB_ACCOUNTBOOK_GOALS_JS_CACHE = "";
+let AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
 // V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
@@ -18355,6 +18430,11 @@ body.abV22812Shell .abV5SearchFav.isFav{color:#f5a623!important}
 body.abV22812Shell .abV5SearchFav:hover{background:var(--card-2)!important}
 body.abV22812Shell .abV5SearchFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
 body.abV22812Shell .abV5SearchFavHead{padding:8px 10px 2px;color:var(--faint)!important;font-size:11px;font-weight:800}
+/* V22.8.33 거래목록 행 즐겨찾기(★). */
+body.abV22812Shell .abV5RowFav{display:inline-flex;align-items:center;justify-content:center;align-self:center;flex:none;width:30px;min-width:30px;height:30px;margin-left:2px;color:var(--faint)!important;font-size:15px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;border-radius:8px}
+body.abV22812Shell .abV5RowFav.isFav{color:#f5a623!important}
+body.abV22812Shell .abV5RowFav:hover{color:var(--text)!important;background:var(--card-2)!important}
+body.abV22812Shell .abV5RowFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
 `;
 
 function accountbookThemeClientMain() {
@@ -18776,6 +18856,9 @@ function accountbookSearchClientMain() {
   var lastQ = null;
   var favIds = {};
   var favList = [];
+  function favKeyOf(r) {
+    return (r.transaction_date || "") + "|" + (r.type || "expense") + "|" + (r.amount || 0) + "|" + String(r.memo || r.category || "").trim();
+  }
   function currentHousehold() {
     try {
       var p = new URLSearchParams(location.search);
@@ -18836,9 +18919,10 @@ function accountbookSearchClientMain() {
     a.appendChild(amt);
     var star = document.createElement("button");
     star.type = "button";
-    star.className = "abV5SearchFav" + (favIds[r.id] ? " isFav" : "");
+    var fk = favKeyOf(r);
+    star.className = "abV5SearchFav" + (favIds[fk] ? " isFav" : "");
     star.setAttribute("aria-label", "즐겨찾기");
-    star.setAttribute("aria-pressed", favIds[r.id] ? "true" : "false");
+    star.setAttribute("aria-pressed", favIds[fk] ? "true" : "false");
     star.textContent = "★";
     star.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); toggleFav(r, star); });
     row.appendChild(a);
@@ -18875,10 +18959,11 @@ function accountbookSearchClientMain() {
       .catch(function () {});
   }
   function toggleFav(r, btn) {
-    var on = !favIds[r.id];
-    favIds[r.id] = on;
+    var fk = favKeyOf(r);
+    var on = !favIds[fk];
+    favIds[fk] = on;
     if (btn) { btn.classList.toggle("isFav", on); btn.setAttribute("aria-pressed", on ? "true" : "false"); }
-    var body = on ? { household: currentHousehold(), id: r.id, tx: r } : { household: currentHousehold(), id: r.id, remove: true };
+    var body = on ? { household: currentHousehold(), id: fk, tx: { id: fk, type: r.type, amount: r.amount, memo: r.memo, category: r.category, payment_method: r.payment_method, transaction_date: r.transaction_date, month: r.month } } : { household: currentHousehold(), id: fk, remove: true };
     fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
       .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })
@@ -19081,7 +19166,7 @@ function accountbookNotifJsAsset() {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -19102,6 +19187,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? accountbookNotifJsAsset()
       : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
         ? accountbookGoalsJsAsset()
+      : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
+        ? accountbookFavRowsJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -19113,7 +19200,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22828-css"'
+        ? '"accountbook-shell-v22833-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -19121,11 +19208,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22824-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22828-js"'
+          ? '"accountbook-search-v22833-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
           ? '"accountbook-notif-v22827-js"'
         : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
           ? '"accountbook-goals-v22831-js"'
+        : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
+          ? '"accountbook-favrows-v22833-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
