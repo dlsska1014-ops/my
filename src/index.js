@@ -1746,7 +1746,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.25-V5-GLOBAL-SEARCH";
+const APP_VERSION = "V22.8.26-V5-SEARCH-TRIGGER";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -10127,7 +10127,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><div class="abNavTopActions"><button type="button" class="abNavSearchBtn" data-abv5-search-open aria-label="통합 검색" title="검색 (Ctrl/⌘K)"><span aria-hidden="true">🔍</span></button><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><div class="abNavMobileActions"><button type="button" class="abNavSearchBtn abNavSearchBtnMobile" data-abv5-search-open aria-label="통합 검색" title="검색"><span aria-hidden="true">🔍</span></button><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 
@@ -17478,11 +17478,11 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22825.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22826.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22825.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22826.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -18016,6 +18016,15 @@ body.abV22812Shell .abV5SearchEmpty{padding:24px 16px;text-align:center;color:va
 body.abV22812Shell .abV5SearchHint{padding:10px 16px;border-top:1px solid var(--line)!important;color:var(--faint)!important;font-size:11px}
 body.abV5SearchOpen{overflow:hidden!important}
 @media(max-width:560px){body.abV22812Shell .abV5SearchOverlay{padding:8vh 10px 10px}body.abV22812Shell .abV5SearchPanel{border-radius:16px}}
+/* V22.8.26 검색 진입 버튼 + 결과 포커스 하이라이트. */
+body.abV22812Shell .abNavTopActions,body.abV22812Shell .abNavMobileActions{display:flex;align-items:center;gap:6px;flex:none}
+body.abV22812Shell .abNavSearchBtn{display:grid;place-items:center;width:34px;height:34px;flex:none;border:0!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;cursor:pointer;font-size:15px;line-height:1;padding:0}
+body.abV22812Shell .abNavSearchBtn:hover{color:var(--text)!important}
+body.abV22812Shell .abNavSearchBtn:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
+body.abV22812Shell.abNavCollapsed .abNavTopActions{flex-direction:column;gap:8px}
+body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-radius:14px}
+@keyframes abV5FocusPulse{0%{box-shadow:0 0 0 0 var(--accent-weak),0 0 0 2px var(--accent)}30%{box-shadow:0 0 0 6px var(--accent-weak),0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0),0 0 0 0 rgba(0,0,0,0)}}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell .abV5Focus{animation:none;box-shadow:0 0 0 2px var(--accent)}}
 `;
 
 function accountbookThemeClientMain() {
@@ -18470,7 +18479,11 @@ function accountbookSearchClientMain() {
     list.forEach(function (r) {
       var a = document.createElement("a");
       a.className = "abV5SearchRow";
-      a.href = "/app?month=" + encodeURIComponent(r.month || "") + "#feed";
+      a.href = "/app?month=" + encodeURIComponent(r.month || "")
+        + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
+        + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
+        + "&abfa=" + encodeURIComponent(String(r.amount || ""))
+        + "#feed";
       a.setAttribute("role", "option");
       var main = document.createElement("div");
       main.className = "abV5SearchRowMain";
@@ -18533,6 +18546,35 @@ function accountbookSearchClientMain() {
     btn.addEventListener("click", function (ev) { ev.preventDefault(); open(); });
   });
   setMessage("메모·분류·결제수단·금액으로 검색해 보세요.");
+  function tryFocusFromUrl() {
+    var p; try { p = new URLSearchParams(location.search); } catch (e) { return; }
+    var memo = (p.get("abfm") || "").trim();
+    var amtDigits = (p.get("abfa") || "").replace(/[^0-9]/g, "");
+    if (!memo && !amtDigits) return;
+    var tries = 0;
+    function attempt() {
+      tries += 1;
+      var candidates = document.querySelectorAll(".txRow,.txItem,.timelineItem");
+      var found = null;
+      for (var i = 0; i < candidates.length; i++) {
+        var node = candidates[i];
+        if (node.closest && node.closest("#abV5Search")) continue;
+        var text = node.textContent || "";
+        var okMemo = !memo || text.indexOf(memo) >= 0;
+        var okAmt = !amtDigits || text.replace(/[^0-9]/g, "").indexOf(amtDigits) >= 0;
+        if (okMemo && okAmt) { found = node; break; }
+      }
+      if (found) {
+        try { found.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+        found.classList.add("abV5Focus");
+        setTimeout(function () { found.classList.remove("abV5Focus"); }, 2600);
+        return;
+      }
+      if (tries < 12) setTimeout(attempt, 300);
+    }
+    attempt();
+  }
+  tryFocusFromUrl();
 }
 
 function accountbookSearchJsAsset() {
@@ -18573,7 +18615,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22825-css"'
+        ? '"accountbook-shell-v22826-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -18581,7 +18623,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22824-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22825-js"'
+          ? '"accountbook-search-v22826-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
