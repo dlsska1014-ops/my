@@ -91,3 +91,16 @@
 - 착수 시 추론 강도: **High**(API 경계·권한 재검사 설계), 이후 UI 반복부는 Medium.
 
 > 이 문서는 살아있는 계획서다. 각 증분 완료 시 "잘한 점/약한 점/결정 로그"를 갱신한다.
+
+---
+
+## 5. 진행 로그 (Progress Log)
+
+### V22.8.25 — 통합검색 오버레이 (Phase 3 최소 단위) ✅
+- **추가(격리)**: 전역 검색 오버레이(`#abV5Search`, Ctrl/⌘+K) + user 스코프 API `GET /u/api/tx/search?q=&household=`.
+- **재사용**: `getScopedHouseholdsForPage`(user 권한 스코프) · `fetchAdminRowsRange`(전 기간) · `attachSpenderNames`(멤버명) · `selectScopedHousehold`.
+- **매칭**: 메모·분류·결제수단·raw_text·멤버명 부분일치 + 금액 숫자 포함(2자리 이상). 상위 50건.
+- **주입 지점**: 셸 래퍼(`useV22812Shell`)에서 `</body>` 앞에 오버레이+스크립트 1회 주입 → 레거시 마크업 무변경. 결과 렌더는 DOM API(textContent)로 XSS 차단.
+- **에셋**: `/assets/accountbook-search-v22825.js`(immutable), 오버레이 CSS는 셸 스타일시트에 병합(경로 v22824→v22825 버전업으로 캐시 버스트).
+- **검증**: `node --check` 통과, 매칭 로직·클라이언트 자산 파싱 격리 테스트 통과.
+- **약한 점/후속**: 현재 진입점은 키보드(Ctrl/⌘+K) 중심 → **모바일·비단축키 사용자용 가시 트리거(헤더 검색 버튼)** 추가가 즉시 후속. 결과 클릭은 해당 월 `/app?month=...#feed`로 점프(개별 거래 하이라이트는 후속).

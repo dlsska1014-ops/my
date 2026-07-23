@@ -1699,6 +1699,10 @@ export default {
         return await handleKakaoSkillStable(request, env, ctx);
       }
 
+      if (url.pathname === "/u/api/tx/search" && request.method === "GET") {
+        return handleUserTxSearch(request, env, url);
+      }
+
       if (url.pathname.startsWith("/api/")) {
         return handleApi(request, env, url);
       }
@@ -1742,7 +1746,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.24-UI-V5-SHELL-CORRECTNESS";
+const APP_VERSION = "V22.8.25-V5-GLOBAL-SEARCH";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4119,6 +4123,11 @@ function normalizeUserFacingUi(html = "") {
     if (!source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)) {
       source = source.replace("</head>", `${shellLink}</head>`);
     }
+  }
+  if (useV22812Shell && source.includes("</body>") && !source.includes('id="abV5Search"')) {
+    const searchOverlay = ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML
+      + `<script src="${ACCOUNTBOOK_SEARCH_JS_ASSET_PATH}" defer></script>`;
+    source = source.replace("</body>", `${searchOverlay}</body>`);
   }
   return source;
 }
@@ -17469,15 +17478,20 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22824.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22825.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22825.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
 let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
+let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
+
+// V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
+const ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML = `<div id="abV5Search" class="abV5SearchOverlay" hidden aria-hidden="true"><div class="abV5SearchScrim" data-abv5-search-close></div><div class="abV5SearchPanel" role="dialog" aria-modal="true" aria-label="통합 검색"><div class="abV5SearchBar"><span class="abV5SearchIcon" aria-hidden="true">🔍</span><input id="abV5SearchInput" type="search" autocomplete="off" placeholder="메모·분류·결제수단·금액 검색" aria-label="검색어"/><button type="button" class="abV5SearchClose" data-abv5-search-close aria-label="검색 닫기">Esc</button></div><div id="abV5SearchResults" class="abV5SearchResults" role="listbox" aria-live="polite"></div><div class="abV5SearchHint">전 기간 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>`;
 
 const ACCOUNTBOOK_SHELL_V22811_CSS = `
 body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
@@ -17979,6 +17993,29 @@ body.abV22812Shell.abV5RemainingPage :is(.btn,button:not(.danger)){border-radius
 
 /* V22.8.24 UI V5 shell correctness: 900px boundary, route state and focus-ready drawer. */
 body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:800!important}
+
+/* V22.8.25 V5 통합 검색 오버레이. */
+body.abV22812Shell .abV5SearchOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:center;padding:14vh 16px 16px}
+body.abV22812Shell .abV5SearchOverlay[hidden]{display:none}
+body.abV22812Shell .abV5SearchScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
+body.abV22812Shell .abV5SearchPanel{position:relative;width:min(100%,600px);background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden}
+body.abV22812Shell .abV5SearchBar{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)!important}
+body.abV22812Shell .abV5SearchIcon{font-size:16px;opacity:.7}
+body.abV22812Shell .abV5SearchBar input{flex:1;min-width:0;border:0!important;background:transparent!important;color:var(--text)!important;font-size:16px;padding:6px 2px;outline:none}
+body.abV22812Shell .abV5SearchClose{flex:none;border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5SearchResults{max-height:min(56vh,460px);overflow:auto;padding:6px}
+body.abV22812Shell .abV5SearchRow{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:11px 12px;border-radius:12px;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5SearchRow:hover,body.abV22812Shell .abV5SearchRow:focus-visible{background:var(--card-2)!important;outline:none}
+body.abV22812Shell .abV5SearchRowMain{min-width:0}
+body.abV22812Shell .abV5SearchRowMain b{display:block;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abV5SearchRowMain small{display:block;margin-top:2px;color:var(--sub)!important;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abV5SearchAmt{flex:none;font-weight:800;font-variant-numeric:tabular-nums;font-size:13.5px}
+body.abV22812Shell .abV5SearchAmt.isExpense{color:var(--neg)!important}
+body.abV22812Shell .abV5SearchAmt.isIncome{color:var(--accent)!important}
+body.abV22812Shell .abV5SearchEmpty{padding:24px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
+body.abV22812Shell .abV5SearchHint{padding:10px 16px;border-top:1px solid var(--line)!important;color:var(--faint)!important;font-size:11px}
+body.abV5SearchOpen{overflow:hidden!important}
+@media(max-width:560px){body.abV22812Shell .abV5SearchOverlay{padding:8vh 10px 10px}body.abV22812Shell .abV5SearchPanel{border-radius:16px}}
 `;
 
 function accountbookThemeClientMain() {
@@ -18391,10 +18428,124 @@ function accountbookStage4NavJsAsset() {
   return AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE;
 }
 
+function accountbookSearchClientMain() {
+  var overlay = document.getElementById("abV5Search");
+  if (!overlay) return;
+  var input = document.getElementById("abV5SearchInput");
+  var resultsBox = document.getElementById("abV5SearchResults");
+  var timer = null;
+  var lastQ = null;
+  function currentHousehold() {
+    try {
+      var p = new URLSearchParams(location.search);
+      return p.get("household") || p.get("household_id") || "";
+    } catch (e) { return ""; }
+  }
+  function isOpen() { return !overlay.hidden; }
+  function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
+  function setMessage(text) {
+    resultsBox.textContent = "";
+    var d = document.createElement("div");
+    d.className = "abV5SearchEmpty";
+    d.textContent = text;
+    resultsBox.appendChild(d);
+  }
+  function open() {
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("abV5SearchOpen");
+    lastQ = null;
+    setTimeout(function () { if (input) { input.focus(); input.select(); } }, 30);
+    run(input ? input.value : "");
+  }
+  function close() {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("abV5SearchOpen");
+  }
+  function render(data) {
+    resultsBox.textContent = "";
+    var list = (data && data.results) || [];
+    if (!list.length) { setMessage("검색 결과가 없어요."); return; }
+    list.forEach(function (r) {
+      var a = document.createElement("a");
+      a.className = "abV5SearchRow";
+      a.href = "/app?month=" + encodeURIComponent(r.month || "") + "#feed";
+      a.setAttribute("role", "option");
+      var main = document.createElement("div");
+      main.className = "abV5SearchRowMain";
+      var memo = document.createElement("b");
+      memo.textContent = r.memo || r.category || "(메모 없음)";
+      var meta = document.createElement("small");
+      var parts = [];
+      if (r.transaction_date) parts.push(r.transaction_date);
+      if (r.category) parts.push(r.category);
+      if (r.payment_method) parts.push(r.payment_method);
+      if (r.member) parts.push(r.member);
+      meta.textContent = parts.join(" · ");
+      main.appendChild(memo);
+      main.appendChild(meta);
+      var amt = document.createElement("span");
+      amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
+      amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
+      a.appendChild(main);
+      a.appendChild(amt);
+      resultsBox.appendChild(a);
+    });
+  }
+  function run(q) {
+    var query = String(q || "").trim();
+    if (query === lastQ) return;
+    lastQ = query;
+    if (!query) { setMessage("메모·분류·결제수단·금액으로 검색해 보세요."); return; }
+    setMessage("검색 중…");
+    var url = "/u/api/tx/search?q=" + encodeURIComponent(query);
+    var hh = currentHousehold();
+    if (hh) url += "&household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (data) { if (lastQ === query) render(data); })
+      .catch(function (err) { if (lastQ === query) setMessage(err === 401 ? "로그인이 필요해요." : "검색 중 문제가 생겼어요."); });
+  }
+  if (input) {
+    input.addEventListener("input", function () {
+      clearTimeout(timer);
+      var v = input.value;
+      timer = setTimeout(function () { run(v); }, 220);
+    });
+  }
+  overlay.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest("[data-abv5-search-close]")) { close(); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    var k = ev.key;
+    if ((ev.metaKey || ev.ctrlKey) && (k === "k" || k === "K")) {
+      ev.preventDefault();
+      if (isOpen()) { close(); } else { open(); }
+    } else if (k === "Escape" && isOpen()) {
+      ev.preventDefault();
+      close();
+    }
+  });
+  var triggers = document.querySelectorAll("[data-abv5-search-open]");
+  Array.prototype.forEach.call(triggers, function (btn) {
+    btn.addEventListener("click", function (ev) { ev.preventDefault(); open(); });
+  });
+  setMessage("메모·분류·결제수단·금액으로 검색해 보세요.");
+}
+
+function accountbookSearchJsAsset() {
+  if (!AB_ACCOUNTBOOK_SEARCH_JS_CACHE) {
+    AB_ACCOUNTBOOK_SEARCH_JS_CACHE = `(${accountbookSearchClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_SEARCH_JS_CACHE;
+}
+
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -18409,6 +18560,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? mobileHomeShellJsAsset()
       : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
         ? accountbookStage4NavJsAsset()
+      : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
+        ? accountbookSearchJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -18420,13 +18573,15 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22824-css"'
+        ? '"accountbook-shell-v22825-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22811-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22824-js"'
+        : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
+          ? '"accountbook-search-v22825-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -23906,6 +24061,49 @@ async function handleKakaoRecentDebug(request, env, url) {
   params.set("limit", String(limit));
   const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>Kakao Recent</title><style>body{font-family:system-ui,sans-serif;background:#f6f7f9;margin:0;padding:20px}table{width:100%;border-collapse:collapse;background:#fff}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f1f5f9}code{font-size:12px}</style></head><body><h2>최근 카카오 저장 내역</h2><p>최근 ${rows.length}건 · <a href="/ledger?all=1">기록 전체 보기</a></p><table><thead><tr><th>created</th><th>date</th><th>type</th><th>amount</th><th>category</th><th>memo</th><th>household</th><th>user key(마스킹)</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${escapeHtml(r.created_at || "")}</td><td>${escapeHtml(r.transaction_date || "")}</td><td>${escapeHtml(r.type || "")}</td><td>${numberWithCommas(r.amount)}</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td><code>${escapeHtml(r.household_id || "")}</code></td><td><code>${escapeHtml(maskKey(r.source_user_key || ""))}</code></td></tr>`).join("")}</tbody></table></body></html>`);
+}
+
+
+// V22.8.25 V5 통합 검색: user 세션 스코프로 활성 가계부의 전 기간 거래를 검색한다.
+// 기존 admin 전용 /api/* 와 분리된 user 스코프 엔드포인트.
+async function handleUserTxSearch(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const q = String(url.searchParams.get("q") || "").trim();
+  const requestedHousehold = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectScopedHousehold(scope.households, requestedHousehold);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  if (!q) {
+    return jsonResponse({ ok: true, q: "", household_id: household.id, count: 0, results: [] });
+  }
+  const members = await fetchHouseholdMembers(env, household.id);
+  const rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 4000 });
+  const rows = attachSpenderNames(rowsRaw, members);
+  const needle = q.toLowerCase();
+  const digits = q.replace(/[^0-9]/g, "");
+  const matched = [];
+  for (const t of rows) {
+    const hay = `${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""} ${t.spender_name || ""}`.toLowerCase();
+    const hit = hay.includes(needle) || (digits.length >= 2 && String(t.amount || "").includes(digits));
+    if (!hit) continue;
+    matched.push({
+      id: t.id,
+      type: t.type,
+      amount: Number(t.amount || 0),
+      category: t.category || "",
+      memo: t.memo || t.raw_text || "",
+      payment_method: t.payment_method || "",
+      transaction_date: t.transaction_date || "",
+      month: String(t.transaction_date || "").slice(0, 7),
+      member: t.spender_name || "",
+    });
+    if (matched.length >= 50) break;
+  }
+  return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
 }
 
 
