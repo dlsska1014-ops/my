@@ -1145,6 +1145,12 @@ export default {
         }, "정기지출 준비");
       }
 
+      if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleAnnualReportPage(request, env, url);
+        }, "연간 리포트");
+      }
+
       if (url.pathname === "/admin/reserve-plan/create" && request.method === "POST") {
         return handleReservePlanCreate(request, env);
       }
@@ -1754,7 +1760,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.28-V5-FAVORITES";
+const APP_VERSION = "V22.8.29-V5-ANNUAL-REPORT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -10796,6 +10802,83 @@ function budgetAlertKakaoHint(model) {
   if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
+}
+
+// V22.8.29 V5 연간 리포트·연말정산 (§3.12) — 신규 user 페이지. fetchAdminRowsRange 재사용, 레거시 무변경.
+function classifyDeductionPay(pm) {
+  const s = String(pm || "");
+  if (/체크/.test(s)) return "check";
+  if (/현금/.test(s)) return "cash";
+  if (/(카카오페이|네이버페이|페이|간편|토스|toss)/i.test(s)) return "simple";
+  if (/카드|신용/.test(s)) return "credit";
+  return "other";
+}
+function buildAnnualReportModel(rows, year) {
+  const monthsExp = new Array(12).fill(0);
+  const monthsInc = new Array(12).fill(0);
+  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
+  const catExp = {};
+  for (const r of safeArray(rows)) {
+    const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
+    const amt = Number(r.amount || 0);
+    if (r.type === "income") {
+      totalInc += amt;
+      if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
+    } else {
+      totalExp += amt;
+      if (mi >= 0 && mi < 12) monthsExp[mi] += amt;
+      const c = r.category || "미분류";
+      catExp[c] = (catExp[c] || 0) + amt;
+      const kind = classifyDeductionPay(r.payment_method);
+      if (kind === "credit") creditSpend += amt;
+      else if (kind !== "other") deductibleSpend += amt;
+    }
+  }
+  const catTop = Object.keys(catExp).map((k) => ({ category: k, amount: catExp[k] }))
+    .sort((a, b) => b.amount - a.amount).slice(0, 6);
+  return {
+    year, monthsExp, monthsInc, totalExp, totalInc,
+    savings: totalInc - totalExp,
+    monthAvgExp: Math.round(totalExp / 12),
+    catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
+  };
+}
+async function handleAnnualReportPage(request, env, url) {
+  const scoped = await getScopedHouseholdsForPage(request, env);
+  if (scoped.scope === "none") return redirectResponse("/my");
+  const households = scoped.households;
+  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  if (!selected) return redirectResponse("/my");
+  const nowYear = Number(currentMonthKst().slice(0, 4));
+  const nowMonthIdx = Number(currentMonthKst().slice(5, 7)) - 1;
+  let year = Math.round(Number(url.searchParams.get("year") || nowYear));
+  if (!Number.isFinite(year)) year = nowYear;
+  year = Math.max(2000, Math.min(nowYear, year));
+  const rows = await fetchAdminRowsRange(env, { householdId: selected.id, start: `${year}-01-01`, end: `${year + 1}-01-01`, type: "all", limit: 20000 });
+  const model = buildAnnualReportModel(rows, year);
+  return htmlResponse(renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }));
+}
+function renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }) {
+  const title = escapeHtml(appName(env));
+  const hh = `&household_id=${encodeURIComponent(selected.id)}`;
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const curMonthHighlight = model.year === nowYear ? nowMonthIdx : -1;
+  const barsHtml = model.monthsExp.map((v, i) => {
+    const h = Math.max(2, Math.round((v / model.maxMonth) * 100));
+    return `<div class="annualBarCol"><div class="annualBarTrack"><div class="annualBar${i === curMonthHighlight ? " cur" : ""}" style="height:${h}%" title="${i + 1}월 ${numberWithCommas(v)}원"></div></div><span>${i + 1}</span></div>`;
+  }).join("");
+  const catMax = Math.max(1, ...model.catTop.map((c) => c.amount));
+  const catHtml = model.catTop.length
+    ? model.catTop.map((c) => `<li><div class="catRow"><b>${escapeHtml(c.category)}</b><span>${numberWithCommas(c.amount)}원</span></div><div class="miniBar"><span style="width:${Math.round(c.amount / catMax * 100)}%"></span></div></li>`).join("")
+    : `<li class="muted">이 해에는 지출 기록이 없습니다.</li>`;
+  const prevY = model.year - 1;
+  const nextY = model.year + 1;
+  const nextDisabled = nextY > nowYear;
+  const savingsLabel = model.savings >= 0 ? `저축 ${numberWithCommas(model.savings)}원` : `적자 ${numberWithCommas(Math.abs(model.savings))}원`;
+  const creditDeduct = Math.round(model.creditSpend * 0.15);
+  const otherDeduct = Math.round(model.deductibleSpend * 0.30);
+  const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:1fr 130px;gap:8px;margin-top:12px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style></head><body>${renderUnifiedNav("reports", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section><section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section></main></body></html>`;
 }
 
 async function handleBudgetAlertPolishPage(request, env, url) {

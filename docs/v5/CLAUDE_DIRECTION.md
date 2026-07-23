@@ -128,3 +128,10 @@
 - **판단(스키마 없이)**: 프로토타입은 favIds를 localStorage에 저장했으나, 여기서는 **설정 저장소로 서버 영속**(크로스 디바이스) + 무마이그레이션. 스냅샷 저장으로 빈 쿼리 즐겨찾기 표시 시 tx 재조회 불필요. 레거시 거래목록 행의 ★(명세 §3.2)은 후속 증분.
 - **격리**: 신규 API + 기존 검색 오버레이 확장만. 레거시 마크업 무변경.
 - **검증**: `node --check` 통과. Playwright 통과(★ 토글 on/off · 서버 저장/제거 · 빈 쿼리 즐겨찾기 목록·헤더 · 상태 반영).
+
+### V22.8.29 — 연간 리포트·연말정산 (Phase 3, §3.12) ✅
+- **신규 페이지** `GET /annual?year=YYYY&household_id=` (별칭 `/annual-report`) — user 세션 스코프. budget-alerts/reserve-plans와 동일한 `renderUnifiedNav`+인라인 style 패턴 → 셸·다크모드 자동 참여.
+- **재사용**: `fetchAdminRowsRange`(연 단위 전 거래) · `getScopedHouseholdsForPage`/`selectScopedHousehold`.
+- **내용**: 연도 네비게이터(미래 연도 비활성) · 연간 수입/지출/저축(적자)·월 평균 · 월별 지출 12칸 막대(당월 강조) · 연간 카테고리 TOP6 · 연말정산 참고(신용카드 15% / 체크·현금·간편결제 30% 안내 + "실제 공제는 국세청 기준" 면책) · PDF(브라우저 인쇄, `@media print`로 내비 숨김).
+- **판단**: 자산·계좌(§3.6)는 이미 `/payment-methods`로 구현되어 격차가 아님을 확인 → 진짜 미구현인 연간 리포트를 선택. 레거시 마크업 무변경(신규 라우트+렌더만), 무스키마.
+- **검증**: `node --check` 통과. `buildAnnualReportModel` 단위 테스트(수입/지출/저축/월평균/공제 분류/카테고리 TOP) 통과. Playwright 렌더 검증(런타임 에러 0·h1·지표 4·12막대·당월 강조·카테고리·연말정산 2박스·미래연도 비활성·PDF 버튼) 통과 + 스크린샷 확인.
