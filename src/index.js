@@ -648,6 +648,70 @@ const JSON_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
+const REQUIRED_RUNTIME_CONFIG = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "ADMIN_SESSION_SECRET",
+  "USER_SESSION_SECRET",
+  "ADMIN_API_TOKEN",
+  "MY_IMPORT_TOKEN_SECRET",
+];
+
+const READINESS_TABLES = [
+  "transactions",
+  "accountbook_user_identities",
+  "accountbook_transaction_audit",
+];
+
+// These RPCs back authentication, authorization-sensitive writes, bulk imports,
+// recurring jobs, and cross-instance operation locks. A Worker is not ready when
+// one is absent, even if the HTTP process itself is alive.
+const READINESS_CORE_RPCS = [
+  "accountbook_claim_operation",
+  "accountbook_release_operation",
+  "accountbook_auth_attempt",
+  "accountbook_create_local_user_v227",
+  "accountbook_set_local_identity_v227",
+  "accountbook_link_kakao_identity_v227",
+  "accountbook_purge_household_v227",
+  "accountbook_replace_budget_plan_v227",
+  "accountbook_apply_recurring_v227",
+  "accountbook_merge_users_v227",
+  "accountbook_update_transaction_v227",
+  "accountbook_delete_transaction_v227",
+  "accountbook_bulk_transactions_v227",
+  "accountbook_import_transactions_v227",
+  "accountbook_leave_household_v227",
+];
+
+const READINESS_ALTERNATIVE_RPC_GROUPS = [
+  ["accountbook_mutate_payment_assets_v2280", "accountbook_mutate_payment_assets_v2271"],
+];
+
+// PostgREST resolves overloaded RPCs by the JSON parameter names. Sending an
+// empty object reports PGRST202 even when a parameterized function exists, so
+// readiness uses the real signature with deliberately invalid values. UUID
+// conversion or the function's first validation guard fails before any write.
+const READINESS_RPC_PROBE_BODIES = {
+  accountbook_claim_operation: { p_key: "", p_owner: "", p_lease_seconds: 15 },
+  accountbook_release_operation: { p_key: null, p_owner: null },
+  accountbook_auth_attempt: { p_key: "", p_limit: 3, p_window_seconds: 60, p_success: false },
+  accountbook_create_local_user_v227: { p_login_name: "", p_nickname: "", p_credential_hash: "", p_credential_salt: "", p_credential_iterations: 1 },
+  accountbook_set_local_identity_v227: { p_user_id: "readiness-invalid-uuid", p_login_name: "", p_credential_hash: "", p_credential_salt: "", p_credential_iterations: 1, p_revoke_sessions: false },
+  accountbook_link_kakao_identity_v227: { p_user_id: "readiness-invalid-uuid", p_kakao_id: "", p_nickname: "" },
+  accountbook_purge_household_v227: { p_household_id: "readiness-invalid-uuid" },
+  accountbook_replace_budget_plan_v227: { p_household_id: "readiness-invalid-uuid", p_month: "", p_rows: [] },
+  accountbook_apply_recurring_v227: { p_household_id: "readiness-invalid-uuid", p_month: "" },
+  accountbook_merge_users_v227: { p_primary_user_id: "readiness-invalid-uuid", p_secondary_user_id: "readiness-invalid-uuid" },
+  accountbook_update_transaction_v227: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_patch: {} },
+  accountbook_delete_transaction_v227: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness" },
+  accountbook_bulk_transactions_v227: { p_transaction_ids: ["readiness-invalid-uuid"], p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_patch: {}, p_delete: false },
+  accountbook_import_transactions_v227: { p_household_id: "readiness-invalid-uuid", p_rows: [] },
+  accountbook_leave_household_v227: { p_household_id: "readiness-invalid-uuid", p_user_id: "readiness-invalid-uuid" },
+  accountbook_mutate_payment_assets_v2280: { p_household_id: "readiness-invalid-uuid", p_action: "readiness", p_asset: {}, p_asset_id: null, p_snapshot_month: "2000-01" },
+  accountbook_mutate_payment_assets_v2271: { p_household_id: "readiness-invalid-uuid", p_action: "readiness", p_asset: {}, p_asset_id: null },
+};
+
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
@@ -868,11 +932,11 @@ export default {
         return handleMyRecurringDelete(request, env);
       }
 
-      if (url.pathname === "/cron/recurring/apply" && request.method === "GET") {
+      if (url.pathname === "/cron/recurring/apply" && request.method === "POST") {
         return handleRecurringCronApply(request, env, url);
       }
 
-      if (url.pathname === "/cron/reports/generate" && request.method === "GET") {
+      if (url.pathname === "/cron/reports/generate" && request.method === "POST") {
         return handleAutomaticReportCron(request, env, url);
       }
 
@@ -1084,18 +1148,23 @@ export default {
       }
 
       if (url.pathname === "/health") {
-        const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ADMIN_SESSION_SECRET", "USER_SESSION_SECRET", "ADMIN_API_TOKEN", "MY_IMPORT_TOKEN_SECRET"];
-        const missing = required.filter((name) => !String(env[name] || "").trim());
-        return jsonResponse({ ok: true, ready: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, time: new Date().toISOString() });
+        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
-        const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ADMIN_SESSION_SECRET", "USER_SESSION_SECRET", "ADMIN_API_TOKEN", "MY_IMPORT_TOKEN_SECRET"];
-        const missing = required.filter((name) => !String(env[name] || "").trim());
+        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
-        const checks = await Promise.all([checkTableAvailable(env, "transactions"), checkTableAvailable(env, "accountbook_user_identities"), checkTableAvailable(env, "accountbook_transaction_audit")]);
-        const failed = checks.map((item, index) => ({ item, table: ["transactions", "accountbook_user_identities", "accountbook_transaction_audit"][index] })).filter((entry) => !entry.item.ok).map((entry) => entry.table);
-        return jsonResponse({ ok: failed.length === 0, ready: failed.length === 0, version: APP_VERSION, failed_tables: failed, time: new Date().toISOString() }, failed.length ? 503 : 200);
+        const checks = await Promise.all(READINESS_TABLES.map((name) => checkTableAvailable(env, name)));
+        const failed = READINESS_TABLES.filter((_name, index) => !checks[index].ok);
+        const rpcResults = await Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name)));
+        const missingRpcs = READINESS_CORE_RPCS.filter((_name, index) => !rpcResults[index].ok);
+        const alternativeRpcResults = await Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name)))));
+        const missingAlternativeRpcs = READINESS_ALTERNATIVE_RPC_GROUPS.filter((_group, index) => !alternativeRpcResults[index].some((result) => result.ok)).map((group) => group.join("|"));
+        const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
+        const ready = failed.length === 0 && allMissingRpcs.length === 0;
+        const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, checked_tables: READINESS_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1129,6 +1198,12 @@ export default {
 
       if (url.pathname === "/card-benefits" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
+          const scoped = await getScopedHouseholdsForPage(request, env);
+          if (scoped.scope === "none") return redirectResponse("/my");
+          const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+          if (requestedHouseholdId && !scoped.households.some((household) => String(household.id) === requestedHouseholdId)) {
+            return redirectResponse("/my?err=no_household");
+          }
           return handleCardBenefitsPage(request, env, url);
         }, "카드혜택");
       }
@@ -1143,6 +1218,18 @@ export default {
         return safeHtmlRoute(request, url, async () => {
           return handleReservePlansPage(request, env, url);
         }, "정기지출 준비");
+      }
+
+      if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleAnnualReportPage(request, env, url);
+        }, "연간 리포트");
+      }
+
+      if ((url.pathname === "/goals" || url.pathname === "/savings-goals") && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleGoalsPage(request, env, url);
+        }, "저축·목표");
       }
 
       if (url.pathname === "/admin/reserve-plan/create" && request.method === "POST") {
@@ -1688,6 +1775,7 @@ export default {
       }
 
       if (url.pathname === "/kakao-skill-test-payload.json" && request.method === "GET") {
+        if (!(await kakaoQaRequestAllowed(request, env))) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
         return jsonResponse(buildKakaoSkillTestPayload(url.searchParams.get("q") || "메뉴"));
       }
 
@@ -1697,6 +1785,22 @@ export default {
 
       if (url.pathname === "/skill" && request.method === "POST") {
         return await handleKakaoSkillStable(request, env, ctx);
+      }
+
+      if (url.pathname === "/u/api/tx/search" && request.method === "GET") {
+        return handleUserTxSearch(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/notifications" && request.method === "GET") {
+        return handleUserNotifications(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/favorites" && (request.method === "GET" || request.method === "POST")) {
+        return handleUserFavorites(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/goals" && (request.method === "GET" || request.method === "POST")) {
+        return handleUserGoals(request, env, url);
       }
 
       if (url.pathname.startsWith("/api/")) {
@@ -1719,7 +1823,7 @@ export default {
       try {
         const failUrl = new URL(request.url);
         if (request.method === "GET") {
-          return htmlResponse(renderEmergencyErrorHtml(failUrl, err), 200);
+          return htmlResponse(renderEmergencyErrorHtml(failUrl, err), 500);
         }
       } catch (htmlFallbackErr) {}
       return jsonResponse({ ok: false, error: "server_error", message: "요청을 처리하지 못했습니다. 기존 데이터는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 500);
@@ -1742,7 +1846,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.20-KAKAO-EDIT-INLINE-FEEDBACK";
+const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2737,8 +2841,8 @@ const V2285_LOGIN_STYLE = `
 `;
 
 const V2285_NAV_STYLE = `
-@media(min-width:1024px){:root{--abNavW:252px}.abAppSurface .abLayoutNav{width:252px!important}.abAppSurface .abNavBody{padding:14px 12px!important}.abAppSurface .abNavGroup{margin:4px 0!important}.abAppSurface .abNavGroup summary{min-height:42px!important}.abAppSurface .abNavGroup[open] summary{color:#172033!important}.abAppSurface .abNavGroupPrimary{padding-bottom:7px;margin-bottom:9px!important;border-bottom:1px solid #edf0f4}.abAppSurface .abNavGroupPrimary>summary{color:#172033!important}.abAppSurface .abNavLinks{padding-left:8px!important}.abAppSurface .abNavLinks a{min-height:42px!important;gap:9px!important;padding:0 9px!important}.abAppSurface .abNavItemIcon{width:28px;height:28px;flex:0 0 28px;border-radius:9px;display:grid;place-items:center;background:#f2f4f7;color:#667085;font-size:14px;font-style:normal}.abAppSurface .abNavGroupPrimary .abNavItemIcon{background:#edf3ff;color:#2457d6}.abAppSurface .abNavItemLabel{font-size:13.5px;font-weight:620}.abAppSurface .abNavGroupPrimary .abNavItemLabel{font-weight:700}.abAppSurface .abNavLinks a.active{background:#edf3ff!important;color:#1945b8!important}.abAppSurface .abNavLinks a.active .abNavItemIcon{background:#2457d6;color:#fff}.abAppSurface .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3;font-weight:600}.abAppSurface .abNavGroup summary:after{content:"⌄";margin-left:auto;color:#98a2b3;font-size:12px}.abAppSurface .abNavGroup[open] summary:after{content:"⌃"}.abAppSurface .abNavGroup summary i+ b{font-size:12px!important;text-transform:none}.abAppSurface .abNavTop{padding:17px 14px!important}}
-@media(max-width:1023px){.abNavMobileDrawer .abNavItemIcon{display:none}.abNavMobileDrawer .abNavItemLabel{font-size:13px}.abNavMobileDrawer .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3}.abNavMobileDrawer .abNavGroup summary:after{content:"⌄";margin-left:auto}.abNavMobileDrawer .abNavGroup[open] summary:after{content:"⌃"}}
+@media(min-width:900px){:root{--abNavW:252px}.abAppSurface .abLayoutNav{width:252px!important}.abAppSurface .abNavBody{padding:14px 12px!important}.abAppSurface .abNavGroup{margin:4px 0!important}.abAppSurface .abNavGroup summary{min-height:42px!important}.abAppSurface .abNavGroup[open] summary{color:#172033!important}.abAppSurface .abNavGroupPrimary{padding-bottom:7px;margin-bottom:9px!important;border-bottom:1px solid #edf0f4}.abAppSurface .abNavGroupPrimary>summary{color:#172033!important}.abAppSurface .abNavLinks{padding-left:8px!important}.abAppSurface .abNavLinks a{min-height:42px!important;gap:9px!important;padding:0 9px!important}.abAppSurface .abNavItemIcon{width:28px;height:28px;flex:0 0 28px;border-radius:9px;display:grid;place-items:center;background:#f2f4f7;color:#667085;font-size:14px;font-style:normal}.abAppSurface .abNavGroupPrimary .abNavItemIcon{background:#edf3ff;color:#2457d6}.abAppSurface .abNavLinks a>span{font-size:13.5px;font-weight:620}.abAppSurface .abNavGroupPrimary .abNavLinks a>span{font-weight:700}.abAppSurface .abNavLinks a.active{background:#edf3ff!important;color:#1945b8!important}.abAppSurface .abNavLinks a.active .abNavItemIcon{background:#2457d6;color:#fff}.abAppSurface .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3;font-weight:600}.abAppSurface .abNavGroup summary:after{content:"⌄";margin-left:auto;color:#98a2b3;font-size:12px}.abAppSurface .abNavGroup[open] summary:after{content:"⌃"}.abAppSurface .abNavGroup summary i+ b{font-size:12px!important;text-transform:none}.abAppSurface .abNavTop{padding:17px 14px!important}}
+@media(max-width:899px){.abNavMobileDrawer .abNavItemIcon{display:none}.abNavMobileDrawer .abNavLinks a>span{font-size:13px}.abNavMobileDrawer .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3}.abNavMobileDrawer .abNavGroup summary:after{content:"⌄";margin-left:auto}.abNavMobileDrawer .abNavGroup[open] summary:after{content:"⌃"}}
 `;
 
 function v2285UiStyleFor(html = "") {
@@ -3995,6 +4099,14 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace('<section class="card"><h2>정기지출 추가</h2>', '<section class="card" id="reserveAdd"><h2>정기지출 추가</h2>');
   }
 
+  if (source.includes(" · 고급 정산</title>")) {
+    source = source.replace('<section class="hero"><h1>고급 정산</h1><p>', '<section class="hero abV5PageHeader"><div class="abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">함께</span><h1>정산</h1><p>');
+    source = source.replace('</p><form class="filters" method="get" action="/settlement-summary">', '</p></div></div><form class="filters abV5ControlBar" method="get" action="/settlement-summary">');
+    source = source.replaceAll('<section class="card">', '<section class="card abV5SectionCard">');
+    source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
+    source = source.replaceAll('<div class="metric">', '<div class="metric abV5Kpi">');
+  }
+
   if (source.includes("<title>전체 메뉴</title>")) {
     source = source.replace(
       /<p class="note">추천 흐름:[\s\S]*?<\/p>/,
@@ -4008,24 +4120,12 @@ function normalizeUserFacingUi(html = "") {
       `<link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>`,
       `<link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/><link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`
     );
-    source = source.replace('<nav class="bottom">', '<nav class="bottom" aria-label="모바일 주요 메뉴">');
-    source = source.replace('<a class="tab active" href="#top">', '<a class="tab active" aria-current="page" href="#top">');
-    source = source.replace(
-      /<a class="tab" href="(\/budgets\?[^"]*)"><i>📊<\/i><span>예산<\/span><\/a>/,
-      (_full, href) => `<a class="tab" href="${href.replace("/budgets?", "/settlement-summary?")}"><i>↔</i><span>정산</span></a>`
-    );
-    source = source.replace(/<nav class="bottom"[^>]*>[\s\S]*?<\/nav>/, (nav) => {
-      const settlementHref = nav.match(/href="(\/settlement-summary\?[^"]*)"/)?.[1] || "/settlement-summary";
-      const menuHref = nav.match(/href="(\/menu\?[^"]*)"/)?.[1] || "/menu";
-      const analysisHref = menuHref.replace("/menu?", "/my/analysis?");
-      const budgetHref = menuHref.replace("/menu?", "/budgets?");
-      return `<nav class="bottom" aria-label="모바일 주요 메뉴"><a class="tab active" aria-current="page" href="#top"><i>⌂</i><span>홈</span></a><a class="tab" href="#feed"><i>▤</i><span>거래</span></a><a class="tab" href="${settlementHref}"><i>↔</i><span>정산</span></a><a class="tab" href="${analysisHref}"><i>▥</i><span>분석</span></a><a class="tab" href="${budgetHref}"><i>◴</i><span>예산</span></a></nav>`;
-    });
-    if (!source.includes('class="homeDesktopNav"')) {
-      source = source.replace(/<body\b[^>]*>/i, (bodyTag) => `${bodyTag}${mobileHomeDesktopNavFromHtml(source)}`);
-    }
+    source = source.replace(/<nav class="bottom"[^>]*>[\s\S]*?<\/nav>/, "");
     source = source.replace('<div class="topLine"><b>', '<div class="topLine"><h1>');
     source = source.replace('</b><a href="/analysis?', '</h1><a href="/analysis?');
+    source = source.replace('<header class="appTop" id="top"><div class="topLine"><h1>', '<header class="appTop abV5PageHeader" id="top"><div class="topLine abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">기록</span><h1>');
+    source = source.replace('</h1></div><form class="selectLine"', '</h1><p>이번 달 흐름과 빠른 기록을 한곳에서 확인합니다.</p></div></div><form class="selectLine abV5ControlBar"');
+    source = source.replace('<section class="homeMetrics">', '<section class="homeMetrics abV5KpiGrid">');
     source = source.replace(/<section id="budget" class="panel">[\s\S]*?<\/section>/, "");
     source = source.replace(/<section id="fixed" class="panel">[\s\S]*?<\/section>/, "");
     const runtimeMarker = "<script>(function(){var q=document.getElementById('v8Search');";
@@ -4037,6 +4137,8 @@ function normalizeUserFacingUi(html = "") {
         + source.slice(runtimeEnd + 9);
     }
   }
+  source = promoteLegacyUserLayoutToV5(source);
+  source = normalizeUiV5RemainingPages(source);
   source = source.replace(/\/my\/premium/g, "/smart-tools");
   source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "무료 스마트 기능");
   source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "무료 스마트 도구");
@@ -4081,6 +4183,11 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
+  if (source.includes(" · 무료 리포트</title>")) bodyClasses.push("abPageReports");
+  if (source.includes(" · 무료 스마트 도구</title>")) bodyClasses.push("abPageSmartTools");
+  if (source.includes(" · 분류 설정</title>")) bodyClasses.push("abPageCategories");
+  if (source.includes(" · 단톡방 연결</title>")) bodyClasses.push("abPageGroups");
+  if (source.includes("abV5RemainingPage")) bodyClasses.push("abV5RemainingPage");
   if (source.includes('id="filterBar"') && source.includes('id="kpis"')) bodyClasses.push("abPageInsight");
   if (source.includes(" · 종합 리포트</title>") || (source.includes(" · 분석</title>") && source.includes("핵심 인사이트"))) bodyClasses.push("abPageAnalysisReport");
   if (source.includes(" · 캘린더</title>")) bodyClasses.push("abPageCalendar");
@@ -4117,6 +4224,87 @@ function normalizeUserFacingUi(html = "") {
       source = source.replace("</head>", `${shellLink}</head>`);
     }
   }
+  if (useV22812Shell && source.includes("</body>") && !source.includes(ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH)) {
+    // V22.8.34: 검색·알림·행즐겨찾기를 단일 immutable 번들로 주입(오버레이 마크업은 번들 JS가 생성).
+    source = source.replace("</body>", `<script src="${ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH}" defer></script></body>`);
+  }
+  return source;
+}
+
+function legacyUiV5ActiveKey(source = "") {
+  const title = String(source || "").match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "";
+  if (/가계부 전환·관리/.test(title)) return "my-households";
+  if (/참여자[·/]초대|가계부·참여자/.test(title)) return "members";
+  if (/백업\/가져오기|가져오기 (?:미리보기|결과)/.test(title)) return "backup";
+  if (/단톡방 연결/.test(title)) return "groups";
+  if (/무료 스마트 도구/.test(title)) return "smart-tools";
+  if (/무료 리포트/.test(title)) return "reports";
+  if (/수입·예산 설정|·\s*설정$/.test(title)) return "budgets";
+  if (/종합 리포트| · 분석/.test(title)) return "analysis";
+  if (/시작가이드/.test(title)) return "guide";
+  return "app";
+}
+
+function decodeUiV5QueryPart(value = "") {
+  try { return decodeURIComponent(String(value || "")); } catch (_error) { return String(value || ""); }
+}
+
+function decodeUiV5HtmlText(value = "") {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;/gi, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function promoteLegacyUserLayoutToV5(html = "") {
+  let source = String(html || "");
+  const layoutMarker = '<div class="appLayout">';
+  const pageMarker = '<div class="pageMain">';
+  const layoutStart = source.indexOf(layoutMarker);
+  const pageStart = layoutStart < 0 ? -1 : source.indexOf(pageMarker, layoutStart + layoutMarker.length);
+  if (layoutStart < 0 || pageStart < 0 || !source.slice(layoutStart, pageStart).includes('class="appMenu"')) return source;
+  const queryMatch = source.match(/href="\/app\?household_id=([^"&]+)&(?:amp;)?month=([^"&#]+)/i);
+  const householdId = decodeUiV5QueryPart(queryMatch?.[1] || "");
+  const month = validMonth(decodeUiV5QueryPart(queryMatch?.[2] || "")) || currentMonthKst();
+  const householdName = decodeUiV5HtmlText(source.match(/<option\b[^>]*\bselected\b[^>]*>([^<]+)<\/option>/i)?.[1] || "");
+  const active = legacyUiV5ActiveKey(source);
+  const nav = renderUnifiedNav(active, { month, householdId, householdName });
+  source = source.slice(0, layoutStart) + pageMarker + source.slice(pageStart + pageMarker.length);
+  const legacyClosing = source.lastIndexOf("</div></div></main>");
+  if (legacyClosing >= 0) source = source.slice(0, legacyClosing) + "</div></main>" + source.slice(legacyClosing + 19);
+  source = source.replace(/<body\b([^>]*)>/i, (full, attrs) => `${full}${nav}`);
+  return source;
+}
+
+function normalizeUiV5RemainingPages(html = "") {
+  let source = String(html || "");
+  const remainingPage = /(?:무료 리포트|무료 스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
+    || source.includes("가계부·참여자</title>")
+    || source.includes("<title>자산·결제수단</title>")
+    || source.includes("<title>정기지출 준비</title>")
+    || source.includes("시작가이드</title>")
+    || source.includes('id="budgetBulkForm"')
+    || source.includes('id="keywordBulkForm"')
+    || (source.includes(" · 분석</title>") && source.includes("핵심 인사이트"));
+  if (!remainingPage) return source;
+  if (source.includes("내 계정·보안</title>") && !source.includes('class="abLayoutNav"')) {
+    source = source.replace(/<body\b([^>]*)>/i, (full) => `${full}${renderUnifiedNav("backup-login")}`);
+  }
+  source = source.replace(/<body\b([^>]*)>/i, (full, attrs) => {
+    if (/\bclass\s*=/.test(attrs || "")) return full.replace(/\bclass\s*=\s*(["'])(.*?)\1/i, (_m, _q, classes) => `class="${classes} abV5RemainingPage"`);
+    return `<body class="abV5RemainingPage"${attrs || ""}>`;
+  });
+  source = source.replace(/<section class="hero(?![^"]*abV5PageHeader)([^"]*)"/i, '<section class="hero$1 abV5PageHeader abV5RemainingHeader"');
+  if (source.includes("<title>자산·결제수단</title>") && !source.includes("<h1>자산·결제수단</h1>")) {
+    source = source.replace('<section class="hero abV5PageHeader abV5RemainingHeader"><p class="heroLabel">', '<section class="hero abV5PageHeader abV5RemainingHeader"><div class="abV5PageTitle"><span class="abV5Eyebrow">관리</span><h1>자산·결제수단</h1></div><p class="heroLabel">');
+  }
+  source = source.replace(/<section class="card(?![^"]*abV5SectionCard)([^"]*)"/gi, '<section class="card$1 abV5SectionCard"');
+  source = source.replace(/class="(toolbar|filters)(?![^"]*abV5ControlBar)([^"]*)"/gi, 'class="$1$2 abV5ControlBar"');
+  source = source.replace(/class="(metricGrid|summaryGrid)(?![^"]*abV5KpiGrid)([^"]*)"/gi, 'class="$1$2 abV5KpiGrid"');
+  source = source.replace('class="grid metricGrid"', 'class="grid metricGrid abV5KpiGrid"');
+  if (/무료 리포트|종합 리포트/.test(source)) source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
   return source;
 }
 
@@ -4307,7 +4495,10 @@ function jsonResponse(data, status = 200) {
 }
 
 function htmlResponse(html, status = 200, headers = {}) {
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(html)), {
+  const operationallyAlignedHtml = String(html || "")
+    .replaceAll("schema_v22_8_0_asset_dashboard_complete.sql", "schema_v22_7_1_asset_dashboard.sql")
+    .replaceAll("V22.8.0 자산 마이그레이션", "V22.7.1 자산 원자성 마이그레이션");
+  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml)), {
     status,
     headers: { ...HTML_HEADERS, ...headers },
   });
@@ -4552,6 +4743,16 @@ async function verifyAdminSession(request, env) {
   if (!Number.isFinite(version) || version !== Math.max(1, Number(state.session_version || 1))) return false;
   const sig = await hmacSha256(adminSessionSecret(env), data);
   return constantTimeTextEqual(sig, signature);
+}
+
+function verifyCronExecutionAuth(request, env) {
+  const expectedCron = String(env.CRON_SECRET || "").trim();
+  const expectedAdmin = String(env.ADMIN_API_TOKEN || "").trim();
+  const auth = String(request?.headers?.get("authorization") || "").trim();
+  const headerSecret = String(request?.headers?.get("x-cron-secret") || "").trim();
+  if (expectedAdmin && constantTimeTextEqual(auth, `Bearer ${expectedAdmin}`)) return true;
+  if (!expectedCron) return false;
+  return constantTimeTextEqual(headerSecret, expectedCron) || constantTimeTextEqual(auth, `Bearer ${expectedCron}`);
 }
 
 async function checkAdminPassword(env, password) {
@@ -5568,69 +5769,89 @@ async function mutatePaymentAssetsAtomically(env, householdId = "", action = "",
   }
 }
 
+async function withPaymentAssetWriteLease(env, householdId = "", task) {
+  const lease = await claimOperationLease(env, {
+    key: `payment-assets-write:${String(householdId || "").trim()}`,
+    owner: operationLeaseOwner("payment-assets"),
+    leaseSeconds: Number(env.PAYMENT_ASSET_LEASE_SECONDS || 30),
+  });
+  if (!lease.acquired) throw new Error("asset_write_busy");
+  try {
+    return await task();
+  } finally {
+    await releaseOperationLease(env, lease);
+  }
+}
+
 async function addPaymentAsset(env, householdId = "", data = {}) {
   const name = String(data.name || "").trim().slice(0, 80);
   if (!name) return { ok: false, error: "이름을 입력해주세요." };
   if (containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(data.issuer) || containsSensitiveFinancialNumber(data.memo)) return { ok: false, error: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해주세요." };
-  const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
-  const now = new Date().toISOString();
-  const current = await fetchPaymentAssets(env, householdId);
-  if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
-  const next = current.slice();
-  const item = {
-    id: `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    household_id: householdId || "",
-    name,
-    kind,
-    issuer: String(data.issuer || "").trim().slice(0, 80),
-    balance: normalizePaymentAssetAmount(data.balance),
-    include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? data.include_in_asset !== false : false,
-    memo: String(data.memo || "").trim().slice(0, 120),
-    created_at: now,
-    updated_at: now,
-    balance_updated_at: now,
-  };
-  next.push(item);
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "create", item, item.id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
+    const now = new Date().toISOString();
+    const current = await fetchPaymentAssets(env, householdId);
+    if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
+    const next = current.slice();
+    const item = {
+      id: `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      household_id: householdId || "",
+      name,
+      kind,
+      issuer: String(data.issuer || "").trim().slice(0, 80),
+      balance: normalizePaymentAssetAmount(data.balance),
+      include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? data.include_in_asset !== false : false,
+      memo: String(data.memo || "").trim().slice(0, 120),
+      created_at: now,
+      updated_at: now,
+      balance_updated_at: now,
+    };
+    next.push(item);
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "create", item, item.id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
+  });
 }
 
 async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
-  const current = await fetchPaymentAssets(env, householdId);
-  const target = current.find((item) => String(item.id) === String(id));
-  if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
-  const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
-  if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
-    return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
-  }
-  const next = current.map((item) => {
-    if (String(item.id) !== String(id)) return item;
-    const kind = isValidPaymentAssetKind(patch.kind) ? patch.kind : item.kind;
-    const name = patch.name === undefined ? item.name : String(patch.name || "").trim().slice(0, 80);
-    const issuer = patch.issuer === undefined ? item.issuer : String(patch.issuer || "").trim().slice(0, 80);
-    const memo = patch.memo === undefined ? item.memo : String(patch.memo || "").trim().slice(0, 120);
-    if (!name || containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(issuer) || containsSensitiveFinancialNumber(memo)) throw new Error("asset_sensitive_or_invalid");
-    const balance = patch.balance === undefined ? item.balance : normalizePaymentAssetAmount(patch.balance);
-    const balanceChanged = balance !== normalizePaymentAssetAmount(item.balance);
-    const updatedAt = new Date().toISOString();
-    return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const current = await fetchPaymentAssets(env, householdId);
+    const target = current.find((item) => String(item.id) === String(id));
+    if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
+    const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
+    if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
+      return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
+    }
+    const next = current.map((item) => {
+      if (String(item.id) !== String(id)) return item;
+      const kind = isValidPaymentAssetKind(patch.kind) ? patch.kind : item.kind;
+      const name = patch.name === undefined ? item.name : String(patch.name || "").trim().slice(0, 80);
+      const issuer = patch.issuer === undefined ? item.issuer : String(patch.issuer || "").trim().slice(0, 80);
+      const memo = patch.memo === undefined ? item.memo : String(patch.memo || "").trim().slice(0, 120);
+      if (!name || containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(issuer) || containsSensitiveFinancialNumber(memo)) throw new Error("asset_sensitive_or_invalid");
+      const balance = patch.balance === undefined ? item.balance : normalizePaymentAssetAmount(patch.balance);
+      const balanceChanged = balance !== normalizePaymentAssetAmount(item.balance);
+      const updatedAt = new Date().toISOString();
+      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+    });
+    const updated = next.find((item) => String(item.id) === String(id));
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
   });
-  const updated = next.find((item) => String(item.id) === String(id));
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
 }
 
 async function deletePaymentAsset(env, householdId = "", id = "") {
-  const current = await fetchPaymentAssets(env, householdId);
-  if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const current = await fetchPaymentAssets(env, householdId);
+    if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
+  });
 }
 
 function inferPaymentAssetFromText(text = "", assets = []) {
@@ -5737,10 +5958,10 @@ async function handlePaymentAssetCreate(request, env) {
       memo: form.get("memo"),
     });
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 저장하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: "payment_asset_saved" }));
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_saved" : "payment_asset_saved_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.";
+    const message = /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.";
     rememberOpsEvent({ kind: "payment_asset_create_failed", severity: "warn", path: "/admin/payment-asset/create", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -5766,10 +5987,11 @@ async function handlePaymentAssetUpdate(request, env) {
   try {
     const result = await updatePaymentAsset(env, householdId, id, patch);
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 수정하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: mode === "balance" ? "payment_asset_balance_updated" : "payment_asset_updated" }));
+    const successMessage = mode === "balance" ? "payment_asset_balance_updated" : "payment_asset_updated";
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? successMessage : `${successMessage}_snapshot_deferred` }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_sensitive_or_invalid/i.test(detail) ? "계좌번호·카드번호 전체 대신 별칭을 입력해주세요." : /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_not_found/i.test(detail) ? "수정할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.";
+    const message = /asset_sensitive_or_invalid/i.test(detail) ? "계좌번호·카드번호 전체 대신 별칭을 입력해주세요." : /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_not_found/i.test(detail) ? "수정할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.";
     rememberOpsEvent({ kind: "payment_asset_update_failed", severity: "warn", path: "/admin/payment-asset/update", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -5785,10 +6007,10 @@ async function handlePaymentAssetDelete(request, env) {
   try {
     const result = await deletePaymentAsset(env, householdId, id);
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 삭제하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: "payment_asset_deleted" }));
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_deleted" : "payment_asset_deleted_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_not_found/i.test(detail) ? "삭제할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.";
+    const message = /asset_not_found/i.test(detail) ? "삭제할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.";
     rememberOpsEvent({ kind: "payment_asset_delete_failed", severity: "warn", path: "/admin/payment-asset/delete", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -5981,7 +6203,9 @@ async function handleReservePlansPage(request, env, url) {
   if (scoped.scope === "none") return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
   const customCategoryRows = await fetchCustomCategories(env, householdId);
@@ -6945,6 +7169,12 @@ function selectScopedHousehold(households = [], householdId = "") {
   return safeArray(households).find((h) => String(h.id) === String(householdId || "")) || safeArray(households)[0] || null;
 }
 
+function selectRequestedScopedHousehold(households = [], householdId = "") {
+  const requested = String(householdId || "").trim();
+  if (!requested) return safeArray(households)[0] || null;
+  return safeArray(households).find((h) => String(h.id) === requested) || null;
+}
+
 
 
 function memberAliasSettingsKey(householdId = "") {
@@ -7593,9 +7823,33 @@ async function tableCheckPair(env, table) {
   return [r.ok, r.detail];
 }
 
+// P0-2: /ready 준비 점검에서 핵심 RPC 존재 여부를 확인한다.
+// 실제 파라미터 이름과 안전한 무효값을 보내 PostgREST가 함수 시그니처를
+// 정확히 선택하게 한다. 함수가 존재하면 UUID 변환 또는 첫 입력 검증에서
+// 쓰기 전에 실패하며, PGRST202일 때만 실제 누락으로 판정한다.
+async function checkRpcAvailable(env, rpcName) {
+  try {
+    const probeBody = READINESS_RPC_PROBE_BODIES[rpcName];
+    if (!probeBody) return { ok: false, detail: "점검 시그니처 없음" };
+    await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(probeBody) });
+    return { ok: true, detail: "실행됨" };
+  } catch (err) {
+    const msg = safeError(err);
+    if (/PGRST202|Could not find the function/i.test(msg)) {
+      return { ok: false, detail: "함수 없음" };
+    }
+    return { ok: true, detail: "존재(안전 점검 중단)" };
+  }
+}
+
 
 async function getSettingValue(env, key) {
   const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" }, []);
+  return rows?.[0]?.value || "";
+}
+
+async function getSettingValueStrict(env, key) {
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" });
   return rows?.[0]?.value || "";
 }
 
@@ -9321,7 +9575,20 @@ function formatBenefitLimit(value,label=""){if(label)return escapeHtml(label);if
 function formatBenefitValue(value){if(value===null||value===undefined)return "약관 확인";return `${numberWithCommas(value||0)}원`;}
 function renderBenefitRows(calc){const rows=safeArray(calc?.benefits);if(!rows.length)return `<tr><td colspan="6">혜택 기준정보가 없습니다.</td></tr>`;return rows.map(b=>`<tr><td><b>${escapeHtml(b.category||"")}</b><div class="small">${escapeHtml(b.label||"")}</div></td><td>${b.rate?`${Math.round(Number(b.rate||0)*1000)/10}%`:"약관 확인"}</td><td>${formatBenefitLimit(b.monthly_limit,b.monthly_limit_label)}</td><td>${numberWithCommas(b.spend||0)}원</td><td>${formatBenefitValue(b.estimated)}</td><td>${formatBenefitLimit(b.remaining_limit)}</td></tr>`).join("");}
 function renderMatchedCardRows(rows=[]){const arr=safeArray(rows).slice(0,80);if(!arr.length)return `<tr><td colspan="7">이 카드로 추정되는 거래가 없습니다. 거래 입력 시 결제수단에 카드명을 남기면 더 정확해집니다.</td></tr>`;return arr.map(r=>`<tr><td>${escapeHtml(String(r.transaction_date||""))}</td><td>${r.type==="income"?"수입":"지출"}</td><td>${numberWithCommas(r.amount||0)}원</td><td>${escapeHtml(r.category||"")}</td><td>${escapeHtml(r.memo||r.raw_text||"")}</td><td>${escapeHtml(r.payment_method||"")}</td><td>${escapeHtml(r.id||"")}</td></tr>`).join("");}
-async function buildCardBenefitsPayload(env,url,householdsArg=null){const month=validMonth(url.searchParams.get("month"))||currentMonthKst();const households=householdsArg||await fetchAdminHouseholds(env);const selected=selectScopedHousehold(households,url.searchParams.get("household_id")||"");const householdId=selected?.id||"";const issuer=String(url.searchParams.get("issuer")||"").trim();const selectedCardId=String(url.searchParams.get("card_id")||"").trim();const filtered=CARD_BENEFIT_CATALOG.filter(c=>!issuer||c.issuer===issuer);const card=filtered.find(c=>c.id===selectedCardId)||findCardBenefit(selectedCardId)||filtered[0]||CARD_BENEFIT_CATALOG[0];const rows=await fetchAdminRows(env,{month,householdId,type:"all"});const calc=calculateCardBenefitUsage(card,rows);return {month,households,householdId,issuer,card,calc,catalog:CARD_BENEFIT_CATALOG};}
+async function buildCardBenefitsPayload(env, url, householdsArg = null) {
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const households = householdsArg || await fetchAdminHouseholds(env);
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  const householdId = selected?.id || "";
+  const issuer = String(url.searchParams.get("issuer") || "").trim();
+  const selectedCardId = String(url.searchParams.get("card_id") || "").trim();
+  const filtered = CARD_BENEFIT_CATALOG.filter((item) => !issuer || item.issuer === issuer);
+  const card = filtered.find((item) => item.id === selectedCardId) || findCardBenefit(selectedCardId) || filtered[0] || CARD_BENEFIT_CATALOG[0];
+  const rows = householdId ? await fetchAdminRows(env, { month, householdId, type: "all" }) : [];
+  const calc = calculateCardBenefitUsage(card, rows);
+  return { month, households, householdId, issuer, card, calc, catalog: CARD_BENEFIT_CATALOG };
+}
 async function handleCardBenefitsPage(request,env,url){const scoped=await getScopedHouseholdsForPage(request,env);if(scoped.scope==="none")return redirectResponse("/my");const {month,households,householdId,issuer,card,calc}=await buildCardBenefitsPayload(env,url,scoped.households);const householdOptions=households.map(h=>`<option value="${escapeHtml(h.id)}" ${h.id===householdId?"selected":""}>${escapeHtml(h.name)}</option>`).join("");const qs=new URLSearchParams();qs.set("month",month);if(householdId)qs.set("household_id",householdId);qs.set("card_id",card.id);return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>카드 혜택 자동조회</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#5b21b6);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.92}.filters{display:grid;grid-template-columns:1.1fr .9fr 1.5fr 150px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.progress{height:14px;border-radius:999px;background:#e5e7eb;overflow:hidden}.bar{height:100%;background:#3182F6;border-radius:999px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;background:#fff;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.small{font-size:12px;color:#64748b;margin-top:3px}.pill{display:inline-flex;border-radius:999px;background:#ede9fe;color:#5b21b6;padding:5px 9px;font-weight:1000;font-size:12px;margin:2px}@media(max-width:820px){.wrap{padding:12px}.hero h1{font-size:24px}.filters{grid-template-columns:1fr}.card{padding:14px}}</style></head><body>${renderUnifiedNav("card-benefits",{month,householdId,householdName:(households.find((h)=>h.id===householdId)||{}).name})}<main class="wrap"><section class="hero"><h1>카드 혜택 자동조회</h1><p>네이버페이 카드 페이지 기준으로 정리한 카드사/혜택 요약을 드롭다운으로 선택하고, 이번 달 거래와 매칭해 실적/혜택 한도를 계산합니다.</p><form class="filters" method="get" action="/card-benefits"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="issuer" onchange="this.form.submit()">${renderIssuerOptions(issuer)}</select><select name="card_id">${renderCardOptions(card.id,issuer)}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(card.name)}</h2><p><span class="pill">${escapeHtml(card.issuer)}</span><span class="pill">${escapeHtml(card.performance?.label||"")}</span><span class="pill">통합 한도 ${numberWithCommas(card.total_monthly_limit||0)}원</span></p><p class="warnBox">${escapeHtml(card.notes||"카드 혜택 문서 기준정보는 운영 전 검수가 필요합니다.")}</p><div class="grid"><div class="metric"><span>이번 달 추정 사용액</span><b>${numberWithCommas(calc.usage_amount)}원</b></div><div class="metric"><span>실적 기준</span><b>${numberWithCommas(calc.required_performance)}원</b></div><div class="metric"><span>실적까지 남은 금액</span><b>${numberWithCommas(calc.remaining_performance)}원</b></div><div class="metric"><span>예상 혜택</span><b>${numberWithCommas(calc.estimated_total)}원</b></div><div class="metric"><span>남은 통합 한도</span><b>${formatBenefitValue(calc.remaining_total_limit)}</b></div><div class="metric"><span>매칭 거래</span><b>${numberWithCommas(calc.matched_count)}건</b></div></div><p class="note">실적 달성률 ${calc.performance_rate}%</p><div class="progress"><div class="bar" style="width:${Math.min(100,calc.performance_rate)}%"></div></div><p><a class="btn light" href="/payment-methods?${escapeHtml(qs.toString())}">결제수단 연결 안내</a></p><p class="note">${escapeHtml(NAVER_CARD_SOURCE_NOTE)}</p></section><section class="card"><h2>혜택 카테고리별 현황</h2><div class="tableWrap"><table><thead><tr><th>혜택</th><th>율</th><th>월 한도</th><th>매칭 지출</th><th>예상 혜택</th><th>남은 한도</th></tr></thead><tbody>${renderBenefitRows(calc)}</tbody></table></div></section><section class="card"><h2>카드 매칭 거래</h2><p class="note">거래의 결제수단/메모에 카드명 또는 별칭이 포함된 경우 매칭합니다. 다음 단계에서 결제수단 등록과 연결하면 더 정확해집니다.</p><div class="tableWrap"><table><thead><tr><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>결제수단</th><th>ID</th></tr></thead><tbody>${renderMatchedCardRows(calc.matchedRows)}</tbody></table></div></section></main></body></html>`);}
 
 function shiftMonthKey(month = "", delta = 0) {
@@ -9547,7 +9814,9 @@ async function handlePaymentMethodsPage(request, env, url) {
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const monthLabel = `${Number(month.slice(5, 7))}월`;
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
@@ -9802,8 +10071,8 @@ async function handleHouseholdAdminPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const households = await fetchAdminHouseholds(env);
   const membersMap = await fetchAllHouseholdMembersMap(env, households);
-  const selectedId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selected = households.find((h) => h.id === selectedId) || households[0] || null;
+  const selectedId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, selectedId);
   const counts = {};
   for (const h of households) counts[h.id] = await countHouseholdTransactions(env, h.id);
   const msg = url.searchParams.get("msg") || "";
@@ -9856,11 +10125,12 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   let groups = [
-    { key: "day", label: "기록", icon: "▤", items: [["app", "홈", app, "⌂"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "▤"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "□"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "↻"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "⌁"]] },
-    { key: "report", label: "리포트", icon: "▥", items: [["analysis", "소비 분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "▥"], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "◴"], ["reports", "월 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "▦"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "◇"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "!"]] },
-    { key: "together", label: "함께", icon: "↔", items: [["settlement", "부부 정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "↔"], ["households", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "+"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "⇄"]] },
-    { key: "manage", label: "관리", icon: "⚙", items: [["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "▣"], ["categories", "분류·키워드", cat, "#"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}`, "⇩"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "•"]] },
-    { key: "ops", label: "운영 관리", icon: "◆", items: [["operation-center", "운영센터", "/operation-center", "◆"], ["release-candidate", "릴리스 후보", "/release-candidate", "R"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "+"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "▥"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "="], ["ops-traffic", "트래픽", "/ops-traffic", "↗"], ["skill-ops", "스킬", "/skill-ops", "S"], ["diagnostics", "시스템 진단", "/diagnostics", "!"], ["deployment-check", "배포점검", "/deployment-check", "✓"], ["ui-polish-check", "화면점검", "/ui-polish-check", "□"], ["final-release", "배포 확인", "/final-release", "✓"]] },
+    { key: "day", label: "기록", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions#feed`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["reserve-plans", "정기지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "recurring"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "receipt"]] },
+    { key: "assets", label: "자산", icon: "wallet", items: [["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"]] },
+    { key: "report", label: "리포트", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"]] },
+    { key: "together", label: "함께", icon: "users", items: [["settlement", "부부 정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"], ["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"]] },
+    { key: "manage", label: "관리", icon: "tools", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
+    { key: "ops", label: "운영 관리", icon: "shield", items: [["operation-center", "운영센터", "/operation-center", "tools"], ["release-candidate", "릴리스 후보", "/release-candidate", "check"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "users"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "report"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "shield"], ["ops-traffic", "트래픽", "/ops-traffic", "report"], ["skill-ops", "스킬", "/skill-ops", "sparkle"], ["diagnostics", "시스템 진단", "/diagnostics", "tools"], ["deployment-check", "배포점검", "/deployment-check", "check"], ["ui-polish-check", "화면점검", "/ui-polish-check", "check"], ["final-release", "배포 확인", "/final-release", "check"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
   const backupKeys = new Set(["backup-preview", "backup-compare", "backup-select", "backup-final", "backup-apply", "import-history", "rollback-candidates", "rollback-final"]);
@@ -9871,38 +10141,40 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const navScope = ["user", "ops", "admin"].includes(requestedScope)
     ? requestedScope
     : (implicitAdminScope ? "admin" : opts.showOps || opsKeys.has(active) ? "ops" : "user");
-  const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["members", "households"]]);
+  const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["households", "my-households"]]);
   const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : activeAliases.get(active) || active;
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "day";
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
-    const links = g.items.map(([key, label, href, itemIcon = "·"]) => `<a class="${key === activeKey ? "active" : ""}" href="${escapeHtml(href)}"><i class="abNavItemIcon" aria-hidden="true">${escapeHtml(itemIcon)}</i><span class="abNavItemLabel">${escapeHtml(label)}</span></a>`).join("");
-    return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}" data-nav-group="${escapeHtml(g.key)}" ${open ? "open" : ""}><summary><i>${g.icon}</i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
+    const links = g.items.map(([key, label, href, itemIcon = "home"]) => `<a data-key="${escapeHtml(key)}"${key === activeKey ? ' class="active"' : ""} href="${escapeHtml(href)}"${key === activeKey ? ' aria-current="page"' : ""}><i class="abNavItemIcon" data-ab-nav-icon="${escapeHtml(itemIcon)}"></i><span>${escapeHtml(label)}</span></a>`).join("");
+    return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   const bottomDefs = [
-    ["home", "홈", "⌂", app],
-    ["records", "거래", "▤", `${app}&tab=transactions#feed`],
-    ["settlement", "정산", "↔", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
-    ["analysis", "분석", "▥", `/my/analysis?month=${encodeURIComponent(month)}${hh}`],
-    ["budgets", "예산", "◴", `/budgets?month=${encodeURIComponent(month)}${hh}`],
+    ["home", "홈", "home", app],
+    ["records", "거래", "records", `${app}&tab=transactions#feed`],
+    ["settlement", "정산", "settlement", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
+    ["stats", "통계", "stats", `/my/analysis?month=${encodeURIComponent(month)}${hh}`],
+    ["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`],
   ];
   const bottomLinks = bottomDefs.map(([key, label, icon, href]) => {
     const on = key === activeKey
       || (key === "home" && activeKey === "app")
-      || (key === "records" && activeKey === "calendar");
-    return `<a data-key="${escapeHtml(key)}" class="${on ? "active" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i>${escapeHtml(icon)}</i><span>${escapeHtml(label)}</span></a>`;
+      || (key === "records" && activeKey === "calendar")
+      || (key === "stats" && activeKey === "analysis");
+    return `<a data-key="${escapeHtml(key)}" class="${on ? "active" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
-  return `<div class="abNavScope" data-nav-scope="${navScope}" hidden></div><style id="unifiedNavStyle">
-:root{--abNavW:260px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
+  return `<div class="abNavScope" data-nav-scope="${navScope}" hidden></div>${navScope === "user" ? "" : `<style id="unifiedNavStyle">
+:root{--abNavW:238px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
 .abLayoutNav{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#111827}
-@media(min-width:1024px){
+.abNavIconSvg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media(min-width:900px){
   body{padding-left:var(--abNavW)!important;transition:padding-left .18s ease}
   body.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}
   .abLayoutNav{position:fixed;left:0;top:0;bottom:0;width:var(--abNavW);z-index:2100;background:linear-gradient(180deg,#ffffff 0%,#fbfcff 100%);border-right:1px solid #edf0f5;box-shadow:10px 0 28px rgba(15,23,42,.055);display:flex;flex-direction:column;transition:width .18s ease}
   body.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)}
-  .abNavMobileTop,.abNavMobileDrawer,.abNavBottom{display:none!important}
+  .abNavMobileTop,.abNavBottom{display:none!important}
 }
-@media(max-width:1023px){
+@media(max-width:899px){
   body{padding-left:0!important;padding-top:calc(48px + var(--abSafeTop))!important;padding-bottom:calc(82px + var(--abSafeBottom))!important;overflow-x:hidden!important}
   .abLayoutNav{display:none!important}
   .abNavMobileTop{position:fixed;top:0;left:0;right:0;height:calc(48px + var(--abSafeTop));z-index:2200;background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-bottom:1px solid #eef0f3;display:flex;align-items:center;justify-content:space-between;padding:var(--abSafeTop) 14px 0 14px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;transition:transform .22s ease}
@@ -9910,7 +10182,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   .abNavMobileTop a{color:#111827;text-decoration:none;font-weight:800;font-size:15px;max-width:72vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .abNavMobileTop button{border:0;background:#F2F4F6;color:#333;border-radius:11px;min-height:32px;padding:0 12px;font-weight:800;font-size:13px}
   .abNavMobileDrawer{position:fixed;left:0;right:0;top:calc(48px + var(--abSafeTop));z-index:2199;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 18px 36px rgba(15,23,42,.16);padding:10px;max-height:calc(80vh - var(--abSafeTop));overflow:auto;-webkit-overflow-scrolling:touch;display:none}
-  body.abMobileNavOpen .abNavMobileDrawer{display:block}
+  body.abMobileNavOpen .abNavMobileDrawer{display:block!important}
   .abNavBottom{position:fixed;left:0;right:0;bottom:0;z-index:2200;height:calc(72px + var(--abSafeBottom));padding-bottom:var(--abSafeBottom);background:rgba(255,255,255,.97);backdrop-filter:blur(18px);border-top:1px solid #eef0f3;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}
   .abNavBottom a{display:flex;align-items:center;justify-content:center;color:#8b95a1;text-decoration:none;font-size:12px;font-weight:800;min-width:0;min-height:48px;text-align:center;padding:0 2px;line-height:1.2}
 }
@@ -9925,7 +10197,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
 .abNavGroup summary::-webkit-details-marker{display:none}
 .abNavGroup[open] summary{background:#f3f6fb;color:#111827;box-shadow:inset 0 0 0 1px #eef2f7}.abNavGroup summary i{font-style:normal;width:26px;text-align:center;font-size:17px;flex:0 0 26px}.abNavGroup summary b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .abNavLinks{display:grid;gap:4px;padding:6px 0 8px 36px}.abNavLinks a{min-height:38px;display:flex;align-items:center;border-radius:13px;padding:0 10px;color:#374151;text-decoration:none;font-size:13px;font-weight:900}.abNavLinks a:hover{background:#f3f4f6}.abNavLinks a.active{background:linear-gradient(135deg,#111827,#334155);color:#fff!important;box-shadow:0 8px 18px rgba(15,23,42,.18)}
-.abNavFooter{padding:12px;border-top:1px solid #f1f5f9}.abNavGuide{display:block;text-decoration:none;background:linear-gradient(135deg,#ecfdf5,#f0fdfa);border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:12px;font-weight:1000;font-size:13px;box-shadow:0 8px 18px rgba(16,185,129,.08)}.abNavGuide small{display:block;color:#047857;font-size:11px;margin-top:3px;font-weight:800}
+.abNavFooter{padding:12px;border-top:1px solid #f1f5f9}.abNavGuide{display:block;text-decoration:none;background:linear-gradient(135deg,#ecfdf5,#f0fdfa);border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:12px;font-weight:1000;font-size:13px;box-shadow:0 8px 18px rgba(16,185,129,.08)}.abNavGuide small{display:block;color:#047857;font-size:11px;margin-top:3px;font-weight:800}.abNavGuideActive{background:linear-gradient(135deg,#10b981,#059669);border-color:#059669;color:#fff!important;box-shadow:0 10px 22px rgba(16,185,129,.28)}.abNavGuideActive small{color:#d1fae5!important}
 body.abNavCollapsed .abNavBrandText,body.abNavCollapsed .abNavGroup summary b,body.abNavCollapsed .abNavLinks,body.abNavCollapsed .abNavGuide small,body.abNavCollapsed .abNavGuide span{display:none}
 body.abNavCollapsed .abNavTop{justify-content:center;flex-direction:column}body.abNavCollapsed .abNavToggle{transform:rotate(180deg)}body.abNavCollapsed .abNavGroup summary{justify-content:center;padding:0}body.abNavCollapsed .abNavFooter{padding:9px}.abNavMobileDrawer .abNavGroup summary{min-height:44px}.abNavMobileDrawer .abNavLinks{padding-left:10px;grid-template-columns:repeat(2,minmax(0,1fr));display:grid}.abNavMobileDrawer .abNavLinks a{min-height:42px;background:#f8fafc}
 .abNavBottom a{flex-direction:column;gap:3px;letter-spacing:-.04em;position:relative}.abNavBottom a i{font-style:normal;font-size:19px;line-height:1;opacity:.75}.abNavBottom a span{display:block;font-size:10px}.abNavBottom a.active{color:#111827!important}.abNavBottom a.active i{opacity:1}.abNavBottom a.active span{font-weight:900}.abNavBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 4px 4px;background:#FEE500}
@@ -9962,11 +10234,11 @@ body{overflow-x:hidden!important}
 input,select,textarea,button{max-width:100%;font-family:inherit}
 button,a,.abNavLinks a,.abNavBottom a{-webkit-tap-highlight-color:rgba(254,229,0,.35)}
 .tableWrap,.calendarWrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
-@media(min-width:1024px){
+@media(min-width:900px){
   main.wrap,.wrap{max-width:min(1180px,calc(100vw - var(--abNavW) - 32px));}
   body.abNavCollapsed main.wrap,body.abNavCollapsed .wrap{max-width:min(1240px,calc(100vw - var(--abNavCollapsed) - 32px));}
 }
-@media(max-width:1023px){
+@media(max-width:899px){
   main,.wrap,header{width:100%!important;max-width:100%!important}
   .wrap,main{padding-left:12px!important;padding-right:12px!important}
   .hero,.card,.panel,.homeBudget,.heroCard{border-radius:20px!important}
@@ -10029,13 +10301,13 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:16px!important;border-radius:16px!important}
   .grid{gap:8px!important}
 }
-@media(min-width:1024px){
+@media(min-width:900px){
   .hero{padding:26px 26px!important}
   .hero h1{font-size:24px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style><aside class="abLayoutNav" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true">₩</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-label="사이드바 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>시작가이드</span><small>처음이라면 여기부터</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span aria-hidden="true">₩</span> ${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abMobileMenuDrawer" aria-expanded="false">전체 메뉴</button></div><nav id="abMobileMenuDrawer" class="abNavMobileDrawer" aria-label="가계부 전체 메뉴">${groupHtml}</nav><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav><script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}window.syncAbMobileMenu=syncMobileMenu;try{if(localStorage.getItem("abNavCollapsed")==="1")document.body.classList.add("abNavCollapsed")}catch(e){}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer a");if(link){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileDrawer");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});var abLastY=0,abTicking=false;window.addEventListener("scroll",function(){if(abTicking)return;abTicking=true;requestAnimationFrame(function(){var y=window.scrollY||0;if(document.body.classList.contains("abMobileNavOpen")){abLastY=y;abTicking=false;return;}if(y>abLastY+6&&y>96){document.body.classList.add("abTopHidden");}else if(y<abLastY-6||y<=96){document.body.classList.remove("abTopHidden");}abLastY=y;abTicking=false;});},{passive:true});})();function toggleAbSideNav(){try{document.body.classList.toggle("abNavCollapsed");localStorage.setItem("abNavCollapsed",document.body.classList.contains("abNavCollapsed")?"1":"0")}catch(e){document.body.classList.toggle("abNavCollapsed")}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 
@@ -10605,8 +10877,7 @@ async function handleKakaoCommandsPage(request, env, url) {
 
 async function handleOpsSnapshotJson(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
+  if (!adminOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
   return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
 }
 
@@ -10694,6 +10965,374 @@ function budgetAlertKakaoHint(model) {
   if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
+}
+
+// V22.8.29 V5 연간 리포트·연말정산 (§3.12) — 신규 user 페이지. fetchAdminRowsRange 재사용, 레거시 무변경.
+function classifyDeductionPay(pm) {
+  const s = String(pm || "");
+  if (/체크/.test(s)) return "check";
+  if (/현금/.test(s)) return "cash";
+  if (/(카카오페이|네이버페이|페이|간편|토스|toss)/i.test(s)) return "simple";
+  if (/카드|신용/.test(s)) return "credit";
+  return "other";
+}
+function buildAnnualReportModel(rows, year) {
+  const monthsExp = new Array(12).fill(0);
+  const monthsInc = new Array(12).fill(0);
+  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
+  const catExp = {};
+  for (const r of safeArray(rows)) {
+    const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
+    const amt = Number(r.amount || 0);
+    if (r.type === "income") {
+      totalInc += amt;
+      if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
+    } else {
+      totalExp += amt;
+      if (mi >= 0 && mi < 12) monthsExp[mi] += amt;
+      const c = r.category || "미분류";
+      catExp[c] = (catExp[c] || 0) + amt;
+      const kind = classifyDeductionPay(r.payment_method);
+      if (kind === "credit") creditSpend += amt;
+      else if (kind !== "other") deductibleSpend += amt;
+    }
+  }
+  const catTop = Object.keys(catExp).map((k) => ({ category: k, amount: catExp[k] }))
+    .sort((a, b) => b.amount - a.amount).slice(0, 6);
+  return {
+    year, monthsExp, monthsInc, totalExp, totalInc,
+    savings: totalInc - totalExp,
+    monthAvgExp: Math.round(totalExp / 12),
+    catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
+  };
+}
+async function handleAnnualReportPage(request, env, url) {
+  const scoped = await getScopedHouseholdsForPage(request, env);
+  if (scoped.scope === "none") return redirectResponse("/my");
+  const households = scoped.households;
+  const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
+  if (!selected) return redirectResponse("/my");
+  const nowYear = Number(currentMonthKst().slice(0, 4));
+  const nowMonthIdx = Number(currentMonthKst().slice(5, 7)) - 1;
+  let year = Math.round(Number(url.searchParams.get("year") || nowYear));
+  if (!Number.isFinite(year)) year = nowYear;
+  year = Math.max(2000, Math.min(nowYear, year));
+  const rows = await fetchAdminRowsRange(env, { householdId: selected.id, start: `${year}-01-01`, end: `${year + 1}-01-01`, type: "all", limit: 20000 });
+  const model = buildAnnualReportModel(rows, year);
+  return htmlResponse(renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }));
+}
+function renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }) {
+  const title = escapeHtml(appName(env));
+  const hh = `&household_id=${encodeURIComponent(selected.id)}`;
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const curMonthHighlight = model.year === nowYear ? nowMonthIdx : -1;
+  const barsHtml = model.monthsExp.map((v, i) => {
+    const h = Math.max(2, Math.round((v / model.maxMonth) * 100));
+    return `<div class="annualBarCol"><div class="annualBarTrack"><div class="annualBar${i === curMonthHighlight ? " cur" : ""}" style="height:${h}%" title="${i + 1}월 ${numberWithCommas(v)}원"></div></div><span>${i + 1}</span></div>`;
+  }).join("");
+  const catMax = Math.max(1, ...model.catTop.map((c) => c.amount));
+  const catHtml = model.catTop.length
+    ? model.catTop.map((c) => `<li><div class="catRow"><b>${escapeHtml(c.category)}</b><span>${numberWithCommas(c.amount)}원</span></div><div class="miniBar"><span style="width:${Math.round(c.amount / catMax * 100)}%"></span></div></li>`).join("")
+    : `<li class="muted">이 해에는 지출 기록이 없습니다.</li>`;
+  const prevY = model.year - 1;
+  const nextY = model.year + 1;
+  const nextDisabled = nextY > nowYear;
+  const savingsLabel = model.savings >= 0 ? `저축 ${numberWithCommas(model.savings)}원` : `적자 ${numberWithCommas(Math.abs(model.savings))}원`;
+  const creditDeduct = Math.round(model.creditSpend * 0.15);
+  const otherDeduct = Math.round(model.deductibleSpend * 0.30);
+  const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:1fr 130px;gap:8px;margin-top:12px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style></head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section><section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section></main></body></html>`;
+}
+
+// V22.8.31 V5 저축·목표 페이지(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) — V5 네이티브 클라이언트 서피스.
+async function handleGoalsPage(request, env, url) {
+  const scoped = await getScopedHouseholdsForPage(request, env);
+  if (scoped.scope === "none") return redirectResponse("/my");
+  const households = scoped.households;
+  const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
+  if (!selected) return redirectResponse("/my");
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const canWrite = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  let html = renderGoalsHtml({ env, households, selected, month, canWrite });
+  if (!canWrite) {
+    html = html.replace(
+      '<section class="card"><h2>목표 추가</h2>',
+      '<section class="card"><h2>읽기 전용</h2><p class="muted">조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.</p></section><section class="card" hidden><h2>목표 추가</h2>',
+    );
+  }
+  return htmlResponse(html);
+}
+function renderGoalsHtml({ env, households, selected, month, canWrite = false }) {
+  const title = escapeHtml(appName(env));
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const skel = `<div class="goalCard goalSkel"><div class="skLine skWide"></div><div class="skBar"></div><div class="skLine"></div></div>`.repeat(3);
+  const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.overall{margin-top:14px}.overall .obar{height:12px;background:rgba(255,255,255,.22);border-radius:999px;overflow:hidden;margin-top:8px}.overall .obar span{display:block;height:100%;background:#5eead4;border-radius:999px;transition:width .5s}.overall b{font-size:22px}.filters{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:14px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.goalForm{display:grid;grid-template-columns:1.4fr .6fr 1fr 1fr 1fr auto;gap:8px}.goalForm input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 12px;font:inherit;min-width:0}.goalForm button{height:44px;border:0;border-radius:12px;background:#0f766e;color:#fff;font-weight:1000;padding:0 16px;cursor:pointer}.goalCard{background:var(--card,#fff);color:var(--text,#111827);border:1px solid var(--line,#e8edf4);border-radius:20px;padding:16px;margin:10px 0}.goalHead{display:flex;align-items:center;gap:10px}.goalEmoji{font-size:22px}.goalHead b{font-size:16px}.goalHead small{display:block;color:var(--sub,#64748b);font-size:12px;margin-top:2px}.goalStatus{margin-left:auto;flex:none;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:900}.st-done{background:#dcfce7;color:#166534}.st-onTrack{background:#e0f2fe;color:#075985}.st-behind{background:#fef3c7;color:#92400e}.goalBar{height:12px;background:var(--card-2,#eef2f7);border-radius:999px;overflow:hidden;margin:12px 0 8px}.goalBar span{display:block;height:100%;background:var(--accent,#0f766e);border-radius:999px;transition:width .4s}.goalMeta{display:flex;justify-content:space-between;gap:10px;color:var(--sub,#64748b);font-size:13px;flex-wrap:wrap}.goalMeta b{color:var(--text,#111827)}.goalActions{display:flex;gap:8px;margin-top:12px}.goalActions button{height:40px;border-radius:11px;font-weight:900;padding:0 14px;cursor:pointer;font:inherit;border:1px solid var(--line,#e8edf4)}.goalActions .fund{background:var(--accent,#0f766e);color:#fff;border:0}.goalActions .del{background:transparent;color:var(--sub,#64748b)}.goalEmpty{padding:26px;text-align:center;color:var(--sub,#64748b)}.skLine{height:12px;border-radius:6px;background:#eef2f7;margin:8px 0}.skWide{width:60%}.skBar{height:12px;border-radius:999px;background:#eef2f7;margin:14px 0}.goalSkel{position:relative;overflow:hidden}.goalSkel:after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);animation:goalShimmer 1.2s infinite}@keyframes goalShimmer{100%{transform:translateX(100%)}}.goalToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:2600;display:flex;align-items:center;gap:14px;background:#111827;color:#fff;border-radius:14px;padding:12px 16px;box-shadow:0 14px 34px rgba(15,23,42,.3);font-weight:700}.goalToast[hidden]{display:none}.goalToast button{background:transparent;border:0;color:#5eead4;font-weight:900;cursor:pointer;font:inherit}@media(min-width:900px){.goalToast{bottom:24px}}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero h1{font-size:24px}.goalForm{grid-template-columns:1fr 1fr}.goalForm input,.goalForm button{font-size:16px}}@media(prefers-reduced-motion:reduce){.goalSkel:after{animation:none}}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 저축·목표</title><style>${style}</style></head><body>${renderUnifiedNav("goals", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>저축·목표</h1><p>목표를 정하고 매월 조금씩 모아보세요. 원터치로 납입하고, 실수하면 바로 실행취소할 수 있어요.</p><div class="overall"><span>전체 진행률 <b id="goalsOverallPct">–</b></span><div class="obar"><span id="goalsOverallBar" style="width:0%"></span></div><small id="goalsOverallSub" style="color:#ccfbf1"></small></div><form class="filters" method="get" action="/goals"><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="card"><h2>목표 추가</h2><form id="goalAddForm" class="goalForm" autocomplete="off"><input name="name" placeholder="목표 이름 (예: 여행자금)" aria-label="목표 이름"/><input name="emoji" value="🎯" maxlength="4" aria-label="이모지"/><input name="target" inputmode="numeric" placeholder="목표 금액" aria-label="목표 금액"/><input name="monthly" inputmode="numeric" placeholder="월 납입액" aria-label="월 납입액"/><input name="deadline" type="month" aria-label="마감월"/><button type="submit">추가</button></form></section><div id="goalsRoot">${skel}</div><div id="goalToast" class="goalToast" role="status" hidden><span id="goalToastMsg"></span><button type="button" id="goalToastUndo">실행취소</button></div></main><script src="${ACCOUNTBOOK_GOALS_JS_ASSET_PATH}" defer></script></body></html>`;
+}
+function accountbookGoalsClientMain() {
+  var root = document.getElementById("goalsRoot");
+  if (!root) return;
+  var overallPct = document.getElementById("goalsOverallPct");
+  var overallBar = document.getElementById("goalsOverallBar");
+  var overallSub = document.getElementById("goalsOverallSub");
+  var addForm = document.getElementById("goalAddForm");
+  var toast = document.getElementById("goalToast");
+  var toastMsg = document.getElementById("goalToastMsg");
+  var toastUndo = document.getElementById("goalToastUndo");
+  var state = { goals: [], total_saved: 0, total_target: 0, overall_progress: 0, can_write: false };
+  var pending = null;
+  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
+  function api(body, options) {
+    return fetch("/u/api/goals", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", keepalive: !!(options && options.keepalive), body: JSON.stringify(Object.assign({ household: hh() }, body)) })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (res.ok) return data;
+          data.status = res.status;
+          return Promise.reject(data);
+        });
+      });
+  }
+  function failureMessage(err) {
+    if (err && err.message) return String(err.message);
+    if (err && err.status === 409) return "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.";
+    return "목표 변경을 저장하지 못했습니다. 기존 목표를 다시 불러왔습니다.";
+  }
+  function showError(err) {
+    if (!toast || !toastMsg) return;
+    toastMsg.textContent = failureMessage(err);
+    if (toastUndo) toastUndo.hidden = true;
+    toast.hidden = false;
+    setTimeout(function () { if (!pending) toast.hidden = true; }, 5000);
+  }
+  function statusLabel(s) { return s === "done" ? "달성" : s === "behind" ? "부족" : "순조"; }
+  function setOverall() {
+    if (overallPct) overallPct.textContent = state.overall_progress + "%";
+    if (overallBar) overallBar.style.width = Math.min(100, state.overall_progress) + "%";
+    if (overallSub) overallSub.textContent = fmt(state.total_saved) + "원 / " + fmt(state.total_target) + "원";
+  }
+  function applyPayload(p) {
+    state.goals = (p && p.goals) || [];
+    state.total_saved = (p && p.total_saved) || 0;
+    state.total_target = (p && p.total_target) || 0;
+    state.overall_progress = (p && p.overall_progress) || 0;
+    state.can_write = !!(p && p.can_write);
+    if (addForm) addForm.closest("section").hidden = !state.can_write;
+  }
+  function render() {
+    setOverall();
+    root.textContent = "";
+    if (!state.goals.length) {
+      var e = document.createElement("div");
+      e.className = "card goalEmpty";
+      e.textContent = state.can_write ? "아직 목표가 없어요. 위에서 첫 목표를 추가해 보세요." : "아직 등록된 목표가 없어요.";
+      root.appendChild(e);
+      return;
+    }
+    state.goals.forEach(function (g) {
+      var card = document.createElement("div");
+      card.className = "card goalCard";
+      var head = document.createElement("div"); head.className = "goalHead";
+      var em = document.createElement("span"); em.className = "goalEmoji"; em.textContent = g.emoji || "🎯";
+      var titleWrap = document.createElement("div");
+      var b = document.createElement("b"); b.textContent = g.name;
+      var small = document.createElement("small");
+      var sub = [];
+      if (g.deadline) sub.push(g.deadline);
+      if (g.monthsLeft != null) sub.push("남은 " + g.monthsLeft + "개월");
+      small.textContent = sub.join(" · ") || "마감월 없음";
+      titleWrap.appendChild(b); titleWrap.appendChild(small);
+      var st = document.createElement("span"); st.className = "goalStatus st-" + g.status; st.textContent = statusLabel(g.status);
+      head.appendChild(em); head.appendChild(titleWrap); head.appendChild(st);
+      var bar = document.createElement("div"); bar.className = "goalBar";
+      var barIn = document.createElement("span"); barIn.style.width = Math.min(100, g.progress) + "%"; bar.appendChild(barIn);
+      var meta = document.createElement("div"); meta.className = "goalMeta";
+      var m1 = document.createElement("span"); m1.innerHTML = "<b>" + fmt(g.saved) + "원</b> / " + fmt(g.target) + "원 (" + g.progress + "%)";
+      var m2 = document.createElement("span");
+      m2.textContent = "월 " + fmt(g.monthly) + "원" + (g.neededMonthly != null ? " · 필요 " + fmt(g.neededMonthly) + "원" : "");
+      meta.appendChild(m1); meta.appendChild(m2);
+      var actions = document.createElement("div"); actions.className = "goalActions";
+      var fund = document.createElement("button"); fund.type = "button"; fund.className = "fund"; fund.textContent = "+" + fmt(g.monthly || 0) + "원 납입";
+      fund.disabled = !(g.monthly > 0);
+      fund.addEventListener("click", function () { doFund(g.id); });
+      var del = document.createElement("button"); del.type = "button"; del.className = "del"; del.textContent = "삭제";
+      del.addEventListener("click", function () { doDelete(g.id); });
+      actions.appendChild(fund); actions.appendChild(del);
+      card.appendChild(head); card.appendChild(bar); card.appendChild(meta);
+      if (state.can_write) card.appendChild(actions);
+      root.appendChild(card);
+    });
+  }
+  function recomputeTotals() {
+    state.total_saved = state.goals.reduce(function (a, g) { return a + Number(g.saved || 0); }, 0);
+    state.total_target = state.goals.reduce(function (a, g) { return a + Number(g.target || 0); }, 0);
+    state.overall_progress = state.total_target > 0 ? Math.min(100, Math.round(state.total_saved / state.total_target * 100)) : 0;
+    state.goals.forEach(function (g) {
+      g.progress = g.target > 0 ? Math.min(100, Math.round(g.saved / g.target * 100)) : 0;
+      if (g.target > 0 && g.saved >= g.target) g.status = "done";
+    });
+  }
+  function commitPending(options) {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    var body = pending.commit;
+    pending = null;
+    hideToast();
+    api(body, options).then(function (p) { applyPayload(p); render(); }).catch(function (err) { if (!(options && options.keepalive)) { showError(err); load(); } });
+  }
+  function showToast(msg, undoFn) {
+    toastMsg.textContent = msg;
+    if (toastUndo) toastUndo.hidden = false;
+    toast.hidden = false;
+    pending.undo = undoFn;
+    pending.timer = setTimeout(commitPending, 5000);
+  }
+  function hideToast() { toast.hidden = true; }
+  function startPending(commitBody, optimistic, undoLocal, msg) {
+    if (pending) commitPending();
+    pending = { commit: commitBody };
+    optimistic();
+    recomputeTotals();
+    render();
+    showToast(msg, undoLocal);
+  }
+  function doFund(id) {
+    var g = state.goals.filter(function (x) { return x.id === id; })[0];
+    if (!g || !(g.monthly > 0)) return;
+    var amount = g.monthly;
+    startPending({ action: "fund", id: id, amount: amount },
+      function () { g.saved = Math.max(0, g.saved + amount); },
+      function () { g.saved = Math.max(0, g.saved - amount); recomputeTotals(); render(); },
+      g.name + "에 " + fmt(amount) + "원 납입했어요");
+  }
+  function doDelete(id) {
+    var idx = -1;
+    for (var i = 0; i < state.goals.length; i++) { if (state.goals[i].id === id) { idx = i; break; } }
+    if (idx < 0) return;
+    var removed = state.goals[idx];
+    startPending({ action: "delete", id: id },
+      function () { state.goals.splice(idx, 1); },
+      function () { state.goals.splice(idx, 0, removed); recomputeTotals(); render(); },
+      removed.name + " 목표를 삭제했어요");
+  }
+  if (toastUndo) toastUndo.addEventListener("click", function () {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    var undo = pending.undo;
+    pending = null;
+    hideToast();
+    if (undo) undo();
+  });
+  if (addForm) addForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (pending) commitPending();
+    var f = addForm;
+    var body = {
+      action: "create",
+      name: f.name.value,
+      emoji: f.emoji.value,
+      target: String(f.target.value || "").replace(/[^0-9]/g, ""),
+      monthly: String(f.monthly.value || "").replace(/[^0-9]/g, ""),
+      deadline: f.deadline.value,
+    };
+    if (!String(body.name || "").trim()) { f.name.focus(); return; }
+    if (!(Number(body.target) > 0)) { f.target.focus(); return; }
+    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { showError(err); });
+  });
+  function load() {
+    var url = "/u/api/goals";
+    var h = hh();
+    if (h) url += "?household=" + encodeURIComponent(h);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (p) { applyPayload(p); render(); })
+      .catch(function (err) { root.textContent = ""; var e = document.createElement("div"); e.className = "card goalEmpty"; e.textContent = err === 401 ? "로그인이 필요해요." : "목표를 불러오지 못했어요."; root.appendChild(e); });
+  }
+  window.addEventListener("pagehide", function () { commitPending({ keepalive: true }); });
+  load();
+}
+function accountbookGoalsJsAsset() {
+  if (!AB_ACCOUNTBOOK_GOALS_JS_CACHE) {
+    AB_ACCOUNTBOOK_GOALS_JS_CACHE = `(${accountbookGoalsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_GOALS_JS_CACHE;
+}
+
+// V22.8.33 거래목록 행 즐겨찾기(★, §3.2): 피드 렌더러와 분리된 에셋으로 [data-fav-key] 행을 강화.
+// 콘텐츠 기반 키(date|type|amount|memo)로 검색 오버레이와 일관.
+function accountbookFavRowsClientMain() {
+  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  var favSet = {};
+  var loaded = false;
+  function apiUrl() { var u = "/u/api/favorites"; var h = hh(); if (h) u += "?household=" + encodeURIComponent(h); return u; }
+  function markAll() {
+    var rows = document.querySelectorAll("[data-fav-key]");
+    Array.prototype.forEach.call(rows, function (row) {
+      var key = row.getAttribute("data-fav-key");
+      var star = row.querySelector(".abV5RowFav");
+      if (star) { var on = !!favSet[key]; star.classList.toggle("isFav", on); star.setAttribute("aria-pressed", on ? "true" : "false"); }
+    });
+  }
+  function doToggle(row, key, star) {
+    var on = !favSet[key];
+    favSet[key] = on;
+    star.classList.toggle("isFav", on);
+    star.setAttribute("aria-pressed", on ? "true" : "false");
+    var tx; try { tx = JSON.parse(row.getAttribute("data-fav-tx") || "{}"); } catch (e) { tx = { id: key }; }
+    var body = on ? { household: hh(), id: key, tx: tx } : { household: hh(), id: key, remove: true };
+    fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); markAll(); })
+      .catch(function () { favSet[key] = !on; star.classList.toggle("isFav", !on); star.setAttribute("aria-pressed", !on ? "true" : "false"); });
+  }
+  function enhance() {
+    var rows = document.querySelectorAll("[data-fav-key]");
+    Array.prototype.forEach.call(rows, function (row) {
+      if (row.__favDone) return;
+      row.__favDone = true;
+      var key = row.getAttribute("data-fav-key");
+      var star = document.createElement("span");
+      star.className = "abV5RowFav" + (favSet[key] ? " isFav" : "");
+      star.setAttribute("role", "button");
+      star.setAttribute("tabindex", "0");
+      star.setAttribute("aria-label", "즐겨찾기");
+      star.setAttribute("aria-pressed", favSet[key] ? "true" : "false");
+      star.textContent = "★";
+      function toggle(ev) { ev.preventDefault(); ev.stopPropagation(); doToggle(row, key, star); }
+      star.addEventListener("click", toggle);
+      star.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") toggle(ev); });
+      row.appendChild(star);
+    });
+  }
+  function load() {
+    fetch(apiUrl(), { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); loaded = true; enhance(); markAll(); })
+      .catch(function () { loaded = true; enhance(); });
+  }
+  var target = document.getElementById("txList") || document.body;
+  if (window.MutationObserver && target) {
+    var obs = new MutationObserver(function () { enhance(); markAll(); });
+    obs.observe(target, { childList: true, subtree: true });
+  }
+  load();
+  setTimeout(function () { enhance(); markAll(); }, 500);
+}
+function accountbookFavRowsJsAsset() {
+  if (!AB_ACCOUNTBOOK_FAVROWS_JS_CACHE) {
+    AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = `(${accountbookFavRowsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_FAVROWS_JS_CACHE;
+}
+
+// V22.8.34: V5 오버레이 3종(검색·알림·행즐겨찾기)을 1개 immutable 에셋으로 번들링하고
+// 오버레이 마크업도 여기서 생성 → 페이지 HTML(홈 35KB 예산)에서 스크립트·마크업 제거.
+function accountbookV5BundleJsAsset() {
+  if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
+    const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }
 
 async function handleBudgetAlertPolishPage(request, env, url) {
@@ -10886,6 +11525,7 @@ async function handleSettlementSummaryPageLegacyV2265(request, env, url) {
   const households = access.households;
   if (!households.length) return redirectResponse("/my?err=household_required");
   const selected = access.selected;
+  if (!selected) return redirectResponse("/my?err=no_household");
   const members = await fetchHouseholdMembers(env, selected.id);
   const rows = await fetchAdminRows(env, { month, householdId: selected.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
@@ -10927,7 +11567,7 @@ async function handleSettlementHistorySave(request, env) {
       leaseSeconds: Number(env.SETTLEMENT_LEASE_SECONDS || 60),
     });
     if (!lease.acquired) return redirectResponse(`${returnTo}&err=settlement_busy`);
-    const history = safeArray(parseJsonSetting(await getSettingValue(env, settlementHistoryKey(selected.id)), []));
+    const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
     const duplicate = history.some((item) => {
       const completedAt = Date.parse(String(item.completed_at || ""));
       const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
@@ -10939,7 +11579,7 @@ async function handleSettlementHistorySave(request, env) {
     return redirectResponse(`${returnTo}&msg=settlement_completed`);
   } catch (err) {
     rememberOpsEvent({ kind: "settlement_history_save_failed", severity: "warn", path: "/my/settlement/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=save_failed`);
+    return redirectResponse(`${returnTo}&err=settlement_save_failed`);
   } finally {
     if (lease?.acquired) await releaseOperationLease(env, lease);
   }
@@ -11002,6 +11642,8 @@ async function handleSettlementSummaryPage(request, env, url) {
   const settlementError = url.searchParams.get("err") || "";
   const error = settlementError === "settlement_busy"
     ? `<div class="error">다른 정산 저장이 진행 중입니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 이력을 확인해 주세요.</div>`
+    : settlementError === "settlement_save_failed"
+      ? `<div class="error">정산 완료 이력을 저장하지 못했습니다. 기존 이력은 유지됩니다. 같은 버튼을 반복하지 말고 잠시 후 다시 시도해 주세요.</div>`
     : settlementError
       ? `<div class="error">정산 상태를 저장하지 못했습니다. 확인 체크와 관리 권한을 확인해 주세요.</div>`
       : "";
@@ -11014,15 +11656,13 @@ async function handleMeetingArchiveGuidePage(request, env, url) {
 
 async function handleDuplicateSafetyPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   return htmlResponse(renderDuplicateSafetyHtml(env));
 }
 
 async function handleOpsDashboardPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const snap = buildOpsSnapshot(env);
   const traffic = snap.traffic || {};
@@ -11030,7 +11670,7 @@ async function handleOpsDashboardPage(request, env, url) {
   const events = snap.events || {};
   const errCount = Number((events.bySeverity || {}).error || 0);
   const warnCount = Number((events.bySeverity || {}).warn || 0);
-  const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.user_key || "")}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
+  const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
   const opsRows = (events.recent || []).slice(0, 16).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.severity)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="6">최근 운영 이벤트가 없습니다.</td></tr>`;
   const trafficRows = (traffic.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
@@ -11040,8 +11680,7 @@ async function handleOpsDashboardPage(request, env, url) {
 
 async function handleTrafficOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const traffic = getTrafficOpsSnapshot();
   const skill = getSkillOpsSnapshot();
@@ -11136,9 +11775,7 @@ function summarizePersistentNluMetrics(rows = []) {
 }
 
 async function nluAdminAuthorized(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  return !!(adminOk || keyOk);
+  return !!(await verifyAdminSession(request, env));
 }
 
 async function handleNluOpsJson(request, env, url) {
@@ -11181,8 +11818,7 @@ async function handleNluOpsPage(request, env, url) {
 
 async function handleSkillOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const snap = getSkillOpsSnapshot();
   const rows = snap.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td><span class="kind ${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span></td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>`;
@@ -11336,8 +11972,8 @@ async function handleBeginnerGuidePage(request, env, url) {
       if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
       const households = access.households;
       let checklist = null;
-      if (households.length) {
-        const sel = access.selected || households[0];
+      if (access.selected) {
+        const sel = access.selected;
         const [members, budgets, paymentAssets, reservePlans, rows, groupLinks, firstRecordCount] = await Promise.all([
           fetchHouseholdMembers(env, sel.id),
           fetchBudgets(env, sel.id, month),
@@ -13153,9 +13789,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 }
 
 async function handleRecurringCronApply(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
   const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || currentMonthKst(), today: url.searchParams.get("today") || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -13273,6 +13907,7 @@ async function upsertMyBudgetRow(env, householdId = "", month = currentMonthKst(
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(body),
     });
+    await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
   } catch (err) {
     await saveSettingsBudget(env, householdId, month, category, body.amount);
   }
@@ -13376,6 +14011,18 @@ function freeReportSnapshotKey(householdId = "", kind = "weekly", period = "") {
 function parseJsonSetting(value, fallback = {}) {
   if (value && typeof value === "object") return value;
   try { return value ? JSON.parse(String(value)) : fallback; } catch (err) { return fallback; }
+}
+
+function parseJsonArraySettingStrict(value, errorCode = "settings_json_invalid") {
+  if (value === "" || value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (err) {}
+  }
+  throw new Error(errorCode);
 }
 
 async function saveSettingValue(env, key, value) {
@@ -13527,9 +14174,7 @@ async function runAutomaticReports(env, opts = {}) {
 }
 
 async function handleAutomaticReportCron(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
   const result = await runAutomaticReports(env, { today: url.searchParams.get("today") || "", force: url.searchParams.get("force") === "1" });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -13807,7 +14452,6 @@ function insightAppJsResponse() {
 
 function renderMyInsightHtml({ env, month, selected, rows, budget = {}, dataStart, truncated = false }) {
   const title = escapeHtml(appName(env));
-  const role = selected?.role || "";
   const qs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const slim = safeArray(rows).map((r) => [
     String(r.transaction_date || "").slice(0, 10),
@@ -13833,7 +14477,7 @@ function renderMyInsightHtml({ env, month, selected, rows, budget = {}, dataStar
     truncated: !!truncated,
   };
   const dataJson = JSON.stringify(payload).replace(/</g, "\\u003c");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>${myNavCss()}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>
 *,*:before,*:after{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.02em}
@@ -13948,9 +14592,9 @@ details.twin th{color:#8B95A1;font-weight:800}
 svg text{font-family:inherit}
 @media(max-width:820px){.grid2{grid-template-columns:1fr}.donutWrap{grid-template-columns:150px minmax(0,1fr)}.kpi b{font-size:18px}}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
-</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain">
-<section class="hero"><div class="heroTop"><div><h1>분석</h1><p>${escapeHtml(selected.name)} · 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 자유롭게 조합해 분석합니다.</p></div><div class="heroBtns"><a href="/my/analysis?view=report&${qs}">종합 리포트</a><a href="/my/settings?${qs}">예산 설정</a><a href="/app?${qs}&view=calendar#calendar">캘린더</a></div></div></section>
-<section class="filterBar" id="filterBar">
+</style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><div class="pageMain">
+<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">리포트</span><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 분석합니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">종합 리포트</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
+<section class="filterBar abV5FilterBar" id="filterBar">
   <div class="chipScroll" id="periodChips"></div>
   <div class="fRow">
     <div class="seg" id="typeSeg"></div>
@@ -13971,7 +14615,7 @@ svg text{font-family:inherit}
   <div class="activeChips" id="activeChips"></div>
 </section>
 <div class="card" id="insightLoadErr" hidden><b>분석 화면을 불러오지 못했어요.</b><p class="dataNote" style="margin:6px 0 0">네트워크 문제일 수 있어요. 새로고침하거나 <a href="/my/analysis?view=report&${qs}">종합 리포트</a>를 이용해 주세요.</p></div>
-<section class="kpiRow" id="kpis"></section>
+<section class="kpiRow abV5KpiGrid" id="kpis"></section>
 <div class="insightChips" id="insights"></div>
 <section class="card"><div class="cardHead"><h2 id="trendTitle">지출 흐름</h2><span class="legendRow" id="trendLegend"></span></div><div class="chartBox" id="trendChart"></div><details class="twin"><summary>표로 보기</summary><div id="trendTable"></div></details></section>
 <div class="grid2">
@@ -13986,7 +14630,7 @@ svg text{font-family:inherit}
 <section class="card"><div class="cardHead"><h2 id="topTitle">큰 금액 TOP</h2><span class="sub" id="topSub"></span></div><div id="topList"></div></section>
 <section class="card"><div class="cardHead"><h2>기록 <span class="sub" id="txCount"></span></h2><button class="csvBtn" id="csvBtn" type="button">CSV 내려받기</button></div><div id="txList"></div><button class="moreBtn" id="moreBtn" type="button" hidden>더 보기</button></section>
 <p class="dataNote">${truncated ? "최근 12개월 중 최신 9,000건을 기준으로 계산합니다. 기록이 많은 가계부는 필터 결과 CSV와 종합 리포트를 함께 확인해 주세요." : `이 화면은 ${escapeHtml(dataStart)} 이후 최근 12개월 기록을 기준으로 계산합니다.`} 그 이전 기록은 백업·가져오기에서 CSV로 확인할 수 있어요. 주간 리포트·반복지출 탐지는 <a href="/my/analysis?view=report&${qs}">종합 리포트</a>에 있습니다.</p>
-</div></div></main>
+</div></main>
 <noscript><p style="text-align:center;color:#6B7280">분석 화면은 자바스크립트가 필요합니다. <a href="/my/analysis?view=report&${qs}">종합 리포트</a>를 이용해 주세요.</p></noscript>
 <script>window.__INSIGHT__=${dataJson};</script>
 <script src="/my/analysis/app.js?v=${encodeURIComponent(APP_VERSION)}" onerror="(function(){var e=document.getElementById('insightLoadErr');if(e)e.hidden=false;})()"></script>
@@ -15621,12 +16265,14 @@ function canManageMyRecord(role = "", row = {}, userId = "") {
 async function getMySelectedHousehold(env, userId, householdId = "") {
   const memberships = await fetchUserHouseholds(env, userId);
   const households = memberships.filter((h) => canReadMyHousehold(h.role));
-  if (!memberships.length) return { households, memberships, selected: null, restricted: null };
-  const requested = householdId ? memberships.find((h) => String(h.id) === String(householdId)) || null : null;
-  if (requested && !canReadMyHousehold(requested.role)) return { households, memberships, selected: null, restricted: requested };
-  if (!households.length) return { households, memberships, selected: null, restricted: requested || memberships[0] || null };
+  const requestedId = String(householdId || "").trim();
+  if (!memberships.length) return { households, memberships, selected: null, restricted: null, invalidRequested: requestedId };
+  const requested = requestedId ? memberships.find((h) => String(h.id) === requestedId) || null : null;
+  if (requestedId && !requested) return { households, memberships, selected: null, restricted: null, invalidRequested: requestedId };
+  if (requested && !canReadMyHousehold(requested.role)) return { households, memberships, selected: null, restricted: requested, invalidRequested: "" };
+  if (!households.length) return { households, memberships, selected: null, restricted: requested || memberships[0] || null, invalidRequested: "" };
   const selected = (requested && canReadMyHousehold(requested.role) ? requested : null) || households[0] || null;
-  return { households, memberships, selected, restricted: null };
+  return { households, memberships, selected, restricted: null, invalidRequested: "" };
 }
 
 
@@ -15801,7 +16447,14 @@ async function handleMyUpdateTransaction(request, env) {
   };
   try {
     await updateTransaction(env, id, patch, { householdId: selected.id, actorUserId: userId, actorKind: "user" });
-    await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
+    try {
+      await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
+    } catch (historyError) {
+      // The atomic transaction RPC already committed the edit and its database
+      // audit. A secondary display-history failure must not tell the user that
+      // the transaction itself failed or encourage a duplicate retry.
+      rememberOpsEvent({ kind: "transaction_edit_history_save_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(historyError) });
+    }
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
@@ -15885,8 +16538,10 @@ async function handleMyHouseholdsPage(request, env, url) {
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = await fetchUserHouseholds(env, userId);
-  const requestedId = String(url.searchParams.get("manage") || url.searchParams.get("household_id") || "");
-  const selected = households.find((h) => String(h.id) === requestedId) || households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
+  const requestedId = String(url.searchParams.get("manage") || url.searchParams.get("household_id") || "").trim();
+  const selected = requestedId
+    ? households.find((h) => String(h.id) === requestedId) || null
+    : households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const step = url.searchParams.get("step") || "";
@@ -15952,7 +16607,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       ${leaveForm}
     </section>` : "";
 
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(preset?.name || "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(preset?.name || "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
 }
 
 async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
@@ -15962,7 +16617,10 @@ async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = await fetchUserHouseholds(env, userId);
-  const selected = households.find((h) => String(h.id) === String(url.searchParams.get("household_id") || "")) || households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
+  const requestedId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = requestedId
+    ? households.find((h) => String(h.id) === requestedId) || null
+    : households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const rows = households.map((h) => {
@@ -15974,7 +16632,7 @@ async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
     return `<article class="hhCard ${active ? "active" : ""}"><div><b>${escapeHtml(h.name || "가계부")}</b><span>${escapeHtml(userHouseholdRoleLabel(h.role || "member"))} · ${escapeHtml(formatDateKorean(h.joined_at || h.created_at || ""))}</span></div><div class="hhActions">${actions}</div><p class="inviteText">${escapeHtml(invite)}</p></article>`;
   }).join("") || `<div class="empty">아직 참여 중인 가계부가 없습니다. 아래에서 새로 만들거나 초대코드로 참여하세요.</div>`;
   const selectedInvite = canManageMyHousehold(selected?.role) && selected?.invite_code ? `가계부 참여 ${selected.invite_code}` : selected?.role === "pending" ? "참여 승인 대기 중입니다. 관리자가 승인하면 이용할 수 있습니다." : selected?.role === "blocked" ? "이용이 제한된 가계부입니다. 관리자에게 권한을 확인해 주세요." : "초대 문구는 소유자·관리자만 확인할 수 있습니다.";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·추가</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.list{display:grid;gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;display:grid;gap:9px}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.12);background:#f0fdfa}.hhCard b{font-size:18px}.hhCard span,.muted,.inviteText{display:block;color:#64748b;line-height:1.45;font-size:13px}.hhActions{display:flex;gap:8px;flex-wrap:wrap}.hhActions a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px}.hhActions a.soft,.soft{background:#eef2f7!important;color:#111827!important}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:12px;color:#475569;font-weight:1000}.field input{height:46px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:14px;padding:10px;margin:10px 0}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px;margin:10px 0}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:16px;color:#64748b}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero{border-radius:22px}.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.field input,button,.btn{width:100%;font-size:16px;min-height:46px}}</style></head><body>${renderUnifiedNav("households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·추가</h1><p>우리집, 모임, 여행, 단발성 정산 가계부를 분리해서 운영합니다. 이 화면에서는 내가 참여한 가계부만 보이고, 새 가계부 생성과 초대코드 참여를 바로 할 수 있습니다.</p><p><a class="btn soft" href="/households?month=${encodeURIComponent(month)}${selected?.id ? `&household_id=${encodeURIComponent(selected.id)}` : ""}">참여자 관리</a><a class="btn soft" href="/household-create-join">생성·참여 가이드</a></p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">기존 가계부가 있어도 여행/모임/단발성 정산용 가계부를 새로 만들 수 있습니다.</p><form method="post" action="/my/create"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 7월 제주여행, 회사 점심모임" required/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 모임장, 여행 총무에게 받은 초대코드를 입력하면 해당 가계부에 참여합니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="soft" type="submit">초대코드로 참여하기</button></form></div></section><section class="card"><h2>내 가계부 목록</h2><div class="list">${rows}</div></section><section class="card"><h2>선택 가계부 초대 문구</h2><div class="tip"><b>${escapeHtml(selected?.name || "선택된 가계부 없음")}</b><br/>${escapeHtml(selectedInvite)}</div><p class="muted">초대 문구를 카카오톡으로 보내면 다른 사용자가 /my에서 로그인 후 초대코드로 참여할 수 있습니다.</p></section><section class="card"><h2>권한 기준</h2><div class="warn">owner/admin은 전체 관리, member는 자기 기록 중심, viewer는 조회 전용입니다. 참여 후에도 모든 화면은 user household scope로 제한되어 다른 가계부는 보이지 않습니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·추가</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#0f766e);color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.list{display:grid;gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;display:grid;gap:9px}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.12);background:#f0fdfa}.hhCard b{font-size:18px}.hhCard span,.muted,.inviteText{display:block;color:#64748b;line-height:1.45;font-size:13px}.hhActions{display:flex;gap:8px;flex-wrap:wrap}.hhActions a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px}.hhActions a.soft,.soft{background:#eef2f7!important;color:#111827!important}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:12px;color:#475569;font-weight:1000}.field input{height:46px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:14px;padding:10px;margin:10px 0}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px;margin:10px 0}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:16px;color:#64748b}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero{border-radius:22px}.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.field input,button,.btn{width:100%;font-size:16px;min-height:46px}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·추가</h1><p>우리집, 모임, 여행, 단발성 정산 가계부를 분리해서 운영합니다. 이 화면에서는 내가 참여한 가계부만 보이고, 새 가계부 생성과 초대코드 참여를 바로 할 수 있습니다.</p><p><a class="btn soft" href="/households?month=${encodeURIComponent(month)}${selected?.id ? `&household_id=${encodeURIComponent(selected.id)}` : ""}">참여자 관리</a><a class="btn soft" href="/household-create-join">생성·참여 가이드</a></p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">기존 가계부가 있어도 여행/모임/단발성 정산용 가계부를 새로 만들 수 있습니다.</p><form method="post" action="/my/create"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 7월 제주여행, 회사 점심모임" required/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 모임장, 여행 총무에게 받은 초대코드를 입력하면 해당 가계부에 참여합니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="soft" type="submit">초대코드로 참여하기</button></form></div></section><section class="card"><h2>내 가계부 목록</h2><div class="list">${rows}</div></section><section class="card"><h2>선택 가계부 초대 문구</h2><div class="tip"><b>${escapeHtml(selected?.name || "선택된 가계부 없음")}</b><br/>${escapeHtml(selectedInvite)}</div><p class="muted">초대 문구를 카카오톡으로 보내면 다른 사용자가 /my에서 로그인 후 초대코드로 참여할 수 있습니다.</p></section><section class="card"><h2>권한 기준</h2><div class="warn">owner/admin은 전체 관리, member는 자기 기록 중심, viewer는 조회 전용입니다. 참여 후에도 모든 화면은 user household scope로 제한되어 다른 가계부는 보이지 않습니다.</div></section></main></body></html>`);
 }
 
 function formatDateKorean(value = "") {
@@ -16279,6 +16937,11 @@ async function fetchSettingsBudgets(env, householdId = "", month = currentMonthK
   }
 }
 
+async function fetchSettingsBudgetsStrict(env, householdId = "", month = currentMonthKst()) {
+  const value = await getSettingValueStrict(env, budgetsSettingsKey(householdId, month));
+  return normalizeBudgetRows(value, householdId, month);
+}
+
 function mergeBudgetRows(primary = [], fallback = []) {
   const map = new Map();
   for (const b of safeArray(fallback)) map.set(String(b.category || "__total"), b);
@@ -16318,6 +16981,23 @@ async function deleteSettingsBudget(env, householdId = "", month = currentMonthK
     body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
   });
   return next;
+}
+
+async function cleanupSettingsBudgetAfterTableSave(env, householdId = "", month = currentMonthKst(), category = "") {
+  try {
+    const rows = await fetchSettingsBudgetsStrict(env, householdId, month);
+    if (!rows.some((item) => String(item.category) === String(category))) return true;
+    const next = rows.filter((item) => String(item.category) !== String(category));
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
+    });
+    return true;
+  } catch (err) {
+    rememberOpsEvent({ kind: "budget_fallback_cleanup_failed", severity: "warn", path: "/budgets", method: "POST", detail: `${householdId}:${month}:${category}:${safeError(err)}` });
+    return false;
+  }
 }
 
 async function fetchBudgets(env, householdId, month, options = {}) {
@@ -17387,15 +18067,28 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22819.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22844.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-stage4-nav-v22818.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22836.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
+const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
+const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
+const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22838.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
 let AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = "";
+let AB_ACCOUNTBOOK_SEARCH_JS_CACHE = "";
+let AB_ACCOUNTBOOK_NOTIF_JS_CACHE = "";
+let AB_ACCOUNTBOOK_GOALS_JS_CACHE = "";
+let AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = "";
+let AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
+
+const ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML = `<div id="abV5Search" class="abV5SearchOverlay" hidden aria-hidden="true"><div class="abV5SearchScrim" data-abv5-search-close></div><div class="abV5SearchPanel" role="dialog" aria-modal="true" aria-labelledby="abV5SearchTitle" aria-describedby="abV5SearchHint" tabindex="-1"><h2 id="abV5SearchTitle" class="srOnly">통합 검색</h2><div class="abV5SearchBar"><span class="abV5SearchIcon" aria-hidden="true">🔍</span><input id="abV5SearchInput" type="search" autocomplete="off" placeholder="메모·분류·결제수단·금액 검색" aria-label="검색어"/><button type="button" class="abV5SearchClose" data-abv5-search-close aria-label="검색 닫기">Esc</button></div><div id="abV5SearchResults" class="abV5SearchResults" role="list" aria-live="polite"></div><div id="abV5SearchHint" class="abV5SearchHint">전체 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>`;
+const ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML = `<div id="abV5Notif" class="abV5NotifOverlay" hidden aria-hidden="true"><div class="abV5NotifScrim" data-abv5-notif-close></div><div class="abV5NotifPanel" role="dialog" aria-modal="true" aria-labelledby="abV5NotifTitle" tabindex="-1"><div class="abV5NotifHead"><b id="abV5NotifTitle">알림</b><button type="button" class="abV5NotifClose" data-abv5-notif-close aria-label="알림 닫기">Esc</button></div><div id="abV5NotifList" class="abV5NotifList" aria-live="polite"></div></div></div>`;
 
 const ACCOUNTBOOK_SHELL_V22811_CSS = `
 body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
@@ -17450,14 +18143,16 @@ const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replaceAll("abV22811Shell", "abV22812Shell")
   .replaceAll("--ab11", "--ab12")
   + `
-body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f8fafc;--ab12-text:#191f28;--ab12-muted:#52606f;--ab12-line:#d8dee8;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f0ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff}
-html[data-ab-tone="emerald"] body.abV22812Shell{--ab12-accent:#047857;--ab12-action:#047857;--ab12-accent-soft:#dff7ed}
-html[data-ab-tone="violet"] body.abV22812Shell{--ab12-accent:#6d28d9;--ab12-action:#6d28d9;--ab12-accent-soft:#f0e8ff}
-html[data-ab-tone="amber"] body.abV22812Shell{--ab12-accent:#92400e;--ab12-action:#92400e;--ab12-accent-soft:#fff3d6}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-bg:#0f172a;--ab12-surface:#172033;--ab12-surface-raised:#1e293b;--ab12-text:#f8fafc;--ab12-muted:#cbd5e1;--ab12-line:#3b475a;--ab12-accent:#93c5fd;--ab12-action:#2563eb;--ab12-accent-soft:#1e3a5f;--ab12-placeholder:#cbd5e1;--ab12-nav-inactive:#cbd5e1;--ab12-notice-bg:#080f1d;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#111827;--ab12-shadow:0 6px 20px rgba(0,0,0,.22)}
-html[data-ab-resolved-theme="dark"][data-ab-tone="emerald"] body.abV22812Shell{--ab12-accent:#6ee7b7;--ab12-action:#047857;--ab12-accent-soft:#123c33}
-html[data-ab-resolved-theme="dark"][data-ab-tone="violet"] body.abV22812Shell{--ab12-accent:#c4b5fd;--ab12-action:#6d28d9;--ab12-accent-soft:#35255d}
-html[data-ab-resolved-theme="dark"][data-ab-tone="amber"] body.abV22812Shell{--ab12-accent:#fcd34d;--ab12-action:#92400e;--ab12-accent-soft:#49351a}
+html{background:#f2f4f6;color-scheme:light}
+html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
+body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#5f6b7a;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff}
+html[data-ab-tone="emerald"] body.abV22812Shell{--ab12-brand:#157a54;--ab12-accent:#047857;--ab12-action:#047857;--ab12-accent-soft:#dff7ed}
+html[data-ab-tone="violet"] body.abV22812Shell{--ab12-brand:#7c3aed;--ab12-accent:#6d28d9;--ab12-action:#6d28d9;--ab12-accent-soft:#f0e8ff}
+html[data-ab-tone="amber"] body.abV22812Shell{--ab12-brand:#b45309;--ab12-accent:#92400e;--ab12-action:#92400e;--ab12-accent-soft:#fff3d6}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-bg:#141519;--ab12-surface:#1e2026;--ab12-surface-raised:#282b33;--ab12-text:#edeff3;--ab12-muted:#b3bdc9;--ab12-line:#3b475a;--ab12-brand:#4e96fa;--ab12-accent:#93c5fd;--ab12-action:#2563eb;--ab12-accent-soft:#1d2c42;--ab12-placeholder:#cbd5e1;--ab12-nav-inactive:#cbd5e1;--ab12-notice-bg:#101216;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#181a20;--ab12-shadow:0 6px 20px rgba(0,0,0,.22)}
+html[data-ab-resolved-theme="dark"][data-ab-tone="emerald"] body.abV22812Shell{--ab12-brand:#3baa7c;--ab12-accent:#6ee7b7;--ab12-action:#047857;--ab12-accent-soft:#123c33}
+html[data-ab-resolved-theme="dark"][data-ab-tone="violet"] body.abV22812Shell{--ab12-brand:#8b5cf6;--ab12-accent:#c4b5fd;--ab12-action:#6d28d9;--ab12-accent-soft:#35255d}
+html[data-ab-resolved-theme="dark"][data-ab-tone="amber"] body.abV22812Shell{--ab12-brand:#d97706;--ab12-accent:#fcd34d;--ab12-action:#92400e;--ab12-accent-soft:#49351a}
 body.abV22812Shell :is(input,select,textarea){background:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 body.abV22812Shell :is(input,textarea)::placeholder{color:var(--ab12-placeholder)!important;opacity:1!important}
 body.abV22812Shell .homeNotice{background:var(--ab12-notice-bg)!important;border:1px solid color-mix(in srgb,var(--ab12-notice-title) 28%,transparent)!important}
@@ -17673,7 +18368,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.good
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.bad{background:rgba(127,29,29,.32)!important;border-color:#f87171!important;color:#fecaca!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.hasRec.sel :is(b,strong,em,small){color:#fff!important}
 
-@media(min-width:1024px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:28px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:44px}body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(min-width:900px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:28px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:44px}body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:20px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:34px}body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:5px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
 @media(max-width:360px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:8px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:2px}}
 @media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
@@ -17682,10 +18377,11 @@ body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.hasRec.sel :is(b,str
 body.abV22812Shell{
   --bg:var(--ab12-bg);--card:var(--ab12-surface);--card-2:var(--ab12-surface-raised);
   --text:var(--ab12-text);--sub:var(--ab12-muted);--faint:var(--ab12-muted);--line:var(--ab12-line);
-  --accent:var(--ab12-accent);--accent-weak:var(--ab12-accent-soft);--on-accent:#fff;
+  --brand:var(--ab12-brand);--accent:var(--ab12-accent);--accent-weak:var(--ab12-accent-soft);--on-accent:#fff;
   --pos:#087a55;--neg:#c0362c;--warn:#a15c00;--purple:#7b6fe0;
-  --radius:20px;--radius-sm:12px;--radius-xs:10px;
-  --shadow:0 1px 4px rgba(25,31,40,.05);--shadow-2:0 6px 22px rgba(25,31,40,.08);
+  --radius:18px;--radius-sm:12px;--radius-xs:10px;
+  --space-1:8px;--space-2:16px;--space-3:24px;--space-4:32px;
+  --shadow:0 0 0 1px rgba(25,31,40,.06),0 1px 2px rgba(25,31,40,.03);--shadow-2:0 6px 22px rgba(25,31,40,.08);
   background:var(--bg)!important;color:var(--text)!important;
   font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
   font-feature-settings:"tnum";letter-spacing:-.01em
@@ -17744,10 +18440,37 @@ body.abV22812Shell .tabs::-webkit-scrollbar{display:none}
 body.abV22812Shell .tab{flex:0 0 auto;background:transparent!important;color:var(--sub)!important;border-radius:var(--radius-xs)}
 body.abV22812Shell .tab.active{background:var(--text)!important;color:var(--bg)!important}
 
+/* V22.8.21 UI V5 step 1: one navigation shell for desktop and mobile. */
+body.abV22812Shell{--abNavW:238px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
+body.abV22812Shell .abLayoutNav{position:fixed;left:0;top:0;bottom:0;width:var(--abNavW);z-index:2100;display:flex;flex-direction:column;transition:width .18s ease;background:var(--card)!important;border-right:1px solid var(--line)!important}
+body.abV22812Shell .abNavMobileTop,body.abV22812Shell .abNavBottom{display:none}
+body.abV22812Shell .abNavTop{display:flex;align-items:center;justify-content:space-between;gap:8px}
+body.abV22812Shell .abNavBrand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none}
+body.abV22812Shell .abBrandMark{width:19px;height:18px;display:flex;align-items:flex-end;justify-content:center;gap:2px}
+body.abV22812Shell .abBrandMark i{display:block;width:5px;border-radius:2px 2px 1px 1px;background:currentColor}
+body.abV22812Shell .abBrandMark i:nth-child(1){height:8px}body.abV22812Shell .abBrandMark i:nth-child(2){height:14px}body.abV22812Shell .abBrandMark i:nth-child(3){height:18px}
+body.abV22812Shell .abNavBrandText{display:flex;flex-direction:column;min-width:0;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abNavToggle{display:grid;place-items:center;flex:none;cursor:pointer}
+body.abV22812Shell .abNavBody{flex:1;overflow:auto;overscroll-behavior:contain}
+body.abV22812Shell .abNavGroup summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px}
+body.abV22812Shell .abNavGroup summary::-webkit-details-marker{display:none}
+body.abV22812Shell .abNavLinks a{align-items:center;text-decoration:none}
+body.abV22812Shell .abNavItemIcon,body.abV22812Shell .abNavGroup summary>i{display:grid;place-items:center;font-style:normal}
+body.abV22812Shell .abNavBottom a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;text-decoration:none;text-align:center}
+body.abV22812Shell .abNavBottom a i{display:grid;place-items:center;font-style:normal}
+body.abV22812Shell .abNavBottom a span{display:block;font-size:10px}
+body.abV22812Shell .abNavBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 4px 4px}
+body.abV22812Shell.abNavCollapsed .abNavBrandText,body.abV22812Shell.abNavCollapsed .abNavGuide small{display:none!important}
+body.abV22812Shell.abNavCollapsed :is(.abNavLinks a>span,.abNavGroup summary b,.abNavGuide span){position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+body.abV22812Shell.abNavCollapsed .abNavTop{justify-content:center;flex-direction:column}
+body.abV22812Shell.abNavCollapsed .abNavToggle{transform:rotate(180deg)}
+
 body.abV22812Shell .abLayoutNav{font-family:inherit!important;color:var(--text)!important;background:var(--card)!important;border-right:1px solid var(--line)!important;box-shadow:none!important}
 body.abV22812Shell .abNavTop{padding:16px 14px!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavBrand{gap:10px!important;color:var(--text)!important;font-weight:800!important}
-body.abV22812Shell .abNavLogo{width:38px!important;height:38px!important;flex:none;border-radius:12px!important;background:var(--accent)!important;color:var(--on-accent)!important;box-shadow:var(--shadow)!important;font-size:19px!important;font-weight:800!important}
+body.abV22812Shell .abNavLogo{width:38px!important;height:38px!important;flex:none;border-radius:12px!important;background:var(--brand)!important;color:var(--on-accent)!important;box-shadow:var(--shadow)!important;font-size:19px!important;font-weight:800!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abNavLogo{background:var(--brand)!important;color:#fff!important}
+body.abV22812Shell :is(.abNavLogo,.abNavMobileTop a>span) .abBrandMark i{background:var(--on-accent)!important}
 body.abV22812Shell .abNavBrandText small{color:var(--faint)!important;font-weight:700!important}
 body.abV22812Shell .abNavToggle{width:34px!important;height:34px!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
 body.abV22812Shell .abNavBody{padding:10px 10px 16px!important}
@@ -17756,6 +18479,7 @@ body.abV22812Shell .abNavGroup summary{min-height:42px!important;padding:0 12px!
 body.abV22812Shell .abNavGroup summary:hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell .abNavGroup[open] summary{color:var(--text)!important}
 body.abV22812Shell .abNavGroup summary i{width:24px!important;flex:0 0 24px!important;color:var(--faint)!important;font-size:16px!important}
+body.abV22812Shell .abNavIconSvg{width:20px!important;height:20px!important;stroke:currentColor!important;fill:none!important}
 body.abV22812Shell .abNavGroup summary b{font-size:12.5px!important;font-weight:700!important;text-transform:none!important}
 body.abV22812Shell .abNavLinks{display:flex!important;flex-direction:column!important;gap:2px!important;padding:4px 0 8px!important}
 body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:11px!important;background:transparent!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:600!important;box-shadow:none!important}
@@ -17773,33 +18497,235 @@ body.abV22812Shell .abNavBottom a{color:var(--faint)!important;font-weight:700!i
 body.abV22812Shell .abNavBottom a.active{color:var(--accent)!important}
 body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!important}
 
-@media(min-width:1024px){
-  :root{--abNavW:248px;--abNavCollapsed:72px}
-  body.abV22812Shell{--abNavW:248px}
+@media(min-width:900px){
+  :root{--abNavW:238px;--abNavCollapsed:72px}
+  body.abV22812Shell{--abNavW:238px}
   body.abV22812Shell.abAppSurface,body.abV22812Shell.abMobileAppSurface{padding-left:var(--abNavW)!important}
   body.abV22812Shell .abLayoutNav{width:var(--abNavW)!important}
   body.abV22812Shell.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}
   body.abV22812Shell.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)!important}
   body.abV22812Shell.abNavCollapsed .abNavLinks a,body.abV22812Shell.abNavCollapsed .abNavGroup summary{justify-content:center!important;padding-inline:0!important}
   body.abV22812Shell.abNavCollapsed .abNavLinks{display:flex!important;padding-inline:5px!important}
-  body.abV22812Shell.abNavCollapsed .abNavItemLabel,body.abV22812Shell.abNavCollapsed .abNavGroup summary b{display:none!important}
+  body.abV22812Shell.abNavCollapsed :is(.abNavLinks a>span,.abNavGroup summary b){position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important}
   body.abV22812Shell .homeDesktopNav{width:var(--abNavW)!important;background:var(--card)!important;border-color:var(--line)!important;padding:22px 14px!important}
   body.abV22812Shell .homeDesktopNav nav a{min-height:44px!important;border-radius:11px!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:650!important}
   body.abV22812Shell .homeDesktopNav nav a:hover{background:var(--card-2)!important;color:var(--text)!important}
   body.abV22812Shell .homeDesktopNav nav a.active{background:var(--accent-weak)!important;color:var(--accent)!important}
 }
-@media(max-width:1023px){
+@media(max-width:899px){
   body.abV22812Shell.abAppSurface,body.abV22812Shell.abMobileAppSurface{padding-top:calc(52px + var(--abSafeTop))!important;padding-bottom:calc(74px + var(--abSafeBottom))!important}
+  body.abV22812Shell .abLayoutNav{display:none!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav{display:flex!important;left:12px!important;right:12px!important;top:calc(60px + var(--abSafeTop))!important;bottom:calc(76px + var(--abSafeBottom))!important;width:auto!important;max-width:420px!important;z-index:2199!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:0 18px 44px rgba(15,23,42,.2)!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavToggle{display:none!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;padding:4px 0 10px!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks a{background:var(--card-2)!important;border:1px solid var(--line)!important;min-height:44px!important}
+  body.abV22812Shell.abMobileNavOpen:after{content:"";position:fixed;inset:0;background:rgba(15,23,42,.28);z-index:2198}
+  body.abV22812Shell.abMobileNavOpen{overflow:hidden!important}
+  body.abV22812Shell .abNavMobileTop{position:fixed;display:flex!important;align-items:center;justify-content:space-between;left:0;right:0;top:0;z-index:2200}
+  body.abV22812Shell .abNavMobileTop a{display:flex;align-items:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;font-weight:800}
+  body.abV22812Shell .abNavBottom{position:fixed;display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));left:0;right:0;bottom:0;z-index:2200;border-top:1px solid var(--line)!important}
   body.abV22812Shell .abNavMobileTop{height:calc(52px + var(--abSafeTop))!important;padding:var(--abSafeTop) 16px 0!important}
-  body.abV22812Shell .abNavMobileDrawer{top:calc(52px + var(--abSafeTop))!important;border-radius:0!important;box-shadow:0 18px 36px rgba(15,23,42,.12)!important}
-  body.abV22812Shell .abNavMobileDrawer .abNavLinks{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;padding:4px 0 10px!important}
-  body.abV22812Shell .abNavMobileDrawer .abNavLinks a{background:var(--card-2)!important;border:1px solid var(--line)!important;min-height:44px!important}
+  body.abV22812Shell .abNavMobileTop button{min-width:44px!important;min-height:44px!important;padding:0 12px!important}
   body.abV22812Shell .abNavBottom{height:calc(64px + var(--abSafeBottom))!important;padding-bottom:var(--abSafeBottom)!important;backdrop-filter:none!important}
   body.abV22812Shell .abNavBottom a{gap:3px!important;min-height:44px!important}
   body.abV22812Shell .abNavBottom a i{font-size:20px!important}
   body.abV22812Shell main.wrap{padding:14px!important}
 }
-@media(max-width:560px){body.abV22812Shell .abNavMobileDrawer .abNavLinks{grid-template-columns:1fr!important}}
+@media(max-width:560px){body.abV22812Shell.abMobileNavOpen .abLayoutNav{max-width:none!important}body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks{grid-template-columns:1fr!important}}
+
+/* V22.8.44 measured theme contrast and assistive display safeguards. */
+@media(prefers-contrast:more){
+  body.abV22812Shell{--ab12-muted:#4b5563;--ab12-line:#cbd5e1}
+  html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-muted:#d5dbe4;--ab12-line:#64748b}
+}
+@media(forced-colors:active){
+  body.abV22812Shell :is(a,button,input,select,textarea,summary){border:1px solid ButtonText!important}
+  body.abV22812Shell :is(a,button,input,select,textarea,summary):focus-visible{outline:3px solid Highlight!important;outline-offset:3px!important}
+  body.abV22812Shell :is(.abNavLinks a.active,.abNavBottom a.active,.seg input:checked+span){outline:2px solid Highlight!important}
+}
+@media(prefers-reduced-motion:reduce){
+  body.abV22812Shell,body.abV22812Shell *,body.abV22812Shell *:before,body.abV22812Shell *:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+
+/* V22.8.22 UI V5 step 2: shared page header, controls, KPI and content surfaces. */
+body.abV22812Shell .abV5PageHeader{max-width:1280px;margin:14px auto!important;padding:22px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:var(--shadow)!important}
+body.abV22812Shell .abV5PageHeaderTop{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+body.abV22812Shell .abV5PageTitle{min-width:0}
+body.abV22812Shell .abV5Eyebrow{display:block;margin-bottom:5px;color:var(--accent)!important;font-size:11px;font-weight:800;letter-spacing:.04em}
+body.abV22812Shell .abV5PageHeader h1{margin:0!important;color:var(--text)!important;font-size:28px!important;line-height:1.25;letter-spacing:-.035em}
+body.abV22812Shell .abV5PageHeader p{margin:7px 0 0!important;color:var(--sub)!important;line-height:1.55!important}
+body.abV22812Shell .abV5HeaderActions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+body.abV22812Shell .abV5HeaderActions :is(a,button){display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid var(--line)!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--text)!important;text-decoration:none;font-weight:800;white-space:nowrap}
+body.abV22812Shell .abV5HeaderActions .primary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell .abV5ControlBar{display:grid;gap:8px;margin-top:16px}
+body.abV22812Shell .abV5ControlBar :is(input,select,button){min-height:46px!important}
+body.abV22812Shell .abV5KpiGrid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))!important;gap:10px!important;margin:14px 0!important}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric){min-width:0;padding:16px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>span{color:var(--sub)!important;font-size:12px!important;font-weight:750!important}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>b{display:block;margin:6px 0 0!important;color:var(--text)!important;font-size:clamp(19px,1.7vw,25px)!important;line-height:1.25!important;font-variant-numeric:tabular-nums;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>small{display:block;margin-top:5px;color:var(--sub)!important;font-size:11px!important}
+body.abV22812Shell .abV5SectionCard{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell .abV5FilterBar{background:color-mix(in srgb,var(--bg) 90%,transparent)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important;padding:10px!important}
+body.abV22812Shell .abV5FilterBar :is(.pchip,.fBtn,.tchip,.aChip){min-height:40px}
+body.abV22812Shell .abV5FilterBar .searchBox input{min-height:42px!important}
+body.abV22812Shell .pageMain{min-width:0}
+body.abV22812Shell .abNavGuide{display:grid!important;gap:2px!important;padding:10px 11px!important;text-decoration:none!important;line-height:1.25!important}
+body.abV22812Shell .abNavGuide span,body.abV22812Shell .abNavGuide small{display:block!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader{position:relative!important;top:auto!important;z-index:20;width:auto!important}
+body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader .selectLine{margin-top:14px!important}
+body.abV22812Shell.abMobileAppSurface .homeSpendHero,body.abV22812Shell.abMobileAppSurface .homeBudget,body.abV22812Shell.abMobileAppSurface .homeCard,body.abV22812Shell.abMobileAppSurface .panel{border-radius:18px!important}
+@media(max-width:899px){
+  body.abV22812Shell .abV5PageHeader{margin:10px 0!important;padding:17px 16px!important;border-radius:16px!important}
+  body.abV22812Shell .abV5PageHeaderTop{display:grid;gap:12px}
+  body.abV22812Shell .abV5PageHeader h1{font-size:23px!important}
+  body.abV22812Shell .abV5HeaderActions{justify-content:flex-start}
+  body.abV22812Shell .abV5KpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+  body.abV22812Shell .abV5FilterBar{position:relative!important;top:auto!important;margin:10px 0!important}
+}
+@media(max-width:420px){body.abV22812Shell .abV5KpiGrid{grid-template-columns:1fr!important}body.abV22812Shell .abV5HeaderActions{display:grid;grid-template-columns:1fr 1fr;width:100%}}
+
+/* V22.8.23 UI V5 step 3: remaining authenticated pages and legacy-layout retirement. */
+body.abV22812Shell.abV5RemainingPage main.wrap{width:min(100%,1280px)!important;max-width:1280px!important;margin:0 auto!important;padding:14px 18px 48px!important}
+body.abV22812Shell.abV5RemainingPage .pageMain{min-width:0;width:100%}
+body.abV22812Shell.abV5RemainingPage .appLayout{display:block!important}
+body.abV22812Shell.abV5RemainingPage .appMenu{display:none!important}
+body.abV22812Shell.abV5RemainingPage .abV5RemainingHeader{background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;box-shadow:var(--shadow)!important}
+body.abV22812Shell.abV5RemainingPage .abV5RemainingHeader :is(h1,h2){color:var(--text)!important}
+body.abV22812Shell.abV5RemainingPage .abV5RemainingHeader p{color:var(--sub)!important;opacity:1!important}
+body.abV22812Shell.abV5RemainingPage .abV5SectionCard{margin:12px 0!important;padding:18px!important}
+body.abV22812Shell.abV5RemainingPage .abV5SectionCard :is(h2,h3){color:var(--text)!important}
+body.abV22812Shell.abV5RemainingPage :is(.box,.summaryBox,.feature,.candidate,.memberCard,.catCard,.alias,.hhCard){min-width:0;background:var(--card-2)!important;color:var(--text)!important;border-color:var(--line)!important;box-shadow:none!important}
+body.abV22812Shell.abV5RemainingPage :is(.muted,.note,.feature span,.candidate span,.candidate small,.memberHead span,.catHead span,.alias span){color:var(--sub)!important}
+body.abV22812Shell.abV5RemainingPage :is(.box,.summaryBox,.metric)>b{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
+body.abV22812Shell.abV5RemainingPage .abV5ControlBar{padding:10px!important;background:var(--card-2)!important;border:1px solid var(--line)!important;border-radius:16px!important}
+body.abV22812Shell.abV5RemainingPage :is(.tableWrap,.scroll){max-width:100%;overflow:auto!important;border-color:var(--line)!important}
+body.abV22812Shell.abV5RemainingPage table{background:var(--card)!important;color:var(--text)!important}
+body.abV22812Shell.abV5RemainingPage :is(th,td){border-color:var(--line)!important}
+body.abV22812Shell.abV5RemainingPage :is(.btn,button:not(.danger)){border-radius:12px!important}
+@media(max-width:899px){body.abV22812Shell.abV5RemainingPage main.wrap{padding:10px 12px 94px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{padding:16px!important}body.abV22812Shell.abV5RemainingPage :is(.grid,.grid2col,.toolGrid,.budgetForm,.keywordGrid){grid-template-columns:1fr!important}}
+@media(max-width:420px){body.abV22812Shell.abV5RemainingPage main.wrap{padding-left:10px!important;padding-right:10px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{border-radius:16px!important}}
+
+/* V22.8.24 UI V5 shell correctness: 900px boundary, route state and focus-ready drawer. */
+body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:800!important}
+
+/* V22.8.25 UI V5 global actions: search, quick entry, alerts and appearance without inline HTML growth. */
+body.abV22812Shell .abGlobalActions{position:fixed;z-index:2210;top:12px;right:18px;display:flex;align-items:center;gap:7px}
+body.abV22812Shell .abGlobalAction{display:inline-flex;min-height:42px;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card)!important;color:var(--text)!important;box-shadow:var(--shadow);font:inherit;font-size:13px;font-weight:800;text-decoration:none;cursor:pointer}
+body.abV22812Shell .abGlobalAction:hover{border-color:var(--accent)!important;color:var(--accent)!important}
+body.abV22812Shell .abGlobalActionPrimary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell .abGlobalActionPrimary:hover{color:#fff!important;filter:brightness(.96)}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary,
+html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary span{color:#fff!important}
+body.abV22812Shell .abGlobalAction .abNavIconSvg{width:18px;height:18px;flex:0 0 18px}
+body.abV22812Shell .abGlobalActionsMobile{display:none}
+body.abV22812Shell .abGlobalDialog{width:min(560px,calc(100% - 32px));max-height:min(720px,calc(100dvh - 32px));margin:auto;padding:0;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--text);box-shadow:0 24px 70px rgba(15,23,42,.28);overflow:auto}
+body.abV22812Shell .abGlobalDialog::backdrop{background:rgba(15,23,42,.58);backdrop-filter:blur(3px)}
+body.abV22812Shell.abGlobalDialogOpen{overflow:hidden!important}
+body.abV22812Shell .abGlobalDialogHeader{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 20px 14px;background:var(--card);border-bottom:1px solid var(--line)}
+body.abV22812Shell .abGlobalDialogHeader h2{margin:0;color:var(--text);font-size:21px;line-height:1.3}
+body.abV22812Shell .abGlobalDialogHeader p{margin:5px 0 0;color:var(--sub);font-size:13px;line-height:1.45}
+body.abV22812Shell .abGlobalDialogClose{display:grid;flex:0 0 40px;width:40px;height:40px;place-items:center;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit;font-size:21px;cursor:pointer}
+body.abV22812Shell .abGlobalDialogBody{display:grid;gap:14px;padding:18px 20px 22px}
+body.abV22812Shell .abGlobalDialog [hidden]{display:none!important}
+body.abV22812Shell .abGlobalActionGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+body.abV22812Shell .abGlobalActionChoice{display:flex;min-width:0;min-height:70px;align-items:center;gap:11px;padding:13px;border:1px solid var(--line);border-radius:15px;background:var(--card-2);color:var(--text);text-align:left;text-decoration:none;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalActionChoice:hover{border-color:var(--accent);color:var(--accent)}
+body.abV22812Shell .abGlobalActionChoice .abNavIconSvg{width:21px;height:21px;flex:0 0 21px}
+body.abV22812Shell .abGlobalSearchForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+body.abV22812Shell .abGlobalSearchForm input[type="search"]{min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:13px;background:var(--card-2);color:var(--text);font:inherit}
+body.abV22812Shell .abGlobalSearchForm button{min-height:48px;padding:0 17px;border:1px solid var(--ab12-action);border-radius:13px;background:var(--ab12-action);color:#fff;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalAppearance{display:grid;gap:15px}
+body.abV22812Shell .abGlobalAppearanceRow{display:grid;gap:8px}
+body.abV22812Shell .abGlobalAppearanceRow>b{color:var(--text);font-size:13px}
+body.abV22812Shell .abGlobalAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}
+body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--card-2);color:var(--text);font:inherit;font-weight:750;cursor:pointer}
+body.abV22812Shell .abGlobalAppearanceChoices button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--card));color:var(--accent)}
+body.abV22812Shell .abGlobalAppearanceNote{margin:0;color:var(--sub);font-size:12px;line-height:1.5}
+@media(min-width:900px){body.abV22812Shell .abGlobalActions{left:calc(var(--abNavWidth,238px) + 22px);right:auto;top:auto;bottom:18px}body.abV22812Shell.abNavCollapsed .abGlobalActions{left:90px}}
+@media(max-width:899px){body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:92px;gap:0}body.abV22812Shell .abGlobalActions>.abGlobalAction:not(.abGlobalActionsMobile){display:none}body.abV22812Shell .abGlobalActionsMobile{display:inline-flex;width:auto;min-width:52px;padding:0 9px}body.abV22812Shell .abGlobalActionsMobile span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:420px){body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm button{width:100%}}
+
+/* V22.8.25 V5 통합 검색 오버레이. */
+body.abV22812Shell .abV5SearchOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:center;padding:14vh 16px 16px}
+body.abV22812Shell .abV5SearchOverlay[hidden]{display:none}
+body.abV22812Shell .abV5SearchScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
+body.abV22812Shell .abV5SearchPanel{position:relative;width:min(100%,600px);background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden}
+body.abV22812Shell .abV5SearchBar{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)!important}
+body.abV22812Shell .abV5SearchIcon{font-size:16px;opacity:.7}
+body.abV22812Shell .abV5SearchBar input{flex:1;min-width:0;border:0!important;background:transparent!important;color:var(--text)!important;font-size:16px;padding:6px 2px;outline:none}
+body.abV22812Shell .abV5SearchClose{flex:none;border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5SearchResults{max-height:min(56vh,460px);overflow:auto;padding:6px}
+body.abV22812Shell .abV5SearchRow{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:11px 12px;border-radius:12px;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5SearchRow:hover,body.abV22812Shell .abV5SearchRow:focus-visible{background:var(--card-2)!important;outline:none}
+body.abV22812Shell .abV5SearchRowMain{min-width:0}
+body.abV22812Shell .abV5SearchRowMain b{display:block;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abV5SearchRowMain small{display:block;margin-top:2px;color:var(--sub)!important;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abV5SearchAmt{flex:none;font-weight:800;font-variant-numeric:tabular-nums;font-size:13.5px}
+body.abV22812Shell .abV5SearchAmt.isExpense{color:var(--neg)!important}
+body.abV22812Shell .abV5SearchAmt.isIncome{color:var(--accent)!important}
+body.abV22812Shell .abV5SearchEmpty{padding:24px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
+body.abV22812Shell .abV5SearchHint{padding:10px 16px;border-top:1px solid var(--line)!important;color:var(--faint)!important;font-size:11px}
+body.abV5SearchOpen{overflow:hidden!important}
+@media(max-width:560px){body.abV22812Shell .abV5SearchOverlay{padding:8vh 10px 10px}body.abV22812Shell .abV5SearchPanel{border-radius:16px}}
+/* V22.8.26 검색 진입 버튼 + 결과 포커스 하이라이트. */
+body.abV22812Shell .abNavTopActions,body.abV22812Shell .abNavMobileActions{display:flex;align-items:center;gap:6px;flex:none}
+body.abV22812Shell .abNavSearchBtn{display:grid;place-items:center;width:34px;height:34px;flex:none;border:0!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;cursor:pointer;font-size:15px;line-height:1;padding:0}
+body.abV22812Shell .abNavSearchBtn:hover{color:var(--text)!important}
+body.abV22812Shell .abNavSearchBtn:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
+body.abV22812Shell.abNavCollapsed .abNavTopActions{flex-direction:column;gap:8px}
+/* P1-4: 238px 데스크톱 헤더에서 긴 가계부명 + 검색·알림·토글이 한 줄에 몰려 깨지는 문제 해결.
+   펼침 상태에서는 브랜드(로고+이름)를 첫 줄 전체폭(말줄임)으로, 액션 버튼들을 둘째 줄로 내린다. */
+@media(min-width:900px){
+  body.abV22812Shell:not(.abNavCollapsed) .abNavTop{flex-wrap:wrap;gap:6px 8px}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavBrand{flex:1 1 100%;min-width:0}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavBrandText{max-width:100%}
+  body.abV22812Shell:not(.abNavCollapsed) .abNavTopActions{flex:1 1 100%;justify-content:flex-end;flex-wrap:nowrap}
+}
+body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-radius:14px}
+@keyframes abV5FocusPulse{0%{box-shadow:0 0 0 0 var(--accent-weak),0 0 0 2px var(--accent)}30%{box-shadow:0 0 0 6px var(--accent-weak),0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 rgba(0,0,0,0),0 0 0 0 rgba(0,0,0,0)}}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell .abV5Focus{animation:none;box-shadow:0 0 0 2px var(--accent)}}
+/* V22.8.27 알림 센터 + 홈 예산위험 배너. */
+body.abV22812Shell .abNavBellBtn{position:relative}
+body.abV22812Shell .abV5NotifBadge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--neg)!important;color:#fff!important;font-size:10px;font-weight:800;line-height:16px;text-align:center}
+body.abV22812Shell .abV5NotifBadge[hidden]{display:none}
+body.abV22812Shell .abV5NotifOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:flex-end;padding:12px}
+body.abV22812Shell .abV5NotifOverlay[hidden]{display:none}
+body.abV22812Shell .abV5NotifScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
+body.abV22812Shell .abV5NotifPanel{position:relative;width:min(100%,400px);max-height:min(80vh,640px);display:flex;flex-direction:column;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden}
+body.abV22812Shell .abV5NotifHead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)!important}
+body.abV22812Shell .abV5NotifHead b{font-size:15px}
+body.abV22812Shell .abV5NotifClose{border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5NotifList{overflow:auto;padding:8px}
+body.abV22812Shell .abV5NotifItem{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;border:1px solid var(--line)!important;margin:6px 0;background:var(--card-2)!important;border-left:4px solid var(--sub)!important}
+body.abV22812Shell .abV5NotifItem.lvl-danger{border-left-color:var(--neg)!important}
+body.abV22812Shell .abV5NotifItem.lvl-warn{border-left-color:var(--warn)!important}
+body.abV22812Shell .abV5NotifItem.lvl-info{border-left-color:var(--accent)!important}
+body.abV22812Shell .abV5NotifItemBody{min-width:0;flex:1}
+body.abV22812Shell .abV5NotifItemBody a{text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5NotifItemBody b{display:block;font-size:13.5px;font-weight:700}
+body.abV22812Shell .abV5NotifItemBody span{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px;line-height:1.45}
+body.abV22812Shell .abV5NotifDismiss{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px}
+body.abV22812Shell .abV5NotifEmpty{padding:28px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
+body.abV22812Shell .abV5Banner{position:fixed;left:50%;transform:translateX(-50%);top:calc(60px + var(--abSafeTop));z-index:2050;width:min(calc(100% - 24px),560px);display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card)!important;border:1px solid var(--line)!important;border-left:4px solid var(--neg)!important;border-radius:14px;box-shadow:0 14px 34px rgba(15,23,42,.16)}
+body.abV22812Shell .abV5Banner.lvl-warn{border-left-color:var(--warn)!important}
+body.abV22812Shell .abV5Banner a{flex:1;min-width:0;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5Banner b{display:block;font-size:13.5px;font-weight:800}
+body.abV22812Shell .abV5Banner span{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.abV22812Shell .abV5BannerClose{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
+@media(min-width:900px){body.abV22812Shell .abV5Banner{left:calc(50% + var(--abNavW)/2);top:20px}body.abV22812Shell.abNavCollapsed .abV5Banner{left:calc(50% + var(--abNavCollapsed)/2)}}
+/* V22.8.28 검색 결과 즐겨찾기(★) 토글. */
+body.abV22812Shell .abV5SearchRow{gap:8px}
+body.abV22812Shell .abV5SearchRowLink{flex:1;min-width:0;display:flex;align-items:center;gap:12px;justify-content:space-between;text-decoration:none;color:var(--text)!important}
+body.abV22812Shell .abV5SearchFav{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:8px}
+body.abV22812Shell .abV5SearchFav.isFav{color:#f5a623!important}
+body.abV22812Shell .abV5SearchFav:hover{background:var(--card-2)!important}
+body.abV22812Shell .abV5SearchFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
+body.abV22812Shell .abV5SearchFavHead{padding:8px 10px 2px;color:var(--faint)!important;font-size:11px;font-weight:800}
+/* V22.8.33 거래목록 행 즐겨찾기(★). */
+body.abV22812Shell .abV5RowFav{display:inline-flex;align-items:center;justify-content:center;align-self:center;flex:none;width:30px;min-width:30px;height:30px;margin-left:2px;color:var(--faint)!important;font-size:15px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;border-radius:8px}
+body.abV22812Shell .abV5RowFav.isFav{color:#f5a623!important}
+body.abV22812Shell .abV5RowFav:hover{color:var(--text)!important;background:var(--card-2)!important}
+body.abV22812Shell .abV5RowFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
 `;
 
 function accountbookThemeClientMain() {
@@ -18026,6 +18952,37 @@ function mobileHomeShellJsAsset() {
 
 function accountbookStage4NavClientMain() {
   "use strict";
+  function iconSvg(name) {
+    var paths = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5M9 21v-7h6v7"/>',
+      records: '<path d="M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+      calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
+      recurring: '<path d="M20 7h-6V1"/><path d="M20 7a9 9 0 1 0 1 8"/>',
+      receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+      import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/>',
+      settlement: '<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>',
+      report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+      stats: '<path d="M4 20V12M10 20V7M16 20V3M22 20H2"/>',
+      budget: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M16 11h5M7 6V4h10v2"/>',
+      file: '<path d="M6 2h8l4 4v16H6V2Z"/><path d="M14 2v5h5M9 12h6M9 16h6"/>',
+      sparkle: '<path d="m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM19 13l.7 1.8 1.8.7-1.8.7L19 18l-.7-1.8-1.8-.7 1.8-.7L19 13Z"/>',
+      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>',
+      users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+      chat: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3v-7a7 7 0 0 1-1-4 8 8 0 0 1 8-8h3a8 8 0 0 1 8 8v4Z"/><path d="M7 10h.01M12 10h.01M17 10h.01"/>',
+      switch: '<path d="M17 3l4 4-4 4M3 7h18M7 21l-4-4 4-4M21 17H3"/>',
+      wallet: '<path d="M4 5h14a2 2 0 0 1 2 2v13H4a2 2 0 0 1-2-2V5a3 3 0 0 1 3-3h12"/><path d="M15 11h7v5h-7a2.5 2.5 0 0 1 0-5Z"/>',
+      tag: '<path d="M20 13 13 20l-9-9V4h7l9 9Z"/><path d="M8.5 8.5h.01"/>',
+      backup: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+      shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
+      tools: '<path d="M14.7 6.3a4 4 0 0 0-5-5L7 4l3 3 2.7-2.7a4 4 0 0 0 2 2ZM5 13l6 6-2 2-6-6 2-2ZM14 14l7 7"/>',
+      search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      palette: '<path d="M12 3a9 9 0 0 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a1.5 1.5 0 0 1 0-3h3a6 6 0 0 0 0-12h-3Z"/><path d="M7.5 9h.01M9 6h.01M13 6h.01"/>',
+      more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+      check: '<path d="M20 6 9 17l-5-5"/>',
+    };
+    return '<svg class="abNavIconSvg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + (paths[name] || paths.home) + "</svg>";
+  }
   function contextQuery() {
     var params = new URLSearchParams(location.search);
     var month = params.get("month") || new Date().toISOString().slice(0, 7);
@@ -18035,19 +18992,32 @@ function accountbookStage4NavClientMain() {
   function items() {
     var query = contextQuery();
     return [
-      { key: "home", icon: "⌂", label: "홈", href: "/app?" + query },
-      { key: "records", icon: "▤", label: "거래", href: "/app?" + query + "&tab=transactions#feed" },
-      { key: "settlement", icon: "↔", label: "정산", href: "/settlement-summary?" + query },
-      { key: "analysis", icon: "▥", label: "분석", href: "/my/analysis?" + query },
-      { key: "budgets", icon: "◴", label: "예산", href: "/budgets?" + query },
+      { key: "home", icon: "home", label: "홈", href: "/app?" + query },
+      { key: "records", icon: "records", label: "거래", href: "/app?" + query + "&tab=transactions#feed" },
+      { key: "settlement", icon: "settlement", label: "정산", href: "/settlement-summary?" + query },
+      { key: "stats", icon: "stats", label: "통계", href: "/my/analysis?" + query },
+      { key: "budgets", icon: "budget", label: "예산", href: "/budgets?" + query },
     ];
   }
   function activeKey() {
     var path = String(location.pathname || "");
+    var params = new URLSearchParams(location.search);
     if (path.indexOf("settlement") >= 0) return "settlement";
-    if (path.indexOf("analysis") >= 0) return "analysis";
+    if (path === "/my/analysis") return params.get("view") === "report" ? "analysis" : "stats";
     if (path.indexOf("budgets") >= 0) return "budgets";
-    if (path === "/app" && (location.hash === "#feed" || new URLSearchParams(location.search).get("tab") === "transactions")) return "records";
+    if (path === "/my/households") return "my-households";
+    if (path === "/my/members") return "members";
+    if (path === "/my/groups") return "groups";
+    if (path === "/my/backup") return params.get("mode") === "import" || location.hash === "#myImportForm" ? "import" : "backup";
+    if (path === "/payment-methods") return "payment-methods";
+    if (path === "/reserve-plans") return "reserve-plans";
+    if (path === "/receipts") return "receipts";
+    if (path === "/reports") return "reports";
+    if (path === "/smart-tools" || path === "/my/premium") return "smart-tools";
+    if (path === "/keyword-guide" || path === "/categories") return "categories";
+    if (path === "/my/backup-login") return "backup-login";
+    if (path === "/app" && params.get("view") === "calendar") return "calendar";
+    if (path === "/app" && (location.hash === "#feed" || params.get("tab") === "transactions")) return "records";
     if (path === "/app") return "home";
     return "";
   }
@@ -18056,12 +19026,193 @@ function accountbookStage4NavClientMain() {
     nav.setAttribute("aria-label", "모바일 주요 메뉴");
     nav.innerHTML = items().map(function(item) {
       var on = item.key === active;
-      return '<a data-key="' + item.key + '" class="' + (on ? "active" : "") + '" ' + (on ? 'aria-current="page" ' : "") + 'href="' + item.href + '"><i aria-hidden="true">' + item.icon + "</i><span>" + item.label + "</span></a>";
+      return '<a data-key="' + item.key + '" class="' + (on ? "active" : "") + '" ' + (on ? 'aria-current="page" ' : "") + 'href="' + item.href + '"><i>' + iconSvg(item.icon) + "</i><span>" + item.label + "</span></a>";
     }).join("");
   }
-  function apply() {
-    Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
+  function hydrateIcons() {
+    Array.from(document.querySelectorAll("[data-ab-nav-icon]")).forEach(function(target) {
+      target.innerHTML = iconSvg(target.getAttribute("data-ab-nav-icon") || "home");
+    });
   }
+  var mobileMenuReturnFocus = null;
+  function syncActiveNavigation() {
+    var active = activeKey();
+    var sidebarActive = active === "home" ? "app" : active;
+    Array.from(document.querySelectorAll(".abLayoutNav a[data-key]")).forEach(function(link) {
+      var on = link.getAttribute("data-key") === sidebarActive;
+      link.classList.toggle("active", on);
+      if (on) {
+        link.setAttribute("aria-current", "page");
+        var group = link.closest("details.abNavGroup");
+        if (group) group.open = true;
+      } else link.removeAttribute("aria-current");
+    });
+    Array.from(document.querySelectorAll(".abNavBottom a[data-key]")).forEach(function(link) {
+      var key = link.getAttribute("data-key") || "";
+      var on = key === active || (key === "home" && active === "app") || (key === "records" && active === "calendar") || (key === "stats" && active === "analysis");
+      link.classList.toggle("active", on);
+      if (on) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+  }
+  function syncMobileMenu(open) {
+    document.body.classList.toggle("abMobileNavOpen", !!open);
+    var button = document.getElementById("abMobileMenuButton");
+    if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+    var drawer = document.getElementById("abDesktopSidebar");
+    if (drawer && window.matchMedia && window.matchMedia("(max-width:899px)").matches) drawer.setAttribute("aria-hidden", open ? "false" : "true");
+    if (open) {
+      mobileMenuReturnFocus = document.activeElement;
+      var activeLink = drawer && drawer.querySelector('a[aria-current="page"]');
+      var target = activeLink || (drawer && drawer.querySelector("a,summary,button"));
+      if (target && target.focus) target.focus();
+    } else if (mobileMenuReturnFocus && mobileMenuReturnFocus.focus) {
+      mobileMenuReturnFocus.focus();
+      mobileMenuReturnFocus = null;
+    }
+  }
+  function syncSideNav(collapsed) {
+    document.body.classList.toggle("abNavCollapsed", !!collapsed);
+    var button = document.getElementById("abDesktopNavToggle");
+    if (button) {
+      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      button.setAttribute("aria-label", collapsed ? "사이드바 펼치기" : "사이드바 접기");
+    }
+  }
+  function bindShell() {
+    window.syncAbMobileMenu = syncMobileMenu;
+    window.syncAbSideNav = syncSideNav;
+    window.toggleAbSideNav = function() {
+      var collapsed = !document.body.classList.contains("abNavCollapsed");
+      syncSideNav(collapsed);
+      try { localStorage.setItem("abNavCollapsed", collapsed ? "1" : "0"); } catch (_error) {}
+    };
+    window.toggleAbMobileNav = function() { syncMobileMenu(!document.body.classList.contains("abMobileNavOpen")); };
+    try { syncSideNav(localStorage.getItem("abNavCollapsed") === "1"); } catch (_error) { syncSideNav(false); }
+    var mobileMedia = window.matchMedia ? window.matchMedia("(max-width:899px)") : null;
+    var syncShellMedia = function() {
+      var drawer = document.getElementById("abDesktopSidebar");
+      if (!drawer) return;
+      if (mobileMedia && mobileMedia.matches) drawer.setAttribute("aria-hidden", document.body.classList.contains("abMobileNavOpen") ? "false" : "true");
+      else {
+        document.body.classList.remove("abMobileNavOpen");
+        drawer.removeAttribute("aria-hidden");
+        var button = document.getElementById("abMobileMenuButton");
+        if (button) button.setAttribute("aria-expanded", "false");
+      }
+    };
+    syncShellMedia();
+    if (mobileMedia) {
+      if (typeof mobileMedia.addEventListener === "function") mobileMedia.addEventListener("change", syncShellMedia);
+      else if (typeof mobileMedia.addListener === "function") mobileMedia.addListener(syncShellMedia);
+    }
+    document.addEventListener("click", function(event) {
+      var link = event.target && event.target.closest && event.target.closest(".abLayoutNav a");
+      if (link && window.matchMedia && window.matchMedia("(max-width:899px)").matches) { syncMobileMenu(false); return; }
+      var drawer = event.target && event.target.closest && event.target.closest(".abLayoutNav");
+      var top = event.target && event.target.closest && event.target.closest(".abNavMobileTop");
+      if (document.body.classList.contains("abMobileNavOpen") && !drawer && !top) syncMobileMenu(false);
+    });
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "Escape") { syncMobileMenu(false); return; }
+      if (event.key !== "Tab" || !document.body.classList.contains("abMobileNavOpen")) return;
+      var drawer = document.getElementById("abDesktopSidebar");
+      if (!drawer) return;
+      var focusable = Array.from(drawer.querySelectorAll("a,button,summary")).filter(function(node) { return node.offsetParent !== null && !node.hasAttribute("disabled"); });
+      if (!focusable.length) return;
+      var first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+  }
+  var globalActionReturnFocus = null;
+  function globalActionMarkup() {
+    return '<div class="abGlobalActions" aria-label="공통 작업">' +
+      '<button type="button" class="abGlobalAction abGlobalActionPrimary" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<a class="abGlobalAction abGlobalActionPrimary" data-ab-global-direct="quick" href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
+      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '<button type="button" class="abGlobalAction abGlobalActionsMobile" data-ab-global-open="actions" aria-label="공통 작업 열기">' + iconSvg("more") + '<span>작업</span></button>' +
+      '</div>';
+  }
+  function dialogMarkup() {
+    return '<dialog id="abGlobalActionDialog" class="abGlobalDialog" aria-labelledby="abGlobalDialogTitle">' +
+      '<header class="abGlobalDialogHeader"><div><h2 id="abGlobalDialogTitle">공통 작업</h2><p id="abGlobalDialogDescription">현재 가계부와 기준 월을 유지합니다.</p></div><button type="button" class="abGlobalDialogClose" data-ab-global-close aria-label="닫기">×</button></header>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="actions"><div class="abGlobalActionGrid">' +
+      '<button type="button" class="abGlobalActionChoice" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<a class="abGlobalActionChoice" href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
+      '<button type="button" class="abGlobalActionChoice" data-abv5-notif-open>' + iconSvg("bell") + '<span>알림 센터</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalActionChoice" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '</div></div>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
+      '</dialog>';
+  }
+  function openGlobalAction(panelName, trigger) {
+    var dialog = document.getElementById("abGlobalActionDialog");
+    if (!dialog) return;
+    if (!dialog.open) globalActionReturnFocus = trigger || document.activeElement;
+    Array.from(dialog.querySelectorAll("[data-ab-global-panel]")).forEach(function(panel) { panel.hidden = panel.getAttribute("data-ab-global-panel") !== panelName; });
+    var titles = { actions: ["공통 작업", "현재 가계부와 기준 월을 유지합니다."], appearance: ["화면 설정", "라이트·다크 모드와 포인트 컬러를 선택합니다."] };
+    var copy = titles[panelName] || titles.actions;
+    var title = document.getElementById("abGlobalDialogTitle");
+    var description = document.getElementById("abGlobalDialogDescription");
+    if (title) title.textContent = copy[0];
+    if (description) description.textContent = copy[1];
+    document.body.classList.add("abGlobalDialogOpen");
+    if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+    else dialog.setAttribute("open", "");
+    var focusTarget = dialog.querySelector('[data-ab-global-panel="' + panelName + '"] button, [data-ab-global-panel="' + panelName + '"] a');
+    if (focusTarget && focusTarget.focus) focusTarget.focus();
+  }
+  function closeGlobalAction() {
+    var dialog = document.getElementById("abGlobalActionDialog");
+    if (!dialog) return;
+    if (typeof dialog.close === "function" && dialog.open) dialog.close();
+    else dialog.removeAttribute("open");
+    document.body.classList.remove("abGlobalDialogOpen");
+    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
+    globalActionReturnFocus = null;
+  }
+  function restoreGlobalActionFocus() {
+    document.body.classList.remove("abGlobalDialogOpen");
+    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
+    globalActionReturnFocus = null;
+  }
+  function bindGlobalActions() {
+    if (!document.querySelector(".abLayoutNav")) return;
+    if (document.getElementById("abGlobalActionDialog")) return;
+    document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
+    var dialog = document.getElementById("abGlobalActionDialog");
+    document.addEventListener("click", function(event) {
+      var v5Action = event.target && event.target.closest && event.target.closest("[data-abv5-search-open],[data-abv5-notif-open]");
+      if (v5Action && dialog && dialog.open) closeGlobalAction();
+      var open = event.target && event.target.closest && event.target.closest("[data-ab-global-open]");
+      if (open) { openGlobalAction(open.getAttribute("data-ab-global-open") || "actions", open); return; }
+      var close = event.target && event.target.closest && event.target.closest("[data-ab-global-close]");
+      if (close) closeGlobalAction();
+    });
+    if (dialog) {
+      dialog.addEventListener("cancel", function() { document.body.classList.remove("abGlobalDialogOpen"); });
+      dialog.addEventListener("close", restoreGlobalActionFocus);
+      dialog.addEventListener("click", function(event) { if (event.target === dialog) closeGlobalAction(); });
+    }
+    document.addEventListener("keydown", function(event) {
+      var target = event.target;
+      var editing = target && (target.matches && target.matches("input,textarea,select,[contenteditable=true]"));
+      if (event.key === "Escape" && dialog && dialog.open) { event.preventDefault(); closeGlobalAction(); return; }
+      if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !editing) {
+        var searchTrigger = document.querySelector("[data-abv5-search-open]");
+        if (searchTrigger) { event.preventDefault(); searchTrigger.click(); }
+      }
+    });
+  }
+  function apply() {
+    bindGlobalActions();
+    Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
+    hydrateIcons();
+    syncActiveNavigation();
+  }
+  bindShell();
   apply();
   window.addEventListener("hashchange", apply);
   window.addEventListener("pageshow", apply);
@@ -18074,24 +19225,380 @@ function accountbookStage4NavJsAsset() {
   return AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE;
 }
 
-function mobileHomeDesktopNavFromHtml(source = "") {
-  const findRouteHref = (route, fallback) => {
-    const escapedRoute = String(route || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = String(source || "").match(new RegExp(`<a\\b[^>]*href="([^"]*${escapedRoute}[^"]*)"`, "i"));
-    return match?.[1] || fallback;
-  };
-  const analysisHref = findRouteHref("/my/analysis", "/my/analysis");
-  const menuHref = findRouteHref("/menu", "/menu");
-  const budgetHref = findRouteHref("/budgets", "/budgets");
-  const contextQuery = analysisHref.includes("?") ? analysisHref.slice(analysisHref.indexOf("?")) : "";
-  const settlementHref = findRouteHref("/settlement-summary", `/settlement-summary${contextQuery}`);
-  return `<aside class="homeDesktopNav" aria-label="주요 메뉴"><a class="homeDesktopBrand" href="#top"><i aria-hidden="true">₩</i><span>똑똑한 가계부</span></a><nav><a class="active" href="#top">홈</a><a href="#feed">기록</a><a href="#add">입력</a><a href="${escapeHtml(settlementHref)}">정산</a><a href="${escapeHtml(analysisHref)}">분석</a><a href="${escapeHtml(budgetHref)}">예산</a><a class="homeDesktopMore" href="${escapeHtml(menuHref)}">전체 메뉴</a></nav></aside>`;
+function accountbookSearchClientMain() {
+  var overlay = document.getElementById("abV5Search");
+  if (!overlay) return;
+  var input = document.getElementById("abV5SearchInput");
+  var resultsBox = document.getElementById("abV5SearchResults");
+  var timer = null;
+  var lastQ = null;
+  var favIds = {};
+  var favList = [];
+  var returnFocus = null;
+  var panel = overlay.querySelector(".abV5SearchPanel");
+  function favKeyOf(r) {
+    return (r.transaction_date || "") + "|" + (r.type || "expense") + "|" + (r.amount || 0) + "|" + String(r.memo || r.category || "").trim();
+  }
+  function currentHousehold() {
+    try {
+      var p = new URLSearchParams(location.search);
+      return p.get("household") || p.get("household_id") || "";
+    } catch (e) { return ""; }
+  }
+  function isOpen() { return !overlay.hidden; }
+  function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
+  function setMessage(text) {
+    resultsBox.textContent = "";
+    var d = document.createElement("div");
+    d.className = "abV5SearchEmpty";
+    d.textContent = text;
+    resultsBox.appendChild(d);
+  }
+  function focusable(container) {
+    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function (node) { return node.offsetParent !== null; });
+  }
+  function open(trigger) {
+    if (!isOpen()) returnFocus = trigger || document.activeElement;
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("abV5SearchOpen");
+    lastQ = null;
+    setTimeout(function () { if (input) { input.focus(); input.select(); } }, 30);
+    run(input ? input.value : "");
+    loadFavorites();
+  }
+  function close() {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("abV5SearchOpen");
+    if (returnFocus && returnFocus.focus) returnFocus.focus();
+    returnFocus = null;
+  }
+  function buildRow(r) {
+    var row = document.createElement("div");
+    row.className = "abV5SearchRow";
+    var a = document.createElement("a");
+    a.className = "abV5SearchRowLink";
+    a.href = "/app?month=" + encodeURIComponent(r.month || "")
+      + (currentHousehold() ? "&household_id=" + encodeURIComponent(currentHousehold()) : "")
+      + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
+      + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
+      + "&abfa=" + encodeURIComponent(String(r.amount || ""))
+      + "#feed";
+    a.setAttribute("role", "listitem");
+    var main = document.createElement("div");
+    main.className = "abV5SearchRowMain";
+    var memo = document.createElement("b");
+    memo.textContent = r.memo || r.category || "(메모 없음)";
+    var meta = document.createElement("small");
+    var parts = [];
+    if (r.transaction_date) parts.push(r.transaction_date);
+    if (r.category) parts.push(r.category);
+    if (r.payment_method) parts.push(r.payment_method);
+    if (r.member) parts.push(r.member);
+    meta.textContent = parts.join(" · ");
+    main.appendChild(memo);
+    main.appendChild(meta);
+    var amt = document.createElement("span");
+    amt.className = "abV5SearchAmt " + (r.type === "income" ? "isIncome" : "isExpense");
+    amt.textContent = (r.type === "income" ? "+" : "-") + fmt(r.amount) + "원";
+    a.appendChild(main);
+    a.appendChild(amt);
+    var star = document.createElement("button");
+    star.type = "button";
+    var fk = favKeyOf(r);
+    star.className = "abV5SearchFav" + (favIds[fk] ? " isFav" : "");
+    star.setAttribute("aria-label", "즐겨찾기");
+    star.setAttribute("aria-pressed", favIds[fk] ? "true" : "false");
+    star.textContent = "★";
+    star.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); toggleFav(r, star); });
+    row.appendChild(a);
+    row.appendChild(star);
+    return row;
+  }
+  function render(data) {
+    resultsBox.textContent = "";
+    var list = (data && data.results) || [];
+    if (!list.length) { setMessage("검색 결과가 없어요."); return; }
+    list.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function renderFavorites() {
+    resultsBox.textContent = "";
+    if (!favList.length) { setMessage("메모·분류·결제수단·금액으로 검색하거나 ★로 자주 보는 거래를 즐겨찾기하세요."); return; }
+    var head = document.createElement("div");
+    head.className = "abV5SearchFavHead";
+    head.textContent = "즐겨찾기";
+    resultsBox.appendChild(head);
+    favList.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
+  }
+  function loadFavorites() {
+    var url = "/u/api/favorites";
+    var hh = currentHousehold();
+    if (hh) url += "?household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) {
+        favList = (json && json.favorites) || [];
+        favIds = {};
+        favList.forEach(function (f) { favIds[f.id] = true; });
+        if (isOpen() && !String((input && input.value) || "").trim()) renderFavorites();
+      })
+      .catch(function () {});
+  }
+  function toggleFav(r, btn) {
+    var fk = favKeyOf(r);
+    var on = !favIds[fk];
+    favIds[fk] = on;
+    if (btn) { btn.classList.toggle("isFav", on); btn.setAttribute("aria-pressed", on ? "true" : "false"); }
+    var body = on ? { household: currentHousehold(), id: fk, tx: { id: fk, type: r.type, amount: r.amount, memo: r.memo, category: r.category, payment_method: r.payment_method, transaction_date: r.transaction_date, month: r.month } } : { household: currentHousehold(), id: fk, remove: true };
+    fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })
+      .catch(function () { favIds[fk] = !on; if (btn) { btn.classList.toggle("isFav", !on); btn.setAttribute("aria-pressed", !on ? "true" : "false"); } });
+  }
+  function run(q) {
+    var query = String(q || "").trim();
+    if (query === lastQ) return;
+    lastQ = query;
+    if (!query) { renderFavorites(); return; }
+    setMessage("검색 중…");
+    var url = "/u/api/tx/search?q=" + encodeURIComponent(query);
+    var hh = currentHousehold();
+    if (hh) url += "&household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (data) { if (lastQ === query) render(data); })
+      .catch(function (err) { if (lastQ === query) setMessage(err === 401 ? "로그인이 필요해요." : "검색 중 문제가 생겼어요."); });
+  }
+  if (input) {
+    input.addEventListener("input", function () {
+      clearTimeout(timer);
+      var v = input.value;
+      timer = setTimeout(function () { run(v); }, 350);
+    });
+  }
+  overlay.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest("[data-abv5-search-close]")) { close(); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    var k = ev.key;
+    if ((ev.metaKey || ev.ctrlKey) && (k === "k" || k === "K")) {
+      ev.preventDefault();
+      if (isOpen()) { close(); } else { open(document.activeElement); }
+    } else if (k === "Escape" && isOpen()) {
+      ev.preventDefault();
+      close();
+    } else if (k === "Tab" && isOpen() && panel) {
+      var nodes = focusable(panel);
+      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }
+      var first = nodes[0], last = nodes[nodes.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-abv5-search-open]");
+    if (!btn) return;
+    ev.preventDefault();
+    var focusTarget = btn.closest && btn.closest("#abGlobalActionDialog")
+      ? document.querySelector('[data-ab-global-open="actions"]') || btn
+      : btn;
+    open(focusTarget);
+  });
+  setMessage("메모·분류·결제수단·금액으로 검색해 보세요.");
+  function tryFocusFromUrl() {
+    var p; try { p = new URLSearchParams(location.search); } catch (e) { return; }
+    var memo = (p.get("abfm") || "").trim();
+    var amtDigits = (p.get("abfa") || "").replace(/[^0-9]/g, "");
+    if (!memo && !amtDigits) return;
+    var tries = 0;
+    function attempt() {
+      tries += 1;
+      var candidates = document.querySelectorAll(".txRow,.txItem,.timelineItem");
+      var found = null;
+      for (var i = 0; i < candidates.length; i++) {
+        var node = candidates[i];
+        if (node.closest && node.closest("#abV5Search")) continue;
+        var text = node.textContent || "";
+        var okMemo = !memo || text.indexOf(memo) >= 0;
+        var okAmt = !amtDigits || text.replace(/[^0-9]/g, "").indexOf(amtDigits) >= 0;
+        if (okMemo && okAmt) { found = node; break; }
+      }
+      if (found) {
+        try { found.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+        found.classList.add("abV5Focus");
+        setTimeout(function () { found.classList.remove("abV5Focus"); }, 2600);
+        return;
+      }
+      if (tries < 12) setTimeout(attempt, 300);
+    }
+    attempt();
+  }
+  tryFocusFromUrl();
+}
+
+function accountbookSearchJsAsset() {
+  if (!AB_ACCOUNTBOOK_SEARCH_JS_CACHE) {
+    AB_ACCOUNTBOOK_SEARCH_JS_CACHE = `(${accountbookSearchClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_SEARCH_JS_CACHE;
+}
+
+function accountbookNotifClientMain() {
+  var overlay = document.getElementById("abV5Notif");
+  var listBox = document.getElementById("abV5NotifList");
+  var badges = document.querySelectorAll(".abV5NotifBadge");
+  if (!overlay || !listBox) return;
+  var data = [];
+  var dismissed = {};
+  var returnFocus = null;
+  var panel = overlay.querySelector(".abV5NotifPanel");
+  function currentHousehold() {
+    try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; }
+  }
+  var storeKey = "abV5NotifDismissed:" + currentHousehold();
+  function loadDismissed() {
+    try {
+      var raw = localStorage.getItem(storeKey);
+      var arr = raw ? JSON.parse(raw) : [];
+      dismissed = {};
+      (arr || []).forEach(function (k) { dismissed[k] = true; });
+    } catch (e) { dismissed = {}; }
+  }
+  function saveDismissed() {
+    try { localStorage.setItem(storeKey, JSON.stringify(Object.keys(dismissed))); } catch (e) {}
+  }
+  function visible() { return data.filter(function (n) { return !dismissed[n.key]; }); }
+  function isOpen() { return !overlay.hidden; }
+  function focusable(container) {
+    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function (node) { return node.offsetParent !== null; });
+  }
+  function setBadge() {
+    var n = visible().length;
+    Array.prototype.forEach.call(badges, function (b) {
+      if (n > 0) { b.textContent = n > 99 ? "99+" : String(n); b.hidden = false; }
+      else { b.hidden = true; }
+    });
+  }
+  function open(trigger) {
+    if (!isOpen()) returnFocus = trigger || document.activeElement;
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("abV5SearchOpen");
+    renderList();
+    setTimeout(function () {
+      var nodes = panel ? focusable(panel) : [];
+      var target = nodes[0] || panel;
+      if (target && target.focus) target.focus();
+    }, 0);
+  }
+  function close() {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("abV5SearchOpen");
+    if (returnFocus && returnFocus.focus) returnFocus.focus();
+    returnFocus = null;
+  }
+  function dismiss(key) { dismissed[key] = true; saveDismissed(); renderList(); setBadge(); renderBanner(); }
+  function renderList() {
+    listBox.textContent = "";
+    var list = visible();
+    if (!list.length) {
+      var e = document.createElement("div");
+      e.className = "abV5NotifEmpty";
+      e.textContent = "새 알림이 없어요.";
+      listBox.appendChild(e);
+      return;
+    }
+    list.forEach(function (n) {
+      var item = document.createElement("div");
+      item.className = "abV5NotifItem lvl-" + (n.level || "info");
+      var body = document.createElement("div");
+      body.className = "abV5NotifItemBody";
+      var a = document.createElement("a");
+      a.href = n.href || "#";
+      var b = document.createElement("b"); b.textContent = n.title || "";
+      var s = document.createElement("span"); s.textContent = n.body || "";
+      a.appendChild(b); a.appendChild(s);
+      body.appendChild(a);
+      var x = document.createElement("button");
+      x.type = "button"; x.className = "abV5NotifDismiss"; x.setAttribute("aria-label", "이 알림 지우기"); x.textContent = "×";
+      x.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); dismiss(n.key); });
+      item.appendChild(body); item.appendChild(x);
+      listBox.appendChild(item);
+    });
+  }
+  function renderBanner() {
+    var existing = document.getElementById("abV5Banner");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    if (location.pathname !== "/app") return;
+    var list = visible();
+    var top = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].banner && (list[i].level === "danger" || list[i].level === "warn")) { top = list[i]; break; }
+    }
+    if (!top) return;
+    var bar = document.createElement("div");
+    bar.id = "abV5Banner";
+    bar.className = "abV5Banner lvl-" + top.level;
+    var a = document.createElement("a"); a.href = top.href || "#";
+    var b = document.createElement("b"); b.textContent = top.title || "";
+    var s = document.createElement("span"); s.textContent = top.body || "";
+    a.appendChild(b); a.appendChild(s);
+    var x = document.createElement("button");
+    x.type = "button"; x.className = "abV5BannerClose"; x.setAttribute("aria-label", "배너 닫기"); x.textContent = "×";
+    x.addEventListener("click", function (ev) { ev.preventDefault(); dismiss(top.key); });
+    bar.appendChild(a); bar.appendChild(x);
+    document.body.appendChild(bar);
+  }
+  function load() {
+    var url = "/u/api/notifications";
+    var hh = currentHousehold();
+    if (hh) url += "?household=" + encodeURIComponent(hh);
+    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (json) { data = (json && json.notifications) || []; setBadge(); renderBanner(); if (isOpen()) renderList(); })
+      .catch(function () { data = []; setBadge(); });
+  }
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-abv5-notif-open]");
+    if (!btn) return;
+    ev.preventDefault();
+    var focusTarget = btn.closest && btn.closest("#abGlobalActionDialog")
+      ? document.querySelector('[data-ab-global-open="actions"]') || btn
+      : btn;
+    if (isOpen()) close(); else open(focusTarget);
+  });
+  overlay.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (t && t.closest && t.closest("[data-abv5-notif-close]")) close();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && isOpen()) { ev.preventDefault(); close(); }
+    else if (ev.key === "Tab" && isOpen() && panel) {
+      var nodes = focusable(panel);
+      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }
+      var first = nodes[0], last = nodes[nodes.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
+  });
+  loadDismissed();
+  load();
+}
+
+function accountbookNotifJsAsset() {
+  if (!AB_ACCOUNTBOOK_NOTIF_JS_CACHE) {
+    AB_ACCOUNTBOOK_NOTIF_JS_CACHE = `(${accountbookNotifClientMain.toString()})();`;
+  }
+  return AB_ACCOUNTBOOK_NOTIF_JS_CACHE;
 }
 
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === MOBILE_HOME_CSS_ASSET_PATH
@@ -18106,6 +19613,16 @@ function mobileHomePerformanceAssetResponse(request, url) {
         ? mobileHomeShellJsAsset()
       : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
         ? accountbookStage4NavJsAsset()
+      : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
+        ? accountbookSearchJsAsset()
+      : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
+        ? accountbookNotifJsAsset()
+      : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
+        ? accountbookGoalsJsAsset()
+      : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
+        ? accountbookFavRowsJsAsset()
+      : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
+        ? accountbookV5BundleJsAsset()
         : mobileHomeJsAsset();
   const headers = {
     "content-type": isCss ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
@@ -18117,13 +19634,23 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22819-css"'
+        ? '"accountbook-shell-v22844-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22811-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-stage4-nav-v22818-js"'
+          ? '"accountbook-nav-v22836-js"'
+        : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
+          ? '"accountbook-search-v22836-js"'
+        : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
+          ? '"accountbook-notif-v22836-js"'
+        : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
+          ? '"accountbook-goals-v22843-js"'
+        : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
+          ? '"accountbook-favrows-v22836-js"'
+        : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
+          ? '"accountbook-v5-v22838-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -18296,7 +19823,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // affordance. Dashboard summaries above have already been built from all
   // monthly rows, so switch that final count to the filtered feed source.
   rows = feedSource;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#2563eb"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body><header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1><nav class="topActions" aria-label="현재 가계부 메뉴"><a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">분석</a><a class="menuLink" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">메뉴</a></nav></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(err)}</div>` : ""}${balert ? `<div class="notice ${balert.indexOf("🚨") >= 0 ? "budgetOver" : "budgetWarn"}">${escapeHtml(balert)}</div>` : ""}${homeSpendHero}${onboardingHtml}<section class="homeBudget">
+  const appNavActive = homeView === "calendar" ? "calendar" : focusTab === "transactions" ? "records" : "app";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부" })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(err)}</div>` : ""}${balert ? `<div class="notice ${balert.indexOf("🚨") >= 0 ? "budgetOver" : "budgetWarn"}">${escapeHtml(balert)}</div>` : ""}${homeSpendHero}${onboardingHtml}<section class="homeBudget">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>
     <div class="homeBudgetAmount"><b>${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
     <div class="homeProgress"><i style="width:${displayBudgetPercent}%"></i></div>
@@ -18435,7 +19963,8 @@ async function handleBudgetSave(request, env) {
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ household_id: householdId, month, category, amount }),
     });
-    return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
+    const fallbackCleanupOk = await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
+    return redirectResponse(addQueryToUrl(returnTo, { msg: fallbackCleanupOk ? "budget_saved" : "budget_saved_fallback_cleanup_deferred" }));
   } catch (err) {
     try {
       await saveSettingsBudget(env, householdId, month, category, amount);
@@ -18460,8 +19989,26 @@ async function handleBudgetDelete(request, env) {
   }
   if (!category) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 예산을 찾지 못했습니다." }));
   try {
-    await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }, null);
-    await deleteSettingsBudget(env, householdId, month, category);
+    const tablePath = `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`;
+    let tableRows = [];
+    try {
+      tableRows = safeArray(await supabase(env, `${tablePath}&select=id&limit=1`, { method: "GET" }));
+    } catch (tableReadError) {
+      const detail = safeError(tableReadError);
+      const optionalTableMissing = /(?:\bPGRST205\b|\b42P01\b|relation[^\n]*accountbook_budgets[^\n]*does not exist|could not find[^\n]*accountbook_budgets)/i.test(detail);
+      if (!optionalTableMissing) throw tableReadError;
+    }
+    const settingsRows = await fetchSettingsBudgets(env, householdId, month);
+    const hasTableBudget = tableRows.length > 0;
+    const hasSettingsBudget = settingsRows.some((item) => String(item.category) === category);
+    // 실제로 존재하는 저장소만 삭제한다. 테이블 삭제가 실패하면 settings는 손대지 않고,
+    // settings 정리가 실패하면 fallback 행이 남으므로 오류 안내 뒤에도 예산 데이터가 유지된다.
+    if (hasTableBudget) {
+      await supabase(env, tablePath, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    }
+    if (hasSettingsBudget) {
+      await deleteSettingsBudget(env, householdId, month, category);
+    }
     return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_deleted" }));
   } catch (err) {
     return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제를 완료하지 못했습니다." }));
@@ -18790,7 +20337,7 @@ async function handleBudgetCenterPage(request, env, url) {
     householdId = selected?.id || "";
   } else {
     households = await fetchAdminHouseholds(env);
-    selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "") || households[0] || null;
+    selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
     householdId = selected?.id || "";
   }
   if (!selected) return redirectResponse(userId ? "/my/households?err=no_household" : "/?legacy=1");
@@ -19171,7 +20718,7 @@ function renderUserLoginHtml(env, error = "") {
 
 
 function myNavCss() {
-  return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:1024px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:1023px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
+  return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:900px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:899px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
 /* v19.0 통합 디자인 시스템 — /my 화면도 다른 화면들과 같은 톤으로 통일 */
 :root{--ab-bg:#F7F8FA;--ab-surface:#FFFFFF;--ab-ink:#191919;--ab-sub:#6B7280;--ab-line:#ECEFF3;--ab-accent:#FEE500;--ab-dark:#111827;--ab-shadow:0 2px 14px rgba(15,23,42,.06);--ab-radius:20px}
 body{background:var(--ab-bg)!important}
@@ -20041,6 +21588,11 @@ function formatMessage(msg) {
     settlement_busy: "다른 정산 저장이 진행 중입니다. 잠시 후 한 번만 다시 시도해 주세요.",
     settlement_completed: "정산 완료 이력을 저장했습니다.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
+    payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    budget_saved_fallback_cleanup_deferred: "예산은 저장했습니다. 이전 호환 데이터 정리가 지연되어 잠시 후 다시 확인해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기지출 준비 항목을 저장했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
@@ -22077,6 +23629,19 @@ function buildKakaoSkillTestPayload(utterance = "메뉴") {
   };
 }
 
+function isKakaoQaPayload(payload = {}) {
+  const userKey = getKakaoUserKey(payload);
+  const botId = String(payload?.bot?.id || "").trim();
+  const intentId = String(payload?.intent?.id || "").trim();
+  return ["test-bot-user-key", "raw-test-bot-user-key"].includes(userKey)
+    || botId === "test-bot" || botId === "raw-test-bot"
+    || intentId === "test-intent" || intentId === "raw-test";
+}
+
+async function kakaoQaRequestAllowed(request, env) {
+  return incompleteFeatureQaEnabled(env) && await verifyAdminSession(request, env);
+}
+
 async function normalizeKakaoSkillResponse(response, origin = "") {
   try {
     if (!response || response.status < 200 || response.status >= 300) {
@@ -22759,8 +24324,9 @@ async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", ki
 
 function kakaoInviteManagementText(household = {}, origin = "") {
   const code = String(household?.invite_code || "-").trim() || "-";
-  const householdId = String(household?.id || "").trim();
-  const href = origin ? `${origin}/my/households${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}` : "";
+  // P1-1: 초대 응답 메시지에는 내부 household_id(UUID)를 노출하지 않는다. 참여는 초대코드만으로 충분하며,
+  // 관리 링크는 로그인 세션이 본인 가계부를 해석하는 /my/households 로만 연결한다.
+  const href = origin ? `${origin}/my/households` : "";
   return [
     "👥 구성원 초대하기",
     `가계부: ${household?.name || "가계부"}`,
@@ -23109,7 +24675,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
   } catch (err) {
     const rawUtterance = String(bodyText || "").trim();
-    if (rawUtterance) {
+    if (rawUtterance && await kakaoQaRequestAllowed(request, env)) {
       payload = {
         intent: { id: "raw-test", name: "raw-text-test" },
         userRequest: {
@@ -23131,6 +24697,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
+  }
+
+  if (isKakaoQaPayload(payload) && !(await kakaoQaRequestAllowed(request, env))) {
+    rememberSkillEvent({ kind: "qa_payload_blocked", user_key: userKey, utterance, detail: "production skill rejected a QA identity" });
+    return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
   const skillStartedAt = Date.now();
@@ -23605,6 +25176,331 @@ async function handleKakaoRecentDebug(request, env, url) {
 }
 
 
+// V22.8.25 V5 통합 검색: user 세션 스코프로 활성 가계부의 전 기간 거래를 검색한다.
+// 기존 admin 전용 /api/* 와 분리된 user 스코프 엔드포인트.
+async function handleUserTxSearch(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const q = String(url.searchParams.get("q") || "").trim();
+  const requestedHousehold = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectRequestedScopedHousehold(scope.households, requestedHousehold);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  if (!q) {
+    return jsonResponse({ ok: true, q: "", household_id: household.id, count: 0, results: [] });
+  }
+  const members = await fetchHouseholdMembers(env, household.id);
+  const rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 100000 });
+  const rows = attachSpenderNames(rowsRaw, members);
+  const needle = q.toLowerCase();
+  const digits = q.replace(/[^0-9]/g, "");
+  const matched = [];
+  for (const t of rows) {
+    const hay = `${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""} ${t.spender_name || ""}`.toLowerCase();
+    const hit = hay.includes(needle) || (digits.length >= 2 && String(t.amount || "").includes(digits));
+    if (!hit) continue;
+    matched.push({
+      id: t.id,
+      type: t.type,
+      amount: Number(t.amount || 0),
+      category: t.category || "",
+      memo: t.memo || t.raw_text || "",
+      payment_method: t.payment_method || "",
+      transaction_date: t.transaction_date || "",
+      month: String(t.transaction_date || "").slice(0, 7),
+      member: t.spender_name || "",
+    });
+    if (matched.length >= 50) break;
+  }
+  return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
+}
+
+// V22.8.27 V5 알림센터: user 세션 스코프로 예산·분류·미분류·정기·준비 규칙을 평가한다.
+// 기존 검증된 헬퍼(buildBudgetAlertPolishModel/reserveDashboard/isMissingCategory) 재사용.
+async function handleUserNotifications(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const requested = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectRequestedScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const members = await fetchHouseholdMembers(env, household.id);
+  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: household.id, type: "all" }), members);
+  const budgets = await fetchBudgets(env, household.id, month).catch(() => []);
+  const recurring = await fetchRecurring(env, household.id).catch(() => []);
+  const plans = await fetchReservePlans(env, household.id).catch(() => []);
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring });
+  const hh = `&household_id=${encodeURIComponent(household.id)}`;
+  const mq = encodeURIComponent(month);
+  const notifs = [];
+
+  // 1) 총 예산 상태 (danger: 초과 / warn: 월말초과·85%↑)
+  if (model.totalBudget) {
+    if (model.status === "over") {
+      notifs.push({ key: "budget-over", level: "danger", banner: true, title: "이번 달 예산을 초과했어요",
+        body: `사용 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
+        href: `/budget-alerts?month=${mq}${hh}` });
+    } else if (model.status === "forecast" || model.status === "warning") {
+      notifs.push({ key: "budget-warn", level: "warn", banner: true,
+        title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "예산의 85% 이상 사용했어요",
+        body: `사용 ${numberWithCommas(model.spent)}원 · 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
+        href: `/budget-alerts?month=${mq}${hh}` });
+    }
+  }
+
+  // 2) 분류별 예산 초과 (상위 3)
+  safeArray(model.dangerCategories).slice(0, 3).forEach((c) => {
+    notifs.push({ key: `cat-${c.category}`, level: "danger", title: `${c.category || "미분류"} 예산 초과`,
+      body: `사용 ${numberWithCommas(c.spent)}원 / 예산 ${numberWithCommas(c.budget)}원 (${numberWithCommas(c.rate)}%)`,
+      href: `/app?month=${mq}${hh}&type=expense&category=${encodeURIComponent(c.category || "")}&feed=all#feed` });
+  });
+
+  // 3) 미분류 지출
+  const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
+  if (uncategorized.length) {
+    notifs.push({ key: "uncat", level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+      body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
+      href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
+  }
+
+  // 4) 이번 달 반영 대기 정기지출
+  const pending = safeArray(model.pendingRecurring);
+  if (pending.length) {
+    notifs.push({ key: "recurring-pending", level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
+      body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  }
+
+  // 4b) 반복 지출 자동감지 (§3.4): 최근 3개월 반복 메모 → 정기지출 후보 추천 (기존 detectRecurringCandidates 재사용)
+  const detectStart = `${addMonthsYm(month, -2)}-01`;
+  const detectEnd = nextMonthStart(month);
+  const historyRows = await fetchAdminRowsRange(env, { householdId: household.id, start: detectStart, end: detectEnd, limit: 8000 }).catch(() => []);
+  const candidates = detectRecurringCandidates(historyRows, month, recurring);
+  if (candidates.length) {
+    const names = candidates.slice(0, 3).map((c) => String(c.memo || "").trim()).filter(Boolean).join(", ");
+    notifs.push({ key: "recurring-detect", level: "info", title: `반복되는 지출 ${candidates.length}건이 감지됐어요`,
+      body: `${names}${candidates.length > 3 ? " 외" : ""} · 정기지출로 등록하면 예산 예측이 정확해져요.`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  }
+
+  // 5) 준비 납부 임박 (상위 3)
+  const dash = reserveDashboard(plans);
+  safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
+    notifs.push({ key: `reserve-${s.plan?.id || idx}`, level: s.days_left <= 7 ? "warn" : "info",
+      title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
+      body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  });
+
+  return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
+}
+
+// V22.8.28 V5 즐겨찾기: 스키마 없이 accountbook_settings 키-값 저장소에 (가계부·사용자)별 스냅샷 보관.
+function favoritesKey(householdId, userKey) {
+  return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
+}
+function normalizeFavoriteSnapshot(x) {
+  const o = safeObject(x);
+  const id = String(o.id || "").trim();
+  if (!id) return null;
+  return {
+    id: id.slice(0, 64),
+    type: o.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(o.amount || 0))),
+    category: String(o.category || "").slice(0, 80),
+    memo: String(o.memo || "").slice(0, 200),
+    payment_method: String(o.payment_method || "").slice(0, 80),
+    transaction_date: String(o.transaction_date || "").slice(0, 10),
+    month: String(o.month || String(o.transaction_date || "").slice(0, 7)).slice(0, 7),
+  };
+}
+function normalizeFavoriteList(value) {
+  let raw = value;
+  if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = {};
+  const out = [];
+  for (const x of arr) {
+    const s = normalizeFavoriteSnapshot(x);
+    if (!s || seen[s.id]) continue;
+    seen[s.id] = true;
+    out.push(s);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+async function handleUserFavorites(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const method = request.method;
+  const body = method === "POST" ? await readJson(request) : {};
+  const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectRequestedScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const key = favoritesKey(household.id, scope.userId || "shared");
+  let list = normalizeFavoriteList(await getSettingValue(env, key).catch(() => ""));
+  if (method === "POST") {
+    const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+    if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
+    if (body.remove) {
+      list = list.filter((f) => f.id !== id);
+    } else {
+      const snap = normalizeFavoriteSnapshot(body.tx || body);
+      if (!snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
+      list = [snap, ...list.filter((f) => f.id !== snap.id)].slice(0, 100);
+    }
+    await saveSettingValue(env, key, JSON.stringify(list));
+  }
+  return jsonResponse({ ok: true, household_id: household.id, count: list.length, ids: list.map((f) => f.id), favorites: list });
+}
+
+// V22.8.31 V5 저축·목표(§3.7) — 스키마 없이 accountbook_settings 키-값 저장소에 가계부별 목표 보관.
+function goalsKey(householdId) {
+  return `goals:v5:${String(householdId || "default").trim() || "default"}`;
+}
+function normalizeGoal(x) {
+  const o = safeObject(x);
+  const name = String(o.name || "").trim().slice(0, 60);
+  if (!name) return null;
+  return {
+    id: String(o.id || `goal_${crypto.randomUUID()}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 64),
+    name,
+    emoji: String(o.emoji || "🎯").slice(0, 8),
+    target: Math.max(0, Math.round(Number(o.target || 0))),
+    saved: Math.max(0, Math.round(Number(o.saved || 0))),
+    monthly: Math.max(0, Math.round(Number(o.monthly || 0))),
+    deadline: /^\d{4}-\d{2}$/.test(String(o.deadline || "")) ? String(o.deadline) : "",
+    created_at: o.created_at || new Date().toISOString(),
+  };
+}
+function normalizeGoalList(value) {
+  let raw = value;
+  if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = {};
+  const out = [];
+  for (const x of arr) {
+    const g = normalizeGoal(x);
+    if (!g || seen[g.id]) continue;
+    seen[g.id] = true;
+    out.push(g);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+function enrichGoal(g) {
+  const progress = g.target > 0 ? Math.min(100, Math.round((g.saved / g.target) * 100)) : 0;
+  const remaining = Math.max(0, g.target - g.saved);
+  let monthsLeft = null, neededMonthly = null, status;
+  if (g.target > 0 && g.saved >= g.target) {
+    status = "done";
+  } else if (g.deadline) {
+    const [ny, nm] = currentMonthKst().split("-").map(Number);
+    const [dy, dm] = g.deadline.split("-").map(Number);
+    monthsLeft = Math.max(1, (dy - ny) * 12 + (dm - nm) + 1);
+    neededMonthly = Math.ceil(remaining / monthsLeft);
+    status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+  } else {
+    status = g.monthly > 0 ? "onTrack" : "behind";
+  }
+  return { ...g, progress, remaining, monthsLeft, neededMonthly, status };
+}
+function goalsPayload(householdId, list) {
+  const goals = list.map(enrichGoal);
+  const totalTarget = goals.reduce((a, g) => a + g.target, 0);
+  const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
+  return {
+    ok: true, household_id: householdId, count: goals.length,
+    total_target: totalTarget, total_saved: totalSaved,
+    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0,
+    goals,
+  };
+}
+async function handleUserGoals(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const method = request.method;
+  const body = method === "POST" ? await readJson(request) : {};
+  const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectRequestedScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const canWrite = scope.scope === "admin" || canWriteMyHousehold(household.role);
+  const key = goalsKey(household.id);
+  if (method !== "POST") {
+    try {
+      const list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
+      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite });
+    } catch (err) {
+      rememberOpsEvent({ kind: "goal_settings_read_failed", severity: "warn", path: "/u/api/goals", method: "GET", detail: `${household.id}:${safeError(err)}` });
+      return jsonResponse({ ok: false, error: "read_failed", reason: "goal_read_failed", message: "목표를 불러오지 못했습니다. 기존 목표는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 503);
+    }
+  }
+  if (!canWrite) {
+    return jsonResponse({ ok: false, error: "forbidden", reason: "viewer_read_only", message: "조회 전용 참여자는 목표를 변경할 수 없습니다." }, 403);
+  }
+  const lease = await claimOperationLease(env, {
+    key: `goals-write:${household.id}`,
+    owner: operationLeaseOwner("goals"),
+    leaseSeconds: 30,
+  });
+  if (!lease.acquired) {
+    return jsonResponse({ ok: false, error: "busy", reason: "goal_write_in_progress", message: "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." }, 409);
+  }
+  try {
+    let list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
+    const action = String(body.action || "").trim();
+    if (action === "create") {
+      const g = normalizeGoal({ name: body.name, emoji: body.emoji, target: body.target, saved: body.saved, monthly: body.monthly, deadline: body.deadline });
+      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
+      list = [...list, g].slice(0, 50);
+    } else if (action === "restore") {
+      const g = normalizeGoal(body.goal);
+      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
+      list = [...list.filter((x) => x.id !== g.id), g].slice(0, 50);
+    } else if (action === "fund" || action === "update" || action === "delete") {
+      const id = String(body.id || "").trim();
+      const idx = list.findIndex((x) => x.id === id);
+      if (idx < 0) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "목표를 찾지 못했습니다." }, 404);
+      if (action === "delete") {
+        list = list.filter((x) => x.id !== id);
+      } else if (action === "fund") {
+        const delta = Math.round(Number(body.amount || 0));
+        if (!(delta > 0)) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
+        list[idx] = normalizeGoal({ ...list[idx], saved: Math.max(0, list[idx].saved + delta) });
+      } else {
+        const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: body.target ?? list[idx].target, monthly: body.monthly ?? list[idx].monthly, deadline: body.deadline ?? list[idx].deadline });
+        if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
+        list[idx] = updated;
+      }
+    } else {
+      return jsonResponse({ ok: false, error: "bad_action", reason: "bad_action", message: "지원하지 않는 요청입니다." }, 400);
+    }
+    await saveSettingValue(env, key, JSON.stringify(list));
+    return jsonResponse({ ...goalsPayload(household.id, list), can_write: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "goal_settings_write_failed", severity: "warn", path: "/u/api/goals", method: "POST", detail: `${household.id}:${safeError(err)}` });
+    return jsonResponse({ ok: false, error: "save_failed", reason: "goal_save_failed", message: "목표 변경을 저장하지 못했습니다. 기존 목표는 유지됩니다. 잠시 후 다시 시도해 주세요." }, 503);
+  } finally {
+    await releaseOperationLease(env, lease);
+  }
+}
+
+
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
@@ -23992,7 +25888,7 @@ async function countUserTransactionsInHousehold(env, householdId = "", userId = 
 
 async function buildIdentityAudit(env, householdId = "") {
   const households = await fetchAdminHouseholds(env);
-  const selected = households.find((h) => String(h.id) === String(householdId || "")) || households[0] || null;
+  const selected = selectRequestedScopedHousehold(households, householdId);
   const members = selected ? await fetchHouseholdMembers(env, selected.id) : [];
   const rows = [];
   for (const member of members) {
@@ -25179,10 +27075,41 @@ async function createManualTransaction(env, body) {
   const source = String(row.source || body.source || "web_admin");
   const dedupSeconds = duplicateGuardSeconds(env, source);
   if (dedupSeconds > 0 && isDuplicateGuardSource(source) && env.DUPLICATE_GUARD_DISABLED !== "1") {
-    const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
-    if (dup) {
-      rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
-      return { ...dup, __duplicate_skipped: true };
+    const fingerprint = await sha256Hex([
+      source,
+      row.household_id,
+      row.user_id,
+      row.type,
+      row.transaction_date,
+      row.amount,
+      normalizeText(row.category || ""),
+      normalizeText(row.payment_method || ""),
+      normalizeText(row.memo || ""),
+      normalizeText(row.raw_text || ""),
+    ].join("\u001f"));
+    const lease = await claimOperationLease(env, {
+      key: `transaction-create:${fingerprint}`,
+      owner: operationLeaseOwner("transaction-create"),
+      leaseSeconds: dedupSeconds,
+    });
+    if (!lease.acquired) {
+      rememberOpsEvent({ kind: "transaction_create_busy", severity: "warn", path: "/my/transactions", method: "POST", detail: `${source}:${row.household_id}:${row.transaction_date}:${row.amount}` });
+      throw new Error("database transaction_create_busy");
+    }
+    try {
+      const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
+      if (dup) {
+        rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
+        return { ...dup, __duplicate_skipped: true };
+      }
+      const created = await supabase(env, "/rest/v1/transactions", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(row),
+      });
+      return Array.isArray(created) ? created[0] : created;
+    } finally {
+      await releaseOperationLease(env, lease);
     }
   }
   const created = await supabase(env, "/rest/v1/transactions", {

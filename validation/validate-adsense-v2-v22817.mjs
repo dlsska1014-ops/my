@@ -163,9 +163,9 @@ try {
   const householdFlowHtml = await householdFlow.text();
   ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,#0e7490);color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
 
-  const shellResponse = await request("/assets/accountbook-shell-v22819.css");
-  eq(shellResponse.status, 200, "V22.8.19 shell stylesheet is served");
-  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22819-css"', "V22.8.19 shell has a new immutable ETag");
+  const shellResponse = await request("/assets/accountbook-shell-v22844.css");
+  eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
+  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22844-css"', "V22.8.44 contrast-safe shell has a new immutable ETag");
   const shell = await shellResponse.text();
   ok(shell.includes(".homeSpendHero") && shell.includes("font-size:38px"), "V2 home hierarchy includes a large monthly expense hero");
   ok(shell.includes(".calDay.noRec{background:transparent!important") && shell.includes("opacity:1!important"), "calendar empty dates use transparent readable cells instead of whole-cell opacity");
@@ -182,8 +182,8 @@ try {
   ok(shell.includes(".iChip.good{background:rgba(6,95,70,.28)!important") && shell.includes(".iChip.bad{background:rgba(127,29,29,.32)!important"), "dark insight chips preserve success and risk states");
   ok(shell.includes("prefers-reduced-motion") && shell.includes("focus-visible"), "V2 layer preserves motion and keyboard-focus safeguards");
   ok(shell.includes('html[data-ab-resolved-theme="dark"]') && shell.includes('data-ab-tone="amber"'), "V2 layer preserves dark mode and all color-tone infrastructure");
-  ok(shell.includes("V22.8.18 UI/UX stage 4") && shell.includes("--abNavW:248px"), "stage 4 shell serves the supplied 248px desktop navigation system");
-  ok(shell.includes("--bg:var(--ab12-bg)") && shell.includes("--card:var(--ab12-surface)"), "stage 4 tokens are mapped to the persisted theme system instead of replacing it");
+  ok(shell.includes("V22.8.18 UI/UX stage 4") && shell.includes("V22.8.23 UI V5 step 3") && shell.includes("V22.8.24 UI V5 shell correctness") && shell.includes("V22.8.25 UI V5 global actions") && shell.includes(".abGlobalDialog::backdrop") && shell.includes("@media(max-width:899px)") && shell.includes("@media(min-width:900px)") && shell.includes("--abNavW:238px"), "V5 shell keeps the unified 238px navigation and adds responsive global actions at the reviewed 900px boundary");
+  ok(shell.includes("--bg:var(--ab12-bg)") && shell.includes("--card:var(--ab12-surface)") && shell.includes("--brand:var(--ab12-brand)"), "V5 tokens are mapped to the persisted theme system instead of replacing it");
   ok(shell.includes(".abNavLinks a.active{background:var(--accent-weak)!important;color:var(--accent)!important"), "stage 4 active navigation keeps theme-safe contrast");
   ok(shell.includes("height:calc(64px + var(--abSafeBottom))") && shell.includes("grid-template-columns:repeat(2,minmax(0,1fr))"), "stage 4 mobile navigation and drawer use the supplied responsive layout");
   ok(shell.includes("html[data-ab-resolved-theme=\"dark\"] body.abV22812Shell") && shell.includes("--pos:#6ee7b7;--neg:#fca5a5"), "stage 4 dark mode preserves semantic positive and negative colors");
@@ -195,19 +195,19 @@ try {
   ok(shell.includes("body.abV22812Shell.abPageAnalysisReport .insightList>div") && shell.includes("body.abV22812Shell.abPageAnalysisReport .deltaUp{color:#fca5a5!important}"), "analysis report cards and change values keep readable dark-mode foregrounds");
   ok(shell.includes("body.abV22812Shell.abPageAnalysisReport :is(.trendValue,.seriesLegend span){color:var(--ab12-muted)!important}"), "analysis report zero values and legend labels use the readable dark muted token");
   ok(source.includes('label: "기록"') && source.includes('label: "리포트"') && source.includes('label: "함께"') && source.includes('label: "관리"'), "stage 4 information architecture is applied to the server navigation");
-  ok(source.includes('["analysis", "분석", "▥"') && source.includes('["budgets", "예산", "◴"'), "stage 4 mobile navigation exposes five task-oriented destinations");
+  ok(source.includes('["stats", "통계", "stats"') && source.includes('["budgets", "예산", "budget"') && source.includes('["groups", "단톡방 연결"') && source.includes('["import", "가져오기"'), "V5 navigation exposes the reviewed mobile destinations and complete available desktop routes");
   ok(source.includes('aria-label="가계부 전체 메뉴"') && source.includes('aria-label="가계부 주요 메뉴"'), "stage 4 navigation regions have accessible names");
-  ok(source.includes('aria-controls="abMobileMenuDrawer" aria-expanded="false"'), "mobile whole-menu control exposes its expanded state");
+  ok(source.includes('aria-controls="abDesktopSidebar" aria-expanded="false"') && source.includes('aria-controls="abDesktopSidebar" aria-expanded="true"'), "mobile and desktop navigation controls expose their expanded state for the same shell");
   ok(source.includes("syncMobileMenu(open)") && source.includes('setAttribute("aria-expanded",open?"true":"false")'), "mobile menu runtime keeps accessibility state synchronized");
-  ok(source.includes("@media(min-width:1024px){.appMenu summary{display:none}") && source.includes("@media(max-width:1023px){.appLayout{grid-template-columns:1fr}"), "analysis menu uses the shared tablet breakpoint");
-  ok(source.includes("clientWidth||9999)<1024"), "analysis menu starts collapsed throughout the tablet layout");
-  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-stage4-nav-v22818.js"'), "stage 4 navigation ships as a separately versioned asset");
+  ok(source.includes('class="filterBar abV5FilterBar"') && source.includes('class="kpiRow abV5KpiGrid"'), "interactive analysis uses the shared V5 filter and KPI contracts");
+  ok(source.includes('${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><div class="pageMain">'), "interactive statistics replaces its internal list navigation with the shared service shell");
+  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22836.js"'), "V5 navigation ships as a separately versioned asset");
 
-  const stage4NavResponse = await request("/assets/accountbook-stage4-nav-v22818.js");
-  eq(stage4NavResponse.status, 200, "stage 4 navigation runtime is served");
-  eq(stage4NavResponse.headers.get("etag"), '"accountbook-stage4-nav-v22818-js"', "stage 4 navigation runtime has the reviewed immutable ETag");
+  const stage4NavResponse = await request("/assets/accountbook-nav-v22836.js");
+  eq(stage4NavResponse.status, 200, "V5 navigation runtime is served");
+  eq(stage4NavResponse.headers.get("etag"), '"accountbook-nav-v22836-js"', "V5 navigation runtime has the reviewed immutable ETag");
   const stage4NavRuntime = await stage4NavResponse.text();
-  ok(stage4NavRuntime.includes('label: "거래"') && stage4NavRuntime.includes('label: "분석"') && stage4NavRuntime.includes('label: "예산"'), "stage 4 runtime keeps the supplied five-destination information architecture");
+  ok(stage4NavRuntime.includes('label: "거래"') && stage4NavRuntime.includes('label: "통계"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"'), "V5 runtime keeps route-aware state and connects the reviewed global actions");
 
   const calendarHome = await request(`/app?${context}&view=calendar`, { cookie: fixture.cookie });
   eq(calendarHome.status, 200, "integrated home calendar renders");
@@ -219,11 +219,11 @@ try {
   ok(calendarHomeHtml.includes('class="calDow sun"') && calendarHomeHtml.includes('class="calDow sat"'), "calendar marks both weekend headers");
   ok(calendarHomeHtml.includes('aria-current="date"'), "current date is exposed to assistive technology");
   ok(calendarHomeHtml.includes('aria-label="이전 달"') && calendarHomeHtml.includes('aria-label="다음 달"'), "calendar month navigation has accessible names");
-  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>정산</span>') && calendarHomeHtml.includes('<span>분석</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the stage 4 five-destination task navigation");
+  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>정산</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
   ok(!calendarHomeHtml.includes('class="tab tabAdd"'), "stage 4 mobile home does not duplicate the visible quick-entry action in bottom navigation");
-  ok(shell.includes('.homeDesktopNav{width:var(--abNavW)!important'), "mobile-home desktop navigation uses the shared stage 4 sidebar width");
-  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "home loads the V22.8.19 shell exactly once");
-  eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-stage4-nav-v22818.js"'), 1, "home loads the stage 4 navigation runtime exactly once after preserved runtimes");
+  ok(calendarHomeHtml.includes('class="abLayoutNav ') && calendarHomeHtml.includes("abNavMobileDrawer") && !calendarHomeHtml.includes('class="homeDesktopNav"'), "home uses the shared V5 sidebar as a functional mobile drawer instead of a home-only copy");
+  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "home loads the V22.8.44 shell exactly once");
+  eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-nav-v22836.js"'), 1, "home loads the V5 navigation runtime exactly once after preserved runtimes");
 
   const selectedCalendarHome = await request(`/app?${context}&view=calendar&date=2026-07-04`, { cookie: fixture.cookie });
   eq(selectedCalendarHome.status, 200, "calendar renders a selected recorded date");
@@ -233,16 +233,16 @@ try {
   const insight = await request(`/my/analysis?${context}`, { cookie: fixture.cookie });
   eq(insight.status, 200, "interactive analysis renders");
   const insightHtml = await insight.text();
-  ok(insightHtml.includes("abPageInsight"), "interactive analysis receives its isolated V2 scope");
+  ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.20-KAKAO-EDIT-INLINE-FEEDBACK'), "analysis keeps the protected external runtime with the new cache version");
-  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "analysis loads the V22.8.19 shell exactly once");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.44-THEME-CONTRAST-ACCESSIBILITY'), "analysis keeps the protected external runtime with the new cache version");
+  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "analysis loads the V22.8.44 shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });
   eq(report.status, 200, "analysis report renders");
   const reportHtml = await report.text();
-  ok(reportHtml.includes("abPageAnalysisReport") && reportHtml.includes("핵심 인사이트"), "analysis report receives the V2 report scope without losing content");
+  ok(reportHtml.includes("abPageAnalysisReport") && reportHtml.includes("abV5RemainingPage") && reportHtml.includes('class="abLayoutNav ') && !reportHtml.includes('class="appMenu"') && reportHtml.includes("핵심 인사이트"), "analysis report uses the centralized V5 shell without losing report content");
 
   const calendar = await request(`/calendar?${context}`, { cookie: fixture.cookie });
   eq(calendar.status, 303, "legacy calendar route redirects authenticated users to the integrated calendar");

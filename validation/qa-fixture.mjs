@@ -181,6 +181,36 @@ export async function createV2265QaFixture() {
         if (row) row.locked_until = new Date().toISOString();
         return new Response(JSON.stringify({ released: !!row }), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (rpcName === "accountbook_mutate_payment_assets_v2271") {
+        const key = `payment_assets:${String(data?.p_household_id || "")}`;
+        const setting = db.accountbook_settings.find((item) => item.key === key);
+        let assets = [];
+        try { assets = JSON.parse(setting?.value || "[]"); } catch (_) { assets = []; }
+        const action = String(data?.p_action || "");
+        const asset = data?.p_asset && typeof data.p_asset === "object" ? clone(data.p_asset) : {};
+        const assetId = String(data?.p_asset_id || asset.id || "");
+        if (action === "create") assets = assets.filter((item) => String(item.id) !== String(asset.id)).concat([asset]);
+        else if (action === "update") assets = assets.map((item) => String(item.id) === assetId ? asset : item);
+        else if (action === "delete") assets = assets.filter((item) => String(item.id) !== assetId);
+        else return new Response(JSON.stringify({ code: "QA_ASSET_ACTION_INVALID", message: "asset_action_invalid" }), { status: 400, headers: { "content-type": "application/json" } });
+        upsert(db, "accountbook_settings", { key, value: JSON.stringify(assets) }, ["key"], sequence);
+        return new Response(JSON.stringify(assets), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_replace_budget_plan_v227") {
+        const householdId = String(data?.p_household_id || "");
+        const month = String(data?.p_month || "");
+        const rows = Array.isArray(data?.p_rows) ? data.p_rows : [];
+        db.accountbook_budgets = db.accountbook_budgets.filter((item) => !(item.household_id === householdId && item.month === month));
+        for (const item of rows) {
+          const category = String(item?.category || "").trim().slice(0, 80);
+          const amount = Math.max(0, Math.round(Number(item?.amount || 0)));
+          if (!category || !amount) continue;
+          upsert(db, "accountbook_budgets", { household_id: householdId, month, category, amount }, ["household_id", "month", "category"], sequence);
+        }
+        const settingsKey = `budgets:${householdId}:${month}`;
+        db.accountbook_settings = db.accountbook_settings.filter((item) => item.key !== settingsKey);
+        return new Response(JSON.stringify({ saved: rows.length }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (rpcName === "accountbook_leave_household_v227") {
         const householdId = String(data?.p_household_id || "");
         const userId = String(data?.p_user_id || "");
