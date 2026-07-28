@@ -9,6 +9,8 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const env = {
   APP_NAME: "똑똑한가계부",
   PUBLIC_BASE_URL: "https://ttokttok-accountbook.com",
+  INCOMPLETE_FEATURE_QA_ENABLED: "1",
+  ADMIN_API_TOKEN: "qa-kakao-skill-token",
 };
 
 function skillPayload({ userKey, groupKey = "" }) {
@@ -38,14 +40,27 @@ function skillPayload({ userKey, groupKey = "" }) {
   };
 }
 
-async function callSkill(payload) {
+async function callSkill(payload, { authorized = true } = {}) {
+  const headers = { "content-type": "application/json; charset=utf-8" };
+  if (authorized) headers.authorization = `Bearer ${env.ADMIN_API_TOKEN}`;
   const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
     method: "POST",
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers,
     body: JSON.stringify(payload),
   }), env, {});
   return { response, data: JSON.parse(await response.text()) };
 }
+
+const blockedPayload = await callSkill(skillPayload({ userKey: "qa-blocked-v2287" }), { authorized: false });
+eq(blockedPayload.response.status, 200, "unauthenticated QA-shaped skill request returns the Kakao-safe response envelope");
+ok(JSON.stringify(blockedPayload.data).includes("잠시 처리 흐름을 정리"), "unauthenticated QA-shaped skill request cannot execute the test conversation");
+
+const blockedFixture = await app.fetch(new Request("https://ttokttok-accountbook.com/kakao-skill-test-payload.json"), env, {});
+eq(blockedFixture.status, 404, "Kakao test fixture is hidden without authenticated QA access");
+const allowedFixture = await app.fetch(new Request("https://ttokttok-accountbook.com/kakao-skill-test-payload.json", {
+  headers: { authorization: `Bearer ${env.ADMIN_API_TOKEN}` },
+}), env, {});
+eq(allowedFixture.status, 200, "authenticated QA mode can still retrieve the Kakao test fixture");
 
 const direct = await callSkill(skillPayload({ userKey: "qa-direct-v2287" }));
 eq(direct.response.status, 200, "direct skill request succeeds");
@@ -68,7 +83,7 @@ ok(groupText.includes("선택하려면 아래 문구를 그대로 입력해 주�
 ok(groupText.includes("1. 새 가계부 만들기"), "first guided choice is preserved as text");
 ok(groupText.includes("2. 초대코드로 참여"), "second guided choice is preserved as text");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
-eq(group.response.headers.get("x-accountbook-version"), "V22.8.34-STABILIZE", "runtime header reports V22.8.20");
+eq(group.response.headers.get("x-accountbook-version"), "V22.8.44-THEME-CONTRAST-ACCESSIBILITY", "runtime header reports V22.8.44 theme contrast accessibility");
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const userKeyStart = source.indexOf("function getKakaoUserKey(payload)");

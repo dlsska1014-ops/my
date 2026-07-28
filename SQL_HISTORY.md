@@ -1,5 +1,74 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.44
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 공통 셸의 색상 토큰·반응형 터치 영역·보조 디스플레이 CSS만 보강
+- 운영 `/ready`가 정상인 환경에서는 기존 SQL 재실행 없음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.43
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 `accountbook_settings`와 `accountbook_claim_operation`·`accountbook_release_operation` 재사용
+- 정산·목표 JSON 쓰기의 strict read와 실패 피드백은 Worker 코드에서 보강
+- 운영 `/ready`가 정상인 환경에서는 V22.6.8·V22.7.0·V22.7.1 재실행 없음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.42
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 `accountbook_claim_operation`·`accountbook_release_operation`으로 자산 변경을 가계부 단위 직렬화
+- 기존 `accountbook_mutate_payment_assets_v2271`과 `accountbook_replace_budget_plan_v227` 재사용
+- 운영 `/ready`가 정상인 환경에서는 V22.6.8·V22.7.0·V22.7.1 재실행 없음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.41
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 `accountbook_claim_operation`·`accountbook_release_operation` RPC를 일반 웹 거래 중복 제출 직렬화에 재사용
+- 운영 `/ready`가 정상인 환경에서는 V22.6.8·V22.7.0·V22.7.1 복구 SQL 재실행 없음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.40
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- `/ready`가 기존 RPC의 실제 파라미터 이름으로 시그니처 존재를 안전하게 판정하도록 Worker 코드만 수정
+- V22.6.8·V22.7.0·V22.7.1 SQL 재실행 없음
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.39
+
+- 신규 스키마 설계: 없음
+- 저장소에 복원한 기존 원본: `schema_v22_6_8_operations_integrity.sql`, `schema_v22_7_0_auth_atomicity.sql`, `schema_v22_7_1_asset_dashboard.sql`
+- 복원 근거: Git commit `cdedaf69a8a81609728f1e61184fc1dd6e478148`의 blob과 SHA-256 일치
+- 적용 조건: 운영 `/ready`가 필수 RPC 누락을 보고하는 환경
+- 적용 순서: Supabase 백업 → V22.6.8 무결성 검사·적용 → 성공 확인 → V22.7.0 인증·원자성 적용 → 자산 원자성 RPC가 모두 없을 때 V22.7.1 적용 → Worker 배포 → `/ready` 200 확인
+- 중단 조건: V22.6.8 중복 검사 실패, SQL transaction 실패, 예상 밖 데이터 변경, `/ready`의 테이블 오류
+- 이 저장소 작업에서 SQL은 실행하지 않았으며 운영 적용은 별도 승인·수동 단계
+
+## V22.8.38
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 SQL 재실행: 없음
+- 기존 `accountbook_settings`와 `accountbook_claim_operation`·`accountbook_release_operation` RPC 재사용
+- 이유: 목표·즐겨찾기를 기존 설정 저장소에 통합하고 목표 동시 쓰기만 기존 잠금으로 보호
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.25
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 SQL 재실행: 없음
+- 이유: 기존 검색·빠른 입력·예산 알림·화면 설정 경로를 공통 외부 런타임으로 연결하고 홈 활성 메뉴를 교정
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.24
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 기존 SQL 재실행: 없음
+- 이유: UI V5 공통 셸의 메뉴 판정·반응형 드로어·키보드 접근성과 버전형 정적 자원만 변경
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
 ## V22.8.20
 
 - 신규 SQL·스키마·RLS·RPC·인덱스: 없음

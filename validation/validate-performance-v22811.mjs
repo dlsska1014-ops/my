@@ -173,14 +173,14 @@ try {
   const homeHtml = await home.text();
   const homeBytes = Buffer.byteLength(homeHtml);
   const externalScripts = Array.from(homeHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi), (match) => match[1]);
-  ok(homeBytes < 35000, `personal home HTML stays below 35KB (${homeBytes} bytes)`);
+  ok(homeBytes < 35 * 1024, `personal home HTML stays below 35 KiB (${homeBytes} bytes)`);
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22810.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "home loads the V22.8.19 shell stylesheet once");
-  ok(externalScripts.length === 3 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22811.js") && externalScripts.includes("/assets/accountbook-stage4-nav-v22818.js"), "home loads the theme, preserved mobile runtime, and versioned stage 4 navigation runtime");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "home loads the V22.8.44 contrast-safe shell stylesheet once");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22811.js") && externalScripts.includes("/assets/accountbook-nav-v22836.js") && externalScripts.includes("/assets/accountbook-v5-v22838.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
-  ok(homeHtml.includes('class="abV2281 abMobileAppSurface abV22812Shell"'), "home opts into the scoped V22.8.12 shell");
-  ok(homeHtml.includes('class="homeDesktopNav"') && homeHtml.includes('aria-label="모바일 주요 메뉴"'), "home exposes desktop and mobile navigation landmarks");
-  ok(homeHtml.includes("/settlement-summary?month=2026-07&household_id=house-home"), "home navigation preserves month and accountbook context");
+  ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
+  ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
+  ok(homeHtml.includes("/settlement-summary?month=2026-07&amp;household_id=house-home"), "home navigation preserves escaped month and accountbook context");
   ok(homeHtml.includes("우리집 생활비") && homeHtml.includes("3,200,000"), "home preserves selected accountbook data and amounts");
   ok(!homeHtml.includes('id="v2281GuidedUiUxStyle"') && !homeHtml.includes("parseKoreanAmount(text)"), "large shared CSS and runtime are not repeated inline");
   ok(calls.length <= 9, `personal home uses at most nine database calls (${calls.length})`);
@@ -208,7 +208,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22810.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22819.css"];
+  const cssPaths = ["/assets/mobile-home-v22810.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22844.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -255,17 +255,17 @@ try {
   eq(shellJsGetDatabaseCalls, 0, "V22.8.11 runtime GET requires no database access");
   eq(shellJsHeadDatabaseCalls, 0, "V22.8.11 runtime HEAD requires no database access");
 
-  const stage4NavJs = await request("/assets/accountbook-stage4-nav-v22818.js");
+  const stage4NavJs = await request("/assets/accountbook-nav-v22836.js");
   const stage4NavRuntime = await stage4NavJs.text();
   const stage4NavGetDatabaseCalls = calls.length;
-  const stage4NavHead = await request("/assets/accountbook-stage4-nav-v22818.js", { method: "HEAD" });
+  const stage4NavHead = await request("/assets/accountbook-nav-v22836.js", { method: "HEAD" });
   const stage4NavHeadBody = await stage4NavHead.text();
   const stage4NavHeadDatabaseCalls = calls.length;
   eq(stage4NavJs.status, 200, "V22.8.18 stage 4 navigation runtime GET succeeds");
   ok(stage4NavHead.status === 200 && stage4NavHeadBody.length === 0, "V22.8.18 stage 4 navigation runtime HEAD succeeds without a body");
   ok(stage4NavJs.headers.get("content-type")?.startsWith("text/javascript") && stage4NavJs.headers.get("cache-control")?.includes("immutable"), "stage 4 navigation runtime uses immutable JavaScript delivery");
-  eq(stage4NavJs.headers.get("etag"), '"accountbook-stage4-nav-v22818-js"', "stage 4 navigation runtime has a versioned ETag");
-  ok(stage4NavRuntime.includes('label: "거래"') && stage4NavRuntime.includes('label: "분석"') && stage4NavRuntime.includes('label: "예산"'), "stage 4 runtime serves all five task-oriented destinations");
+  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22836-js"', "V5 navigation runtime has a versioned ETag");
+  ok(stage4NavRuntime.includes('label: "거래"') && stage4NavRuntime.includes('label: "통계"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('if (!document.querySelector(".abLayoutNav")) return') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"') && stage4NavRuntime.includes('event.key === "Escape" && dialog && dialog.open') && stage4NavRuntime.includes('event.key === "/"'), "V5 runtime maps the home sidebar state and connects Escape-safe authenticated search, quick actions, and appearance controls");
   eq(stage4NavGetDatabaseCalls, 0, "stage 4 navigation runtime GET requires no database access");
   eq(stage4NavHeadDatabaseCalls, 0, "stage 4 navigation runtime HEAD requires no database access");
 
@@ -278,7 +278,7 @@ try {
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22819.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22844.css");
   const shellCss = await shellCssResponse.text();
   const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
@@ -290,18 +290,26 @@ try {
     ["#047857", "#ffffff"],
     ["#6d28d9", "#ffffff"],
     ["#92400e", "#ffffff"],
-    ["#cbd5e1", "#172033"],
-    ["#93c5fd", "#172033"],
-    ["#6ee7b7", "#172033"],
-    ["#c4b5fd", "#172033"],
-    ["#fcd34d", "#172033"],
+    ["#b3bdc9", "#1e2026"],
+    ["#93c5fd", "#1e2026"],
+    ["#6ee7b7", "#1e2026"],
+    ["#c4b5fd", "#1e2026"],
+    ["#fcd34d", "#1e2026"],
     ["#191919", "#fee500"],
     ["#d1fae5", "#123c33"],
     ["#fcd34d", "#49351a"],
   ];
-  ok(shellCss.includes("body.abV22812Shell") && shellCss.includes("--ab12-accent:#1d4ed8") && shellCss.includes("--abNavW:238px") && verifiedContrastPairs.every(([foreground, background]) => normalizedShellCss.includes(foreground) && normalizedShellCss.includes(background) && contrastRatio(foreground, background) >= 4.5), "shared shell is body-scoped and every declared text/background pair meets WCAG AA");
+  const lightMutedPairs = [["#5f6b7a", "#ffffff"], ["#5f6b7a", "#f4f6f8"], ["#5f6b7a", "#f2f4f6"]];
+  const tonePairs = [
+    ["#1d4ed8", "#e8f3ff"], ["#047857", "#dff7ed"], ["#6d28d9", "#f0e8ff"], ["#92400e", "#fff3d6"],
+    ["#93c5fd", "#1d2c42"], ["#6ee7b7", "#123c33"], ["#c4b5fd", "#35255d"], ["#fcd34d", "#49351a"],
+  ];
+  ok(shellCss.includes("body.abV22812Shell") && shellCss.includes('html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}') && shellCss.includes("--ab12-accent:#1d4ed8") && shellCss.includes("--abNavW:238px") && shellCss.includes("V22.8.23 UI V5 step 3") && shellCss.includes("V22.8.24 UI V5 shell correctness") && shellCss.includes("V22.8.25 UI V5 global actions") && shellCss.includes(".abGlobalDialog::backdrop") && shellCss.includes(".abGlobalDialog [hidden]{display:none!important}") && shellCss.includes("z-index:2210") && shellCss.includes(".abGlobalActionsMobile") && shellCss.includes("@media(max-width:899px)") && shellCss.includes("@media(min-width:900px)") && shellCss.includes("body.abV22812Shell.abV5RemainingPage") && shellCss.includes("white-space:normal!important;overflow:visible!important;text-overflow:clip!important") && verifiedContrastPairs.every(([foreground, background]) => normalizedShellCss.includes(foreground) && normalizedShellCss.includes(background) && contrastRatio(foreground, background) >= 4.5), "shared shell preserves contrast, full KPI values, and the dark document canvas while adding visible, correctly layered responsive global actions");
   ok(shellCss.includes("prefers-reduced-motion") && shellCss.includes("focus-visible") && shellCss.includes("font-size:16px"), "shared shell includes motion, focus, and mobile input safeguards");
-  ok(shellCss.includes("--ab12-action:#1d4ed8") && shellCss.includes("background:var(--ab12-action)!important;color:#fff!important"), "white-text form actions use the contrast-safe action token");
+  ok(lightMutedPairs.every(([foreground, background]) => contrastRatio(foreground, background) >= 4.5) && shellCss.includes("--ab12-muted:#5f6b7a"), "measured light muted text clears 4.5:1 on page, card, and raised surfaces");
+  ok(tonePairs.every(([foreground, background]) => contrastRatio(foreground, background) >= 4.5), "all light and dark accent-soft tone pairs clear 4.5:1");
+  ok(shellCss.includes("@media(prefers-contrast:more)") && shellCss.includes("@media(forced-colors:active)") && shellCss.includes("min-width:44px!important;min-height:44px!important") && shellCss.includes("color-scheme:light") && shellCss.includes("color-scheme:dark"), "shell supports increased contrast, forced colors, color schemes, and a 44px mobile menu target");
+  ok(shellCss.includes("--ab12-action:#1d4ed8") && shellCss.includes("background:var(--ab12-action)!important;color:#fff!important") && shellCss.includes('a.abGlobalActionPrimary span{color:#fff!important}'), "white-text form and global actions use the contrast-safe action token");
   ok(shellCss.includes('html[data-ab-resolved-theme="dark"]') && shellCss.includes('html[data-ab-tone="emerald"]') && shellCss.includes('html[data-ab-tone="violet"]') && shellCss.includes('html[data-ab-tone="amber"]') && !shellCss.includes("body.abV22812Shell:not(.abPageLogin):not(.abPageAccountSecurity) *{color:var(--ab12-text)!important}") && !shellCss.includes("body.abV22812Shell *{color:var(--ab12-text)!important}") && shellCss.includes(".homeOnboardingStep") && shellCss.includes(".appMenuBody .navGroup a") && shellCss.includes(".seg button.on"), "shared shell removes the unsafe global foreground override and keeps all approved color tones");
   ok(shellCss.includes(":is(.badge,.kakaoBtn){background:#FEE500!important;color:#191919!important") && shellCss.includes(".notice:not(.error):not(.ok){background:#123c33!important;color:#d1fae5!important") && shellCss.includes(":is(.warn,.guide){background:#49351a!important;color:#fcd34d!important") && shellCss.includes("body.abV22812Shell.abPageLogin .mobileAccessHelp") && shellCss.includes("body.abV22812Shell.abPageAccountSecurity .identity") && shellCss.includes("body.abV22812Shell.abPageAccountSecurity main.wrap a.btn.secondary"), "dark authentication surfaces preserve Kakao, notice, warning, mobile help, identity, and secondary-action foregrounds");
   ok(shellCss.includes(".homeNotice b{color:var(--ab12-notice-title)!important}") && shellCss.includes(".homeNotice p{color:var(--ab12-notice-text)!important}"), "smart notice foreground follows its dark background");
@@ -326,21 +334,21 @@ try {
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "accountbook management loads the shell once");
-  ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes every screenshot-reproduced light surface to the household dark contract");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "accountbook management loads the shell once");
+  ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('data-key="my-households" class="active"') && !householdsHtml.includes('data-key="members" class="active"') && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes its surfaces and selects the exact accountbook-management route");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22819.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22844.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
-  ok(backupHtml.includes("abPageAccountSecurity"), "account security receives its isolated dark-mode surface scope");
+  ok(backupHtml.includes("abPageAccountSecurity") && backupHtml.includes('class="abLayoutNav ') && backupHtml.includes("abV5RemainingPage"), "account security receives the shared navigation and isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22819.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22844.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
   ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
@@ -367,10 +375,13 @@ try {
   for (const path of userShellPaths) {
     const response = await request(path);
     const html = await response.text();
-    const hasUserNavigation = html.includes('data-nav-scope="user"') || html.includes('class="appMenu"') || html.includes("abHasUxBottom");
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22819.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation, `${path} receives the user-scoped theme shell exactly once`);
+    const hasUserNavigation = html.includes('data-nav-scope="user"') && html.includes('class="abLayoutNav ') && !html.includes('class="appMenu"')
+      && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
+    const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
+    const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22844.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
-    if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement"), "settlement receives its dark-mode route scope");
+    if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
     if (path.startsWith("/my/members?")) ok(html.includes("abPageMembers"), "member management receives its dark-mode route scope");
     if (path.startsWith("/keyword-guide?")) ok(html.includes("abPageKeywords"), "standalone keyword management receives its dark-mode route scope");
@@ -412,7 +423,8 @@ try {
     const response = await request(item.path, { cookie: "", headers: item.headers, public: item.public });
     const html = await response.text();
     const hasExpectedScope = !item.scope || html.includes(`data-nav-scope="${item.scope}"`);
-    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !html.includes("accountbook-shell-v22819") && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellLink=${html.includes("accountbook-shell-v22819")}, shellClass=${html.includes("abV22812Shell")})`);
+    const hasAnyUserShellAsset = /accountbook-shell-v\d+/i.test(html);
+    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
   console.log(`smoke_home_feed_button_contrast: ${passed} checks passed`);

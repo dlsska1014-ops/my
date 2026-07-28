@@ -8,10 +8,11 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.34-STABILIZE"'), "runtime reports the V22.8.20 release");
+ok(source.includes('const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY"'), "runtime reports the V22.8.44 theme contrast accessibility release");
 ok(source.includes('qs.set("prompt", "login")'), "Kakao deletion reauthentication forces an explicit login prompt");
 ok(source.includes('purpose: "household-delete"'), "deletion reauthentication token is purpose-bound");
 ok(source.includes('household_id: String(householdId'), "deletion reauthentication token is household-bound");
+ok(source.includes('if (requestedId && !requested) return { households, memberships, selected: null'), "explicit unknown household ids never fall back to the first readable household");
 
 function formBody(values) {
   return new URLSearchParams(values);
@@ -80,6 +81,108 @@ try {
   eq(fixture.db.accountbook_user_identities.length, identityCount, "creation does not add or replace a login identity");
 } finally {
   fixture.restore();
+}
+
+const explicitScopeFixture = await createV2265QaFixture();
+try {
+  const memberCookie = await explicitScopeFixture.cookieFor("user-wifi");
+  const beforeTransactions = explicitScopeFixture.db.transactions.length;
+  const foreignWrite = await app.fetch(new Request("https://ttokttok-accountbook.com/my/transactions", {
+    method: "POST",
+    headers: { cookie: memberCookie, "content-type": "application/x-www-form-urlencoded" },
+    body: formBody({
+      household_id: "house-trip",
+      month: "2026-07",
+      type: "expense",
+      transaction_date: "2026-07-28",
+      amount: "12345",
+      memo: "foreign-target-probe",
+      category: "기타",
+    }),
+  }), explicitScopeFixture.env, {});
+  eq(foreignWrite.status, 303, "foreign household write is rejected without a server error");
+  ok(foreignWrite.headers.get("location")?.includes("err=no_household"), "foreign household write returns an explicit no-household result");
+  eq(explicitScopeFixture.db.transactions.length, beforeTransactions, "foreign household write creates no transaction in the user's default household");
+  ok(!explicitScopeFixture.db.transactions.some((item) => item.memo === "foreign-target-probe"), "foreign household payload is not persisted anywhere");
+
+  const foreignManagePage = await app.fetch(new Request("https://ttokttok-accountbook.com/my/households?month=2026-07&manage=house-trip", {
+    headers: { cookie: memberCookie },
+  }), explicitScopeFixture.env, {});
+  eq(foreignManagePage.status, 200, "foreign household management link renders the safe household list");
+  const foreignManageHtml = await foreignManagePage.text();
+  ok(!foreignManageHtml.includes('id="manage"'), "foreign household management link never opens the default household controls");
+
+  const foreignSettlement = await app.fetch(new Request("https://ttokttok-accountbook.com/settlement-summary?month=2026-07&household_id=house-trip", {
+    headers: { cookie: memberCookie },
+  }), explicitScopeFixture.env, {});
+  eq(foreignSettlement.status, 303, "foreign household read is rejected without dereferencing a fallback household");
+  ok(foreignSettlement.headers.get("location")?.includes("err=household_required"), "foreign household read returns an explicit selection error");
+} finally {
+  explicitScopeFixture.restore();
+}
+
+const operationsAuthFixture = await createV2265QaFixture();
+try {
+  Object.assign(operationsAuthFixture.env, {
+    CRON_SECRET: "qa-cron-secret",
+    ADMIN_API_TOKEN: "qa-admin-token",
+  });
+  const legacyGetCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?key=qa-cron-secret"), operationsAuthFixture.env, {});
+  eq(legacyGetCron.status, 404, "state-changing cron route no longer accepts GET requests");
+
+  const querySecretCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?key=qa-cron-secret", {
+    method: "POST",
+  }), operationsAuthFixture.env, {});
+  eq(querySecretCron.status, 401, "cron secret in the URL query is rejected");
+
+  const headerSecretCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?month=2026-07", {
+    method: "POST",
+    headers: { "x-cron-secret": "qa-cron-secret" },
+  }), operationsAuthFixture.env, {});
+  ok(headerSecretCron.status !== 401, "cron secret in the dedicated header authenticates the scheduler request");
+
+  const querySecretOps = await app.fetch(new Request("https://ttokttok-accountbook.com/ops-snapshot.json?key=qa-cron-secret"), operationsAuthFixture.env, {});
+  eq(querySecretOps.status, 401, "cron query secret cannot open the administrator operations snapshot");
+
+  const adminTokenOps = await app.fetch(new Request("https://ttokttok-accountbook.com/ops-snapshot.json", {
+    headers: { authorization: "Bearer qa-admin-token" },
+  }), operationsAuthFixture.env, {});
+  eq(adminTokenOps.status, 200, "administrator bearer token still opens the operations snapshot");
+
+  const healthResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/health"), operationsAuthFixture.env, {});
+  eq(healthResponse.status, 200, "liveness endpoint stays available while dependency readiness is checked separately");
+  const health = await healthResponse.json();
+  eq(health.status, "alive", "health endpoint reports process liveness explicitly");
+  ok(!Object.hasOwn(health, "ready"), "health endpoint never claims database readiness without dependency checks");
+
+  operationsAuthFixture.env.ADMIN_SESSION_SECRET = "qa-admin-session";
+  const readyResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/ready"), operationsAuthFixture.env, {});
+  eq(readyResponse.status, 503, "readiness endpoint fails closed when a required RPC is absent");
+  const readiness = await readyResponse.json();
+  eq(readiness.checked_rpcs, 17, "readiness endpoint checks required authentication, write, and asset mutation RPCs");
+  ok(readiness.missing_rpcs.includes("accountbook_auth_attempt"), "readiness response identifies a missing required RPC");
+
+  const missingRpcFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const rpcUrl = new URL(typeof input === "string" ? input : input.url);
+    if (rpcUrl.hostname === "mock.supabase.co" && /\/rest\/v1\/rpc\/accountbook_/.test(rpcUrl.pathname)) {
+      const probe = init.body ? JSON.parse(String(init.body)) : {};
+      if (Object.keys(probe).length > 0) {
+        return new Response(JSON.stringify({ code: "22P02", message: "invalid input syntax for type uuid: readiness-invalid-uuid" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
+    }
+    return missingRpcFetch(input, init);
+  };
+  try {
+    const signatureReadyResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/ready"), operationsAuthFixture.env, {});
+    eq(signatureReadyResponse.status, 200, "readiness accepts validation errors after PostgREST resolves the real RPC parameter signature");
+    const signatureReadiness = await signatureReadyResponse.json();
+    eq(signatureReadiness.missing_rpcs.length, 0, "signature-based readiness does not misclassify parameterized RPCs as missing");
+  } finally {
+    globalThis.fetch = missingRpcFetch;
+  }
+} finally {
+  operationsAuthFixture.restore();
 }
 
 const leaveFixture = await createV2265QaFixture();

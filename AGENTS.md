@@ -43,8 +43,9 @@
 - 변경 전 관련 코드를 검색하고 가장 작은 범위로 수정한다.
 - `src/index.js`는 저장소에서 직접 수정할 수 있지만 운영 배포는 항상 검증된
   파일 전체 교체 방식이다.
-- 현재 V22.8.20은 신규 SQL, 스키마, 환경변수, Kakao Developers,
-  OpenBuilder 변경을 요구하지 않는다.
+- 현재 V22.8.44는 신규 스키마 설계, 환경변수, Kakao Developers,
+  OpenBuilder 변경을 요구하지 않는다. 단, 운영 `/ready`가 필수 RPC 누락을
+  보고하면 백업 후 기존 V22.6.8·V22.7.0·필요 시 V22.7.1 SQL 복구를 먼저 수행한다.
 - 비밀키, 토큰, 실제 사용자 데이터, `.env`, 빌드 결과, `node_modules`,
   스크린샷, 중첩 ZIP을 커밋하지 않는다.
 - 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `CHANGELOG.md`,
@@ -63,12 +64,14 @@ npm run validate:household-security
 npm run validate:ux-principles
 npm run validate:performance
 npm run validate:adsense-v2
+npm run validate:v5
+npm run validate:core-write
 node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음 체크섬 34개, 영수증 56개, 카카오 그룹 18개, 카카오 수정·삭제·복구 130개, 가계부 보안 43개,
-UX 56개, 사용자 화면·홈 버튼·테마·성능 141개, AdSense 심사·V2 화면 261개로 총 705개, ESM `default.fetch`, 작업 트리와
+현재 배포 묶음 체크섬, 영수증 56개, 카카오 그룹 22개, 카카오 수정·삭제·복구 130개, 가계부·운영 보안 65개,
+UX 56개, 사용자 화면·홈 버튼·테마·성능 144개, AdSense 심사·V2 화면 261개, V5 안정화 41개, 핵심 쓰기 스모크 97개로 총 872개, ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 세부 절차는
 `docs/codex/VERIFICATION.md`를 따른다.
 
@@ -81,7 +84,7 @@ UX 56개, 사용자 화면·홈 버튼·테마·성능 141개, AdSense 심사·V
 
 - 요청한 변경과 직접 관련된 파일만 수정했다.
 - 필수 보호 기준을 위반하지 않았다.
-- 관련 검증과 전체 705개 검증이 통과했다.
+- 관련 검증과 전체 872개 검증이 통과했다.
 - `git diff --check`가 통과하고 diff를 자체 검토했다.
 - SQL·환경변수·외부 콘솔·수동 운영 확인의 필요 여부를 명시했다.
 - 실행하지 못한 검증이나 남은 위험을 숨기지 않고 최종 보고에 포함했다.

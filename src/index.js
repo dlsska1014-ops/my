@@ -648,6 +648,70 @@ const JSON_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
+const REQUIRED_RUNTIME_CONFIG = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "ADMIN_SESSION_SECRET",
+  "USER_SESSION_SECRET",
+  "ADMIN_API_TOKEN",
+  "MY_IMPORT_TOKEN_SECRET",
+];
+
+const READINESS_TABLES = [
+  "transactions",
+  "accountbook_user_identities",
+  "accountbook_transaction_audit",
+];
+
+// These RPCs back authentication, authorization-sensitive writes, bulk imports,
+// recurring jobs, and cross-instance operation locks. A Worker is not ready when
+// one is absent, even if the HTTP process itself is alive.
+const READINESS_CORE_RPCS = [
+  "accountbook_claim_operation",
+  "accountbook_release_operation",
+  "accountbook_auth_attempt",
+  "accountbook_create_local_user_v227",
+  "accountbook_set_local_identity_v227",
+  "accountbook_link_kakao_identity_v227",
+  "accountbook_purge_household_v227",
+  "accountbook_replace_budget_plan_v227",
+  "accountbook_apply_recurring_v227",
+  "accountbook_merge_users_v227",
+  "accountbook_update_transaction_v227",
+  "accountbook_delete_transaction_v227",
+  "accountbook_bulk_transactions_v227",
+  "accountbook_import_transactions_v227",
+  "accountbook_leave_household_v227",
+];
+
+const READINESS_ALTERNATIVE_RPC_GROUPS = [
+  ["accountbook_mutate_payment_assets_v2280", "accountbook_mutate_payment_assets_v2271"],
+];
+
+// PostgREST resolves overloaded RPCs by the JSON parameter names. Sending an
+// empty object reports PGRST202 even when a parameterized function exists, so
+// readiness uses the real signature with deliberately invalid values. UUID
+// conversion or the function's first validation guard fails before any write.
+const READINESS_RPC_PROBE_BODIES = {
+  accountbook_claim_operation: { p_key: "", p_owner: "", p_lease_seconds: 15 },
+  accountbook_release_operation: { p_key: null, p_owner: null },
+  accountbook_auth_attempt: { p_key: "", p_limit: 3, p_window_seconds: 60, p_success: false },
+  accountbook_create_local_user_v227: { p_login_name: "", p_nickname: "", p_credential_hash: "", p_credential_salt: "", p_credential_iterations: 1 },
+  accountbook_set_local_identity_v227: { p_user_id: "readiness-invalid-uuid", p_login_name: "", p_credential_hash: "", p_credential_salt: "", p_credential_iterations: 1, p_revoke_sessions: false },
+  accountbook_link_kakao_identity_v227: { p_user_id: "readiness-invalid-uuid", p_kakao_id: "", p_nickname: "" },
+  accountbook_purge_household_v227: { p_household_id: "readiness-invalid-uuid" },
+  accountbook_replace_budget_plan_v227: { p_household_id: "readiness-invalid-uuid", p_month: "", p_rows: [] },
+  accountbook_apply_recurring_v227: { p_household_id: "readiness-invalid-uuid", p_month: "" },
+  accountbook_merge_users_v227: { p_primary_user_id: "readiness-invalid-uuid", p_secondary_user_id: "readiness-invalid-uuid" },
+  accountbook_update_transaction_v227: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_patch: {} },
+  accountbook_delete_transaction_v227: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness" },
+  accountbook_bulk_transactions_v227: { p_transaction_ids: ["readiness-invalid-uuid"], p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_patch: {}, p_delete: false },
+  accountbook_import_transactions_v227: { p_household_id: "readiness-invalid-uuid", p_rows: [] },
+  accountbook_leave_household_v227: { p_household_id: "readiness-invalid-uuid", p_user_id: "readiness-invalid-uuid" },
+  accountbook_mutate_payment_assets_v2280: { p_household_id: "readiness-invalid-uuid", p_action: "readiness", p_asset: {}, p_asset_id: null, p_snapshot_month: "2000-01" },
+  accountbook_mutate_payment_assets_v2271: { p_household_id: "readiness-invalid-uuid", p_action: "readiness", p_asset: {}, p_asset_id: null },
+};
+
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
@@ -868,11 +932,11 @@ export default {
         return handleMyRecurringDelete(request, env);
       }
 
-      if (url.pathname === "/cron/recurring/apply" && request.method === "GET") {
+      if (url.pathname === "/cron/recurring/apply" && request.method === "POST") {
         return handleRecurringCronApply(request, env, url);
       }
 
-      if (url.pathname === "/cron/reports/generate" && request.method === "GET") {
+      if (url.pathname === "/cron/reports/generate" && request.method === "POST") {
         return handleAutomaticReportCron(request, env, url);
       }
 
@@ -1084,23 +1148,23 @@ export default {
       }
 
       if (url.pathname === "/health") {
-        const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ADMIN_SESSION_SECRET", "USER_SESSION_SECRET", "ADMIN_API_TOKEN", "MY_IMPORT_TOKEN_SECRET"];
-        const missing = required.filter((name) => !String(env[name] || "").trim());
-        return jsonResponse({ ok: true, ready: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, time: new Date().toISOString() });
+        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
-        const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ADMIN_SESSION_SECRET", "USER_SESSION_SECRET", "ADMIN_API_TOKEN", "MY_IMPORT_TOKEN_SECRET"];
-        const missing = required.filter((name) => !String(env[name] || "").trim());
+        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
-        const checks = await Promise.all([checkTableAvailable(env, "transactions"), checkTableAvailable(env, "accountbook_user_identities"), checkTableAvailable(env, "accountbook_transaction_audit")]);
-        const failed = checks.map((item, index) => ({ item, table: ["transactions", "accountbook_user_identities", "accountbook_transaction_audit"][index] })).filter((entry) => !entry.item.ok).map((entry) => entry.table);
-        // P0-2: 저장 경로가 의존하는 핵심 v227 RPC 존재를 확인해, 함수 미적용 상태를 준비 점검에서 잡는다.
-        const coreRpcs = ["accountbook_set_local_identity_v227", "accountbook_create_local_user_v227", "accountbook_update_transaction_v227", "accountbook_delete_transaction_v227"];
-        const rpcResults = await Promise.all(coreRpcs.map((name) => checkRpcAvailable(env, name)));
-        const missingRpcs = coreRpcs.filter((_name, i) => !rpcResults[i].ok);
-        const ready = failed.length === 0 && missingRpcs.length === 0;
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, failed_tables: failed, missing_rpcs: missingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
+        const checks = await Promise.all(READINESS_TABLES.map((name) => checkTableAvailable(env, name)));
+        const failed = READINESS_TABLES.filter((_name, index) => !checks[index].ok);
+        const rpcResults = await Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name)));
+        const missingRpcs = READINESS_CORE_RPCS.filter((_name, index) => !rpcResults[index].ok);
+        const alternativeRpcResults = await Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name)))));
+        const missingAlternativeRpcs = READINESS_ALTERNATIVE_RPC_GROUPS.filter((_group, index) => !alternativeRpcResults[index].some((result) => result.ok)).map((group) => group.join("|"));
+        const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
+        const ready = failed.length === 0 && allMissingRpcs.length === 0;
+        const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, checked_tables: READINESS_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1134,6 +1198,12 @@ export default {
 
       if (url.pathname === "/card-benefits" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
+          const scoped = await getScopedHouseholdsForPage(request, env);
+          if (scoped.scope === "none") return redirectResponse("/my");
+          const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+          if (requestedHouseholdId && !scoped.households.some((household) => String(household.id) === requestedHouseholdId)) {
+            return redirectResponse("/my?err=no_household");
+          }
           return handleCardBenefitsPage(request, env, url);
         }, "카드혜택");
       }
@@ -1705,6 +1775,7 @@ export default {
       }
 
       if (url.pathname === "/kakao-skill-test-payload.json" && request.method === "GET") {
+        if (!(await kakaoQaRequestAllowed(request, env))) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
         return jsonResponse(buildKakaoSkillTestPayload(url.searchParams.get("q") || "메뉴"));
       }
 
@@ -1752,7 +1823,7 @@ export default {
       try {
         const failUrl = new URL(request.url);
         if (request.method === "GET") {
-          return htmlResponse(renderEmergencyErrorHtml(failUrl, err), 200);
+          return htmlResponse(renderEmergencyErrorHtml(failUrl, err), 500);
         }
       } catch (htmlFallbackErr) {}
       return jsonResponse({ ok: false, error: "server_error", message: "요청을 처리하지 못했습니다. 기존 데이터는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 500);
@@ -1775,7 +1846,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.34-STABILIZE";
+const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4424,7 +4495,10 @@ function jsonResponse(data, status = 200) {
 }
 
 function htmlResponse(html, status = 200, headers = {}) {
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(html)), {
+  const operationallyAlignedHtml = String(html || "")
+    .replaceAll("schema_v22_8_0_asset_dashboard_complete.sql", "schema_v22_7_1_asset_dashboard.sql")
+    .replaceAll("V22.8.0 자산 마이그레이션", "V22.7.1 자산 원자성 마이그레이션");
+  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml)), {
     status,
     headers: { ...HTML_HEADERS, ...headers },
   });
@@ -4669,6 +4743,16 @@ async function verifyAdminSession(request, env) {
   if (!Number.isFinite(version) || version !== Math.max(1, Number(state.session_version || 1))) return false;
   const sig = await hmacSha256(adminSessionSecret(env), data);
   return constantTimeTextEqual(sig, signature);
+}
+
+function verifyCronExecutionAuth(request, env) {
+  const expectedCron = String(env.CRON_SECRET || "").trim();
+  const expectedAdmin = String(env.ADMIN_API_TOKEN || "").trim();
+  const auth = String(request?.headers?.get("authorization") || "").trim();
+  const headerSecret = String(request?.headers?.get("x-cron-secret") || "").trim();
+  if (expectedAdmin && constantTimeTextEqual(auth, `Bearer ${expectedAdmin}`)) return true;
+  if (!expectedCron) return false;
+  return constantTimeTextEqual(headerSecret, expectedCron) || constantTimeTextEqual(auth, `Bearer ${expectedCron}`);
 }
 
 async function checkAdminPassword(env, password) {
@@ -5685,69 +5769,89 @@ async function mutatePaymentAssetsAtomically(env, householdId = "", action = "",
   }
 }
 
+async function withPaymentAssetWriteLease(env, householdId = "", task) {
+  const lease = await claimOperationLease(env, {
+    key: `payment-assets-write:${String(householdId || "").trim()}`,
+    owner: operationLeaseOwner("payment-assets"),
+    leaseSeconds: Number(env.PAYMENT_ASSET_LEASE_SECONDS || 30),
+  });
+  if (!lease.acquired) throw new Error("asset_write_busy");
+  try {
+    return await task();
+  } finally {
+    await releaseOperationLease(env, lease);
+  }
+}
+
 async function addPaymentAsset(env, householdId = "", data = {}) {
   const name = String(data.name || "").trim().slice(0, 80);
   if (!name) return { ok: false, error: "이름을 입력해주세요." };
   if (containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(data.issuer) || containsSensitiveFinancialNumber(data.memo)) return { ok: false, error: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해주세요." };
-  const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
-  const now = new Date().toISOString();
-  const current = await fetchPaymentAssets(env, householdId);
-  if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
-  const next = current.slice();
-  const item = {
-    id: `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    household_id: householdId || "",
-    name,
-    kind,
-    issuer: String(data.issuer || "").trim().slice(0, 80),
-    balance: normalizePaymentAssetAmount(data.balance),
-    include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? data.include_in_asset !== false : false,
-    memo: String(data.memo || "").trim().slice(0, 120),
-    created_at: now,
-    updated_at: now,
-    balance_updated_at: now,
-  };
-  next.push(item);
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "create", item, item.id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
+    const now = new Date().toISOString();
+    const current = await fetchPaymentAssets(env, householdId);
+    if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
+    const next = current.slice();
+    const item = {
+      id: `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      household_id: householdId || "",
+      name,
+      kind,
+      issuer: String(data.issuer || "").trim().slice(0, 80),
+      balance: normalizePaymentAssetAmount(data.balance),
+      include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? data.include_in_asset !== false : false,
+      memo: String(data.memo || "").trim().slice(0, 120),
+      created_at: now,
+      updated_at: now,
+      balance_updated_at: now,
+    };
+    next.push(item);
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "create", item, item.id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
+  });
 }
 
 async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
-  const current = await fetchPaymentAssets(env, householdId);
-  const target = current.find((item) => String(item.id) === String(id));
-  if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
-  const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
-  if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
-    return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
-  }
-  const next = current.map((item) => {
-    if (String(item.id) !== String(id)) return item;
-    const kind = isValidPaymentAssetKind(patch.kind) ? patch.kind : item.kind;
-    const name = patch.name === undefined ? item.name : String(patch.name || "").trim().slice(0, 80);
-    const issuer = patch.issuer === undefined ? item.issuer : String(patch.issuer || "").trim().slice(0, 80);
-    const memo = patch.memo === undefined ? item.memo : String(patch.memo || "").trim().slice(0, 120);
-    if (!name || containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(issuer) || containsSensitiveFinancialNumber(memo)) throw new Error("asset_sensitive_or_invalid");
-    const balance = patch.balance === undefined ? item.balance : normalizePaymentAssetAmount(patch.balance);
-    const balanceChanged = balance !== normalizePaymentAssetAmount(item.balance);
-    const updatedAt = new Date().toISOString();
-    return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const current = await fetchPaymentAssets(env, householdId);
+    const target = current.find((item) => String(item.id) === String(id));
+    if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
+    const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
+    if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
+      return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
+    }
+    const next = current.map((item) => {
+      if (String(item.id) !== String(id)) return item;
+      const kind = isValidPaymentAssetKind(patch.kind) ? patch.kind : item.kind;
+      const name = patch.name === undefined ? item.name : String(patch.name || "").trim().slice(0, 80);
+      const issuer = patch.issuer === undefined ? item.issuer : String(patch.issuer || "").trim().slice(0, 80);
+      const memo = patch.memo === undefined ? item.memo : String(patch.memo || "").trim().slice(0, 120);
+      if (!name || containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(issuer) || containsSensitiveFinancialNumber(memo)) throw new Error("asset_sensitive_or_invalid");
+      const balance = patch.balance === undefined ? item.balance : normalizePaymentAssetAmount(patch.balance);
+      const balanceChanged = balance !== normalizePaymentAssetAmount(item.balance);
+      const updatedAt = new Date().toISOString();
+      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+    });
+    const updated = next.find((item) => String(item.id) === String(id));
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
   });
-  const updated = next.find((item) => String(item.id) === String(id));
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, next);
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
 }
 
 async function deletePaymentAsset(env, householdId = "", id = "") {
-  const current = await fetchPaymentAssets(env, householdId);
-  if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
-  const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
-  const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));
-  const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
-  return { ok: true, snapshotOk };
+  return withPaymentAssetWriteLease(env, householdId, async () => {
+    const current = await fetchPaymentAssets(env, householdId);
+    if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
+    const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
+    const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));
+    const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
+    return { ok: true, snapshotOk };
+  });
 }
 
 function inferPaymentAssetFromText(text = "", assets = []) {
@@ -5854,10 +5958,10 @@ async function handlePaymentAssetCreate(request, env) {
       memo: form.get("memo"),
     });
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 저장하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: "payment_asset_saved" }));
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_saved" : "payment_asset_saved_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.";
+    const message = /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.";
     rememberOpsEvent({ kind: "payment_asset_create_failed", severity: "warn", path: "/admin/payment-asset/create", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -5883,10 +5987,11 @@ async function handlePaymentAssetUpdate(request, env) {
   try {
     const result = await updatePaymentAsset(env, householdId, id, patch);
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 수정하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: mode === "balance" ? "payment_asset_balance_updated" : "payment_asset_updated" }));
+    const successMessage = mode === "balance" ? "payment_asset_balance_updated" : "payment_asset_updated";
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? successMessage : `${successMessage}_snapshot_deferred` }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_sensitive_or_invalid/i.test(detail) ? "계좌번호·카드번호 전체 대신 별칭을 입력해주세요." : /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_not_found/i.test(detail) ? "수정할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.";
+    const message = /asset_sensitive_or_invalid/i.test(detail) ? "계좌번호·카드번호 전체 대신 별칭을 입력해주세요." : /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_not_found/i.test(detail) ? "수정할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.";
     rememberOpsEvent({ kind: "payment_asset_update_failed", severity: "warn", path: "/admin/payment-asset/update", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -5902,10 +6007,10 @@ async function handlePaymentAssetDelete(request, env) {
   try {
     const result = await deletePaymentAsset(env, householdId, id);
     if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 삭제하지 못했습니다." }));
-    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: "payment_asset_deleted" }));
+    return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_deleted" : "payment_asset_deleted_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_not_found/i.test(detail) ? "삭제할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.";
+    const message = /asset_not_found/i.test(detail) ? "삭제할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.";
     rememberOpsEvent({ kind: "payment_asset_delete_failed", severity: "warn", path: "/admin/payment-asset/delete", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -6098,7 +6203,9 @@ async function handleReservePlansPage(request, env, url) {
   if (scoped.scope === "none") return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
   const customCategoryRows = await fetchCustomCategories(env, householdId);
@@ -7062,6 +7169,12 @@ function selectScopedHousehold(households = [], householdId = "") {
   return safeArray(households).find((h) => String(h.id) === String(householdId || "")) || safeArray(households)[0] || null;
 }
 
+function selectRequestedScopedHousehold(households = [], householdId = "") {
+  const requested = String(householdId || "").trim();
+  if (!requested) return safeArray(households)[0] || null;
+  return safeArray(households).find((h) => String(h.id) === requested) || null;
+}
+
 
 
 function memberAliasSettingsKey(householdId = "") {
@@ -7711,27 +7824,32 @@ async function tableCheckPair(env, table) {
 }
 
 // P0-2: /ready 준비 점검에서 핵심 RPC 존재 여부를 확인한다.
-// PostgREST는 함수명이 없어도, 인자 시그니처가 안 맞아도 PGRST202를 낸다. 다만 이름이 존재하면
-// 올바른 시그니처를 힌트("Perhaps you meant to call the function ...")로 돌려주므로 이를 근거로
-// '이름 존재(인자 불일치)'와 '함수 없음'을 구분한다. 빈 인자로 호출하므로 데이터는 변경되지 않는다.
-// 애매하면 fail-open(존재로 간주)해 정상 배포를 막지 않는다.
+// 실제 파라미터 이름과 안전한 무효값을 보내 PostgREST가 함수 시그니처를
+// 정확히 선택하게 한다. 함수가 존재하면 UUID 변환 또는 첫 입력 검증에서
+// 쓰기 전에 실패하며, PGRST202일 때만 실제 누락으로 판정한다.
 async function checkRpcAvailable(env, rpcName) {
   try {
-    await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: "{}" });
+    const probeBody = READINESS_RPC_PROBE_BODIES[rpcName];
+    if (!probeBody) return { ok: false, detail: "점검 시그니처 없음" };
+    await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(probeBody) });
     return { ok: true, detail: "실행됨" };
   } catch (err) {
     const msg = safeError(err);
     if (/PGRST202|Could not find the function/i.test(msg)) {
-      const nameExists = /Perhaps you meant/i.test(msg) && msg.includes(rpcName);
-      return { ok: nameExists, detail: nameExists ? "존재(인자 불일치)" : "함수 없음" };
+      return { ok: false, detail: "함수 없음" };
     }
-    return { ok: true, detail: "존재(실행 오류)" };
+    return { ok: true, detail: "존재(안전 점검 중단)" };
   }
 }
 
 
 async function getSettingValue(env, key) {
   const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" }, []);
+  return rows?.[0]?.value || "";
+}
+
+async function getSettingValueStrict(env, key) {
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" });
   return rows?.[0]?.value || "";
 }
 
@@ -9457,7 +9575,20 @@ function formatBenefitLimit(value,label=""){if(label)return escapeHtml(label);if
 function formatBenefitValue(value){if(value===null||value===undefined)return "약관 확인";return `${numberWithCommas(value||0)}원`;}
 function renderBenefitRows(calc){const rows=safeArray(calc?.benefits);if(!rows.length)return `<tr><td colspan="6">혜택 기준정보가 없습니다.</td></tr>`;return rows.map(b=>`<tr><td><b>${escapeHtml(b.category||"")}</b><div class="small">${escapeHtml(b.label||"")}</div></td><td>${b.rate?`${Math.round(Number(b.rate||0)*1000)/10}%`:"약관 확인"}</td><td>${formatBenefitLimit(b.monthly_limit,b.monthly_limit_label)}</td><td>${numberWithCommas(b.spend||0)}원</td><td>${formatBenefitValue(b.estimated)}</td><td>${formatBenefitLimit(b.remaining_limit)}</td></tr>`).join("");}
 function renderMatchedCardRows(rows=[]){const arr=safeArray(rows).slice(0,80);if(!arr.length)return `<tr><td colspan="7">이 카드로 추정되는 거래가 없습니다. 거래 입력 시 결제수단에 카드명을 남기면 더 정확해집니다.</td></tr>`;return arr.map(r=>`<tr><td>${escapeHtml(String(r.transaction_date||""))}</td><td>${r.type==="income"?"수입":"지출"}</td><td>${numberWithCommas(r.amount||0)}원</td><td>${escapeHtml(r.category||"")}</td><td>${escapeHtml(r.memo||r.raw_text||"")}</td><td>${escapeHtml(r.payment_method||"")}</td><td>${escapeHtml(r.id||"")}</td></tr>`).join("");}
-async function buildCardBenefitsPayload(env,url,householdsArg=null){const month=validMonth(url.searchParams.get("month"))||currentMonthKst();const households=householdsArg||await fetchAdminHouseholds(env);const selected=selectScopedHousehold(households,url.searchParams.get("household_id")||"");const householdId=selected?.id||"";const issuer=String(url.searchParams.get("issuer")||"").trim();const selectedCardId=String(url.searchParams.get("card_id")||"").trim();const filtered=CARD_BENEFIT_CATALOG.filter(c=>!issuer||c.issuer===issuer);const card=filtered.find(c=>c.id===selectedCardId)||findCardBenefit(selectedCardId)||filtered[0]||CARD_BENEFIT_CATALOG[0];const rows=await fetchAdminRows(env,{month,householdId,type:"all"});const calc=calculateCardBenefitUsage(card,rows);return {month,households,householdId,issuer,card,calc,catalog:CARD_BENEFIT_CATALOG};}
+async function buildCardBenefitsPayload(env, url, householdsArg = null) {
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const households = householdsArg || await fetchAdminHouseholds(env);
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  const householdId = selected?.id || "";
+  const issuer = String(url.searchParams.get("issuer") || "").trim();
+  const selectedCardId = String(url.searchParams.get("card_id") || "").trim();
+  const filtered = CARD_BENEFIT_CATALOG.filter((item) => !issuer || item.issuer === issuer);
+  const card = filtered.find((item) => item.id === selectedCardId) || findCardBenefit(selectedCardId) || filtered[0] || CARD_BENEFIT_CATALOG[0];
+  const rows = householdId ? await fetchAdminRows(env, { month, householdId, type: "all" }) : [];
+  const calc = calculateCardBenefitUsage(card, rows);
+  return { month, households, householdId, issuer, card, calc, catalog: CARD_BENEFIT_CATALOG };
+}
 async function handleCardBenefitsPage(request,env,url){const scoped=await getScopedHouseholdsForPage(request,env);if(scoped.scope==="none")return redirectResponse("/my");const {month,households,householdId,issuer,card,calc}=await buildCardBenefitsPayload(env,url,scoped.households);const householdOptions=households.map(h=>`<option value="${escapeHtml(h.id)}" ${h.id===householdId?"selected":""}>${escapeHtml(h.name)}</option>`).join("");const qs=new URLSearchParams();qs.set("month",month);if(householdId)qs.set("household_id",householdId);qs.set("card_id",card.id);return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>카드 혜택 자동조회</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,#5b21b6);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.92}.filters{display:grid;grid-template-columns:1.1fr .9fr 1.5fr 150px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.progress{height:14px;border-radius:999px;background:#e5e7eb;overflow:hidden}.bar{height:100%;background:#3182F6;border-radius:999px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;background:#fff;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.small{font-size:12px;color:#64748b;margin-top:3px}.pill{display:inline-flex;border-radius:999px;background:#ede9fe;color:#5b21b6;padding:5px 9px;font-weight:1000;font-size:12px;margin:2px}@media(max-width:820px){.wrap{padding:12px}.hero h1{font-size:24px}.filters{grid-template-columns:1fr}.card{padding:14px}}</style></head><body>${renderUnifiedNav("card-benefits",{month,householdId,householdName:(households.find((h)=>h.id===householdId)||{}).name})}<main class="wrap"><section class="hero"><h1>카드 혜택 자동조회</h1><p>네이버페이 카드 페이지 기준으로 정리한 카드사/혜택 요약을 드롭다운으로 선택하고, 이번 달 거래와 매칭해 실적/혜택 한도를 계산합니다.</p><form class="filters" method="get" action="/card-benefits"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="issuer" onchange="this.form.submit()">${renderIssuerOptions(issuer)}</select><select name="card_id">${renderCardOptions(card.id,issuer)}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(card.name)}</h2><p><span class="pill">${escapeHtml(card.issuer)}</span><span class="pill">${escapeHtml(card.performance?.label||"")}</span><span class="pill">통합 한도 ${numberWithCommas(card.total_monthly_limit||0)}원</span></p><p class="warnBox">${escapeHtml(card.notes||"카드 혜택 문서 기준정보는 운영 전 검수가 필요합니다.")}</p><div class="grid"><div class="metric"><span>이번 달 추정 사용액</span><b>${numberWithCommas(calc.usage_amount)}원</b></div><div class="metric"><span>실적 기준</span><b>${numberWithCommas(calc.required_performance)}원</b></div><div class="metric"><span>실적까지 남은 금액</span><b>${numberWithCommas(calc.remaining_performance)}원</b></div><div class="metric"><span>예상 혜택</span><b>${numberWithCommas(calc.estimated_total)}원</b></div><div class="metric"><span>남은 통합 한도</span><b>${formatBenefitValue(calc.remaining_total_limit)}</b></div><div class="metric"><span>매칭 거래</span><b>${numberWithCommas(calc.matched_count)}건</b></div></div><p class="note">실적 달성률 ${calc.performance_rate}%</p><div class="progress"><div class="bar" style="width:${Math.min(100,calc.performance_rate)}%"></div></div><p><a class="btn light" href="/payment-methods?${escapeHtml(qs.toString())}">결제수단 연결 안내</a></p><p class="note">${escapeHtml(NAVER_CARD_SOURCE_NOTE)}</p></section><section class="card"><h2>혜택 카테고리별 현황</h2><div class="tableWrap"><table><thead><tr><th>혜택</th><th>율</th><th>월 한도</th><th>매칭 지출</th><th>예상 혜택</th><th>남은 한도</th></tr></thead><tbody>${renderBenefitRows(calc)}</tbody></table></div></section><section class="card"><h2>카드 매칭 거래</h2><p class="note">거래의 결제수단/메모에 카드명 또는 별칭이 포함된 경우 매칭합니다. 다음 단계에서 결제수단 등록과 연결하면 더 정확해집니다.</p><div class="tableWrap"><table><thead><tr><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>결제수단</th><th>ID</th></tr></thead><tbody>${renderMatchedCardRows(calc.matchedRows)}</tbody></table></div></section></main></body></html>`);}
 
 function shiftMonthKey(month = "", delta = 0) {
@@ -9683,7 +9814,9 @@ async function handlePaymentMethodsPage(request, env, url) {
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const monthLabel = `${Number(month.slice(5, 7))}월`;
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const requestedHouseholdId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);
+  if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
@@ -9938,8 +10071,8 @@ async function handleHouseholdAdminPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const households = await fetchAdminHouseholds(env);
   const membersMap = await fetchAllHouseholdMembersMap(env, households);
-  const selectedId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selected = households.find((h) => h.id === selectedId) || households[0] || null;
+  const selectedId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = selectRequestedScopedHousehold(households, selectedId);
   const counts = {};
   for (const h of households) counts[h.id] = await countHouseholdTransactions(env, h.id);
   const msg = url.searchParams.get("msg") || "";
@@ -10174,7 +10307,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><div class="abNavTopActions"><button type="button" class="abNavSearchBtn" data-abv5-search-open aria-label="통합 검색" title="검색 (Ctrl/⌘K)"><span aria-hidden="true">🔍</span></button><button type="button" class="abNavSearchBtn abNavBellBtn" data-abv5-notif-open aria-label="알림" title="알림"><span aria-hidden="true">🔔</span><span class="abV5NotifBadge" hidden></span></button><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide${activeKey === "guide" ? " abNavGuideActive" : ""}"${activeKey === "guide" ? ' aria-current="page"' : ""} href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><div class="abNavMobileActions"><button type="button" class="abNavSearchBtn abNavSearchBtnMobile" data-abv5-search-open aria-label="통합 검색" title="검색"><span aria-hidden="true">🔍</span></button><button type="button" class="abNavSearchBtn abNavBellBtn" data-abv5-notif-open aria-label="알림" title="알림"><span aria-hidden="true">🔔</span><span class="abV5NotifBadge" hidden></span></button><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div><nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 
@@ -10744,8 +10877,7 @@ async function handleKakaoCommandsPage(request, env, url) {
 
 async function handleOpsSnapshotJson(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
+  if (!adminOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
   return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
 }
 
@@ -10878,7 +11010,7 @@ async function handleAnnualReportPage(request, env, url) {
   const scoped = await getScopedHouseholdsForPage(request, env);
   if (scoped.scope === "none") return redirectResponse("/my");
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
   if (!selected) return redirectResponse("/my");
   const nowYear = Number(currentMonthKst().slice(0, 4));
   const nowMonthIdx = Number(currentMonthKst().slice(5, 7)) - 1;
@@ -10917,12 +11049,20 @@ async function handleGoalsPage(request, env, url) {
   const scoped = await getScopedHouseholdsForPage(request, env);
   if (scoped.scope === "none") return redirectResponse("/my");
   const households = scoped.households;
-  const selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "");
+  const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
   if (!selected) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  return htmlResponse(renderGoalsHtml({ env, households, selected, month }));
+  const canWrite = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  let html = renderGoalsHtml({ env, households, selected, month, canWrite });
+  if (!canWrite) {
+    html = html.replace(
+      '<section class="card"><h2>목표 추가</h2>',
+      '<section class="card"><h2>읽기 전용</h2><p class="muted">조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.</p></section><section class="card" hidden><h2>목표 추가</h2>',
+    );
+  }
+  return htmlResponse(html);
 }
-function renderGoalsHtml({ env, households, selected, month }) {
+function renderGoalsHtml({ env, households, selected, month, canWrite = false }) {
   const title = escapeHtml(appName(env));
   const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id) === String(selected.id) ? "selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
   const skel = `<div class="goalCard goalSkel"><div class="skLine skWide"></div><div class="skBar"></div><div class="skLine"></div></div>`.repeat(3);
@@ -10939,13 +11079,31 @@ function accountbookGoalsClientMain() {
   var toast = document.getElementById("goalToast");
   var toastMsg = document.getElementById("goalToastMsg");
   var toastUndo = document.getElementById("goalToastUndo");
-  var state = { goals: [], total_saved: 0, total_target: 0, overall_progress: 0 };
+  var state = { goals: [], total_saved: 0, total_target: 0, overall_progress: 0, can_write: false };
   var pending = null;
   function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
   function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
-  function api(body) {
-    return fetch("/u/api/goals", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(Object.assign({ household: hh() }, body)) })
-      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); });
+  function api(body, options) {
+    return fetch("/u/api/goals", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", keepalive: !!(options && options.keepalive), body: JSON.stringify(Object.assign({ household: hh() }, body)) })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (res.ok) return data;
+          data.status = res.status;
+          return Promise.reject(data);
+        });
+      });
+  }
+  function failureMessage(err) {
+    if (err && err.message) return String(err.message);
+    if (err && err.status === 409) return "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.";
+    return "목표 변경을 저장하지 못했습니다. 기존 목표를 다시 불러왔습니다.";
+  }
+  function showError(err) {
+    if (!toast || !toastMsg) return;
+    toastMsg.textContent = failureMessage(err);
+    if (toastUndo) toastUndo.hidden = true;
+    toast.hidden = false;
+    setTimeout(function () { if (!pending) toast.hidden = true; }, 5000);
   }
   function statusLabel(s) { return s === "done" ? "달성" : s === "behind" ? "부족" : "순조"; }
   function setOverall() {
@@ -10958,6 +11116,8 @@ function accountbookGoalsClientMain() {
     state.total_saved = (p && p.total_saved) || 0;
     state.total_target = (p && p.total_target) || 0;
     state.overall_progress = (p && p.overall_progress) || 0;
+    state.can_write = !!(p && p.can_write);
+    if (addForm) addForm.closest("section").hidden = !state.can_write;
   }
   function render() {
     setOverall();
@@ -10965,7 +11125,7 @@ function accountbookGoalsClientMain() {
     if (!state.goals.length) {
       var e = document.createElement("div");
       e.className = "card goalEmpty";
-      e.textContent = "아직 목표가 없어요. 위에서 첫 목표를 추가해 보세요.";
+      e.textContent = state.can_write ? "아직 목표가 없어요. 위에서 첫 목표를 추가해 보세요." : "아직 등록된 목표가 없어요.";
       root.appendChild(e);
       return;
     }
@@ -10998,7 +11158,8 @@ function accountbookGoalsClientMain() {
       var del = document.createElement("button"); del.type = "button"; del.className = "del"; del.textContent = "삭제";
       del.addEventListener("click", function () { doDelete(g.id); });
       actions.appendChild(fund); actions.appendChild(del);
-      card.appendChild(head); card.appendChild(bar); card.appendChild(meta); card.appendChild(actions);
+      card.appendChild(head); card.appendChild(bar); card.appendChild(meta);
+      if (state.can_write) card.appendChild(actions);
       root.appendChild(card);
     });
   }
@@ -11011,16 +11172,17 @@ function accountbookGoalsClientMain() {
       if (g.target > 0 && g.saved >= g.target) g.status = "done";
     });
   }
-  function commitPending() {
+  function commitPending(options) {
     if (!pending) return;
     clearTimeout(pending.timer);
     var body = pending.commit;
     pending = null;
     hideToast();
-    api(body).then(function (p) { applyPayload(p); render(); }).catch(function () { load(); });
+    api(body, options).then(function (p) { applyPayload(p); render(); }).catch(function (err) { if (!(options && options.keepalive)) { showError(err); load(); } });
   }
   function showToast(msg, undoFn) {
     toastMsg.textContent = msg;
+    if (toastUndo) toastUndo.hidden = false;
     toast.hidden = false;
     pending.undo = undoFn;
     pending.timer = setTimeout(commitPending, 5000);
@@ -11074,7 +11236,8 @@ function accountbookGoalsClientMain() {
       deadline: f.deadline.value,
     };
     if (!String(body.name || "").trim()) { f.name.focus(); return; }
-    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function () {});
+    if (!(Number(body.target) > 0)) { f.target.focus(); return; }
+    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { showError(err); });
   });
   function load() {
     var url = "/u/api/goals";
@@ -11085,7 +11248,7 @@ function accountbookGoalsClientMain() {
       .then(function (p) { applyPayload(p); render(); })
       .catch(function (err) { root.textContent = ""; var e = document.createElement("div"); e.className = "card goalEmpty"; e.textContent = err === 401 ? "로그인이 필요해요." : "목표를 불러오지 못했어요."; root.appendChild(e); });
   }
-  window.addEventListener("beforeunload", commitPending);
+  window.addEventListener("pagehide", function () { commitPending({ keepalive: true }); });
   load();
 }
 function accountbookGoalsJsAsset() {
@@ -11362,6 +11525,7 @@ async function handleSettlementSummaryPageLegacyV2265(request, env, url) {
   const households = access.households;
   if (!households.length) return redirectResponse("/my?err=household_required");
   const selected = access.selected;
+  if (!selected) return redirectResponse("/my?err=no_household");
   const members = await fetchHouseholdMembers(env, selected.id);
   const rows = await fetchAdminRows(env, { month, householdId: selected.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
@@ -11403,7 +11567,7 @@ async function handleSettlementHistorySave(request, env) {
       leaseSeconds: Number(env.SETTLEMENT_LEASE_SECONDS || 60),
     });
     if (!lease.acquired) return redirectResponse(`${returnTo}&err=settlement_busy`);
-    const history = safeArray(parseJsonSetting(await getSettingValue(env, settlementHistoryKey(selected.id)), []));
+    const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
     const duplicate = history.some((item) => {
       const completedAt = Date.parse(String(item.completed_at || ""));
       const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
@@ -11415,7 +11579,7 @@ async function handleSettlementHistorySave(request, env) {
     return redirectResponse(`${returnTo}&msg=settlement_completed`);
   } catch (err) {
     rememberOpsEvent({ kind: "settlement_history_save_failed", severity: "warn", path: "/my/settlement/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=save_failed`);
+    return redirectResponse(`${returnTo}&err=settlement_save_failed`);
   } finally {
     if (lease?.acquired) await releaseOperationLease(env, lease);
   }
@@ -11478,6 +11642,8 @@ async function handleSettlementSummaryPage(request, env, url) {
   const settlementError = url.searchParams.get("err") || "";
   const error = settlementError === "settlement_busy"
     ? `<div class="error">다른 정산 저장이 진행 중입니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 이력을 확인해 주세요.</div>`
+    : settlementError === "settlement_save_failed"
+      ? `<div class="error">정산 완료 이력을 저장하지 못했습니다. 기존 이력은 유지됩니다. 같은 버튼을 반복하지 말고 잠시 후 다시 시도해 주세요.</div>`
     : settlementError
       ? `<div class="error">정산 상태를 저장하지 못했습니다. 확인 체크와 관리 권한을 확인해 주세요.</div>`
       : "";
@@ -11490,15 +11656,13 @@ async function handleMeetingArchiveGuidePage(request, env, url) {
 
 async function handleDuplicateSafetyPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   return htmlResponse(renderDuplicateSafetyHtml(env));
 }
 
 async function handleOpsDashboardPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const snap = buildOpsSnapshot(env);
   const traffic = snap.traffic || {};
@@ -11506,7 +11670,7 @@ async function handleOpsDashboardPage(request, env, url) {
   const events = snap.events || {};
   const errCount = Number((events.bySeverity || {}).error || 0);
   const warnCount = Number((events.bySeverity || {}).warn || 0);
-  const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.user_key || "")}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
+  const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
   const opsRows = (events.recent || []).slice(0, 16).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.severity)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="6">최근 운영 이벤트가 없습니다.</td></tr>`;
   const trafficRows = (traffic.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
@@ -11516,8 +11680,7 @@ async function handleOpsDashboardPage(request, env, url) {
 
 async function handleTrafficOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const traffic = getTrafficOpsSnapshot();
   const skill = getSkillOpsSnapshot();
@@ -11612,9 +11775,7 @@ function summarizePersistentNluMetrics(rows = []) {
 }
 
 async function nluAdminAuthorized(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  return !!(adminOk || keyOk);
+  return !!(await verifyAdminSession(request, env));
 }
 
 async function handleNluOpsJson(request, env, url) {
@@ -11657,8 +11818,7 @@ async function handleNluOpsPage(request, env, url) {
 
 async function handleSkillOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse("/admin-view");
   const title = escapeHtml(appName(env));
   const snap = getSkillOpsSnapshot();
   const rows = snap.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td><span class="kind ${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span></td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>`;
@@ -11812,8 +11972,8 @@ async function handleBeginnerGuidePage(request, env, url) {
       if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
       const households = access.households;
       let checklist = null;
-      if (households.length) {
-        const sel = access.selected || households[0];
+      if (access.selected) {
+        const sel = access.selected;
         const [members, budgets, paymentAssets, reservePlans, rows, groupLinks, firstRecordCount] = await Promise.all([
           fetchHouseholdMembers(env, sel.id),
           fetchBudgets(env, sel.id, month),
@@ -13629,9 +13789,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 }
 
 async function handleRecurringCronApply(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
   const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || currentMonthKst(), today: url.searchParams.get("today") || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -13749,6 +13907,7 @@ async function upsertMyBudgetRow(env, householdId = "", month = currentMonthKst(
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(body),
     });
+    await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
   } catch (err) {
     await saveSettingsBudget(env, householdId, month, category, body.amount);
   }
@@ -13852,6 +14011,18 @@ function freeReportSnapshotKey(householdId = "", kind = "weekly", period = "") {
 function parseJsonSetting(value, fallback = {}) {
   if (value && typeof value === "object") return value;
   try { return value ? JSON.parse(String(value)) : fallback; } catch (err) { return fallback; }
+}
+
+function parseJsonArraySettingStrict(value, errorCode = "settings_json_invalid") {
+  if (value === "" || value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (err) {}
+  }
+  throw new Error(errorCode);
 }
 
 async function saveSettingValue(env, key, value) {
@@ -14003,9 +14174,7 @@ async function runAutomaticReports(env, opts = {}) {
 }
 
 async function handleAutomaticReportCron(request, env, url) {
-  const adminOk = await verifyAdminSession(request, env);
-  const keyOk = env.CRON_SECRET && url.searchParams.get("key") === env.CRON_SECRET;
-  if (!adminOk && !keyOk) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
   const result = await runAutomaticReports(env, { today: url.searchParams.get("today") || "", force: url.searchParams.get("force") === "1" });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
@@ -15363,11 +15532,6 @@ function insightClientMain() {
       var row = el("a", "txRow");
       row.href = dayEditHref(r.date);
       row.title = "이 날 기록 열기·수정";
-      var favMemo = String(r.memo || r.cat || "").trim();
-      var favType = r.income ? "income" : "expense";
-      var favKey = r.date + "|" + favType + "|" + r.amount + "|" + favMemo;
-      row.setAttribute("data-fav-key", favKey);
-      row.setAttribute("data-fav-tx", JSON.stringify({ id: favKey, type: favType, amount: r.amount, memo: favMemo, category: r.cat || "", payment_method: (r.pay && r.pay !== "미지정") ? r.pay : "", transaction_date: r.date, month: String(r.date).slice(0, 7) }));
       var dot = el("span", "dot");
       dot.style.background = r.income ? C.in_ : catColor(r.cat);
       row.appendChild(dot);
@@ -15766,7 +15930,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain"><section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 분석 스튜디오</a></div></section><section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain"><section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 분석 스튜디오</a><a class="btn" href="/app?${qs}">PC 전체 화면 바로가기</a><a class="btn secondary" href="/budgets?${qs}">PC 예산 화면</a><a class="btn secondary" href="/my/settings?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section><section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></div></main></body></html>`;
 }
 
 
@@ -16101,12 +16265,14 @@ function canManageMyRecord(role = "", row = {}, userId = "") {
 async function getMySelectedHousehold(env, userId, householdId = "") {
   const memberships = await fetchUserHouseholds(env, userId);
   const households = memberships.filter((h) => canReadMyHousehold(h.role));
-  if (!memberships.length) return { households, memberships, selected: null, restricted: null };
-  const requested = householdId ? memberships.find((h) => String(h.id) === String(householdId)) || null : null;
-  if (requested && !canReadMyHousehold(requested.role)) return { households, memberships, selected: null, restricted: requested };
-  if (!households.length) return { households, memberships, selected: null, restricted: requested || memberships[0] || null };
+  const requestedId = String(householdId || "").trim();
+  if (!memberships.length) return { households, memberships, selected: null, restricted: null, invalidRequested: requestedId };
+  const requested = requestedId ? memberships.find((h) => String(h.id) === requestedId) || null : null;
+  if (requestedId && !requested) return { households, memberships, selected: null, restricted: null, invalidRequested: requestedId };
+  if (requested && !canReadMyHousehold(requested.role)) return { households, memberships, selected: null, restricted: requested, invalidRequested: "" };
+  if (!households.length) return { households, memberships, selected: null, restricted: requested || memberships[0] || null, invalidRequested: "" };
   const selected = (requested && canReadMyHousehold(requested.role) ? requested : null) || households[0] || null;
-  return { households, memberships, selected, restricted: null };
+  return { households, memberships, selected, restricted: null, invalidRequested: "" };
 }
 
 
@@ -16281,7 +16447,14 @@ async function handleMyUpdateTransaction(request, env) {
   };
   try {
     await updateTransaction(env, id, patch, { householdId: selected.id, actorUserId: userId, actorKind: "user" });
-    await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
+    try {
+      await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
+    } catch (historyError) {
+      // The atomic transaction RPC already committed the edit and its database
+      // audit. A secondary display-history failure must not tell the user that
+      // the transaction itself failed or encourage a duplicate retry.
+      rememberOpsEvent({ kind: "transaction_edit_history_save_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(historyError) });
+    }
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
@@ -16365,8 +16538,10 @@ async function handleMyHouseholdsPage(request, env, url) {
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = await fetchUserHouseholds(env, userId);
-  const requestedId = String(url.searchParams.get("manage") || url.searchParams.get("household_id") || "");
-  const selected = households.find((h) => String(h.id) === requestedId) || households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
+  const requestedId = String(url.searchParams.get("manage") || url.searchParams.get("household_id") || "").trim();
+  const selected = requestedId
+    ? households.find((h) => String(h.id) === requestedId) || null
+    : households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const step = url.searchParams.get("step") || "";
@@ -16442,7 +16617,10 @@ async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = await fetchUserHouseholds(env, userId);
-  const selected = households.find((h) => String(h.id) === String(url.searchParams.get("household_id") || "")) || households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
+  const requestedId = String(url.searchParams.get("household_id") || "").trim();
+  const selected = requestedId
+    ? households.find((h) => String(h.id) === requestedId) || null
+    : households.find((h) => canReadMyHousehold(h.role)) || households[0] || null;
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const rows = households.map((h) => {
@@ -16759,6 +16937,11 @@ async function fetchSettingsBudgets(env, householdId = "", month = currentMonthK
   }
 }
 
+async function fetchSettingsBudgetsStrict(env, householdId = "", month = currentMonthKst()) {
+  const value = await getSettingValueStrict(env, budgetsSettingsKey(householdId, month));
+  return normalizeBudgetRows(value, householdId, month);
+}
+
 function mergeBudgetRows(primary = [], fallback = []) {
   const map = new Map();
   for (const b of safeArray(fallback)) map.set(String(b.category || "__total"), b);
@@ -16798,6 +16981,23 @@ async function deleteSettingsBudget(env, householdId = "", month = currentMonthK
     body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
   });
   return next;
+}
+
+async function cleanupSettingsBudgetAfterTableSave(env, householdId = "", month = currentMonthKst(), category = "") {
+  try {
+    const rows = await fetchSettingsBudgetsStrict(env, householdId, month);
+    if (!rows.some((item) => String(item.category) === String(category))) return true;
+    const next = rows.filter((item) => String(item.category) !== String(category));
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
+    });
+    return true;
+  } catch (err) {
+    rememberOpsEvent({ kind: "budget_fallback_cleanup_failed", severity: "warn", path: "/budgets", method: "POST", detail: `${householdId}:${month}:${category}:${safeError(err)}` });
+    return false;
+  }
 }
 
 async function fetchBudgets(env, householdId, month, options = {}) {
@@ -17867,15 +18067,15 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22833.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22844.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22824.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22833.js";
-const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22827.js";
-const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22831.js";
-const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22833.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22834.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22836.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
+const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
+const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
+const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22838.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -17887,11 +18087,8 @@ let AB_ACCOUNTBOOK_FAVROWS_JS_CACHE = "";
 let AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = "";
 let AB_ACCOUNTBOOK_THEME_JS_CACHE = "";
 
-// V22.8.25 통합 검색(Ctrl/Cmd+K) 전역 오버레이 — V5 신규 기능(격리 추가).
-const ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML = `<div id="abV5Search" class="abV5SearchOverlay" hidden aria-hidden="true"><div class="abV5SearchScrim" data-abv5-search-close></div><div class="abV5SearchPanel" role="dialog" aria-modal="true" aria-label="통합 검색"><div class="abV5SearchBar"><span class="abV5SearchIcon" aria-hidden="true">🔍</span><input id="abV5SearchInput" type="search" autocomplete="off" placeholder="메모·분류·결제수단·금액 검색" aria-label="검색어"/><button type="button" class="abV5SearchClose" data-abv5-search-close aria-label="검색 닫기">Esc</button></div><div id="abV5SearchResults" class="abV5SearchResults" role="listbox" aria-live="polite"></div><div class="abV5SearchHint">전 기간 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>`;
-
-// V22.8.27 알림 센터 전역 오버레이 — V5 신규 기능(격리 추가).
-const ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML = `<div id="abV5Notif" class="abV5NotifOverlay" hidden aria-hidden="true"><div class="abV5NotifScrim" data-abv5-notif-close></div><div class="abV5NotifPanel" role="dialog" aria-modal="true" aria-label="알림 센터"><div class="abV5NotifHead"><b>알림</b><button type="button" class="abV5NotifClose" data-abv5-notif-close aria-label="알림 닫기">Esc</button></div><div id="abV5NotifList" class="abV5NotifList" aria-live="polite"></div></div></div>`;
+const ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML = `<div id="abV5Search" class="abV5SearchOverlay" hidden aria-hidden="true"><div class="abV5SearchScrim" data-abv5-search-close></div><div class="abV5SearchPanel" role="dialog" aria-modal="true" aria-labelledby="abV5SearchTitle" aria-describedby="abV5SearchHint" tabindex="-1"><h2 id="abV5SearchTitle" class="srOnly">통합 검색</h2><div class="abV5SearchBar"><span class="abV5SearchIcon" aria-hidden="true">🔍</span><input id="abV5SearchInput" type="search" autocomplete="off" placeholder="메모·분류·결제수단·금액 검색" aria-label="검색어"/><button type="button" class="abV5SearchClose" data-abv5-search-close aria-label="검색 닫기">Esc</button></div><div id="abV5SearchResults" class="abV5SearchResults" role="list" aria-live="polite"></div><div id="abV5SearchHint" class="abV5SearchHint">전체 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>`;
+const ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML = `<div id="abV5Notif" class="abV5NotifOverlay" hidden aria-hidden="true"><div class="abV5NotifScrim" data-abv5-notif-close></div><div class="abV5NotifPanel" role="dialog" aria-modal="true" aria-labelledby="abV5NotifTitle" tabindex="-1"><div class="abV5NotifHead"><b id="abV5NotifTitle">알림</b><button type="button" class="abV5NotifClose" data-abv5-notif-close aria-label="알림 닫기">Esc</button></div><div id="abV5NotifList" class="abV5NotifList" aria-live="polite"></div></div></div>`;
 
 const ACCOUNTBOOK_SHELL_V22811_CSS = `
 body.abV22811Shell{--ab11-bg:#f2f4f6;--ab11-surface:#fff;--ab11-text:#191f28;--ab11-muted:#6b7684;--ab11-line:#e9ebee;--ab11-accent:#3182f6;--ab11-action:#2563eb;--ab11-accent-soft:#e8f3ff;--ab11-radius:20px;--ab11-shadow:0 4px 16px rgba(15,23,42,.045);--abNavW:238px;background:var(--ab11-bg)!important;color:var(--ab11-text)!important;letter-spacing:-.025em}
@@ -17946,7 +18143,9 @@ const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replaceAll("abV22811Shell", "abV22812Shell")
   .replaceAll("--ab11", "--ab12")
   + `
-body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#6b7684;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff}
+html{background:#f2f4f6;color-scheme:light}
+html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
+body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#5f6b7a;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff}
 html[data-ab-tone="emerald"] body.abV22812Shell{--ab12-brand:#157a54;--ab12-accent:#047857;--ab12-action:#047857;--ab12-accent-soft:#dff7ed}
 html[data-ab-tone="violet"] body.abV22812Shell{--ab12-brand:#7c3aed;--ab12-accent:#6d28d9;--ab12-action:#6d28d9;--ab12-accent-soft:#f0e8ff}
 html[data-ab-tone="amber"] body.abV22812Shell{--ab12-brand:#b45309;--ab12-accent:#92400e;--ab12-action:#92400e;--ab12-accent-soft:#fff3d6}
@@ -18326,12 +18525,27 @@ body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!importa
   body.abV22812Shell .abNavMobileTop a{display:flex;align-items:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;font-weight:800}
   body.abV22812Shell .abNavBottom{position:fixed;display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));left:0;right:0;bottom:0;z-index:2200;border-top:1px solid var(--line)!important}
   body.abV22812Shell .abNavMobileTop{height:calc(52px + var(--abSafeTop))!important;padding:var(--abSafeTop) 16px 0!important}
+  body.abV22812Shell .abNavMobileTop button{min-width:44px!important;min-height:44px!important;padding:0 12px!important}
   body.abV22812Shell .abNavBottom{height:calc(64px + var(--abSafeBottom))!important;padding-bottom:var(--abSafeBottom)!important;backdrop-filter:none!important}
   body.abV22812Shell .abNavBottom a{gap:3px!important;min-height:44px!important}
   body.abV22812Shell .abNavBottom a i{font-size:20px!important}
   body.abV22812Shell main.wrap{padding:14px!important}
 }
 @media(max-width:560px){body.abV22812Shell.abMobileNavOpen .abLayoutNav{max-width:none!important}body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks{grid-template-columns:1fr!important}}
+
+/* V22.8.44 measured theme contrast and assistive display safeguards. */
+@media(prefers-contrast:more){
+  body.abV22812Shell{--ab12-muted:#4b5563;--ab12-line:#cbd5e1}
+  html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-muted:#d5dbe4;--ab12-line:#64748b}
+}
+@media(forced-colors:active){
+  body.abV22812Shell :is(a,button,input,select,textarea,summary){border:1px solid ButtonText!important}
+  body.abV22812Shell :is(a,button,input,select,textarea,summary):focus-visible{outline:3px solid Highlight!important;outline-offset:3px!important}
+  body.abV22812Shell :is(.abNavLinks a.active,.abNavBottom a.active,.seg input:checked+span){outline:2px solid Highlight!important}
+}
+@media(prefers-reduced-motion:reduce){
+  body.abV22812Shell,body.abV22812Shell *,body.abV22812Shell *:before,body.abV22812Shell *:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
 
 /* V22.8.22 UI V5 step 2: shared page header, controls, KPI and content surfaces. */
 body.abV22812Shell .abV5PageHeader{max-width:1280px;margin:14px auto!important;padding:22px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:var(--shadow)!important}
@@ -18393,6 +18607,43 @@ body.abV22812Shell.abV5RemainingPage :is(.btn,button:not(.danger)){border-radius
 
 /* V22.8.24 UI V5 shell correctness: 900px boundary, route state and focus-ready drawer. */
 body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:800!important}
+
+/* V22.8.25 UI V5 global actions: search, quick entry, alerts and appearance without inline HTML growth. */
+body.abV22812Shell .abGlobalActions{position:fixed;z-index:2210;top:12px;right:18px;display:flex;align-items:center;gap:7px}
+body.abV22812Shell .abGlobalAction{display:inline-flex;min-height:42px;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card)!important;color:var(--text)!important;box-shadow:var(--shadow);font:inherit;font-size:13px;font-weight:800;text-decoration:none;cursor:pointer}
+body.abV22812Shell .abGlobalAction:hover{border-color:var(--accent)!important;color:var(--accent)!important}
+body.abV22812Shell .abGlobalActionPrimary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell .abGlobalActionPrimary:hover{color:#fff!important;filter:brightness(.96)}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary,
+html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary span{color:#fff!important}
+body.abV22812Shell .abGlobalAction .abNavIconSvg{width:18px;height:18px;flex:0 0 18px}
+body.abV22812Shell .abGlobalActionsMobile{display:none}
+body.abV22812Shell .abGlobalDialog{width:min(560px,calc(100% - 32px));max-height:min(720px,calc(100dvh - 32px));margin:auto;padding:0;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--text);box-shadow:0 24px 70px rgba(15,23,42,.28);overflow:auto}
+body.abV22812Shell .abGlobalDialog::backdrop{background:rgba(15,23,42,.58);backdrop-filter:blur(3px)}
+body.abV22812Shell.abGlobalDialogOpen{overflow:hidden!important}
+body.abV22812Shell .abGlobalDialogHeader{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 20px 14px;background:var(--card);border-bottom:1px solid var(--line)}
+body.abV22812Shell .abGlobalDialogHeader h2{margin:0;color:var(--text);font-size:21px;line-height:1.3}
+body.abV22812Shell .abGlobalDialogHeader p{margin:5px 0 0;color:var(--sub);font-size:13px;line-height:1.45}
+body.abV22812Shell .abGlobalDialogClose{display:grid;flex:0 0 40px;width:40px;height:40px;place-items:center;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit;font-size:21px;cursor:pointer}
+body.abV22812Shell .abGlobalDialogBody{display:grid;gap:14px;padding:18px 20px 22px}
+body.abV22812Shell .abGlobalDialog [hidden]{display:none!important}
+body.abV22812Shell .abGlobalActionGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+body.abV22812Shell .abGlobalActionChoice{display:flex;min-width:0;min-height:70px;align-items:center;gap:11px;padding:13px;border:1px solid var(--line);border-radius:15px;background:var(--card-2);color:var(--text);text-align:left;text-decoration:none;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalActionChoice:hover{border-color:var(--accent);color:var(--accent)}
+body.abV22812Shell .abGlobalActionChoice .abNavIconSvg{width:21px;height:21px;flex:0 0 21px}
+body.abV22812Shell .abGlobalSearchForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+body.abV22812Shell .abGlobalSearchForm input[type="search"]{min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:13px;background:var(--card-2);color:var(--text);font:inherit}
+body.abV22812Shell .abGlobalSearchForm button{min-height:48px;padding:0 17px;border:1px solid var(--ab12-action);border-radius:13px;background:var(--ab12-action);color:#fff;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalAppearance{display:grid;gap:15px}
+body.abV22812Shell .abGlobalAppearanceRow{display:grid;gap:8px}
+body.abV22812Shell .abGlobalAppearanceRow>b{color:var(--text);font-size:13px}
+body.abV22812Shell .abGlobalAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}
+body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--card-2);color:var(--text);font:inherit;font-weight:750;cursor:pointer}
+body.abV22812Shell .abGlobalAppearanceChoices button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--card));color:var(--accent)}
+body.abV22812Shell .abGlobalAppearanceNote{margin:0;color:var(--sub);font-size:12px;line-height:1.5}
+@media(min-width:900px){body.abV22812Shell .abGlobalActions{left:calc(var(--abNavWidth,238px) + 22px);right:auto;top:auto;bottom:18px}body.abV22812Shell.abNavCollapsed .abGlobalActions{left:90px}}
+@media(max-width:899px){body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:92px;gap:0}body.abV22812Shell .abGlobalActions>.abGlobalAction:not(.abGlobalActionsMobile){display:none}body.abV22812Shell .abGlobalActionsMobile{display:inline-flex;width:auto;min-width:52px;padding:0 9px}body.abV22812Shell .abGlobalActionsMobile span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:420px){body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm button{width:100%}}
 
 /* V22.8.25 V5 통합 검색 오버레이. */
 body.abV22812Shell .abV5SearchOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:center;padding:14vh 16px 16px}
@@ -18724,6 +18975,10 @@ function accountbookStage4NavClientMain() {
       backup: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
       shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
       tools: '<path d="M14.7 6.3a4 4 0 0 0-5-5L7 4l3 3 2.7-2.7a4 4 0 0 0 2 2ZM5 13l6 6-2 2-6-6 2-2ZM14 14l7 7"/>',
+      search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      palette: '<path d="M12 3a9 9 0 0 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a1.5 1.5 0 0 1 0-3h3a6 6 0 0 0 0-12h-3Z"/><path d="M7.5 9h.01M9 6h.01M13 6h.01"/>',
+      more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
       check: '<path d="M20 6 9 17l-5-5"/>',
     };
     return '<svg class="abNavIconSvg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + (paths[name] || paths.home) + "</svg>";
@@ -18782,8 +19037,9 @@ function accountbookStage4NavClientMain() {
   var mobileMenuReturnFocus = null;
   function syncActiveNavigation() {
     var active = activeKey();
+    var sidebarActive = active === "home" ? "app" : active;
     Array.from(document.querySelectorAll(".abLayoutNav a[data-key]")).forEach(function(link) {
-      var on = link.getAttribute("data-key") === active;
+      var on = link.getAttribute("data-key") === sidebarActive;
       link.classList.toggle("active", on);
       if (on) {
         link.setAttribute("aria-current", "page");
@@ -18869,7 +19125,89 @@ function accountbookStage4NavClientMain() {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     });
   }
+  var globalActionReturnFocus = null;
+  function globalActionMarkup() {
+    return '<div class="abGlobalActions" aria-label="공통 작업">' +
+      '<button type="button" class="abGlobalAction abGlobalActionPrimary" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<a class="abGlobalAction abGlobalActionPrimary" data-ab-global-direct="quick" href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
+      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '<button type="button" class="abGlobalAction abGlobalActionsMobile" data-ab-global-open="actions" aria-label="공통 작업 열기">' + iconSvg("more") + '<span>작업</span></button>' +
+      '</div>';
+  }
+  function dialogMarkup() {
+    return '<dialog id="abGlobalActionDialog" class="abGlobalDialog" aria-labelledby="abGlobalDialogTitle">' +
+      '<header class="abGlobalDialogHeader"><div><h2 id="abGlobalDialogTitle">공통 작업</h2><p id="abGlobalDialogDescription">현재 가계부와 기준 월을 유지합니다.</p></div><button type="button" class="abGlobalDialogClose" data-ab-global-close aria-label="닫기">×</button></header>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="actions"><div class="abGlobalActionGrid">' +
+      '<button type="button" class="abGlobalActionChoice" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<a class="abGlobalActionChoice" href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
+      '<button type="button" class="abGlobalActionChoice" data-abv5-notif-open>' + iconSvg("bell") + '<span>알림 센터</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalActionChoice" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '</div></div>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
+      '</dialog>';
+  }
+  function openGlobalAction(panelName, trigger) {
+    var dialog = document.getElementById("abGlobalActionDialog");
+    if (!dialog) return;
+    if (!dialog.open) globalActionReturnFocus = trigger || document.activeElement;
+    Array.from(dialog.querySelectorAll("[data-ab-global-panel]")).forEach(function(panel) { panel.hidden = panel.getAttribute("data-ab-global-panel") !== panelName; });
+    var titles = { actions: ["공통 작업", "현재 가계부와 기준 월을 유지합니다."], appearance: ["화면 설정", "라이트·다크 모드와 포인트 컬러를 선택합니다."] };
+    var copy = titles[panelName] || titles.actions;
+    var title = document.getElementById("abGlobalDialogTitle");
+    var description = document.getElementById("abGlobalDialogDescription");
+    if (title) title.textContent = copy[0];
+    if (description) description.textContent = copy[1];
+    document.body.classList.add("abGlobalDialogOpen");
+    if (typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+    else dialog.setAttribute("open", "");
+    var focusTarget = dialog.querySelector('[data-ab-global-panel="' + panelName + '"] button, [data-ab-global-panel="' + panelName + '"] a');
+    if (focusTarget && focusTarget.focus) focusTarget.focus();
+  }
+  function closeGlobalAction() {
+    var dialog = document.getElementById("abGlobalActionDialog");
+    if (!dialog) return;
+    if (typeof dialog.close === "function" && dialog.open) dialog.close();
+    else dialog.removeAttribute("open");
+    document.body.classList.remove("abGlobalDialogOpen");
+    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
+    globalActionReturnFocus = null;
+  }
+  function restoreGlobalActionFocus() {
+    document.body.classList.remove("abGlobalDialogOpen");
+    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
+    globalActionReturnFocus = null;
+  }
+  function bindGlobalActions() {
+    if (!document.querySelector(".abLayoutNav")) return;
+    if (document.getElementById("abGlobalActionDialog")) return;
+    document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
+    var dialog = document.getElementById("abGlobalActionDialog");
+    document.addEventListener("click", function(event) {
+      var v5Action = event.target && event.target.closest && event.target.closest("[data-abv5-search-open],[data-abv5-notif-open]");
+      if (v5Action && dialog && dialog.open) closeGlobalAction();
+      var open = event.target && event.target.closest && event.target.closest("[data-ab-global-open]");
+      if (open) { openGlobalAction(open.getAttribute("data-ab-global-open") || "actions", open); return; }
+      var close = event.target && event.target.closest && event.target.closest("[data-ab-global-close]");
+      if (close) closeGlobalAction();
+    });
+    if (dialog) {
+      dialog.addEventListener("cancel", function() { document.body.classList.remove("abGlobalDialogOpen"); });
+      dialog.addEventListener("close", restoreGlobalActionFocus);
+      dialog.addEventListener("click", function(event) { if (event.target === dialog) closeGlobalAction(); });
+    }
+    document.addEventListener("keydown", function(event) {
+      var target = event.target;
+      var editing = target && (target.matches && target.matches("input,textarea,select,[contenteditable=true]"));
+      if (event.key === "Escape" && dialog && dialog.open) { event.preventDefault(); closeGlobalAction(); return; }
+      if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !editing) {
+        var searchTrigger = document.querySelector("[data-abv5-search-open]");
+        if (searchTrigger) { event.preventDefault(); searchTrigger.click(); }
+      }
+    });
+  }
   function apply() {
+    bindGlobalActions();
     Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
     hydrateIcons();
     syncActiveNavigation();
@@ -18896,6 +19234,8 @@ function accountbookSearchClientMain() {
   var lastQ = null;
   var favIds = {};
   var favList = [];
+  var returnFocus = null;
+  var panel = overlay.querySelector(".abV5SearchPanel");
   function favKeyOf(r) {
     return (r.transaction_date || "") + "|" + (r.type || "expense") + "|" + (r.amount || 0) + "|" + String(r.memo || r.category || "").trim();
   }
@@ -18914,7 +19254,11 @@ function accountbookSearchClientMain() {
     d.textContent = text;
     resultsBox.appendChild(d);
   }
-  function open() {
+  function focusable(container) {
+    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function (node) { return node.offsetParent !== null; });
+  }
+  function open(trigger) {
+    if (!isOpen()) returnFocus = trigger || document.activeElement;
     overlay.hidden = false;
     overlay.setAttribute("aria-hidden", "false");
     document.body.classList.add("abV5SearchOpen");
@@ -18927,6 +19271,8 @@ function accountbookSearchClientMain() {
     overlay.hidden = true;
     overlay.setAttribute("aria-hidden", "true");
     document.body.classList.remove("abV5SearchOpen");
+    if (returnFocus && returnFocus.focus) returnFocus.focus();
+    returnFocus = null;
   }
   function buildRow(r) {
     var row = document.createElement("div");
@@ -18934,11 +19280,12 @@ function accountbookSearchClientMain() {
     var a = document.createElement("a");
     a.className = "abV5SearchRowLink";
     a.href = "/app?month=" + encodeURIComponent(r.month || "")
+      + (currentHousehold() ? "&household_id=" + encodeURIComponent(currentHousehold()) : "")
       + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
       + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
       + "&abfa=" + encodeURIComponent(String(r.amount || ""))
       + "#feed";
-    a.setAttribute("role", "option");
+    a.setAttribute("role", "listitem");
     var main = document.createElement("div");
     main.className = "abV5SearchRowMain";
     var memo = document.createElement("b");
@@ -19007,7 +19354,7 @@ function accountbookSearchClientMain() {
     fetch("/u/api/favorites", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", body: JSON.stringify(body) })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
       .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })
-      .catch(function () { favIds[r.id] = !on; if (btn) { btn.classList.toggle("isFav", !on); btn.setAttribute("aria-pressed", !on ? "true" : "false"); } });
+      .catch(function () { favIds[fk] = !on; if (btn) { btn.classList.toggle("isFav", !on); btn.setAttribute("aria-pressed", !on ? "true" : "false"); } });
   }
   function run(q) {
     var query = String(q || "").trim();
@@ -19027,7 +19374,7 @@ function accountbookSearchClientMain() {
     input.addEventListener("input", function () {
       clearTimeout(timer);
       var v = input.value;
-      timer = setTimeout(function () { run(v); }, 220);
+      timer = setTimeout(function () { run(v); }, 350);
     });
   }
   overlay.addEventListener("click", function (ev) {
@@ -19038,15 +19385,26 @@ function accountbookSearchClientMain() {
     var k = ev.key;
     if ((ev.metaKey || ev.ctrlKey) && (k === "k" || k === "K")) {
       ev.preventDefault();
-      if (isOpen()) { close(); } else { open(); }
+      if (isOpen()) { close(); } else { open(document.activeElement); }
     } else if (k === "Escape" && isOpen()) {
       ev.preventDefault();
       close();
+    } else if (k === "Tab" && isOpen() && panel) {
+      var nodes = focusable(panel);
+      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }
+      var first = nodes[0], last = nodes[nodes.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
     }
   });
-  var triggers = document.querySelectorAll("[data-abv5-search-open]");
-  Array.prototype.forEach.call(triggers, function (btn) {
-    btn.addEventListener("click", function (ev) { ev.preventDefault(); open(); });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-abv5-search-open]");
+    if (!btn) return;
+    ev.preventDefault();
+    var focusTarget = btn.closest && btn.closest("#abGlobalActionDialog")
+      ? document.querySelector('[data-ab-global-open="actions"]') || btn
+      : btn;
+    open(focusTarget);
   });
   setMessage("메모·분류·결제수단·금액으로 검색해 보세요.");
   function tryFocusFromUrl() {
@@ -19091,10 +19449,11 @@ function accountbookNotifClientMain() {
   var overlay = document.getElementById("abV5Notif");
   var listBox = document.getElementById("abV5NotifList");
   var badges = document.querySelectorAll(".abV5NotifBadge");
-  var openers = document.querySelectorAll("[data-abv5-notif-open]");
-  if (!overlay || !listBox || !openers.length) return;
+  if (!overlay || !listBox) return;
   var data = [];
   var dismissed = {};
+  var returnFocus = null;
+  var panel = overlay.querySelector(".abV5NotifPanel");
   function currentHousehold() {
     try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; }
   }
@@ -19112,6 +19471,9 @@ function accountbookNotifClientMain() {
   }
   function visible() { return data.filter(function (n) { return !dismissed[n.key]; }); }
   function isOpen() { return !overlay.hidden; }
+  function focusable(container) {
+    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function (node) { return node.offsetParent !== null; });
+  }
   function setBadge() {
     var n = visible().length;
     Array.prototype.forEach.call(badges, function (b) {
@@ -19119,8 +19481,25 @@ function accountbookNotifClientMain() {
       else { b.hidden = true; }
     });
   }
-  function open() { overlay.hidden = false; overlay.setAttribute("aria-hidden", "false"); document.body.classList.add("abV5SearchOpen"); renderList(); }
-  function close() { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); document.body.classList.remove("abV5SearchOpen"); }
+  function open(trigger) {
+    if (!isOpen()) returnFocus = trigger || document.activeElement;
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("abV5SearchOpen");
+    renderList();
+    setTimeout(function () {
+      var nodes = panel ? focusable(panel) : [];
+      var target = nodes[0] || panel;
+      if (target && target.focus) target.focus();
+    }, 0);
+  }
+  function close() {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("abV5SearchOpen");
+    if (returnFocus && returnFocus.focus) returnFocus.focus();
+    returnFocus = null;
+  }
   function dismiss(key) { dismissed[key] = true; saveDismissed(); renderList(); setBadge(); renderBanner(); }
   function renderList() {
     listBox.textContent = "";
@@ -19182,8 +19561,14 @@ function accountbookNotifClientMain() {
       .then(function (json) { data = (json && json.notifications) || []; setBadge(); renderBanner(); if (isOpen()) renderList(); })
       .catch(function () { data = []; setBadge(); });
   }
-  Array.prototype.forEach.call(openers, function (btn) {
-    btn.addEventListener("click", function (ev) { ev.preventDefault(); if (isOpen()) close(); else open(); });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-abv5-notif-open]");
+    if (!btn) return;
+    ev.preventDefault();
+    var focusTarget = btn.closest && btn.closest("#abGlobalActionDialog")
+      ? document.querySelector('[data-ab-global-open="actions"]') || btn
+      : btn;
+    if (isOpen()) close(); else open(focusTarget);
   });
   overlay.addEventListener("click", function (ev) {
     var t = ev.target;
@@ -19191,6 +19576,13 @@ function accountbookNotifClientMain() {
   });
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape" && isOpen()) { ev.preventDefault(); close(); }
+    else if (ev.key === "Tab" && isOpen() && panel) {
+      var nodes = focusable(panel);
+      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }
+      var first = nodes[0], last = nodes[nodes.length - 1];
+      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+    }
   });
   loadDismissed();
   load();
@@ -19242,23 +19634,23 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22833-css"'
+        ? '"accountbook-shell-v22844-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22811-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22824-js"'
+          ? '"accountbook-nav-v22836-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22833-js"'
+          ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
-          ? '"accountbook-notif-v22827-js"'
+          ? '"accountbook-notif-v22836-js"'
         : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
-          ? '"accountbook-goals-v22831-js"'
+          ? '"accountbook-goals-v22843-js"'
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
-          ? '"accountbook-favrows-v22833-js"'
+          ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22834-js"'
+          ? '"accountbook-v5-v22838-js"'
           : '"mobile-home-v22810-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -19571,7 +19963,8 @@ async function handleBudgetSave(request, env) {
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ household_id: householdId, month, category, amount }),
     });
-    return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
+    const fallbackCleanupOk = await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
+    return redirectResponse(addQueryToUrl(returnTo, { msg: fallbackCleanupOk ? "budget_saved" : "budget_saved_fallback_cleanup_deferred" }));
   } catch (err) {
     try {
       await saveSettingsBudget(env, householdId, month, category, amount);
@@ -19596,8 +19989,26 @@ async function handleBudgetDelete(request, env) {
   }
   if (!category) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 예산을 찾지 못했습니다." }));
   try {
-    await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }, null);
-    await deleteSettingsBudget(env, householdId, month, category);
+    const tablePath = `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`;
+    let tableRows = [];
+    try {
+      tableRows = safeArray(await supabase(env, `${tablePath}&select=id&limit=1`, { method: "GET" }));
+    } catch (tableReadError) {
+      const detail = safeError(tableReadError);
+      const optionalTableMissing = /(?:\bPGRST205\b|\b42P01\b|relation[^\n]*accountbook_budgets[^\n]*does not exist|could not find[^\n]*accountbook_budgets)/i.test(detail);
+      if (!optionalTableMissing) throw tableReadError;
+    }
+    const settingsRows = await fetchSettingsBudgets(env, householdId, month);
+    const hasTableBudget = tableRows.length > 0;
+    const hasSettingsBudget = settingsRows.some((item) => String(item.category) === category);
+    // 실제로 존재하는 저장소만 삭제한다. 테이블 삭제가 실패하면 settings는 손대지 않고,
+    // settings 정리가 실패하면 fallback 행이 남으므로 오류 안내 뒤에도 예산 데이터가 유지된다.
+    if (hasTableBudget) {
+      await supabase(env, tablePath, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    }
+    if (hasSettingsBudget) {
+      await deleteSettingsBudget(env, householdId, month, category);
+    }
     return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_deleted" }));
   } catch (err) {
     return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제를 완료하지 못했습니다." }));
@@ -19926,7 +20337,7 @@ async function handleBudgetCenterPage(request, env, url) {
     householdId = selected?.id || "";
   } else {
     households = await fetchAdminHouseholds(env);
-    selected = selectScopedHousehold(households, url.searchParams.get("household_id") || "") || households[0] || null;
+    selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
     householdId = selected?.id || "";
   }
   if (!selected) return redirectResponse(userId ? "/my/households?err=no_household" : "/?legacy=1");
@@ -20202,16 +20613,14 @@ async function handleMyLocalSignup(request, env) {
     });
   } catch (err) {
     const detail = safeError(err);
-    const nameInUse = /login_name_in_use|duplicate key|409/i.test(detail);
-    const backendMissing = /schema|accountbook_create_local_user_v227|PGRST202|404/i.test(detail);
-    const secretMissing = /USER_SESSION_SECRET/.test(detail);
-    if (!nameInUse) rememberOpsEvent({ kind: "local_signup_failed", severity: "error", path: "/my/local-signup", method: "POST", detail });
-    const message = nameInUse
+    const message = /login_name_in_use|duplicate key|409/i.test(detail)
       ? "이미 사용 중인 로그인 이름입니다. 다른 이름을 선택하세요."
-      : (backendMissing || secretMissing)
-        ? "지금은 새 계정을 만들 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요."
-        : "계정을 만들지 못했습니다. 입력값을 확인하고 다시 시도하세요.";
-    return htmlResponse(renderUserLoginHtml(env, message), (backendMissing || secretMissing) ? 503 : 409);
+      : /schema|accountbook_create_local_user_v227|PGRST202|404/i.test(detail)
+        ? "V22.7 인증 마이그레이션을 먼저 적용해야 새 계정을 만들 수 있습니다."
+        : /USER_SESSION_SECRET/.test(detail)
+          ? "운영 보안키가 설정되지 않아 계정을 만들 수 없습니다."
+          : "계정을 만들지 못했습니다. 입력값을 확인하고 다시 시도하세요.";
+    return htmlResponse(renderUserLoginHtml(env, message), /schema|PGRST202|USER_SESSION_SECRET/.test(detail) ? 503 : 409);
   }
 }
 
@@ -20268,9 +20677,7 @@ async function handleMyBackupLoginSave(request, env) {
     });
   } catch (err) {
     const detail = safeError(err);
-    const inUse = /login_name_in_use|duplicate key|409/i.test(detail);
-    if (!inUse) rememberOpsEvent({ kind: "backup_login_save_failed", severity: "error", path: "/my/backup-login", method: "POST", detail });
-    const message = inUse ? "이미 사용 중인 로그인 이름입니다." : "지금은 비밀번호를 저장할 수 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.";
+    const message = /login_name_in_use|duplicate key|409/i.test(detail) ? "이미 사용 중인 로그인 이름입니다." : "내 계정 로그인 비밀번호를 저장하지 못했습니다. V22.7 인증 마이그레이션 적용 상태를 확인하세요.";
     return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: message }), 409);
   }
 }
@@ -20280,7 +20687,7 @@ function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, has
   const userName = escapeHtml(user?.nickname || "사용자");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 내 계정·보안</title><style>
 *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
-</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${!err && hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${!err && msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
+</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
 }
 
 function renderKakaoLoginCheckHtml(env, url) {
@@ -21181,6 +21588,11 @@ function formatMessage(msg) {
     settlement_busy: "다른 정산 저장이 진행 중입니다. 잠시 후 한 번만 다시 시도해 주세요.",
     settlement_completed: "정산 완료 이력을 저장했습니다.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
+    payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    budget_saved_fallback_cleanup_deferred: "예산은 저장했습니다. 이전 호환 데이터 정리가 지연되어 잠시 후 다시 확인해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기지출 준비 항목을 저장했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
@@ -23217,6 +23629,19 @@ function buildKakaoSkillTestPayload(utterance = "메뉴") {
   };
 }
 
+function isKakaoQaPayload(payload = {}) {
+  const userKey = getKakaoUserKey(payload);
+  const botId = String(payload?.bot?.id || "").trim();
+  const intentId = String(payload?.intent?.id || "").trim();
+  return ["test-bot-user-key", "raw-test-bot-user-key"].includes(userKey)
+    || botId === "test-bot" || botId === "raw-test-bot"
+    || intentId === "test-intent" || intentId === "raw-test";
+}
+
+async function kakaoQaRequestAllowed(request, env) {
+  return incompleteFeatureQaEnabled(env) && await verifyAdminSession(request, env);
+}
+
 async function normalizeKakaoSkillResponse(response, origin = "") {
   try {
     if (!response || response.status < 200 || response.status >= 300) {
@@ -24250,7 +24675,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
   } catch (err) {
     const rawUtterance = String(bodyText || "").trim();
-    if (rawUtterance) {
+    if (rawUtterance && await kakaoQaRequestAllowed(request, env)) {
       payload = {
         intent: { id: "raw-test", name: "raw-text-test" },
         userRequest: {
@@ -24272,6 +24697,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
+  }
+
+  if (isKakaoQaPayload(payload) && !(await kakaoQaRequestAllowed(request, env))) {
+    rememberSkillEvent({ kind: "qa_payload_blocked", user_key: userKey, utterance, detail: "production skill rejected a QA identity" });
+    return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
   const skillStartedAt = Date.now();
@@ -24755,7 +25185,7 @@ async function handleUserTxSearch(request, env, url) {
   }
   const q = String(url.searchParams.get("q") || "").trim();
   const requestedHousehold = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
-  const household = selectScopedHousehold(scope.households, requestedHousehold);
+  const household = selectRequestedScopedHousehold(scope.households, requestedHousehold);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
@@ -24763,7 +25193,7 @@ async function handleUserTxSearch(request, env, url) {
     return jsonResponse({ ok: true, q: "", household_id: household.id, count: 0, results: [] });
   }
   const members = await fetchHouseholdMembers(env, household.id);
-  const rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 4000 });
+  const rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 100000 });
   const rows = attachSpenderNames(rowsRaw, members);
   const needle = q.toLowerCase();
   const digits = q.replace(/[^0-9]/g, "");
@@ -24796,7 +25226,7 @@ async function handleUserNotifications(request, env, url) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
   const requested = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
-  const household = selectScopedHousehold(scope.households, requested);
+  const household = selectRequestedScopedHousehold(scope.households, requested);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
@@ -24914,7 +25344,7 @@ async function handleUserFavorites(request, env, url) {
   const method = request.method;
   const body = method === "POST" ? await readJson(request) : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
-  const household = selectScopedHousehold(scope.households, requested);
+  const household = selectRequestedScopedHousehold(scope.households, requested);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
@@ -24944,7 +25374,7 @@ function normalizeGoal(x) {
   const name = String(o.name || "").trim().slice(0, 60);
   if (!name) return null;
   return {
-    id: String(o.id || `goal_${Math.random().toString(36).slice(2, 10)}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 64),
+    id: String(o.id || `goal_${crypto.randomUUID()}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 64),
     name,
     emoji: String(o.emoji || "🎯").slice(0, 8),
     target: Math.max(0, Math.round(Number(o.target || 0))),
@@ -25005,21 +25435,43 @@ async function handleUserGoals(request, env, url) {
   const method = request.method;
   const body = method === "POST" ? await readJson(request) : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
-  const household = selectScopedHousehold(scope.households, requested);
+  const household = selectRequestedScopedHousehold(scope.households, requested);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
+  const canWrite = scope.scope === "admin" || canWriteMyHousehold(household.role);
   const key = goalsKey(household.id);
-  let list = normalizeGoalList(await getSettingValue(env, key).catch(() => ""));
-  if (method === "POST") {
+  if (method !== "POST") {
+    try {
+      const list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
+      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite });
+    } catch (err) {
+      rememberOpsEvent({ kind: "goal_settings_read_failed", severity: "warn", path: "/u/api/goals", method: "GET", detail: `${household.id}:${safeError(err)}` });
+      return jsonResponse({ ok: false, error: "read_failed", reason: "goal_read_failed", message: "목표를 불러오지 못했습니다. 기존 목표는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 503);
+    }
+  }
+  if (!canWrite) {
+    return jsonResponse({ ok: false, error: "forbidden", reason: "viewer_read_only", message: "조회 전용 참여자는 목표를 변경할 수 없습니다." }, 403);
+  }
+  const lease = await claimOperationLease(env, {
+    key: `goals-write:${household.id}`,
+    owner: operationLeaseOwner("goals"),
+    leaseSeconds: 30,
+  });
+  if (!lease.acquired) {
+    return jsonResponse({ ok: false, error: "busy", reason: "goal_write_in_progress", message: "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." }, 409);
+  }
+  try {
+    let list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
     const action = String(body.action || "").trim();
     if (action === "create") {
       const g = normalizeGoal({ name: body.name, emoji: body.emoji, target: body.target, saved: body.saved, monthly: body.monthly, deadline: body.deadline });
-      if (!g) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
+      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
       list = [...list, g].slice(0, 50);
     } else if (action === "restore") {
       const g = normalizeGoal(body.goal);
-      if (g) list = [...list.filter((x) => x.id !== g.id), g].slice(0, 50);
+      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
+      list = [...list.filter((x) => x.id !== g.id), g].slice(0, 50);
     } else if (action === "fund" || action === "update" || action === "delete") {
       const id = String(body.id || "").trim();
       const idx = list.findIndex((x) => x.id === id);
@@ -25028,16 +25480,24 @@ async function handleUserGoals(request, env, url) {
         list = list.filter((x) => x.id !== id);
       } else if (action === "fund") {
         const delta = Math.round(Number(body.amount || 0));
+        if (!(delta > 0)) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
         list[idx] = normalizeGoal({ ...list[idx], saved: Math.max(0, list[idx].saved + delta) });
       } else {
-        list[idx] = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: body.target ?? list[idx].target, monthly: body.monthly ?? list[idx].monthly, deadline: body.deadline ?? list[idx].deadline });
+        const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: body.target ?? list[idx].target, monthly: body.monthly ?? list[idx].monthly, deadline: body.deadline ?? list[idx].deadline });
+        if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
+        list[idx] = updated;
       }
     } else {
       return jsonResponse({ ok: false, error: "bad_action", reason: "bad_action", message: "지원하지 않는 요청입니다." }, 400);
     }
     await saveSettingValue(env, key, JSON.stringify(list));
+    return jsonResponse({ ...goalsPayload(household.id, list), can_write: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "goal_settings_write_failed", severity: "warn", path: "/u/api/goals", method: "POST", detail: `${household.id}:${safeError(err)}` });
+    return jsonResponse({ ok: false, error: "save_failed", reason: "goal_save_failed", message: "목표 변경을 저장하지 못했습니다. 기존 목표는 유지됩니다. 잠시 후 다시 시도해 주세요." }, 503);
+  } finally {
+    await releaseOperationLease(env, lease);
   }
-  return jsonResponse(goalsPayload(household.id, list));
 }
 
 
@@ -25428,7 +25888,7 @@ async function countUserTransactionsInHousehold(env, householdId = "", userId = 
 
 async function buildIdentityAudit(env, householdId = "") {
   const households = await fetchAdminHouseholds(env);
-  const selected = households.find((h) => String(h.id) === String(householdId || "")) || households[0] || null;
+  const selected = selectRequestedScopedHousehold(households, householdId);
   const members = selected ? await fetchHouseholdMembers(env, selected.id) : [];
   const rows = [];
   for (const member of members) {
@@ -26615,10 +27075,41 @@ async function createManualTransaction(env, body) {
   const source = String(row.source || body.source || "web_admin");
   const dedupSeconds = duplicateGuardSeconds(env, source);
   if (dedupSeconds > 0 && isDuplicateGuardSource(source) && env.DUPLICATE_GUARD_DISABLED !== "1") {
-    const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
-    if (dup) {
-      rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
-      return { ...dup, __duplicate_skipped: true };
+    const fingerprint = await sha256Hex([
+      source,
+      row.household_id,
+      row.user_id,
+      row.type,
+      row.transaction_date,
+      row.amount,
+      normalizeText(row.category || ""),
+      normalizeText(row.payment_method || ""),
+      normalizeText(row.memo || ""),
+      normalizeText(row.raw_text || ""),
+    ].join("\u001f"));
+    const lease = await claimOperationLease(env, {
+      key: `transaction-create:${fingerprint}`,
+      owner: operationLeaseOwner("transaction-create"),
+      leaseSeconds: dedupSeconds,
+    });
+    if (!lease.acquired) {
+      rememberOpsEvent({ kind: "transaction_create_busy", severity: "warn", path: "/my/transactions", method: "POST", detail: `${source}:${row.household_id}:${row.transaction_date}:${row.amount}` });
+      throw new Error("database transaction_create_busy");
+    }
+    try {
+      const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
+      if (dup) {
+        rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
+        return { ...dup, __duplicate_skipped: true };
+      }
+      const created = await supabase(env, "/rest/v1/transactions", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(row),
+      });
+      return Array.isArray(created) ? created[0] : created;
+    } finally {
+      await releaseOperationLease(env, lease);
     }
   }
   const created = await supabase(env, "/rest/v1/transactions", {
