@@ -66,9 +66,11 @@ immutable 자산이므로 내용이 바뀐 두 파일만 주소를 올렸습니�
 
 ## 남은 항목
 
-- `validation/validate-performance-v22810.mjs`는 하네스에 연결되지 않은 오래된
-  파일이며 V22.8.50 시점에도 홈 HTML 바이트 예산 단언(35,000 vs 35 KiB) 때문에
-  실패합니다. 이번 릴리스에서 자산 주소만 맞췄고 예산 단언은 손대지 않았습니다.
+- `validation/validate-performance-v22810.mjs`를 삭제했습니다. 하네스·package.json·
+  체크섬 매니페스트 어디에도 연결되지 않은 파일이었고, V22.8.11에서 셸 자산
+  구조로 바뀌기 전의 화면(`/app`이 `mobile-home-*.js`를 직접 로드)을 검사해
+  V22.8.50 시점에도 이미 실패하고 있었습니다. 검사 범위는 하네스가 실행하는
+  `validate-performance-v22811.mjs` 153개에 모두 포함됩니다.
 - `accountbook_apply_recurring_v227` RPC가 픽스처에 없어 `/admin/recurring/apply`
   경로는 자동 검증 범위 밖입니다.
 
