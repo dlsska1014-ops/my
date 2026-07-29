@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY"'), "runtime reports the V22.8.44 theme contrast accessibility release");
+ok(source.includes('const APP_VERSION = "V22.8.46-MEMBER-ROLE-SCHEMA-ALIGNMENT"'), "runtime reports the V22.8.46 member role schema alignment release");
 ok(source.includes('qs.set("prompt", "login")'), "Kakao deletion reauthentication forces an explicit login prompt");
 ok(source.includes('purpose: "household-delete"'), "deletion reauthentication token is purpose-bound");
 ok(source.includes('household_id: String(householdId'), "deletion reauthentication token is household-bound");
@@ -183,6 +183,76 @@ try {
   }
 } finally {
   operationsAuthFixture.restore();
+}
+
+const memberRoleFixture = await createV2265QaFixture();
+try {
+  const target = memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi");
+  target.role = "pending";
+  const updateResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+    method: "POST",
+    headers: { cookie: memberRoleFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: formBody({
+      household_id: "house-home",
+      user_id: "user-wifi",
+      role: "admin",
+      return_to: "/my/members?month=2026-07&household_id=house-home",
+    }),
+  }), memberRoleFixture.env, {});
+  eq(updateResponse.status, 303, "pending member can be promoted without a Worker exception");
+  ok(updateResponse.headers.get("location")?.includes("msg=member_updated"), "successful member role update returns an explicit completion message");
+  eq(memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi")?.role, "admin", "pending member is persisted as an administrator");
+
+  memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi").role = "pending";
+  const invalidRoleResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+    method: "POST",
+    headers: { cookie: memberRoleFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: formBody({
+      household_id: "house-home",
+      user_id: "user-wifi",
+      role: "superadmin",
+      return_to: "/my/members?month=2026-07&household_id=house-home",
+    }),
+  }), memberRoleFixture.env, {});
+  eq(invalidRoleResponse.status, 303, "unknown member role is rejected without a Worker exception");
+  ok(invalidRoleResponse.headers.get("location")?.includes("err="), "unknown member role returns an inline error");
+  eq(memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi")?.role, "pending", "unknown member role never silently demotes or promotes the member");
+} finally {
+  memberRoleFixture.restore();
+}
+
+const memberRoleFailureFixture = await createV2265QaFixture();
+try {
+  const target = memberRoleFailureFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi");
+  target.role = "pending";
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const targetUrl = new URL(typeof input === "string" ? input : input.url);
+    if (targetUrl.hostname === "mock.supabase.co" && targetUrl.pathname === "/rest/v1/household_members" && String(init.method || "GET").toUpperCase() === "PATCH") {
+      return new Response(JSON.stringify({ code: "23514", message: "new row violates check constraint" }), { status: 400, headers: { "content-type": "application/json" } });
+    }
+    return fixtureFetch(input, init);
+  };
+  try {
+    const failureResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+      method: "POST",
+      headers: { cookie: memberRoleFailureFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: formBody({
+        household_id: "house-home",
+        user_id: "user-wifi",
+        role: "admin",
+        return_to: "/my/members?month=2026-07&household_id=house-home",
+      }),
+    }), memberRoleFailureFixture.env, {});
+    eq(failureResponse.status, 303, "database role constraint failure is contained without Error 1101");
+    ok(failureResponse.headers.get("location")?.includes("err="), "database role constraint failure returns an inline error");
+    ok(!failureResponse.headers.get("location")?.includes("msg=member_updated"), "failed role update never reports success");
+    eq(memberRoleFailureFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi")?.role, "pending", "failed role update preserves the existing pending state");
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
+} finally {
+  memberRoleFailureFixture.restore();
 }
 
 const leaveFixture = await createV2265QaFixture();

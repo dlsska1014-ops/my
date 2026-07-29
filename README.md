@@ -1,13 +1,19 @@
-# 똑똑한 가계부 V22.8.44 테마 대비·접근성 안정화
+# 똑똑한 가계부 V22.8.46 참여자 역할 스키마 정합성
 
-V22.8.43 정산·목표 저장 정합성과 UI V5를 유지하면서 운영 화면에서 계측된 보조 텍스트 대비, 모바일 메뉴 터치 영역과 보조 디스플레이 접근성을 보강한 누적 배포본입니다.
+V22.8.45의 Error 1101 보호를 유지하면서 운영 DB 역할 규칙에 누락된 `admin`을 안전하게 추가해 참여자 관리자 승격을 완성한 누적 배포본입니다.
 
-운영 적용 상태: 2026-07-28 배포 후 자동 확인 PASS (`/health`, `/ready`, 정적 셸·목표 자원, `/ads.txt`, 비공개 운영 경로 보호). `/ready`는 필수 RPC 17개를 확인했습니다.
+운영 적용 상태: V22.8.45 Worker에서 DB 역할 규칙 오류 확인. V22.8.46은 로컬 전체 검증 완료, 운영 SQL과 Worker 배포 대기입니다.
 
-운영 적용은 검증된 `src/index.js`를 기존 Cloudflare Worker 코드와 전체 교체합니다. 부분 붙여넣기는 하지 않습니다.
+운영 적용은 V22.8.46 SQL 성공을 먼저 확인한 뒤 검증된 `src/index.js`로 Cloudflare Worker 전체를 교체합니다. 부분 붙여넣기는 하지 않습니다.
 
 ## 이번 버전 핵심
 
+- `household_members.role`의 텍스트 CHECK 또는 enum을 자동 판별해 `admin` 허용
+- 알 수 없는 기존 역할·예상하지 못한 제약·5초 잠금 실패 시 transaction 전체 중단
+- 기존 참여자 행·RLS·GRANT·RPC·인덱스는 변경하지 않고 SQL 사후 readiness 결과 제공
+- 승인대기 참여자의 관리자 승격 경로에서 DB 예외를 처리해 Error 1101 대신 화면 내 오류 표시
+- 권한 변경 실패 시 기존 역할을 유지하고, 실제 반영 행이 없으면 성공으로 오판하지 않음
+- 허용되지 않은 역할 값 거부와 권한 변경용 참여자 조회의 fail-closed 처리
 - 라이트 카드·보조 표면에서 4.26:1이던 공통 보조 텍스트를 최소 4.92:1 이상 토큰으로 보정
 - 다크모드 주요 `빠른 입력` 링크가 포인트 컬러에 덮이던 대비 결함을 흰색 전경으로 고정
 - 블루·그린·바이올렛·앰버의 라이트·다크 강조색 조합을 4.5:1 이상으로 자동 계측
@@ -85,8 +91,8 @@ V22.8.43 정산·목표 저장 정합성과 UI V5를 유지하면서 운영 화�
 
 | 항목 | 작업 |
 |---|---|
-| Cloudflare Worker | `src/index.js` 전체 교체 필요 |
-| Supabase SQL·스키마·RLS·RPC | 신규 설계 없음. `/ready`가 RPC 누락을 보고하면 백업 후 기존 V22.6.8 → V22.7.0 → 필요 시 V22.7.1 복구 |
+| Cloudflare Worker | SQL 성공 후 `src/index.js` 전체 교체 필요 |
+| Supabase SQL·스키마·RLS·RPC | `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql` 1회 실행 필요. RLS·GRANT·RPC·인덱스 변경 없음 |
 | Cloudflare 환경변수·Secret | 변경 없음 |
 | Kakao Developers | 변경 없음 |
 | OpenBuilder | 변경 없음 |
@@ -101,6 +107,7 @@ npm run validate:receipt
 npm run validate:kakao-group
 npm run validate:kakao-edit
 npm run validate:household-security
+npm run validate:member-role-schema
 npm run validate:ux-principles
 npm run validate:performance
 npm run validate:adsense-v2
@@ -112,25 +119,28 @@ node .codex/scripts/verify-repository.mjs
 - 영수증 56개
 - 카카오 그룹 22개
 - 카카오 수정·삭제·복구 130개
-- 가계부·계정·운영 보안 65개
+- 가계부·계정·운영 보안 75개
+- 참여자 역할 스키마 20개
 - UX·분석 보호 56개
 - 사용자 화면·홈 버튼·테마·성능 144개
 - AdSense 심사·V2·UI V5 공통 셸 261개
 - V5 권한·범위·저장 안정화 41개
 - 핵심 쓰기·권한 스모크 97개
-- 합계 872개와 ESM `default.fetch`
+- 합계 902개와 ESM `default.fetch`
 
 ## 적용 후 확인
 
-1. `/health`가 HTTP 200, `alive: true`, `V22.8.44-THEME-CONTRAST-ACCESSIBILITY`인지 확인합니다.
-2. `/ready`가 HTTP 200이며 `failed_tables`와 `missing_rpcs`가 비어 있는지 확인합니다.
-3. 공개 홈과 `/privacy`의 소유권 메타가 정확히 한 번인지 확인합니다.
-4. `/ads.txt`의 한 줄, MIME, 줄바꿈을 확인합니다.
-5. 개인 `/app`, `/my/analysis`, `/receipts`와 관리자 화면에 광고 메타·스크립트가 없는지 확인합니다.
-6. `/assets/accountbook-shell-v22844.css`, `/assets/accountbook-nav-v22836.js`, `/assets/accountbook-v5-v22838.js`의 200·MIME·immutable·ETag를 확인합니다.
-7. 390px·768px·900px·1024px·1440px에서 홈·통계·분석·정산과 예산·리포트·참여자·자산·백업·보안의 공통 헤더·메뉴·전역 작업, 다크모드·네 컬러톤과 가로 넘침을 확인합니다.
-8. 기록 저장·수정·삭제, 가계부 전환, 로컬 로그인, 계정 보안, 영수증 OCR, 카카오 1:1·그룹을 확인합니다.
+1. SQL 결과가 `admin_allowed:true`, `invalid_role_count:0`, `readiness_ok:true`인지 확인합니다.
+2. `/health`가 HTTP 200, `alive: true`, `V22.8.46-MEMBER-ROLE-SCHEMA-ALIGNMENT`인지 확인합니다.
+3. `/ready`가 HTTP 200이며 `failed_tables`와 `missing_rpcs`가 비어 있는지 확인합니다.
+4. 공개 홈과 `/privacy`의 소유권 메타가 정확히 한 번인지 확인합니다.
+5. `/ads.txt`의 한 줄, MIME, 줄바꿈을 확인합니다.
+6. 개인 `/app`, `/my/analysis`, `/receipts`와 관리자 화면에 광고 메타·스크립트가 없는지 확인합니다.
+7. `/assets/accountbook-shell-v22844.css`, `/assets/accountbook-nav-v22836.js`, `/assets/accountbook-v5-v22838.js`의 200·MIME·immutable·ETag를 확인합니다.
+8. 390px·768px·900px·1024px·1440px에서 홈·통계·분석·정산과 예산·리포트·참여자·자산·백업·보안의 공통 헤더·메뉴·전역 작업, 다크모드·네 컬러톤과 가로 넘침을 확인합니다.
+9. 승인대기 테스트 참여자를 관리자로 저장해 Error 1101과 DB 역할 오류 없이 상태가 유지되는지 확인합니다.
+10. 기록 저장·수정·삭제, 가계부 전환, 로컬 로그인, 계정 보안, 영수증 OCR, 카카오 1:1·그룹을 확인합니다.
 
 ## 롤백
 
-코드 문제면 배포 직전 백업한 V22.8.43 `src/index.js`로 Worker 코드만 전체 롤백합니다. 기존 DB 객체는 임의 삭제하지 않습니다.
+코드 문제면 배포 직전 백업한 V22.8.45 `src/index.js`로 Worker 코드만 전체 롤백합니다. 적용된 역할 제약은 기존 역할과 `admin`을 함께 허용하므로 임의로 제거하지 않습니다.

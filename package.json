@@ -1,11 +1,12 @@
 {
-  "name": "kakao-accountbook-v22.8.44-theme-contrast-accessibility-validation",
+  "name": "kakao-accountbook-v22.8.46-member-role-schema-alignment-validation",
   "private": true,
   "type": "module",
   "scripts": {
     "validate:receipt": "node validation/validate-receipt.mjs",
     "validate:kakao-group": "node validation/validate-kakao-group.mjs",
     "validate:household-security": "node validation/validate-household-security.mjs",
+    "validate:member-role-schema": "node validation/validate-member-role-schema-v22846.mjs",
     "validate:ux-principles": "node validation/validate-ux-principles.mjs",
     "validate:performance": "node validation/validate-performance-v22811.mjs",
     "validate:adsense-v2": "node validation/validate-adsense-v2-v22817.mjs",
@@ -13,6 +14,6 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22844.sh"
+    "validate:unix": "bash validate_v22846.sh"
   }
 }
