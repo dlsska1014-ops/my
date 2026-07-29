@@ -1,0 +1,28 @@
+V22.8.50-UIUX-STAGE4-QUICK-DOCK-SAVE-FEEDBACK
+
+핵심 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_50_STAGE4.md
+- VALIDATION_REPORT_V22_8_50_STAGE4.md
+- 14_VERIFY_AFTER_DEPLOY_V22_8_50_STAGE4.ps1
+- validate_v22850.sh
+- validation/validate-uiux-stage1-v22847.mjs
+- validation/validate-uiux-stage2-v22848.mjs
+- validation/validate-uiux-stage3-v22849.mjs
+- validation/validate-uiux-stage4-v22850.mjs
+- docs/uiux/V22_8_50_STAGE4_SAVE_RETURN_FLOW.md
+- docs/uiux/V22_8_50_STAGE4_DESKTOP_DOCK_FEEDBACK.png
+- docs/uiux/V22_8_50_STAGE4_MOBILE_ERROR_RETURN.png
+- BUNDLE_FILE_CHECKSUMS_V22_8_50.sha256
+
+배포 순서
+1. 현재 Worker 소스 백업
+2. src/index.js 전체 교체
+3. Cloudflare Worker 배포
+4. 14_VERIFY_AFTER_DEPLOY_V22_8_50_STAGE4.ps1 실행
+5. PC 독·성공 복귀·오류 복귀·모바일 표시 확인
+
+운영 상태
+- V22.8.46 참여자 역할 SQL 적용 완료
+- 이번 단계 추가 SQL 없음
+- 환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음

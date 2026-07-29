@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.46-member-role-schema-alignment-validation",
+  "name": "kakao-accountbook-v22.8.50-uiux-stage4-quick-dock-save-feedback-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,10 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22846.sh"
+    "validate:unix": "bash validate_v22850.sh",
+    "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
+    "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
+    "validate:uiux-stage3": "node validation/validate-uiux-stage3-v22849.mjs",
+    "validate:uiux-stage4": "node validation/validate-uiux-stage4-v22850.mjs"
   }
 }
