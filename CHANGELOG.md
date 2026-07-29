@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## V22.8.53 · 예산 사용률 표기 수정 · 2026-07-29
+
+- 홈의 `예산 사용률` 표기가 100%에서 잘려 초과 지출을 숨기던 문제 수정
+- 막대 너비(`budgetBarPercent`)와 표기 숫자(`displayBudgetPercent`)를 분리
+- 예산 200,000원에 지출 414,680원일 때 홈이 100%가 아닌 207%를 표시
+- `/budgets` 화면과 값이 일치하도록 정렬
+- 회귀 검사 2개 추가, 총 1,143개 자동검사와 체크섬 61개 통과
+- 3라운드 심층 점검 결과 `DEEP_AUDIT_REPORT_V22_8_52.md` 추가
+- 신규 SQL·Supabase 스키마·환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.52 · 스킬 IP 가드·CSV 안전·이름 검증 · 2026-07-29
 
 - 카카오 `/skill`에 IP 단위 상한 추가 (`SKILL_IP_GUARD_LIMIT`, 기본 3000/분)

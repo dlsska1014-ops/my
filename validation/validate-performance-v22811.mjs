@@ -455,6 +455,27 @@ try {
     ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
+  // V22.8.53: 초과 지출 시 홈의 예산 사용률 표기가 100%에서 잘리지 않아야 한다.
+  // 막대 너비만 100%에서 멈추고 숫자는 실제 사용률을 보여준다.
+  const overspendFixture = await createV2265QaFixture();
+  try {
+    const overspendPost = (path, values) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+      method: "POST",
+      headers: { cookie: overspendFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(values).toString(),
+    }), overspendFixture.env, {});
+    await overspendPost("/admin/transactions", { household_id: "house-home", month: "2026-08", type: "expense", amount: "400000", category: "식비", memo: "초과지출", transaction_date: "2026-08-05", user_id: "user-bin" });
+    await overspendPost("/admin/budget/save", { household_id: "house-home", month: "2026-08", category: "식비", amount: "200000" });
+    const overspendHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
+    const overspendHtml = await overspendHome.text();
+    const shownRate = overspendHtml.match(/예산 사용률 (\d+)%/);
+    const barWidth = overspendHtml.match(/homeProgress"><i style="width:(\d+)%"/);
+    eq(shownRate?.[1], "200", "home shows the real budget usage rate when spending exceeds the budget");
+    eq(barWidth?.[1], "100", "home progress bar still stops at 100% width");
+  } finally {
+    overspendFixture.restore();
+  }
+
   console.log(`smoke_home_feed_button_contrast: ${passed} checks passed`);
 } finally {
   globalThis.fetch = fixtureFetch;
