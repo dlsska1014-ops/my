@@ -176,7 +176,7 @@ try {
   ok(homeBytes < 35 * 1024, `personal home HTML stays below 35 KiB (${homeBytes} bytes)`);
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22810.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22850.css"'), 1, "home loads the V22.8.47 stage 1 shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22811.js") && externalScripts.includes("/assets/accountbook-nav-v22850.js") && externalScripts.includes("/assets/accountbook-v5-v22850.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22851.js") && externalScripts.includes("/assets/accountbook-nav-v22850.js") && externalScripts.includes("/assets/accountbook-v5-v22850.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -229,21 +229,21 @@ try {
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22810.js");
+  const legacyJs = await request("/assets/mobile-home-v22851.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22810.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22851.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
-  eq(createHash("sha256").update(legacyBytes).digest("hex"), "caa780bdad0d317ae6446ddae87adfa4abd1bca682aa007dae55a06e658a509b", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22810-js"', "legacy home runtime ETag remains pinned");
+  eq(createHash("sha256").update(legacyBytes).digest("hex"), "a4311560ddc2383a4bde13f4c17cbb352e7c99dd03e9e570bacb8ffd74e6b78e", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22851-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22811.js");
+  const shellJs = await request("/assets/mobile-home-shell-v22851.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22811.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v22851.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");
@@ -254,6 +254,34 @@ try {
   ok(shellRuntime.includes("parseKoreanAmount") && navStart >= 0 && exerciseHomeNavState(shellRuntime.slice(navStart)), "new runtime preserves legacy behavior and synchronizes one current navigation item");
   eq(shellJsGetDatabaseCalls, 0, "V22.8.11 runtime GET requires no database access");
   eq(shellJsHeadDatabaseCalls, 0, "V22.8.11 runtime HEAD requires no database access");
+
+  // 이 런타임은 템플릿 리터럴 안에 문자열로 작성되므로 `\d`, `\s`, `\B`의
+  // 백슬래시가 조용히 소실될 수 있다. 문법 오류가 나지 않아 문자열 포함
+  // 검사로는 잡히지 않으므로 배포되는 자산에서 함수를 꺼내 실제로 실행한다.
+  const shippedFunction = (name) => {
+    const head = shellRuntime.indexOf(`function ${name}(`);
+    if (head < 0) return null;
+    let depth = 0;
+    let started = false;
+    for (let index = head; index < shellRuntime.length; index += 1) {
+      if (shellRuntime[index] === "{") { depth += 1; started = true; }
+      else if (shellRuntime[index] === "}") {
+        depth -= 1;
+        if (started && depth === 0) return new Function(`${shellRuntime.slice(head, index + 1)}; return ${name};`)();
+      }
+    }
+    return null;
+  };
+  const shippedParseKoreanAmount = shippedFunction("parseKoreanAmount");
+  const shippedAbNorm = shippedFunction("abNorm");
+  ok(typeof shippedParseKoreanAmount === "function" && typeof shippedAbNorm === "function", "shipped runtime exposes the quick-input parsers");
+  for (const [utterance, expected] of [["커피 5천", 5000], ["월급 250만원", 2500000], ["3만 5천", 35000], ["점심 12000", 12000], ["택시 1만2천", 12000]]) {
+    eq(shippedParseKoreanAmount(utterance), expected, `shipped quick-input parser reads "${utterance}" (regex escapes survived template serialization)`);
+  }
+  eq(shippedAbNorm("starbucks coffee 5000"), "starbucks coffee 5000", "shipped text normalizer keeps latin letters instead of eating an unescaped \\s");
+  const shippedThousands = shellRuntime.match(/replace\(\/(\\B\(\?=\(\\d\{3\}\)\+\(\?!\\d\)\))\/g,','\)/);
+  ok(!!shippedThousands, "shipped runtime keeps a working thousands-separator regex");
+  eq(String(1234567).replace(new RegExp(shippedThousands[1], "g"), ","), "1,234,567", "shipped thousands-separator regex formats an amount");
 
   const stage4NavJs = await request("/assets/accountbook-nav-v22850.js");
   const stage4NavRuntime = await stage4NavJs.text();
