@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.51-INPUT-AMOUNT-RUNTIME-REGEX-FIX"'), "runtime reports the V22.8.46 member role schema alignment release");
+ok(source.includes('const APP_VERSION = "V22.8.52-SKILL-IP-GUARD-CSV-SAFE-NAME-FIX"'), "runtime reports the V22.8.46 member role schema alignment release");
 ok(source.includes('qs.set("prompt", "login")'), "Kakao deletion reauthentication forces an explicit login prompt");
 ok(source.includes('purpose: "household-delete"'), "deletion reauthentication token is purpose-bound");
 ok(source.includes('household_id: String(householdId'), "deletion reauthentication token is household-bound");
@@ -369,6 +369,78 @@ try {
   ok(deleteResponse.headers.getSetCookie().some((value) => value.startsWith("ab_household_delete_reauth=;")), "deletion consumes the reauthentication cookie");
 } finally {
   reauthFixture.restore();
+}
+
+
+// V22.8.52: 카카오 스킬 IP 하한 가드, CSV 수식 인젝션, 웹 가계부 이름 검증
+const auditFixture = await createV2265QaFixture();
+try {
+  const skillCall = async (utterance, botUserKey, ip, env) => {
+    const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": ip },
+      body: JSON.stringify({
+        intent: { id: "i", name: "b" },
+        userRequest: { timezone: "Asia/Seoul", block: { id: "b", name: "b" }, utterance, lang: "ko", user: { id: botUserKey, type: "botUserKey", properties: { botUserKey } } },
+        bot: { id: "bot", name: "x" },
+        action: { id: "a", name: "s", params: {}, detailParams: {}, clientExtra: {} },
+        contexts: [],
+      }),
+    }), env, {});
+    const payload = await response.json().catch(() => null);
+    return String(payload?.template?.outputs?.[0]?.simpleText?.text || "");
+  };
+  const rateLimited = (text) => /잠시만요|잠시 후/.test(text);
+
+  // botUserKey는 호출자가 정하므로 사용자별 제한만으로는 회전 공격을 막지 못한다.
+  const guardedEnv = { ...auditFixture.env, SKILL_IP_GUARD_LIMIT: "60" };
+  let rotationBlocked = 0;
+  for (let index = 0; index < 80; index += 1) {
+    if (rateLimited(await skillCall("도움말", `rotate-${index}`, "203.0.113.30", guardedEnv))) rotationBlocked += 1;
+  }
+  ok(rotationBlocked > 0, "skill IP guard limits botUserKey rotation from one address");
+  ok(!rateLimited(await skillCall("도움말", "fresh-key", "198.51.100.30", guardedEnv)), "skill IP guard does not penalize a different address");
+  let defaultBlocked = 0;
+  for (let index = 0; index < 120; index += 1) {
+    if (rateLimited(await skillCall("도움말", `default-${index}`, "203.0.113.31", auditFixture.env))) defaultBlocked += 1;
+  }
+  eq(defaultBlocked, 0, "default skill IP ceiling stays far above normal group-chatbot traffic");
+
+  // CSV는 = + - @ 로 시작하는 셀을 스프레드시트가 수식으로 실행한다.
+  const formulaMemos = ["=cmd|'/c calc'!A1", "@SUM(1+1)", "+1+1"];
+  for (const [index, memo] of formulaMemos.entries()) {
+    await app.fetch(new Request("https://ttokttok-accountbook.com/admin/transactions", {
+      method: "POST",
+      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ household_id: "house-home", month: "2026-07", type: "expense", amount: "1000", memo, transaction_date: `2026-07-2${index}` }).toString(),
+    }), auditFixture.env, {});
+  }
+  const csvResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/backup.csv?household_id=house-home&month=2026-07", { headers: { cookie: auditFixture.cookie } }), auditFixture.env, {});
+  const csvBody = await csvResponse.text();
+  const csvCells = csvBody.split(/\r?\n/).flatMap((line) => line.split(","));
+  ok(csvCells.every((cell) => !/^"?[=+@\t\r]/.test(cell)), "CSV export neutralizes formula-leading cells");
+  ok(csvBody.includes("'@SUM(1+1)"), "CSV export keeps the original text visible after the guard prefix");
+  ok(/,1000,/.test(csvBody), "CSV export leaves numeric amounts untouched");
+
+  // 카카오 대화용 종류 선택지 키워드가 웹 폼 이름 검증을 막지 않아야 한다.
+  for (const householdName of ["가족 생활비", "생활비", "모임", "여행"]) {
+    const created = await app.fetch(new Request("https://ttokttok-accountbook.com/my/create", {
+      method: "POST",
+      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ household_name: householdName, display_name: "Bin" }).toString(),
+    }), auditFixture.env, {});
+    ok(!decodeURIComponent(created.headers.get("location") || "").includes("household_name_invalid"), `web household creation accepts "${householdName}"`);
+  }
+  for (const householdName of ["도움말", "1"]) {
+    const created = await app.fetch(new Request("https://ttokttok-accountbook.com/my/create", {
+      method: "POST",
+      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ household_name: householdName, display_name: "Bin" }).toString(),
+    }), auditFixture.env, {});
+    ok(decodeURIComponent(created.headers.get("location") || "").includes("household_name_invalid"), `web household creation still rejects "${householdName}"`);
+  }
+} finally {
+  auditFixture.restore();
 }
 
 console.log(`smoke_household_security_separation: ${checks} checks passed`);

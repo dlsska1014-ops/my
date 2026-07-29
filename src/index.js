@@ -493,10 +493,18 @@ function trafficClientKey(request) {
   }
 }
 
+// /skill은 호출자를 인증하지 않고 요청 본문의 botUserKey를 신원으로 사용한다.
+// 사용자별 스킬 제한(checkSkillRateLimit)만으로는 그 키를 호출자가 직접 정하므로
+// 값을 바꿔가며 보내면 제한이 그대로 우회된다. 그룹 챗봇의 정상 유입을 막지 않도록
+// 일반 쓰기 경로보다 훨씬 높은 IP 단위 상한만 별도로 둔다.
+function skillIpGuardLimit(env = {}) {
+  return boundedRuntimeNumber(env.SKILL_IP_GUARD_LIMIT, 3000, 60, 100000);
+}
+
 function isTrafficGuardedPath(path = "", method = "GET") {
   const m = String(method || "GET").toUpperCase();
   const p = String(path || "");
-  if (p === "/skill") return false; // 그룹 챗봇 대량 유입은 IP 단위 가드 대신 botUserKey 단위 스킬 가드로 처리
+  if (p === "/skill") return m === "POST";
   if (!["POST", "PATCH", "DELETE"].includes(m)) return false;
   return p === "/login" || p === "/my/local-login" || p === "/my/local-signup"
     || p.startsWith("/my/") || p.startsWith("/api/") || p.startsWith("/admin/") || p.startsWith("/backup/") || p.startsWith("/cron/");
@@ -508,9 +516,12 @@ function checkTrafficGuard(request, env, url) {
   const now = Date.now();
   const windowMs = boundedRuntimeNumber(env.TRAFFIC_GUARD_WINDOW_MS, 60000, 10000, 600000);
   const authPath = ["/login", "/my/local-login", "/my/local-signup"].includes(String(url?.pathname || ""));
+  const skillPath = String(url?.pathname || "") === "/skill";
   const limit = authPath
     ? boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30)
-    : boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
+    : skillPath
+      ? skillIpGuardLimit(env)
+      : boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
   const key = `${trafficClientKey(request)}|${String(url?.pathname || "").slice(0, 60)}`;
   pruneRateBucketMap(AB_TRAFFIC_BUCKETS, now, windowMs);
   let bucket = AB_TRAFFIC_BUCKETS.get(key);
@@ -1648,7 +1659,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1850,7 +1861,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.51-INPUT-AMOUNT-RUNTIME-REGEX-FIX";
+const APP_VERSION = "V22.8.52-SKILL-IP-GUARD-CSV-SAFE-NAME-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -6668,7 +6679,7 @@ async function handleImportTemplateCsv(request, env) {
     ["2026-06-18","지출","4500","카페/간식","커피","카카오페이",""],
     ["2026-06-25","수입","3000000","급여","월급","계좌이체",""],
   ];
-  const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const csv = [header, ...rows].map(r => r.map(csvCell).join(",")).join("\n");
   return new Response("\ufeff" + csv, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
@@ -7174,7 +7185,7 @@ async function handleAdminCsv(request, env, url) {
   const header = ["date", "type", "amount", "category", "memo", "payment_method", "source", "raw_text"];
   const lines = [header.join(",")];
   for (const t of rows) {
-    const row = [t.transaction_date, t.type, t.amount, t.category, t.memo, t.payment_method, t.source, t.raw_text].map((v) => `"${String(v || "").replace(/"/g, '""')}"`);
+    const row = [t.transaction_date, t.type, t.amount, t.category, t.memo, t.payment_method, t.source, t.raw_text].map(csvCell);
     lines.push(row.join(","));
   }
   return new Response("\ufeff" + lines.join("\n"), {
@@ -8793,7 +8804,7 @@ async function handleImportHistoryPage(request, env, url) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return `"${csvSafeText(value).replace(/"/g, '""')}"`;
 }
 
 async function handleImportHistoryCsv(request, env, url) {
@@ -13589,8 +13600,19 @@ async function withHouseholdCreateLock(userId = "", name = "", task) {
 
 
 
-function readableCsvCell(value = "") {
+// Excel·Google Sheets는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 셀을 수식으로
+// 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
+// 참여자의 PC에서 실행되지 않도록 내보내기 시점에 무력화한다. 따옴표로 감싸는
+// 것은 CSV 구분자 이스케이프일 뿐 수식 실행을 막지 못한다.
+function csvSafeText(value) {
   const text = String(value ?? "");
+  if (!text) return text;
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return text;
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
+function readableCsvCell(value = "") {
+  const text = csvSafeText(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
@@ -17105,7 +17127,7 @@ async function handleMyCreate(request, env) {
   let user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const form = await request.formData();
-  const name = sanitizeHouseholdNameInput(String(form.get("household_name") || "").trim());
+  const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
   const displayName = String(form.get("display_name") || user.nickname || "").trim().slice(0, 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid#create`);
@@ -17140,7 +17162,7 @@ async function handleMyCreateLegacyV2264(request, env) {
   const user = await fetchUserById(env, userId);
   const form = await request.formData();
   const rawName = String(form.get("household_name") || "").trim();
-  const name = sanitizeHouseholdNameInput(rawName);
+  const name = sanitizeWebHouseholdNameInput(rawName);
   if (!name) return redirectResponse(returnLocation(form, "/my/households", { err: "household_name_invalid" }));
   try {
     const result = await withHouseholdCreateLock(userId, name, async () => {
@@ -17164,7 +17186,7 @@ async function handleMyHouseholdUpdate(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const name = sanitizeHouseholdNameInput(String(form.get("household_name") || "").trim());
+  const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
   const role = await getHouseholdMemberRole(env, userId, householdId);
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
   if (!householdId || !name) return redirectResponse(addQueryToUrl(back, { err: "household_name_invalid" }));
@@ -24468,16 +24490,25 @@ function shouldInterruptKakaoFlowV2254(state = null, text = "") {
   return !!state?.flow && isExplicitKakaoTopLevelCommandV2254(text) && !isKakaoFlowLocalReplyV2254(state, text);
 }
 
-function isUnsafeKakaoNameInputV2254(text = "") {
+// 이름 자체의 안전성만 본다. 링크·이메일·전화번호·초대코드 형태·금액만 있는
+// 이름을 거른다. 대화 흐름의 모호함(종류 선택지·예약 응답)은 포함하지 않으므로
+// 웹 폼과 카카오 양쪽에서 함께 쓸 수 있다.
+function isUnsafeHouseholdNameContent(text = "") {
   const t = normalizeText(text).trim();
   if (!t) return true;
-  if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t)) return true;
   if (/https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/i.test(t)) return true;
   if (/^(?:\+?82[- ]?)?0?1[016789][- ]?\d{3,4}[- ]?\d{4}$/.test(t)) return true;
   if (/^[A-Z0-9]{5,12}$/i.test(t) || /^\d{1,3}(?:,\d{3})*(?:원|만원|만|천원|천)?$/.test(t)) return true;
   if (!/[\p{L}\p{N}]/u.test(t) || /^\d{1,2}\s*번?$/.test(t)) return true;
   if (parseAmountValue(t) > 0 && !/[가-힣A-Za-z]{2,}/.test(t.replace(/[억만천백십원\d,.\s]/g, ""))) return true;
   return false;
+}
+
+function isUnsafeKakaoNameInputV2254(text = "") {
+  const t = normalizeText(text).trim();
+  if (!t) return true;
+  if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t)) return true;
+  return isUnsafeHouseholdNameContent(t);
 }
 
 function kakaoFlowStateKey(userId = "", payload = {}) {
@@ -24798,6 +24829,18 @@ function sanitizeHouseholdNameInput(text = "") {
   const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
   if (t.length < 2 || t.length > 40) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t) || isUnsafeKakaoNameInputV2254(t)) return "";
+  if (/^\d{1,2}\s*번?$/.test(t)) return "";
+  return t.slice(0, 40);
+}
+
+// 웹 폼 전용. `parseKakaoCreateKind`와 생성 흐름 예약어는 카카오 대화에서
+// "가족"이 이름인지 종류 선택지인지 구분하기 위한 장치인데, 폼에는 그 모호함이
+// 없다. 이 둘을 그대로 적용하면 `가족 생활비`, `생활비`, `모임`, `여행` 같은
+// 가장 자연스러운 이름이 거부된다. 봇 명령어 충돌과 안전성 검사는 유지한다.
+function sanitizeWebHouseholdNameInput(text = "") {
+  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40) return "";
+  if (isExplicitKakaoTopLevelCommandV2254(t) || isUnsafeHouseholdNameContent(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
 }
@@ -28143,6 +28186,7 @@ async function handleGroupChatbotTrafficScalePage(request, env, url) {
   const rows = [
     ["/skill IP 가드", "비활성", "카카오 서버 IP/UA에 사용자가 몰리는 문제를 피하고 botUserKey 단위로 제한"],
     ["사용자별 스킬 제한", `${skillLimit}/분`, "SKILL_RATE_LIMIT 환경변수로 조정"],
+    ["스킬 IP 상한", `${skillIpGuardLimit(env)}/분`, "SKILL_IP_GUARD_LIMIT 환경변수로 조정. botUserKey 회전 남용 차단용 상한"],
     ["웹/관리 쓰기 제한", `${trafficLimit}/분`, "TRAFFIC_GUARD_LIMIT 환경변수로 조정"],
     ["중복 저장 방어", `${boundedRuntimeNumber(env.DUPLICATE_GUARD_SECONDS, 90, 10, 3600)}초`, "동일 거래/재전송 방어"],
     ["카카오 재전송 방어", `${boundedRuntimeNumber(env.KAKAO_RETRY_DEDUP_SECONDS, 120, 10, 3600)}초`, "같은 요청 재전송 중복 방지"],
@@ -28153,6 +28197,7 @@ async function handleGroupChatbotTrafficScalePage(request, env, url) {
   const envCopy = [
     "# 대량 유입 권장값",
     "SKILL_RATE_LIMIT=60",
+    "SKILL_IP_GUARD_LIMIT=3000",
     "SKILL_RATE_WINDOW_MS=60000",
     "TRAFFIC_GUARD_LIMIT=240",
     "TRAFFIC_GUARD_WINDOW_MS=60000",
