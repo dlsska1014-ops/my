@@ -1,0 +1,30 @@
+V22.8.45-MEMBER-ROLE-SAFE-UPDATE
+
+APPLY
+- src/index.js                  Cloudflare Worker 전체 교체
+
+READ FIRST
+- 00_READ_FIRST_V22_8_45_MEMBER_ROLE_SAFE_UPDATE.md
+- 12_VERIFY_AFTER_DEPLOY_V22_8_45.ps1
+- 13_MEMBER_ROLE_SMOKE_GUIDE_V22_8_45.md
+- VALIDATION_REPORT_V22_8_45.md
+
+VALIDATION
+- validation/validate-core-write-smoke.mjs
+- validation/validate-household-security.mjs
+- validation/validate-receipt.mjs
+- validation/validate-kakao-group.mjs
+- validation/validate-kakao-edit-flow.mjs
+- validation/validate-ux-principles.mjs
+- validation/validate-performance-v22811.mjs
+- validation/validate-adsense-v2-v22817.mjs
+- validation/validate-v5-stabilization.mjs
+- validation/qa-fixture.mjs
+- .codex/scripts/verify-repository.mjs
+- validate_v22845.sh
+
+NO CHANGE REQUIRED
+- Supabase SQL/schema/RLS/RPC
+- Cloudflare environment variables and Secrets
+- Kakao Developers
+- OpenBuilder

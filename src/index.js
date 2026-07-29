@@ -1846,7 +1846,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY";
+const APP_VERSION = "V22.8.46-MEMBER-ROLE-SCHEMA-ALIGNMENT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5128,23 +5128,44 @@ async function handleAdminMemberUpdate(request, env) {
     if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 권한 변경 권한이 없습니다." }));
   }
   const userId = String(form.get("user_id") || "").trim();
-  const role = normalizeHouseholdRole(form.get("role"));
+  const role = String(form.get("role") || "").trim().toLowerCase();
   if (!householdId || !userId) return redirectResponse(returnLocation(form, "/households", { err: "member_missing" }));
-  const rows = await fetchRawHouseholdMembers(env, householdId);
-  const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
-  const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
-  if (role === "owner" && ownerIds.some((id) => id !== userId)) {
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "이미 소유자가 있습니다. 계정 중복이면 관리자 계정 통합을 먼저 실행하세요." }));
+  const allowedRoles = new Set(["owner", "admin", "member", "viewer", "pending", "blocked"]);
+  if (!allowedRoles.has(role)) {
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "선택한 참여자 권한이 올바르지 않습니다." }));
   }
-  if (targetRole === "owner" && role !== "owner" && ownerIds.length <= 1) {
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 다른 역할로 변경할 수 없습니다." }));
+  try {
+    // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
+    const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
+    if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
+    const targetRows = rows.filter((m) => String(m.user_id || "") === userId);
+    if (!targetRows.length) {
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
+    }
+    const targetRole = bestRoleFromRows(targetRows);
+    const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
+    if (role === "owner" && ownerIds.some((id) => id !== userId)) {
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "이미 소유자가 있습니다. 계정 중복이면 관리자 계정 통합을 먼저 실행하세요." }));
+    }
+    if (targetRole === "owner" && role !== "owner" && ownerIds.length <= 1) {
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 다른 역할로 변경할 수 없습니다." }));
+    }
+    const updated = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=user_id,role`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ role }),
+    });
+    const applied = Array.isArray(updated) && updated.some((row) => String(row.user_id || "") === userId && String(row.role || "") === role);
+    if (!applied) throw new Error("member_role_update_not_applied");
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_updated" }));
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_role_update_failed", severity: "error", path: "/admin/member/update", method: "POST", detail: safeError(err) });
+    const detail = safeError(err).toLowerCase();
+    const message = /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail)
+      ? "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다."
+      : "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.";
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: message }));
   }
-  await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ role }),
-  });
-  return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_updated" }));
 }
 
 async function handleAdminMemberRemove(request, env) {

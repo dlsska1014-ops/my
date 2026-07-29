@@ -68,7 +68,7 @@ node .codex/scripts/verify-repository.mjs
 
 Inspect the complete diff and confirm that:
 
-- all 34 release checksums, 705 automated checks, and `default.fetch` pass;
+- all 34 release checksums, 902 automated checks, and `default.fetch` pass;
 - the source hash changes only when an authorized source change requires it;
 - no unrelated, generated, secret, environment, screenshot, or archive files entered the diff;
 - SQL, environment, console, deployment, and real-device requirements are reported separately.

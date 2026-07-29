@@ -10,13 +10,14 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_44.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_8_46.sha256",
 );
 const validationScripts = [
   ["영수증 안정화", "validation/validate-receipt.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
+  ["참여자 역할 스키마", "validation/validate-member-role-schema-v22846.mjs"],
   ["UX 원칙", "validation/validate-ux-principles.mjs"],
   ["인증 화면·홈 버튼 대비", "validation/validate-performance-v22811.mjs"],
   ["AdSense 심사·V2·UI V5 공통 셸", "validation/validate-adsense-v2-v22817.mjs"],
@@ -99,6 +100,15 @@ function runSelfTest() {
   console.log("검증 하네스 자체 점검: 정상 입력과 오류 감지 통과");
 }
 
+function isGitWorktree() {
+  const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return result.status === 0 && String(result.stdout || "").trim() === "true";
+}
+
 function main() {
   const majorNodeVersion = Number.parseInt(process.versions.node, 10);
   if (!Number.isInteger(majorNodeVersion) || majorNodeVersion < 18) {
@@ -129,10 +139,14 @@ function main() {
     ],
     "ESM 진입점 검사",
   );
-  run("git", ["diff", "--check"], "작업 트리 공백 오류 검사");
-  run("git", ["diff", "--cached", "--check"], "스테이징 영역 공백 오류 검사");
+  if (isGitWorktree()) {
+    run("git", ["diff", "--check"], "작업 트리 공백 오류 검사");
+    run("git", ["diff", "--cached", "--check"], "스테이징 영역 공백 오류 검사");
+  } else {
+    console.log("\n[건너뜀] 압축 해제본에는 Git 메타데이터가 없어 diff 공백 검사를 생략합니다.");
+  }
 
-  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 872개, ESM 진입점 통과`);
+  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 902개, ESM 진입점 통과`);
   console.log(`src/index.js SHA-256: ${sha256(resolve(repositoryRoot, "src/index.js"))}`);
   console.log("운영 도메인·실기기 항목은 RELEASE-CHECKLIST.md에서 별도 확인해야 합니다.");
 }

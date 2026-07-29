@@ -1,5 +1,16 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.46
+
+- 신규 SQL: `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql`
+- 운영 근거: V22.8.45에서 승인대기→관리자 저장 시 DB 역할 규칙 오류가 화면에 확인됨
+- 변경 범위: `public.household_members.role`의 허용 역할에 `admin` 추가
+- 타입 대응: 텍스트 CHECK 또는 PostgreSQL enum 자동 판별
+- 데이터 보호: 기존 참여자 행 INSERT·UPDATE·DELETE 없음, 알 수 없는 역할·제약이면 transaction 중단
+- 변경하지 않음: RLS, GRANT, RPC, 인덱스, 환경변수
+- 적용 완료 기준: SQL 결과의 `admin_allowed=true`, `invalid_role_count=0`, `readiness_ok=true`
+- 이 저장소 작업에서는 SQL을 실행하지 않았으며 운영 적용은 사용자 수동 단계
+
 ## V22.8.44
 
 - 신규 SQL·스키마·RLS·RPC·인덱스: 없음

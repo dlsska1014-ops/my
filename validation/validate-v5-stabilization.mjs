@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.44-THEME-CONTRAST-ACCESSIBILITY"'), "runtime reports the V22.8.44 theme contrast accessibility release");
+ok(source.includes('const APP_VERSION = "V22.8.46-MEMBER-ROLE-SCHEMA-ALIGNMENT"'), "runtime reports the V22.8.46 member role schema alignment release");
 ok(source.includes("function selectRequestedScopedHousehold"), "user APIs share strict household selection");
 ok(source.includes('"&household_id=" + encodeURIComponent(currentHousehold())'), "search result links retain the active household");
 ok(source.includes("favIds[fk] = !on"), "favorite optimistic rollback restores the previous state");
@@ -99,4 +99,4 @@ try {
   fixture.restore();
 }
 
-console.log(`V22.8.44 V5 stabilization: ${checks} checks passed`);
+console.log(`V22.8.46 V5 stabilization: ${checks} checks passed`);

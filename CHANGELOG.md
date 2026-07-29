@@ -1,5 +1,24 @@
 # 변경 이력
 
+## V22.8.46 · 2026-07-29
+
+- V22.8.45 운영 화면에서 Worker의 `admin` 역할 계약과 DB `household_members.role` 저장 규칙의 불일치 확인
+- 역할 컬럼이 텍스트 CHECK인지 PostgreSQL enum인지 자동 판별해 `admin`을 멱등적으로 허용하는 SQL 추가
+- 알 수 없는 기존 역할·예상하지 못한 역할 제약·지원하지 않는 타입을 발견하면 변경 전 transaction 중단
+- 기존 참여자 행·RLS·GRANT·RPC·인덱스를 변경하지 않고 5초 잠금 제한과 사후 readiness 결과 제공
+- 참여자 역할 스키마 검사 20개를 추가해 총 902개 자동 검사와 ESM `default.fetch` 통과 기준
+- 환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음
+
+## V22.8.45 · 2026-07-28
+
+- 참여자 권한 저장용 Supabase PATCH 실패가 처리되지 않아 Cloudflare Worker Error 1101로 전파되던 경로 수정
+- 승인대기 참여자를 관리자로 승격하는 정상 흐름을 회귀 검사로 추가
+- 권한 변경용 참여자 조회를 fail-closed로 전환하고 대상 없음·0행 반영을 성공으로 오판하지 않도록 보강
+- 허용되지 않은 역할 값을 조용히 일반 참여자로 바꾸지 않고 명시적으로 거부
+- DB 제약·일시 장애 시 기존 권한을 유지하고 동일 화면의 인라인 오류로 복귀
+- 가계부·운영 보안 75개, 총 882개 자동 검사와 ESM `default.fetch` 통과 기준
+- 신규 SQL·환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.44 · 2026-07-28
 
 - 운영 로그인 홈의 라이트 카드에서 공통 보조 텍스트가 4.26:1로 측정된 결함을 `#5f6b7a` 토큰으로 보정해 페이지·카드·raised 표면에서 최소 4.92:1 확보

@@ -2,6 +2,8 @@
 
 | 버전 | `src/index.js` 전체 교체 | 신규 SQL | 환경변수 | Kakao Developers | OpenBuilder | 핵심 |
 |---|---:|---:|---:|---:|---:|---|
+| V22.8.46 | 필요 | 필요 | 없음 | 없음 | 없음 | DB 역할 규칙에 `admin` 추가·관리자 승격 완성 |
+| V22.8.45 | 필요 | 없음 | 없음 | 없음 | 없음 | 참여자 권한 저장 Error 1101 차단·실패 시 기존 권한 보존 |
 | V22.8.44 | 필요 | 없음 | 없음 | 없음 | 없음 | 라이트 보조 텍스트·테마 대비·모바일/보조 디스플레이 접근성 |
 | V22.8.43 | 필요 | 없음 | 없음 | 없음 | 없음 | 정산·목표 JSON strict read·동시 저장·실패 피드백 |
 | V22.8.42 | 필요 | 없음 | 없음 | 없음 | 없음 | 자산 동시 쓰기·스냅샷 피드백·예산 fallback 정합성 |
@@ -35,6 +37,25 @@
 | V22.8.2 | 필요 | 없음 | 없음 | 없음 | 없음 | 인증·세션 안정화 |
 | V22.8.1 | 필요 | 없음 | 없음 | 없음 | 없음 | UI·UX 위계 |
 | V22.8.0 | 필요 | 있음 | 당시 적용 | 당시 적용 | 당시 적용 | 자산·결제수단 기반 |
+
+## V22.8.46 적용 판단
+
+- Supabase: 백업 확인 후 `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql` 전체 1회 실행
+- SQL 완료 기준: `admin_allowed=true`, `invalid_role_count=0`, `readiness_ok=true`
+- Cloudflare Worker: SQL 성공 후 검증된 `src/index.js` 전체 교체
+- 기존 참여자 행·RLS·GRANT·RPC·인덱스: 변경 없음
+- 환경변수·Secret·Kakao Developers·OpenBuilder: 변경 없음
+- 운영 적용 전 V22.8.45 Worker 소스 백업
+- 적용 후 `/health` V22.8.46, `/ready` HTTP 200, 승인대기→관리자 상태 유지 확인
+
+## V22.8.45 적용 판단
+
+- Cloudflare Worker: 검증된 `src/index.js` 전체 교체
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 환경변수·Secret·Kakao Developers·OpenBuilder: 변경 없음
+- 운영 적용 전 V22.8.44 Worker 소스 백업
+- 적용 후 `/health`의 `V22.8.45-MEMBER-ROLE-SAFE-UPDATE`, `/ready` HTTP 200 확인
+- 테스트 참여자의 승인대기→관리자 저장과 새로고침 후 상태 유지 확인
 
 ## V22.8.44 적용 판단
 
