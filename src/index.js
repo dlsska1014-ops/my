@@ -11348,10 +11348,55 @@ function accountbookFavRowsJsAsset() {
 
 // V22.8.34: V5 오버레이 3종(검색·알림·행즐겨찾기)을 1개 immutable 에셋으로 번들링하고
 // 오버레이 마크업도 여기서 생성 → 페이지 HTML(홈 35KB 예산)에서 스크립트·마크업 제거.
+function accountbookDayPopupClientMain() {
+  var overlay = null;
+  function won(n) { return Number(n || 0).toLocaleString("ko-KR") + "원"; }
+  function close() {
+    if (!overlay) return;
+    overlay.setAttribute("hidden", "");
+    document.body.classList.remove("abDayOpen");
+  }
+  function ensure() {
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.className = "abDayOverlay";
+    overlay.setAttribute("hidden", "");
+    overlay.innerHTML = '<div class="abDayPanel" role="dialog" aria-modal="true" aria-label="일별 상세"><div class="abDayHead"><span><b data-ab-day-title></b><small data-ab-day-count></small></span><button type="button" class="abDayClose" aria-label="닫기">\u2715</button></div><div class="abDaySums"><div class="abDaySum"><span>지출</span><b data-ab-day-expense></b></div><div class="abDaySum isIncome"><span>수입</span><b data-ab-day-income></b></div></div><div class="abDayList"><a class="abDayGo" data-ab-day-link>이 날 기록 보기</a></div></div>';
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay || event.target.closest(".abDayClose")) close();
+    });
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+  function open(cell) {
+    var node = ensure();
+    var date = cell.getAttribute("data-ab-day") || "";
+    var parts = date.split("-");
+    node.querySelector("[data-ab-day-title]").textContent = parts.length === 3
+      ? Number(parts[0]) + "년 " + Number(parts[1]) + "월 " + Number(parts[2]) + "일"
+      : date;
+    node.querySelector("[data-ab-day-count]").textContent = (cell.getAttribute("data-ab-count") || "0") + "건";
+    node.querySelector("[data-ab-day-expense]").textContent = "\u2212" + won(cell.getAttribute("data-ab-expense"));
+    node.querySelector("[data-ab-day-income]").textContent = "+" + won(cell.getAttribute("data-ab-income"));
+    node.querySelector("[data-ab-day-link]").setAttribute("href", cell.getAttribute("href") || "#");
+    node.removeAttribute("hidden");
+    document.body.classList.add("abDayOpen");
+    var closer = node.querySelector(".abDayClose");
+    if (closer && closer.focus) { try { closer.focus(); } catch (error) {} }
+  }
+  document.addEventListener("click", function (event) {
+    var cell = event.target && event.target.closest && event.target.closest("a.calDay[data-ab-day]");
+    if (!cell) return;
+    event.preventDefault();
+    open(cell);
+  });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") close(); });
+}
+
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookDayPopupClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }
@@ -12122,7 +12167,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
   const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
   const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
-  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button><button type="button" data-ab-tone-choice="coral" aria-pressed="false"><i class="abToneDot abToneCoral" aria-hidden="true"></i>코랄</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
@@ -18088,7 +18133,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22810.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22844.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22846.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22811.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22836.js";
@@ -18170,10 +18215,12 @@ body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#
 html[data-ab-tone="emerald"] body.abV22812Shell{--ab12-brand:#157a54;--ab12-accent:#047857;--ab12-action:#047857;--ab12-accent-soft:#dff7ed}
 html[data-ab-tone="violet"] body.abV22812Shell{--ab12-brand:#7c3aed;--ab12-accent:#6d28d9;--ab12-action:#6d28d9;--ab12-accent-soft:#f0e8ff}
 html[data-ab-tone="amber"] body.abV22812Shell{--ab12-brand:#b45309;--ab12-accent:#92400e;--ab12-action:#92400e;--ab12-accent-soft:#fff3d6}
+html[data-ab-tone="coral"] body.abV22812Shell{--ab12-brand:#c8433d;--ab12-accent:#a3231d;--ab12-action:#a3231d;--ab12-accent-soft:#ffece9}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-bg:#141519;--ab12-surface:#1e2026;--ab12-surface-raised:#282b33;--ab12-text:#edeff3;--ab12-muted:#b3bdc9;--ab12-line:#3b475a;--ab12-brand:#4e96fa;--ab12-accent:#93c5fd;--ab12-action:#2563eb;--ab12-accent-soft:#1d2c42;--ab12-placeholder:#cbd5e1;--ab12-nav-inactive:#cbd5e1;--ab12-notice-bg:#101216;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#181a20;--ab12-shadow:0 6px 20px rgba(0,0,0,.22)}
 html[data-ab-resolved-theme="dark"][data-ab-tone="emerald"] body.abV22812Shell{--ab12-brand:#3baa7c;--ab12-accent:#6ee7b7;--ab12-action:#047857;--ab12-accent-soft:#123c33}
 html[data-ab-resolved-theme="dark"][data-ab-tone="violet"] body.abV22812Shell{--ab12-brand:#8b5cf6;--ab12-accent:#c4b5fd;--ab12-action:#6d28d9;--ab12-accent-soft:#35255d}
 html[data-ab-resolved-theme="dark"][data-ab-tone="amber"] body.abV22812Shell{--ab12-brand:#d97706;--ab12-accent:#fcd34d;--ab12-action:#92400e;--ab12-accent-soft:#49351a}
+html[data-ab-resolved-theme="dark"][data-ab-tone="coral"] body.abV22812Shell{--ab12-brand:#f0575f;--ab12-accent:#fca5a5;--ab12-action:#a3231d;--ab12-accent-soft:#4a2124}
 body.abV22812Shell :is(input,select,textarea){background:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 body.abV22812Shell :is(input,textarea)::placeholder{color:var(--ab12-placeholder)!important;opacity:1!important}
 body.abV22812Shell .homeNotice{background:var(--ab12-notice-bg)!important;border:1px solid color-mix(in srgb,var(--ab12-notice-title) 28%,transparent)!important}
@@ -18193,7 +18240,7 @@ body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard bu
 .abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}
 .abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
 .abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
-.abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
+.abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abToneCoral{background:#a3231d}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(span,small){color:#854d0e!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{background:var(--ab12-bg)!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 :is(select,textarea){background:var(--ab12-input-bg)!important;background-color:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;-webkit-text-fill-color:var(--ab12-text)!important;border-color:var(--ab12-line)!important;color-scheme:dark}
@@ -18747,6 +18794,62 @@ body.abV22812Shell .abV5RowFav{display:inline-flex;align-items:center;justify-co
 body.abV22812Shell .abV5RowFav.isFav{color:#f5a623!important}
 body.abV22812Shell .abV5RowFav:hover{color:var(--text)!important;background:var(--card-2)!important}
 body.abV22812Shell .abV5RowFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
+/* ============================================================
+   V22.8.46 UI/UX: 내비게이션 선 아이콘 통일 · 캘린더 금액/일별 팝업 ·
+   빠른 입력 팝업 · 코랄 팔레트. 기능/IA/항목 키는 변경하지 않고
+   기존 컨테이너에 스타일 레이어만 가산한다.
+   ============================================================ */
+
+/* --- 하단탭: 이모지 글리프를 선 아이콘 마스크로 대체 --- */
+body.abV22812Shell nav.bottom a i,body.abV22812Shell .abUxBottom a i{font-size:0!important;line-height:0!important;width:22px;height:22px;display:block;flex:none;color:inherit}
+body.abV22812Shell nav.bottom a i,body.abV22812Shell .abUxBottom a i{background-color:currentColor;-webkit-mask-position:center;mask-position:center;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:22px 22px;mask-size:22px 22px}
+body.abV22812Shell nav.bottom a[data-key="home"] i,body.abV22812Shell .abUxBottom a[data-key="home"] i{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2021V10l9-6%209%206v11%22%2F%3E%3Cpath%20d%3D%22M9%2021v-6h6v6%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2021V10l9-6%209%206v11%22%2F%3E%3Cpath%20d%3D%22M9%2021v-6h6v6%22%2F%3E%3C%2Fsvg%3E")}
+body.abV22812Shell nav.bottom a[data-key="records"] i,body.abV22812Shell .abUxBottom a[data-key="records"] i{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%228%22%20y1%3D%227%22%20x2%3D%2220%22%20y2%3D%227%22%2F%3E%3Cline%20x1%3D%228%22%20y1%3D%2212%22%20x2%3D%2220%22%20y2%3D%2212%22%2F%3E%3Cline%20x1%3D%228%22%20y1%3D%2217%22%20x2%3D%2220%22%20y2%3D%2217%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%227%22%20r%3D%221%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%2212%22%20r%3D%221%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%2217%22%20r%3D%221%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%228%22%20y1%3D%227%22%20x2%3D%2220%22%20y2%3D%227%22%2F%3E%3Cline%20x1%3D%228%22%20y1%3D%2212%22%20x2%3D%2220%22%20y2%3D%2212%22%2F%3E%3Cline%20x1%3D%228%22%20y1%3D%2217%22%20x2%3D%2220%22%20y2%3D%2217%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%227%22%20r%3D%221%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%2212%22%20r%3D%221%22%2F%3E%3Ccircle%20cx%3D%224%22%20cy%3D%2217%22%20r%3D%221%22%2F%3E%3C%2Fsvg%3E")}
+body.abV22812Shell nav.bottom a[data-key="add"] i,body.abV22812Shell .abUxBottom a[data-key="add"] i{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%2212%22%20y1%3D%225%22%20x2%3D%2212%22%20y2%3D%2219%22%2F%3E%3Cline%20x1%3D%225%22%20y1%3D%2212%22%20x2%3D%2219%22%20y2%3D%2212%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%2212%22%20y1%3D%225%22%20x2%3D%2212%22%20y2%3D%2219%22%2F%3E%3Cline%20x1%3D%225%22%20y1%3D%2212%22%20x2%3D%2219%22%20y2%3D%2212%22%2F%3E%3C%2Fsvg%3E")}
+body.abV22812Shell nav.bottom a[data-key="settlement"] i,body.abV22812Shell .abUxBottom a[data-key="settlement"] i{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%208h16l-4-4%22%2F%3E%3Cpath%20d%3D%22M20%2016H4l4%204%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%208h16l-4-4%22%2F%3E%3Cpath%20d%3D%22M20%2016H4l4%204%22%2F%3E%3C%2Fsvg%3E")}
+body.abV22812Shell nav.bottom a[data-key="menu"] i,body.abV22812Shell .abUxBottom a[data-key="menu"] i{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%223%22%20y1%3D%226%22%20x2%3D%2221%22%20y2%3D%226%22%2F%3E%3Cline%20x1%3D%223%22%20y1%3D%2212%22%20x2%3D%2221%22%20y2%3D%2212%22%2F%3E%3Cline%20x1%3D%223%22%20y1%3D%2218%22%20x2%3D%2221%22%20y2%3D%2218%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cline%20x1%3D%223%22%20y1%3D%226%22%20x2%3D%2221%22%20y2%3D%226%22%2F%3E%3Cline%20x1%3D%223%22%20y1%3D%2212%22%20x2%3D%2221%22%20y2%3D%2212%22%2F%3E%3Cline%20x1%3D%223%22%20y1%3D%2218%22%20x2%3D%2221%22%20y2%3D%2218%22%2F%3E%3C%2Fsvg%3E")}
+
+body.abV22812Shell nav.bottom a,body.abV22812Shell .abUxBottom a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;min-height:52px;text-decoration:none}
+body.abV22812Shell nav.bottom a span,body.abV22812Shell .abUxBottom a span{font-size:11px!important;font-weight:700;letter-spacing:-.01em}
+body.abV22812Shell nav.bottom a.active,body.abV22812Shell .abUxBottom a.active{color:var(--accent)!important}
+body.abV22812Shell nav.bottom a.active:before,body.abV22812Shell .abUxBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+
+/* 중앙 ＋입력 FAB — 항목 키·순서는 그대로 두고 표현만 승격 */
+body.abV22812Shell nav.bottom a[data-key="add"] i,body.abV22812Shell .abUxBottom a[data-key="add"] i{width:44px;height:44px;border-radius:16px;background-color:var(--on-accent);background-image:none;box-shadow:0 6px 16px rgba(15,23,42,.22);-webkit-mask:none;mask:none;position:relative}
+body.abV22812Shell nav.bottom a[data-key="add"],body.abV22812Shell .abUxBottom a[data-key="add"]{color:var(--accent)!important}
+
+/* --- 서버 렌더 하단탭(.abNavBottom): 이미 선 아이콘, 지표만 정렬 --- */
+body.abV22812Shell .abNavBottom a span{font-size:11px!important;font-weight:700}
+body.abV22812Shell .abNavBottom a{position:relative;gap:4px}
+body.abV22812Shell .abNavBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+
+/* --- 캘린더: 셀 금액 표기 + 일별 상세 팝업 --- */
+
+body.abV22812Shell .abDayOverlay{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.4)}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abDayOverlay{background:rgba(0,0,0,.55)}
+body.abV22812Shell .abDayOverlay[hidden]{display:none}
+body.abV22812Shell .abDayPanel{width:380px;max-width:94%;background:var(--card);border-radius:20px;box-shadow:0 30px 70px rgba(0,0,0,.34);overflow:hidden}
+body.abV22812Shell .abDayHead{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 4px}
+body.abV22812Shell .abDayHead b{font-size:17px;color:var(--text)}
+body.abV22812Shell .abDayHead small{display:block;font-size:12px;color:var(--faint);font-weight:600;margin-top:2px}
+body.abV22812Shell .abDayClose{width:30px;height:30px;border:0;background:transparent;border-radius:8px;display:grid;place-items:center;color:var(--faint);cursor:pointer;font-size:17px;line-height:1}
+body.abV22812Shell .abDayClose:hover{background:var(--card-2)}
+body.abV22812Shell .abDaySums{padding:12px 20px 0;display:flex;gap:10px}
+body.abV22812Shell .abDaySum{flex:1;min-width:0;background:var(--card-2);border-radius:13px;padding:12px}
+body.abV22812Shell .abDaySum span{font-size:12px;color:var(--faint);font-weight:600}
+body.abV22812Shell .abDaySum b{display:block;font-size:15px;font-weight:800;color:var(--text);margin-top:3px;white-space:nowrap;letter-spacing:-.02em}
+body.abV22812Shell .abDaySum.isIncome b{color:#12b886}
+body.abV22812Shell .abDayList{padding:14px 14px 18px;max-height:280px;overflow:auto}
+body.abV22812Shell .abDayEmpty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:26px 20px;text-align:center;font-size:13.5px;color:var(--faint);font-weight:600}
+
+body.abV22812Shell .abDayGo{display:block;width:100%;text-align:center;text-decoration:none;border:0;background:var(--accent);color:var(--on-accent)!important;font-weight:800;font-size:15px;padding:14px;border-radius:13px;cursor:pointer;font-family:inherit}
+
+/* 모바일에서는 중앙 모달 대신 하단 시트 */
+@media(max-width:899px){
+  body.abV22812Shell .abDayOverlay{align-items:flex-end;padding:0}
+  body.abV22812Shell .abDayPanel{width:100%;max-width:100%;border-radius:22px 22px 0 0}
+  body.abV22812Shell .abDayPanel:before{content:"";display:block;width:38px;height:4px;border-radius:999px;background:var(--line);margin:8px auto 0}
+}
 `;
 
 function accountbookThemeClientMain() {
@@ -18754,7 +18857,7 @@ function accountbookThemeClientMain() {
   var themeKey = "ab:appearance:theme";
   var toneKey = "ab:appearance:tone";
   var themes = ["system", "light", "dark"];
-  var tones = ["blue", "emerald", "violet", "amber"];
+  var tones = ["blue", "emerald", "violet", "amber", "coral"];
   var media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
   function read(key, fallback) {
     try { return window.localStorage?.getItem(key) || fallback; } catch (_error) { return fallback; }
@@ -18775,8 +18878,8 @@ function accountbookThemeClientMain() {
     return theme === "system" ? (media?.matches ? "dark" : "light") : theme;
   }
   function syncMeta(mode, tone) {
-    var light = { blue: "#1d4ed8", emerald: "#047857", violet: "#6d28d9", amber: "#92400e" };
-    var dark = { blue: "#0f172a", emerald: "#0f172a", violet: "#0f172a", amber: "#0f172a" };
+    var light = { blue: "#1d4ed8", emerald: "#047857", violet: "#6d28d9", amber: "#92400e", coral: "#a3231d" };
+    var dark = { blue: "#0f172a", emerald: "#0f172a", violet: "#0f172a", amber: "#0f172a", coral: "#0f172a" };
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", (mode === "dark" ? dark : light)[tone] || "#1d4ed8");
   }
@@ -18790,7 +18893,7 @@ function accountbookThemeClientMain() {
     var status = document.getElementById("abAppearanceStatus");
     if (status) {
       var themeLabel = { system: "시스템 설정", light: "라이트 모드", dark: "다크 모드" }[theme];
-      var toneLabel = { blue: "블루", emerald: "그린", violet: "바이올렛", amber: "앰버" }[tone];
+      var toneLabel = { blue: "블루", emerald: "그린", violet: "바이올렛", amber: "앰버", coral: "코랄" }[tone];
       status.textContent = (announce ? "저장했습니다. " : "") + themeLabel + " · " + toneLabel + " 컬러톤";
     }
   }
@@ -19165,7 +19268,7 @@ function accountbookStage4NavClientMain() {
       '<button type="button" class="abGlobalActionChoice" data-abv5-notif-open>' + iconSvg("bell") + '<span>알림 센터</span><span class="abV5NotifBadge" hidden></span></button>' +
       '<button type="button" class="abGlobalActionChoice" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
       '</div></div>' +
-      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button><button type="button" data-ab-tone-choice="coral" aria-pressed="false">코랄</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
       '</dialog>';
   }
   function openGlobalAction(panelName, trigger) {
@@ -19655,7 +19758,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22844-css"'
+        ? '"accountbook-shell-v22846-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -19707,7 +19810,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
     const v = dayMap[date];
     if (!v || !v.count) return `<span class="calDay noRec${dayClass}"${current}><b>${day}</b></span>`;
     const href = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar&date=${encodeURIComponent(date)}&feed=all#feed`;
-    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
+    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} data-ab-day="${escapeHtml(date)}" data-ab-expense="${v.expense}" data-ab-income="${v.income}" data-ab-count="${v.count}" href="${escapeHtml(href)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
   }).join("");
   const clearHref = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`;
   const closeHref = `/app?month=${encodeURIComponent(month)}${hh}`;
