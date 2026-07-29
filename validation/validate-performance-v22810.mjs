@@ -45,7 +45,7 @@ try {
   const homeBytes = Buffer.byteLength(homeHtml);
   ok(homeBytes < 35000, `personal home HTML stays below 35KB (${homeBytes} bytes)`);
   ok(homeHtml.includes('href="/assets/mobile-home-v22810.css"'), "personal home loads the versioned shared stylesheet");
-  ok(homeHtml.includes('src="/assets/mobile-home-v22810.js"'), "personal home loads the versioned shared runtime");
+  ok(homeHtml.includes('src="/assets/mobile-home-v22851.js"'), "personal home loads the versioned shared runtime");
   ok(!homeHtml.includes('id="v2281GuidedUiUxStyle"'), "large shared style is not repeated inline");
   ok(!homeHtml.includes("parseKoreanAmount(text)"), "large smart-input runtime is not repeated inline");
   ok(homeHtml.includes("우리집 생활비"), "optimized home preserves selected accountbook data");
@@ -64,7 +64,7 @@ try {
   ok(css.includes(".homeBudget") && css.includes(".abMobileAppSurface"), "shared stylesheet contains mobile-home and guided styles");
   eq(calls.length, 0, "shared stylesheet requires no database access");
 
-  const jsResponse = await request("/assets/mobile-home-v22810.js");
+  const jsResponse = await request("/assets/mobile-home-v22851.js");
   eq(jsResponse.status, 200, "shared home runtime is served");
   const runtime = await jsResponse.text();
   ok(jsResponse.headers.get("cache-control")?.includes("immutable"), "shared runtime has immutable browser caching");
@@ -72,7 +72,7 @@ try {
   ok(runtime.includes("parseKoreanAmount") && runtime.includes("guidedUiUxClientMain"), "shared runtime preserves smart input and action feedback");
   eq(calls.length, 0, "shared runtime requires no database access");
 
-  const assetHead = await request("/assets/mobile-home-v22810.js", { method: "HEAD" });
+  const assetHead = await request("/assets/mobile-home-v22851.js", { method: "HEAD" });
   eq(assetHead.status, 200, "shared runtime supports HEAD requests");
   eq((await assetHead.text()).length, 0, "HEAD response has no body");
 
