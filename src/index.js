@@ -1861,7 +1861,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.53-BUDGET-RATE-DISPLAY-FIX";
+const APP_VERSION = "V22.8.54-QUERY-PAGE-SIZE-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -7365,7 +7365,11 @@ async function fetchAllHouseholdMembersMap(env, households = []) {
   return out;
 }
 
-async function fetchPostgrestRows(env, path, { pageSize = 500, limit = null, maxRows = 100000 } = {}) {
+// pageSize를 서버의 PostgREST `max-rows`보다 크게 잡으면 페이지가 짧게 돌아오고
+// 아래 `page.length < remaining` 판정이 이를 데이터 끝으로 오인해 조용히 잘린다.
+// 그래서 기존 클램프 상한(1000)을 넘기지 않는 범위에서만 기본값을 올린다.
+// 1000을 초과하려면 운영 PostgREST의 max-rows 설정을 먼저 확인해야 한다.
+async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, maxRows = 100000 } = {}) {
   const parsed = new URL(String(path || ""), "https://postgrest.local");
   parsed.searchParams.delete("limit");
   parsed.searchParams.delete("offset");
