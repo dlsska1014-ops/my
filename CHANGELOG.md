@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## V22.8.56 · 홈 HTML 예산 개정 · 2026-07-30
+
+- `AGENTS.md` 성능 예산을 측정 조건별로 분리해 개정
+  - 기준 픽스처(당월 6행) 35KB 이하 — 기존 값 유지
+  - 실사용 부하(당월 200행, 피드 카드 10장) 44KB 이하 — 신규
+- 근거는 V22.8.55 마크업 축소 후 실측 42.5KB(43,542바이트), 여유 약 1.4KB
+- 50건·200건·400건·3,200건 모두 42.5~42.6KB로, 피드 10장 고정 이후 크기가 평탄함을 확인
+- 35KB는 카드가 6장뿐인 픽스처에서 정한 값이라 실사용 부하에 적용할 수 없음을 문서화
+- 검증의 `REALISTIC_HOME_CEILING`(임시 래칫)을 `REALISTIC_HOME_BUDGET`(문서화된 예산)으로 승격
+- `BASELINE.md`·`RELEASE-CHECKLIST.md` 예산 문구를 측정 조건과 함께 정리
+- `src/index.js`·정적 자산·검사 개수 변경 없음, 총 1,149개 자동검사와 체크섬 64개 통과
+- 신규 SQL·Supabase 스키마·환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.55 · 피드 카드 마크업 축소 · 2026-07-29
 
 - 거래 카드의 삭제 폼을 수정 폼에 통합 (`formaction="/admin/delete"` + `formnovalidate`)
