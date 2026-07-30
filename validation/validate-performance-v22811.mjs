@@ -172,11 +172,41 @@ try {
   eq(home.status, 200, "optimized personal home renders");
   const homeHtml = await home.text();
   const homeBytes = Buffer.byteLength(homeHtml);
+
+  // V22.8.55: 실사용 데이터량 기준 홈 예산. 200행은 한 달 활발한 사용의 상한선에 가깝고,
+  // 그 이상에서는 피드가 10장으로 고정돼 크기가 평탄해진다.
+  // AGENTS.md의 목표 예산은 35KB지만 실사용 데이터에서는 아직 도달하지 못했다.
+  // V22.8.55에서 삭제 폼 통합·중복 data-search 제거로 45.3KiB -> 42.5KiB까지 줄였고,
+  // 남은 차이는 카드마다 즉시 렌더되는 수정 폼(카드당 약 1.2KiB)이 원인이다.
+  // 목표 달성에는 수정 폼 지연 렌더(UX 변화) 또는 예산 개정 결정이 필요하다.
+  // 그 결정 전까지 현재 크기를 상한으로 고정해 다시 커지는 회귀만 막는다.
+  const REALISTIC_HOME_CEILING = 44 * 1024;
+  const realisticFixture = await createV2265QaFixture();
+  let realisticHomeBytes = 0;
+  let realisticFeedCards = 0;
+  try {
+    const categories = ["식비", "카페/간식", "교통/차량", "장보기", "주거/관리", "쇼핑", "의료/건강", "구독"];
+    const payments = ["국민카드", "현대카드", "카카오페이", "현금", "계좌이체"];
+    for (let index = 0; index < 200; index += 1) {
+      const day = String((index % 28) + 1).padStart(2, "0");
+      realisticFixture.db.transactions.push({ id: `budget-${index}`, household_id: "house-home", user_id: "user-bin", transaction_date: `2026-07-${day}`, type: index % 9 === 0 ? "income" : "expense", amount: 1000 + (index * 137) % 90000, category: categories[index % categories.length], memo: `실사용 기록 ${index} 항목`, payment_method: payments[index % payments.length], source: "web", created_at: `2026-07-${day}T09:00:00.000Z` });
+    }
+    const realisticHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: realisticFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), realisticFixture.env, {});
+    const realisticHtml = await realisticHome.text();
+    realisticHomeBytes = Buffer.byteLength(realisticHtml);
+    realisticFeedCards = (realisticHtml.match(/class="v8-tx"/g) || []).length;
+  } finally {
+    realisticFixture.restore();
+  }
   const externalScripts = Array.from(homeHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi), (match) => match[1]);
   ok(homeBytes < 35 * 1024, `personal home HTML stays below 35 KiB (${homeBytes} bytes)`);
+  // 6행 픽스처는 피드 카드가 6장뿐이라 예산에 항상 들어간다. 실사용 데이터량에서도
+  // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
+  ok(realisticHomeBytes <= REALISTIC_HOME_CEILING, `personal home HTML does not regress with 200 monthly rows (${realisticHomeBytes} bytes, ceiling ${REALISTIC_HOME_CEILING})`);
+  eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22810.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22850.css"'), 1, "home loads the V22.8.47 stage 1 shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22851.js") && externalScripts.includes("/assets/accountbook-nav-v22850.js") && externalScripts.includes("/assets/accountbook-v5-v22850.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22855.js") && externalScripts.includes("/assets/accountbook-nav-v22850.js") && externalScripts.includes("/assets/accountbook-v5-v22850.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -229,21 +259,21 @@ try {
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22851.js");
+  const legacyJs = await request("/assets/mobile-home-v22855.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22851.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22855.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
-  eq(createHash("sha256").update(legacyBytes).digest("hex"), "a4311560ddc2383a4bde13f4c17cbb352e7c99dd03e9e570bacb8ffd74e6b78e", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22851-js"', "legacy home runtime ETag remains pinned");
+  eq(createHash("sha256").update(legacyBytes).digest("hex"), "ebb5795c7fbb2685fe0603c93ab041088a4ee3c0384c34010ccf56a560cdaf89", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22855-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22851.js");
+  const shellJs = await request("/assets/mobile-home-shell-v22855.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22851.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v22855.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");

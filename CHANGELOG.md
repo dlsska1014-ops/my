@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## V22.8.55 · 피드 카드 마크업 축소 · 2026-07-29
+
+- 거래 카드의 삭제 폼을 수정 폼에 통합 (`formaction="/admin/delete"` + `formnovalidate`)
+- 카드마다 중복됐던 숨은 입력 4개와 `<form>` 한 쌍 제거, 삭제 확인창은 유지
+- 화면 텍스트를 그대로 복제하던 `data-search` 속성 제거
+- 클라이언트 빠른 검색을 `data-search` 대신 카드 본문 `textContent` 기준으로 변경
+- 실사용 200행 기준 홈 HTML 45.3KiB → 42.5KiB (2.8KiB 축소)
+- **35KB 목표 예산은 아직 미달** — 남은 차이는 카드마다 즉시 렌더되는 수정 폼
+- 검증에 실사용 200행 측정을 추가하고 44KiB 상한 래칫으로 재증가 회귀 차단
+- 6행 픽스처만 측정해 실사용 초과를 놓치던 사각지대 해소
+- 변경된 immutable 자산 주소 상향: `mobile-home-v22855.js`, `mobile-home-shell-v22855.js`
+- 회귀 검사 2개 추가, 총 1,149개 자동검사와 체크섬 64개 통과
+- 신규 SQL·Supabase 스키마·환경변수·Secret·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.54 · 조회 페이지 크기 조정 · 2026-07-29
 
 - `fetchPostgrestRows` 기본 페이지 크기를 500 → 1000으로 올려 대량 월의 DB 왕복 축소
