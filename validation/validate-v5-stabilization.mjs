@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.51-INPUT-AMOUNT-RUNTIME-REGEX-FIX"'), "runtime reports the V22.8.46 member role schema alignment release");
+ok(source.includes('const APP_VERSION = "V22.8.54-QUERY-PAGE-SIZE-FIX"'), "runtime reports the V22.8.46 member role schema alignment release");
 ok(source.includes("function selectRequestedScopedHousehold"), "user APIs share strict household selection");
 ok(source.includes('"&household_id=" + encodeURIComponent(currentHousehold())'), "search result links retain the active household");
 ok(source.includes("favIds[fk] = !on"), "favorite optimistic rollback restores the previous state");

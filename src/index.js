@@ -493,10 +493,18 @@ function trafficClientKey(request) {
   }
 }
 
+// /skill은 호출자를 인증하지 않고 요청 본문의 botUserKey를 신원으로 사용한다.
+// 사용자별 스킬 제한(checkSkillRateLimit)만으로는 그 키를 호출자가 직접 정하므로
+// 값을 바꿔가며 보내면 제한이 그대로 우회된다. 그룹 챗봇의 정상 유입을 막지 않도록
+// 일반 쓰기 경로보다 훨씬 높은 IP 단위 상한만 별도로 둔다.
+function skillIpGuardLimit(env = {}) {
+  return boundedRuntimeNumber(env.SKILL_IP_GUARD_LIMIT, 3000, 60, 100000);
+}
+
 function isTrafficGuardedPath(path = "", method = "GET") {
   const m = String(method || "GET").toUpperCase();
   const p = String(path || "");
-  if (p === "/skill") return false; // 그룹 챗봇 대량 유입은 IP 단위 가드 대신 botUserKey 단위 스킬 가드로 처리
+  if (p === "/skill") return m === "POST";
   if (!["POST", "PATCH", "DELETE"].includes(m)) return false;
   return p === "/login" || p === "/my/local-login" || p === "/my/local-signup"
     || p.startsWith("/my/") || p.startsWith("/api/") || p.startsWith("/admin/") || p.startsWith("/backup/") || p.startsWith("/cron/");
@@ -508,9 +516,12 @@ function checkTrafficGuard(request, env, url) {
   const now = Date.now();
   const windowMs = boundedRuntimeNumber(env.TRAFFIC_GUARD_WINDOW_MS, 60000, 10000, 600000);
   const authPath = ["/login", "/my/local-login", "/my/local-signup"].includes(String(url?.pathname || ""));
+  const skillPath = String(url?.pathname || "") === "/skill";
   const limit = authPath
     ? boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30)
-    : boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
+    : skillPath
+      ? skillIpGuardLimit(env)
+      : boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000);
   const key = `${trafficClientKey(request)}|${String(url?.pathname || "").slice(0, 60)}`;
   pruneRateBucketMap(AB_TRAFFIC_BUCKETS, now, windowMs);
   let bucket = AB_TRAFFIC_BUCKETS.get(key);
@@ -1648,7 +1659,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "disabled_for_group_chatbot; use botUserKey guard instead", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1850,7 +1861,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.51-INPUT-AMOUNT-RUNTIME-REGEX-FIX";
+const APP_VERSION = "V22.8.54-QUERY-PAGE-SIZE-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -6668,7 +6679,7 @@ async function handleImportTemplateCsv(request, env) {
     ["2026-06-18","지출","4500","카페/간식","커피","카카오페이",""],
     ["2026-06-25","수입","3000000","급여","월급","계좌이체",""],
   ];
-  const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const csv = [header, ...rows].map(r => r.map(csvCell).join(",")).join("\n");
   return new Response("\ufeff" + csv, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
@@ -7174,7 +7185,7 @@ async function handleAdminCsv(request, env, url) {
   const header = ["date", "type", "amount", "category", "memo", "payment_method", "source", "raw_text"];
   const lines = [header.join(",")];
   for (const t of rows) {
-    const row = [t.transaction_date, t.type, t.amount, t.category, t.memo, t.payment_method, t.source, t.raw_text].map((v) => `"${String(v || "").replace(/"/g, '""')}"`);
+    const row = [t.transaction_date, t.type, t.amount, t.category, t.memo, t.payment_method, t.source, t.raw_text].map(csvCell);
     lines.push(row.join(","));
   }
   return new Response("\ufeff" + lines.join("\n"), {
@@ -7354,7 +7365,11 @@ async function fetchAllHouseholdMembersMap(env, households = []) {
   return out;
 }
 
-async function fetchPostgrestRows(env, path, { pageSize = 500, limit = null, maxRows = 100000 } = {}) {
+// pageSize를 서버의 PostgREST `max-rows`보다 크게 잡으면 페이지가 짧게 돌아오고
+// 아래 `page.length < remaining` 판정이 이를 데이터 끝으로 오인해 조용히 잘린다.
+// 그래서 기존 클램프 상한(1000)을 넘기지 않는 범위에서만 기본값을 올린다.
+// 1000을 초과하려면 운영 PostgREST의 max-rows 설정을 먼저 확인해야 한다.
+async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, maxRows = 100000 } = {}) {
   const parsed = new URL(String(path || ""), "https://postgrest.local");
   parsed.searchParams.delete("limit");
   parsed.searchParams.delete("offset");
@@ -8793,7 +8808,7 @@ async function handleImportHistoryPage(request, env, url) {
 }
 
 function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return `"${csvSafeText(value).replace(/"/g, '""')}"`;
 }
 
 async function handleImportHistoryCsv(request, env, url) {
@@ -13589,8 +13604,19 @@ async function withHouseholdCreateLock(userId = "", name = "", task) {
 
 
 
-function readableCsvCell(value = "") {
+// Excel·Google Sheets는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 셀을 수식으로
+// 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
+// 참여자의 PC에서 실행되지 않도록 내보내기 시점에 무력화한다. 따옴표로 감싸는
+// 것은 CSV 구분자 이스케이프일 뿐 수식 실행을 막지 못한다.
+function csvSafeText(value) {
   const text = String(value ?? "");
+  if (!text) return text;
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return text;
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
+function readableCsvCell(value = "") {
+  const text = csvSafeText(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
@@ -17105,7 +17131,7 @@ async function handleMyCreate(request, env) {
   let user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const form = await request.formData();
-  const name = sanitizeHouseholdNameInput(String(form.get("household_name") || "").trim());
+  const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
   const displayName = String(form.get("display_name") || user.nickname || "").trim().slice(0, 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid#create`);
@@ -17140,7 +17166,7 @@ async function handleMyCreateLegacyV2264(request, env) {
   const user = await fetchUserById(env, userId);
   const form = await request.formData();
   const rawName = String(form.get("household_name") || "").trim();
-  const name = sanitizeHouseholdNameInput(rawName);
+  const name = sanitizeWebHouseholdNameInput(rawName);
   if (!name) return redirectResponse(returnLocation(form, "/my/households", { err: "household_name_invalid" }));
   try {
     const result = await withHouseholdCreateLock(userId, name, async () => {
@@ -17164,7 +17190,7 @@ async function handleMyHouseholdUpdate(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const name = sanitizeHouseholdNameInput(String(form.get("household_name") || "").trim());
+  const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
   const role = await getHouseholdMemberRole(env, userId, householdId);
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
   if (!householdId || !name) return redirectResponse(addQueryToUrl(back, { err: "household_name_invalid" }));
@@ -20364,7 +20390,10 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetUsed = Number(stats.totals.expense || 0);
   const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : Number(stats.totals.balance || 0);
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
-  const displayBudgetPercent = Math.max(0, Math.min(100, budgetPercent || 0));
+  // 막대 너비는 100%에서 멈추지만 표기 숫자는 실제 사용률을 그대로 보여준다.
+  // 둘을 같은 값으로 쓰면 207% 초과 지출이 홈에서 100%로 보여 초과 사실이 가려진다.
+  const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));
+  const displayBudgetPercent = Math.max(0, budgetPercent || 0);
   const firstRecordDone = rows.length > 0;
   const onboardingDone = 1 + (firstRecordDone ? 1 : 0);
   const onboardingHtml = `<section class="homeOnboarding" data-household-id="${escapeHtml(householdId || "default")}" data-first-record="${firstRecordDone ? "1" : "0"}" aria-labelledby="homeOnboardingTitle"><div class="homeOnboardingHead"><div><h2 id="homeOnboardingTitle">첫 사용 3단계</h2><p class="muted">필수 흐름만 끝낸 뒤 예산·자산 설정은 필요할 때 추가하세요.</p></div><span>${onboardingDone}/3 완료</span></div><div class="homeOnboardingSteps"><div class="homeOnboardingStep done"><b>1. 가계부 준비</b><small>${escapeHtml(selectedHousehold?.name || "가계부")} 선택 완료</small></div><div class="homeOnboardingStep ${firstRecordDone ? "done" : "current"}"><b>2. 첫 기록</b><small>${firstRecordDone ? "첫 기록 완료" : "한 줄로 지출을 남겨보세요"}</small>${firstRecordDone ? "" : `<a href="#add">기록하러 가기 →</a>`}</div><div class="homeOnboardingStep ${firstRecordDone ? "current" : ""}"><b>3. 저장 결과 확인</b><small>${firstRecordDone ? "최근 기록에서 금액·내용을 확인하세요" : "첫 기록을 저장하면 확인할 수 있어요"}</small>${firstRecordDone ? `<a href="#feed" data-onboarding-result-check>최근 기록 확인 →</a>` : ""}</div></div></section>`;
@@ -20433,7 +20462,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === householdId ? "selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form></header><main class="wrap">${homeSpendHero}${onboardingHtml}<section class="homeBudget">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>
     <div class="homeBudgetAmount"><b>${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
-    <div class="homeProgress"><i style="width:${displayBudgetPercent}%"></i></div>
+    <div class="homeProgress"><i style="width:${budgetBarPercent}%"></i></div>
     <div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>
   </section><section class="homeMetrics">${isCurrentMonth ? `<div class="homeMetric homeToday" style="grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px"><div><span>오늘 쓴 돈 ☀️</span><b class="${todayOk ? "income" : "expense"}" style="font-size:21px">${numberWithCommas(todaySpend)}원</b></div>${dailyAllowanceAmt ? `<div style="text-align:right"><span style="display:block;color:#687385;font-size:11px;font-weight:950">오늘 써도 되는 돈</span><b style="font-size:15px;color:${todayOk ? "#059669" : "#dc2626"}">${numberWithCommas(dailyAllowanceAmt)}원</b><small style="display:block;color:#8b95a1;font-size:10px;font-weight:900">남은 ${remainDays}일 × 하루 기준</small></div>` : `<a href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" style="font-size:12px;font-weight:1000;color:#2563eb;text-decoration:none">예산을 설정하면<br/>하루 기준이 생겨요 →</a>`}</div>` : ""}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small style="display:block;margin-top:4px;font-size:11px;font-weight:1000;color:${appMomRate > 0 ? "#dc2626" : appMomRate < 0 ? "#16a34a" : "#8b95a1"}">지난달 대비 ${formatSignedPercent(appMomRate)}</small>`}</div></section>${homeCalendarHtml}<nav class="homeQuick"><a href="#add"><b>입력</b><span>바로 기록</span></a><a href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>예산</b><span>남은 돈</span></a><a href="/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>정기지출</b><span>세금·보험</span></a><a href="/smart-tools?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>스마트</b><span>무료 도구</span></a><a href="/categories?household_id=${encodeURIComponent(householdId)}"><b>분류</b><span>키워드</span></a><a href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>전체</b><span>메뉴</span></a></nav><section class="homeGrid"><div class="homeCard"><h2>소비 및 수입 타임라인</h2>${homeTimeline}</div><div class="homeCard"><h2 style="display:flex;align-items:center;justify-content:space-between">카테고리 비율<a href="/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" style="font-size:12px;color:#2563eb;text-decoration:none;font-weight:1000">월간 리포트 →</a></h2>${homeBars}</div></section><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"/><button type="button" id="smartApply">채우기</button></div><p class="smartHint">챗봇처럼 한 줄로 쓰면 금액·내용·결제수단이 자동으로 채워집니다. 예: 커피 5천 현금 · 월급 250만원</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div><input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/><button type="submit">기록 저장</button></form>`}</section><section id="budget" class="panel"><h2>예산 관리</h2><p>월 예산 사용률 ${budget.totalBudget ? budget.rate : 0}%</p><div class="progress"><i style="--w:${Math.min(100, budget.rate || 0)}%"></i></div><p class="muted">예산 입력과 분류별 예산 설정은 예산 탭에서 관리합니다. 홈에서는 현재 사용률만 확인하세요.</p><a class="btn" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}">예산관리로 이동</a>${budget.categoryAlerts.slice(0,6).map((b) => `<p><b>${escapeHtml(b.category)}</b> ${numberWithCommas(b.spent)} / ${numberWithCommas(b.budget)}원 · ${b.rate}%</p>`).join("")}</section><section id="fixed" class="panel"><h2>고정지출</h2>${appIsManager ? `<form class="form" method="post" action="/admin/recurring/save">${hidden}<input type="number" name="amount" placeholder="금액"/><input name="memo" placeholder="항목 예: 월세, 넷플릭스"/><div class="grid2"><input name="category" list="categoryList" placeholder="분류"/><input name="payment_method" list="paymentList" placeholder="결제수단"/></div><div class="grid2"><input type="number" name="day_of_month" min="1" max="28" value="1"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select></div><select name="user_id" aria-label="고정항목 지출자">${spenderOptions}</select><button type="submit">고정항목 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px">${hidden}<button class="btn" type="submit">이번 달 고정항목 기록하기</button></form>` : `<p class="empty" style="text-align:left">고정지출 추가/반영/삭제는 가계부 owner/admin만 할 수 있습니다.</p>`}${recurring.length ? recurring.map((r) => `<div class="v8-tx"><div class="v8-tx-main"><div><b>${escapeHtml(r.memo || "-")}</b><span>매월 ${escapeHtml(r.day_of_month || 1)}일 · ${escapeHtml(r.category || "기타")}</span></div><strong class="${r.type === "income" ? "income" : "expense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${appIsManager ? `<form method="post" action="/admin/recurring/delete">${hidden}<input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("") : `<div class="empty">고정항목이 없습니다. 월세, 보험, 구독료를 추가해보세요.</div>`}</section><section id="feed" class="panel"><h2>최근 내역</h2>${mobileFilterForm}${feedLinks}<input id="v8Search" style="width:100%;height:43px;border:1px solid #d6deea;border-radius:15px;padding:0 12px" placeholder="현재 표시된 내역에서 빠른 검색"/><div id="v8Feed">${renderV8TxCards(feedRows, currentPath, appCanEditRow)}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section><datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab active" href="#top"><i>🏠</i><span>홈</span></a><a class="tab" href="#feed"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){x.style.display=((x.getAttribute('data-search')||'').toLowerCase().indexOf(s)>=0)?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');var smartBtn=document.getElementById('smartApply');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);if(/수입|입금|급여|월급|상여|보너스|용돈\\s*받|받았|환급\\s*받|환불\\s*받|이자|배당|매출|정산\\s*받|돌려받|들어왔|들어옴|입금됨/.test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=[{name:'급여',type:'income',weight:100,words:['급여','월급','상여','보너스','수당','알바비']},{name:'부수입',type:'income',weight:70,words:['부수입','중고판매','당근','환급','캐시백','이자','배당','정산']},{name:'주거/관리',type:'expense',weight:100,words:['월세','전세','관리비','임대료','아파트','대출이자']},{name:'공과금/통신',type:'expense',weight:95,words:['전기','전기세','가스','수도','통신비','휴대폰','인터넷','요금']},{name:'의료/건강',type:'expense',weight:90,words:['병원','약국','진료','치과','의료','약','검진','온열안대','안대']},{name:'교통/차량',type:'expense',weight:85,words:['택시','버스','지하철','기차','KTX','주유','기름','주차','하이패스','세차']},{name:'장보기',type:'expense',weight:82,words:['마트','이마트','홈플러스','시장','장보기','식자재','쌀','시리얼','김자반','반찬']},{name:'식비',type:'expense',weight:80,words:['점심','저녁','아침','밥','식사','김밥','라면','치킨','피자','햄버거','외식','식당','분식','배달']},{name:'카페/간식',type:'expense',weight:78,words:['커피','카페','스타벅스','스벅','간식','빵','디저트','과자','아이스크림','마시멜로우','젤리','초콜릿']},{name:'육아/자녀',type:'expense',weight:74,words:['육아','어린이','아동','유아','아기','키즈','장난감','식기','이유식','소아과']},{name:'생활용품',type:'expense',weight:72,words:['생활용품','다이소','세제','휴지','샴푸','풋샴푸','린스','비누','치약','칫솔','청소','주방','소모품']},{name:'쇼핑',type:'expense',weight:70,words:['쿠팡','쇼핑','옷','의류','신발','가방','화장품','구매','샀','주문','택배']},{name:'구독',type:'expense',weight:88,words:['구독','넷플릭스','유튜브','멤버십','멜론','티빙','웨이브','쿠팡와우']},{name:'문화/여가',type:'expense',weight:65,words:['영화','여행','숙박','호텔','펜션','게임','취미','운동','캠핑','공연']},{name:'경조사/선물',type:'expense',weight:64,words:['축의금','부의금','경조사','선물','생일','명절']}];function inferQuickCategory(text,type){var raw=abNorm(text);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/(에서|으로|로|에|에게|한테|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value="'+qType+'"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;smart.value='';if(!amt&&amount)amount.focus();}
 if(smartBtn)smartBtn.addEventListener('click',applySmart);if(smart)smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart();}});var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`;
@@ -24468,16 +24497,25 @@ function shouldInterruptKakaoFlowV2254(state = null, text = "") {
   return !!state?.flow && isExplicitKakaoTopLevelCommandV2254(text) && !isKakaoFlowLocalReplyV2254(state, text);
 }
 
-function isUnsafeKakaoNameInputV2254(text = "") {
+// 이름 자체의 안전성만 본다. 링크·이메일·전화번호·초대코드 형태·금액만 있는
+// 이름을 거른다. 대화 흐름의 모호함(종류 선택지·예약 응답)은 포함하지 않으므로
+// 웹 폼과 카카오 양쪽에서 함께 쓸 수 있다.
+function isUnsafeHouseholdNameContent(text = "") {
   const t = normalizeText(text).trim();
   if (!t) return true;
-  if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t)) return true;
   if (/https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/i.test(t)) return true;
   if (/^(?:\+?82[- ]?)?0?1[016789][- ]?\d{3,4}[- ]?\d{4}$/.test(t)) return true;
   if (/^[A-Z0-9]{5,12}$/i.test(t) || /^\d{1,3}(?:,\d{3})*(?:원|만원|만|천원|천)?$/.test(t)) return true;
   if (!/[\p{L}\p{N}]/u.test(t) || /^\d{1,2}\s*번?$/.test(t)) return true;
   if (parseAmountValue(t) > 0 && !/[가-힣A-Za-z]{2,}/.test(t.replace(/[억만천백십원\d,.\s]/g, ""))) return true;
   return false;
+}
+
+function isUnsafeKakaoNameInputV2254(text = "") {
+  const t = normalizeText(text).trim();
+  if (!t) return true;
+  if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t)) return true;
+  return isUnsafeHouseholdNameContent(t);
 }
 
 function kakaoFlowStateKey(userId = "", payload = {}) {
@@ -24798,6 +24836,18 @@ function sanitizeHouseholdNameInput(text = "") {
   const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
   if (t.length < 2 || t.length > 40) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t) || isUnsafeKakaoNameInputV2254(t)) return "";
+  if (/^\d{1,2}\s*번?$/.test(t)) return "";
+  return t.slice(0, 40);
+}
+
+// 웹 폼 전용. `parseKakaoCreateKind`와 생성 흐름 예약어는 카카오 대화에서
+// "가족"이 이름인지 종류 선택지인지 구분하기 위한 장치인데, 폼에는 그 모호함이
+// 없다. 이 둘을 그대로 적용하면 `가족 생활비`, `생활비`, `모임`, `여행` 같은
+// 가장 자연스러운 이름이 거부된다. 봇 명령어 충돌과 안전성 검사는 유지한다.
+function sanitizeWebHouseholdNameInput(text = "") {
+  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40) return "";
+  if (isExplicitKakaoTopLevelCommandV2254(t) || isUnsafeHouseholdNameContent(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
 }
@@ -28143,6 +28193,7 @@ async function handleGroupChatbotTrafficScalePage(request, env, url) {
   const rows = [
     ["/skill IP 가드", "비활성", "카카오 서버 IP/UA에 사용자가 몰리는 문제를 피하고 botUserKey 단위로 제한"],
     ["사용자별 스킬 제한", `${skillLimit}/분`, "SKILL_RATE_LIMIT 환경변수로 조정"],
+    ["스킬 IP 상한", `${skillIpGuardLimit(env)}/분`, "SKILL_IP_GUARD_LIMIT 환경변수로 조정. botUserKey 회전 남용 차단용 상한"],
     ["웹/관리 쓰기 제한", `${trafficLimit}/분`, "TRAFFIC_GUARD_LIMIT 환경변수로 조정"],
     ["중복 저장 방어", `${boundedRuntimeNumber(env.DUPLICATE_GUARD_SECONDS, 90, 10, 3600)}초`, "동일 거래/재전송 방어"],
     ["카카오 재전송 방어", `${boundedRuntimeNumber(env.KAKAO_RETRY_DEDUP_SECONDS, 120, 10, 3600)}초`, "같은 요청 재전송 중복 방지"],
@@ -28153,6 +28204,7 @@ async function handleGroupChatbotTrafficScalePage(request, env, url) {
   const envCopy = [
     "# 대량 유입 권장값",
     "SKILL_RATE_LIMIT=60",
+    "SKILL_IP_GUARD_LIMIT=3000",
     "SKILL_RATE_WINDOW_MS=60000",
     "TRAFFIC_GUARD_LIMIT=240",
     "TRAFFIC_GUARD_WINDOW_MS=60000",

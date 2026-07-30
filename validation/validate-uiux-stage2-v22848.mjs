@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.51-INPUT-AMOUNT-RUNTIME-REGEX-FIX"'), "stage 2 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.54-QUERY-PAGE-SIZE-FIX"'), "stage 2 runtime version is explicit");
 ok(source.includes('url.pathname === "/u/api/day-transactions"'), "day detail read endpoint is routed");
 ok(source.includes("async function handleUserDayTransactions"), "day detail handler exists");
 ok(source.includes("getScopedHouseholdsForPage(request, env)"), "day detail uses signed-in household scope");

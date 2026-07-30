@@ -455,6 +455,61 @@ try {
     ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
+  // V22.8.53: 초과 지출 시 홈의 예산 사용률 표기가 100%에서 잘리지 않아야 한다.
+  // 막대 너비만 100%에서 멈추고 숫자는 실제 사용률을 보여준다.
+  const overspendFixture = await createV2265QaFixture();
+  try {
+    const overspendPost = (path, values) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+      method: "POST",
+      headers: { cookie: overspendFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(values).toString(),
+    }), overspendFixture.env, {});
+    await overspendPost("/admin/transactions", { household_id: "house-home", month: "2026-08", type: "expense", amount: "400000", category: "식비", memo: "초과지출", transaction_date: "2026-08-05", user_id: "user-bin" });
+    await overspendPost("/admin/budget/save", { household_id: "house-home", month: "2026-08", category: "식비", amount: "200000" });
+    const overspendHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
+    const overspendHtml = await overspendHome.text();
+    const shownRate = overspendHtml.match(/예산 사용률 (\d+)%/);
+    const barWidth = overspendHtml.match(/homeProgress"><i style="width:(\d+)%"/);
+    eq(shownRate?.[1], "200", "home shows the real budget usage rate when spending exceeds the budget");
+    eq(barWidth?.[1], "100", "home progress bar still stops at 100% width");
+  } finally {
+    overspendFixture.restore();
+  }
+
+  // V22.8.54: 대량 데이터에서 페이지 왕복 횟수가 줄었는지 + 데이터 손실이 없는지.
+  // 페이지 크기를 PostgREST max-rows보다 크게 잡으면 짧은 페이지를 데이터 끝으로
+  // 오인해 조용히 잘리므로 합계까지 함께 검증한다.
+  const bulkFixture = await createV2265QaFixture();
+  const bulkOuterFetch = globalThis.fetch;
+  let bulkCalls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.hostname === "mock.supabase.co") bulkCalls.push(decodeURIComponent(url.pathname + url.search));
+    return bulkOuterFetch(input, init);
+  };
+  try {
+    let expectedExpense = 0;
+    for (let index = 0; index < 2500; index += 1) {
+      const day = String((index % 28) + 1).padStart(2, "0");
+      const amount = 1000 + index;
+      expectedExpense += amount;
+      bulkFixture.db.transactions.push({ id: `perf-${index}`, household_id: "house-home", user_id: "user-bin", transaction_date: `2026-06-${day}`, type: "expense", amount, category: "식비", memo: `perf${index}`, payment_method: "현금", source: "web", created_at: `2026-06-${day}T09:00:00.000Z` });
+    }
+    bulkCalls = [];
+    const bulkHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-06", { headers: { cookie: bulkFixture.cookie } }), bulkFixture.env, {});
+    const bulkHtml = await bulkHome.text();
+    const transactionQueries = bulkCalls.filter((entry) => entry.startsWith("/rest/v1/transactions"));
+    const pageSizes = [...new Set(transactionQueries.map((entry) => entry.match(/limit=(\d+)/)?.[1]))];
+    eq(bulkHome.status, 200, "home renders with 2,500 monthly transactions");
+    ok(pageSizes.includes("1000"), `bulk transaction pages request 1000 rows (saw ${pageSizes.join(",")})`);
+    ok(transactionQueries.length <= 5, `bulk month needs at most five transaction queries (saw ${transactionQueries.length})`);
+    const bulkShown = bulkHtml.match(/나간 돈<\/span><b class="expense">-([\d,]+)원/);
+    eq(Number(String(bulkShown?.[1]).replace(/,/g, "")), expectedExpense, "larger pages still total every row (no silent truncation)");
+  } finally {
+    globalThis.fetch = bulkOuterFetch;
+    bulkFixture.restore();
+  }
+
   console.log(`smoke_home_feed_button_contrast: ${passed} checks passed`);
 } finally {
   globalThis.fetch = fixtureFetch;
