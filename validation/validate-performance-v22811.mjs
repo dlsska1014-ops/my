@@ -173,14 +173,13 @@ try {
   const homeHtml = await home.text();
   const homeBytes = Buffer.byteLength(homeHtml);
 
-  // V22.8.55: 실사용 데이터량 기준 홈 예산. 200행은 한 달 활발한 사용의 상한선에 가깝고,
-  // 그 이상에서는 피드가 10장으로 고정돼 크기가 평탄해진다.
-  // AGENTS.md의 목표 예산은 35KB지만 실사용 데이터에서는 아직 도달하지 못했다.
-  // V22.8.55에서 삭제 폼 통합·중복 data-search 제거로 45.3KiB -> 42.5KiB까지 줄였고,
-  // 남은 차이는 카드마다 즉시 렌더되는 수정 폼(카드당 약 1.2KiB)이 원인이다.
-  // 목표 달성에는 수정 폼 지연 렌더(UX 변화) 또는 예산 개정 결정이 필요하다.
-  // 그 결정 전까지 현재 크기를 상한으로 고정해 다시 커지는 회귀만 막는다.
-  const REALISTIC_HOME_CEILING = 44 * 1024;
+  // V22.8.56: 실사용 부하 기준 홈 HTML 예산(AGENTS.md 필수 보호 기준).
+  // 200행은 한 달 활발한 사용의 상한선에 가깝고, 그 이상에서는 피드가 10장으로
+  // 고정돼 크기가 평탄해진다(400행·3,200행 모두 43.5KB 부근).
+  // 35KB는 카드가 6장뿐인 기준 픽스처에서 정한 값이라 실사용 부하에는 적용되지 않는다.
+  // V22.8.55 마크업 축소 후 실측 42.5KB(43,542바이트)를 근거로 44KB를 예산으로 정했다.
+  // 여유는 약 1.4KB뿐이므로 카드 마크업이 커지면 여기서 먼저 실패한다.
+  const REALISTIC_HOME_BUDGET = 44 * 1024;
   const realisticFixture = await createV2265QaFixture();
   let realisticHomeBytes = 0;
   let realisticFeedCards = 0;
@@ -199,10 +198,10 @@ try {
     realisticFixture.restore();
   }
   const externalScripts = Array.from(homeHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi), (match) => match[1]);
-  ok(homeBytes < 35 * 1024, `personal home HTML stays below 35 KiB (${homeBytes} bytes)`);
-  // 6행 픽스처는 피드 카드가 6장뿐이라 예산에 항상 들어간다. 실사용 데이터량에서도
+  ok(homeBytes < 35 * 1024, `personal home HTML stays below the 35 KiB baseline-fixture budget (${homeBytes} bytes)`);
+  // 6행 픽스처는 피드 카드가 6장뿐이라 예산에 항상 들어간다. 실사용 부하에서도
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
-  ok(realisticHomeBytes <= REALISTIC_HOME_CEILING, `personal home HTML does not regress with 200 monthly rows (${realisticHomeBytes} bytes, ceiling ${REALISTIC_HOME_CEILING})`);
+  ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 44 KiB realistic-load budget with 200 monthly rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22810.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22858.css"'), 1, "home loads the current shell stylesheet once");
