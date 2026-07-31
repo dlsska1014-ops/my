@@ -163,9 +163,9 @@ try {
   const householdFlowHtml = await householdFlow.text();
   ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,#0e7490);color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
 
-  const shellResponse = await request("/assets/accountbook-shell-v22850.css");
+  const shellResponse = await request("/assets/accountbook-shell-v22858.css");
   eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
-  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22850-css"', "V22.8.47 stage 1 shell has a new immutable ETag");
+  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22858-css"', "current shell has a fresh immutable ETag");
   const shell = await shellResponse.text();
   ok(shell.includes(".homeSpendHero") && shell.includes("font-size:38px"), "V2 home hierarchy includes a large monthly expense hero");
   ok(shell.includes(".calDay.noRec{background:transparent!important") && shell.includes("opacity:1!important"), "calendar empty dates use transparent readable cells instead of whole-cell opacity");
@@ -200,7 +200,7 @@ try {
   ok(source.includes('aria-controls="abDesktopSidebar" aria-expanded="false"') && source.includes('aria-controls="abDesktopSidebar" aria-expanded="true"'), "mobile and desktop navigation controls expose their expanded state for the same shell");
   ok(source.includes("syncMobileMenu(open)") && source.includes('setAttribute("aria-expanded",open?"true":"false")'), "mobile menu runtime keeps accessibility state synchronized");
   ok(source.includes('class="filterBar abV5FilterBar"') && source.includes('class="kpiRow abV5KpiGrid"'), "interactive analysis uses the shared V5 filter and KPI contracts");
-  ok(source.includes('${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><div class="pageMain">'), "interactive statistics replaces its internal list navigation with the shared service shell");
+  ok(source.includes('${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true') && source.includes('reportChallenge: challenge })}<main class="wrap"><div class="pageMain">'), "interactive statistics uses the shared service shell with its report dashboard context");
   ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22850.js"'), "V5 navigation ships as a separately versioned asset");
 
   const stage4NavResponse = await request("/assets/accountbook-nav-v22850.js");
@@ -222,7 +222,7 @@ try {
   ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>정산</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
   ok(!calendarHomeHtml.includes('class="tab tabAdd"'), "stage 4 mobile home does not duplicate the visible quick-entry action in bottom navigation");
   ok(calendarHomeHtml.includes('class="abLayoutNav ') && calendarHomeHtml.includes("abNavMobileDrawer") && !calendarHomeHtml.includes('class="homeDesktopNav"'), "home uses the shared V5 sidebar as a functional mobile drawer instead of a home-only copy");
-  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22850.css"'), 1, "home loads the V22.8.47 shell exactly once");
+  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22858.css"'), 1, "home loads the current shell exactly once");
   eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-nav-v22850.js"'), 1, "home loads the V5 navigation runtime exactly once after preserved runtimes");
 
   const selectedCalendarHome = await request(`/app?${context}&view=calendar&date=2026-07-04`, { cookie: fixture.cookie });
@@ -236,8 +236,8 @@ try {
   ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.55-FEED-MARKUP-SLIM'), "analysis keeps the protected external runtime with the new cache version");
-  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22850.css"'), 1, "analysis loads the V22.8.47 shell exactly once");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.58-CHALLENGE-ACTIVITY-UX'), "analysis keeps the protected external runtime with the new cache version");
+  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22858.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });
   eq(report.status, 200, "analysis report renders");

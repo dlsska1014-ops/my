@@ -151,11 +151,12 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.55-FEED-MARKUP-SLIM"'), "runtime reports the V22.8.46 member role schema alignment release");
+ok(source.includes('const APP_VERSION = "V22.8.58-CHALLENGE-ACTIVITY-UX"'), "runtime reports the challenge and activity UX release");
 
-// The user-approved analysis experience is a protected surface in this release.
+// The client-side filtering engine remains protected. The server report renderer
+// intentionally changes in V22.8.56 after the user requested a report UX upgrade.
 eq(functionBlockHash("function insightClientMain("), "b73386dfddd66aa42000b7b34b6c03b7deeda3ac5824b75468db3aa269087a5d", "analysis client source is byte-identical to V22.8.7");
-eq(functionBlockHash("function renderMyAnalysisHtml("), "0d03ce468e0203e1eb7bc344e0fc24876f74c92de492389246f5dd80ea0de58d", "analysis renderer source is byte-identical to V22.8.7");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "22c17050036f8a4b949ee0e375e2c5033984600842d2d991d3715dda7a657495", "analysis renderer matches the approved V22.8.56 report UX baseline");
 
 const fixture = await createV2265QaFixture();
 try {

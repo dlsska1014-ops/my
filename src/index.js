@@ -894,6 +894,10 @@ export default {
         return handleReportPreferenceSave(request, env);
       }
 
+      if (url.pathname === "/my/report-challenge/save" && request.method === "POST") {
+        return handleReportChallengeSave(request, env);
+      }
+
       if (url.pathname === "/my/recurring/from-candidate" && request.method === "POST") {
         return handleRecurringCandidateConfirm(request, env);
       }
@@ -1802,6 +1806,10 @@ export default {
         return handleUserTxSearch(request, env, url);
       }
 
+      if (url.pathname === "/u/api/recent-transactions" && request.method === "GET") {
+        return handleUserRecentTransactions(request, env, url);
+      }
+
       if (url.pathname === "/u/api/day-transactions" && request.method === "GET") {
         return handleUserDayTransactions(request, env, url);
       }
@@ -1861,7 +1869,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.55-FEED-MARKUP-SLIM";
+const APP_VERSION = "V22.8.58-CHALLENGE-ACTIVITY-UX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4182,7 +4190,7 @@ function normalizeUserFacingUi(html = "") {
     }
   }
   const bodyClasses = ["abV2281"];
-  if (source.includes('class="abLayoutNav"')) bodyClasses.push("abAppSurface");
+  if (/\bclass=["'][^"']*\babLayoutNav\b/.test(source)) bodyClasses.push("abAppSurface");
   if (source.includes('id="smartInput"')) bodyClasses.push("abMobileAppSurface");
   if (source.includes("<title>자산·결제수단</title>")) bodyClasses.push("abPageAssets");
   if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
@@ -10211,6 +10219,10 @@ function renderNavBudgetUsage(month = "", householdId = "", budget = {}) {
   return `<a class="abNavBudget" data-ab-nav-budget data-month="${escapeHtml(safeNavMonth(month))}" data-household-id="${escapeHtml(householdId)}" data-budget-total="${total}" data-budget-used="${used}" href="/budgets?month=${encodeURIComponent(safeNavMonth(month))}&household_id=${encodeURIComponent(householdId)}"></a>`;
 }
 
+function renderAccountbookBrandIcon(className = "abBrandIcon") {
+  return `<svg class="${escapeHtml(className)}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="3"></rect><path d="M8 3.5v17M11 8h5M11 12h5M11 16h3"></path></svg>`;
+}
+
 function renderUnifiedNav(active = "home", opts = {}) {
   const month = safeNavMonth(opts.month);
   const householdId = safeNavHouseholdId(opts.householdId);
@@ -10218,9 +10230,11 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const householdName = String(opts.householdName || opts.name || "가계부").trim() || "가계부";
   const sidebarRows = safeArray(opts.sidebarRows);
   const sidebarBudget = opts.sidebarBudget && typeof opts.sidebarBudget === "object" ? opts.sidebarBudget : {};
+  const requestedSidebarChallenge = opts.reportChallenge || sidebarBudget.reportChallenge;
+  const sidebarChallenge = requestedSidebarChallenge && typeof requestedSidebarChallenge === "object" ? requestedSidebarChallenge : null;
   const showSidebarDashboard = !!opts.showSidebarDashboard && !!householdId;
   const sidebarDashboardHtml = showSidebarDashboard
-    ? `<div class="abNavDashboard">${renderNavMiniCalendar(month, householdId, sidebarRows)}${renderNavBudgetUsage(month, householdId, sidebarBudget)}</div>`
+    ? `<div class="abNavDashboard">${renderNavMiniCalendar(month, householdId, sidebarRows)}${renderNavBudgetUsage(month, householdId, sidebarBudget)}${sidebarChallenge ? renderReportChallenge(sidebarChallenge, { householdId, compact: true }) : ""}</div>`
     : "";
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
@@ -10407,7 +10421,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기">‹</button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 
@@ -11474,8 +11488,22 @@ function accountbookSidebarDashboardClientMain() {
     root.classList.add(rawRate >= 90 ? "isOver" : rawRate >= 70 ? "isWarn" : "isSafe");
     root.innerHTML = '<span><b>이번 달 예산 사용</b><em>' + rawRate + '%</em></span><div class="abNavBudgetTrack" role="progressbar" aria-label="이번 달 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + barRate + '"><i style="width:' + barRate + '%"></i></div><small><b>' + fmt(used) + '원</b> / ' + fmt(total) + '원</small>';
   }
+  function renderChallengeDays(root) {
+    var states = { s: ["success", "✓", "무지출 성공"], x: ["spent", "−", "지출 있음"], t: ["today", "●", "오늘 진행 중"], f: ["future", "", "예정"] };
+    var slots = String(root.getAttribute("data-ab-challenge-slots") || "").split(",").filter(Boolean);
+    root.setAttribute("role", "list");
+    root.setAttribute("aria-label", "날짜별 챌린지 진행 상태");
+    root.innerHTML = slots.map(function(slot) {
+      var parts = slot.split(":");
+      var full = root.hasAttribute("data-ab-challenge-full");
+      var state = states[parts[full ? 2 : 1]] || states.f;
+      if (full) return '<li class="is-' + state[0] + '" aria-label="' + parts[0] + '일, ' + state[2] + '"><span>' + (parts[1] || "") + '</span><b>' + parts[0] + '</b></li>';
+      return '<span class="is-' + state[0] + '" role="listitem" aria-label="' + parts[0] + '일, ' + state[2] + '"><i>' + parts[0] + '</i><b aria-hidden="true">' + state[1] + '</b></span>';
+    }).join("");
+  }
   document.querySelectorAll("[data-ab-nav-calendar]").forEach(renderCalendar);
   document.querySelectorAll("[data-ab-nav-budget]").forEach(renderBudget);
+  document.querySelectorAll("[data-ab-challenge-slots]").forEach(renderChallengeDays);
 }
 
 function accountbookQuickInputClientMain() {
@@ -11609,6 +11637,187 @@ function accountbookQuickInputClientMain() {
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", autoOpen, { once: true });
   else autoOpen();
+}
+
+function accountbookActivityRailClientMain() {
+  "use strict";
+  if (String(location.pathname || "") !== "/app") return;
+  var desktop = typeof window.matchMedia === "function" ? window.matchMedia("(min-width:1320px)") : null;
+  var rail = null;
+  var payload = null;
+  var loading = false;
+  var loaded = false;
+  var filter = "all";
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function(char) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char];
+    });
+  }
+  function fmt(value) { return Number(value || 0).toLocaleString("ko-KR"); }
+  function context() {
+    var params = new URLSearchParams(location.search);
+    return { month: params.get("month") || new Date().toISOString().slice(0, 7), household: params.get("household_id") || "" };
+  }
+  function endpoint() {
+    var ctx = context();
+    return "/u/api/recent-transactions?month=" + encodeURIComponent(ctx.month) + (ctx.household ? "&household_id=" + encodeURIComponent(ctx.household) : "");
+  }
+  function recordsHref() {
+    var ctx = context();
+    return "/app?month=" + encodeURIComponent(ctx.month) + (ctx.household ? "&household_id=" + encodeURIComponent(ctx.household) : "") + "&tab=transactions&feed=all#feed";
+  }
+  function quickHref() {
+    var ctx = context();
+    return "/app?month=" + encodeURIComponent(ctx.month) + (ctx.household ? "&household_id=" + encodeURIComponent(ctx.household) : "") + "&quick=1#quick";
+  }
+  function ensure() {
+    if (rail) return rail;
+    rail = document.createElement("aside");
+    rail.className = "abActivityRail";
+    rail.setAttribute("data-ab-activity-rail", "");
+    rail.setAttribute("aria-label", "최근 사용 내역");
+    rail.innerHTML = '<header class="abActivityHead"><div><span>이번 달</span><h2>사용 내역</h2></div><a data-ab-activity-all href="' + recordsHref() + '">전체 보기</a></header>' +
+      '<div class="abActivityTabs" role="group" aria-label="사용 내역 기간"><button type="button" data-ab-activity-filter="today">오늘</button><button type="button" data-ab-activity-filter="week">이번 주</button><button type="button" data-ab-activity-filter="all" class="active" aria-pressed="true">전체</button></div>' +
+      '<a class="abActivityAdd" data-ab-quick-open href="' + quickHref() + '"><b>＋</b><span>거래 추가하기</span></a>' +
+      '<div class="abActivityList" data-ab-activity-list><div class="abActivityLoading"><i></i><span>최근 기록을 불러오는 중입니다.</span></div></div>' +
+      '<footer class="abActivitySummary" data-ab-activity-summary hidden><div><span>수입</span><b data-ab-activity-income>0원</b></div><div><span>지출</span><b data-ab-activity-expense>0원</b></div><p><span>수입-지출</span><strong data-ab-activity-balance>0원</strong></p></footer>';
+    document.body.appendChild(rail);
+    rail.addEventListener("click", function(event) {
+      var button = event.target && event.target.closest && event.target.closest("[data-ab-activity-filter]");
+      if (!button) return;
+      filter = button.getAttribute("data-ab-activity-filter") || "all";
+      rail.querySelectorAll("[data-ab-activity-filter]").forEach(function(item) {
+        var active = item === button;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      render();
+    });
+    return rail;
+  }
+  function dateLabel(date) {
+    if (!payload) return date;
+    if (date === payload.today) return "오늘";
+    var today = new Date(payload.today + "T00:00:00");
+    today.setDate(today.getDate() - 1);
+    var yesterday = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+    if (date === yesterday) return "어제";
+    var parts = String(date || "").split("-");
+    return parts.length === 3 ? Number(parts[1]) + "월 " + Number(parts[2]) + "일" : date;
+  }
+  function iconKind(row) {
+    var value = String((row && row.category) || "").toLowerCase();
+    if (row && row.type === "income") return "income";
+    if (/카페|커피|간식|디저트/.test(value)) return "cafe";
+    if (/식|마트|외식|음식|배달/.test(value)) return "food";
+    if (/교통|택시|주유|버스|지하철|자동차/.test(value)) return "transport";
+    if (/의료|병원|약|건강/.test(value)) return "medical";
+    if (/쇼핑|생활|의류|뷰티/.test(value)) return "shopping";
+    if (/주거|월세|관리비|공과금/.test(value)) return "housing";
+    if (/통신|보험|구독|정기/.test(value)) return "subscription";
+    if (/교육|학원|도서|육아/.test(value)) return "education";
+    if (/여행|여가|문화|취미/.test(value)) return "leisure";
+    return "receipt";
+  }
+  function iconSvg(kind) {
+    var paths = {
+      income: '<path d="M4 7.5h16v10H4z"/><path d="M4 10.5h16M8 14h.01M16 14h.01"/>',
+      cafe: '<path d="M5 7h11v8a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/><path d="M16 9h1.5a2.5 2.5 0 0 1 0 5H16M8 4v1M12 4v1"/>',
+      food: '<path d="M7 3v7M4 3v4a3 3 0 0 0 6 0V3M7 10v11M16 3v18M16 3c3 2 4 5 4 8h-4"/>',
+      transport: '<path d="M5 16h14l-1-7H6z"/><path d="m7 9 1.5-4h7L17 9M7 16v2M17 16v2M8 13h.01M16 13h.01"/>',
+      medical: '<path d="M9 4h6v5h5v6h-5v5H9v-5H4V9h5z"/>',
+      shopping: '<path d="M5 8h14l-1 12H6z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/>',
+      housing: '<path d="m3 11 9-7 9 7"/><path d="M5 10v10h14V10M9 20v-6h6v6"/>',
+      subscription: '<path d="M20 7h-5V2M4 17h5v5"/><path d="M18.5 9A7 7 0 0 0 6 5.5L4 7M5.5 15A7 7 0 0 0 18 18.5l2-1.5"/>',
+      education: '<path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H12v17H7.5A3.5 3.5 0 0 0 4 22z"/><path d="M20 5.5A3.5 3.5 0 0 0 16.5 2H12v17h4.5A3.5 3.5 0 0 1 20 22z"/>',
+      leisure: '<path d="m3 11 18-7-7 18-2-8z"/><path d="m12 14-4 4"/>',
+      receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h4"/>'
+    };
+    return '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">' + (paths[kind] || paths.receipt) + '</svg>';
+  }
+  function visibleRows() {
+    var rows = payload && Array.isArray(payload.rows) ? payload.rows : [];
+    if (filter === "today") return rows.filter(function(row) { return row.transaction_date === payload.today; });
+    if (filter === "week") return rows.filter(function(row) { return row.transaction_date >= payload.week_start && row.transaction_date <= payload.today; });
+    return rows;
+  }
+  function render() {
+    if (!rail || !payload) return;
+    var rows = visibleRows();
+    var list = rail.querySelector("[data-ab-activity-list]");
+    var summary = rail.querySelector("[data-ab-activity-summary]");
+    if (summary) {
+      summary.hidden = false;
+      summary.querySelector("[data-ab-activity-income]").textContent = "+" + fmt(payload.totals && payload.totals.income) + "원";
+      summary.querySelector("[data-ab-activity-expense]").textContent = "−" + fmt(payload.totals && payload.totals.expense) + "원";
+      var balance = Number(payload.totals && payload.totals.balance || 0);
+      var balanceNode = summary.querySelector("[data-ab-activity-balance]");
+      balanceNode.textContent = (balance >= 0 ? "+" : "−") + fmt(Math.abs(balance)) + "원";
+      balanceNode.classList.toggle("isNegative", balance < 0);
+    }
+    if (!rows.length) {
+      list.innerHTML = '<div class="abActivityEmpty"><b>표시할 기록이 없습니다.</b><span>빠른 입력으로 첫 기록을 남겨보세요.</span></div>';
+      return;
+    }
+    var groups = {};
+    rows.slice(0, 40).forEach(function(row) {
+      var date = String(row.transaction_date || "");
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(row);
+    });
+    var ctx = context();
+    list.innerHTML = Object.keys(groups).sort().reverse().map(function(date) {
+      var dayRows = groups[date];
+      var dayTotal = dayRows.reduce(function(total, row) { return total + (row.type === "income" ? 0 : Number(row.amount || 0)); }, 0);
+      var items = dayRows.map(function(row) {
+        var income = row.type === "income";
+        var kind = iconKind(row);
+        var href = "/app?month=" + encodeURIComponent(String(date).slice(0, 7) || ctx.month) + (ctx.household ? "&household_id=" + encodeURIComponent(ctx.household) : "") + "&view=calendar&date=" + encodeURIComponent(date) + "&feed=all&day_detail=1#calendar";
+        var category = row.category || (income ? "수입" : "미분류");
+        var meta = [row.payment_method || "", row.member || ""].filter(Boolean).join(" · ");
+        var spokenAmount = (income ? "수입 " : "지출 ") + fmt(row.amount) + "원";
+        return '<a class="abActivityItem ' + (income ? "isIncome" : "isExpense") + '" href="' + href + '" aria-label="' + esc((row.memo || category || "기록") + ", " + category + ", " + spokenAmount) + '"><i class="abActivityTypeIcon kind-' + kind + '" aria-hidden="true">' + iconSvg(kind) + '</i><span><b>' + esc(row.memo || category || "기록") + '</b><small><em>' + esc(category) + '</em>' + (meta ? '<span>' + esc(meta) + '</span>' : '') + '</small></span><strong><b>' + (income ? "+" : "−") + fmt(row.amount) + '</b><small>원</small></strong></a>';
+      }).join("");
+      return '<section class="abActivityGroup"><header><b>' + esc(dateLabel(date)) + '</b><span><em>' + fmt(dayRows.length) + '건</em>' + (dayTotal ? '<b>−' + fmt(dayTotal) + '원</b>' : '') + '</span></header>' + items + '</section>';
+    }).join("");
+  }
+  function fail(message) {
+    var node = ensure();
+    var list = node.querySelector("[data-ab-activity-list]");
+    list.innerHTML = '<div class="abActivityEmpty isError"><b>사용 내역을 불러오지 못했습니다.</b><span>' + esc(message || "잠시 후 다시 시도해 주세요.") + '</span><button type="button" data-ab-activity-retry>다시 시도</button></div>';
+    var retry = list.querySelector("[data-ab-activity-retry]");
+    if (retry) retry.addEventListener("click", function() { loaded = false; load(); });
+  }
+  function load() {
+    if (loading || loaded) return;
+    loading = true;
+    var node = ensure();
+    node.hidden = false;
+    fetch(endpoint(), { headers: { accept: "application/json" }, credentials: "same-origin" })
+      .then(function(response) { return response.ok ? response.json() : response.json().then(function(data) { throw new Error(data && data.message || "조회 실패"); }); })
+      .then(function(data) {
+        if (!data || !data.ok) throw new Error(data && data.message || "조회 실패");
+        payload = data;
+        loaded = true;
+        var all = rail.querySelector("[data-ab-activity-all]");
+        if (all) all.setAttribute("href", recordsHref());
+        render();
+      })
+      .catch(function(error) { fail(error && error.message); })
+      .finally(function() { loading = false; });
+  }
+  function sync() {
+    var wide = !desktop || desktop.matches;
+    var node = ensure();
+    node.hidden = !wide;
+    if (wide) load();
+  }
+  if (desktop) {
+    if (typeof desktop.addEventListener === "function") desktop.addEventListener("change", sync);
+    else if (typeof desktop.addListener === "function") desktop.addListener(sync);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sync, { once: true });
+  else sync();
 }
 
 function accountbookSaveFeedbackClientMain() {
@@ -11802,7 +12011,7 @@ function accountbookDayDetailClientMain() {
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }
@@ -14483,6 +14692,245 @@ async function getMyPageContext(request, env, url) {
   return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis };
 }
 
+function reportChallengeSettingsKey(householdId = "") {
+  return `report_challenge:${String(householdId || "").trim()}`.slice(0, 180);
+}
+
+function shiftChallengeDate(date = "", days = 0) {
+  if (!isValidTransactionDateString(date)) return "";
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + Number(days || 0));
+  return value.toISOString().slice(0, 10);
+}
+
+function challengePeriodDays(startDate = "", targetDate = "") {
+  if (!isValidTransactionDateString(startDate) || !isValidTransactionDateString(targetDate)) return 0;
+  const start = Date.parse(`${startDate}T00:00:00Z`);
+  const target = Date.parse(`${targetDate}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(target) || target < start) return 0;
+  return Math.floor((target - start) / 86400000) + 1;
+}
+
+function normalizeReportChallenge(value = {}) {
+  const raw = value && typeof value === "object" ? value : parseJsonSetting(value, {});
+  const targetDays = Math.max(1, Math.min(20, Math.round(Number(raw.target_days || 4)) || 4));
+  const title = String(raw.title || "무지출 데이").trim().replace(/\s+/g, " ").slice(0, 30) || "무지출 데이";
+  const today = formatDate(nowKstDate());
+  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : today;
+  let targetDate = isValidTransactionDateString(raw.target_date) ? String(raw.target_date) : shiftChallengeDate(startDate, targetDays - 1);
+  let periodDays = challengePeriodDays(startDate, targetDate);
+  if (!periodDays || periodDays > 90) {
+    targetDate = shiftChallengeDate(startDate, targetDays - 1);
+    periodDays = targetDays;
+  }
+  return { enabled: raw.enabled !== false, targetDays: Math.min(targetDays, periodDays), title, startDate, targetDate, periodDays };
+}
+
+function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) {
+  const settings = normalizeReportChallenge(value);
+  const safeMonth = validMonth(month) || currentMonthKst();
+  const today = formatDate(nowKstDate());
+  const yesterday = shiftChallengeDate(today, -1);
+  const evaluationEnd = yesterday < settings.targetDate ? yesterday : settings.targetDate;
+  const evaluatedDays = evaluationEnd >= settings.startDate ? challengePeriodDays(settings.startDate, evaluationEnd) : 0;
+  const expenseDays = new Set(safeArray(rows)
+    .filter((row) => row.type !== "income" && Number(row.amount || 0) > 0)
+    .map((row) => String(row.transaction_date || "").slice(0, 10))
+    .filter((date) => date >= settings.startDate && date <= evaluationEnd));
+  let completed = 0;
+  for (let offset = 0; offset < evaluatedDays; offset++) {
+    const date = shiftChallengeDate(settings.startDate, offset);
+    if (!expenseDays.has(date)) completed++;
+  }
+  const target = settings.targetDays;
+  const progress = Math.min(target, completed);
+  const rate = target ? Math.min(100, Math.round(progress / target * 100)) : 0;
+  const remaining = Math.max(0, target - progress);
+  const currentDay = today < settings.startDate ? 0 : Math.min(settings.periodDays, challengePeriodDays(settings.startDate, today));
+  const phase = today < settings.startDate ? "scheduled" : today > settings.targetDate ? "ended" : "active";
+  const displayMode = settings.periodDays <= 7 ? "daily" : "percent";
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  const daySlots = displayMode === "daily"
+    ? Array.from({ length: settings.periodDays }, (_unused, offset) => {
+        const date = shiftChallengeDate(settings.startDate, offset);
+        const day = Number(date.slice(8, 10));
+        const weekday = weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()] || "";
+        const state = date <= evaluationEnd
+          ? (expenseDays.has(date) ? "spent" : "success")
+          : date === today
+            ? "today"
+            : "future";
+        const stateLabel = state === "success" ? "무지출 성공" : state === "spent" ? "지출 있음" : state === "today" ? "오늘 진행 중" : "예정";
+        return { date, day, weekday, state, stateLabel };
+      })
+    : [];
+  return { ...settings, month: safeMonth, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
+}
+
+async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {} } = {}) {
+  const settings = normalizeReportChallenge(value);
+  const safeMonth = validMonth(month) || currentMonthKst();
+  const monthStart = `${safeMonth}-01`;
+  const monthEnd = nextMonthStart(safeMonth);
+  const today = formatDate(nowKstDate());
+  const evaluationEnd = shiftChallengeDate(today, -1) < settings.targetDate ? shiftChallengeDate(today, -1) : settings.targetDate;
+  let challengeRows = safeArray(rows);
+  // 아직 끝나지 않은 오늘과 미래 날짜에는 기록이 없으므로 조회할 필요가 없다.
+  // 완료 판정 범위가 현재 월을 실제로 벗어날 때만 추가 범위 조회를 수행한다.
+  if (householdId && evaluationEnd >= settings.startDate && (settings.startDate < monthStart || evaluationEnd >= monthEnd)) {
+    challengeRows = await fetchAdminRowsRange(env, {
+      householdId,
+      start: settings.startDate,
+      end: shiftChallengeDate(settings.targetDate, 1),
+      type: "all",
+      limit: 10000,
+    });
+  }
+  return buildReportChallenge(challengeRows, safeMonth, value);
+}
+
+function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "") {
+  const params = new URLSearchParams({ month: validMonth(month) || currentMonthKst() });
+  if (householdId) params.set("household_id", String(householdId));
+  if (view) params.set("view", String(view));
+  return `${path}?${params.toString()}`;
+}
+
+function renderReportMonthNavigator({ path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "" } = {}) {
+  const safeMonth = validMonth(month) || currentMonthKst();
+  const prev = shiftMonthString(safeMonth, -1);
+  const next = shiftMonthString(safeMonth, 1);
+  const current = currentMonthKst();
+  return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view))}" aria-label="${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view))}" aria-label="${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view))}">이번 달</a>`}</nav>`;
+}
+
+function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst()) {
+  const safeMonth = validMonth(month) || currentMonthKst();
+  const stats = calculateStats(rows);
+  const daysInMonth = new Date(Number(safeMonth.slice(0, 4)), Number(safeMonth.slice(5, 7)), 0).getDate() || 30;
+  const today = formatDate(nowKstDate());
+  const todayMonth = today.slice(0, 7);
+  const elapsedDays = safeMonth < todayMonth ? daysInMonth : safeMonth === todayMonth ? Math.min(daysInMonth, Number(today.slice(8, 10)) || 1) : 0;
+  const expense = Number(stats.totals?.expense || 0);
+  const income = Number(stats.totals?.income || 0);
+  const totalBudget = Math.max(0, Number(budget.totalBudget || 0));
+  const budgetRate = totalBudget ? Math.round(expense / totalBudget * 100) : 0;
+  const elapsedRate = Math.round(elapsedDays / daysInMonth * 100);
+  const remainingBudget = Math.max(0, totalBudget - expense);
+  const forecast = elapsedDays ? Math.round(expense / elapsedDays * daysInMonth) : 0;
+  const paceGap = totalBudget ? budgetRate - elapsedRate : 0;
+  const categoryAlerts = safeArray(budget.categoryAlerts).filter((item) => Number(item.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0)).slice(0, 4);
+  let insight = "예산을 설정하면 현재 소비 속도와 남은 하루 한도를 함께 안내합니다.";
+  if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
+  else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
+  else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
+  return { month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, paceGap, categoryAlerts, insight };
+}
+
+function renderReportDashboard(summary = {}) {
+  const rate = Math.max(0, Math.min(100, Number(summary.budgetRate || 0)));
+  const householdQuery = summary.householdId ? `&household_id=${encodeURIComponent(summary.householdId)}` : "";
+  const categories = safeArray(summary.categoryAlerts).map((item) => {
+    const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
+    return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
+  }).join("");
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${numberWithCommas(summary.forecast || 0)}원</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+}
+
+function renderChallengeProgress(challenge = {}, { compact = false, hydrate = false } = {}) {
+  const safe = challenge && typeof challenge === "object" ? challenge : {};
+  const enabled = safe.enabled !== false;
+  const rate = enabled ? Math.max(0, Math.min(100, Number(safe.rate || 0))) : 0;
+  if (safe.displayMode === "daily" && safeArray(safe.daySlots).length) {
+    if (compact) {
+      const stateCodes = { success: "s", spent: "x", today: "t", future: "f" };
+      const packed = safeArray(safe.daySlots).map((slot) => `${slot.day}:${stateCodes[slot.state] || "f"}`).join(",");
+      return `<div class="abChallengeDays" data-ab-challenge-slots="${escapeHtml(packed)}"></div>`;
+    }
+    if (hydrate) {
+      const stateCodes = { success: "s", spent: "x", today: "t", future: "f" };
+      const packed = safeArray(safe.daySlots).map((slot) => `${slot.day}:${slot.weekday}:${stateCodes[slot.state] || "f"}`).join(",");
+      return `<ol class="reportChallengeDays" data-ab-challenge-slots="${escapeHtml(packed)}" data-ab-challenge-full></ol><small class="reportChallengeLegend">✓ 무지출 · − 지출 · ● 오늘 · ○ 예정</small>`;
+    }
+    const slots = safeArray(safe.daySlots).map((slot) => {
+      const state = ["success", "spent", "today", "future"].includes(slot.state) ? slot.state : "future";
+      return `<li class="is-${state}" aria-label="${slot.day}일, ${escapeHtml(slot.stateLabel)}"><span>${escapeHtml(slot.weekday)}</span><b>${slot.day}</b></li>`;
+    }).join("");
+    return `<ol class="reportChallengeDays" aria-label="날짜별 챌린지 진행 상태">${slots}</ol><small class="reportChallengeLegend">✓ 무지출 · − 지출 · ● 오늘 · ○ 예정</small>`;
+  }
+  if (compact) {
+    return `<div class="abChallengePercent" role="progressbar" aria-label="무지출 챌린지 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><b>${rate}%</b><i><u style="width:${rate}%"></u></i></div>`;
+  }
+  return `<div class="reportChallengePercent"><b>${rate}%</b><div class="reportChallengeTrack" role="progressbar" aria-label="무지출 챌린지 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><i style="width:${rate}%"></i></div><span>${safe.progress || 0}/${safe.targetDays || 0}일 달성</span></div>`;
+}
+
+function renderReportChallenge(challenge = {}, { householdId = "", canManage = false, compact = false, home = false } = {}) {
+  const safe = challenge && typeof challenge === "object" ? challenge : buildReportChallenge([], currentMonthKst(), {});
+  const qs = `month=${encodeURIComponent(safe.month || currentMonthKst())}&household_id=${encodeURIComponent(householdId)}`;
+  const dayPosition = safe.phase === "scheduled" ? "시작 전" : `${safe.currentDay}/${safe.periodDays}일차`;
+  if (compact) {
+    return `<a class="abNavChallenge ${safe.enabled ? "" : "isOff"}" href="/my/analysis?view=report&${qs}#reportChallenge"><span><b><i aria-hidden="true">🔥</i> 챌린지</b><em>${safe.enabled ? (safe.displayMode === "daily" ? `${safe.progress}/${safe.targetDays}일` : `${safe.rate}%`) : "꺼짐"}</em></span><strong>${escapeHtml(safe.title || "무지출 데이")}</strong>${renderChallengeProgress(safe, { compact: true })}<small>${safe.enabled ? `${safe.progress}/${safe.targetDays}일 성공 · ${escapeHtml(dayPosition)}` : "종합 리포트에서 설정"}</small></a>`;
+  }
+  const status = !safe.enabled
+    ? "챌린지가 꺼져 있습니다."
+    : safe.phase === "scheduled"
+      ? `${safe.startDate}부터 시작합니다.`
+      : safe.remaining
+        ? `${dayPosition}이며 무지출 목표까지 ${safe.remaining}일 남았습니다.`
+        : "무지출 목표를 달성했습니다.";
+  const action = home
+    ? `<a class="reportChallengeManage" href="/my/analysis?view=report&${qs}#reportChallenge">${canManage ? "날짜·목표 설정" : "챌린지 자세히"}</a>`
+    : canManage
+      ? `<details><summary>챌린지 설정</summary><form method="post" action="/my/report-challenge/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(safe.month || currentMonthKst())}"/><label><span>이름</span><input name="title" maxlength="30" value="${escapeHtml(safe.title || "무지출 데이")}"/></label><label><span>시작일</span><input type="date" name="start_date" value="${escapeHtml(safe.startDate)}" required/></label><label><span>목표일</span><input type="date" name="target_date" value="${escapeHtml(safe.targetDate)}" required/></label><label><span>무지출 목표</span><input type="number" name="target_days" min="1" max="20" value="${safe.targetDays}" inputmode="numeric"/></label><label class="reportChallengeToggle"><input type="checkbox" name="enabled" value="1" ${safe.enabled ? "checked" : ""}/> 챌린지 표시</label><button type="submit">설정 저장</button></form></details>`
+      : `<p class="reportChallengeReadOnly">소유자·관리자가 목표를 설정할 수 있습니다.</p>`;
+  const description = home ? "" : `<p>${escapeHtml(status)}<br/><span class="reportChallengeDates">기간 ${escapeHtml(safe.startDate)} ~ ${escapeHtml(safe.targetDate)} · 오늘 ${escapeHtml(safe.today || formatDate(nowKstDate()))}</span></p>`;
+  return `<section class="reportChallenge" id="reportChallenge"><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> 생활 챌린지</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `무지출 ${safe.progress}/${safe.targetDays}일 · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+}
+
+function reportUxCss() {
+  return `
+.reportMonthNav{position:sticky;top:8px;z-index:45;display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:10px;background:color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent);color:var(--ab12-text,#191f28);backdrop-filter:blur(14px);border:1px solid var(--ab12-line,#e5e9f0);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.reportMonthNav a,.reportMonthNav button{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
+.reportCockpit{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);border:1px solid var(--ab12-line,#e5e9f0);border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 10px 30px rgba(15,23,42,.06)}.reportCockpitHead,.reportSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:12px}.reportCockpitHead span{display:block;color:var(--ab12-accent,#2457d6);font-size:11px;font-weight:900;letter-spacing:.08em}.reportCockpitHead h2{margin:4px 0 0;font-size:21px}.reportCockpitHead a,.reportSectionTitle a{color:var(--ab12-accent,#2457d6);text-decoration:none;font-size:12px;font-weight:850}.reportCockpitGrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin-top:18px}.reportPace{display:grid;justify-items:center;align-content:center;border-right:1px solid var(--ab12-line,#edf0f4)}.reportGauge{--report-rate:0%;width:148px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ab12-brand,#6d5dfc) var(--report-rate),var(--ab12-surface-raised,#edf0f5) 0);position:relative}.reportGauge:before{content:"";position:absolute;inset:15px;background:var(--ab12-surface,#fff);border-radius:50%}.reportGauge div{position:relative;text-align:center}.reportGauge b{display:block;font-size:27px;letter-spacing:-.04em}.reportGauge span,.reportPace p{color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportPace p{margin:9px 0 0}.reportKpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reportKpis>div{background:var(--ab12-surface-raised,#f7f8fb);border:1px solid var(--ab12-line,#edf0f4);border-radius:16px;padding:14px}.reportKpis span{display:block;color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportKpis b{display:block;margin-top:6px;font-size:clamp(18px,2.1vw,25px);overflow-wrap:anywhere;line-height:1.2}.reportInsight{display:flex;gap:10px;align-items:center;margin-top:14px;padding:13px 15px;border:1px solid color-mix(in srgb,var(--ab12-accent,#d97706) 42%,transparent);border-radius:15px;background:var(--ab12-accent-soft,#fffbeb);color:var(--ab12-text,#713f12)}.reportInsight>span{font-size:20px;color:var(--ab12-accent,#d97706)}.reportInsight p{margin:0;line-height:1.5;font-size:13px;font-weight:750}.reportCategoryBudget{margin-top:16px}.reportCategoryBudget ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:9px}.reportCategoryBudget li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;border:1px solid var(--ab12-line,#edf0f4);border-radius:14px;padding:11px}.reportCategoryBudget li div b,.reportCategoryBudget li div span{display:block}.reportCategoryBudget li div span{color:var(--ab12-muted,#7b8493);font-size:11px;margin-top:2px}.reportCategoryBudget li strong{font-size:12px}.reportCategoryBudget li i{grid-column:1/-1;height:7px;border-radius:999px;background:var(--ab12-surface-raised,#edf0f4);overflow:hidden}.reportCategoryBudget li em{display:block;height:100%;border-radius:inherit;background:var(--ab12-brand,#6d5dfc)}
+.reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;background:linear-gradient(135deg,#171a2b,#222741);color:#fff;border:1px solid #343b5f;border-radius:22px;padding:18px;margin:14px 0}.reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--ab12-action,#6d5dfc);color:#fff;font-size:11px;font-weight:900}.reportChallenge h2{margin:9px 0 5px;color:#fff!important}.reportChallenge p{margin:0;color:#c7cce0;font-size:13px;line-height:1.5}.reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}.reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit}.reportChallengeMain>strong{font-size:12px;color:#ffd45b}.reportChallenge details{align-self:center;border:1px solid #3d4569;border-radius:14px;padding:9px}.reportChallenge summary{cursor:pointer;font-weight:850;min-height:36px;display:flex;align-items:center}.reportChallenge form{display:grid;gap:8px;margin-top:8px}.reportChallenge label{display:grid;grid-template-columns:76px 1fr;align-items:center;gap:8px;color:#d7dbee;font-size:12px;font-weight:750}.reportChallenge input{width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallengeToggle{grid-template-columns:auto 1fr!important;justify-content:start}.reportChallengeToggle input{width:18px;min-height:18px}.reportChallenge button{min-height:42px;border:0;border-radius:11px;background:var(--ab12-action,#6d5dfc);color:#fff;font-weight:850}.reportChallengeReadOnly{align-self:center}.abNavChallenge{display:block;padding:10px 11px;background:#171a2b;color:#fff!important;border:1px solid #343b5f;border-radius:13px;text-decoration:none}.abNavChallenge>span{display:flex;justify-content:space-between;gap:8px}.abNavChallenge>span b,.abNavChallenge>span em{font-size:10.5px}.abNavChallenge>span em{font-style:normal;color:#ffd45b}.abNavChallenge>strong,.abNavChallenge>small{display:block}.abNavChallenge>strong{font-size:12px;margin:5px 0}.abNavChallenge>small{color:#aeb6d3;font-size:10px;margin-top:5px}.abNavChallenge>i{display:block;height:6px;border-radius:999px;background:#30364d;overflow:hidden}.abNavChallenge>i u{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit;text-decoration:none}.abNavChallenge.isOff{opacity:.76}
+.reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}.reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}.reportChallengeDays li>span{font-size:10px;color:#aeb6d3}.reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff}.reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}.reportChallengeDays .is-success{border-color:#387966;background:#17372f}.reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}.reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218}.reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.reportChallengeDays .is-today>i{background:#ffd45b;color:#332600}.reportChallengeDays .is-future>i{border:1px solid #59617d}.reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0;font-size:10px;font-weight:750}.reportChallengeLegend .is-success{color:#7ce6c3}.reportChallengeLegend .is-spent{color:#ff9ba4}.reportChallengeLegend .is-today{color:#ffd45b}.reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}.reportChallengePercent>b{font-size:22px;color:#ffd45b}.reportChallengePercent .reportChallengeTrack{margin:0}.reportChallengePercent>span{font-size:11px;color:#c7cce0;white-space:nowrap}.abChallengeDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin:8px 0}.abChallengeDays>span{display:grid;place-items:center;min-width:0;height:30px;border:1px solid #3b425f;border-radius:7px;background:#262b40}.abChallengeDays i{font-style:normal;font-size:8px;color:#aeb6d3;line-height:1}.abChallengeDays b{font-size:9px;line-height:1;color:#fff}.abChallengeDays .is-success{background:#245545;border-color:#3e8d74}.abChallengeDays .is-success b{color:#9af0d3}.abChallengeDays .is-spent{background:#4b2930;border-color:#86515a}.abChallengeDays .is-spent b{color:#ffabb3}.abChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.abChallengePercent{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin:8px 0}.abChallengePercent>b{font-size:15px;color:#ffd45b}.abChallengePercent>i{display:block;height:7px;border-radius:999px;background:#30364d;overflow:hidden}.abChallengePercent u{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));text-decoration:none}
+.reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}.reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}.reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
+.reportMonthNav :is(a,button,input):focus-visible,.reportChallenge :is(summary,input,button):focus-visible,.reportCockpit a:focus-visible{outline:3px solid var(--ab12-accent,#2563eb)!important;outline-offset:2px}
+.reportFlash{border-radius:14px;padding:12px 14px;margin:10px 0;font-size:13px;font-weight:750;line-height:1.5}.reportFlash.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.reportFlash.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+@media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:1fr 1fr}.reportMonthNav>form{grid-column:1/-1;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:2}.reportMonthNav>form+.reportMonthArrow{grid-column:2;grid-row:2}.reportMonthNav>.reportMonthCurrent{grid-column:1/-1;grid-row:3}.reportMonthArrow span{display:none}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}.abNavChallenge{display:none!important}}
+@media(min-width:900px){html body.abV22812Shell main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage main.wrap{width:calc(100vw - var(--abNavW,238px) - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}html body.abV22812Shell.abNavCollapsed main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage.abNavCollapsed main.wrap{width:calc(100vw - var(--abNavCollapsed,72px) - 32px)!important}}
+@media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav form{grid-template-columns:minmax(0,1fr) auto}.reportMonthNav label span{display:none}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
+@media(max-width:360px){.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.reportGauge,.reportChallengeTrack i,.reportCategoryBudget li em{transition:none!important}}
+`;
+}
+
+async function handleReportChallengeSave(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const householdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const returnTo = `/my/analysis?view=report&month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
+  const { selected } = await getMySelectedHousehold(env, userId, householdId);
+  if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
+  if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=challenge_write_not_allowed#reportChallenge`);
+  const targetDays = Math.round(Number(form.get("target_days") || 0));
+  const title = String(form.get("title") || "").trim().replace(/\s+/g, " ").slice(0, 30);
+  const startDate = String(form.get("start_date") || "").trim();
+  const targetDate = String(form.get("target_date") || "").trim();
+  const periodDays = challengePeriodDays(startDate, targetDate);
+  if (!Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return redirectResponse(`${returnTo}&err=challenge_invalid#reportChallenge`);
+  const value = { enabled: String(form.get("enabled") || "") === "1", target_days: targetDays, title, start_date: startDate, target_date: targetDate, updated_by: userId, updated_at: new Date().toISOString() };
+  try {
+    await saveSettingValue(env, reportChallengeSettingsKey(householdId), value);
+    return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
+  } catch (err) {
+    rememberOpsEvent({ kind: "report_challenge_save_failed", severity: "warn", path: "/my/report-challenge/save", method: "POST", detail: safeError(err) });
+    return redirectResponse(`${returnTo}&err=challenge_save_failed#reportChallenge`);
+  }
+}
+
 function freeReportPreferenceKey(householdId = "") {
   return `free_report_preference:${String(householdId || "").trim()}`.slice(0, 180);
 }
@@ -14690,7 +15138,7 @@ function renderFreeReportsHtml({ env, month, selected, live = {}, preference = {
   const canManage = canManageMyHousehold(selected.role);
   const share = freeReportShareText(live);
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#fff}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:6px}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:520px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.settings{display:grid;gap:10px}.settings label{border:1px solid #e5e7eb;border-radius:15px;padding:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.share{width:100%;min-height:220px;border:1px solid #cbd5e1;border-radius:15px;padding:13px;font:inherit;line-height:1.6}.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}@media(max-width:760px){.wrap{padding:12px}.btn,button{width:100%;margin:4px 0}}@media print{.abLayoutNav,.abNavMobileTop,.abNavMobileDrawer,.abNavBottom,.noPrint{display:none!important}body{padding:0!important;background:#fff}.wrap{max-width:none}.hero{background:#fff!important;color:#111827!important}.hero p{color:#475569!important}}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${msg === "preference_saved" ? `<div class="ok">자동 리포트 설정을 저장했습니다.</div>` : ""}${err ? `<div class="error">설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요.</div>` : ""}<section class="hero"><h1>주간·월간 무료 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 현재 기록을 즉시 요약하고, 설정 시 매주 일요일과 매월 말에 중복 없이 스냅샷을 생성합니다.</p><p class="noPrint"><a class="btn light" href="/smart-tools?${qs}">스마트 도구</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section><section class="grid"><div class="metric"><span>수입</span><b>${numberWithCommas(live.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(live.expense)}원</b></div><div class="metric"><span>잔액</span><b>${numberWithCommas(live.balance)}원</b></div><div class="metric"><span>기록</span><b>${numberWithCommas(live.transaction_count)}건</b></div><div class="metric"><span>지출한 날</span><b>${numberWithCommas(live.spend_days)}일</b></div></section><section class="card"><h2>지출 상위 분류</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows(live)}</tbody></table></div></section><section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1" ${preference.enabled ? "checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1" ${preference.weekly ? "checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1" ${preference.monthly ? "checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff}.hero p{color:#dbeafe;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#fff}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:6px}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:520px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.settings{display:grid;gap:10px}.settings label{border:1px solid #e5e7eb;border-radius:15px;padding:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.share{width:100%;min-height:220px;border:1px solid #cbd5e1;border-radius:15px;padding:13px;font:inherit;line-height:1.6}.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}@media(max-width:760px){.wrap{padding:12px}.btn,button{width:100%;margin:4px 0}}@media print{.abLayoutNav,.abNavMobileTop,.abNavMobileDrawer,.abNavBottom,.noPrint,.reportMonthNav{display:none!important}body{padding:0!important;background:#fff}.wrap{max-width:none}.hero{background:#fff!important;color:#111827!important}.hero p{color:#475569!important}}${reportUxCss()}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${msg === "preference_saved" ? `<div class="ok">자동 리포트 설정을 저장했습니다.</div>` : ""}${err ? `<div class="error">설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요.</div>` : ""}<section class="hero"><h1>주간·월간 무료 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 현재 기록을 즉시 요약하고, 설정 시 매주 일요일과 매월 말에 중복 없이 스냅샷을 생성합니다.</p><p class="noPrint"><a class="btn light" href="/smart-tools?${qs}">스마트 도구</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id })}<section class="grid"><div class="metric"><span>수입</span><b>${numberWithCommas(live.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(live.expense)}원</b></div><div class="metric"><span>잔액</span><b>${numberWithCommas(live.balance)}원</b></div><div class="metric"><span>기록</span><b>${numberWithCommas(live.transaction_count)}건</b></div><div class="metric"><span>지출한 날</span><b>${numberWithCommas(live.spend_days)}일</b></div></section><section class="card"><h2>지출 상위 분류</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows(live)}</tbody></table></div></section><section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1" ${preference.enabled ? "checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1" ${preference.weekly ? "checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1" ${preference.monthly ? "checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
 }
 
 async function fetchReceiptCategoryNames(env, householdId = "") {
@@ -14881,16 +15329,21 @@ async function handleMyAnalysisPage(request, env, url) {
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
-  const prevRows = householdId ? await fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [];
-  const historyRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month) }) : [];
-  const yearRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [];
-  const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
+  const [prevRows, historyRows, yearRows, registeredRecurring, challengeValue] = await Promise.all([
+    householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
+    householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month) }) : [],
+    householdId ? fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [],
+    householdId ? fetchRecurring(env, householdId) : [],
+    householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
+  ]);
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
-  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport }));
+  const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
+  const dashboard = { ...buildReportDashboardSummary(ctx.rows, ctx.budget, month), householdId };
+  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, dashboard, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -14911,10 +15364,11 @@ async function handleMyInsightPage(request, env, url) {
   const dataStart = `${addMonthsYm(month, -11)}-01`;
   const dataEnd = nextMonthStart(month);
   // 30만 사용자 운영을 고려해 불필요한 캘린더·통계 쿼리를 생략하고 3개 요청만 병렬 수행한다.
-  const [members, budgets, rawRows] = await Promise.all([
+  const [members, budgets, rawRows, challengeValue] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
     fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001 }),
+    getSettingValue(env, reportChallengeSettingsKey(selected.id)),
   ]);
   const truncated = rawRows.length > 9000;
   const rows = attachSpenderNames(rawRows.slice(0, 9000), members);
@@ -14922,7 +15376,9 @@ async function handleMyInsightPage(request, env, url) {
   const currentEnd = nextMonthStart(month);
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets);
-  return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, budget, dataStart, truncated }));
+  const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
+  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month), householdId: selected.id };
+  return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated }));
 }
 
 function insightAppJsResponse() {
@@ -14933,7 +15389,7 @@ function insightAppJsResponse() {
   });
 }
 
-function renderMyInsightHtml({ env, month, selected, rows, budget = {}, dataStart, truncated = false }) {
+function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], budget = {}, dashboard = {}, challenge = {}, dataStart, truncated = false }) {
   const title = escapeHtml(appName(env));
   const qs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const slim = safeArray(rows).map((r) => [
@@ -15075,8 +15531,12 @@ details.twin th{color:#8B95A1;font-weight:800}
 svg text{font-family:inherit}
 @media(max-width:820px){.grid2{grid-template-columns:1fr}.donutWrap{grid-template-columns:150px minmax(0,1fr)}.kpi b{font-size:18px}}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
-</style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><div class="pageMain">
+${reportUxCss()}
+</style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
 <section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">리포트</span><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 분석합니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">종합 리포트</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
+${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
+${renderReportDashboard(dashboard)}
+${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) })}
 <section class="filterBar abV5FilterBar" id="filterBar">
   <div class="chipScroll" id="periodChips"></div>
   <div class="fRow">
@@ -16349,7 +16809,7 @@ function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month
   return tools.map(([a,b,c]) => `<div class="box"><span class="muted">${escapeHtml(a)}</span><b>${escapeHtml(b)}</b><span class="muted">${escapeHtml(c)}</span></div>`).join("");
 }
 
-function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [], budget = {}, analysis, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {
+function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [], budget = {}, analysis, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null, challenge = {}, dashboard = {}, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const role = selected?.role || "";
   const topCategory = analysis.topCategory || { category: "없음", expense: 0 };
@@ -16358,6 +16818,9 @@ function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [],
   const incomeMoMRate = percentChange(Number(stats.totals?.income || 0), ext.prev.totals.income);
   const fair = ext.fairMoM || { label: "지난달 대비", expense: ext.expenseMoMRate, income: incomeMoMRate };
   const recurringTotal = safeArray(recurringCandidates).reduce((s, c) => s + Number(c.amount || 0), 0);
+  const message = msg === "challenge_saved" ? `<div class="reportFlash ok" role="status">이번 달 챌린지 설정을 저장했습니다.</div>` : "";
+  const errorMessages = { challenge_write_not_allowed: "챌린지 설정은 가계부 소유자·관리자만 변경할 수 있습니다.", challenge_invalid: "챌린지 이름과 목표 일수(1~20일)를 확인해 주세요.", challenge_save_failed: "챌린지 설정을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요." };
+  const error = err ? `<div class="reportFlash error" role="alert">${escapeHtml(errorMessages[err] || "요청을 처리하지 못했습니다.")}</div>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff}.hero p{color:#ede9fe}.muted{color:#667085;line-height:1.55;font-size:13px}.grid,.gaugeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.box,.gaugeCard{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.box b,.gaugeCard b{display:block;font-size:22px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}.btn{display:inline-flex;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;padding:10px 14px;font-weight:1000;margin:3px}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.meme{background:linear-gradient(135deg,#111827,#f59e0b);color:#fff}.meme .muted{color:#fff7ed}.meter,.miniMeter{height:16px;background:#eef2f7;border-radius:999px;overflow:hidden;border:1px solid #dbe4ef}.meter i,.miniMeter i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);border-radius:999px}.miniMeter{height:10px;min-width:100px;margin-bottom:4px}.readableTrendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:8px}.dailyCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:9px;min-height:86px}.dailyCell.noValue{opacity:.55}.dailyTop{display:flex;justify-content:space-between;gap:6px;align-items:center}.dailyTop b{font-size:17px}.dailyTop span{font-size:12px;font-weight:1000;color:#2563eb}.dailyTrack{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:10px 0 7px}.dailyTrack i{display:block;height:100%;background:#2563eb;border-radius:999px}.dailyCell small{color:#64748b;font-weight:800}.weekdayTrendGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.weekdayCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:12px;display:grid;gap:8px}.weekdayCell.peak{border-color:#FEE500;box-shadow:0 0 0 3px rgba(254,229,0,.28)}.weekdayCell div{display:flex;justify-content:space-between;gap:8px;align-items:center}.weekdayCell b{font-size:18px}.weekdayCell span{font-size:12px;color:#64748b}.weekdayCell strong{font-size:18px}.weekdayCell i{display:block;height:8px;background:#3182F6;border-radius:999px}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b;margin-top:4px}.pcBox{display:flex;gap:8px;flex-wrap:wrap}.insightList{display:grid;gap:8px}.insightList div{background:#f8fafc;border:1px solid #e8edf4;border-radius:16px;padding:12px}@media(max-width:760px){.pcBox .btn{width:100%}}
 .grid2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
 .grid2col>.card{margin:0}
@@ -16413,7 +16876,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, role, month, "analysis")}<div class="pageMain"><section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 분석 스튜디오</a><a class="btn" href="/app?${qs}">PC 전체 화면 바로가기</a><a class="btn secondary" href="/budgets?${qs}">PC 예산 화면</a><a class="btn secondary" href="/my/settings?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section><section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 소비 분석</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportDashboard(dashboard)}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
 }
 
 
@@ -17505,8 +17968,8 @@ async function fetchBudgets(env, householdId, month, options = {}) {
 }
 
 async function fetchMobileHomeSettings(env, householdId = "", month = currentMonthKst(), options = {}) {
-  if (!householdId) return { aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [] };
-  const keys = [memberAliasSettingsKey(householdId), budgetsSettingsKey(householdId, month)];
+  if (!householdId) return { aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [], challengeValue: {} };
+  const keys = [memberAliasSettingsKey(householdId), budgetsSettingsKey(householdId, month), reportChallengeSettingsKey(householdId)];
   if (options.includeReserve) keys.push(reservePlansKey(householdId));
   if (options.includePayment) keys.push(paymentAssetsKey(householdId));
   const params = new URLSearchParams();
@@ -17520,6 +17983,7 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
     budgetRows: normalizeBudgetRows(values.get(budgetsSettingsKey(householdId, month)) || [], householdId, month),
     reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
+    challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
   };
 }
 
@@ -18552,7 +19016,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22850.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22858.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22850.js";
@@ -18560,7 +19024,7 @@ const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22850.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22858.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -19338,6 +19802,106 @@ body.abV22812Shell .abSaveFeedbackClose{display:grid;place-items:center;width:34
   body.abV22812Shell .abSaveFeedback.isLeaving{transform:translateY(10px)}
 }
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abSaveFeedback{transition:none}}
+/* V22.8.58: 날짜형 챌린지와 범주 SVG 아이콘 기반 최근 기록 가독성 개선. */
+body.abV22812Shell .abBrandIcon{display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.abV22812Shell .abNavMobileLogo{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--accent-soft)!important;color:var(--accent)!important}
+body.abV22812Shell .abNavToggleIcon{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s ease}
+body.abV22812Shell.abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)}
+@media(min-width:900px){
+  body.abV22812Shell .abLayoutNav{overflow:visible!important}
+  body.abV22812Shell .abNavTop,body.abV22812Shell.abNavCollapsed .abNavTop{position:relative!important;display:flex!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;min-height:76px;padding:16px 30px 16px 16px!important;overflow:visible!important}
+  body.abV22812Shell .abNavBrand{flex:1 1 auto!important;min-width:0!important;max-width:100%!important;gap:10px!important}
+  body.abV22812Shell .abNavBrandText{display:flex!important;max-width:158px!important;min-width:0!important;overflow:hidden!important}
+  body.abV22812Shell .abNavBrandText,body.abV22812Shell .abNavBrandText small{white-space:nowrap!important;text-overflow:ellipsis!important;overflow:hidden!important}
+  body.abV22812Shell.abNavCollapsed .abNavBrandText{display:none!important}
+  body.abV22812Shell .abNavToggle,body.abV22812Shell.abNavCollapsed .abNavToggle{position:absolute!important;right:-15px!important;top:20px!important;z-index:6!important;width:32px!important;height:36px!important;display:grid!important;place-items:center!important;padding:0!important;border:1px solid var(--line)!important;border-radius:11px!important;background:var(--card)!important;color:var(--sub)!important;box-shadow:0 6px 16px rgba(15,23,42,.1)!important;transform:none!important}
+  body.abV22812Shell .abNavToggle:hover{background:var(--accent-soft)!important;color:var(--accent)!important}
+  body.abV22812Shell.abNavCollapsed .abNavBrand{justify-content:center!important}
+  body.abV22812Shell.abMobileAppSurface .appTop,body.abV22812Shell.abMobileAppSurface main.wrap{box-sizing:border-box!important;width:calc(100% - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}
+  body.abV22812Shell.abMobileAppSurface .appTop{padding:22px 24px 20px!important}
+  body.abV22812Shell.abMobileAppSurface main.wrap{padding:22px 24px 120px!important}
+}
+body.abV22812Shell .abActivityRail{display:none}
+@media(min-width:1320px){
+  :root{--abActivityRailW:340px}
+  body.abV22812Shell.abMobileAppSurface{padding-right:var(--abActivityRailW)!important}
+  body.abV22812Shell.abMobileAppSurface .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))}
+  body.abV22812Shell.abMobileAppSurface.abNavCollapsed .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2))}
+  body.abV22812Shell.abMobileAppSurface .abSaveFeedback{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavWidth,238px) - var(--abActivityRailW) - 40px))}
+  body.abV22812Shell.abMobileAppSurface.abNavCollapsed .abSaveFeedback{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavCollapsed,72px) - var(--abActivityRailW) - 40px))}
+  body.abV22812Shell.abMobileAppSurface .abDayDetailOverlay,body.abV22812Shell.abMobileAppSurface .abQuickInputOverlay{padding-right:calc(var(--abActivityRailW) + 28px)}
+  body.abV22812Shell .abActivityRail{position:fixed;right:0;top:0;bottom:0;z-index:2080;width:var(--abActivityRailW);display:flex;flex-direction:column;min-width:0;background:var(--card)!important;color:var(--text)!important;border-left:1px solid var(--line)!important;box-shadow:-10px 0 30px rgba(15,23,42,.07)}
+  body.abV22812Shell .abActivityRail[hidden]{display:none!important}
+}
+body.abV22812Shell .abActivityHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:21px 18px 13px}
+body.abV22812Shell .abActivityHead span{display:block;color:var(--faint)!important;font-size:11px;font-weight:750}
+body.abV22812Shell .abActivityHead h2{margin:2px 0 0;font-size:18px;font-weight:850;letter-spacing:-.025em}
+body.abV22812Shell .abActivityHead a{color:var(--accent)!important;text-decoration:none;font-size:11.5px;font-weight:800;padding-top:3px}
+body.abV22812Shell .abActivityTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 16px 12px;padding:4px;border-radius:12px;background:var(--card-2)!important}
+body.abV22812Shell .abActivityTabs button{min-height:31px;padding:0 7px;border:0;border-radius:9px;background:transparent;color:var(--faint)!important;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+body.abV22812Shell .abActivityTabs button.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 3px 10px rgba(15,23,42,.08)}
+body.abV22812Shell .abActivityAdd{display:flex;align-items:center;gap:10px;min-height:50px;margin:0 16px 12px;padding:0 14px;border:1px solid var(--line)!important;border-radius:14px;background:var(--card)!important;color:var(--text)!important;text-decoration:none;font-size:12.5px;font-weight:750}
+body.abV22812Shell .abActivityAdd b{display:grid;place-items:center;width:25px;height:25px;border-radius:9px;background:var(--accent-soft)!important;color:var(--accent)!important;font-size:17px}
+body.abV22812Shell .abActivityList{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;border-top:1px solid var(--line)!important;padding:8px 0 14px}
+body.abV22812Shell .abActivityLoading,body.abV22812Shell .abActivityEmpty{display:grid;place-items:center;gap:7px;min-height:180px;padding:24px;text-align:center;color:var(--sub)!important}
+body.abV22812Shell .abActivityLoading i{width:22px;height:22px;border:3px solid var(--line)!important;border-top-color:var(--accent)!important;border-radius:50%;animation:abActivitySpin .8s linear infinite}
+body.abV22812Shell .abActivityEmpty b{color:var(--text)!important;font-size:13px}
+body.abV22812Shell .abActivityEmpty span{font-size:11.5px;line-height:1.5}
+body.abV22812Shell .abActivityEmpty button{min-height:36px;padding:0 12px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card-2)!important;color:var(--text)!important;font:inherit;font-size:11.5px;font-weight:750;cursor:pointer}
+body.abV22812Shell .abActivityGroup{padding:0 14px}
+body.abV22812Shell .abActivityGroup>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 3px 7px}
+body.abV22812Shell .abActivityGroup>header b,body.abV22812Shell .abActivityGroup>header span{color:var(--faint)!important;font-size:10.5px;font-weight:800}
+body.abV22812Shell .abActivityGroup>header span{display:flex;align-items:center;gap:7px}body.abV22812Shell .abActivityGroup>header span em{padding:2px 6px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}body.abV22812Shell .abActivityGroup>header span b{color:var(--neg)!important;font-variant-numeric:tabular-nums}
+body.abV22812Shell .abActivityItem{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:66px;padding:8px 3px;border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent)!important;color:var(--text)!important;text-decoration:none}
+body.abV22812Shell .abActivityItem:hover,body.abV22812Shell .abActivityItem:focus-visible{background:var(--card-2)!important;border-radius:13px;padding-left:7px;padding-right:7px}
+body.abV22812Shell .abActivityItem:focus-visible{outline:3px solid var(--accent)!important;outline-offset:-1px}
+body.abV22812Shell .abActivityTypeIcon{display:grid;place-items:center;width:38px;height:38px;border-radius:13px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}
+body.abV22812Shell .abActivityTypeIcon svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.abV22812Shell .abActivityTypeIcon.kind-income{background:color-mix(in srgb,var(--pos) 14%,var(--card))!important;color:var(--pos)!important}
+body.abV22812Shell .abActivityTypeIcon.kind-cafe,body.abV22812Shell .abActivityTypeIcon.kind-food{background:color-mix(in srgb,#f59e0b 16%,var(--card))!important;color:#a85400!important}
+body.abV22812Shell .abActivityTypeIcon.kind-transport{background:color-mix(in srgb,#3b82f6 14%,var(--card))!important;color:#1d5fc1!important}
+body.abV22812Shell .abActivityTypeIcon.kind-medical{background:color-mix(in srgb,var(--neg) 13%,var(--card))!important;color:var(--neg)!important}
+body.abV22812Shell .abActivityTypeIcon.kind-shopping{background:color-mix(in srgb,#ec4899 13%,var(--card))!important;color:#b52169!important}
+body.abV22812Shell .abActivityTypeIcon.kind-housing{background:color-mix(in srgb,#8b5cf6 13%,var(--card))!important;color:#7442cc!important}
+body.abV22812Shell .abActivityTypeIcon.kind-subscription,body.abV22812Shell .abActivityTypeIcon.kind-education{background:color-mix(in srgb,#14b8a6 13%,var(--card))!important;color:#087f73!important}
+body.abV22812Shell .abActivityTypeIcon.kind-leisure{background:color-mix(in srgb,#0ea5e9 13%,var(--card))!important;color:#087cae!important}
+body.abV22812Shell .abActivityItem>span{min-width:0}
+body.abV22812Shell .abActivityItem>span b,body.abV22812Shell .abActivityItem>span small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.abV22812Shell .abActivityItem>span b{font-size:12.5px;font-weight:800}
+body.abV22812Shell .abActivityItem>span small{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--faint)!important;font-size:10px}
+body.abV22812Shell .abActivityItem>span small em{flex:none;padding:2px 5px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal;font-weight:750}
+body.abV22812Shell .abActivityItem>span small span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.abV22812Shell .abActivityItem>strong{display:flex;align-items:baseline;gap:2px;white-space:nowrap;color:var(--neg)!important;font-size:12.5px;font-weight:850;font-variant-numeric:tabular-nums}
+body.abV22812Shell .abActivityItem>strong>b{font:inherit}body.abV22812Shell .abActivityItem>strong>small{font-size:9px;font-weight:750;color:currentColor!important}
+body.abV22812Shell .abActivityItem.isIncome>strong{color:var(--pos)!important}
+body.abV22812Shell .abActivitySummary{flex:none;padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)!important;background:var(--card)!important}
+body.abV22812Shell .abActivitySummary>div{display:inline-flex;align-items:center;gap:5px;margin-right:10px;font-size:10.5px}
+body.abV22812Shell .abActivitySummary>div span{color:var(--faint)!important}
+body.abV22812Shell .abActivitySummary>div b{color:var(--text)!important;font-size:10.5px}
+body.abV22812Shell .abActivitySummary>div:first-child b{color:var(--pos)!important}
+body.abV22812Shell .abActivitySummary>div:nth-child(2) b{color:var(--neg)!important}
+body.abV22812Shell .abActivitySummary p{display:flex;align-items:center;justify-content:space-between;margin:9px 0 0;padding-top:9px;border-top:1px solid var(--line)!important;font-size:11px}
+body.abV22812Shell .abActivitySummary p span{color:var(--faint)!important}
+body.abV22812Shell .abActivitySummary p strong{color:var(--pos)!important;font-size:12px}
+body.abV22812Shell .abActivitySummary p strong.isNegative{color:var(--neg)!important}
+@keyframes abActivitySpin{to{transform:rotate(360deg)}}
+/* 홈에서도 챌린지를 카드로 표시하고 라이트·다크 모드 토큰을 함께 사용한다. */
+body.abV22812Shell .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;background:linear-gradient(135deg,#171a2b,#222741)!important;color:#fff!important;border:1px solid #343b5f!important;border-radius:22px;padding:18px;margin:14px 0}
+body.abV22812Shell .reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--action,#6d5dfc)!important;color:#fff!important;font-size:11px;font-weight:900}
+body.abV22812Shell .reportChallenge h2{margin:9px 0 5px;color:#fff!important;font-size:18px}
+body.abV22812Shell .reportChallenge p{margin:0;color:#c7cce0!important;font-size:12.5px;line-height:1.55}
+body.abV22812Shell .reportChallengeDates{color:#aeb6d3!important;font-size:11px}
+body.abV22812Shell .reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}
+body.abV22812Shell .reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--accent,#6d5dfc));border-radius:inherit}
+body.abV22812Shell .reportChallengeMain>strong{font-size:12px;color:#ffd45b!important}
+body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid #4b557c;border-radius:12px;color:#fff!important;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
+body.abV22812Shell .abNavChallenge{display:block;margin:10px 12px 12px;padding:12px;border:1px solid #343b5f!important;border-radius:15px;background:linear-gradient(145deg,#171a2b,#222741)!important;color:#fff!important;text-decoration:none!important;box-shadow:0 8px 18px rgba(15,23,42,.14)}
+body.abV22812Shell .abNavChallenge>span{display:flex;align-items:center;justify-content:space-between;gap:8px}body.abV22812Shell .abNavChallenge>span b{display:flex;align-items:center;gap:4px;min-width:0;color:#ffd45b!important;font-size:10px;font-weight:850;white-space:nowrap}body.abV22812Shell .abNavChallenge>span em{flex:none;padding:2px 6px;border-radius:999px;background:#30364d;color:#ffd45b!important;font-size:9.5px;font-style:normal;font-weight:850}body.abV22812Shell .abNavChallenge>strong{display:block;margin:7px 0 2px;color:#fff!important;font-size:12px;font-weight:850;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}body.abV22812Shell .abNavChallenge>small{display:block;margin-top:6px;color:#c7cce0!important;font-size:9.5px;line-height:1.35}body.abV22812Shell .abNavChallenge.isOff{opacity:.74}body.abV22812Shell.abNavCollapsed .abNavChallenge{display:none!important}
+body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:10px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0!important;font-size:10px;font-weight:750}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:22px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
+body.abV22812Shell .abChallengeDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin:8px 0}body.abV22812Shell .abChallengeDays>span{display:grid;place-items:center;min-width:0;height:30px;border:1px solid #3b425f;border-radius:7px;background:#262b40}body.abV22812Shell .abChallengeDays i{font-style:normal;font-size:8px;color:#aeb6d3!important;line-height:1}body.abV22812Shell .abChallengeDays b{font-size:9px;line-height:1;color:#fff!important}body.abV22812Shell .abChallengeDays .is-success{background:#245545;border-color:#3e8d74}body.abV22812Shell .abChallengeDays .is-success b{color:#9af0d3!important}body.abV22812Shell .abChallengeDays .is-spent{background:#4b2930;border-color:#86515a}body.abV22812Shell .abChallengeDays .is-spent b{color:#ffabb3!important}body.abV22812Shell .abChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .abChallengePercent{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin:8px 0}body.abV22812Shell .abChallengePercent>b{font-size:15px;color:#ffd45b!important}body.abV22812Shell .abChallengePercent>i{display:block;height:7px;border-radius:999px;background:#30364d;overflow:hidden}body.abV22812Shell .abChallengePercent u{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ffd45b,var(--accent,#6d5dfc));text-decoration:none}
+body.abV22812Shell .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}body.abV22812Shell .reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}body.abV22812Shell .reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
+@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:19px}.abNavChallenge{display:none!important}}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell .abActivityLoading i{animation:none}body.abV22812Shell .abNavToggleIcon{transition:none}}
 `;
 
 function accountbookThemeClientMain() {
@@ -20248,7 +20812,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22850-css"'
+        ? '"accountbook-shell-v22858-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -20264,7 +20828,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22850-js"'
+          ? '"accountbook-v5-v22858-js"'
           : '"mobile-home-v22855-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -20309,7 +20873,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", balert = "", homeView = "", calendarRows = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true }) {
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
@@ -20437,7 +21001,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
         ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
         : "지난달과 같은 금액을 썼어요.";
   const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
-  const homeSpendHero = `<section class="homeSpendHero" aria-labelledby="homeSpendTitle"><span id="homeSpendTitle">${Number(month.slice(5, 7))}월 지출</span><strong>${numberWithCommas(stats.totals.expense || 0)}원</strong><p class="${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</p><div class="homeSpendMeta"><span>수입 <b>${numberWithCommas(stats.totals.income || 0)}원</b></span><span>${budgetTotal ? "남은 예산" : "수입-지출"} <b>${numberWithCommas(budgetRemaining)}원</b></span></div></section>`;
+  const homeSpendHero = `<section class="homeSpendHero" aria-labelledby="homeSpendTitle"><span id="homeSpendTitle">${Number(month.slice(5, 7))}월 지출</span><strong>${numberWithCommas(stats.totals.expense || 0)}원</strong><p class="${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</p><div class="homeSpendMeta"><span>수입 <b>${numberWithCommas(stats.totals.income || 0)}원</b></span><span>${budgetTotal ? "남은 예산" : "수입-지출"} <b>${numberWithCommas(budgetRemaining)}원</b></span></div></section>${reportChallenge ? renderReportChallenge(reportChallenge, { householdId, canManage: appIsManager, home: true }) : ""}`;
+  if (reportChallenge && budget && typeof budget === "object") budget.reportChallenge = reportChallenge;
   // The remaining template uses rows.length only for the feed's "view all"
   // affordance. Dashboard summaries above have already been built from all
   // monthly rows, so switch that final count to the filtered feed source.
@@ -20539,7 +21104,7 @@ async function handleMobileV8Page(request, env, url) {
   const includeReserve = !!selectedHousehold && month === currentMonthKst();
   const homeSettingsPromise = selectedHousehold
     ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions })
-    : Promise.resolve({ aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [] });
+    : Promise.resolve({ aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [], challengeValue: {} });
   const [members, rawMonthlyRows, prevAmountRows, budgets, homeSettings] = await Promise.all([
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
@@ -20561,6 +21126,7 @@ async function handleMobileV8Page(request, env, url) {
   const stats = calculateStats(rows);
   const prevStats = calculateStats(prevAmountRows);
   const budget = budgetSummary(rows, budgets);
+  const reportChallenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue });
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, rows.map((r) => r.category).filter(Boolean));
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, [...paymentAssetRows.map((p) => p.name).filter(Boolean), ...rows.map((r) => r.payment_method).filter(Boolean)]);
   const msg = url.searchParams.get("msg") || "";
@@ -20570,7 +21136,7 @@ async function handleMobileV8Page(request, env, url) {
   const balert = String(url.searchParams.get("balert") || "").slice(0, 120);
   const homeView = url.searchParams.get("view") === "calendar" ? "calendar" : "";
   const calendarRows = rows;
-  return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, balert, homeView, calendarRows, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk }));
+  return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk }));
 }
 
 
@@ -25875,6 +26441,60 @@ async function handleUserTxSearch(request, env, url) {
   return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
 }
 
+// V22.8.58: 홈 우측 최근 기록 패널용 읽기 전용 API와 표시 전용 분류 정보를 제공한다.
+// 선택 가계부는 로그인 세션이 실제로 참여한 범위 안에서만 결정하며 쓰기 작업은 하지 않는다.
+async function handleUserRecentTransactions(request, env, url) {
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none" || !safeArray(scope.households).length) {
+    return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
+  }
+  const month = validMonth(String(url.searchParams.get("month") || "")) || currentMonthKst();
+  const requested = String(url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  const household = selectRequestedScopedHousehold(scope.households, requested);
+  if (!household) {
+    return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
+  }
+  const [members, rawRows] = await Promise.all([
+    fetchHouseholdMembers(env, household.id),
+    fetchAdminRows(env, { month, householdId: household.id, type: "all" }),
+  ]);
+  const rows = attachSpenderNames(rawRows, members);
+  const today = formatDate(nowKstDate());
+  const todayDate = new Date(`${today}T00:00:00+09:00`);
+  const weekOffset = todayDate.getDay() === 0 ? -6 : 1 - todayDate.getDay();
+  todayDate.setDate(todayDate.getDate() + weekOffset);
+  const weekStart = formatDate(todayDate);
+  let income = 0;
+  let expense = 0;
+  for (const row of rows) {
+    if (row.type === "income") income += Number(row.amount || 0);
+    else expense += Number(row.amount || 0);
+  }
+  const displayed = rows.slice(0, 80).map((row) => ({
+    id: String(row.id || ""),
+    type: row.type === "income" ? "income" : "expense",
+    amount: Number(row.amount || 0),
+    memo: String(row.memo || row.raw_text || row.category || "기록").slice(0, 100),
+    category: String(row.category || (row.type === "income" ? "수입" : "미분류")).slice(0, 60),
+    payment_method: String(row.payment_method || "").slice(0, 60),
+    member: String(row.spender_name || "").slice(0, 60),
+    transaction_date: String(row.transaction_date || "").slice(0, 10),
+    created_at: String(row.created_at || ""),
+  }));
+  return jsonResponse({
+    ok: true,
+    household_id: household.id,
+    household_name: String(household.name || "가계부"),
+    month,
+    today,
+    week_start: weekStart,
+    totals: { income, expense, balance: income - expense },
+    count: rows.length,
+    displayed_count: displayed.length,
+    rows: displayed,
+  });
+}
+
 // V22.8.48 UI/UX stage 2: 날짜 클릭 팝업용 사용자 범위 읽기 전용 API.
 // V22.8.49 UI/UX stage 3: 기록 입력은 기존 폼과 저장 경로를 그대로 재사용하며 별도 쓰기 API를 추가하지 않는다.
 // V22.8.50 UI/UX stage 4: 빠른 실행 독과 저장 피드백·날짜 복귀만 가산하며 거래 쓰기 계약은 변경하지 않는다.
@@ -28303,4 +28923,14 @@ export {
   canReadMyHousehold,
   canWriteMyHousehold,
   buildSettlementModel,
+  reportChallengeSettingsKey,
+  shiftChallengeDate,
+  challengePeriodDays,
+  normalizeReportChallenge,
+  buildReportChallenge,
+  renderReportChallenge,
+  reportMonthHref,
+  renderReportMonthNavigator,
+  buildReportDashboardSummary,
+  renderReportDashboard,
 };
