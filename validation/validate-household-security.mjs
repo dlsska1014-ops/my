@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-ok(source.includes('const APP_VERSION = "V22.8.58-CHALLENGE-ACTIVITY-UX"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.59-ACCOUNT-RUNTIME-RELIABILITY"'), "runtime reports the challenge and activity UX release");
 ok(source.includes('qs.set("prompt", "login")'), "Kakao deletion reauthentication forces an explicit login prompt");
 ok(source.includes('purpose: "household-delete"'), "deletion reauthentication token is purpose-bound");
 ok(source.includes('household_id: String(householdId'), "deletion reauthentication token is household-bound");
@@ -81,6 +81,18 @@ try {
   eq(fixture.db.accountbook_user_identities.length, identityCount, "creation does not add or replace a login identity");
 } finally {
   fixture.restore();
+}
+
+const sessionSecurityFixture = await createV2265QaFixture();
+try {
+  sessionSecurityFixture.db.__fail_user_security_reads = true;
+  const blockedSession = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", {
+    headers: { cookie: sessionSecurityFixture.cookie },
+  }), sessionSecurityFixture.env, {});
+  eq(blockedSession.status, 303, "session verification fails closed when revocation state cannot be read");
+  eq(blockedSession.headers.get("location"), "/my", "unverified session returns to login instead of exposing household data");
+} finally {
+  sessionSecurityFixture.restore();
 }
 
 const explicitScopeFixture = await createV2265QaFixture();
@@ -160,7 +172,7 @@ try {
   eq(readyResponse.status, 503, "readiness endpoint fails closed when a required RPC is absent");
   const readiness = await readyResponse.json();
   eq(readiness.checked_rpcs, 17, "readiness endpoint checks required authentication, write, and asset mutation RPCs");
-  ok(readiness.missing_rpcs.includes("accountbook_auth_attempt"), "readiness response identifies a missing required RPC");
+  ok(readiness.missing_rpcs.includes("accountbook_set_local_identity_v227"), "readiness response identifies a missing required RPC");
 
   const missingRpcFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {

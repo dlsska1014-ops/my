@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.58-CHALLENGE-ACTIVITY-UX"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.59-ACCOUNT-RUNTIME-RELIABILITY"'), "runtime reports the challenge and activity UX release");
 ok(source.includes('key: `transaction-create:${fingerprint}`'), "web transaction creation uses a cross-instance operation lease");
 ok(source.includes('kind: "transaction_edit_history_save_failed"'), "secondary edit-history failures are reported separately");
 ok(!source.includes('await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`'), "budget deletion no longer swallows table failures");
@@ -54,6 +54,51 @@ async function requestJson(fixture, path, { cookie = fixture.cookie, method = "G
   let data = null;
   try { data = JSON.parse(text); } catch (error) {}
   return { response, data, text };
+}
+
+const signupFixture = await createV2265QaFixture();
+try {
+  const beforeUsers = signupFixture.db.users.length;
+  const signupBody = form({
+    login_name: "New Family",
+    display_name: "새 사용자",
+    access_code: "safe-password-2026",
+    access_code_confirm: "safe-password-2026",
+  });
+  const signupResponse = await request(signupFixture, "/my/local-signup", { cookie: "", method: "POST", body: signupBody });
+  eq(signupResponse.status, 303, "local account creation redirects after the atomic RPC succeeds");
+  eq(signupResponse.headers.get("location"), "/my/households?first=1", "new local account continues to household onboarding");
+  ok(String(signupResponse.headers.get("set-cookie") || "").includes("ab_user="), "new local account receives a signed browser session");
+  eq(signupFixture.db.users.length, beforeUsers + 1, "local account creation persists one user");
+  const identity = signupFixture.db.accountbook_user_identities.find((row) => row.provider === "local" && row.provider_subject === "new family");
+  ok(identity?.user_id, "local account creation stores a normalized strong identity");
+  eq(signupFixture.db.accountbook_user_security.find((row) => row.user_id === identity?.user_id)?.session_version, 1, "local account creation initializes session revocation state");
+
+  const duplicateResponse = await request(signupFixture, "/my/local-signup", { cookie: "", method: "POST", body: signupBody });
+  eq(duplicateResponse.status, 409, "duplicate local login name returns a conflict without a Worker exception");
+  const duplicateHtml = await duplicateResponse.text();
+  ok(duplicateHtml.includes("이미 사용 중인 로그인 이름"), "duplicate local login name has an actionable message");
+  eq(signupFixture.db.users.length, beforeUsers + 1, "duplicate signup does not create an orphan user");
+
+  const mismatchResponse = await request(signupFixture, "/my/local-signup", {
+    cookie: "",
+    method: "POST",
+    body: form({ login_name: "mismatch", display_name: "불일치", access_code: "safe-password-2026", access_code_confirm: "different-password" }),
+  });
+  eq(mismatchResponse.status, 400, "password mismatch is rejected before database mutation");
+  eq(signupFixture.db.users.length, beforeUsers + 1, "invalid signup leaves user storage unchanged");
+
+  signupFixture.db.__create_local_user_error = { status: 404, code: "PGRST202", message: "Could not find the function accountbook_create_local_user_v227 in the schema cache" };
+  const missingRpcResponse = await request(signupFixture, "/my/local-signup", {
+    cookie: "",
+    method: "POST",
+    body: form({ login_name: "schema-check", display_name: "스키마", access_code: "safe-password-2026", access_code_confirm: "safe-password-2026" }),
+  });
+  eq(missingRpcResponse.status, 503, "missing signup RPC is reported as service unavailable");
+  ok((await missingRpcResponse.text()).includes("PostgREST 스키마 새로고침"), "missing signup RPC explains the exact migration and cache check");
+  delete signupFixture.db.__create_local_user_error;
+} finally {
+  signupFixture.restore();
 }
 
 const scopeFixture = await createV2265QaFixture();

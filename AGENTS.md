@@ -71,13 +71,14 @@ npm run validate:core-write
 npm run validate:report-dashboard
 npm run validate:home-rail-challenge
 npm run validate:challenge-activity-ux
+npm run validate:account-runtime
 node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음 체크섬, 영수증 56개, 카카오 그룹 22개, 카카오 수정·삭제·복구 130개, 가계부·운영 보안 87개,
-참여자 역할 스키마 20개, UX 56개, 사용자 화면·홈 버튼·테마·성능 161개, AdSense 심사·V2 화면 261개, V5 안정화 41개, 핵심 쓰기 스모크 97개,
-UI/UX 1~4단계 218개, 리포트 대시보드 UX 60개, 홈 우측 기록·챌린지 보정 68개, 챌린지·최근 기록 UI/UX 72개로 총 1349개, ESM `default.fetch`, 작업 트리와
+현재 배포 묶음 체크섬, 영수증 56개, 카카오 그룹 22개, 카카오 수정·삭제·복구 130개, 가계부·운영 보안 89개,
+참여자 역할 스키마 20개, UX 56개, 사용자 화면·홈 버튼·테마·성능 161개, AdSense 심사·V2 화면 261개, V5 안정화 41개, 핵심 쓰기 스모크 110개,
+UI/UX 1~4단계 218개, 리포트 대시보드 UX 60개, 홈 우측 기록·챌린지 보정 68개, 챌린지·최근 기록 UI/UX 76개, 계정·런타임 신뢰성 16개로 총 1384개, ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 세부 절차는
 `docs/codex/VERIFICATION.md`를 따른다.
 
@@ -94,7 +95,7 @@ UI/UX 1~4단계 218개, 리포트 대시보드 UX 60개, 홈 우측 기록·챌�
 
 - 요청한 변경과 직접 관련된 파일만 수정했다.
 - 필수 보호 기준을 위반하지 않았다.
-- 관련 검증과 전체 1,349개 검증이 통과했다.
+- 관련 검증과 전체 1,384개 검증이 통과했다.
 - `git diff --check`가 통과하고 diff를 자체 검토했다.
 - SQL·환경변수·외부 콘솔·수동 운영 확인의 필요 여부를 명시했다.
 - 실행하지 못한 검증이나 남은 위험을 숨기지 않고 최종 보고에 포함했다.

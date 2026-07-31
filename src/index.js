@@ -1869,7 +1869,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.58-CHALLENGE-ACTIVITY-UX";
+const APP_VERSION = "V22.8.59-ACCOUNT-RUNTIME-RELIABILITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -11680,7 +11680,7 @@ function accountbookActivityRailClientMain() {
       '<div class="abActivityTabs" role="group" aria-label="사용 내역 기간"><button type="button" data-ab-activity-filter="today">오늘</button><button type="button" data-ab-activity-filter="week">이번 주</button><button type="button" data-ab-activity-filter="all" class="active" aria-pressed="true">전체</button></div>' +
       '<a class="abActivityAdd" data-ab-quick-open href="' + quickHref() + '"><b>＋</b><span>거래 추가하기</span></a>' +
       '<div class="abActivityList" data-ab-activity-list><div class="abActivityLoading"><i></i><span>최근 기록을 불러오는 중입니다.</span></div></div>' +
-      '<footer class="abActivitySummary" data-ab-activity-summary hidden><div><span>수입</span><b data-ab-activity-income>0원</b></div><div><span>지출</span><b data-ab-activity-expense>0원</b></div><p><span>수입-지출</span><strong data-ab-activity-balance>0원</strong></p></footer>';
+      '<footer class="abActivitySummary" data-ab-activity-summary hidden><div><span>현재 목록 수입</span><b data-ab-activity-income>0원</b></div><div><span>현재 목록 지출</span><b data-ab-activity-expense>0원</b></div><p><span>현재 목록 잔액</span><strong data-ab-activity-balance>0원</strong></p></footer>';
     document.body.appendChild(rail);
     rail.addEventListener("click", function(event) {
       var button = event.target && event.target.closest && event.target.closest("[data-ab-activity-filter]");
@@ -11747,10 +11747,12 @@ function accountbookActivityRailClientMain() {
     var list = rail.querySelector("[data-ab-activity-list]");
     var summary = rail.querySelector("[data-ab-activity-summary]");
     if (summary) {
+      var income = rows.reduce(function(total, row) { return total + (row.type === "income" ? Number(row.amount || 0) : 0); }, 0);
+      var expense = rows.reduce(function(total, row) { return total + (row.type === "income" ? 0 : Number(row.amount || 0)); }, 0);
       summary.hidden = false;
-      summary.querySelector("[data-ab-activity-income]").textContent = "+" + fmt(payload.totals && payload.totals.income) + "원";
-      summary.querySelector("[data-ab-activity-expense]").textContent = "−" + fmt(payload.totals && payload.totals.expense) + "원";
-      var balance = Number(payload.totals && payload.totals.balance || 0);
+      summary.querySelector("[data-ab-activity-income]").textContent = "+" + fmt(income) + "원";
+      summary.querySelector("[data-ab-activity-expense]").textContent = "−" + fmt(expense) + "원";
+      var balance = income - expense;
       var balanceNode = summary.querySelector("[data-ab-activity-balance]");
       balanceNode.textContent = (balance >= 0 ? "+" : "−") + fmt(Math.abs(balance)) + "원";
       balanceNode.classList.toggle("isNegative", balance < 0);
@@ -11779,7 +11781,7 @@ function accountbookActivityRailClientMain() {
         return '<a class="abActivityItem ' + (income ? "isIncome" : "isExpense") + '" href="' + href + '" aria-label="' + esc((row.memo || category || "기록") + ", " + category + ", " + spokenAmount) + '"><i class="abActivityTypeIcon kind-' + kind + '" aria-hidden="true">' + iconSvg(kind) + '</i><span><b>' + esc(row.memo || category || "기록") + '</b><small><em>' + esc(category) + '</em>' + (meta ? '<span>' + esc(meta) + '</span>' : '') + '</small></span><strong><b>' + (income ? "+" : "−") + fmt(row.amount) + '</b><small>원</small></strong></a>';
       }).join("");
       return '<section class="abActivityGroup"><header><b>' + esc(dateLabel(date)) + '</b><span><em>' + fmt(dayRows.length) + '건</em>' + (dayTotal ? '<b>−' + fmt(dayTotal) + '원</b>' : '') + '</span></header>' + items + '</section>';
-    }).join("");
+    }).join("") + (payload.has_more && filter === "all" ? '<p class="abActivityLimitNote">최근 80건을 표시합니다. 전체 기록은 전체 보기에서 확인하세요.</p>' : "");
   }
   function fail(message) {
     var node = ensure();
@@ -12907,16 +12909,18 @@ async function getUserSessionVersion(env, userId = "") {
     const rows = await supabase(env, `/rest/v1/accountbook_user_security?user_id=eq.${encodeURIComponent(uid)}&select=session_version&limit=1`, { method: "GET" }) || [];
     return Math.max(1, Number(rows[0]?.session_version || 1));
   } catch (err) {
-    // Migration rollout compatibility: existing sessions remain version 1,
-    // while password changes and new local sign-ups require the V22.7 RPCs.
-    rememberOpsEvent({ kind: "user_session_version_fallback", severity: "warn", path: "/rest/v1/accountbook_user_security", method: "GET", detail: "V22.7 migration required" });
-    return 1;
+    // The security table is part of readiness from V22.7 onward. Treat an
+    // unavailable revocation check as an invalid session instead of silently
+    // accepting a version-1 token during a database or permission outage.
+    rememberOpsEvent({ kind: "user_session_version_unavailable", severity: "error", path: "/rest/v1/accountbook_user_security", method: "GET", detail: safeError(err) });
+    return 0;
   }
 }
 
 async function makeUserSession(env, userId) {
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 14;
   const version = await getUserSessionVersion(env, userId);
+  if (version < 1) throw new Error("user_session_security_unavailable");
   const data = `${userId}|${exp}|${version}`;
   const sig = await hmacSha256(userSessionSecret(env), data);
   return `${data}.${sig}`;
@@ -15329,13 +15333,16 @@ async function handleMyAnalysisPage(request, env, url) {
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
-  const [prevRows, historyRows, yearRows, registeredRecurring, challengeValue] = await Promise.all([
+  const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
     householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
-    householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month) }) : [],
-    householdId ? fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [],
+    householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001 }) : [],
     householdId ? fetchRecurring(env, householdId) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
+  const truncated = historyRaw.length > 9000;
+  const historyRows = historyRaw.slice(0, 9000);
+  const yearPrefix = `${month.slice(0, 4)}-`;
+  const yearRows = historyRows.filter((row) => String(row.transaction_date || "").startsWith(yearPrefix));
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
@@ -15343,7 +15350,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
   const dashboard = { ...buildReportDashboardSummary(ctx.rows, ctx.budget, month), householdId };
-  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, dashboard, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, dashboard, truncated, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -16809,7 +16816,7 @@ function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month
   return tools.map(([a,b,c]) => `<div class="box"><span class="muted">${escapeHtml(a)}</span><b>${escapeHtml(b)}</b><span class="muted">${escapeHtml(c)}</span></div>`).join("");
 }
 
-function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [], budget = {}, analysis, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null, challenge = {}, dashboard = {}, msg = "", err = "" }) {
+function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [], budget = {}, analysis, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null, challenge = {}, dashboard = {}, truncated = false, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const role = selected?.role || "";
   const topCategory = analysis.topCategory || { category: "없음", expense: 0 };
@@ -16821,6 +16828,7 @@ function renderMyAnalysisHtml({ env, month, selected, rows, stats, budgets = [],
   const message = msg === "challenge_saved" ? `<div class="reportFlash ok" role="status">이번 달 챌린지 설정을 저장했습니다.</div>` : "";
   const errorMessages = { challenge_write_not_allowed: "챌린지 설정은 가계부 소유자·관리자만 변경할 수 있습니다.", challenge_invalid: "챌린지 이름과 목표 일수(1~20일)를 확인해 주세요.", challenge_save_failed: "챌린지 설정을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요." };
   const error = err ? `<div class="reportFlash error" role="alert">${escapeHtml(errorMessages[err] || "요청을 처리하지 못했습니다.")}</div>` : "";
+  const truncation = truncated ? `<div class="reportFlash error" role="alert">최근 12개월 기록이 9,000건을 넘어 일부만 분석했습니다. 정확한 전체 분석은 기간을 나누어 확인해 주세요.</div>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,#7c3aed);color:#fff}.hero p{color:#ede9fe}.muted{color:#667085;line-height:1.55;font-size:13px}.grid,.gaugeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.box,.gaugeCard{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.box b,.gaugeCard b{display:block;font-size:22px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}.btn{display:inline-flex;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;padding:10px 14px;font-weight:1000;margin:3px}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.meme{background:linear-gradient(135deg,#111827,#f59e0b);color:#fff}.meme .muted{color:#fff7ed}.meter,.miniMeter{height:16px;background:#eef2f7;border-radius:999px;overflow:hidden;border:1px solid #dbe4ef}.meter i,.miniMeter i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);border-radius:999px}.miniMeter{height:10px;min-width:100px;margin-bottom:4px}.readableTrendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:8px}.dailyCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:9px;min-height:86px}.dailyCell.noValue{opacity:.55}.dailyTop{display:flex;justify-content:space-between;gap:6px;align-items:center}.dailyTop b{font-size:17px}.dailyTop span{font-size:12px;font-weight:1000;color:#2563eb}.dailyTrack{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:10px 0 7px}.dailyTrack i{display:block;height:100%;background:#2563eb;border-radius:999px}.dailyCell small{color:#64748b;font-weight:800}.weekdayTrendGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.weekdayCell{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:12px;display:grid;gap:8px}.weekdayCell.peak{border-color:#FEE500;box-shadow:0 0 0 3px rgba(254,229,0,.28)}.weekdayCell div{display:flex;justify-content:space-between;gap:8px;align-items:center}.weekdayCell b{font-size:18px}.weekdayCell span{font-size:12px;color:#64748b}.weekdayCell strong{font-size:18px}.weekdayCell i{display:block;height:8px;background:#3182F6;border-radius:999px}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b;margin-top:4px}.pcBox{display:flex;gap:8px;flex-wrap:wrap}.insightList{display:grid;gap:8px}.insightList div{background:#f8fafc;border:1px solid #e8edf4;border-radius:16px;padding:12px}@media(max-width:760px){.pcBox .btn{width:100%}}
 .grid2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
 .grid2col>.card{margin:0}
@@ -16876,7 +16884,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 소비 분석</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportDashboard(dashboard)}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}">← 소비 분석</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportDashboard(dashboard)}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><h2>분류별 예산 사용률</h2><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
 }
 
 
@@ -19016,7 +19024,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22858.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22859.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22850.js";
@@ -19024,7 +19032,7 @@ const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22858.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22859.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -19884,6 +19892,7 @@ body.abV22812Shell .abActivitySummary p{display:flex;align-items:center;justify-
 body.abV22812Shell .abActivitySummary p span{color:var(--faint)!important}
 body.abV22812Shell .abActivitySummary p strong{color:var(--pos)!important;font-size:12px}
 body.abV22812Shell .abActivitySummary p strong.isNegative{color:var(--neg)!important}
+body.abV22812Shell .abActivityLimitNote{margin:8px 14px 14px;padding:9px 10px;border:1px dashed var(--line)!important;border-radius:10px;color:var(--faint)!important;background:var(--soft)!important;font-size:10.5px;line-height:1.45;text-align:center}
 @keyframes abActivitySpin{to{transform:rotate(360deg)}}
 /* 홈에서도 챌린지를 카드로 표시하고 라이트·다크 모드 토큰을 함께 사용한다. */
 body.abV22812Shell .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;background:linear-gradient(135deg,#171a2b,#222741)!important;color:#fff!important;border:1px solid #343b5f!important;border-radius:22px;padding:18px;margin:14px 0}
@@ -20812,7 +20821,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22858-css"'
+        ? '"accountbook-shell-v22859-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -20828,7 +20837,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22858-js"'
+          ? '"accountbook-v5-v22859-js"'
           : '"mobile-home-v22855-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -21755,6 +21764,29 @@ async function createLocalLoginUser(env, loginName = "", displayName = "", acces
   return Array.isArray(result) ? result[0] : result;
 }
 
+function classifyLocalSignupError(error) {
+  const detail = safeError(error);
+  if (/login_name_in_use|duplicate key|23505/i.test(detail)) {
+    return { status: 409, code: "login_name_in_use", message: "이미 사용 중인 로그인 이름입니다. 다른 이름을 선택하세요." };
+  }
+  if (/invalid_login_name/i.test(detail)) {
+    return { status: 400, code: "invalid_login_name", message: "로그인 이름은 공백을 제외하고 2자 이상 입력하세요." };
+  }
+  if (/invalid_credential/i.test(detail)) {
+    return { status: 400, code: "invalid_credential", message: "비밀번호 정보를 안전하게 처리하지 못했습니다. 비밀번호를 다시 입력해 주세요." };
+  }
+  if (/PGRST202|42883|could not find (?:the )?function|accountbook_create_local_user_v227.*404/i.test(detail)) {
+    return { status: 503, code: "signup_rpc_unavailable", message: "계정 생성 기능을 준비하지 못했습니다. V22.7 인증 SQL 적용과 PostgREST 스키마 새로고침 상태를 확인해 주세요." };
+  }
+  if (/42501|permission denied|insufficient_privilege/i.test(detail)) {
+    return { status: 503, code: "signup_rpc_forbidden", message: "계정 생성 권한 설정을 확인해야 합니다. 관리자에게 인증 SQL 권한 점검을 요청해 주세요." };
+  }
+  if (/PGRST00[0-3]|Supabase (?:500|502|503|504)|timeout|fetch failed|network/i.test(detail)) {
+    return { status: 503, code: "signup_service_unavailable", message: "계정 저장 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요." };
+  }
+  return { status: 500, code: "signup_failed", message: "계정을 만들지 못했습니다. 잠시 후 다시 시도해 주세요." };
+}
+
 async function handleMyLocalLogin(request, env) {
   const form = await request.formData();
   const nickname = String(form.get("login_name") || form.get("nickname") || "").trim().slice(0, 80);
@@ -21798,32 +21830,40 @@ async function handleMyLocalSignup(request, env) {
   if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다."), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  let user = null;
   try {
-    const user = await createLocalLoginUser(env, loginName, displayName, accessCode);
+    user = await createLocalLoginUser(env, loginName, displayName, accessCode);
     if (!user?.id) throw new Error("local_signup_failed");
     await recordAuthAttempt(env, request, "/my/local-signup", true);
-    let location = "/my/households?first=1";
-    if (inviteCode) {
+  } catch (err) {
+    const classified = classifyLocalSignupError(err);
+    rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
+    return htmlResponse(renderUserLoginHtml(env, classified.message), classified.status);
+  }
+
+  let session = "";
+  try {
+    session = await makeUserSession(env, user.id);
+  } catch (err) {
+    rememberOpsEvent({ kind: "local_signup_session_failed", severity: "error", path: "/my/local-signup", method: "POST", detail: safeError(err) });
+    return htmlResponse(renderUserLoginHtml(env, "계정은 생성되었습니다. 자동 로그인 보안 설정을 확인한 뒤 기존 계정 로그인으로 접속해 주세요."), 503);
+  }
+
+  let location = "/my/households?first=1";
+  if (inviteCode) {
+    try {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
         ? `/my?household_id=${encodeURIComponent(joined.id)}&msg=${joined.join_role === "pending" ? "approval_pending" : "joined"}`
         : `/my/households?first=1&err=${encodeURIComponent("초대코드를 찾지 못했습니다. 계정은 생성되었습니다.")}`;
+    } catch (err) {
+      rememberOpsEvent({ kind: "local_signup_invite_failed", severity: "warn", path: "/my/local-signup", method: "POST", detail: safeError(err) });
+      location = `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
     }
-    const session = await makeUserSession(env, user.id);
-    return redirectResponse(location, {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    });
-  } catch (err) {
-    const detail = safeError(err);
-    const message = /login_name_in_use|duplicate key|409/i.test(detail)
-      ? "이미 사용 중인 로그인 이름입니다. 다른 이름을 선택하세요."
-      : /schema|accountbook_create_local_user_v227|PGRST202|404/i.test(detail)
-        ? "V22.7 인증 마이그레이션을 먼저 적용해야 새 계정을 만들 수 있습니다."
-        : /USER_SESSION_SECRET/.test(detail)
-          ? "운영 보안키가 설정되지 않아 계정을 만들 수 없습니다."
-          : "계정을 만들지 못했습니다. 입력값을 확인하고 다시 시도하세요.";
-    return htmlResponse(renderUserLoginHtml(env, message), /schema|PGRST202|USER_SESSION_SECRET/.test(detail) ? 503 : 409);
   }
+  return redirectResponse(location, {
+    "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+  });
 }
 
 
@@ -26441,7 +26481,18 @@ async function handleUserTxSearch(request, env, url) {
   return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
 }
 
-// V22.8.58: 홈 우측 최근 기록 패널용 읽기 전용 API와 표시 전용 분류 정보를 제공한다.
+async function fetchRecentTransactionRows(env, householdId, month, limit = 80) {
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
+  params.set("household_id", `eq.${String(householdId || "")}`);
+  params.set("transaction_date", `gte.${month}-01`);
+  params.append("transaction_date", `lt.${nextMonthStart(month)}`);
+  params.set("order", "transaction_date.desc,created_at.desc,id.desc");
+  const bounded = Math.max(1, Math.min(80, Number(limit || 80)));
+  return fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`, { pageSize: bounded + 1, limit: bounded + 1, maxRows: 1000 });
+}
+
+// V22.8.59: 홈 우측 최근 기록은 월 전체를 읽은 뒤 자르지 않고 DB에서 81건만 조회한다.
 // 선택 가계부는 로그인 세션이 실제로 참여한 범위 안에서만 결정하며 쓰기 작업은 하지 않는다.
 async function handleUserRecentTransactions(request, env, url) {
   const scope = await getScopedHouseholdsForPage(request, env);
@@ -26454,10 +26505,12 @@ async function handleUserRecentTransactions(request, env, url) {
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
-  const [members, rawRows] = await Promise.all([
+  const [members, fetchedRows] = await Promise.all([
     fetchHouseholdMembers(env, household.id),
-    fetchAdminRows(env, { month, householdId: household.id, type: "all" }),
+    fetchRecentTransactionRows(env, household.id, month, 80),
   ]);
+  const hasMore = fetchedRows.length > 80;
+  const rawRows = fetchedRows.slice(0, 80);
   const rows = attachSpenderNames(rawRows, members);
   const today = formatDate(nowKstDate());
   const todayDate = new Date(`${today}T00:00:00+09:00`);
@@ -26470,7 +26523,7 @@ async function handleUserRecentTransactions(request, env, url) {
     if (row.type === "income") income += Number(row.amount || 0);
     else expense += Number(row.amount || 0);
   }
-  const displayed = rows.slice(0, 80).map((row) => ({
+  const displayed = rows.map((row) => ({
     id: String(row.id || ""),
     type: row.type === "income" ? "income" : "expense",
     amount: Number(row.amount || 0),
@@ -26491,6 +26544,7 @@ async function handleUserRecentTransactions(request, env, url) {
     totals: { income, expense, balance: income - expense },
     count: rows.length,
     displayed_count: displayed.length,
+    has_more: hasMore,
     rows: displayed,
   });
 }
