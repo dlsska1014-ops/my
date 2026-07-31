@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## V22.8.64 · 웹 매니페스트 · 2026-07-31
+
+- `/manifest.json`, `/icon-192.png`, `/icon-512.png` 제공으로 `홈 화면에 추가`가 앱처럼 동작
+- 안드로이드 설치 요건(192·512 아이콘과 maskable)과 시작 화면·테마 색 선언
+- 아이콘 생성에 런타임 `CompressionStream`을 사용해 apple-touch-icon을 32,669바이트에서 303바이트로 축소, 압축기가 없으면 기존 저장 블록으로 대체
+- 사용자 화면 HTML에는 매니페스트 링크 1줄(44바이트)만 추가하고 아이콘 링크는 넣지 않아 예산 유지(기준 여유 352B·실사용 310B)
+- 신규 회귀 64개를 포함해 총 1,705개 자동검사 통과
+- 신규 SQL·환경변수·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.63 · 앱 아이콘 자원 · 2026-07-31
 
 - `/favicon.ico`, `/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png` 제공으로 모든 화면에 남던 favicon 404 제거
