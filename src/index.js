@@ -1877,7 +1877,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.61-MOBILE-SURFACE-REPAIR";
+const APP_VERSION = "V22.8.62-MOBILE-SURFACE-AUDIT-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19225,10 +19225,10 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22861.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22862.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22861.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
@@ -20125,7 +20125,8 @@ body.abV22812Shell .abNavMobileTopActions{display:none}
   body.abV22812Shell .abNavMobileTop{gap:8px}
   body.abV22812Shell .abNavMobileTop>a{flex:1 1 auto;min-width:0}
   body.abV22812Shell .abNavMobileTopActions{display:flex;flex:0 0 auto;align-items:center;gap:8px}
-  body.abV22812Shell .abNavMobileTopActions>*{flex:0 0 auto}
+  /* 일부 화면의 전역 button width:100% 규칙 탓에 도킹한 버튼이 상단바 폭 전체로 늘어난다. */
+  body.abV22812Shell .abNavMobileTopActions>*{flex:0 0 auto;width:auto!important}
   body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:auto;min-height:46px!important;padding:0 13px;border:1px solid var(--line)!important;border-radius:13px;background:var(--card-2)!important;color:var(--text)!important;box-shadow:none!important;font-size:13px;font-weight:800;white-space:nowrap}
   body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile>span{flex:none;white-space:nowrap}
   body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile .abNavIconSvg{flex:0 0 17px;width:17px!important;height:17px!important}
@@ -20141,9 +20142,17 @@ body.abV22812Shell .abNavMobileTopActions{display:none}
   body.abV22812Shell .abQuickInputPanel{overscroll-behavior:contain}
   body.abV22812Shell .abQuickInputBody{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   body.abV22812Shell .abQuickInputContent .chipRow{max-height:none;overflow:visible}
+  /* 최근 내역 필터: 1fr(=minmax(auto,1fr))이라 선택 상자의 최소 너비가 폼 밖으로 칸을 밀어냈다. */
+  body.abV22812Shell .mobileFilterForm{grid-template-columns:minmax(0,1fr)!important}
+  body.abV22812Shell .mobileFilterForm>*{min-width:0}
+  body.abV22812Shell :is(.filterQuick,.filterAdvancedGrid){grid-template-columns:repeat(2,minmax(0,1fr))}
+  body.abV22812Shell .mobileFilterForm :is(input,select,button,a){min-width:0}
 }
 /* 날짜 입력은 고유 최소 너비가 커서 그리드 칸을 밀어낸다. 항상 칸 안에서 줄어들게 한다. */
 body.abV22812Shell :is(input[type="date"],input[type="month"],input[type="time"],input[type="number"]){min-width:0;max-width:100%}
+/* 고정 상단바가 있는 화면에서 #add·#feed·#calendar 앵커가 헤더 아래로 들어가지 않게 한다. */
+@media(max-width:899px){html{scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))}}
+@media(min-width:900px){html{scroll-padding-top:20px}}
 `
   + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
@@ -21073,13 +21082,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22861-css"'
+        ? '"accountbook-shell-v22862-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22855-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22861-js"'
+          ? '"accountbook-nav-v22862-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
