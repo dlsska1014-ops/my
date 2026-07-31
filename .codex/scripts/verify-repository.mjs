@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_59.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_8_60.sha256",
 );
 const validationScripts = [
   ["영수증 안정화", "validation/validate-receipt.mjs"],
@@ -31,6 +31,7 @@ const validationScripts = [
   ["홈 우측 기록·챌린지 보정", "validation/validate-home-rail-challenge-v22857.mjs"],
   ["챌린지·최근 기록 UI/UX", "validation/validate-challenge-activity-ux-v22858.mjs"],
   ["계정·런타임 신뢰성", "validation/validate-account-runtime-reliability-v22859.mjs"],
+  ["기능·UI 신뢰성", "validation/validate-functional-ui-reliability-v22860.mjs"],
 ];
 
 function sha256(filePath) {
@@ -154,7 +155,7 @@ function main() {
     console.log("\n[건너뜀] 압축 해제본에는 Git 메타데이터가 없어 diff 공백 검사를 생략합니다.");
   }
 
-  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 1384개, ESM 진입점 통과`);
+  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 1432개, ESM 진입점 통과`);
   console.log(`src/index.js SHA-256: ${sha256(resolve(repositoryRoot, "src/index.js"))}`);
   console.log("운영 도메인·실기기 항목은 RELEASE-CHECKLIST.md에서 별도 확인해야 합니다.");
 }

@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.59-ACCOUNT-RUNTIME-RELIABILITY"'), "stage 3 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.60-FUNCTIONAL-UI-RELIABILITY"'), "stage 3 runtime version is explicit");
 ok(source.includes("function accountbookQuickInputClientMain"), "shared quick-input client exists");
 ok(source.includes('window.openAbQuickInput = function(date, trigger)'), "day popup and navigation can open one shared quick-input surface");
 ok(source.includes('section#add.panel,section#add'), "the existing quick-input section is reused rather than duplicated");
@@ -36,10 +36,10 @@ ok(source.includes('@media(max-width:899px){body.abV22812Shell .abQuickInputOver
 ok(source.includes('body.abQuickInputOpen{overflow:hidden!important}'), "background scrolling is locked while input is open");
 ok(source.includes('.abQuickInputOriginalTitle{display:none!important}'), "duplicate inline title is hidden after modal promotion");
 ok(source.includes('.abDayDetailAdd{background:var(--action)'), "day-detail add action is visually primary");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22859.css"'), "current release uses a fresh shell asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22859.js"'), "current release uses a fresh V5 runtime asset");
-ok(source.includes('"accountbook-shell-v22859-css"'), "current shell has an immutable ETag");
-ok(source.includes('"accountbook-v5-v22859-js"'), "current runtime has an immutable ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22860.css"'), "current release uses a fresh shell asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22860.js"'), "current release uses a fresh V5 runtime asset");
+ok(source.includes('"accountbook-shell-v22860-css"'), "current shell has an immutable ETag");
+ok(source.includes('"accountbook-v5-v22860-js"'), "current runtime has an immutable ETag");
 ok(source.includes('(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();'), "quick input loads before day-detail integration");
 ok(source.includes('method="post" action="/admin/transactions"'), "existing transaction form action remains present");
 ok(source.includes('async function handleMyAddTransaction(request, env)'), "existing user transaction handler remains present");
@@ -59,8 +59,8 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with stage 3 assets");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home stays below the protected 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22859.css'), "home loads the current shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22859.js'), "home loads the current runtime");
+  ok(home.text.includes('/assets/accountbook-shell-v22860.css'), "home loads the current shell");
+  ok(home.text.includes('/assets/accountbook-v5-v22860.js'), "home loads the current runtime");
   ok(home.text.includes('id="add"'), "home still emits the existing quick-input form for progressive enhancement");
   ok(home.text.includes('name="transaction_date"'), "home keeps the existing date field");
   ok(home.text.includes('name="amount"'), "home keeps the existing amount field");
@@ -68,18 +68,18 @@ try {
   ok(home.text.includes('name="payment_method"'), "home keeps the existing payment field");
   eq(fixture.db.transactions.length, beforeCount, "rendering stage 3 UI does not mutate transactions");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22859.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22860.js");
   eq(v5.response.status, 200, "stage 3 V5 runtime is served");
   ok((v5.response.headers.get("content-type") || "").includes("javascript"), "stage 3 runtime has a JavaScript content type");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22859-js"', "current runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22860-js"', "current runtime ETag is correct");
   ok(v5.text.includes("abQuickInputOverlay"), "runtime contains quick-input modal logic");
   ok(v5.text.includes("openAbQuickInput"), "runtime exposes the shared quick-input opener");
   ok(v5.text.includes("data-ab-day-add"), "runtime connects day details to input");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22859.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22860.css");
   eq(shell.response.status, 200, "stage 3 shell is served");
   ok((shell.response.headers.get("content-type") || "").includes("text/css"), "stage 3 shell has a CSS content type");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22859-css"', "current shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22860-css"', "current shell ETag is correct");
   ok(shell.text.includes(".abQuickInputOverlay"), "shell contains quick-input overlay styles");
   ok(shell.text.includes(".abNavQuickInput"), "shell contains central mobile input styles");
 } finally {

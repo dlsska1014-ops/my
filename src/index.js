@@ -770,6 +770,14 @@ export default {
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
 
+      if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
+        return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
+      }
+
+      if (request.method === "HEAD" && url.pathname === "/ads.txt") {
+        return headOnlyResponse(handleAdsTxt(env));
+      }
+
       if (url.pathname === "/" && request.method === "GET") {
         // V22.4: 공개 루트는 AdSense 심사와 신규 사용자 이해를 위한 서비스 소개 페이지입니다.
         // 기존 관리자 화면은 ?legacy=1 또는 명시적 관리자 URL에서 그대로 유지합니다.
@@ -1869,7 +1877,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.59-ACCOUNT-RUNTIME-RELIABILITY";
+const APP_VERSION = "V22.8.60-FUNCTIONAL-UI-RELIABILITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4514,6 +4522,15 @@ function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...JSON_HEADERS, ...CORS_HEADERS },
+  });
+}
+
+function headOnlyResponse(response) {
+  const safe = response instanceof Response ? response : new Response(null, { status: 500 });
+  return new Response(null, {
+    status: safe.status,
+    statusText: safe.statusText,
+    headers: new Headers(safe.headers),
   });
 }
 
@@ -12008,12 +12025,87 @@ function accountbookDayDetailClientMain() {
   else autoOpenReturnedDate();
 }
 
+function accountbookChallengeClientMain() {
+  "use strict";
+  function statusElement(scope) {
+    return scope && scope.querySelector ? scope.querySelector("[data-report-challenge-status]") : null;
+  }
+  function showStatus(scope, message, failed) {
+    var target = statusElement(scope);
+    if (!target) return;
+    target.hidden = false;
+    target.classList.toggle("isError", !!failed);
+    target.textContent = String(message || (failed ? "저장하지 못했습니다." : "저장했습니다."));
+  }
+  function replaceChallenge(html, sidebarHtml) {
+    var current = document.getElementById("reportChallenge");
+    if (!current || !html) return current;
+    var template = document.createElement("template");
+    template.innerHTML = String(html).trim();
+    var next = template.content.firstElementChild;
+    if (!next) return current;
+    current.replaceWith(next);
+    if (sidebarHtml) {
+      var sideTemplate = document.createElement("template");
+      sideTemplate.innerHTML = String(sidebarHtml).trim();
+      var sidebar = sideTemplate.content.firstElementChild;
+      var existing = document.querySelector(".abLayoutNav .abNavChallenge");
+      if (existing && sidebar) existing.replaceWith(sidebar);
+    }
+    var details = next.querySelector("details");
+    if (details) details.open = true;
+    return next;
+  }
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || !form.matches || !form.matches("form[data-report-challenge-form]")) return;
+    if (!window.fetch || !window.FormData) return;
+    event.preventDefault();
+    var section = form.closest("#reportChallenge") || form.parentElement;
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.textContent : "";
+    if (button) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      button.textContent = "저장 중…";
+    }
+    showStatus(section, "챌린지 설정을 저장하고 있습니다.", false);
+    fetch(form.action, {
+      method: "POST",
+      body: new FormData(form),
+      credentials: "same-origin",
+      headers: { accept: "application/json", "x-accountbook-inline": "1" },
+    }).then(function (response) {
+      return response.json().catch(function () { return { ok: false, message: "서버 응답을 확인하지 못했습니다." }; }).then(function (data) {
+        if (!response.ok || !data.ok) {
+          var error = new Error(String(data.message || "챌린지 설정을 저장하지 못했습니다."));
+          error.payload = data;
+          throw error;
+        }
+        return data;
+      });
+    }).then(function (data) {
+      section = replaceChallenge(data.challenge_html, data.sidebar_html) || section;
+      showStatus(section, data.message || "챌린지 설정을 저장했습니다.", false);
+    }).catch(function (error) {
+      showStatus(section, error && error.message ? error.message : "챌린지 설정을 저장하지 못했습니다. 다시 시도해 주세요.", true);
+    }).finally(function () {
+      var activeButton = section && section.querySelector ? section.querySelector('form[data-report-challenge-form] button[type="submit"]') : button;
+      if (activeButton) {
+        activeButton.disabled = false;
+        activeButton.removeAttribute("aria-busy");
+        activeButton.textContent = original || "설정 저장";
+      }
+    });
+  });
+}
+
 // V22.8.34: V5 오버레이 3종(검색·알림·행즐겨찾기)을 1개 immutable 에셋으로 번들링하고
 // 오버레이 마크업도 여기서 생성 → 페이지 HTML(홈 35KB 예산)에서 스크립트·마크업 제거.
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }
@@ -14885,7 +14977,7 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
   const action = home
     ? `<a class="reportChallengeManage" href="/my/analysis?view=report&${qs}#reportChallenge">${canManage ? "날짜·목표 설정" : "챌린지 자세히"}</a>`
     : canManage
-      ? `<details><summary>챌린지 설정</summary><form method="post" action="/my/report-challenge/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(safe.month || currentMonthKst())}"/><label><span>이름</span><input name="title" maxlength="30" value="${escapeHtml(safe.title || "무지출 데이")}"/></label><label><span>시작일</span><input type="date" name="start_date" value="${escapeHtml(safe.startDate)}" required/></label><label><span>목표일</span><input type="date" name="target_date" value="${escapeHtml(safe.targetDate)}" required/></label><label><span>무지출 목표</span><input type="number" name="target_days" min="1" max="20" value="${safe.targetDays}" inputmode="numeric"/></label><label class="reportChallengeToggle"><input type="checkbox" name="enabled" value="1" ${safe.enabled ? "checked" : ""}/> 챌린지 표시</label><button type="submit">설정 저장</button></form></details>`
+      ? `<div class="reportChallengeActions"><details><summary>챌린지 설정</summary><form method="post" action="/my/report-challenge/save" data-report-challenge-form><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(safe.month || currentMonthKst())}"/><label><span>이름</span><input name="title" maxlength="30" value="${escapeHtml(safe.title || "무지출 데이")}"/></label><label><span>시작일</span><input type="date" name="start_date" value="${escapeHtml(safe.startDate)}" required/></label><label><span>목표일</span><input type="date" name="target_date" value="${escapeHtml(safe.targetDate)}" required/></label><label><span>무지출 목표</span><input type="number" name="target_days" min="1" max="20" value="${safe.targetDays}" inputmode="numeric"/></label><label class="reportChallengeToggle"><input type="checkbox" name="enabled" value="1" ${safe.enabled ? "checked" : ""}/> 챌린지 표시</label><button type="submit">설정 저장</button></form></details><p class="reportChallengeFormStatus" data-report-challenge-status role="status" aria-live="polite" hidden></p></div>`
       : `<p class="reportChallengeReadOnly">소유자·관리자가 목표를 설정할 수 있습니다.</p>`;
   const description = home ? "" : `<p>${escapeHtml(status)}<br/><span class="reportChallengeDates">기간 ${escapeHtml(safe.startDate)} ~ ${escapeHtml(safe.targetDate)} · 오늘 ${escapeHtml(safe.today || formatDate(nowKstDate()))}</span></p>`;
   return `<section class="reportChallenge" id="reportChallenge"><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> 생활 챌린지</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `무지출 ${safe.progress}/${safe.targetDays}일 · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
@@ -14901,6 +14993,7 @@ function reportUxCss() {
 .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}.reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}.reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
 .reportMonthNav :is(a,button,input):focus-visible,.reportChallenge :is(summary,input,button):focus-visible,.reportCockpit a:focus-visible{outline:3px solid var(--ab12-accent,#2563eb)!important;outline-offset:2px}
 .reportFlash{border-radius:14px;padding:12px 14px;margin:10px 0;font-size:13px;font-weight:750;line-height:1.5}.reportFlash.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.reportFlash.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+.reportChallenge button{min-height:44px}.reportChallengeActions{align-self:center;min-width:0}.reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966;border-radius:10px;background:#17372f;color:#9af0d3!important;font-size:11px!important;font-weight:750}.reportChallengeFormStatus.isError{border-color:#86515a;background:#3a2229;color:#ffabb3!important}
 @media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:1fr 1fr}.reportMonthNav>form{grid-column:1/-1;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:2}.reportMonthNav>form+.reportMonthArrow{grid-column:2;grid-row:2}.reportMonthNav>.reportMonthCurrent{grid-column:1/-1;grid-row:3}.reportMonthArrow span{display:none}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}.abNavChallenge{display:none!important}}
 @media(min-width:900px){html body.abV22812Shell main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage main.wrap{width:calc(100vw - var(--abNavW,238px) - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}html body.abV22812Shell.abNavCollapsed main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage.abNavCollapsed main.wrap{width:calc(100vw - var(--abNavCollapsed,72px) - 32px)!important}}
 @media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav form{grid-template-columns:minmax(0,1fr) auto}.reportMonthNav label span{display:none}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
@@ -14910,28 +15003,46 @@ function reportUxCss() {
 }
 
 async function handleReportChallengeSave(request, env) {
+  const inline = request.headers.get("x-accountbook-inline") === "1";
+  const inlineError = (error, message, status, fallback) => inline
+    ? jsonResponse({ ok: false, error, reason: error, message }, status)
+    : redirectResponse(fallback);
   const userId = await verifyUserSession(request, env);
-  if (!userId) return redirectResponse("/my");
+  if (!userId) return inlineError("session_required", "로그인이 만료되었습니다. 다시 로그인해 주세요.", 401, "/my");
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = `/my/analysis?view=report&month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
-  if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
-  if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=challenge_write_not_allowed#reportChallenge`);
+  if (!selected || String(selected.id) !== householdId) return inlineError("no_household", "이 가계부에 접근할 수 없습니다.", 404, "/my?err=no_household");
+  if (!canManageMyHousehold(selected.role)) return inlineError("challenge_write_not_allowed", "챌린지 설정은 가계부 소유자·관리자만 변경할 수 있습니다.", 403, `${returnTo}&err=challenge_write_not_allowed#reportChallenge`);
   const targetDays = Math.round(Number(form.get("target_days") || 0));
   const title = String(form.get("title") || "").trim().replace(/\s+/g, " ").slice(0, 30);
   const startDate = String(form.get("start_date") || "").trim();
   const targetDate = String(form.get("target_date") || "").trim();
   const periodDays = challengePeriodDays(startDate, targetDate);
-  if (!Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return redirectResponse(`${returnTo}&err=challenge_invalid#reportChallenge`);
+  if (!Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return inlineError("challenge_invalid", "이름·기간·무지출 목표를 확인해 주세요. 목표 일수는 설정 기간보다 길 수 없습니다.", 422, `${returnTo}&err=challenge_invalid#reportChallenge`);
   const value = { enabled: String(form.get("enabled") || "") === "1", target_days: targetDays, title, start_date: startDate, target_date: targetDate, updated_by: userId, updated_at: new Date().toISOString() };
   try {
     await saveSettingValue(env, reportChallengeSettingsKey(householdId), value);
-    return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
   } catch (err) {
     rememberOpsEvent({ kind: "report_challenge_save_failed", severity: "warn", path: "/my/report-challenge/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=challenge_save_failed#reportChallenge`);
+    return inlineError("challenge_save_failed", "챌린지 설정을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.", 503, `${returnTo}&err=challenge_save_failed#reportChallenge`);
+  }
+  if (!inline) return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
+  try {
+    const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
+    const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value });
+    return jsonResponse({
+      ok: true,
+      saved: true,
+      message: "챌린지 설정을 저장했습니다.",
+      challenge_html: renderReportChallenge(challenge, { householdId, canManage: true }),
+      sidebar_html: renderReportChallenge(challenge, { householdId, compact: true }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "report_challenge_refresh_failed", severity: "warn", path: "/my/report-challenge/save", method: "POST", detail: safeError(err) });
+    return jsonResponse({ ok: true, saved: true, refresh_required: true, message: "설정은 저장했습니다. 다음 화면 이동 때 최신 진행률이 표시됩니다." });
   }
 }
 
@@ -19024,15 +19135,15 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22859.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22860.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22850.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22860.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22859.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22860.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -19903,13 +20014,15 @@ body.abV22812Shell .reportChallengeDates{color:#aeb6d3!important;font-size:11px}
 body.abV22812Shell .reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}
 body.abV22812Shell .reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--accent,#6d5dfc));border-radius:inherit}
 body.abV22812Shell .reportChallengeMain>strong{font-size:12px;color:#ffd45b!important}
-body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid #4b557c;border-radius:12px;color:#fff!important;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
+body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:1px solid #4b557c;border-radius:12px;color:#fff!important;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
+body.abV22812Shell .reportChallengeActions{align-self:center;min-width:0}body.abV22812Shell .reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966!important;border-radius:10px;background:#17372f!important;color:#9af0d3!important;font-size:11px!important;font-weight:750}body.abV22812Shell .reportChallengeFormStatus.isError{border-color:#86515a!important;background:#3a2229!important;color:#ffabb3!important}body.abV22812Shell .reportChallenge button{min-height:44px}
 body.abV22812Shell .abNavChallenge{display:block;margin:10px 12px 12px;padding:12px;border:1px solid #343b5f!important;border-radius:15px;background:linear-gradient(145deg,#171a2b,#222741)!important;color:#fff!important;text-decoration:none!important;box-shadow:0 8px 18px rgba(15,23,42,.14)}
 body.abV22812Shell .abNavChallenge>span{display:flex;align-items:center;justify-content:space-between;gap:8px}body.abV22812Shell .abNavChallenge>span b{display:flex;align-items:center;gap:4px;min-width:0;color:#ffd45b!important;font-size:10px;font-weight:850;white-space:nowrap}body.abV22812Shell .abNavChallenge>span em{flex:none;padding:2px 6px;border-radius:999px;background:#30364d;color:#ffd45b!important;font-size:9.5px;font-style:normal;font-weight:850}body.abV22812Shell .abNavChallenge>strong{display:block;margin:7px 0 2px;color:#fff!important;font-size:12px;font-weight:850;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}body.abV22812Shell .abNavChallenge>small{display:block;margin-top:6px;color:#c7cce0!important;font-size:9.5px;line-height:1.35}body.abV22812Shell .abNavChallenge.isOff{opacity:.74}body.abV22812Shell.abNavCollapsed .abNavChallenge{display:none!important}
 body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:10px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0!important;font-size:10px;font-weight:750}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:22px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
 body.abV22812Shell .abChallengeDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin:8px 0}body.abV22812Shell .abChallengeDays>span{display:grid;place-items:center;min-width:0;height:30px;border:1px solid #3b425f;border-radius:7px;background:#262b40}body.abV22812Shell .abChallengeDays i{font-style:normal;font-size:8px;color:#aeb6d3!important;line-height:1}body.abV22812Shell .abChallengeDays b{font-size:9px;line-height:1;color:#fff!important}body.abV22812Shell .abChallengeDays .is-success{background:#245545;border-color:#3e8d74}body.abV22812Shell .abChallengeDays .is-success b{color:#9af0d3!important}body.abV22812Shell .abChallengeDays .is-spent{background:#4b2930;border-color:#86515a}body.abV22812Shell .abChallengeDays .is-spent b{color:#ffabb3!important}body.abV22812Shell .abChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .abChallengePercent{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin:8px 0}body.abV22812Shell .abChallengePercent>b{font-size:15px;color:#ffd45b!important}body.abV22812Shell .abChallengePercent>i{display:block;height:7px;border-radius:999px;background:#30364d;overflow:hidden}body.abV22812Shell .abChallengePercent u{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ffd45b,var(--accent,#6d5dfc));text-decoration:none}
 body.abV22812Shell .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}body.abV22812Shell .reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}body.abV22812Shell .reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
-@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:19px}.abNavChallenge{display:none!important}}
+body.abV22812Shell .v8-tx summary{display:flex;align-items:center;min-height:44px;padding:4px 0}body.abV22812Shell .kwRemove{width:32px!important;height:32px!important;min-height:32px!important}
+@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:19px}.abNavChallenge{display:none!important}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abActivityLoading i{animation:none}body.abV22812Shell .abNavToggleIcon{transition:none}}
 `;
 
@@ -20199,6 +20312,9 @@ function accountbookStage4NavClientMain() {
     if (path === "/reserve-plans") return "reserve-plans";
     if (path === "/receipts") return "receipts";
     if (path === "/reports") return "reports";
+    if (path === "/annual" || path === "/annual-report") return "annual";
+    if (path === "/goals" || path === "/savings-goals") return "goals";
+    if (["/budget-alerts", "/today-budget", "/monthly-forecast", "/fixed-preview"].indexOf(path) >= 0) return "budget-alerts";
     if (path === "/smart-tools" || path === "/my/premium") return "smart-tools";
     if (path === "/keyword-guide" || path === "/categories") return "categories";
     if (path === "/my/backup-login") return "backup-login";
@@ -20821,13 +20937,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22859-css"'
+        ? '"accountbook-shell-v22860-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22855-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22850-js"'
+          ? '"accountbook-nav-v22860-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -20837,7 +20953,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22859-js"'
+          ? '"accountbook-v5-v22860-js"'
           : '"mobile-home-v22855-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -25925,6 +26041,35 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
   return null;
 }
 
+const KAKAO_SKILL_MAX_BODY_BYTES = 256 * 1024;
+
+async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_BYTES) {
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error("skill_request_too_large");
+  if (!request.body || typeof request.body.getReader !== "function") return request.text();
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    if (!part.value) continue;
+    total += part.value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel("skill_request_too_large");
+      throw new Error("skill_request_too_large");
+    }
+    chunks.push(part.value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const origin = publicBaseUrl(env, new URL(request.url));
   let bodyText = "";
@@ -25932,11 +26077,15 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   let userKey = "unknown";
   let utterance = "";
   try {
-    bodyText = await request.text();
+    bodyText = await readRequestTextBounded(request);
     payload = JSON.parse(bodyText || "{}");
     userKey = getKakaoUserKey(payload);
     utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
   } catch (err) {
+    if (safeError(err).includes("skill_request_too_large")) {
+      rememberSkillEvent({ kind: "request_too_large", user_key: "unknown", utterance: "", detail: `max_bytes=${KAKAO_SKILL_MAX_BODY_BYTES}` });
+      return kakaoText(kakaoSkillSafeFallbackText(origin));
+    }
     const rawUtterance = String(bodyText || "").trim();
     if (rawUtterance && await kakaoQaRequestAllowed(request, env)) {
       payload = {
