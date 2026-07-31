@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.62-MOBILE-SURFACE-AUDIT-FIX"'), "stage 4 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.63-APP-ICON-ASSETS"'), "stage 4 runtime version is explicit");
 ok(source.includes('data-ab-quick-dock aria-label="빠른 실행"'), "desktop quick actions expose a named dock");
 ok(source.includes('class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick"'), "quick input is the dock primary action");
 ok(source.includes('data-abv5-search-open'), "dock keeps transaction search");
