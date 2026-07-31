@@ -755,6 +755,11 @@ export default {
       const optimizedHomeAsset = mobileHomePerformanceAssetResponse(request, url);
       if (optimizedHomeAsset) return optimizedHomeAsset;
 
+      // 브라우저가 링크 태그 없이도 자동으로 요청하는 아이콘 경로.
+      // 홈 HTML 예산(35KB·44KB)을 늘리지 않으려고 마크업 대신 실제 파일만 제공한다.
+      const appIcon = appIconAssetResponse(request, url);
+      if (appIcon) return appIcon;
+
       // V22.6.1: 통합된 보조 계정의 오래된 웹 세션을 주 계정 세션으로 자동 복구합니다.
       const recoveredUserSession = await mergedUserSessionRecoveryResponse(request, env, url);
       if (recoveredUserSession) return recoveredUserSession;
@@ -1877,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.62-MOBILE-SURFACE-AUDIT-FIX";
+const APP_VERSION = "V22.8.63-APP-ICON-ASSETS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -21041,6 +21046,213 @@ function accountbookNotifJsAsset() {
     AB_ACCOUNTBOOK_NOTIF_JS_CACHE = `(${accountbookNotifClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_NOTIF_JS_CACHE;
+}
+
+// V22.8.63: 브라우저는 링크 태그가 없어도 /favicon.ico와 /apple-touch-icon.png를
+// 스스로 요청한다. 지금까지 두 경로가 404여서 모든 화면에 콘솔 404가 남고
+// 홈 화면에 추가할 때 아이콘이 비어 있었다. 홈 HTML 예산을 건드리지 않도록
+// 마크업은 그대로 두고 실제 아이콘 바이트만 만들어 제공한다.
+const AB_ICON_BRAND_RGB = [0x31, 0x82, 0xf6];
+const AB_ICON_MARK_RGB = [0xff, 0xff, 0xff];
+let AB_ICON_ICO_CACHE = null;
+let AB_ICON_PNG_CACHE = null;
+
+// 좌측 책등과 3줄 장부선을 가진 브랜드 마크를 정규 좌표(0~1)로 그린다.
+// 크기가 달라도 같은 모양이 나오도록 픽셀 대신 비율로만 판단한다.
+function abIconMarkAt(u, v) {
+  const inRect = (x0, y0, x1, y1) => u >= x0 && u <= x1 && v >= y0 && v <= y1;
+  if (inRect(0.28, 0.22, 0.365, 0.78)) return true;
+  if (inRect(0.44, 0.3, 0.75, 0.375)) return true;
+  if (inRect(0.44, 0.46, 0.75, 0.535)) return true;
+  if (inRect(0.44, 0.62, 0.63, 0.695)) return true;
+  return false;
+}
+
+// 모서리를 둥글린 정사각형 안쪽인지 판단한다.
+function abIconInsideRoundedSquare(u, v, radius) {
+  const dx = Math.max(radius - u, 0, u - (1 - radius));
+  const dy = Math.max(radius - v, 0, v - (1 - radius));
+  if (dx === 0 || dy === 0) return true;
+  return (dx * dx + dy * dy) <= radius * radius;
+}
+
+// size×size 팔레트 인덱스 배열(0=투명, 1=브랜드, 2=마크)을 만든다.
+// rounded=false면 모서리까지 브랜드 색으로 채운다. iOS는 홈 화면 아이콘을
+// 스스로 둥글게 마스킹하므로 apple-touch-icon은 투명 모서리를 두면 안 된다.
+function abIconIndexedPixels(size, rounded = true) {
+  const pixels = new Uint8Array(size * size);
+  for (let y = 0; y < size; y += 1) {
+    const v = (y + 0.5) / size;
+    for (let x = 0; x < size; x += 1) {
+      const u = (x + 0.5) / size;
+      if (rounded && !abIconInsideRoundedSquare(u, v, 0.22)) continue;
+      pixels[y * size + x] = abIconMarkAt(u, v) ? 2 : 1;
+    }
+  }
+  return pixels;
+}
+
+function abIconCrc32(bytes) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc ^= bytes[i];
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function abIconAdler32(bytes) {
+  let a = 1;
+  let b = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    a = (a + bytes[i]) % 65521;
+    b = (b + a) % 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
+function abIconPngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  const crcTarget = out.subarray(4, 8 + data.length);
+  view.setUint32(8 + data.length, abIconCrc32(crcTarget));
+  return out;
+}
+
+// 압축기를 넣지 않으려고 deflate는 저장(비압축) 블록만 사용한다.
+// 인덱스 컬러라 원본이 이미 작아 결과도 충분히 작다.
+function abIconStoredDeflate(raw) {
+  const maxBlock = 65535;
+  const blocks = Math.max(1, Math.ceil(raw.length / maxBlock));
+  const out = new Uint8Array(2 + raw.length + blocks * 5 + 4);
+  out[0] = 0x78;
+  out[1] = 0x01;
+  let offset = 2;
+  for (let index = 0; index < blocks; index += 1) {
+    const start = index * maxBlock;
+    const length = Math.min(maxBlock, raw.length - start);
+    out[offset] = index === blocks - 1 ? 1 : 0;
+    out[offset + 1] = length & 0xff;
+    out[offset + 2] = (length >> 8) & 0xff;
+    out[offset + 3] = ~length & 0xff;
+    out[offset + 4] = (~length >> 8) & 0xff;
+    out.set(raw.subarray(start, start + length), offset + 5);
+    offset += 5 + length;
+  }
+  new DataView(out.buffer).setUint32(offset, abIconAdler32(raw));
+  return out.subarray(0, offset + 4);
+}
+
+function abIconPngBytes(size = 180) {
+  const pixels = abIconIndexedPixels(size, false);
+  const raw = new Uint8Array(size * (size + 1));
+  for (let y = 0; y < size; y += 1) {
+    raw[y * (size + 1)] = 0;
+    raw.set(pixels.subarray(y * size, (y + 1) * size), y * (size + 1) + 1);
+  }
+  const ihdr = new Uint8Array(13);
+  const ihdrView = new DataView(ihdr.buffer);
+  ihdrView.setUint32(0, size);
+  ihdrView.setUint32(4, size);
+  ihdr[8] = 8;
+  ihdr[9] = 3;
+  // 인덱스 0은 쓰이지 않지만 팔레트 자리를 맞추려고 브랜드 색을 그대로 둔다.
+  // 전부 불투명한 정사각형이라 tRNS 청크는 넣지 않는다.
+  const plte = new Uint8Array([...AB_ICON_BRAND_RGB, ...AB_ICON_BRAND_RGB, ...AB_ICON_MARK_RGB]);
+  const parts = [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    abIconPngChunk("IHDR", ihdr),
+    abIconPngChunk("PLTE", plte),
+    abIconPngChunk("IDAT", abIconStoredDeflate(raw)),
+    abIconPngChunk("IEND", new Uint8Array(0)),
+  ];
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const png = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) { png.set(part, offset); offset += part.length; }
+  return png;
+}
+
+function abIconIcoBytes(size = 32) {
+  const pixels = abIconIndexedPixels(size);
+  const rowMask = Math.ceil(size / 32) * 4;
+  const xorSize = size * size * 4;
+  const andSize = rowMask * size;
+  const image = new Uint8Array(40 + xorSize + andSize);
+  const header = new DataView(image.buffer);
+  header.setUint32(0, 40, true);
+  header.setInt32(4, size, true);
+  header.setInt32(8, size * 2, true);
+  header.setUint16(12, 1, true);
+  header.setUint16(14, 32, true);
+  header.setUint32(20, xorSize + andSize, true);
+  for (let y = 0; y < size; y += 1) {
+    const sourceRow = size - 1 - y;
+    for (let x = 0; x < size; x += 1) {
+      const index = pixels[sourceRow * size + x];
+      const target = 40 + (y * size + x) * 4;
+      const rgb = index === 2 ? AB_ICON_MARK_RGB : AB_ICON_BRAND_RGB;
+      image[target] = rgb[2];
+      image[target + 1] = rgb[1];
+      image[target + 2] = rgb[0];
+      image[target + 3] = index === 0 ? 0 : 0xff;
+      if (index === 0) {
+        const maskByte = 40 + xorSize + y * rowMask + (x >> 3);
+        image[maskByte] |= 0x80 >> (x & 7);
+      }
+    }
+  }
+  const ico = new Uint8Array(22 + image.length);
+  const directory = new DataView(ico.buffer);
+  directory.setUint16(0, 0, true);
+  directory.setUint16(2, 1, true);
+  directory.setUint16(4, 1, true);
+  ico[6] = size === 256 ? 0 : size;
+  ico[7] = size === 256 ? 0 : size;
+  directory.setUint16(10, 1, true);
+  directory.setUint16(12, 32, true);
+  directory.setUint32(14, image.length, true);
+  directory.setUint32(18, 22, true);
+  ico.set(image, 22);
+  return ico;
+}
+
+function abIconIco() {
+  if (!AB_ICON_ICO_CACHE) AB_ICON_ICO_CACHE = abIconIcoBytes(32);
+  return AB_ICON_ICO_CACHE;
+}
+
+function abIconPng() {
+  if (!AB_ICON_PNG_CACHE) AB_ICON_PNG_CACHE = abIconPngBytes(180);
+  return AB_ICON_PNG_CACHE;
+}
+
+const AB_ICON_ROUTES = new Map([
+  ["/favicon.ico", "ico"],
+  ["/apple-touch-icon.png", "png"],
+  ["/apple-touch-icon-precomposed.png", "png"],
+]);
+
+function appIconAssetResponse(request, url) {
+  if (!request || !url) return null;
+  const method = String(request.method || "GET").toUpperCase();
+  if (!["GET", "HEAD"].includes(method)) return null;
+  const kind = AB_ICON_ROUTES.get(String(url.pathname || ""));
+  if (!kind) return null;
+  const bytes = kind === "ico" ? abIconIco() : abIconPng();
+  return new Response(method === "HEAD" ? null : bytes, {
+    status: 200,
+    headers: {
+      "content-type": kind === "ico" ? "image/x-icon" : "image/png",
+      "cache-control": "public, max-age=604800",
+      "x-content-type-options": "nosniff",
+      "cross-origin-resource-policy": "same-origin",
+      etag: kind === "ico" ? '"ab-icon-v22863-ico"' : '"ab-icon-v22863-png"',
+    },
+  });
 }
 
 function mobileHomePerformanceAssetResponse(request, url) {

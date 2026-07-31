@@ -1,0 +1,32 @@
+V22.8.63-APP-ICON-ASSETS
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_63.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_63.ps1
+- VALIDATION_REPORT_V22_8_63.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_63.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_63.ps1 실행
+5. 브라우저 탭 아이콘과 iPhone 홈 화면 추가 아이콘 수동 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 기존 URL·API·데이터 구조 변경 없음
+- 신규 공개 경로 3개(/favicon.ico, /apple-touch-icon.png, /apple-touch-icon-precomposed.png)
+
+검증
+- 총 1,641개 자동검사 통과
+- 신규 앱 아이콘 자원 38개 통과
+- 홈 HTML 기준 35KB·실사용 44KB 예산 유지(마크업 증가 0바이트)
+- ESM default.fetch 통과
+
+배포 묶음
+- 실파일 46개 (체크섬 대상 45개 + 체크섬 목록 1개)

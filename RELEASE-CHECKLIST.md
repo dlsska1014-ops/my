@@ -1,3 +1,28 @@
+# V22.8.63 배포 검증표
+
+## 앱 아이콘 자원
+
+- [x] `/favicon.ico` ICO 32×32 32bpp, `image/x-icon`, ETag, HEAD 응답
+- [x] `/apple-touch-icon.png` PNG 180×180 인덱스 팔레트, `image/png`, ETag
+- [x] `/apple-touch-icon-precomposed.png` 동일 바이트 제공
+- [x] 아이콘 경로가 쓰기 요청에 응답하지 않음
+- [x] 홈 HTML 마크업 증가 0바이트, 35KB·44KB 예산 유지
+- [x] Chromium에서 두 아이콘 디코딩 확인(32×32 / 180×180)
+- [x] `/app` 재점검에서 4xx·콘솔 오류 0건
+- [x] 총 1,641개 자동검사·ESM 진입점·체크섬 통과
+- [x] 신규 SQL·환경변수·카카오·OpenBuilder 변경 없음
+
+## 운영 배포 후 수동 확인
+
+- [ ] `/health`가 `V22.8.63-APP-ICON-ASSETS` 반환
+- [ ] `/ready`가 17개 RPC·3개 테이블과 함께 `ready=true` 반환
+- [ ] 브라우저 탭과 즐겨찾기에 브랜드 아이콘 표시
+- [ ] 개발자도구 콘솔에 favicon 404 없음
+- [ ] iPhone 사파리 `공유 → 홈 화면에 추가` 시 아이콘 표시
+- [ ] 카카오 인앱 브라우저에서 화면 이상 없음
+
+---
+
 # V22.8.62 배포 검증표
 
 ## 전체 탭 점검 보정

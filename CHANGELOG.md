@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## V22.8.63 · 앱 아이콘 자원 · 2026-07-31
+
+- `/favicon.ico`, `/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png` 제공으로 모든 화면에 남던 favicon 404 제거
+- 기존 브랜드 마크를 코드에서 직접 래스터화해 외부 이미지·라이브러리 추가 없이 ICO 32×32와 PNG 180×180 생성
+- iOS가 자체 마스킹하는 apple-touch-icon은 투명 모서리 없이, 브라우저 탭 favicon은 둥근 모서리로 구분
+- 홈 HTML 예산(기준 35KB·실사용 44KB) 여유가 400바이트 미만이라 링크 태그를 늘리지 않고 파일만 제공
+- 신규 회귀 38개를 포함해 총 1,641개 자동검사 통과
+- 신규 SQL·환경변수·Kakao Developers·OpenBuilder 변경 없음
+
 ## V22.8.62 · 전체 탭 점검 보정 · 2026-07-31
 
 - 사용자 탭 24개를 390px·768px·1440px 실제 브라우저로 점검(72개 조합)하고 남은 결함 3건 보정
