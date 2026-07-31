@@ -34,7 +34,7 @@ const pageQueryCount = supabaseCalls;
 // V22.8.1 원본 화면은 같은 픽스처에서 진입당 17회 조회했습니다. 회귀를 8회 이하로 막습니다.
 ok(pageQueryCount <= 8, `receipt page stays lean (${pageQueryCount} supabase calls)`);
 const html = await response.text();
-ok(html.includes('src="/assets/accountbook-nav-v22860.js"'), "receipt page uses the shared external V5 navigation runtime");
+ok(html.includes('src="/assets/accountbook-nav-v22861.js"'), "receipt page uses the shared external V5 navigation runtime");
 
 // 2. 지연 로딩과 안전한 직렬화 런타임 (V22.8.4 회귀 방지 마커)
 ok(html.includes("abPageReceipts"), "receipt UI keeps its scoped design marker");

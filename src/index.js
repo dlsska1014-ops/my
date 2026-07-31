@@ -1877,7 +1877,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.60-FUNCTIONAL-UI-RELIABILITY";
+const APP_VERSION = "V22.8.61-MOBILE-SURFACE-REPAIR";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -11529,7 +11529,35 @@ function accountbookQuickInputClientMain() {
   var body = null;
   var section = null;
   var returnFocus = null;
+  var lockedScrollY = 0;
+  var scrollLocked = false;
   function validDate(value) { return /^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(String(value || "")); }
+  // 모바일 사파리·인앱 브라우저는 body의 overflow:hidden만으로 스크롤이 잠기지 않는다.
+  // 시트를 밀면 뒤 배경이 대신 올라가므로 스크롤 위치를 고정했다가 닫을 때 되돌린다.
+  function isMobileViewport() { return !window.matchMedia || window.matchMedia("(max-width:899px)").matches; }
+  function lockScroll() {
+    if (scrollLocked || !isMobileViewport()) return;
+    lockedScrollY = window.scrollY || window.pageYOffset || 0;
+    var style = document.body.style;
+    style.position = "fixed";
+    style.top = -lockedScrollY + "px";
+    style.left = "0";
+    style.right = "0";
+    style.width = "100%";
+    scrollLocked = true;
+  }
+  function unlockScroll() {
+    if (!scrollLocked) return;
+    var style = document.body.style;
+    style.position = "";
+    style.top = "";
+    style.left = "";
+    style.right = "";
+    style.width = "";
+    scrollLocked = false;
+    window.scrollTo(0, lockedScrollY);
+    lockedScrollY = 0;
+  }
   function currentContext() {
     var params = new URLSearchParams(location.search);
     var month = params.get("month") || new Date().toISOString().slice(0, 7);
@@ -11605,6 +11633,7 @@ function accountbookQuickInputClientMain() {
     node.removeAttribute("hidden");
     node.setAttribute("aria-hidden", "false");
     document.body.classList.add("abQuickInputOpen");
+    lockScroll();
     var target = section.querySelector("#smartInput") || section.querySelector("#amountInput") || section.querySelector("input:not([type=hidden]),select,button");
     if (target && target.focus) { try { target.focus(); } catch (_error) {} }
   }
@@ -11613,6 +11642,7 @@ function accountbookQuickInputClientMain() {
     overlay.setAttribute("hidden", "");
     overlay.setAttribute("aria-hidden", "true");
     document.body.classList.remove("abQuickInputOpen");
+    unlockScroll();
     if (returnFocus && returnFocus.focus) { try { returnFocus.focus(); } catch (_error) {} }
     returnFocus = null;
   }
@@ -14988,7 +15018,7 @@ function reportUxCss() {
 .reportMonthNav{position:sticky;top:8px;z-index:45;display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:10px;background:color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent);color:var(--ab12-text,#191f28);backdrop-filter:blur(14px);border:1px solid var(--ab12-line,#e5e9f0);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
 .reportMonthNav a,.reportMonthNav button{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
 .reportCockpit{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);border:1px solid var(--ab12-line,#e5e9f0);border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 10px 30px rgba(15,23,42,.06)}.reportCockpitHead,.reportSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:12px}.reportCockpitHead span{display:block;color:var(--ab12-accent,#2457d6);font-size:11px;font-weight:900;letter-spacing:.08em}.reportCockpitHead h2{margin:4px 0 0;font-size:21px}.reportCockpitHead a,.reportSectionTitle a{color:var(--ab12-accent,#2457d6);text-decoration:none;font-size:12px;font-weight:850}.reportCockpitGrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin-top:18px}.reportPace{display:grid;justify-items:center;align-content:center;border-right:1px solid var(--ab12-line,#edf0f4)}.reportGauge{--report-rate:0%;width:148px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ab12-brand,#6d5dfc) var(--report-rate),var(--ab12-surface-raised,#edf0f5) 0);position:relative}.reportGauge:before{content:"";position:absolute;inset:15px;background:var(--ab12-surface,#fff);border-radius:50%}.reportGauge div{position:relative;text-align:center}.reportGauge b{display:block;font-size:27px;letter-spacing:-.04em}.reportGauge span,.reportPace p{color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportPace p{margin:9px 0 0}.reportKpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reportKpis>div{background:var(--ab12-surface-raised,#f7f8fb);border:1px solid var(--ab12-line,#edf0f4);border-radius:16px;padding:14px}.reportKpis span{display:block;color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportKpis b{display:block;margin-top:6px;font-size:clamp(18px,2.1vw,25px);overflow-wrap:anywhere;line-height:1.2}.reportInsight{display:flex;gap:10px;align-items:center;margin-top:14px;padding:13px 15px;border:1px solid color-mix(in srgb,var(--ab12-accent,#d97706) 42%,transparent);border-radius:15px;background:var(--ab12-accent-soft,#fffbeb);color:var(--ab12-text,#713f12)}.reportInsight>span{font-size:20px;color:var(--ab12-accent,#d97706)}.reportInsight p{margin:0;line-height:1.5;font-size:13px;font-weight:750}.reportCategoryBudget{margin-top:16px}.reportCategoryBudget ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:9px}.reportCategoryBudget li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;border:1px solid var(--ab12-line,#edf0f4);border-radius:14px;padding:11px}.reportCategoryBudget li div b,.reportCategoryBudget li div span{display:block}.reportCategoryBudget li div span{color:var(--ab12-muted,#7b8493);font-size:11px;margin-top:2px}.reportCategoryBudget li strong{font-size:12px}.reportCategoryBudget li i{grid-column:1/-1;height:7px;border-radius:999px;background:var(--ab12-surface-raised,#edf0f4);overflow:hidden}.reportCategoryBudget li em{display:block;height:100%;border-radius:inherit;background:var(--ab12-brand,#6d5dfc)}
-.reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;background:linear-gradient(135deg,#171a2b,#222741);color:#fff;border:1px solid #343b5f;border-radius:22px;padding:18px;margin:14px 0}.reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--ab12-action,#6d5dfc);color:#fff;font-size:11px;font-weight:900}.reportChallenge h2{margin:9px 0 5px;color:#fff!important}.reportChallenge p{margin:0;color:#c7cce0;font-size:13px;line-height:1.5}.reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}.reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit}.reportChallengeMain>strong{font-size:12px;color:#ffd45b}.reportChallenge details{align-self:center;border:1px solid #3d4569;border-radius:14px;padding:9px}.reportChallenge summary{cursor:pointer;font-weight:850;min-height:36px;display:flex;align-items:center}.reportChallenge form{display:grid;gap:8px;margin-top:8px}.reportChallenge label{display:grid;grid-template-columns:76px 1fr;align-items:center;gap:8px;color:#d7dbee;font-size:12px;font-weight:750}.reportChallenge input{width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallengeToggle{grid-template-columns:auto 1fr!important;justify-content:start}.reportChallengeToggle input{width:18px;min-height:18px}.reportChallenge button{min-height:42px;border:0;border-radius:11px;background:var(--ab12-action,#6d5dfc);color:#fff;font-weight:850}.reportChallengeReadOnly{align-self:center}.abNavChallenge{display:block;padding:10px 11px;background:#171a2b;color:#fff!important;border:1px solid #343b5f;border-radius:13px;text-decoration:none}.abNavChallenge>span{display:flex;justify-content:space-between;gap:8px}.abNavChallenge>span b,.abNavChallenge>span em{font-size:10.5px}.abNavChallenge>span em{font-style:normal;color:#ffd45b}.abNavChallenge>strong,.abNavChallenge>small{display:block}.abNavChallenge>strong{font-size:12px;margin:5px 0}.abNavChallenge>small{color:#aeb6d3;font-size:10px;margin-top:5px}.abNavChallenge>i{display:block;height:6px;border-radius:999px;background:#30364d;overflow:hidden}.abNavChallenge>i u{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit;text-decoration:none}.abNavChallenge.isOff{opacity:.76}
+.reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;background:linear-gradient(135deg,#171a2b,#222741);color:#fff;border:1px solid #343b5f;border-radius:22px;padding:18px;margin:14px 0}.reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--ab12-action,#6d5dfc);color:#fff;font-size:11px;font-weight:900}.reportChallenge h2{margin:9px 0 5px;color:#fff!important}.reportChallenge p{margin:0;color:#c7cce0;font-size:13px;line-height:1.5}.reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}.reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit}.reportChallengeMain>strong{font-size:12px;color:#ffd45b}.reportChallenge details{align-self:center;border:1px solid #3d4569;border-radius:14px;padding:9px}.reportChallenge summary{cursor:pointer;font-weight:850;min-height:36px;display:flex;align-items:center}.reportChallenge form{display:grid;gap:8px;margin-top:8px}.reportChallenge label{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;color:#d7dbee;font-size:12px;font-weight:750}.reportChallenge label>span{min-width:0;overflow-wrap:anywhere}.reportChallenge input{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallengeToggle{grid-template-columns:auto 1fr!important;justify-content:start}.reportChallengeToggle input{width:18px;min-height:18px}.reportChallenge button{min-height:42px;border:0;border-radius:11px;background:var(--ab12-action,#6d5dfc);color:#fff;font-weight:850}.reportChallengeReadOnly{align-self:center}.abNavChallenge{display:block;padding:10px 11px;background:#171a2b;color:#fff!important;border:1px solid #343b5f;border-radius:13px;text-decoration:none}.abNavChallenge>span{display:flex;justify-content:space-between;gap:8px}.abNavChallenge>span b,.abNavChallenge>span em{font-size:10.5px}.abNavChallenge>span em{font-style:normal;color:#ffd45b}.abNavChallenge>strong,.abNavChallenge>small{display:block}.abNavChallenge>strong{font-size:12px;margin:5px 0}.abNavChallenge>small{color:#aeb6d3;font-size:10px;margin-top:5px}.abNavChallenge>i{display:block;height:6px;border-radius:999px;background:#30364d;overflow:hidden}.abNavChallenge>i u{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit;text-decoration:none}.abNavChallenge.isOff{opacity:.76}
 .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}.reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}.reportChallengeDays li>span{font-size:10px;color:#aeb6d3}.reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff}.reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}.reportChallengeDays .is-success{border-color:#387966;background:#17372f}.reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}.reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218}.reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.reportChallengeDays .is-today>i{background:#ffd45b;color:#332600}.reportChallengeDays .is-future>i{border:1px solid #59617d}.reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0;font-size:10px;font-weight:750}.reportChallengeLegend .is-success{color:#7ce6c3}.reportChallengeLegend .is-spent{color:#ff9ba4}.reportChallengeLegend .is-today{color:#ffd45b}.reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}.reportChallengePercent>b{font-size:22px;color:#ffd45b}.reportChallengePercent .reportChallengeTrack{margin:0}.reportChallengePercent>span{font-size:11px;color:#c7cce0;white-space:nowrap}.abChallengeDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin:8px 0}.abChallengeDays>span{display:grid;place-items:center;min-width:0;height:30px;border:1px solid #3b425f;border-radius:7px;background:#262b40}.abChallengeDays i{font-style:normal;font-size:8px;color:#aeb6d3;line-height:1}.abChallengeDays b{font-size:9px;line-height:1;color:#fff}.abChallengeDays .is-success{background:#245545;border-color:#3e8d74}.abChallengeDays .is-success b{color:#9af0d3}.abChallengeDays .is-spent{background:#4b2930;border-color:#86515a}.abChallengeDays .is-spent b{color:#ffabb3}.abChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.abChallengePercent{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin:8px 0}.abChallengePercent>b{font-size:15px;color:#ffd45b}.abChallengePercent>i{display:block;height:7px;border-radius:999px;background:#30364d;overflow:hidden}.abChallengePercent u{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));text-decoration:none}
 .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}.reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}.reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
 .reportMonthNav :is(a,button,input):focus-visible,.reportChallenge :is(summary,input,button):focus-visible,.reportCockpit a:focus-visible{outline:3px solid var(--ab12-accent,#2563eb)!important;outline-offset:2px}
@@ -14997,7 +15027,7 @@ function reportUxCss() {
 @media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:1fr 1fr}.reportMonthNav>form{grid-column:1/-1;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:2}.reportMonthNav>form+.reportMonthArrow{grid-column:2;grid-row:2}.reportMonthNav>.reportMonthCurrent{grid-column:1/-1;grid-row:3}.reportMonthArrow span{display:none}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}.abNavChallenge{display:none!important}}
 @media(min-width:900px){html body.abV22812Shell main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage main.wrap{width:calc(100vw - var(--abNavW,238px) - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}html body.abV22812Shell.abNavCollapsed main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage.abNavCollapsed main.wrap{width:calc(100vw - var(--abNavCollapsed,72px) - 32px)!important}}
 @media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav form{grid-template-columns:minmax(0,1fr) auto}.reportMonthNav label span{display:none}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
-@media(max-width:360px){.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr}}
+@media(max-width:360px){.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr}.reportChallenge label{grid-template-columns:minmax(0,1fr)}.reportChallengeToggle{grid-template-columns:auto minmax(0,1fr)!important}}
 @media(prefers-reduced-motion:reduce){.reportGauge,.reportChallengeTrack i,.reportCategoryBudget li em{transition:none!important}}
 `;
 }
@@ -19014,6 +19044,66 @@ function categoryEmoji(category = "", type = "expense") {
   return "기";
 }
 
+// V22.8.61: 빠른 입력 칩이 글자만 나열되어 무엇을 고르는지 한눈에 들어오지 않았다.
+// 홈 HTML은 35KB·44KB 예산을 지켜야 하므로 칩마다 아이콘 마크업을 넣지 않고,
+// 칩이 이미 들고 있는 data-cat·data-memo·data-pay-only 속성만으로 CSS에서 그린다.
+// 목록은 "우선순위 낮음 → 높음" 순서이며, CSS는 같은 특이도라 뒤 규칙이 이긴다.
+const QUICK_CHIP_ICON_RULES = [
+  { icon: "🎁", words: ["경조사", "축의금", "부의금", "선물", "생일"] },
+  { icon: "🧻", words: ["생활용품", "다이소", "세제", "휴지", "청소"] },
+  { icon: "🧸", words: ["육아", "어린이", "유아", "아기", "키즈", "장난감"] },
+  { icon: "🎬", words: ["문화", "영화", "여행", "공연", "취미", "운동", "게임"] },
+  { icon: "📺", words: ["구독", "넷플릭스", "유튜브", "멤버십", "티빙", "웨이브"] },
+  { icon: "🧾", words: ["공과금", "통신", "전기", "가스", "수도", "요금", "인터넷"] },
+  { icon: "🏠", words: ["주거", "월세", "전세", "관리비", "임대"] },
+  { icon: "📦", words: ["쿠팡", "쇼핑", "의류", "택배", "주문"] },
+  { icon: "🚌", words: ["교통", "택시", "버스", "지하철", "기차", "주유", "주차", "차량"] },
+  { icon: "🏥", words: ["의료", "병원", "약국", "진료", "치과"] },
+  { icon: "🍚", words: ["식비", "점심", "저녁", "아침", "식사", "외식", "식당", "배달", "분식"] },
+  { icon: "🛒", words: ["마트", "장보기", "시장", "식자재"] },
+  { icon: "☕", words: ["커피", "카페", "간식", "디저트", "빵"] },
+  { icon: "💰", words: ["월급", "급여", "상여", "수입", "입금"] },
+];
+const QUICK_CHIP_DEFAULT_ICON = "🏷️";
+
+// 결제수단 칩도 같은 표를 쓰고 기본값만 카드로 둔다.
+const QUICK_PAYMENT_ICON_RULES = [
+  { icon: "🎟️", words: ["포인트", "마일리지", "상품권", "쿠폰"] },
+  { icon: "🏦", words: ["계좌", "이체", "송금", "무통장"] },
+  { icon: "📱", words: ["페이", "토스", "제로페이"] },
+  { icon: "💵", words: ["현금"] },
+];
+const QUICK_PAYMENT_DEFAULT_ICON = "💳";
+
+// CSS와 같은 표를 쓰되 여기서는 우선순위가 높은 뒤쪽부터 확인한다.
+function resolveQuickChipIcon(label = "", category = "", rules = QUICK_CHIP_ICON_RULES, fallback = QUICK_CHIP_DEFAULT_ICON) {
+  const text = normalizeText(`${category || ""} ${label || ""}`);
+  for (let index = rules.length - 1; index >= 0; index -= 1) {
+    if (rules[index].words.some((word) => text.includes(word))) return rules[index].icon;
+  }
+  return fallback;
+}
+
+function resolveQuickPaymentIcon(paymentMethod = "") {
+  return resolveQuickChipIcon("", paymentMethod, QUICK_PAYMENT_ICON_RULES, QUICK_PAYMENT_DEFAULT_ICON);
+}
+
+function quickChipIconCss() {
+  const chipRules = QUICK_CHIP_ICON_RULES
+    .map(({ icon, words }) => `${words.map((word) => `body.abV22812Shell .chipRow button[data-cat*="${word}"],body.abV22812Shell .chipRow button[data-memo*="${word}"]`).join(",")}{--ab-chip-icon:"${icon}"}`)
+    .join("\n");
+  const paymentRules = QUICK_PAYMENT_ICON_RULES
+    .map(({ icon, words }) => `${words.map((word) => `body.abV22812Shell .chipRow button[data-pay-only*="${word}"]`).join(",")}{--ab-chip-icon:"${icon}"}`)
+    .join("\n");
+  return [
+    `body.abV22812Shell .chipRow button{display:inline-flex;align-items:center;gap:5px}`,
+    `body.abV22812Shell .chipRow button:before{content:var(--ab-chip-icon,"${QUICK_CHIP_DEFAULT_ICON}");flex:0 0 auto;font-size:14px;line-height:1}`,
+    `body.abV22812Shell .chipRow button[data-pay-only]{--ab-chip-icon:"${QUICK_PAYMENT_DEFAULT_ICON}"}`,
+    chipRules,
+    paymentRules,
+  ].join("\n");
+}
+
 const MOBILE_V81_CSS = `
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f6f7fb;color:#121826;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.03em;padding-bottom:96px}.appTop{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4;padding:12px 14px}.topLine{display:flex;align-items:center;justify-content:space-between;gap:10px}.topLine b{font-size:19px}.topLine a{color:#2563eb;text-decoration:none;font-weight:950}.selectLine{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:10px}.selectLine select,.selectLine input{height:42px;border:1px solid #d6deea;border-radius:15px;background:#fff;padding:0 11px;font:inherit;font-weight:850}.wrap{max-width:1180px;margin:0 auto;padding:16px}.heroCard{background:linear-gradient(135deg,#101827,#1d4ed8 58%,#7c3aed);color:#fff;border-radius:30px;padding:22px;box-shadow:0 22px 54px rgba(30,64,175,.26);position:relative;overflow:hidden}.heroCard:after{content:"";position:absolute;right:-46px;top:-46px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.13)}.heroCard small{opacity:.82;font-weight:800}.heroCard h1{font-size:27px;line-height:1.12;margin:9px 0}.heroCard p{opacity:.9;line-height:1.45;margin:0}.statGrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}.stat{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:13px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.stat span{display:block;color:#687385;font-size:11px;font-weight:950}.stat b{font-size:16px}.expense{color:#dc2626}.income{color:#059669}.appAlert{border-radius:20px;padding:13px;margin:12px 0;background:#eef2ff;color:#1e3a8a;font-weight:950}.appAlert.good{background:#dcfce7;color:#166534}.appAlert.danger{background:#fee2e2;color:#991b1b}.quickMenu{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.quickMenu a{min-height:64px;background:#fff;border:1px solid #e8edf4;border-radius:20px;color:#121826;text-decoration:none;font-weight:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 22px rgba(15,23,42,.055);font-size:13px}.quickMenu small{color:#7b8494;font-size:10px}.panel{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.panel h2{margin:0 0 10px;font-size:20px}.form{display:grid;gap:9px}.form input,.form select{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff}.form button,.btn{height:46px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;padding:0 12px}.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg input{display:none}.seg span{height:43px;border-radius:15px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-weight:1000}.seg input:checked+span{background:#111827;color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.chipRow{display:flex;gap:7px;overflow:auto;padding-bottom:2px}.chipRow button{border:0;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-weight:950;padding:9px 11px;white-space:nowrap}.chipRow{flex-wrap:wrap}.chipRow button em{font-style:normal;font-size:10px;font-weight:1000;background:rgba(30,58,138,.12);border-radius:999px;padding:1px 5px;margin-left:5px}.chipRowLabel{align-self:center;color:#687385;font-size:11px;font-weight:1000;white-space:nowrap}.payChips button{background:#f1f5f9;color:#334155}.dateRow{display:grid;grid-template-columns:1fr auto auto;gap:8px}.dateRow input{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff;min-width:0}.dateChip{border:1px solid #d6deea;border-radius:15px;background:#fff;color:#334155;font-weight:1000;padding:0 13px}.dateChip.on{background:#111827;color:#fff;border-color:#111827}.smartLine{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:4px}.smartLine input{height:48px;border:2px solid #111827;border-radius:16px;padding:0 13px;font:inherit;font-weight:900;background:#fffdf0}.smartLine button{border:0;border-radius:16px;background:#FEE500;color:#191919;font-weight:1000;padding:0 16px}.smartHint{margin:0 0 6px;color:#687385;font-size:12px;line-height:1.5}.memeMain{background:radial-gradient(circle at 15% 0,#fde68a,#f97316 38%,#7c2d12 100%);color:#fff;border:0;min-height:220px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}.memeMain .emoji{font-size:58px}.memeMain h2{font-size:26px}.memeMain p{font-weight:850;line-height:1.45}.memeCollection{display:grid;grid-template-columns:1fr;gap:10px}.memeMini{background:linear-gradient(135deg,#111827,#334155);color:#fff;border-radius:23px;padding:15px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}.memeMini span{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.14);padding:5px 8px;font-size:11px;font-weight:950}.memeMini b{display:block;font-size:38px;margin-top:8px}.memeMini h3{margin:4px 0;font-size:18px}.memeMini p{margin:0;line-height:1.4;font-size:13px}.memeMiniActions{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-self:end}.memeMini button,.memeMini a,.mainMemeActions button,.mainMemeActions a{border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:950;padding:9px;text-decoration:none;display:flex;align-items:center;justify-content:center}.mainMemeActions{margin-top:12px;position:relative;z-index:2}.v8-collection,.memeCollection{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.v8-meme-mini{border-radius:22px;padding:14px;min-height:235px;display:flex;flex-direction:column;gap:8px;color:#fff;background:linear-gradient(135deg,#111827,#334155);box-shadow:0 14px 30px rgba(15,23,42,.16);position:relative;overflow:hidden}.v8-meme-mini:after{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:999px;background:rgba(255,255,255,.14)}.v8-meme-mini-top{display:flex;gap:7px;flex-wrap:wrap;position:relative;z-index:1}.v8-meme-mini .rarity,.v8-meme-mini .level{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.18);padding:5px 9px;font-size:11px;font-weight:1000;color:#fff}.v8-meme-mini .emoji{font-size:38px;position:relative;z-index:1}.v8-meme-mini h3{margin:0;font-size:18px;line-height:1.22;position:relative;z-index:1}.v8-meme-mini p{margin:0;line-height:1.42;font-size:13px;position:relative;z-index:1;flex:1}.v8-meme-mini small{font-size:11px;font-weight:900;opacity:.84;position:relative;z-index:1}.v8-meme-mini-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;position:relative;z-index:1}.v8-meme-mini-actions button,.v8-meme-mini-actions a{height:38px;border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;font-size:12px}.theme-doom,.theme-fire,.theme-boss{background:linear-gradient(135deg,#111827,#7c2d12,#ef4444)}.theme-warning,.theme-spicy{background:linear-gradient(135deg,#7c2d12,#f97316,#fde68a)}.theme-zen,.theme-green,.theme-shield{background:linear-gradient(135deg,#064e3b,#16a34a,#bbf7d0)}.theme-gold,.theme-trophy{background:linear-gradient(135deg,#78350f,#f59e0b,#fef3c7)}.theme-coffee{background:linear-gradient(135deg,#3f2412,#92400e,#fbbf24)}.theme-parcel,.theme-mart{background:linear-gradient(135deg,#1e3a8a,#2563eb,#93c5fd)}.theme-food,.theme-night{background:linear-gradient(135deg,#581c87,#db2777,#f9a8d4)}.theme-taxi{background:linear-gradient(135deg,#111827,#eab308)}.theme-medical{background:linear-gradient(135deg,#075985,#06b6d4,#cffafe)}.theme-stream,.theme-neon{background:linear-gradient(135deg,#020617,#7c3aed,#22d3ee)}.theme-kids{background:linear-gradient(135deg,#be123c,#f472b6,#fde68a)}.theme-beauty{background:linear-gradient(135deg,#831843,#ec4899,#fbcfe8)}.theme-cool{background:linear-gradient(135deg,#0f172a,#0ea5e9,#a7f3d0)}.theme-melt{background:linear-gradient(135deg,#020617,#475569,#94a3b8)}@media(max-width:420px){.v8-collection,.memeCollection{grid-template-columns:1fr}}.progress{height:11px;border-radius:999px;background:#e5e7eb;overflow:hidden}.progress i{display:block;height:100%;background:#2563eb;width:var(--w)}.tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.txMain{display:flex;justify-content:space-between;gap:12px}.txMain b{display:block}.txMain span{display:block;color:#687385;font-size:12px;margin-top:4px}.tx details{margin-top:10px}.tx summary{font-weight:950;color:#2563eb}.v8-tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.v8-tx-main{display:flex;justify-content:space-between;gap:12px}.v8-tx-main b{display:block}.v8-tx-main span{display:block;color:#687385;font-size:12px;margin-top:4px}.v8-tx details{margin-top:10px}.v8-tx summary{font-weight:950;color:#2563eb}.v8-edit{display:grid;gap:7px;margin-top:8px}.v8-edit input,.v8-edit select{height:39px;border:1px solid #d6deea;border-radius:13px;padding:0 10px}.v8-edit button,.v8-tx button{height:41px;border:0;border-radius:13px;background:#111827;color:#fff;font-weight:1000}.danger{background:#fee2e2!important;color:#991b1b!important}.empty{padding:20px;text-align:center;color:#687385}.notice{border-radius:15px;padding:10px;margin:10px 0;font-weight:950}.notice.ok{background:#dcfce7;color:#166534}.notice.error{background:#fee2e2;color:#991b1b}.notice.budgetWarn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.notice.budgetOver{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:1000}.bottom{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid #e8edf4;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.bottom a{text-decoration:none;color:#5b6472;font-size:11px;font-weight:900;text-align:center;padding:6px 0;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:2px}.bottom a i{font-style:normal;font-size:19px;line-height:1}.bottom a.active{color:#111827}.bottom a.tabAdd{position:relative}.bottom a.tabAdd i{width:38px;height:38px;margin-top:-16px;border-radius:50%;background:#111827;color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 6px 16px rgba(17,24,39,.28)}.bottom a.tabAdd span{color:#111827}@media(max-width:360px){.quickMenu{grid-template-columns:repeat(2,1fr)}.statGrid{grid-template-columns:1fr}.memeMini{grid-template-columns:1fr}}
 
@@ -19135,15 +19225,15 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22860.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22861.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22860.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22861.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22860.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22861.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -19446,6 +19536,8 @@ body.abV22812Shell{
   --bg:var(--ab12-bg);--card:var(--ab12-surface);--card-2:var(--ab12-surface-raised);
   --text:var(--ab12-text);--sub:var(--ab12-muted);--faint:var(--ab12-muted);--line:var(--ab12-line);
   --brand:var(--ab12-brand);--accent:var(--ab12-accent);--accent-weak:var(--ab12-accent-soft);--on-accent:#fff;
+  /* V22.8.61: 별칭이 빠져 있던 토큰. --action 미정의 탓에 하단 "입력" 버튼이 배경 없는 흰 아이콘으로 사라졌다. */
+  --action:var(--ab12-action);--accent-soft:var(--ab12-accent-soft);--soft:var(--ab12-surface-raised);
   --pos:#087a55;--neg:#c0362c;--warn:#a15c00;--purple:#7b6fe0;
   --radius:18px;--radius-sm:12px;--radius-xs:10px;
   --space-1:8px;--space-2:16px;--space-3:24px;--space-4:32px;
@@ -19710,7 +19802,7 @@ body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 1
 body.abV22812Shell .abGlobalAppearanceChoices button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--card));color:var(--accent)}
 body.abV22812Shell .abGlobalAppearanceNote{margin:0;color:var(--sub);font-size:12px;line-height:1.5}
 @media(min-width:900px){body.abV22812Shell .abGlobalActions{left:calc(var(--abNavWidth,238px) + 22px);right:auto;top:auto;bottom:18px}body.abV22812Shell.abNavCollapsed .abGlobalActions{left:90px}}
-@media(max-width:899px){body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:92px;gap:0}body.abV22812Shell .abGlobalActions>.abGlobalAction:not(.abGlobalActionsMobile){display:none}body.abV22812Shell .abGlobalActionsMobile{display:inline-flex;width:auto;min-width:52px;padding:0 9px}body.abV22812Shell .abGlobalActionsMobile span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:899px){body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:calc(112px + env(safe-area-inset-right,0px));gap:0}body.abV22812Shell.abTopActionsDocked .abGlobalActions{display:none!important}body.abV22812Shell .abGlobalActions>.abGlobalAction:not(.abGlobalActionsMobile){display:none}body.abV22812Shell .abGlobalActionsMobile{display:inline-flex;width:auto;min-width:52px;padding:0 9px}body.abV22812Shell .abGlobalActionsMobile span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:420px){body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm button{width:100%}}
 
 /* V22.8.25 V5 통합 검색 오버레이. */
@@ -20024,7 +20116,36 @@ body.abV22812Shell .reportChallengeDays li:after{content:"";grid-column:2;grid-r
 body.abV22812Shell .v8-tx summary{display:flex;align-items:center;min-height:44px;padding:4px 0}body.abV22812Shell .kwRemove{width:32px!important;height:32px!important;min-height:32px!important}
 @media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:19px}.abNavChallenge{display:none!important}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abActivityLoading i{animation:none}body.abV22812Shell .abNavToggleIcon{transition:none}}
-`;
+
+/* V22.8.61 모바일 상단바·전체 메뉴·빠른 입력 시트 정리.
+   공통 작업 버튼을 상단바 안으로 넣어 "전체 메뉴"와 겹치지 않게 하고,
+   서랍에서는 메뉴 목록이 쓰는 높이와 터치 영역을 되돌린다. */
+body.abV22812Shell .abNavMobileTopActions{display:none}
+@media(max-width:899px){
+  body.abV22812Shell .abNavMobileTop{gap:8px}
+  body.abV22812Shell .abNavMobileTop>a{flex:1 1 auto;min-width:0}
+  body.abV22812Shell .abNavMobileTopActions{display:flex;flex:0 0 auto;align-items:center;gap:8px}
+  body.abV22812Shell .abNavMobileTopActions>*{flex:0 0 auto}
+  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:auto;min-height:46px!important;padding:0 13px;border:1px solid var(--line)!important;border-radius:13px;background:var(--card-2)!important;color:var(--text)!important;box-shadow:none!important;font-size:13px;font-weight:800;white-space:nowrap}
+  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile>span{flex:none;white-space:nowrap}
+  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile .abNavIconSvg{flex:0 0 17px;width:17px!important;height:17px!important}
+  body.abV22812Shell .abNavMobileTopActions #abMobileMenuButton{min-height:46px!important;padding:0 13px!important;border-radius:13px;white-space:nowrap}
+  /* 서랍에서는 홈에도 있는 달력·예산 위젯을 접어 메뉴 목록에 높이를 돌려준다. */
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavTop{flex:none}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavFooter{flex:none}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavBody{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavGroup summary{min-height:48px!important}
+  body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks a{min-height:48px!important;padding:0 12px!important}
+  /* 빠른 입력 시트는 시트 본문 하나만 스크롤한다. 칩 영역이 따로 스크롤되면 손가락이 배경으로 빠진다. */
+  body.abV22812Shell .abQuickInputPanel{overscroll-behavior:contain}
+  body.abV22812Shell .abQuickInputBody{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  body.abV22812Shell .abQuickInputContent .chipRow{max-height:none;overflow:visible}
+}
+/* 날짜 입력은 고유 최소 너비가 커서 그리드 칸을 밀어낸다. 항상 칸 안에서 줄어들게 한다. */
+body.abV22812Shell :is(input[type="date"],input[type="month"],input[type="time"],input[type="number"]){min-width:0;max-width:100%}
+`
+  + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
 function accountbookThemeClientMain() {
   var root = document.documentElement;
@@ -20481,10 +20602,25 @@ function accountbookStage4NavClientMain() {
     if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
     globalActionReturnFocus = null;
   }
+  // 모바일 공통 작업 버튼을 상단바 안으로 옮긴다.
+  // 고정 레이어로 띄우면 "전체 메뉴" 버튼과 겹쳐 문구와 아이콘이 잘린다.
+  function dockMobileAction() {
+    var top = document.querySelector(".abNavMobileTop");
+    var action = document.querySelector(".abGlobalActionsMobile");
+    if (!top || !action || top.querySelector(".abNavMobileTopActions")) return;
+    var menu = document.getElementById("abMobileMenuButton");
+    var group = document.createElement("div");
+    group.className = "abNavMobileTopActions";
+    top.appendChild(group);
+    group.appendChild(action);
+    if (menu) group.appendChild(menu);
+    document.body.classList.add("abTopActionsDocked");
+  }
   function bindGlobalActions() {
     if (!document.querySelector(".abLayoutNav")) return;
     if (document.getElementById("abGlobalActionDialog")) return;
     document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
+    dockMobileAction();
     var dialog = document.getElementById("abGlobalActionDialog");
     document.addEventListener("click", function(event) {
       var v5Action = event.target && event.target.closest && event.target.closest("[data-abv5-search-open],[data-abv5-notif-open],[data-ab-quick-open]");
@@ -20937,13 +21073,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22860-css"'
+        ? '"accountbook-shell-v22861-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22855-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22860-js"'
+          ? '"accountbook-nav-v22861-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -20953,7 +21089,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22860-js"'
+          ? '"accountbook-v5-v22861-js"'
           : '"mobile-home-v22855-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -29136,4 +29272,7 @@ export {
   renderReportMonthNavigator,
   buildReportDashboardSummary,
   renderReportDashboard,
+  resolveQuickChipIcon,
+  resolveQuickPaymentIcon,
+  quickChipIconCss,
 };
