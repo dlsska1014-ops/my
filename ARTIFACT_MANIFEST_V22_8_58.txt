@@ -1,0 +1,28 @@
+V22.8.58-CHALLENGE-ACTIVITY-UX
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_58.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_58.ps1
+- VALIDATION_REPORT_V22_8_58.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_58.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_58.ps1 실행
+5. 로그인 홈에서 날짜형/퍼센트형 챌린지·우측 SVG 기록·다크모드·모바일 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 기존 URL·API·거래·챌린지 저장 구조 변경 없음
+
+검증
+- 총 1,349개 자동검사 통과
+- 신규 챌린지·최근 기록 UI/UX 회귀 72개 통과
+- 1440×1000·390×844 로컬 렌더와 가로 넘침 확인
+- ESM default.fetch 통과
