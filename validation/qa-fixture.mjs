@@ -162,6 +162,39 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
       const rpcName = rpcMatch[1];
+      if (rpcName === "accountbook_auth_attempt") {
+        return new Response(JSON.stringify({ allowed: true, attempts: data?.p_success ? 0 : 1, blocked_until: null }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_create_local_user_v227") {
+        if (db.__create_local_user_error) {
+          const simulated = db.__create_local_user_error;
+          return new Response(JSON.stringify({ code: simulated.code || "PGRST202", message: simulated.message || "simulated account creation failure" }), { status: Number(simulated.status || 404), headers: { "content-type": "application/json" } });
+        }
+        const loginName = String(data?.p_login_name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+        const nickname = String(data?.p_nickname || "").trim();
+        if (loginName.length < 2 || loginName.length > 80) {
+          return new Response(JSON.stringify({ code: "P0001", message: "invalid_login_name" }), { status: 400, headers: { "content-type": "application/json" } });
+        }
+        if (db.accountbook_user_identities.some((item) => item.provider === "local" && item.provider_subject === loginName)) {
+          return new Response(JSON.stringify({ code: "P0001", message: "login_name_in_use" }), { status: 400, headers: { "content-type": "application/json" } });
+        }
+        if (String(data?.p_credential_hash || "").length < 20 || String(data?.p_credential_salt || "").length < 16 || Number(data?.p_credential_iterations || 0) < 100000) {
+          return new Response(JSON.stringify({ code: "P0001", message: "invalid_credential" }), { status: 400, headers: { "content-type": "application/json" } });
+        }
+        const user = upsert(db, "users", { kakao_user_key: `local_account:qa-${sequence.value}`, nickname: nickname || loginName }, ["kakao_user_key"], sequence);
+        upsert(db, "accountbook_user_identities", {
+          user_id: user.id,
+          provider: "local",
+          provider_subject: loginName,
+          login_name: String(data?.p_login_name || "").slice(0, 80),
+          credential_hash: String(data?.p_credential_hash || ""),
+          credential_salt: String(data?.p_credential_salt || ""),
+          credential_iterations: Number(data?.p_credential_iterations || 0),
+          credential_version: 2,
+        }, ["provider", "user_id"], sequence);
+        upsert(db, "accountbook_user_security", { user_id: user.id, session_version: 1, password_changed_at: new Date().toISOString() }, ["user_id"], sequence);
+        return new Response(JSON.stringify({ id: user.id, kakao_user_key: user.kakao_user_key, nickname: user.nickname }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (rpcName === "accountbook_claim_operation") {
         const now = Date.now();
         const key = String(data?.p_key || "").slice(0, 180);
@@ -253,6 +286,9 @@ export async function createV2265QaFixture() {
     const table = url.pathname.split("/").filter(Boolean).at(-1);
     if (!db[table]) db[table] = [];
     if (method === "GET") {
+      if (table === "accountbook_user_security" && db.__fail_user_security_reads) {
+        return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
       return new Response(JSON.stringify(filteredRows(db, table, url)), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "POST") {
