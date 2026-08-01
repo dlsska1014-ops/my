@@ -8,11 +8,11 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.63-APP-ICON-ASSETS"'), "runtime exposes the app icon release");
-ok(source.includes("function appIconAssetResponse(request, url)"), "icon routes have a dedicated handler");
-ok(source.includes('["/favicon.ico", "ico"]'), "favicon path is served");
-ok(source.includes('["/apple-touch-icon.png", "png"]'), "apple touch icon path is served");
-ok(source.includes('["/apple-touch-icon-precomposed.png", "png"]'), "legacy apple touch icon path is served");
+ok(source.includes('const APP_VERSION = "V22.8.64-WEB-MANIFEST"'), "runtime exposes the app icon release");
+ok(source.includes("async function appIconAssetResponse(request, url)"), "icon routes have a dedicated handler");
+ok(source.includes('["/favicon.ico", { kind: "ico", size: 32 }]'), "favicon path is served");
+ok(source.includes('["/apple-touch-icon.png", { kind: "png", size: 180 }]'), "apple touch icon path is served");
+ok(source.includes('["/apple-touch-icon-precomposed.png", { kind: "png", size: 180 }]'), "legacy apple touch icon path is served");
 // 홈 HTML 예산을 지키기 위해 마크업은 늘리지 않는다.
 ok(!source.includes('rel="icon"') && !source.includes('rel="apple-touch-icon"'), "no icon link markup is added to budgeted HTML");
 ok(source.includes("function abIconIndexedPixels(size, rounded = true)"), "icon rasterizer supports rounded and full-bleed shapes");
@@ -31,7 +31,7 @@ try {
   eq(ico.response.status, 200, "favicon responds 200 without a session");
   eq(ico.response.headers.get("content-type"), "image/x-icon", "favicon uses the icon MIME type");
   ok(String(ico.response.headers.get("cache-control") || "").includes("max-age="), "favicon is cacheable");
-  eq(ico.response.headers.get("etag"), '"ab-icon-v22863-ico"', "favicon has a stable ETag");
+  eq(ico.response.headers.get("etag"), '"ab-icon-v22864-ico-32"', "favicon has a stable ETag");
   // ICONDIR: reserved 0, type 1, count 1 그리고 32x32 항목.
   eq(ico.bytes[0] | (ico.bytes[1] << 8), 0, "ICO reserved field is zero");
   eq(ico.bytes[2] | (ico.bytes[3] << 8), 1, "ICO type is icon");
@@ -43,7 +43,7 @@ try {
   const png = await request(fixture, "/apple-touch-icon.png");
   eq(png.response.status, 200, "apple touch icon responds 200 without a session");
   eq(png.response.headers.get("content-type"), "image/png", "apple touch icon uses the PNG MIME type");
-  eq(png.response.headers.get("etag"), '"ab-icon-v22863-png"', "apple touch icon has a stable ETag");
+  eq(png.response.headers.get("etag"), '"ab-icon-v22864-png-180"', "apple touch icon has a stable ETag");
   eq(Array.from(png.bytes.slice(0, 8)).join(","), "137,80,78,71,13,10,26,10", "PNG signature is valid");
   const view = new DataView(png.bytes.buffer, png.bytes.byteOffset);
   eq(view.getUint32(16), 180, "PNG is 180px wide");
@@ -64,7 +64,7 @@ try {
   eq(head.bytes.length, 0, "favicon HEAD has no body");
 
   const post = await app.fetch(new Request("https://ttokttok-accountbook.com/favicon.ico", { method: "POST" }), fixture.env, {});
-  ok(post.status !== 200 || post.headers.get("etag") !== '"ab-icon-v22863-ico"', "icon routes do not answer writes");
+  ok(post.status !== 200 || post.headers.get("etag") !== '"ab-icon-v22864-ico-32"', "icon routes do not answer writes");
 
   // 예산 회귀 방지: 아이콘 대응이 홈 HTML을 늘리지 않아야 한다.
   const home = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});

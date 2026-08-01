@@ -757,7 +757,7 @@ export default {
 
       // 브라우저가 링크 태그 없이도 자동으로 요청하는 아이콘 경로.
       // 홈 HTML 예산(35KB·44KB)을 늘리지 않으려고 마크업 대신 실제 파일만 제공한다.
-      const appIcon = appIconAssetResponse(request, url);
+      const appIcon = await appIconAssetResponse(request, url);
       if (appIcon) return appIcon;
 
       // V22.6.1: 통합된 보조 계정의 오래된 웹 세션을 주 계정 세션으로 자동 복구합니다.
@@ -1882,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.63-APP-ICON-ASSETS";
+const APP_VERSION = "V22.8.64-WEB-MANIFEST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4354,6 +4354,11 @@ function attachUiUxRuntime(html = "") {
   const v22812ShellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
   if (source.includes(v22812ShellLink) && source.includes("</head>")) {
     source = source.replaceAll(v22812ShellLink, "").replace("</head>", `${v22812ShellLink}</head>`);
+  }
+  // 홈 화면에 추가할 때만 쓰이는 링크 한 줄. 아이콘 자체는 브라우저가 스스로 요청하므로
+  // 아이콘 링크는 넣지 않고, 매니페스트만 붙여 홈 HTML 증가를 최소로 유지한다.
+  if (source.includes("</head>") && !source.includes(AB_MANIFEST_LINK)) {
+    source = source.replace("</head>", `${AB_MANIFEST_LINK}</head>`);
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
@@ -21055,7 +21060,7 @@ function accountbookNotifJsAsset() {
 const AB_ICON_BRAND_RGB = [0x31, 0x82, 0xf6];
 const AB_ICON_MARK_RGB = [0xff, 0xff, 0xff];
 let AB_ICON_ICO_CACHE = null;
-let AB_ICON_PNG_CACHE = null;
+const AB_ICON_PNG_CACHE = new Map();
 
 // 좌측 책등과 3줄 장부선을 가진 브랜드 마크를 정규 좌표(0~1)로 그린다.
 // 크기가 달라도 같은 모양이 나오도록 픽셀 대신 비율로만 판단한다.
@@ -21146,7 +21151,21 @@ function abIconStoredDeflate(raw) {
   return out.subarray(0, offset + 4);
 }
 
-function abIconPngBytes(size = 180) {
+// 런타임이 제공하는 압축기를 우선 쓰고, 없으면 저장(비압축) 블록으로 되돌린다.
+// 2색 인덱스 이미지라 실제 압축률이 매우 높아 512px 아이콘도 몇 KB로 끝난다.
+async function abIconDeflate(raw) {
+  if (typeof CompressionStream === "function") {
+    try {
+      const compressed = new Blob([raw]).stream().pipeThrough(new CompressionStream("deflate"));
+      return new Uint8Array(await new Response(compressed).arrayBuffer());
+    } catch (_error) {
+      // 압축기를 쓸 수 없으면 아래 저장 블록으로 계속 진행한다.
+    }
+  }
+  return abIconStoredDeflate(raw);
+}
+
+async function abIconPngBytes(size = 180) {
   const pixels = abIconIndexedPixels(size, false);
   const raw = new Uint8Array(size * (size + 1));
   for (let y = 0; y < size; y += 1) {
@@ -21166,7 +21185,7 @@ function abIconPngBytes(size = 180) {
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     abIconPngChunk("IHDR", ihdr),
     abIconPngChunk("PLTE", plte),
-    abIconPngChunk("IDAT", abIconStoredDeflate(raw)),
+    abIconPngChunk("IDAT", await abIconDeflate(raw)),
     abIconPngChunk("IEND", new Uint8Array(0)),
   ];
   const total = parts.reduce((sum, part) => sum + part.length, 0);
@@ -21225,32 +21244,68 @@ function abIconIco() {
   return AB_ICON_ICO_CACHE;
 }
 
-function abIconPng() {
-  if (!AB_ICON_PNG_CACHE) AB_ICON_PNG_CACHE = abIconPngBytes(180);
-  return AB_ICON_PNG_CACHE;
+async function abIconPng(size = 180) {
+  if (!AB_ICON_PNG_CACHE.has(size)) AB_ICON_PNG_CACHE.set(size, await abIconPngBytes(size));
+  return AB_ICON_PNG_CACHE.get(size);
 }
 
+// 홈 화면에 추가했을 때 앱처럼 열리도록 하는 최소 매니페스트.
+// display를 "browser"로 바꾸면 기존처럼 브라우저 UI를 유지한 채 열린다.
+const AB_WEB_MANIFEST = {
+  name: "똑똑한 가계부",
+  short_name: "가계부",
+  description: "카카오톡으로 기록하고 웹에서 정리하는 우리집 가계부",
+  lang: "ko",
+  dir: "ltr",
+  start_url: "/app",
+  scope: "/",
+  display: "standalone",
+  orientation: "portrait",
+  background_color: "#f2f4f6",
+  theme_color: "#3182f6",
+  icons: [
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+  ],
+};
+const AB_WEB_MANIFEST_JSON = JSON.stringify(AB_WEB_MANIFEST);
+const AB_MANIFEST_PATH = "/manifest.json";
+const AB_MANIFEST_LINK = `<link rel="manifest" href="${AB_MANIFEST_PATH}"/>`;
+
 const AB_ICON_ROUTES = new Map([
-  ["/favicon.ico", "ico"],
-  ["/apple-touch-icon.png", "png"],
-  ["/apple-touch-icon-precomposed.png", "png"],
+  ["/favicon.ico", { kind: "ico", size: 32 }],
+  ["/apple-touch-icon.png", { kind: "png", size: 180 }],
+  ["/apple-touch-icon-precomposed.png", { kind: "png", size: 180 }],
+  ["/icon-192.png", { kind: "png", size: 192 }],
+  ["/icon-512.png", { kind: "png", size: 512 }],
+  [AB_MANIFEST_PATH, { kind: "manifest", size: 0 }],
 ]);
 
-function appIconAssetResponse(request, url) {
+async function appIconAssetResponse(request, url) {
   if (!request || !url) return null;
   const method = String(request.method || "GET").toUpperCase();
   if (!["GET", "HEAD"].includes(method)) return null;
-  const kind = AB_ICON_ROUTES.get(String(url.pathname || ""));
-  if (!kind) return null;
-  const bytes = kind === "ico" ? abIconIco() : abIconPng();
-  return new Response(method === "HEAD" ? null : bytes, {
+  const route = AB_ICON_ROUTES.get(String(url.pathname || ""));
+  if (!route) return null;
+  const body = route.kind === "ico"
+    ? abIconIco()
+    : route.kind === "manifest"
+      ? new TextEncoder().encode(AB_WEB_MANIFEST_JSON)
+      : await abIconPng(route.size);
+  const contentType = route.kind === "ico"
+    ? "image/x-icon"
+    : route.kind === "manifest"
+      ? "application/manifest+json; charset=utf-8"
+      : "image/png";
+  return new Response(method === "HEAD" ? null : body, {
     status: 200,
     headers: {
-      "content-type": kind === "ico" ? "image/x-icon" : "image/png",
+      "content-type": contentType,
       "cache-control": "public, max-age=604800",
       "x-content-type-options": "nosniff",
       "cross-origin-resource-policy": "same-origin",
-      etag: kind === "ico" ? '"ab-icon-v22863-ico"' : '"ab-icon-v22863-png"',
+      etag: route.kind === "manifest" ? '"ab-manifest-v22864"' : `"ab-icon-v22864-${route.kind}-${route.size}"`,
     },
   });
 }

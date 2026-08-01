@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.63-APP-ICON-ASSETS"'), "stage 3 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.64-WEB-MANIFEST"'), "stage 3 runtime version is explicit");
 ok(source.includes("function accountbookQuickInputClientMain"), "shared quick-input client exists");
 ok(source.includes('window.openAbQuickInput = function(date, trigger)'), "day popup and navigation can open one shared quick-input surface");
 ok(source.includes('section#add.panel,section#add'), "the existing quick-input section is reused rather than duplicated");
