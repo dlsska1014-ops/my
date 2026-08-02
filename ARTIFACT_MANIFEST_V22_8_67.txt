@@ -1,0 +1,27 @@
+V22.8.67-ROLE-SURFACE-EMPTY-STATE
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_67.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_67.ps1
+- VALIDATION_REPORT_V22_8_67.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_67.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_67.ps1 실행
+5. 구성원·조회 전용 계정으로 분류·키워드 화면 1건 수동 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- /assets 고정 자원 3종 바이트 동일 (경로 변경 없음)
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:role-surface (203개 확인)
+- 저장소 전체 자동검사 1,973개 통과
