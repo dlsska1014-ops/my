@@ -1882,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.64-WEB-MANIFEST";
+const APP_VERSION = "V22.8.65-THEME-TEXT-CONTRAST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19235,7 +19235,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22862.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22865.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
@@ -20163,6 +20163,39 @@ body.abV22812Shell :is(input[type="date"],input[type="month"],input[type="time"]
 /* 고정 상단바가 있는 화면에서 #add·#feed·#calendar 앵커가 헤더 아래로 들어가지 않게 한다. */
 @media(max-width:899px){html{scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))}}
 @media(min-width:900px){html{scroll-padding-top:20px}}
+
+/* V22.8.65 라이트·다크 글자 대비 보정.
+   각 화면 CSS가 "어두운 히어로/상자"를 전제로 밝은 글자색을 고정해 두었는데,
+   V5 셸이 배경만 표면색으로 바꾸면서 글자가 배경에 묻혔다.
+   남아 있던 고정 색을 테마 토큰으로 되돌린다. */
+/* 연간 리포트: 연도 이동 버튼이 흰 배경에 흰 글자로 사라졌다. */
+body.abV22812Shell .yearNav :is(a,span){background:var(--card-2)!important;color:var(--text)!important}
+body.abV22812Shell .yearNav :is(a.disabled,span.disabled){color:var(--sub)!important;opacity:1!important}
+/* 연간 리포트: 연말정산 참고 상자는 셸이 다시 칠하지 않아 다크에서 흰 배경에 흰 글자가 됐다. */
+body.abV22812Shell .deductBox{background:var(--card-2)!important;border-color:var(--line)!important;color:var(--text)!important}
+body.abV22812Shell .deductBox :is(b,strong){color:var(--text)!important}
+body.abV22812Shell .deductBox small{color:var(--sub)!important}
+/* 히어로가 표면색으로 바뀐 화면(자산·계좌, 저축·목표, 연간 리포트)의 안내 문구. */
+/* 자체 배경을 가진 칩·배지는 스스로 대비를 맞추므로 아래 규칙에서 제외한다. */
+body.abV22812Shell :is(.hero,.abV5RemainingHeader) :is(p,small,.note,.muted,.heroLabel,.heroDelta){color:var(--sub)!important}
+body.abV22812Shell :is(.hero,.abV5RemainingHeader) :is(h1,h2,h3){color:var(--text)!important}
+body.abV22812Shell :is(.hero,.abV5RemainingHeader) .abV5Eyebrow{color:var(--accent)!important}
+/* 자산·계좌는 어두운 히어로용 색을 같은 특이도로 고정해 두어 짝이 되는 규칙이 따로 필요하다. */
+body.abV22812Shell.abPageAssets .hero :is(p,.heroLabel,.heroDelta,.note){color:var(--sub)!important}
+body.abV22812Shell.abPageAssets .hero :is(h1,h2,h3){color:var(--text)!important}
+body.abV22812Shell.abPageAssets .hero :is(.abV5Eyebrow,b,strong){color:var(--text)!important}
+body.abV22812Shell.abPageAssets .hero .abV5Eyebrow{color:var(--accent)!important}
+body.abV22812Shell.abPageAssets .heroChips span{background:var(--card-2)!important;border-color:var(--line)!important;color:var(--text)!important}
+/* 챌린지 카드는 라이트에서도 어두운 표면이라 폼 라벨을 밝게 유지해야 한다. */
+body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}
+body.abV22812Shell .reportChallenge summary{color:#fff!important}
+/* 일자별 셀: 빈 날 표시와 금액 요약이 4.5:1을 넘기지 못했다. */
+body.abV22812Shell .dailyCell.noValue{opacity:.78!important}
+body.abV22812Shell .dailyCell :is(span,small){color:var(--sub)!important}
+body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}
+/* 증감 배지는 밝은 카드 위에서 4.5:1을 넘기지 못했다. 대비가 확보된 토큰으로 맞춘다. */
+body.abV22812Shell :is(.deltaDown,.deltaUp){color:var(--pos)!important}
+body.abV22812Shell .deltaUp{color:var(--neg)!important}
 `
   + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
@@ -21349,7 +21382,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22862-css"'
+        ? '"accountbook-shell-v22865-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

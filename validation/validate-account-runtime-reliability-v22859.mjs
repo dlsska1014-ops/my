@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.64-WEB-MANIFEST"'), "runtime exposes the V22.8.59 release");
+ok(source.includes('const APP_VERSION = "V22.8.65-THEME-TEXT-CONTRAST"'), "runtime exposes the V22.8.59 release");
 ok(source.includes("function classifyLocalSignupError"), "signup errors are classified centrally");
 ok(source.includes('code: "signup_rpc_unavailable"') && source.includes('code: "signup_rpc_forbidden"'), "signup distinguishes schema-cache and privilege failures");
 ok(source.includes('kind: "local_signup_session_failed"') && source.includes("계정은 생성되었습니다"), "post-creation session failure never tells the user to create the account again");
