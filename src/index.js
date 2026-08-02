@@ -1882,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.67-ROLE-SURFACE-EMPTY-STATE";
+const APP_VERSION = "V22.8.68-TAP-TARGET-ACCESSIBILITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19256,7 +19256,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22855.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22865.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22868.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22855.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
@@ -20217,6 +20217,28 @@ body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}
 /* 증감 배지는 밝은 카드 위에서 4.5:1을 넘기지 못했다. 대비가 확보된 토큰으로 맞춘다. */
 body.abV22812Shell :is(.deltaDown,.deltaUp){color:var(--pos)!important}
 body.abV22812Shell .deltaUp{color:var(--neg)!important}
+
+/* V22.8.68 모바일 조작 영역.
+   접기 헤더와 카드 헤더의 액션 링크가 14~36px밖에 되지 않아 손가락으로 정확히 누르기 어려웠다.
+   레이아웃을 늘리지 않도록 min-height 로만 키우고, 이미 충분히 큰 요소는 건드리지 않는다. */
+@media(max-width:899px){
+  /* 접기 헤더는 목록 표시(::marker)를 유지해야 하므로 display 를 바꾸지 않는다.
+     align-content 는 지원하는 브라우저에서만 세로 가운데로 놓이고, 아니면 위쪽 정렬로 남는다. */
+  body.abV22812Shell details>summary{min-height:44px;box-sizing:border-box;align-content:center}
+  /* 상단바의 가계부 이름 링크는 모든 화면에 있고 28px였다. */
+  body.abV22812Shell .abNavMobileTop>a{min-height:44px;align-items:center}
+  /* 카드 헤더·섹션 제목 옆의 "더 보기" 계열 링크. */
+  body.abV22812Shell :is(.homeCard>h2,.reportCockpitHead,.reportSectionTitle,.sectionHead)>a,
+  body.abV22812Shell :is(.homeOnboardingStep>a,.closeLink,.regLink,a.preset){display:inline-flex;align-items:center;min-height:44px}
+  /* 가계부 카드의 열기·옵션·멤버는 39px로 1px 모자랐다. */
+  body.abV22812Shell .hhActions>a{min-height:44px}
+  /* 체크박스를 감싼 얇은 라벨. 실제 탭 영역은 라벨 전체다.
+     inline 라벨에는 min-height 가 걸리지 않으므로 표시 방식을 함께 바꾼다. */
+  body.abV22812Shell .reportChallengeToggle{min-height:44px;align-content:center}
+  body.abV22812Shell form:is(#myImportForm,.complete)>label:has(input){display:flex;align-items:center;gap:6px;min-height:44px}
+  /* 표 안의 링크는 행 높이를 늘리지 않도록 여백만 바깥으로 넓힌다. */
+  body.abV22812Shell :is(table,.tableWrap) td>a:not(.btn){display:inline-block;padding-block:12px;margin-block:-12px}
+}
 `
   + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
@@ -21403,7 +21425,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22865-css"'
+        ? '"accountbook-shell-v22868-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
