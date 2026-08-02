@@ -1,0 +1,32 @@
+V22.8.65-THEME-TEXT-CONTRAST
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_65.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_65.ps1
+- VALIDATION_REPORT_V22_8_65.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_65.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_65.ps1 실행
+5. 실기기에서 라이트·다크 × 포인트 컬러 4종 수동 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 기존 URL·API·데이터 구조 변경 없음
+- 셸 스타일시트 주소만 v22865로 갱신
+
+검증
+- 총 1,755개 자동검사 통과
+- 신규 테마 글자 대비 49개 통과
+- 8개 테마 조합 × 24개 탭 실제 렌더 측정에서 저대비 텍스트 0건
+- ESM default.fetch 통과
+
+배포 묶음
+- 실파일 48개 (체크섬 대상 47개 + 체크섬 목록 1개)

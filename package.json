@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.64-web-manifest-validation",
+  "name": "kakao-accountbook-v22.8.65-theme-text-contrast-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22864.sh",
+    "validate:unix": "bash validate_v22865.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -27,6 +27,7 @@
     "validate:mobile-surface": "node validation/validate-mobile-surface-repair-v22861.mjs",
     "validate:mobile-audit": "node validation/validate-mobile-surface-audit-v22862.mjs",
     "validate:app-icon": "node validation/validate-app-icon-assets-v22863.mjs",
-    "validate:web-manifest": "node validation/validate-web-manifest-v22864.mjs"
+    "validate:web-manifest": "node validation/validate-web-manifest-v22864.mjs",
+    "validate:theme-contrast": "node validation/validate-theme-text-contrast-v22865.mjs"
   }
 }
