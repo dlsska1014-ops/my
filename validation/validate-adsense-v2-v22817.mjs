@@ -241,7 +241,7 @@ try {
   ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.69-KAKAO-MEMO-REPEAT-FIX'), "analysis keeps the protected external runtime with the new cache version");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.70-AMOUNT-PARSE-FIX'), "analysis keeps the protected external runtime with the new cache version");
   eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22868.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });
