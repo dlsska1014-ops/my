@@ -1,0 +1,33 @@
+V22.8.71-EDIT-RESTORE-FIX
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_71.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_71.ps1
+- VALIDATION_REPORT_V22_8_71.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_71.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_71.ps1 실행
+5. 카카오톡에서 "수정 01번 금액 3만5천원" 수동 확인
+6. 두 건 연속 삭제 후 안내받은 번호로 둘 다 복구되는지 수동 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 자원 주소 변경 없음 (모바일 홈 런타임 v22870 유지, 웹 탭 새로고침 불필요)
+- 사용자 화면 HTML 바이트 변화 0
+
+주의
+- 과거에 "변경했어요" 응답만 받고 실제로는 바뀌지 않은 날짜 수정은 이 배포로 복구되지 않는다
+- 연속 삭제 후 복구하지 못한 기록은 이미 지워졌으며 되살릴 수 없다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:edit-restore (58개 확인)
+- 저장소 전체 자동검사 2,443개 통과
