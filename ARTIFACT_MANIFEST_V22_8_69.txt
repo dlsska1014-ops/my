@@ -1,0 +1,31 @@
+V22.8.69-KAKAO-MEMO-REPEAT-FIX
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_69.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_69.ps1
+- VALIDATION_REPORT_V22_8_69.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_69.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_69.ps1 실행
+5. 카카오톡에서 "자동차점검 6만원", "타이어교체 15만원" 수동 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 모바일 홈 런타임 주소 v22855 -> v22869 (immutable)
+- 사용자 화면 HTML 바이트 변화 0
+
+주의
+- 과거에 글자가 빠진 채 저장된 메모는 이 배포로 복구되지 않는다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:kakao-memo (57개 확인)
+- 저장소 전체 자동검사 2,308개 통과
