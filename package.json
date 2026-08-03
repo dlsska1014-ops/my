@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.69-kakao-parsing-validation",
+  "name": "kakao-accountbook-v22.8.70-amount-parse-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22869.sh",
+    "validate:unix": "bash validate_v22870.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -32,6 +32,7 @@
     "validate:tx-delete": "node validation/validate-transaction-delete-v22866.mjs",
     "validate:role-surface": "node validation/validate-role-surface-v22867.mjs",
     "validate:tap-target": "node validation/validate-tap-target-a11y-v22868.mjs",
-    "validate:kakao-memo": "node validation/validate-kakao-memo-repeat-v22869.mjs"
+    "validate:kakao-memo": "node validation/validate-kakao-memo-repeat-v22869.mjs",
+    "validate:amount-parse": "node validation/validate-amount-parse-v22870.mjs"
   }
 }

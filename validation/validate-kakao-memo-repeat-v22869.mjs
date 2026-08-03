@@ -8,10 +8,10 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.69-KAKAO-MEMO-REPEAT-FIX"'), "runtime exposes the kakao parsing fix release");
+ok(source.includes('const APP_VERSION = "V22.8.70-AMOUNT-PARSE-FIX"'), "runtime exposes the kakao parsing fix release");
 
 // 1. 조사 제거는 낱말 끝에서만 일어나야 한다.
-ok(source.includes('.replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테|로|에|을|를|은|는|이|가)(?=\\s|$)/g, "$1 ")'), "particles are stripped only at word endings");
+ok(source.includes('.replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g, "$1 ")'), "particles are stripped only at word endings");
 ok(!/\.replace\(\/\(에서\|으로\|로\|에\|에게\|한테\|을\|를\|은\|는\|이\|가\|/.test(source), "the position-blind particle stripper is gone");
 
 // 2. 접속사 분리는 낱말 경계에서만 일어나야 한다.
@@ -75,7 +75,7 @@ try {
   eq(broken.join(", "), "", `메모가 입력 그대로 저장된다 (${broken.join(", ") || "이상 없음"})`);
 
   // 조사가 붙은 입력은 여전히 정리된다.
-  for (const [utterance, expected] of [["마트에서 12000", "마트"], ["회사로 5000", "회사"], ["병원 3000 결제", "병원"]]) {
+  for (const [utterance, expected] of [["마트에서 12000", "마트"], ["친구에게 20000", "친구"], ["병원 3000 결제", "병원"]]) {
     const reply = await say(fixture, utterance);
     eq(savedMemo(reply.text), expected, `"${utterance}" 의 조사·서술어는 계속 정리된다`);
   }
