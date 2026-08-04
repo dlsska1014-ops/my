@@ -254,11 +254,13 @@ try {
 
   // 삭제 + 복구 (2단계 + 되돌리기)
   const undoBufferRow = () => fixture.db.accountbook_settings.find((r) => String(r.key).startsWith("kakao_edit_undo_v4:") && String(r.key).endsWith("kakao_login:2265"));
+  // V22.8.71부터 버퍼는 최근 삭제 여러 건을 담는다. 가장 최근 삭제가 맨 앞이다.
+  const newestUndo = () => JSON.parse(undoBufferRow().value).items[0];
   const delReply = await say("삭제 02번");
   ok(delReply.includes("삭제했어요") && delReply.includes("복구 02번"), "[E2E] 삭제 02번 → 삭제 + 복구 안내");
   ok(!txById("tx-edit-2"), "[E2E] DB에서 삭제됨");
   // 복구 INSERT의 NOT NULL 컬럼(household_id)이 버퍼에 저장되는지 — 운영 복구 실패 재발 방지
-  eq(JSON.parse(undoBufferRow().value).row.household_id, "house-home", "[E2E·회귀] 복구 버퍼에 household_id 저장");
+  eq(newestUndo().row.household_id, "house-home", "[E2E·회귀] 복구 버퍼에 household_id 저장");
   const restoreReply = await say("복구 02번");
   ok(restoreReply.includes("복구했어요"), "[E2E] 복구 02번 → 복구 응답");
   ok(txById("tx-edit-2"), "[E2E] DB에 복구됨");
@@ -269,7 +271,7 @@ try {
   {
     const buffer = undoBufferRow();
     const parsed = JSON.parse(buffer.value);
-    delete parsed.row.household_id;
+    delete parsed.items[0].row.household_id;
     buffer.value = JSON.stringify(parsed);
   }
   const legacyRestore = await say("복구 02번");

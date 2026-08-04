@@ -1882,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.70-AMOUNT-PARSE-FIX";
+const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -24264,36 +24264,70 @@ function kakaoEditUndoKeyV4(kakaoUserKey = "", payload = {}) {
 }
 
 const KAKAO_EDIT_UNDO_TTL_MS = 24 * 60 * 60 * 1000;
+// 삭제할 때마다 "복구 NN번"이라고 안내하므로, 여러 건을 지운 사람은 안내받은 번호를
+// 하나씩 되돌릴 수 있다고 믿는다. 버퍼가 한 칸이면 두 번째 삭제가 첫 번째를 덮어써
+// 첫 기록이 안내와 달리 영영 복구되지 않는다. 최근 삭제분을 쌓아 둔다.
+const KAKAO_EDIT_UNDO_MAX = 10;
+
+// 옛 버퍼는 `{ row, seq }` 한 건이었다. 배포 직후에도 그 값이 남아 있으므로 함께 읽는다.
+function kakaoEditUndoItemsV4(obj) {
+  if (!obj) return [];
+  if (Array.isArray(obj.items)) return obj.items.filter((item) => item?.row?.id);
+  return obj?.row?.id ? [{ row: obj.row, seq: Number(obj.seq || 0), expires_at: Number(obj.expires_at || 0) }] : [];
+}
+
+async function readKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}) {
+  try {
+    const raw = await getSettingValue(env, kakaoEditUndoKeyV4(kakaoUserKey, payload));
+    if (!raw) return [];
+    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const now = Date.now();
+    return kakaoEditUndoItemsV4(obj).filter((item) => {
+      const expires = Number(item.expires_at || obj?.expires_at || 0);
+      return !expires || now <= expires;
+    });
+  } catch (err) {
+    return [];
+  }
+}
+
+async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, items = []) {
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({
+      key: kakaoEditUndoKeyV4(kakaoUserKey, payload),
+      value: items.length ? JSON.stringify({ items, expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS }) : "",
+    }),
+  });
+}
 
 async function saveKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}, data = {}) {
   // 복구 버퍼 저장이 실패한 상태에서 삭제를 진행하면 사용자가 안내받은
   // 되돌리기를 실행할 수 없다. 호출자까지 오류를 전달해 삭제 자체를 중단한다.
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: kakaoEditUndoKeyV4(kakaoUserKey, payload), value: JSON.stringify({ ...data, expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS }) }),
-  });
+  const previous = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
+  const entry = { row: data.row, seq: Number(data.seq || 0), expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS };
+  // 같은 기록을 두 번 담지 않는다. 나머지는 최근 삭제가 앞에 오도록 쌓는다.
+  const items = [entry, ...previous.filter((item) => String(item?.row?.id || "") !== String(entry.row?.id || ""))].slice(0, KAKAO_EDIT_UNDO_MAX);
+  await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
 }
 
+// 번호가 겹치면 가장 최근에 지운 것부터 되돌린다. 지운 순서의 역순이 사용자가 기대하는 순서다.
 async function takeKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}, seq = 0) {
-  try {
-    const raw = await getSettingValue(env, kakaoEditUndoKeyV4(kakaoUserKey, payload));
-    if (!raw) return null;
-    const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!obj?.row?.id || (obj.expires_at && Date.now() > Number(obj.expires_at))) return null;
-    if (seq && Number(obj.seq || 0) !== Number(seq)) return null;
-    return obj;
-  } catch (err) {
-    return null;
-  }
+  const items = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
+  if (!items.length) return null;
+  const hit = seq ? items.find((item) => Number(item.seq || 0) === Number(seq)) : items[0];
+  return hit || null;
 }
 
-async function clearKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}) {
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: kakaoEditUndoKeyV4(kakaoUserKey, payload), value: "" }),
-  });
+// 복구가 확인된 한 건만 버퍼에서 뺀다. 나머지 삭제분은 안내한 대로 계속 복구할 수 있어야 한다.
+async function clearKakaoEditUndoV4(env, kakaoUserKey = "", payload = {}, undo = null) {
+  if (!undo) {
+    await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, []);
+    return;
+  }
+  const items = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
+  await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items.filter((item) => String(item?.row?.id || "") !== String(undo?.row?.id || "")));
 }
 
 function twoDigitSeq(n = 0) {
@@ -24389,11 +24423,20 @@ function stripKakaoEditDatePrefixV4(text = "") {
     .trim();
 }
 
+// 날짜 힌트는 명령 "앞"에 붙은 접두부에서만 읽는다. 문장 전체에서 읽으면
+// "수정 01번 날짜 어제"의 `어제`가 바꿀 값이 아니라 대상 기록의 날짜로 잡혀
+// 어제의 01번을 건드리고도 "변경했어요"라고 답한다.
+function splitKakaoEditDatePrefixV4(text = "") {
+  const raw = normalizeText(text);
+  const body = stripKakaoEditDatePrefixV4(raw);
+  const prefix = body && raw.endsWith(body) ? raw.slice(0, raw.length - body.length).trim() : "";
+  return { body, date: prefix && hasDateHint(prefix) ? extractDate(prefix) : "" };
+}
+
 function parseKakaoDeleteCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw) return null;
-  const explicitDate = hasDateHint(raw) ? extractDate(raw) : "";
-  const body = stripKakaoEditDatePrefixV4(raw);
+  const { body, date: explicitDate } = splitKakaoEditDatePrefixV4(raw);
   const m = body.match(/^(?:삭제|지워|지우기)\s*(\d{1,2})\s*번$/) || body.match(/^(\d{1,2})\s*번\s*(?:삭제|제거|지워줘?)(?:해줘)?$/);
   if (m) return { seq: Number(m[1]), latest: false, date: explicitDate || formatDate(nowKstDate()) };
   if (/^(방금 삭제|방금삭제|최근 입력 삭제|최근입력삭제|마지막 삭제|마지막삭제|방금 거 삭제|방금거삭제)$/.test(body)) {
@@ -24412,8 +24455,7 @@ function parseKakaoRestoreCommandV4(text = "") {
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
-  const explicitDate = hasDateHint(raw) ? extractDate(raw) : "";
-  const body = stripKakaoEditDatePrefixV4(raw);
+  const { body, date: explicitDate } = splitKakaoEditDatePrefixV4(raw);
   let seq = 0;
   let latest = false;
   let rest = "";
@@ -24643,6 +24685,21 @@ function inferFieldFromValue(textRaw, config = {}) {
 // ------------------------- 파서 -------------------------
 // 우선순위: ①정확 필드 매칭 → ②고신뢰 값 추론 → ③fuzzy 필드 매칭 → ④저신뢰 값 추론
 // ②가 ③보다 앞이어야 "엄마"(지출자 값)가 "얼마"(금액 필드)로 오인되지 않음
+// 처음 기록할 때 쓴 표기를 수정에도 그대로 쓸 수 있어야 한다. `점심 6만원`은 받아 주면서
+// `수정 01번 금액 6만원`은 "숫자만 보내주세요"로 되돌리면, 앱이 아는 말을 사용자가
+// 다시 배워야 한다. 입력 경로와 같은 추출기를 쓰되 금액처럼 생긴 문구만 통과시킨다.
+const KAKAO_EDIT_AMOUNT_SHAPE = /^[0-9.,\s원억만천백십일이삼사오육칠팔구영공하나둘셋넷다섯여섯일곱여덟아홉]+$/;
+
+function normalizeKakaoEditAmountValue(textRaw = "") {
+  const text = normalizeText(textRaw);
+  if (!text) return null;
+  const plain = text.replace(/[원,\s]/g, "");
+  if (/^\d+$/.test(plain)) return plain;
+  if (!KAKAO_EDIT_AMOUNT_SHAPE.test(text)) return null;
+  const found = extractAmount(text);
+  return found && found.amount > 0 ? String(Math.round(found.amount)) : null;
+}
+
 function parseEditInput(textRaw, config = {}) {
   const text = normalize(textRaw);
   if (!text) return null;
@@ -24655,10 +24712,7 @@ function parseEditInput(textRaw, config = {}) {
       return clean && !FILLER_TOKENS.has(clean) && tokenToField(clean) !== field;
     });
     let value = valueTokens.join(" ") || null;
-    if (field === "amount" && value) {
-      const num = value.replace(/[원,\s]/g, "");
-      value = /^\d+$/.test(num) ? num : null;
-    }
+    if (field === "amount" && value) value = normalizeKakaoEditAmountValue(value);
     if (field === "delete") value = "confirm";
     return { field, value, via: "field" };
   };
@@ -24746,7 +24800,7 @@ function buildValuePrompt(field, config = {}) {
     return { prompt: `날짜를 번호로 고르거나 직접 입력해주세요.\n${numbered(options)}  (직접 입력 예: 7월 20일)`, options, allowFreeText: true };
   }
   if (field === "amount") {
-    return { prompt: "얼마로 바꿀까요? 숫자만 보내주세요. 예: 13000", options: null };
+    return { prompt: "얼마로 바꿀까요? 예: 13000 · 1만3천원", options: null };
   }
   // content — 유일한 완전 자유 입력란
   return { prompt: "내용을 무엇으로 바꿀까요? 예: 점심", options: null };
@@ -24836,7 +24890,9 @@ function handleEditMessage(session, textRaw, config = {}) {
     if (NO_WORDS.has(c)) {
       return finish(session, {
         action: "reprompt",
-        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)`,
+        // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
+        // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
+        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -24867,8 +24923,8 @@ function handleEditMessage(session, textRaw, config = {}) {
       }
     }
     if (session.field === "amount") {
-      const num = text.replace(/[원,\s]/g, "");
-      if (!/^\d+$/.test(num)) return fail(session, now, text, `금액은 숫자로 입력해 주세요. 예: 13000`);
+      const num = normalizeKakaoEditAmountValue(text);
+      if (!num) return fail(session, now, text, `금액을 알아듣지 못했어요. 13000 · 1만3천 · 1만3천원 처럼 보내주세요.`);
       value = num;
     }
     if (!value) return fail(session, now, text);
@@ -25342,7 +25398,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText("복구가 잠시 지연되고 있어요. 잠시 후 다시 ‘복구’를 입력해 주세요.\n계속 안 되면 ‘오늘 기록 보기’에서 확인 후 새로 입력해 주세요.");
     }
     // 실제 복구가 확인된 뒤에만 버퍼를 비운다. INSERT 실패 중에는 다음 재시도 기회를 보존한다.
-    await clearKakaoEditUndoV4(env, kakaoUserKey, payload);
+    await clearKakaoEditUndoV4(env, kakaoUserKey, payload, undo);
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(undo.seq || 0) || 1;
     return kakaoText(`↩️ 기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}`);
   }

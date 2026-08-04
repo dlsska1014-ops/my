@@ -1,6 +1,6 @@
 # Codex 검증 하네스
 
-회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다. 현재 저장소 하네스는 V22.8.70 배포 묶음을 확인합니다.
+회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다. 현재 저장소 하네스는 V22.8.71 배포 묶음을 확인합니다.
 
 ## 전체 검증
 
@@ -12,7 +12,7 @@ node .codex/scripts/verify-repository.mjs
 
 하네스는 다음을 순서대로 확인합니다.
 
-1. `BUNDLE_FILE_CHECKSUMS_V22_8_70.sha256`의 배포 파일
+1. `BUNDLE_FILE_CHECKSUMS_V22_8_71.sha256`의 배포 파일
 2. `src/index.js` JavaScript 문법
 3. 영수증 56개
 4. 카카오 그룹 22개
@@ -21,7 +21,7 @@ node .codex/scripts/verify-repository.mjs
 7. 참여자 역할 스키마 20개
 8. UX·분석 보호 56개
 9. 사용자 화면·홈 버튼·테마·성능 161개
-10. AdSense 심사·V2·UI V5 공통 셸 261개
+10. AdSense 심사·V2·UI V5 공통 셸 262개
 11. UI V5 권한·범위·저장 안정화 41개
 12. 핵심 쓰기·권한 스모크 110개
 13. UI/UX 1~4단계 218개
@@ -36,10 +36,15 @@ node .codex/scripts/verify-repository.mjs
 22. 웹 매니페스트 64개
 23. 테마 글자 대비 49개
 24. 거래 삭제 동작 15개
-25. ESM import와 `default.fetch`
-26. 작업 트리·스테이징 영역의 공백 오류
+25. 역할별 화면·빈 상태 203개
+26. 조작 영역·접근성 278개
+27. 카카오 메모·중복 방지 57개
+28. 금액 파싱 77개
+29. 수정·삭제·복구 왕복 58개
+30. ESM import와 `default.fetch`
+31. 작업 트리·스테이징 영역의 공백 오류
 
-성공 결과는 총 1,770개 자동 검사와 현재 `src/index.js` SHA-256을 표시합니다.
+성공 결과는 총 2,443개 자동 검사와 현재 `src/index.js` SHA-256을 표시합니다.
 
 ## 빠른 검사
 
@@ -64,6 +69,17 @@ node .codex/scripts/verify-repository.mjs
 | 챌린지·최근 기록 UI/UX | `npm run validate:challenge-activity-ux` |
 | 계정·런타임 신뢰성 | `npm run validate:account-runtime` |
 | 기능·UI 신뢰성 | `npm run validate:functional-ui` |
+| 모바일 화면 보정 | `npm run validate:mobile-surface` |
+| 모바일 전체 탭 점검 | `npm run validate:mobile-audit` |
+| 앱 아이콘 자원 | `npm run validate:app-icon` |
+| 웹 매니페스트 | `npm run validate:web-manifest` |
+| 테마 글자 대비 | `npm run validate:theme-contrast` |
+| 거래 삭제 동작 | `npm run validate:tx-delete` |
+| 역할별 화면·빈 상태 | `npm run validate:role-surface` |
+| 조작 영역·접근성 | `npm run validate:tap-target` |
+| 카카오 메모·중복 방지 | `npm run validate:kakao-memo` |
+| 금액 파싱 | `npm run validate:amount-parse` |
+| 수정·삭제·복구 왕복 | `npm run validate:edit-restore` |
 
 ## 하네스 자체 점검
 
@@ -73,4 +89,4 @@ node .codex/scripts/verify-repository.mjs --self-test
 
 ## 자동화할 수 없는 항목
 
-하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.70에는 신규 SQL이 없으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
+하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.71에는 신규 SQL이 없으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
