@@ -19,7 +19,7 @@ eccc09cbc571d777a219379c11572cf5f3dc1a50a61038edae84cb76bd3f703c  ./SQL_HISTORY.
 d20e4a09293584911e92925ae044e9a2e3fb9d99ea5c7cd32e629358df20c4c2  ./VERSION.txt
 1c6b6f4015fe92773e4acff177f5695d7cd9131aaefbc5baa7e8b5e8ddc7f42b  ./docs/codex/VERIFICATION.md
 8c6d142041740197168171c00ad3434e40e4758ba1ba50d09da0190dde18de29  ./package.json
-0979bbebdf2e69600730d9347fb065e4034de5a22532aa21b367705e819d3612  ./src/index.js
+9c8cb3d25a173ba69b6e098cf2e040c5a18c566d43e7de4d57575c95d3f847d1  ./src/index.js
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22873.sh
 f3631bc02b8fecb7902643caf4f01fdb29deb7f60d204957248ca646de5bb47d  ./validation/qa-fixture.mjs
 02fdd92cdabc3c9390c85eb098cb64c33e434691035c2d447d690314e8d8948e  ./validation/validate-account-runtime-reliability-v22859.mjs
