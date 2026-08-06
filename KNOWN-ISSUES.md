@@ -2,7 +2,7 @@
 
 ## V22.8.74 예산 재검토·다크 대비
 
-- **iPhone 홈 화면 추가가 완전한 앱처럼 열리지 않습니다.** `manifest.json` 의 `display: standalone` 을 iOS Safari 는 따르지 않고 `<meta name="apple-mobile-web-app-capable" content="yes">` 를 봅니다. 지금은 없어 주소창이 있는 Safari 화면으로 열립니다. 넣으면 Safari 뒤로 가기 버튼이 사라지므로 제품 판단이 필요합니다.
+- **iPhone 홈 화면 추가는 Safari 화면으로 여는 것이 확정된 선택입니다.** iOS Safari 는 `manifest.json` 의 `display: standalone` 을 따르지 않고 `<meta name="apple-mobile-web-app-capable" content="yes">` 를 봅니다. 이 메타를 넣으면 앱처럼 전체 화면으로 열리지만 **Safari 뒤로 가기 버튼이 사라집니다.** 2026-08-06 운영자 판단으로 **넣지 않기로 했습니다.** 홈 화면 아이콘은 주소창과 뒤로 가기가 있는 Safari 화면으로 열립니다. 이 선택을 되돌리려면 앱 자체 내비게이션만으로 모든 화면에서 되돌아갈 수 있는지부터 확인해야 합니다.
 - 실사용 홈 HTML 예산을 44 KiB → 46 KiB 로 올렸습니다. 올리기 전 상태가 이미 초과였고(45,084 B), 낭비 38 B 를 회수하고 최악 사례를 재도록 고친 뒤 정한 값입니다. 현재 여유 2,142 B 는 피드 카드 한 장(약 1.7 KB)보다 큽니다.
 - 예산 검사는 이제 **이번 달**을 잽니다. 과거 달을 고정하면 "오늘" 표시가 빠져 더 작게 측정되어 검사가 거짓 통과합니다. 비슷한 검사를 만들 때 같은 함정을 주의해야 합니다.
 - 대비 계산기를 만들 때 `background-image: linear-gradient` 를 읽지 못하면 `background-color: transparent` 로 보고 엉뚱한 조상 배경과 비교하게 됩니다. 챌린지 카드 4건이 이 이유로 거짓 결함으로 잡혔습니다.

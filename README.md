@@ -10,7 +10,7 @@
 - 카카오 인앱 브라우저 스크롤 잠금·manifest·아이콘 확인
 - 총 2,691개 자동검사 통과
 
-> iPhone 홈 화면 추가의 `apple-mobile-web-app-capable` 은 Safari 뒤로 가기가 사라지는 절충이 있어 제품 판단 대상으로 남겼습니다.
+> iPhone 홈 화면 추가의 `apple-mobile-web-app-capable` 은 **넣지 않기로 확정**했습니다. 앱처럼 전체 화면으로 열리는 대신 Safari 뒤로 가기 버튼이 사라지기 때문입니다.
 
 ## 이전 단계(V22.8.73)
 

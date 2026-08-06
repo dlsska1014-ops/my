@@ -21,7 +21,7 @@
 
 - [x] manifest·아이콘 192/512/512-maskable·apple-touch-icon 전부 200
 - [x] 카카오 인앱 UA 로 빠른 입력 시트 열림·날짜 전달·배경 스크롤 잠금·Esc 복구·JS 오류 0
-- [ ] iOS `apple-mobile-web-app-capable` 추가 여부 제품 판단 (**미결정**)
+- [x] iOS `apple-mobile-web-app-capable` 추가 여부 제품 판단 → **넣지 않음** (Safari 뒤로 가기 유지, 2026-08-06)
 - [ ] 실제 기기에서 손가락 터치 반응·iOS Safari 고유 동작 확인 (**기기 필요**)
 
 ## 운영 배포 후 수동 확인
