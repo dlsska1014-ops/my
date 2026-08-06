@@ -8,11 +8,11 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.74-BUDGET-DARK-CONTRAST"'), "runtime exposes the mobile surface repair release");
+ok(source.includes('const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT"'), "runtime exposes the mobile surface repair release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22874.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed quick input runtime uses a new immutable path");
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22873.css"'), "byte-pinned legacy home stylesheet keeps its path");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22875.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
 const usedVariables = new Set();
