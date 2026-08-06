@@ -15,7 +15,7 @@
 - [x] `search_path = ''` 안전성 확인 (표 참조 전부 `public.` 정규화, 나머지는 `pg_catalog`)
 - [x] 삭제 키 3종 형식이 앱 코드와 일치 (`favorites` 는 접두 일치가 맞음)
 - [x] `drop`·`truncate` 없음, 실행 권한 `service_role` 한정
-- [ ] Supabase SQL Editor 에서 실행하고 `purge_rpc_count` = 1 확인 (**미실행**)
+- [x] Supabase SQL Editor 에서 실행 (2026-08-06 운영자 확인, 저장소에서는 직접 확인 불가)
 
 ## 시크릿
 

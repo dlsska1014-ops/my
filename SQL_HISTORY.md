@@ -1,5 +1,30 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.73
+
+- **신규 SQL 있음**: `02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql`
+- 새 RPC 를 만들지 않는다. 기존 `accountbook_purge_household_v227`(정의 위치: `schema_v22_7_0_auth_atomicity.sql`) 의 **본문만 교체**한다
+- 실제 변경 3건
+  - `set search_path = public` → `''` (SECURITY DEFINER 하이재킹 방지). 본문의 표 참조가 전부 `public.` 으로 정규화돼 있고, 쓰이는 함수는 `pg_catalog` 소속이라 빈 search_path 에서도 해석된다
+  - 가계부 삭제 시 함께 지우는 설정 키 3종 추가: `report_challenge:<id>`, `goals:v5:<id>`(정확히 일치), `favorites:v5:<id>:`(접두 일치 — 뒤에 사용자 키가 붙는다)
+  - 적용 후 확인용 비변경 조회(`purge_rpc_count`) 추가
+- `drop`·`truncate` 없음. 실행 권한은 `service_role` 에만 부여하고 `public`·`anon`·`authenticated` 에서 회수
+- **적용: 2026-08-06 운영자가 Supabase SQL Editor 에서 실행했다고 알려 옴.** 이 저장소에서는 운영 DB 에 접근하지 않아 직접 확인하지 못했다
+- 적용 전에 삭제된 가계부의 위 설정 키는 그대로 남아 있다. 이 SQL 은 앞으로의 삭제만 완전하게 만든다
+- 기존 V22.6.8·V22.7.0·V22.7.1·V22.8.46 SQL 은 재실행하지 않는다
+
+## V22.8.72
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 본문 바로가기는 셸 삽입 지점의 마크업 변경만으로 처리하며 데이터 경로가 없다
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
+## V22.8.71
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 카카오 되돌리기 버퍼는 기존 `accountbook_settings` 에 JSON 형태로 저장하며, 옛 단일 슬롯 형태도 계속 읽는다
+- 배포: 검증된 `src/index.js` 전체 교체만 수행
+
 ## V22.8.59
 
 - 신규 SQL·스키마·RLS·RPC·인덱스: 없음
