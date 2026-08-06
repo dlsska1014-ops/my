@@ -1,6 +1,6 @@
 # Codex 검증 하네스
 
-회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다. 현재 저장소 하네스는 V22.8.73 배포 묶음을 확인합니다.
+회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다. 현재 저장소 하네스는 V22.8.74 배포 묶음을 확인합니다.
 
 ## 전체 검증
 
@@ -12,7 +12,7 @@ node .codex/scripts/verify-repository.mjs
 
 하네스는 다음을 순서대로 확인합니다.
 
-1. `BUNDLE_FILE_CHECKSUMS_V22_8_73.sha256`의 배포 파일
+1. `BUNDLE_FILE_CHECKSUMS_V22_8_74.sha256`의 배포 파일
 2. `src/index.js` JavaScript 문법
 3. 영수증 56개
 4. 카카오 그룹 22개
@@ -43,10 +43,11 @@ node .codex/scripts/verify-repository.mjs
 29. 수정·삭제·복구 왕복 58개
 30. 본문 바로가기 178개
 31. 스킬 인증·삭제 SQL 49개
-32. ESM import와 `default.fetch`
-33. 작업 트리·스테이징 영역의 공백 오류
+32. 예산 재검토·다크 대비 18개
+33. ESM import와 `default.fetch`
+34. 작업 트리·스테이징 영역의 공백 오류
 
-성공 결과는 총 2,673개 자동 검사와 현재 `src/index.js` SHA-256을 표시합니다.
+성공 결과는 총 2,691개 자동 검사와 현재 `src/index.js` SHA-256을 표시합니다.
 
 ## 빠른 검사
 
@@ -84,6 +85,7 @@ node .codex/scripts/verify-repository.mjs
 | 수정·삭제·복구 왕복 | `npm run validate:edit-restore` |
 | 본문 바로가기 | `npm run validate:skip-to-content` |
 | 스킬 인증·삭제 SQL | `npm run validate:skill-auth-purge` |
+| 예산 재검토·다크 대비 | `npm run validate:budget-dark-contrast` |
 
 ## 하네스 자체 점검
 
@@ -93,4 +95,4 @@ node .codex/scripts/verify-repository.mjs --self-test
 
 ## 자동화할 수 없는 항목
 
-하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.73에는 신규 SQL(02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql)이 있으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
+하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.74에는 신규 SQL이 없으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
