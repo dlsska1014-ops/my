@@ -1882,7 +1882,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX";
+const APP_VERSION = "V22.8.72-SKIP-TO-CONTENT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4057,6 +4057,28 @@ function deferHeavyBrowserTools(html = "") {
   return source;
 }
 
+const SKIP_TO_CONTENT_TARGET_ID = "abMainContent";
+
+// 건너뛰기 링크는 문서에서 "첫 번째로 포커스되는 것"이어야 뜻이 있다. body 바로 뒤에 넣는다.
+// 평소에는 보이지 않다가 포커스를 받으면 나타난다. display:none 이나 visibility:hidden 으로
+// 감추면 포커스 자체가 가지 않아 링크가 없는 것과 같아진다.
+function addSkipToContentLink(source = "") {
+  if (!source || source.includes('class="abSkipLink"')) return source;
+  if (!/<main\b/i.test(source)) return source;
+  let targetId = "";
+  const withTarget = source.replace(/<main\b([^>]*)>/i, (full, attrs) => {
+    const raw = String(attrs || "");
+    // 이미 id 가 있으면 그것을 목적지로 쓴다. 남의 id 를 갈아 끼우면 그 id 를 쓰던 링크가 끊긴다.
+    const existing = raw.match(/\bid\s*=\s*(["'])(.*?)\1/i);
+    targetId = existing ? existing[2] : SKIP_TO_CONTENT_TARGET_ID;
+    // 목적지가 포커스를 받아야 다음 Tab 이 본문에서 이어진다. 없으면 주소만 바뀌고 포커스는 그대로다.
+    const focusable = /\btabindex\s*=/.test(raw) ? "" : ` tabindex="-1"`;
+    return existing ? `<main${focusable}${raw}>` : `<main id="${SKIP_TO_CONTENT_TARGET_ID}"${focusable}${raw}>`;
+  });
+  if (!targetId) return source;
+  return withTarget.replace(/<body\b[^>]*>/i, (full) => `${full}<a class="abSkipLink" href="#${escapeHtml(targetId)}">본문 바로가기</a>`);
+}
+
 function normalizeUserFacingUi(html = "") {
   let source = String(html || "").replace(/,maximum-scale=1/g, "");
   source = source.replace(".sep{text-align:center;color:#7b8494;", ".sep{text-align:center;color:#667085;");
@@ -4250,6 +4272,10 @@ function normalizeUserFacingUi(html = "") {
     }
     return `<body class="${bodyClasses.join(" ")}"${attrs || ""}>`;
   });
+  // 키보드 사용자는 화면마다 상단바·사이드바를 먼저 지나야 본문에 닿는다. 데스크톱 홈은
+  // 사이드바 달력 때문에 Tab 을 55번 눌러야 첫 본문 요소에 도착했다. 화면을 넘길 때마다
+  // 그 55번을 처음부터 다시 눌러야 하므로, 첫 번째 포커스 자리에 본문 바로가기를 둔다.
+  if (useV22812Shell) source = addSkipToContentLink(source);
   if (useV22812Shell && source.includes("</head>")) {
     const themeScript = `<script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script>`;
     const shellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
@@ -19256,7 +19282,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22870.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22868.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22872.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22870.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
@@ -20239,6 +20265,19 @@ body.abV22812Shell .deltaUp{color:var(--neg)!important}
   /* 표 안의 링크는 행 높이를 늘리지 않도록 여백만 바깥으로 넓힌다. */
   body.abV22812Shell :is(table,.tableWrap) td>a:not(.btn){display:inline-block;padding-block:12px;margin-block:-12px}
 }
+
+/* V22.8.72 본문 바로가기.
+   키보드로만 쓰는 사람은 화면을 넘길 때마다 상단바와 사이드바를 처음부터 다시 지나야 했다.
+   데스크톱 홈은 사이드바 달력 때문에 Tab 을 55번 눌러야 본문 첫 요소에 닿았다.
+   display:none·visibility:hidden 으로 감추면 포커스가 가지 않아 없는 것과 같으므로,
+   화면 밖으로 밀어 두었다가 포커스를 받으면 제자리로 가져온다. */
+body.abV22812Shell .abSkipLink{position:fixed;left:12px;top:-100px;z-index:2147483647;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--ab12-action,#1d4ed8);color:#fff!important;font-weight:900;text-decoration:none;box-shadow:0 10px 28px rgba(15,23,42,.28);transition:top .12s ease-out}
+body.abV22812Shell .abSkipLink:focus,body.abV22812Shell .abSkipLink:focus-visible{top:12px}
+/* 건너뛴 목적지에는 기본 포커스 테두리를 두지 않는다. 본문 전체를 두르는 굵은 사각형은
+   "여기로 왔다"는 신호보다 오류처럼 읽힌다. 대신 왼쪽에 짧은 표시만 남긴다. */
+body.abV22812Shell main:focus{outline:none!important}
+body.abV22812Shell main:focus-visible{outline:none!important;box-shadow:inset 3px 0 0 var(--ab12-action,#1d4ed8)}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell .abSkipLink{transition:none}}
 `
   + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
@@ -21425,7 +21464,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22868-css"'
+        ? '"accountbook-shell-v22872-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

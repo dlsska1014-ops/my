@@ -1,0 +1,33 @@
+V22.8.72-SKIP-TO-CONTENT
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_72.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_72.ps1
+- VALIDATION_REPORT_V22_8_72.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_72.sha256
+
+적용 순서
+1. 현재 Worker 전체 소스 백업
+2. src/index.js 전체 교체
+3. 저장 및 배포
+4. 10_VERIFY_AFTER_DEPLOY_V22_8_72.ps1 실행
+5. 아무 화면에서 Tab 한 번 → "본문 바로가기" 노출 확인
+6. Enter 후 본문으로 이동하고 다음 Tab이 본문에서 이어지는지 확인
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수·Secret 변경 없음
+- Kakao Developers·OpenBuilder 변경 없음
+- 셸 스타일시트 주소 v22868 -> v22872 (immutable, 웹 탭 새로고침 필요)
+- 사용자 화면 HTML 화면당 약 100 B 증가
+
+주의
+- 이 배포는 데이터를 바꾸지 않는다
+- 200행 실사용 홈 HTML 여유가 409 B 로 줄어 다음 변경 시 예산 재검토가 필요하다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:skip-to-content (178개 확인)
+- 저장소 전체 자동검사 2,621개 통과
