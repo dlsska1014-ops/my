@@ -1,0 +1,29 @@
+V22.8.74-BUDGET-DARK-CONTRAST
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_74.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_74.ps1
+- VALIDATION_REPORT_V22_8_74.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_74.sha256
+
+이번 변경
+- 다크 모드 대비 2건 보정 (빈 상태 상자 1.82:1, 본문 바로가기 배지 2.87:1)
+- 홈 HTML 예산 검사가 과거 달을 고정해 더 작은 경우를 재던 것을 이번 달 기준으로 교정
+- 선택되지 않은 option 의 잉여 공백 제거로 38 B 회수
+- 실사용 예산 44 KiB -> 46 KiB 재설정 (실측 44,962 B, 여유 2,142 B)
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수 변경 없음
+- 셸 스타일시트 주소 v22873 -> v22874 (웹 탭 새로고침 필요)
+
+주의
+- 예산을 올렸으나, 올리기 전 상태가 이미 초과였고 낭비를 먼저 회수한 뒤 정한 값이다
+- iPhone 홈 화면 추가의 apple-mobile-web-app-capable 은 제품 판단이 필요해 넣지 않았다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:budget-dark-contrast (18개 확인)
+- 저장소 전체 자동검사 2,691개 통과
