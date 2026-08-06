@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX"'), "stage 2 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.73-CALENDAR-CHALLENGE-SECURITY"'), "stage 2 runtime version is explicit");
 ok(source.includes('url.pathname === "/u/api/day-transactions"'), "day detail read endpoint is routed");
 ok(source.includes("async function handleUserDayTransactions"), "day detail handler exists");
 ok(source.includes("getScopedHouseholdsForPage(request, env)"), "day detail uses signed-in household scope");
@@ -25,8 +25,8 @@ ok(source.includes("activeRequest.abort()"), "repeated date selections cancel st
 ok(source.includes("이 날짜가 선택된 빠른 입력을 바로 열 수 있습니다."), "empty day is connected to quick input in the cumulative release");
 ok(source.includes(".abDayDetailOverlay"), "day popup styling exists");
 ok(source.includes("@media(max-width:899px){body.abV22812Shell .abDayDetailOverlay{align-items:flex-end"), "mobile day detail becomes a bottom sheet");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22868.css"'), "current release uses a new shell asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22861.js"'), "current release uses a new V5 asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22873.css"'), "current release uses a new shell asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "current release uses a new V5 asset");
 ok(source.includes('data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}"'), "full calendar emits secure day hooks");
 ok(source.includes('data-ab-day="\' + date + \'" data-ab-household-id="\' + householdId + \'"'), "sidebar calendar emits day hooks");
 
@@ -80,12 +80,12 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with stage 2 assets");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "default home remains below the 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-v5-v22861.js'), "home loads the current V5 bundle");
+  ok(home.text.includes('/assets/accountbook-v5-v22873.js'), "home loads the current V5 bundle");
   const calendarHome = await request(fixture, "/app?month=2026-07&household_id=house-home&view=calendar");
   eq(calendarHome.response.status, 200, "calendar view renders with stage 2 hooks");
   ok(calendarHome.text.includes('data-ab-day="2026-07-04"'), "home calendar emits a popup date hook");
 
-  const asset = await request(fixture, "/assets/accountbook-v5-v22861.js");
+  const asset = await request(fixture, "/assets/accountbook-v5-v22873.js");
   eq(asset.response.status, 200, "stage 2 V5 asset is served");
   ok(asset.text.includes("/u/api/day-transactions?date="), "stage 2 asset calls the scoped day endpoint");
   ok(asset.text.includes("abDayDetailOverlay"), "stage 2 asset contains the popup runtime");

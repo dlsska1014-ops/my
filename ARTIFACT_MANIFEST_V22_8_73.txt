@@ -1,0 +1,41 @@
+V22.8.73-CALENDAR-CHALLENGE-SECURITY
+
+핵심 배포 파일
+- src/index.js
+- 02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql  (수동 검토 후 적용)
+- 00_READ_FIRST_V22_8_73.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_73.ps1
+- VALIDATION_REPORT_V22_8_73.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_73.sha256
+
+이 패키지의 성격
+- 외부에서 받은 V22.8.71-CALENDAR-CHALLENGE 작업을 저장소 최신 상태에 3-way 로 병합한 것
+- 받은 파일은 V22.8.70 에서 갈라져 나온 것이라 그대로 덮어쓰면 V22.8.71·V22.8.72 수정이 되살아난다
+- 버전 번호가 겹치므로 이 패키지는 V22.8.73 이다
+
+적용 순서
+1. Worker 와 Supabase 백업
+2. 02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql 직접 검토
+3. 승인 후 SQL Editor 에서 실행, purge_rpc_count 가 1인지 확인
+4. src/index.js 전체 교체 후 배포
+5. 10_VERIFY_AFTER_DEPLOY_V22_8_73.ps1 실행
+6. /health 의 skill_caller_auth_configured 와 /ready 표 11개 확인
+7. 캘린더 도트·날짜 상세 수정/삭제·챌린지 3종 확인
+
+운영 변경 여부
+- 신규 SQL 있음 (기존 accountbook_purge_household_v227 정의 교체, 새 RPC 아님)
+- 신규 환경변수 3개 (KAKAO_SKILL_SECRET, KAKAO_SKILL_AUTH_REQUIRED, HOUSEHOLD_CREATE_LEASE_SECONDS)
+  → 전부 선택. 넣지 않으면 현재 동작 그대로 유지된다
+- Kakao Developers/OpenBuilder: /skill 인증을 쓸 때만 헤더 추가
+- immutable 자원 주소 v22873 (웹 탭 새로고침 필요)
+
+주의
+- /skill 인증은 OpenBuilder 헤더를 먼저 넣고 확인한 뒤 Worker 비밀값을 넣는다.
+  반대로 하면 그 사이 카카오 채널이 403 으로 막힌다
+- 200행 실사용 홈 HTML 여유가 402 B 로 줄어 예산 재검토가 시급하다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:skill-auth-purge (49개 확인)
+- 저장소 전체 자동검사 2,673개 통과

@@ -14,14 +14,17 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX"'), "V22.8.58 runtime version is explicit");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22868.css"'), "shell uses a fresh immutable URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22861.js"'), "activity runtime uses a fresh immutable URL");
-ok(source.includes('"accountbook-shell-v22868-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22861-js"'), "activity runtime ETag is refreshed");
+ok(source.includes('const APP_VERSION = "V22.8.73-CALENDAR-CHALLENGE-SECURITY"'), "V22.8.58 runtime version is explicit");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22873.css"'), "shell uses a fresh immutable URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "activity runtime uses a fresh immutable URL");
+ok(source.includes('"accountbook-shell-v22873-css"'), "shell ETag is refreshed");
+ok(source.includes('"accountbook-v5-v22873-js"'), "activity runtime ETag is refreshed");
 ok(source.includes('const displayMode = settings.periodDays <= 7 ? "daily" : "percent"'), "one-week display threshold is explicit");
-ok(source.includes('state === "success" ? "무지출 성공"'), "day slots expose a textual success state");
-ok(source.includes('state === "spent" ? "지출 있음"'), "day slots expose a textual spend state");
+// V22.8.73 에서 챌린지가 3종으로 늘어 성공 문구가 유형별 라벨이 됐다.
+// 무지출 방식은 기존 문구를 그대로 쓰고, 나머지는 자기 라벨을 쓴다.
+ok(source.includes('state === "success" ? (settings.type === "no_spend_days" ? "무지출 성공" : settings.successLabel)'), "day slots expose a textual success state");
+ok(source.includes('successLabel: "한도 지킴"') && source.includes('successLabel: "분류 한도 지킴"'), "each challenge type names its own success state");
+ok(source.includes('state === "spent" ? (settings.type === "no_spend_days" ? "지출 있음" : settings.failureLabel)'), "day slots expose a textual spend state");
 ok(source.includes('class="reportChallengeDays"'), "full challenge renders date cells");
 ok(source.includes('class="abChallengeDays"'), "sidebar challenge renders compact date cells");
 ok(source.includes('class="reportChallengePercent"'), "long challenge renders percent progress");
@@ -94,8 +97,8 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with the upgraded challenge");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22868.css'), "home loads the refreshed shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22861.js'), "home loads the refreshed activity runtime");
+  ok(home.text.includes('/assets/accountbook-shell-v22873.css'), "home loads the refreshed shell");
+  ok(home.text.includes('/assets/accountbook-v5-v22873.js'), "home loads the refreshed activity runtime");
   ok(home.text.includes('class="reportChallengeDays"') || home.text.includes('class="reportChallengePercent"'), "home challenge uses one responsive progress mode");
   eq(fixture.db.transactions.length, before, "home rendering remains read-only");
 
@@ -121,17 +124,17 @@ try {
   eq(activityQueries[0].searchParams.get("limit"), "81", "activity endpoint requests one sentinel row beyond the 80-row display bound");
   eq(fixture.db.transactions.length, before, "activity endpoint remains read-only");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22868.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22873.css");
   eq(shell.response.status, 200, "refreshed shell is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22868-css"', "refreshed shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22873-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".reportChallengeDays"), "shell includes challenge date-cell styling");
   ok(shell.text.includes(".abChallengePercent"), "shell includes long-period percentage styling");
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
   ok(shell.text.includes(".abActivityItem:focus-visible"), "activity items have a visible keyboard focus state");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22861.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js");
   eq(v5.response.status, 200, "refreshed activity runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22861-js"', "refreshed activity runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "refreshed activity runtime ETag is correct");
   ok(v5.text.includes("function iconSvg(kind)"), "runtime contains the controlled SVG icon renderer");
   ok(v5.text.includes('class="abActivityTypeIcon kind-') && v5.text.includes("교통"), "runtime emits semantic category icon classes");
   ok(v5.text.includes("aria-label"), "runtime emits accessible activity labels");

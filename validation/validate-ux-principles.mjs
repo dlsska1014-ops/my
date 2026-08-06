@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.73-CALENDAR-CHALLENGE-SECURITY"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The server report renderer
 // intentionally changes in V22.8.56 after the user requested a report UX upgrade.

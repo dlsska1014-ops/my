@@ -23,6 +23,8 @@
   - MY_IMPORT_TOKEN_SECRET
   Optional
   - APP_NAME
+  - KAKAO_SKILL_SECRET (OpenBuilder header authentication)
+  - KAKAO_SKILL_AUTH_REQUIRED=1 (fail readiness when the secret is absent)
 */
 
 // Kakao Login uses Cloudflare environment variables only.
@@ -42,9 +44,7 @@ const AB_SKILL_EVENTS = globalThis.__AB_SKILL_EVENTS || (globalThis.__AB_SKILL_E
 const AB_NLU_RUNTIME_EVENTS = globalThis.__AB_NLU_RUNTIME_EVENTS || (globalThis.__AB_NLU_RUNTIME_EVENTS = []);
 const AB_NLU_RUNTIME_METRICS = globalThis.__AB_NLU_RUNTIME_METRICS || (globalThis.__AB_NLU_RUNTIME_METRICS = new Map());
 const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalThis.__AB_EFFECTIVE_USER_CACHE = new Map());
-const AB_HOUSEHOLD_CREATE_LOCKS = globalThis.__AB_HOUSEHOLD_CREATE_LOCKS || (globalThis.__AB_HOUSEHOLD_CREATE_LOCKS = new Map());
 const AB_OPERATION_MUTEXES = globalThis.__AB_OPERATION_MUTEXES || (globalThis.__AB_OPERATION_MUTEXES = new Map());
-const AB_OPERATION_MEMORY_LEASES = globalThis.__AB_OPERATION_MEMORY_LEASES || (globalThis.__AB_OPERATION_MEMORY_LEASES = new Map());
 const AB_REQUEST_RAW_USER_CACHE = new WeakMap();
 const AB_REQUEST_USER_CACHE = new WeakMap();
 
@@ -425,17 +425,11 @@ function duplicateSkippedReturnLocation(month, householdId, extra = {}) {
 }
 
 function getOperationIntegritySnapshot() {
-  const now = Date.now();
-  let activeMemoryLeases = 0;
-  for (const [key, lease] of AB_OPERATION_MEMORY_LEASES.entries()) {
-    if (Number(lease?.expires_at || 0) <= now) AB_OPERATION_MEMORY_LEASES.delete(key);
-    else activeMemoryLeases++;
-  }
   return {
     profile: "atomic-dedup-and-cron-lease",
     migration: "schema_v22_6_8_operations_integrity.sql",
     database_lock_rpc_required: true,
-    active_memory_fallback_leases: activeMemoryLeases,
+    active_memory_fallback_leases: 0,
   };
 }
 
@@ -493,10 +487,9 @@ function trafficClientKey(request) {
   }
 }
 
-// /skill은 호출자를 인증하지 않고 요청 본문의 botUserKey를 신원으로 사용한다.
-// 사용자별 스킬 제한(checkSkillRateLimit)만으로는 그 키를 호출자가 직접 정하므로
-// 값을 바꿔가며 보내면 제한이 그대로 우회된다. 그룹 챗봇의 정상 유입을 막지 않도록
-// 일반 쓰기 경로보다 훨씬 높은 IP 단위 상한만 별도로 둔다.
+// KAKAO_SKILL_SECRET을 설정하기 전에는 /skill 요청 본문의 botUserKey를 신원으로
+// 사용하므로 값을 바꿔가며 사용자별 제한을 우회할 수 있다. 그룹 챗봇의 정상 유입을
+// 막지 않도록 높은 IP 상한을 함께 두고, 운영에서는 OpenBuilder 헤더 인증을 켠다.
 function skillIpGuardLimit(env = {}) {
   return boundedRuntimeNumber(env.SKILL_IP_GUARD_LIMIT, 3000, 60, 100000);
 }
@@ -668,10 +661,32 @@ const REQUIRED_RUNTIME_CONFIG = [
   "MY_IMPORT_TOKEN_SECRET",
 ];
 
-const READINESS_TABLES = [
+function missingRuntimeConfiguration(env = {}) {
+  const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
+  if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") === "1" && !String(env.KAKAO_SKILL_SECRET || "").trim()) {
+    missing.push("KAKAO_SKILL_SECRET");
+  }
+  return missing;
+}
+
+const READINESS_REQUIRED_TABLES = [
+  "households",
+  "household_members",
   "transactions",
+  "accountbook_settings",
   "accountbook_user_identities",
+  "accountbook_user_security",
+  "accountbook_admin_security",
+  "accountbook_auth_attempts",
   "accountbook_transaction_audit",
+  "accountbook_operation_locks",
+];
+
+// Custom categories already fall back to accountbook_settings when the
+// compatibility table is absent. Probe it for visibility, but do not make an
+// otherwise healthy deployment unavailable.
+const READINESS_OPTIONAL_TABLES = [
+  "accountbook_categories",
 ];
 
 // These RPCs back authentication, authorization-sensitive writes, bulk imports,
@@ -737,7 +752,7 @@ const HTML_HEADERS = {
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-  "access-control-allow-headers": "content-type,authorization",
+  "access-control-allow-headers": "content-type,authorization,x-api-key,x-kakao-skill-secret",
 };
 
 export default {
@@ -1176,23 +1191,27 @@ export default {
       }
 
       if (url.pathname === "/health") {
-        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
-        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, ready_endpoint: "/ready", time: new Date().toISOString() });
+        const missing = missingRuntimeConfiguration(env);
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
-        const missing = REQUIRED_RUNTIME_CONFIG.filter((name) => !String(env[name] || "").trim());
+        const missing = missingRuntimeConfiguration(env);
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
-        const checks = await Promise.all(READINESS_TABLES.map((name) => checkTableAvailable(env, name)));
-        const failed = READINESS_TABLES.filter((_name, index) => !checks[index].ok);
-        const rpcResults = await Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name)));
+        const [checks, optionalChecks, rpcResults, alternativeRpcResults] = await Promise.all([
+          Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
+          Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
+          Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name))),
+          Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
+        ]);
+        const failed = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
+        const unavailableOptionalTables = READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok);
         const missingRpcs = READINESS_CORE_RPCS.filter((_name, index) => !rpcResults[index].ok);
-        const alternativeRpcResults = await Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name)))));
         const missingAlternativeRpcs = READINESS_ALTERNATIVE_RPC_GROUPS.filter((_group, index) => !alternativeRpcResults[index].some((result) => result.ok)).map((group) => group.join("|"));
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, checked_tables: READINESS_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1676,7 +1695,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1845,7 +1864,9 @@ export default {
 
       return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     } catch (err) {
-      console.error(err);
+      let failedRequestUrl = null;
+      try { failedRequestUrl = new URL(request.url); } catch (_urlErr) {}
+      logWorkerError({ event: "unhandled_request_error", path: failedRequestUrl?.pathname || "", method: request.method || "GET", error: err });
       try {
         const failUrlForOps = new URL(request.url);
         rememberOpsEvent({ kind: "server_error", severity: "error", path: failUrlForOps.pathname, method: request.method || "GET", detail: safeError(err) });
@@ -1882,7 +1903,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.71-EDIT-RESTORE-FIX";
+const APP_VERSION = "V22.8.73-CALENDAR-CHALLENGE-SECURITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4057,6 +4078,28 @@ function deferHeavyBrowserTools(html = "") {
   return source;
 }
 
+const SKIP_TO_CONTENT_TARGET_ID = "abMainContent";
+
+// 건너뛰기 링크는 문서에서 "첫 번째로 포커스되는 것"이어야 뜻이 있다. body 바로 뒤에 넣는다.
+// 평소에는 보이지 않다가 포커스를 받으면 나타난다. display:none 이나 visibility:hidden 으로
+// 감추면 포커스 자체가 가지 않아 링크가 없는 것과 같아진다.
+function addSkipToContentLink(source = "") {
+  if (!source || source.includes('class="abSkipLink"')) return source;
+  if (!/<main\b/i.test(source)) return source;
+  let targetId = "";
+  const withTarget = source.replace(/<main\b([^>]*)>/i, (full, attrs) => {
+    const raw = String(attrs || "");
+    // 이미 id 가 있으면 그것을 목적지로 쓴다. 남의 id 를 갈아 끼우면 그 id 를 쓰던 링크가 끊긴다.
+    const existing = raw.match(/\bid\s*=\s*(["'])(.*?)\1/i);
+    targetId = existing ? existing[2] : SKIP_TO_CONTENT_TARGET_ID;
+    // 목적지가 포커스를 받아야 다음 Tab 이 본문에서 이어진다. 없으면 주소만 바뀌고 포커스는 그대로다.
+    const focusable = /\btabindex\s*=/.test(raw) ? "" : ` tabindex="-1"`;
+    return existing ? `<main${focusable}${raw}>` : `<main id="${SKIP_TO_CONTENT_TARGET_ID}"${focusable}${raw}>`;
+  });
+  if (!targetId) return source;
+  return withTarget.replace(/<body\b[^>]*>/i, (full) => `${full}<a class="abSkipLink" href="#${escapeHtml(targetId)}">본문 바로가기</a>`);
+}
+
 function normalizeUserFacingUi(html = "") {
   let source = String(html || "").replace(/,maximum-scale=1/g, "");
   source = source.replace(".sep{text-align:center;color:#7b8494;", ".sep{text-align:center;color:#667085;");
@@ -4250,6 +4293,10 @@ function normalizeUserFacingUi(html = "") {
     }
     return `<body class="${bodyClasses.join(" ")}"${attrs || ""}>`;
   });
+  // 키보드 사용자는 화면마다 상단바·사이드바를 먼저 지나야 본문에 닿는다. 데스크톱 홈은
+  // 사이드바 달력 때문에 Tab 을 55번 눌러야 첫 본문 요소에 도착했다. 화면을 넘길 때마다
+  // 그 55번을 처음부터 다시 눌러야 하므로, 첫 번째 포커스 자리에 본문 바로가기를 둔다.
+  if (useV22812Shell) source = addSkipToContentLink(source);
   if (useV22812Shell && source.includes("</head>")) {
     const themeScript = `<script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script>`;
     const shellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
@@ -4433,6 +4480,19 @@ function safeError(err) {
   return String(err.message || err).slice(0, 400);
 }
 
+function logWorkerError(event = {}) {
+  const record = {
+    level: "error",
+    event: String(event.event || "worker_error").slice(0, 80),
+    path: String(event.path || "").slice(0, 240),
+    method: String(event.method || "").slice(0, 16),
+    label: String(event.label || "").slice(0, 120),
+    trace_id: String(event.trace_id || "").slice(0, 120),
+    error: safeError(event.error),
+  };
+  console.error(JSON.stringify(record));
+}
+
 function isUniqueConstraintError(err) {
   return /(?:Supabase\s+409|\b23505\b|duplicate key|unique constraint)/i.test(safeError(err));
 }
@@ -4478,25 +4538,13 @@ async function claimOperationLease(env, { key, owner = operationLeaseOwner(), le
     return { acquired, mode: "database", key: operationKey, owner: cleanOwner, locked_until: record?.locked_until || "" };
   } catch (err) {
     if (!isOperationLockRpcUnavailable(err)) throw err;
-    const now = Date.now();
-    const current = AB_OPERATION_MEMORY_LEASES.get(operationKey);
-    if (current && Number(current.expires_at || 0) > now && current.owner !== cleanOwner) {
-      return { acquired: false, mode: "memory-fallback", key: operationKey, owner: cleanOwner, locked_until: new Date(current.expires_at).toISOString() };
-    }
-    const expiresAt = now + seconds * 1000;
-    AB_OPERATION_MEMORY_LEASES.set(operationKey, { owner: cleanOwner, expires_at: expiresAt });
-    rememberOpsEvent({ kind: "operation_lock_memory_fallback", severity: "warn", path: "/rest/v1/rpc/accountbook_claim_operation", method: "POST", detail: operationKey });
-    return { acquired: true, mode: "memory-fallback", key: operationKey, owner: cleanOwner, locked_until: new Date(expiresAt).toISOString() };
+    rememberOpsEvent({ kind: "operation_lock_unavailable", severity: "error", path: "/rest/v1/rpc/accountbook_claim_operation", method: "POST", detail: operationKey });
+    throw new Error("database operation lease is unavailable");
   }
 }
 
 async function releaseOperationLease(env, lease = {}) {
   if (!lease?.acquired || !lease.key || !lease.owner) return false;
-  if (lease.mode === "memory-fallback") {
-    const current = AB_OPERATION_MEMORY_LEASES.get(lease.key);
-    if (current?.owner === lease.owner) AB_OPERATION_MEMORY_LEASES.delete(lease.key);
-    return true;
-  }
   try {
     await supabase(env, "/rest/v1/rpc/accountbook_release_operation", {
       method: "POST",
@@ -4522,7 +4570,7 @@ async function safeHtmlRoute(request, url, handler, label = "화면") {
   try {
     return await handler();
   } catch (err) {
-    console.error(`[safeHtmlRoute:${label}]`, err);
+    logWorkerError({ event: "safe_html_route_error", path: url?.pathname || "", method: request?.method || "GET", label, error: err });
     rememberOpsEvent({ kind: "route_error", severity: "error", path: url?.pathname || "", method: request?.method || "GET", label, detail: safeError(err) });
     return htmlResponse(renderEmergencyErrorHtml(url, err, `${label}을 안전모드로 전환했어요`), 500);
   }
@@ -4768,6 +4816,18 @@ function randomHex(bytes = 16) {
   return [...arr].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function randomEntityId(prefix = "item") {
+  return `${String(prefix || "item").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "item"}_${Date.now().toString(36)}_${randomHex(8)}`;
+}
+
+function kakaoSkillCallerAuthorized(request, env = {}) {
+  const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
+  if (!expected) return true;
+  const headerSecret = String(request?.headers?.get("x-kakao-skill-secret") || request?.headers?.get("x-api-key") || "").trim();
+  const authorization = String(request?.headers?.get("authorization") || "").trim();
+  return constantTimeTextEqual(headerSecret, expected) || constantTimeTextEqual(authorization, `Bearer ${expected}`);
+}
+
 async function makeAdminSession(env) {
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 12;
   const state = await getAdminSecurityState(env);
@@ -4847,8 +4907,8 @@ async function recordAuthAttempt(env, request, path = "login", success = false) 
     const item = Array.isArray(result) ? result[0] : result;
     return { allowed: item?.allowed !== false, attempts: Number(item?.attempts || 0), blocked_until: item?.blocked_until || "" };
   } catch (err) {
-    rememberOpsEvent({ kind: "auth_rate_db_fallback", severity: "warn", path: String(path), method: "POST", detail: "database auth limiter unavailable" });
-    return { allowed: true, fallback: true };
+    rememberOpsEvent({ kind: "auth_rate_db_unavailable", severity: "error", path: String(path), method: "POST", detail: "database auth limiter unavailable" });
+    return { allowed: false, unavailable: true };
   }
 }
 
@@ -4869,6 +4929,7 @@ async function handleAdminLogin(request, env) {
   const password = String(form.get("password") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/?legacy=1");
   const attempt = await recordAuthAttempt(env, request, "/login", false);
+  if (attempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
@@ -5028,7 +5089,7 @@ async function handleAdminAddTransaction(request, env) {
     }
     if (isManager && requestedUserId) {
       const members = await fetchHouseholdMembers(env, householdId);
-      if (!memberExists(members, requestedUserId)) {
+      if (!activeSpenderExists(members, requestedUserId)) {
         const error = "선택한 지출자가 이 가계부의 참여자가 아닙니다.";
         return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: error }), transactionAddRedirectExtras(form, { err: error }, "error")));
       }
@@ -5127,7 +5188,7 @@ async function handleAdminUpdateTransaction(request, env) {
   }
   if (isManager && requestedUserId) {
     const members = await fetchHouseholdMembers(env, rowHousehold);
-    if (!memberExists(members, requestedUserId)) {
+    if (!activeSpenderExists(members, requestedUserId)) {
       const error = "선택한 지출자가 이 가계부의 참여자가 아닙니다.";
       return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: error }), { err: error }));
     }
@@ -5258,22 +5319,33 @@ async function handleAdminMemberRemove(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 삭제 권한이 없습니다." }));
+    try {
+      const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
+      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 삭제 권한이 없습니다." }));
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_remove_role_check_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "권한을 확인하지 못해 참여자를 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+    }
   }
   const userId = String(form.get("user_id") || "").trim();
   if (!householdId || !userId) return redirectResponse(returnLocation(form, "/households", { err: "member_missing" }));
-  const rows = await fetchRawHouseholdMembers(env, householdId);
-  const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
-  const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
-  if (targetRole === "owner" && ownerIds.length <= 1) {
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 삭제할 수 없습니다." }));
+  try {
+    const rows = await fetchRawHouseholdMembers(env, householdId);
+    const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
+    const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
+    if (!targetRole) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "삭제할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
+    if (targetRole === "owner" && ownerIds.length <= 1) {
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 삭제할 수 없습니다." }));
+    }
+    await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_removed" }));
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 목록을 확인하지 못해 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
   }
-  await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  });
-  return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_removed" }));
 }
 
 function normalizeHouseholdRole(value = "") {
@@ -5566,7 +5638,7 @@ async function fetchSettingsCategories(env, householdId = "") {
 
 async function saveSettingsCategories(env, householdId = "", categories = []) {
   const cleaned = normalizeStoredCategoryList(categories, householdId).map((c, i) => ({
-    id: c.id || `settings_${Date.now().toString(36)}_${i}`,
+    id: c.id || `${randomEntityId("settings")}_${i}`,
     household_id: householdId || c.household_id || "",
     name: c.name,
     type: c.type === "income" ? "income" : "expense",
@@ -5591,7 +5663,7 @@ async function addSettingsCategory(env, householdId = "", name = "", type = "exp
     return { ok: true, duplicate: true, categories: current };
   }
   const item = {
-    id: `settings_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    id: randomEntityId("settings"),
     household_id: householdId || "",
     name: cleanName,
     type: cleanType,
@@ -5903,7 +5975,7 @@ async function addPaymentAsset(env, householdId = "", data = {}) {
     if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
     const next = current.slice();
     const item = {
-      id: `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      id: randomEntityId("asset"),
       household_id: householdId || "",
       name,
       kind,
@@ -6191,7 +6263,7 @@ async function addReservePlan(env, householdId = "", data = {}) {
   let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
   if (!dueMonths.length) dueMonths = recurrence === "semiannual" ? [6, 12] : recurrence === "quarterly" ? [3, 6, 9, 12] : [12];
   const current = await fetchReservePlans(env, householdId);
-  const id = `reserve_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const id = randomEntityId("reserve");
   const next = [
     ...current.filter((p) => normalizeText(p.name) !== normalizeText(name)),
     {
@@ -6632,7 +6704,7 @@ async function handleAdminBulkUpdate(request, env) {
     }
     if (userId) {
       const members = await fetchHouseholdMembers(env, householdId);
-      if (!memberExists(members, userId)) {
+      if (!activeSpenderExists(members, userId)) {
         return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "선택한 지출자가 이 가계부의 참여자가 아닙니다." }), { err: "선택한 지출자가 이 가계부의 참여자가 아닙니다." }));
       }
       patch.user_id = userId;
@@ -6753,13 +6825,13 @@ async function handleAdminImportJson(request, env) {
     const rawText = String(body.raw_text || "");
     const defaultUserId = String(body.user_id || "").trim();
     const members = await fetchHouseholdMembers(env, householdId);
-    if (!defaultUserId || !memberExists(members.filter((m) => !["blocked", "pending"].includes(String(m.role || ""))), defaultUserId)) {
+    if (!defaultUserId || !activeSpenderExists(members, defaultUserId)) {
       return jsonResponse({ ok: false, error: "spender_required", message: "업로드 기본 지출자를 현재 가계부 참여자 중에서 선택해주세요." }, 400);
     }
     const parsed = parseImportedRecords(rawText, householdId, defaultUserId);
     const rows = cleanImportedRowsForInsert(parsed.rows.slice(0, 1000)).map((row) => ({ ...row, id: row.id || crypto.randomUUID(), user_id: row.user_id || defaultUserId }));
     if (!rows.length) return jsonResponse({ ok: false, error: "no_valid_rows", message: "저장 가능한 행을 찾지 못했습니다.", skipped: parsed.skipped }, 400);
-    if (rows.some((row) => !memberExists(members, row.user_id))) return jsonResponse({ ok: false, error: "spender_not_member", message: "가져오기 행의 지출자가 현재 가계부 참여자가 아닙니다." }, 400);
+    if (rows.some((row) => !activeSpenderExists(members, row.user_id))) return jsonResponse({ ok: false, error: "spender_not_member", message: "가져오기 행의 지출자가 현재 가계부의 활성 참여자가 아닙니다." }, 400);
     const result = await supabase(env, "/rest/v1/rpc/accountbook_import_transactions_v227", {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -7501,7 +7573,7 @@ function attachSpenderNames(rows = [], members = []) {
 function renderSpenderOptions(members = [], selected = "", blankLabel = "지출자 미지정") {
   const opts = [`<option value="" ${!selected ? "selected" : ""}>${escapeHtml(blankLabel)}</option>`];
   for (const m of members) {
-    if (!m.user_id) continue;
+    if (!memberCanBeSpender(m)) continue;
     opts.push(`<option value="${escapeHtml(m.user_id)}" ${selected === m.user_id ? "selected" : ""}>${escapeHtml(m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
   }
   return opts.join("");
@@ -11937,13 +12009,37 @@ function accountbookDayDetailClientMain() {
     return p.length === 3 ? Number(p[0]) + "년 " + Number(p[1]) + "월 " + Number(p[2]) + "일" : String(date || "");
   }
   function validDate(value) { return /^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(String(value || "")); }
+  function returnTo(date, householdId) {
+    var out = "/app?month=" + encodeURIComponent(String(date || "").slice(0, 7));
+    if (householdId) out += "&household_id=" + encodeURIComponent(householdId);
+    return out + "&view=calendar&date=" + encodeURIComponent(date) + "&feed=all&day_detail=1#calendar";
+  }
+  function memberOptions(members, selected) {
+    return (Array.isArray(members) ? members : []).map(function (member) {
+      var id = String(member && member.user_id || "");
+      return '<option value="' + esc(id) + '"' + (id === String(selected || "") ? " selected" : "") + '>' + esc(member && member.nickname || "구성원") + " (" + esc(member && member.role || "member") + ")</option>";
+    }).join("");
+  }
+  function renderItemActions(item, data) {
+    if (!item || (!item.can_edit && !item.can_delete)) return "";
+    var date = String(item.transaction_date || activeDate || "");
+    var householdId = String(data && data.household_id || activeHouseholdId || "");
+    var hidden = '<input type="hidden" name="id" value="' + esc(item.id) + '"/><input type="hidden" name="month" value="' + esc(date.slice(0, 7)) + '"/><input type="hidden" name="household_id" value="' + esc(householdId) + '"/><input type="hidden" name="return_to" value="' + esc(returnTo(date, householdId)) + '"/>';
+    var spender = data && data.can_manage_spender
+      ? '<label><span>' + (item.type === "income" ? "수입자" : "지출자") + '</span><select name="user_id" required>' + memberOptions(data.members, item.user_id) + "</select></label>"
+      : '<input type="hidden" name="user_id" value="' + esc(item.user_id || "") + '"/><p class="abDayDetailSpender">' + (item.type === "income" ? "수입자" : "지출자") + " " + esc(item.member || "미지정") + "</p>";
+    var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category" value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method" value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(item.memo || "") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
+    var description = (item.memo || "내용 없음") + " · " + fmt(item.amount) + "원";
+    var remove = item.can_delete ? '<form method="post" action="/admin/delete" class="abDayDetailDelete" data-ab-day-write data-ab-day-delete data-confirm="' + esc(description + " 기록을 삭제할까요?") + '">' + hidden + '<button type="submit">삭제</button></form>' : "";
+    return '<div class="abDayDetailActions">' + edit + remove + "</div>";
+  }
   function ensure() {
     if (overlay) return overlay;
     overlay = document.createElement("div");
     overlay.className = "abDayDetailOverlay";
     overlay.setAttribute("hidden", "");
     overlay.setAttribute("aria-hidden", "true");
-    overlay.innerHTML = '<div class="abDayDetailScrim" data-ab-day-close></div><section class="abDayDetailPanel" role="dialog" aria-modal="true" aria-labelledby="abDayDetailTitle" aria-describedby="abDayDetailStatus" tabindex="-1"><header class="abDayDetailHead"><div><b id="abDayDetailTitle">일별 상세</b><small id="abDayDetailStatus" aria-live="polite">거래를 불러오는 중입니다.</small></div><button type="button" class="abDayDetailClose" data-ab-day-close aria-label="일별 상세 닫기">✕</button></header><div class="abDayDetailBody"><div class="abDayDetailSums" data-ab-day-sums hidden><div class="abDayDetailSum isExpense"><span>지출</span><b data-ab-day-expense>0원</b></div><div class="abDayDetailSum isIncome"><span>수입</span><b data-ab-day-income>0원</b></div></div><div class="abDayDetailList" data-ab-day-list></div></div><footer class="abDayDetailFoot"><button type="button" class="abDayDetailAdd" data-ab-day-add>이 날 기록 추가</button><a class="abDayDetailView" data-ab-day-view href="#">전체 기록에서 보기</a><button type="button" data-ab-day-close>닫기</button></footer></section>';
+    overlay.innerHTML = '<div class="abDayDetailScrim" data-ab-day-close></div><section class="abDayDetailPanel" role="dialog" aria-modal="true" aria-labelledby="abDayDetailTitle" aria-describedby="abDayDetailStatus" tabindex="-1"><header class="abDayDetailHead"><div><b id="abDayDetailTitle">일별 상세</b><small id="abDayDetailStatus" aria-live="polite">거래를 불러오는 중입니다.</small></div><button type="button" class="abDayDetailClose" data-ab-day-close aria-label="일별 상세 닫기">✕</button></header><div class="abDayDetailBody"><div class="abDayDetailSums" data-ab-day-sums hidden><div class="abDayDetailSum isExpense"><span>지출</span><b data-ab-day-expense>0원</b></div><div class="abDayDetailSum isIncome"><span>수입</span><b data-ab-day-income>0원</b></div></div><div class="abDayDetailList" data-ab-day-list></div></div><footer class="abDayDetailFoot"><button type="button" class="abDayDetailAdd" data-ab-day-add hidden>이 날 기록 추가</button><a class="abDayDetailView" data-ab-day-view href="#">전체 기록에서 보기</a><button type="button" data-ab-day-close>닫기</button></footer></section>';
     document.body.appendChild(overlay);
     panel = overlay.querySelector(".abDayDetailPanel");
     overlay.addEventListener("click", function (event) {
@@ -11964,6 +12060,26 @@ function accountbookDayDetailClientMain() {
       }
       if (event.target.closest("[data-ab-day-close]")) close();
     });
+    overlay.addEventListener("submit", function (event) {
+      var form = event.target && event.target.closest && event.target.closest("[data-ab-day-write]");
+      if (!form) return;
+      if (form.hasAttribute("data-ab-day-delete") && !window.confirm(form.getAttribute("data-confirm") || "이 기록을 삭제할까요?")) {
+        event.preventDefault();
+        return;
+      }
+      var nextDate = activeDate;
+      var dateInput = form.querySelector('[name="transaction_date"]');
+      if (dateInput && validDate(dateInput.value)) nextDate = dateInput.value;
+      var returnInput = form.querySelector('[name="return_to"]');
+      if (returnInput) returnInput.value = returnTo(nextDate, activeHouseholdId);
+      var monthInput = form.querySelector('[name="month"]');
+      if (monthInput) monthInput.value = String(nextDate || "").slice(0, 7);
+      form.setAttribute("aria-busy", "true");
+      var submit = form.querySelector('button[type="submit"]');
+      if (submit) submit.textContent = form.hasAttribute("data-ab-day-delete") ? "삭제 중…" : "수정 중…";
+      var status = overlay.querySelector("#abDayDetailStatus");
+      if (status) status.textContent = form.hasAttribute("data-ab-day-delete") ? "기록을 삭제하는 중입니다." : "수정 내용을 저장하는 중입니다.";
+    });
     return overlay;
   }
   function setLoading(date, href) {
@@ -11971,6 +12087,7 @@ function accountbookDayDetailClientMain() {
     node.querySelector("#abDayDetailTitle").textContent = titleFor(date);
     node.querySelector("#abDayDetailStatus").textContent = "거래를 불러오는 중입니다.";
     node.querySelector("[data-ab-day-sums]").setAttribute("hidden", "");
+    node.querySelector("[data-ab-day-add]").setAttribute("hidden", "");
     node.querySelector("[data-ab-day-list]").innerHTML = '<div class="abDayDetailLoading"><i aria-hidden="true"></i><span>일별 기록을 확인하고 있습니다.</span></div>';
     node.querySelector("[data-ab-day-view]").setAttribute("href", href || "#");
   }
@@ -11992,6 +12109,9 @@ function accountbookDayDetailClientMain() {
     node.querySelector("[data-ab-day-expense]").textContent = "−" + fmt(data && data.expense) + "원";
     node.querySelector("[data-ab-day-income]").textContent = "+" + fmt(data && data.income) + "원";
     node.querySelector("[data-ab-day-view]").setAttribute("href", href || "#");
+    var add = node.querySelector("[data-ab-day-add]");
+    if (data && data.can_write) add.removeAttribute("hidden");
+    else add.setAttribute("hidden", "");
     var items = Array.isArray(data && data.items) ? data.items : [];
     var list = node.querySelector("[data-ab-day-list]");
     if (!items.length) {
@@ -12003,7 +12123,7 @@ function accountbookDayDetailClientMain() {
       var category = item.category || (income ? "수입" : "미분류");
       var memo = item.memo || "내용 없음";
       var meta = [item.payment_method, item.member].filter(Boolean).map(esc).join(" · ");
-      return '<article class="abDayDetailItem ' + (income ? "isIncome" : "isExpense") + '"><span class="abDayDetailType">' + (income ? "수입" : "지출") + '</span><div class="abDayDetailCopy"><b>' + esc(memo) + '</b><span>' + esc(category) + (meta ? " · " + meta : "") + '</span></div><strong>' + (income ? "+" : "−") + fmt(item.amount) + '원</strong></article>';
+      return '<article class="abDayDetailItem ' + (income ? "isIncome" : "isExpense") + '"><span class="abDayDetailType">' + (income ? "수입" : "지출") + '</span><div class="abDayDetailCopy"><b>' + esc(memo) + '</b><span>' + esc(category) + (meta ? " · " + meta : "") + '</span></div><strong>' + (income ? "+" : "−") + fmt(item.amount) + '원</strong>' + renderItemActions(item, data) + '</article>';
     }).join("") + (data && data.has_more ? '<div class="abDayDetailMore">거래가 많아 최근 ' + Number(data.displayed_count || 0) + '건만 표시했습니다. 전체 기록에서 나머지를 확인하세요.</div>' : "");
   }
   function load(date, householdId, href) {
@@ -12075,6 +12195,23 @@ function accountbookDayDetailClientMain() {
 
 function accountbookChallengeClientMain() {
   "use strict";
+  function syncFields(form) {
+    if (!form || !form.querySelector) return;
+    var type = form.querySelector("[data-report-challenge-type]");
+    var value = type ? type.value : "no_spend_days";
+    var amount = form.querySelector("[data-report-challenge-amount]");
+    var category = form.querySelector("[data-report-challenge-category]");
+    if (amount) {
+      amount.hidden = value === "no_spend_days";
+      var amountInput = amount.querySelector("input");
+      if (amountInput) amountInput.required = value !== "no_spend_days";
+    }
+    if (category) {
+      category.hidden = value !== "category_spend_limit_days";
+      var categoryInput = category.querySelector("input");
+      if (categoryInput) categoryInput.required = value === "category_spend_limit_days";
+    }
+  }
   function statusElement(scope) {
     return scope && scope.querySelector ? scope.querySelector("[data-report-challenge-status]") : null;
   }
@@ -12102,8 +12239,13 @@ function accountbookChallengeClientMain() {
     }
     var details = next.querySelector("details");
     if (details) details.open = true;
+    syncFields(next.querySelector("form[data-report-challenge-form]"));
     return next;
   }
+  document.addEventListener("change", function (event) {
+    if (!event.target || !event.target.matches || !event.target.matches("[data-report-challenge-type]")) return;
+    syncFields(event.target.closest("form[data-report-challenge-form]"));
+  });
   document.addEventListener("submit", function (event) {
     var form = event.target;
     if (!form || !form.matches || !form.matches("form[data-report-challenge-form]")) return;
@@ -12146,6 +12288,11 @@ function accountbookChallengeClientMain() {
       }
     });
   });
+  function initialize() {
+    Array.prototype.forEach.call(document.querySelectorAll("form[data-report-challenge-form]"), syncFields);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true });
+  else initialize();
 }
 
 // V22.8.34: V5 오버레이 3종(검색·알림·행즐겨찾기)을 1개 immutable 에셋으로 번들링하고
@@ -13845,7 +13992,7 @@ async function handleKakaoLoginCallback(request, env, url) {
     ]);
   } catch (err) {
     const failedStage = String(err?.kakaoStage || stage || "unknown");
-    console.error("[kakao-login]", failedStage, traceId, safeError(err));
+    logWorkerError({ event: "kakao_login_error", path: "/auth/kakao/callback", method: "GET", label: failedStage, trace_id: traceId, error: err });
     rememberOpsEvent({ kind: "kakao_login_error", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: `stage=${failedStage};trace=${traceId};${safeError(err)}` });
     return errorResponse(failedStage, 500);
   }
@@ -13868,7 +14015,9 @@ async function fetchUserById(env, userId) {
 
 async function fetchRawHouseholdMembers(env, householdId = "") {
   if (!householdId) return [];
-  return await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&select=user_id,role,created_at&order=created_at.asc`, { method: "GET" }, []) || [];
+  const rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&select=user_id,role,created_at&order=created_at.asc`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("household_member_source_invalid");
+  return rows;
 }
 
 async function ensureOwnerMembership(env, userId = "", householdId = "", options = {}) {
@@ -13939,20 +14088,23 @@ async function createUserHousehold(env, userId, name, nickname) {
   return household;
 }
 
-async function withHouseholdCreateLock(userId = "", name = "", task) {
-  const key = `${String(userId || "anonymous").slice(0, 120)}:${normalizeText(name).toLowerCase().replace(/\s+/g, " ").trim()}`;
-  const previous = AB_HOUSEHOLD_CREATE_LOCKS.get(key) || Promise.resolve();
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const queued = previous.catch(() => {}).then(() => gate);
-  AB_HOUSEHOLD_CREATE_LOCKS.set(key, queued);
-  await previous.catch(() => {});
-  try {
-    return await task();
-  } finally {
-    release();
-    if (AB_HOUSEHOLD_CREATE_LOCKS.get(key) === queued) AB_HOUSEHOLD_CREATE_LOCKS.delete(key);
-  }
+async function withHouseholdCreateLock(env, userId = "", name = "", task) {
+  const normalizedUser = String(userId || "anonymous").trim().slice(0, 120);
+  const normalizedName = normalizeText(name).toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+  const key = `household-create:${await sha256Hex(`${normalizedUser}:${normalizedName}`)}`;
+  return withOperationMutex(key, async () => {
+    const lease = await claimOperationLease(env, {
+      key,
+      owner: operationLeaseOwner("household-create"),
+      leaseSeconds: Number(env.HOUSEHOLD_CREATE_LEASE_SECONDS || 30),
+    });
+    if (!lease.acquired) throw new Error("household_create_busy");
+    try {
+      return await task();
+    } finally {
+      await releaseOperationLease(env, lease);
+    }
+  });
 }
 
 
@@ -14866,10 +15018,31 @@ function challengePeriodDays(startDate = "", targetDate = "") {
   return Math.floor((target - start) / 86400000) + 1;
 }
 
+const REPORT_CHALLENGE_TYPES = Object.freeze(["no_spend_days", "daily_spend_limit_days", "category_spend_limit_days"]);
+
+function normalizeReportChallengeType(value = "") {
+  const type = String(value || "").trim();
+  return REPORT_CHALLENGE_TYPES.includes(type) ? type : "no_spend_days";
+}
+
+function reportChallengeTypeMeta(type = "no_spend_days", settings = {}) {
+  const normalized = normalizeReportChallengeType(type);
+  if (normalized === "daily_spend_limit_days") {
+    return { type: normalized, typeLabel: "하루 지출 한도", successLabel: "한도 지킴", failureLabel: "한도 초과", goalLabel: `하루 ${numberWithCommas(settings.targetAmount || 0)}원 이하` };
+  }
+  if (normalized === "category_spend_limit_days") {
+    return { type: normalized, typeLabel: "분류별 하루 한도", successLabel: "분류 한도 지킴", failureLabel: "분류 한도 초과", goalLabel: `${settings.category || "선택 분류"} 하루 ${numberWithCommas(settings.targetAmount || 0)}원 이하` };
+  }
+  return { type: "no_spend_days", typeLabel: "무지출 일수", successLabel: "무지출 성공", failureLabel: "지출 있음", goalLabel: "지출 0원" };
+}
+
 function normalizeReportChallenge(value = {}) {
   const raw = value && typeof value === "object" ? value : parseJsonSetting(value, {});
   const targetDays = Math.max(1, Math.min(20, Math.round(Number(raw.target_days || 4)) || 4));
   const title = String(raw.title || "무지출 데이").trim().replace(/\s+/g, " ").slice(0, 30) || "무지출 데이";
+  const type = normalizeReportChallengeType(raw.type);
+  const targetAmount = Math.max(0, Math.min(MAX_TRANSACTION_AMOUNT, Math.round(Number(raw.target_amount || raw.goal?.amount || 0)) || 0));
+  const category = String(raw.category || raw.goal?.category || "").trim().replace(/\s+/g, " ").slice(0, 40);
   const today = formatDate(nowKstDate());
   const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : today;
   let targetDate = isValidTransactionDateString(raw.target_date) ? String(raw.target_date) : shiftChallengeDate(startDate, targetDays - 1);
@@ -14878,7 +15051,8 @@ function normalizeReportChallenge(value = {}) {
     targetDate = shiftChallengeDate(startDate, targetDays - 1);
     periodDays = targetDays;
   }
-  return { enabled: raw.enabled !== false, targetDays: Math.min(targetDays, periodDays), title, startDate, targetDate, periodDays };
+  const meta = reportChallengeTypeMeta(type, { targetAmount, category });
+  return { schemaVersion: Number(raw.schema_version || 1), revision: Math.max(0, Math.round(Number(raw.revision || 0)) || 0), enabled: raw.enabled !== false, targetDays: Math.min(targetDays, periodDays), title, type, targetAmount, category, ...meta, startDate, targetDate, periodDays };
 }
 
 function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) {
@@ -14888,14 +15062,25 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
   const yesterday = shiftChallengeDate(today, -1);
   const evaluationEnd = yesterday < settings.targetDate ? yesterday : settings.targetDate;
   const evaluatedDays = evaluationEnd >= settings.startDate ? challengePeriodDays(settings.startDate, evaluationEnd) : 0;
-  const expenseDays = new Set(safeArray(rows)
-    .filter((row) => row.type !== "income" && Number(row.amount || 0) > 0)
-    .map((row) => String(row.transaction_date || "").slice(0, 10))
-    .filter((date) => date >= settings.startDate && date <= evaluationEnd));
+  const expenseByDay = new Map();
+  for (const row of safeArray(rows)) {
+    if (row.type === "income" || !(Number(row.amount || 0) > 0)) continue;
+    const date = String(row.transaction_date || "").slice(0, 10);
+    if (date < settings.startDate || date > evaluationEnd) continue;
+    if (settings.type === "category_spend_limit_days" && String(row.category || "").trim() !== settings.category) continue;
+    expenseByDay.set(date, Number(expenseByDay.get(date) || 0) + Number(row.amount || 0));
+  }
+  const failedDays = new Set();
+  for (let offset = 0; offset < evaluatedDays; offset++) {
+    const date = shiftChallengeDate(settings.startDate, offset);
+    const spent = Number(expenseByDay.get(date) || 0);
+    const failed = settings.type === "no_spend_days" ? spent > 0 : spent > settings.targetAmount;
+    if (failed) failedDays.add(date);
+  }
   let completed = 0;
   for (let offset = 0; offset < evaluatedDays; offset++) {
     const date = shiftChallengeDate(settings.startDate, offset);
-    if (!expenseDays.has(date)) completed++;
+    if (!failedDays.has(date)) completed++;
   }
   const target = settings.targetDays;
   const progress = Math.min(target, completed);
@@ -14911,11 +15096,11 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
         const day = Number(date.slice(8, 10));
         const weekday = weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()] || "";
         const state = date <= evaluationEnd
-          ? (expenseDays.has(date) ? "spent" : "success")
+          ? (failedDays.has(date) ? "spent" : "success")
           : date === today
             ? "today"
             : "future";
-        const stateLabel = state === "success" ? "무지출 성공" : state === "spent" ? "지출 있음" : state === "today" ? "오늘 진행 중" : "예정";
+        const stateLabel = state === "success" ? (settings.type === "no_spend_days" ? "무지출 성공" : settings.successLabel) : state === "spent" ? (settings.type === "no_spend_days" ? "지출 있음" : settings.failureLabel) : state === "today" ? "오늘 진행 중" : "예정";
         return { date, day, weekday, state, stateLabel };
       })
     : [];
@@ -14996,6 +15181,10 @@ function renderChallengeProgress(challenge = {}, { compact = false, hydrate = fa
   const safe = challenge && typeof challenge === "object" ? challenge : {};
   const enabled = safe.enabled !== false;
   const rate = enabled ? Math.max(0, Math.min(100, Number(safe.rate || 0))) : 0;
+  const successLabel = escapeHtml(safe.successLabel || "무지출 성공");
+  const failureLabel = escapeHtml(safe.failureLabel || "지출 있음");
+  const progressLabel = `${safe.typeLabel || "무지출"} 챌린지 달성률`;
+  const legend = safe.type === "no_spend_days" ? "✓ 무지출 · − 지출 · ● 오늘 · ○ 예정" : `✓ ${successLabel} · − ${failureLabel} · ● 오늘 · ○ 예정`;
   if (safe.displayMode === "daily" && safeArray(safe.daySlots).length) {
     if (compact) {
       const stateCodes = { success: "s", spent: "x", today: "t", future: "f" };
@@ -15005,18 +15194,18 @@ function renderChallengeProgress(challenge = {}, { compact = false, hydrate = fa
     if (hydrate) {
       const stateCodes = { success: "s", spent: "x", today: "t", future: "f" };
       const packed = safeArray(safe.daySlots).map((slot) => `${slot.day}:${slot.weekday}:${stateCodes[slot.state] || "f"}`).join(",");
-      return `<ol class="reportChallengeDays" data-ab-challenge-slots="${escapeHtml(packed)}" data-ab-challenge-full></ol><small class="reportChallengeLegend">✓ 무지출 · − 지출 · ● 오늘 · ○ 예정</small>`;
+      return `<ol class="reportChallengeDays" data-ab-challenge-slots="${escapeHtml(packed)}" data-ab-challenge-full></ol><small class="reportChallengeLegend">${legend}</small>`;
     }
     const slots = safeArray(safe.daySlots).map((slot) => {
       const state = ["success", "spent", "today", "future"].includes(slot.state) ? slot.state : "future";
       return `<li class="is-${state}" aria-label="${slot.day}일, ${escapeHtml(slot.stateLabel)}"><span>${escapeHtml(slot.weekday)}</span><b>${slot.day}</b></li>`;
     }).join("");
-    return `<ol class="reportChallengeDays" aria-label="날짜별 챌린지 진행 상태">${slots}</ol><small class="reportChallengeLegend">✓ 무지출 · − 지출 · ● 오늘 · ○ 예정</small>`;
+    return `<ol class="reportChallengeDays" aria-label="날짜별 챌린지 진행 상태">${slots}</ol><small class="reportChallengeLegend">${legend}</small>`;
   }
   if (compact) {
-    return `<div class="abChallengePercent" role="progressbar" aria-label="무지출 챌린지 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><b>${rate}%</b><i><u style="width:${rate}%"></u></i></div>`;
+    return `<div class="abChallengePercent" role="progressbar" aria-label="${escapeHtml(progressLabel)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><b>${rate}%</b><i><u style="width:${rate}%"></u></i></div>`;
   }
-  return `<div class="reportChallengePercent"><b>${rate}%</b><div class="reportChallengeTrack" role="progressbar" aria-label="무지출 챌린지 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><i style="width:${rate}%"></i></div><span>${safe.progress || 0}/${safe.targetDays || 0}일 달성</span></div>`;
+  return `<div class="reportChallengePercent"><b>${rate}%</b><div class="reportChallengeTrack" role="progressbar" aria-label="${escapeHtml(progressLabel)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${rate}"><i style="width:${rate}%"></i></div><span>${safe.progress || 0}/${safe.targetDays || 0}일 달성</span></div>`;
 }
 
 function renderReportChallenge(challenge = {}, { householdId = "", canManage = false, compact = false, home = false } = {}) {
@@ -15024,26 +15213,28 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
   const qs = `month=${encodeURIComponent(safe.month || currentMonthKst())}&household_id=${encodeURIComponent(householdId)}`;
   const dayPosition = safe.phase === "scheduled" ? "시작 전" : `${safe.currentDay}/${safe.periodDays}일차`;
   if (compact) {
-    return `<a class="abNavChallenge ${safe.enabled ? "" : "isOff"}" href="/my/analysis?view=report&${qs}#reportChallenge"><span><b><i aria-hidden="true">🔥</i> 챌린지</b><em>${safe.enabled ? (safe.displayMode === "daily" ? `${safe.progress}/${safe.targetDays}일` : `${safe.rate}%`) : "꺼짐"}</em></span><strong>${escapeHtml(safe.title || "무지출 데이")}</strong>${renderChallengeProgress(safe, { compact: true })}<small>${safe.enabled ? `${safe.progress}/${safe.targetDays}일 성공 · ${escapeHtml(dayPosition)}` : "종합 리포트에서 설정"}</small></a>`;
+    return `<a class="abNavChallenge ${safe.enabled ? "" : "isOff"}" href="/my/analysis?view=report&${qs}#reportChallenge"><span><b><i aria-hidden="true">🔥</i> ${escapeHtml(safe.typeLabel || "챌린지")}</b><em>${safe.enabled ? (safe.displayMode === "daily" ? `${safe.progress}/${safe.targetDays}일` : `${safe.rate}%`) : "꺼짐"}</em></span><strong>${escapeHtml(safe.title || "무지출 데이")}</strong>${renderChallengeProgress(safe, { compact: true })}<small>${safe.enabled ? `${safe.progress}/${safe.targetDays}일 성공 · ${escapeHtml(dayPosition)}` : "종합 리포트에서 설정"}</small></a>`;
   }
   const status = !safe.enabled
     ? "챌린지가 꺼져 있습니다."
     : safe.phase === "scheduled"
       ? `${safe.startDate}부터 시작합니다.`
       : safe.remaining
-        ? `${dayPosition}이며 무지출 목표까지 ${safe.remaining}일 남았습니다.`
-        : "무지출 목표를 달성했습니다.";
+        ? `${dayPosition}이며 목표까지 ${safe.remaining}일 남았습니다.`
+        : `${safe.typeLabel || "챌린지"} 목표를 달성했습니다.`;
   const action = home
     ? `<a class="reportChallengeManage" href="/my/analysis?view=report&${qs}#reportChallenge">${canManage ? "날짜·목표 설정" : "챌린지 자세히"}</a>`
     : canManage
-      ? `<div class="reportChallengeActions"><details><summary>챌린지 설정</summary><form method="post" action="/my/report-challenge/save" data-report-challenge-form><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(safe.month || currentMonthKst())}"/><label><span>이름</span><input name="title" maxlength="30" value="${escapeHtml(safe.title || "무지출 데이")}"/></label><label><span>시작일</span><input type="date" name="start_date" value="${escapeHtml(safe.startDate)}" required/></label><label><span>목표일</span><input type="date" name="target_date" value="${escapeHtml(safe.targetDate)}" required/></label><label><span>무지출 목표</span><input type="number" name="target_days" min="1" max="20" value="${safe.targetDays}" inputmode="numeric"/></label><label class="reportChallengeToggle"><input type="checkbox" name="enabled" value="1" ${safe.enabled ? "checked" : ""}/> 챌린지 표시</label><button type="submit">설정 저장</button></form></details><p class="reportChallengeFormStatus" data-report-challenge-status role="status" aria-live="polite" hidden></p></div>`
+      ? `<div class="reportChallengeActions"><details><summary>챌린지 설정</summary><form method="post" action="/my/report-challenge/save" data-report-challenge-form><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(safe.month || currentMonthKst())}"/><label><span>이름</span><input name="title" maxlength="30" value="${escapeHtml(safe.title || "무지출 데이")}"/></label><label><span>방식</span><select name="challenge_type" data-report-challenge-type><option value="no_spend_days" ${safe.type === "no_spend_days" ? "selected" : ""}>무지출 일수</option><option value="daily_spend_limit_days" ${safe.type === "daily_spend_limit_days" ? "selected" : ""}>하루 지출 한도</option><option value="category_spend_limit_days" ${safe.type === "category_spend_limit_days" ? "selected" : ""}>분류별 하루 한도</option></select></label><label><span>시작일</span><input type="date" name="start_date" value="${escapeHtml(safe.startDate)}" required/></label><label><span>목표일</span><input type="date" name="target_date" value="${escapeHtml(safe.targetDate)}" required/></label><label><span>성공 목표</span><input type="number" name="target_days" min="1" max="20" value="${safe.targetDays}" inputmode="numeric"/></label><label data-report-challenge-amount><span>하루 한도</span><input type="number" name="target_amount" min="1" max="${MAX_TRANSACTION_AMOUNT}" value="${safe.targetAmount || ""}" inputmode="numeric"/></label><label data-report-challenge-category><span>대상 분류</span><input name="category" maxlength="40" value="${escapeHtml(safe.category || "")}" placeholder="예: 카페"/></label><label class="reportChallengeToggle"><input type="checkbox" name="enabled" value="1" ${safe.enabled ? "checked" : ""}/> 챌린지 표시</label><button type="submit">설정 저장</button></form></details><p class="reportChallengeFormStatus" data-report-challenge-status role="status" aria-live="polite" hidden></p></div>`
       : `<p class="reportChallengeReadOnly">소유자·관리자가 목표를 설정할 수 있습니다.</p>`;
   const description = home ? "" : `<p>${escapeHtml(status)}<br/><span class="reportChallengeDates">기간 ${escapeHtml(safe.startDate)} ~ ${escapeHtml(safe.targetDate)} · 오늘 ${escapeHtml(safe.today || formatDate(nowKstDate()))}</span></p>`;
-  return `<section class="reportChallenge" id="reportChallenge"><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> 생활 챌린지</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `무지출 ${safe.progress}/${safe.targetDays}일 · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+  const progressSummary = safe.type === "no_spend_days" ? `무지출 ${safe.progress}/${safe.targetDays}일` : `${escapeHtml(safe.goalLabel || safe.typeLabel || "챌린지")} · ${safe.progress}/${safe.targetDays}일 성공`;
+  return `<section class="reportChallenge" id="reportChallenge"><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
 }
 
 function reportUxCss() {
   return `
+.reportChallenge select{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallenge [hidden]{display:none!important}
 .reportMonthNav{position:sticky;top:8px;z-index:45;display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:10px;background:color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent);color:var(--ab12-text,#191f28);backdrop-filter:blur(14px);border:1px solid var(--ab12-line,#e5e9f0);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
 .reportMonthNav a,.reportMonthNav button{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
 .reportCockpit{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);border:1px solid var(--ab12-line,#e5e9f0);border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 10px 30px rgba(15,23,42,.06)}.reportCockpitHead,.reportSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:12px}.reportCockpitHead span{display:block;color:var(--ab12-accent,#2457d6);font-size:11px;font-weight:900;letter-spacing:.08em}.reportCockpitHead h2{margin:4px 0 0;font-size:21px}.reportCockpitHead a,.reportSectionTitle a{color:var(--ab12-accent,#2457d6);text-decoration:none;font-size:12px;font-weight:850}.reportCockpitGrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin-top:18px}.reportPace{display:grid;justify-items:center;align-content:center;border-right:1px solid var(--ab12-line,#edf0f4)}.reportGauge{--report-rate:0%;width:148px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ab12-brand,#6d5dfc) var(--report-rate),var(--ab12-surface-raised,#edf0f5) 0);position:relative}.reportGauge:before{content:"";position:absolute;inset:15px;background:var(--ab12-surface,#fff);border-radius:50%}.reportGauge div{position:relative;text-align:center}.reportGauge b{display:block;font-size:27px;letter-spacing:-.04em}.reportGauge span,.reportPace p{color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportPace p{margin:9px 0 0}.reportKpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reportKpis>div{background:var(--ab12-surface-raised,#f7f8fb);border:1px solid var(--ab12-line,#edf0f4);border-radius:16px;padding:14px}.reportKpis span{display:block;color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportKpis b{display:block;margin-top:6px;font-size:clamp(18px,2.1vw,25px);overflow-wrap:anywhere;line-height:1.2}.reportInsight{display:flex;gap:10px;align-items:center;margin-top:14px;padding:13px 15px;border:1px solid color-mix(in srgb,var(--ab12-accent,#d97706) 42%,transparent);border-radius:15px;background:var(--ab12-accent-soft,#fffbeb);color:var(--ab12-text,#713f12)}.reportInsight>span{font-size:20px;color:var(--ab12-accent,#d97706)}.reportInsight p{margin:0;line-height:1.5;font-size:13px;font-weight:750}.reportCategoryBudget{margin-top:16px}.reportCategoryBudget ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:9px}.reportCategoryBudget li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;border:1px solid var(--ab12-line,#edf0f4);border-radius:14px;padding:11px}.reportCategoryBudget li div b,.reportCategoryBudget li div span{display:block}.reportCategoryBudget li div span{color:var(--ab12-muted,#7b8493);font-size:11px;margin-top:2px}.reportCategoryBudget li strong{font-size:12px}.reportCategoryBudget li i{grid-column:1/-1;height:7px;border-radius:999px;background:var(--ab12-surface-raised,#edf0f4);overflow:hidden}.reportCategoryBudget li em{display:block;height:100%;border-radius:inherit;background:var(--ab12-brand,#6d5dfc)}
@@ -15077,16 +15268,27 @@ async function handleReportChallengeSave(request, env) {
   if (!canManageMyHousehold(selected.role)) return inlineError("challenge_write_not_allowed", "챌린지 설정은 가계부 소유자·관리자만 변경할 수 있습니다.", 403, `${returnTo}&err=challenge_write_not_allowed#reportChallenge`);
   const targetDays = Math.round(Number(form.get("target_days") || 0));
   const title = String(form.get("title") || "").trim().replace(/\s+/g, " ").slice(0, 30);
+  const challengeType = String(form.get("challenge_type") || "no_spend_days").trim();
+  const targetAmount = Math.round(Number(form.get("target_amount") || 0));
+  const category = String(form.get("category") || "").trim().replace(/\s+/g, " ").slice(0, 40);
   const startDate = String(form.get("start_date") || "").trim();
   const targetDate = String(form.get("target_date") || "").trim();
   const periodDays = challengePeriodDays(startDate, targetDate);
-  if (!Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return inlineError("challenge_invalid", "이름·기간·무지출 목표를 확인해 주세요. 목표 일수는 설정 기간보다 길 수 없습니다.", 422, `${returnTo}&err=challenge_invalid#reportChallenge`);
-  const value = { enabled: String(form.get("enabled") || "") === "1", target_days: targetDays, title, start_date: startDate, target_date: targetDate, updated_by: userId, updated_at: new Date().toISOString() };
+  const typeInvalid = !REPORT_CHALLENGE_TYPES.includes(challengeType);
+  const amountInvalid = challengeType !== "no_spend_days" && (!Number.isInteger(targetAmount) || targetAmount < 1 || targetAmount > MAX_TRANSACTION_AMOUNT);
+  const categoryInvalid = challengeType === "category_spend_limit_days" && !category;
+  if (typeInvalid || amountInvalid || categoryInvalid || !Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return inlineError("challenge_invalid", "이름·방식·기간·목표 일수와 한도 조건을 확인해 주세요. 목표 일수는 설정 기간보다 길 수 없습니다.", 422, `${returnTo}&err=challenge_invalid#reportChallenge`);
+  const value = { schema_version: 2, type: challengeType, enabled: String(form.get("enabled") || "") === "1", target_days: targetDays, target_amount: challengeType === "no_spend_days" ? null : targetAmount, category: challengeType === "category_spend_limit_days" ? category : null, title, start_date: startDate, target_date: targetDate, updated_by: userId, updated_at: new Date().toISOString() };
+  let lease = null;
   try {
+    lease = await claimOperationLease(env, { key: `report-challenge-write:${householdId}`, owner: operationLeaseOwner("challenge"), leaseSeconds: 30 });
+    if (!lease.acquired) return inlineError("challenge_busy", "다른 챌린지 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.", 409, `${returnTo}&err=challenge_busy#reportChallenge`);
     await saveSettingValue(env, reportChallengeSettingsKey(householdId), value);
   } catch (err) {
     rememberOpsEvent({ kind: "report_challenge_save_failed", severity: "warn", path: "/my/report-challenge/save", method: "POST", detail: safeError(err) });
     return inlineError("challenge_save_failed", "챌린지 설정을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.", 503, `${returnTo}&err=challenge_save_failed#reportChallenge`);
+  } finally {
+    if (lease?.acquired) await releaseOperationLease(env, lease);
   }
   if (!inline) return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
   try {
@@ -17473,6 +17675,14 @@ function memberExists(members = [], userId = "") {
   return safeArray(members).some((m) => String(m.user_id || "") === String(userId || ""));
 }
 
+function memberCanBeSpender(member = {}) {
+  return !!String(member?.user_id || "").trim() && !["pending", "blocked"].includes(String(member?.role || "member").toLowerCase());
+}
+
+function activeSpenderExists(members = [], userId = "") {
+  return safeArray(members).some((member) => memberCanBeSpender(member) && String(member.user_id || "") === String(userId || ""));
+}
+
 function canManageAllRecords(role = "") {
   return ["owner", "admin"].includes(String(role || ""));
 }
@@ -17509,8 +17719,8 @@ async function handleMyAddTransaction(request, env) {
   if (!isValidTransactionDateString(transactionDate)) return redirectResponse(myReturnLocation(month, selected.id, { err: "invalid_date" }));
   const members = await fetchHouseholdMembers(env, selected.id);
   const requestedUserId = String(form.get("user_id") || "").trim();
-  if (requestedUserId && !memberExists(members, requestedUserId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "spender_not_member" }));
-  const spenderUserId = canManageAllRecords(selected.role) && requestedUserId && memberExists(members, requestedUserId) ? requestedUserId : userId;
+  if (requestedUserId && !activeSpenderExists(members, requestedUserId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "spender_not_member" }));
+  const spenderUserId = canManageAllRecords(selected.role) && requestedUserId && activeSpenderExists(members, requestedUserId) ? requestedUserId : userId;
   const rawText = String(form.get("raw_text") || "").trim();
   const memoText = String(form.get("memo") || "").trim();
   const manualClass = await resolveManualInputClassification(env, selected.id, type, {
@@ -17563,7 +17773,7 @@ async function handleMyUpdateTransaction(request, env) {
   if (!isValidTransactionDateString(transactionDate)) return redirectResponse(myReturnLocation(month, selected.id, { err: "invalid_date" }));
   const members = await fetchHouseholdMembers(env, selected.id);
   const requestedUserId = String(form.get("user_id") || "").trim();
-  if (requestedUserId && !memberExists(members, requestedUserId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "spender_not_member" }));
+  if (requestedUserId && !activeSpenderExists(members, requestedUserId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "spender_not_member" }));
   const patch = {
     type: normalizeTransactionType(String(form.get("type") || row.type || "expense")),
     transaction_date: transactionDate,
@@ -17571,7 +17781,7 @@ async function handleMyUpdateTransaction(request, env) {
     memo: String(form.get("memo") || "").trim(),
     category: String(form.get("category") || "").trim(),
     payment_method: String(form.get("payment_method") || "").trim(),
-    user_id: canManageAllRecords(selected.role) && requestedUserId && memberExists(members, requestedUserId) ? requestedUserId : row.user_id,
+    user_id: canManageAllRecords(selected.role) && requestedUserId && activeSpenderExists(members, requestedUserId) ? requestedUserId : row.user_id,
   };
   try {
     await updateTransaction(env, id, patch, { householdId: selected.id, actorUserId: userId, actorKind: "user" });
@@ -17788,7 +17998,7 @@ async function handleMyCreate(request, env) {
       });
       user = { ...user, nickname: displayName };
     }
-    const result = await withHouseholdCreateLock(userId, name, async () => {
+    const result = await withHouseholdCreateLock(env, userId, name, async () => {
       const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
       if (existing) return { household: existing, existed: true };
       return { household: await createUserHousehold(env, userId, name, displayName), existed: false };
@@ -17812,7 +18022,7 @@ async function handleMyCreateLegacyV2264(request, env) {
   const name = sanitizeWebHouseholdNameInput(rawName);
   if (!name) return redirectResponse(returnLocation(form, "/my/households", { err: "household_name_invalid" }));
   try {
-    const result = await withHouseholdCreateLock(userId, name, async () => {
+    const result = await withHouseholdCreateLock(env, userId, name, async () => {
       const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
       if (existing) return { household: existing, existed: true };
       return { household: await createUserHousehold(env, userId, name, user?.nickname || "내"), existed: false };
@@ -17855,7 +18065,8 @@ function householdSettingsKeys(householdId = "") {
   const hid = String(householdId || "").trim();
   return [
     categorySettingsKey(hid), categoryKeywordsSettingsKey(hid), paymentAssetsKey(hid), assetHistoryKey(hid),
-    reservePlansKey(hid), memberAliasSettingsKey(hid), transactionEditHistoryKey(hid),
+    reservePlansKey(hid), memberAliasSettingsKey(hid), transactionEditHistoryKey(hid), settlementHistoryKey(hid),
+    reportChallengeSettingsKey(hid), goalsKey(hid), freeReportPreferenceKey(hid),
   ];
 }
 
@@ -18083,7 +18294,7 @@ async function saveSettingsBudget(env, householdId = "", month = currentMonthKst
   const next = current.filter((b) => String(b.category) !== cleanCategory);
   if (Number(amount || 0) > 0 || cleanCategory === "__income") {
     next.push({
-      id: `budget_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      id: randomEntityId("budget"),
       household_id: householdId || "",
       month: validMonth(month) || currentMonthKst(),
       category: cleanCategory,
@@ -19224,6 +19435,8 @@ button,a{touch-action:manipulation}
 a.calDay.hasRec{background:#eff6ff;border-color:#dbeafe}
 a.calDay.hasRec.sel{background:#111827;border-color:#111827;color:#fff}
 a.calDay.hasRec.sel strong,a.calDay.hasRec.sel em,a.calDay.hasRec.sel small{color:#fff}
+.calRecordDot{display:block;flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 2px #fff}
+a.calDay.hasRec.sel .calRecordDot{background:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.28)}
 .calDay b{font-size:12px;line-height:1.1}
 .calDay strong{color:#ef4444;font-size:10px;line-height:1.1;white-space:nowrap;font-weight:1000}
 .calDay em{color:#16a34a;font-style:normal;font-size:10px;line-height:1.1;white-space:nowrap;font-weight:1000}
@@ -19253,10 +19466,10 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 @media(max-width:360px){.topActions{gap:4px}.topActions a{padding:0 7px}.filterQuick{grid-template-columns:1fr}}
 `;
 
-const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22810.css";
+const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22873.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22870.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22868.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22873.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22870.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
@@ -19264,7 +19477,7 @@ const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22861.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -19492,6 +19705,8 @@ body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padd
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.noRec{background:transparent!important;color:var(--ab12-muted)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec.sel{background:var(--ab12-action)!important;border-color:var(--ab12-action)!important;color:#fff!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calRecordDot{background:var(--ab12-accent)!important;box-shadow:0 0 0 2px var(--ab12-surface)!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec.sel .calRecordDot{background:#fff!important;box-shadow:0 0 0 2px color-mix(in srgb,#fff 32%,transparent)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.isToday b{display:grid;place-items:center;width:24px;height:24px;margin:-2px auto 1px;border-radius:50%;background:var(--ab12-action);color:#fff!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sun:not(.sel):not(.isToday) b{color:#b4233e!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sat:not(.sel):not(.isToday) b{color:#1d4ed8!important}
@@ -19980,6 +20195,21 @@ body.abV22812Shell .abDayDetailCopy b{display:block;overflow:hidden;text-overflo
 body.abV22812Shell .abDayDetailCopy span{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)!important;font-size:11.5px}
 body.abV22812Shell .abDayDetailItem>strong{white-space:nowrap;font-size:13.5px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--neg)!important}
 body.abV22812Shell .abDayDetailItem.isIncome>strong{color:var(--accent)!important}
+body.abV22812Shell .abDayDetailActions{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:flex-end;gap:8px;padding-top:9px;border-top:1px solid var(--line)!important}
+body.abV22812Shell .abDayDetailEdit{flex:1;min-width:0;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;overflow:hidden}
+body.abV22812Shell .abDayDetailEdit summary{display:flex;align-items:center;min-height:44px;padding:0 13px;color:var(--text)!important;font-size:12px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abDayDetailEdit form{display:grid;gap:10px;padding:0 12px 12px}
+body.abV22812Shell .abDayDetailEditGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:var(--sub)!important;font-size:11px;font-weight:750}
+body.abV22812Shell .abDayDetailEditGrid label>span{color:var(--sub)!important}
+body.abV22812Shell .abDayDetailEditGrid :is(input,select){width:100%;min-width:0;min-height:44px;padding:0 10px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card)!important;color:var(--text)!important;font:inherit;font-size:13px}
+body.abV22812Shell .abDayDetailMemo{grid-column:1/-1}
+body.abV22812Shell .abDayDetailSpender{grid-column:1/-1;margin:0;color:var(--sub)!important;font-size:11.5px}
+body.abV22812Shell .abDayDetailSave,body.abV22812Shell .abDayDetailDelete button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:0;border-radius:11px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abDayDetailSave{background:var(--action)!important;color:#fff!important}
+body.abV22812Shell .abDayDetailDelete{flex:none;margin:0}
+body.abV22812Shell .abDayDetailDelete button{background:color-mix(in srgb,var(--neg) 12%,var(--card))!important;color:var(--neg)!important;border:1px solid color-mix(in srgb,var(--neg) 28%,var(--line))!important}
+body.abV22812Shell [data-ab-day-write][aria-busy="true"]{opacity:.72;pointer-events:none}
 body.abV22812Shell .abDayDetailLoading,body.abV22812Shell .abDayDetailEmpty{display:grid;place-items:center;gap:8px;min-height:180px;padding:24px;text-align:center;border:1px dashed var(--line)!important;border-radius:16px;background:var(--card-2)!important;color:var(--sub)!important}
 body.abV22812Shell .abDayDetailLoading i{width:24px;height:24px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:abDaySpin .8s linear infinite}
 body.abV22812Shell .abDayDetailEmpty b{color:var(--text)!important;font-size:14px}
@@ -19992,7 +20222,7 @@ body.abV22812Shell .abDayDetailFoot a{background:var(--action)!important;color:#
 body.abV22812Shell .abDayDetailFoot button{background:var(--card-2)!important;color:var(--sub)!important;border:1px solid var(--line)!important}
 @keyframes abDaySpin{to{transform:rotate(360deg)}}
 @media(max-width:899px){body.abV22812Shell .abDayDetailOverlay{align-items:flex-end;padding:0}body.abV22812Shell .abDayDetailPanel{width:100%;max-height:min(88dvh,760px);border-width:1px 0 0!important;border-radius:22px 22px 0 0}body.abV22812Shell .abDayDetailPanel:before{content:"";display:block;flex:none;width:38px;height:4px;margin:8px auto 0;border-radius:999px;background:var(--line)!important}body.abV22812Shell .abDayDetailHead{padding:13px 16px}body.abV22812Shell .abDayDetailBody{padding:14px 14px 16px}body.abV22812Shell .abDayDetailFoot{padding:11px 14px calc(11px + env(safe-area-inset-bottom,0px))}body.abV22812Shell .abDayDetailFoot a{flex:1}body.abV22812Shell .abDayDetailItem{grid-template-columns:auto minmax(0,1fr);gap:8px}body.abV22812Shell .abDayDetailItem>strong{grid-column:2;text-align:left;margin-top:-2px}}
-@media(max-width:420px){body.abV22812Shell .abDayDetailSums{grid-template-columns:1fr 1fr}body.abV22812Shell .abDayDetailSum{padding:11px}body.abV22812Shell .abDayDetailSum b{font-size:16px}}
+@media(max-width:420px){body.abV22812Shell .abDayDetailSums{grid-template-columns:1fr 1fr}body.abV22812Shell .abDayDetailSum{padding:11px}body.abV22812Shell .abDayDetailSum b{font-size:16px}body.abV22812Shell .abDayDetailEditGrid{grid-template-columns:1fr}body.abV22812Shell .abDayDetailMemo{grid-column:auto}body.abV22812Shell .abDayDetailEditGrid :is(input,select){font-size:16px}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abDayDetailLoading i{animation:none}}
 /* V22.8.49 UI/UX stage 3: shared quick-input modal on desktop and bottom sheet on mobile. */
 body.abV22812Shell .abQuickInputOverlay{position:fixed;inset:0;z-index:3600;display:flex;align-items:center;justify-content:center;padding:24px}
@@ -20239,6 +20469,19 @@ body.abV22812Shell .deltaUp{color:var(--neg)!important}
   /* 표 안의 링크는 행 높이를 늘리지 않도록 여백만 바깥으로 넓힌다. */
   body.abV22812Shell :is(table,.tableWrap) td>a:not(.btn){display:inline-block;padding-block:12px;margin-block:-12px}
 }
+
+/* V22.8.72 본문 바로가기.
+   키보드로만 쓰는 사람은 화면을 넘길 때마다 상단바와 사이드바를 처음부터 다시 지나야 했다.
+   데스크톱 홈은 사이드바 달력 때문에 Tab 을 55번 눌러야 본문 첫 요소에 닿았다.
+   display:none·visibility:hidden 으로 감추면 포커스가 가지 않아 없는 것과 같으므로,
+   화면 밖으로 밀어 두었다가 포커스를 받으면 제자리로 가져온다. */
+body.abV22812Shell .abSkipLink{position:fixed;left:12px;top:-100px;z-index:2147483647;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--ab12-action,#1d4ed8);color:#fff!important;font-weight:900;text-decoration:none;box-shadow:0 10px 28px rgba(15,23,42,.28);transition:top .12s ease-out}
+body.abV22812Shell .abSkipLink:focus,body.abV22812Shell .abSkipLink:focus-visible{top:12px}
+/* 건너뛴 목적지에는 기본 포커스 테두리를 두지 않는다. 본문 전체를 두르는 굵은 사각형은
+   "여기로 왔다"는 신호보다 오류처럼 읽힌다. 대신 왼쪽에 짧은 표시만 남긴다. */
+body.abV22812Shell main:focus{outline:none!important}
+body.abV22812Shell main:focus-visible{outline:none!important;box-shadow:inset 3px 0 0 var(--ab12-action,#1d4ed8)}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell .abSkipLink{transition:none}}
 `
   + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
 
@@ -21421,11 +21664,11 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
     etag: path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v22810-css"'
+      ? '"mobile-home-v22873-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22868-css"'
+        ? '"accountbook-shell-v22873-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22812-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -21441,7 +21684,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22861-js"'
+          ? '"accountbook-v5-v22873-js"'
           : '"mobile-home-v22870-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -21479,7 +21722,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
     const v = dayMap[date];
     if (!v || !v.count) return `<span class="calDay noRec${dayClass}"${current}><b>${day}</b></span>`;
     const href = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar&date=${encodeURIComponent(date)}&feed=all#feed`;
-    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
+    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b><i class="calRecordDot" aria-hidden="true"></i>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
   }).join("");
   const clearHref = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`;
   const closeHref = `/app?month=${encodeURIComponent(month)}${hh}`;
@@ -21558,7 +21801,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? renderHomeCalendarSection(calendarRows || rows, month, calendarBaseQs, filterDate)
     : `<div class="homeCalendarToggle"><a href="${escapeHtml(`/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}&view=calendar`)}#calendar">📅 캘린더</a></div>`;
   const totalBudgetRow = budgets.find((b) => b.category === "__total");
-  const defaultSpenderId = sessionUserId && memberExists(members, sessionUserId) ? sessionUserId : (members.length === 1 ? String(members[0]?.user_id || "") : "");
+  const activeSpenders = safeArray(members).filter(memberCanBeSpender);
+  const defaultSpenderId = sessionUserId && activeSpenderExists(activeSpenders, sessionUserId) ? sessionUserId : (activeSpenders.length === 1 ? String(activeSpenders[0]?.user_id || "") : "");
   const spenderOptions = renderSpenderOptions(members, defaultSpenderId, "지출자 선택");
   const todaySpent = todayExpense(rows);
   const weekSpent = lastNDaysExpense(rows, 7);
@@ -22255,7 +22499,7 @@ async function handleRecurringSave(request, env) {
     is_active: true,
   };
   if (!row.amount) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
-  if (!spenderId || !memberExists(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목의 지출자를 가계부 참여자 중에서 선택하세요." }));
+  if (!spenderId || !activeSpenderExists(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목의 지출자를 가계부 활성 참여자 중에서 선택하세요." }));
   try {
     await supabase(env, "/rest/v1/accountbook_recurring", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
@@ -22402,6 +22646,7 @@ async function handleMyLocalLogin(request, env) {
   if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요."), 400);
   if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요."), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false);
+  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
@@ -22436,6 +22681,7 @@ async function handleMyLocalSignup(request, env) {
   if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요."), 400);
   if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다."), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false);
+  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   let user = null;
   try {
@@ -24130,7 +24376,7 @@ function kakaoQuickRepliesForText(text = "") {
   return [];
 }
 
-function kakaoText(text, quickReplies = null) {
+function kakaoText(text, quickReplies = null, status = 200) {
   const template = {
     outputs: [
       {
@@ -24145,7 +24391,7 @@ function kakaoText(text, quickReplies = null) {
   return jsonResponse({
     version: "2.0",
     template,
-  });
+  }, status);
 }
 
 const KAKAO_GROUP_SUPPORTED_OUTPUTS = new Set([
@@ -25258,6 +25504,12 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
       attempt: result.log.attempt || 0,
       type: result.log.type || "unrecognized",
     });
+  }
+  if (["apply", "delete"].includes(String(result?.action || ""))) {
+    const currentRole = String(await getHouseholdMemberRole(env, session.userId, session.householdId) || "").toLowerCase();
+    if (!canWriteMyHousehold(currentRole)) {
+      return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요. 가계부 관리자에게 권한을 확인한 뒤 ‘오늘 기록 보기’부터 다시 시작해 주세요.", null);
+    }
   }
   if (result?.action === "apply") {
     const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply });
@@ -26636,6 +26888,10 @@ async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_B
 
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const origin = publicBaseUrl(env, new URL(request.url));
+  if (!kakaoSkillCallerAuthorized(request, env)) {
+    rememberSkillEvent({ kind: "caller_auth_failed", user_key: "unknown", utterance: "", detail: "missing or invalid skill authentication header" });
+    return kakaoText(kakaoSkillSafeFallbackText(origin), null, 403);
+  }
   let bodyText = "";
   let payload = null;
   let userKey = "unknown";
@@ -26681,7 +26937,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   }
 
   const skillStartedAt = Date.now();
-  const requestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") ? globalThis.crypto.randomUUID() : `req_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+  const requestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") ? globalThis.crypto.randomUUID() : randomEntityId("req");
   const intentMatch = detectKakaoNaturalIntent(utterance);
   const blockName = String(payload?.userRequest?.block?.name || payload?.intent?.name || "").slice(0, 100);
   rememberSkillEvent({ kind: "received", user_key: userKey, utterance, detail: `request_id=${requestId}; version=${APP_VERSION}; intent=${intentMatch.intent}; confidence=${intentMatch.confidence}` });
@@ -27287,6 +27543,10 @@ async function handleUserDayTransactions(request, env, url) {
     fetchAdminRows(env, { month, householdId: household.id, type: "all", date }),
   ]);
   const rows = attachSpenderNames(rawRows, members);
+  const role = String(household.role || "").toLowerCase();
+  const canWrite = !!scope.adminOk || canWriteMyHousehold(role);
+  const canManageSpender = !!scope.adminOk || canManageMyHousehold(role);
+  const activeMembers = safeArray(members).filter(memberCanBeSpender);
   let expense = 0;
   let income = 0;
   for (const row of rows) {
@@ -27294,21 +27554,30 @@ async function handleUserDayTransactions(request, env, url) {
     else expense += Number(row.amount || 0);
   }
   const displayLimit = 250;
-  const items = rows.slice(0, displayLimit).map((row) => ({
-    id: String(row.id || ""),
-    type: row.type === "income" ? "income" : "expense",
-    amount: Math.max(0, Number(row.amount || 0)),
-    category: String(row.category || ""),
-    memo: String(row.memo || row.raw_text || ""),
-    payment_method: String(row.payment_method || ""),
-    member: String(row.spender_name || ""),
-    transaction_date: String(row.transaction_date || "").slice(0, 10),
-  }));
+  const items = rows.slice(0, displayLimit).map((row) => {
+    const canEdit = canWrite && (!!scope.adminOk || canManageMyRecord(role, row, scope.userId));
+    return {
+      id: String(row.id || ""),
+      user_id: String(row.user_id || ""),
+      type: row.type === "income" ? "income" : "expense",
+      amount: Math.max(0, Number(row.amount || 0)),
+      category: String(row.category || ""),
+      memo: String(row.memo || row.raw_text || ""),
+      payment_method: String(row.payment_method || ""),
+      member: String(row.spender_name || ""),
+      transaction_date: String(row.transaction_date || "").slice(0, 10),
+      can_edit: canEdit,
+      can_delete: canEdit,
+    };
+  });
   return jsonResponse({
     ok: true,
     household_id: household.id,
     household_name: household.name || "가계부",
     date,
+    can_write: canWrite,
+    can_manage_spender: canManageSpender,
+    members: canManageSpender ? activeMembers.map((member) => ({ user_id: String(member.user_id || ""), nickname: String(member.nickname || "구성원"), role: String(member.role || "member") })) : [],
     count: rows.length,
     displayed_count: items.length,
     has_more: rows.length > items.length,
@@ -27623,15 +27892,26 @@ async function handleApi(request, env, url) {
   }
 
   if (path === "/api/transactions" && method === "POST") {
-    const body = normalizeApiTransactionBody(await readJson(request));
+    const parsed = await readAdminApiJson(request);
+    if (!parsed.ok) return parsed.response;
+    const invalid = validateAdminApiTransactionBody(parsed.body, false);
+    if (invalid) return invalid;
+    const body = normalizeApiTransactionBody(parsed.body);
+    const members = await fetchHouseholdMembers(env, body.household_id);
+    if (!activeSpenderExists(members, body.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 활성 참여자가 아닙니다." }, 400);
     const created = await createManualTransaction(env, body);
     return jsonResponse({ ok: true, item: created });
   }
 
   if (path === "/api/transactions/batch" && method === "PATCH") {
-    const body = await readJson(request);
+    const parsed = await readAdminApiJson(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const ids = [...new Set((body.ids || []).map((x) => String(x || "").trim()).filter(Boolean))];
     if (!ids.length) return jsonResponse({ ok: false, error: "ids_required", reason: "ids_required", message: "처리할 기록을 먼저 선택해 주세요." }, 400);
+    if (ids.length > 500) return jsonResponse({ ok: false, error: "too_many_ids", reason: "too_many_ids", message: "한 번에 최대 500건까지 처리할 수 있습니다." }, 400);
+    const invalid = validateAdminApiTransactionBody(body, true);
+    if (invalid) return invalid;
     const patch = normalizeApiTransactionBody(body, true);
     if (!Object.keys(patch).length) return jsonResponse({ ok: false, error: "empty_patch", reason: "empty_patch", message: "변경할 내용이 없습니다." }, 400);
     const targets = await fetchTransactionRowsByIds(env, ids);
@@ -27639,7 +27919,7 @@ async function handleApi(request, env, url) {
     if (targets.length !== ids.length || householdIds.length !== 1) return jsonResponse({ ok: false, error: "household_scope_mismatch", reason: "household_scope_mismatch", message: "다른 가계부의 기록이 섞여 있어 처리할 수 없습니다." }, 409);
     if (patch.user_id) {
       const members = await fetchHouseholdMembers(env, householdIds[0]);
-      if (!memberExists(members, patch.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 참여자가 아닙니다." }, 400);
+      if (!activeSpenderExists(members, patch.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 활성 참여자가 아닙니다." }, 400);
     }
     await bulkTransactionsAtomic(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
     return jsonResponse({ ok: true, updatedCount: ids.length });
@@ -27647,9 +27927,18 @@ async function handleApi(request, env, url) {
 
   const txMatch = path.match(/^\/api\/transactions\/([0-9a-fA-F-]{32,36})$/);
   if (txMatch && method === "PATCH") {
-    const body = normalizeApiTransactionBody(await readJson(request), true);
+    const parsed = await readAdminApiJson(request);
+    if (!parsed.ok) return parsed.response;
+    const invalid = validateAdminApiTransactionBody(parsed.body, true);
+    if (invalid) return invalid;
+    const body = normalizeApiTransactionBody(parsed.body, true);
+    if (!Object.keys(body).length) return jsonResponse({ ok: false, error: "empty_patch", reason: "empty_patch", message: "변경할 내용이 없습니다." }, 400);
     const target = await fetchTransactionRowById(env, txMatch[1]);
     if (!target) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
+    if (body.user_id) {
+      const members = await fetchHouseholdMembers(env, target.household_id);
+      if (!activeSpenderExists(members, body.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 활성 참여자가 아닙니다." }, 400);
+    }
     const updated = await updateTransaction(env, txMatch[1], body, { householdId: target.household_id, actorKind: "admin_api" });
     return jsonResponse({ ok: true, item: updated });
   }
@@ -27697,6 +27986,32 @@ function normalizeApiTransactionBody(body = {}, partial = false) {
     out[k] = v;
   }
   return out;
+}
+
+async function readAdminApiJson(request) {
+  const text = await request.text();
+  if (!text.trim()) return { ok: false, response: jsonResponse({ ok: false, error: "json_required", reason: "json_required", message: "JSON 요청 본문이 필요합니다." }, 400) };
+  try {
+    const body = JSON.parse(text);
+    if (!body || Array.isArray(body) || typeof body !== "object") throw new Error("json_object_required");
+    return { ok: true, body };
+  } catch (err) {
+    return { ok: false, response: jsonResponse({ ok: false, error: "invalid_json", reason: "invalid_json", message: "올바른 JSON 객체를 보내 주세요." }, 400) };
+  }
+}
+
+function validateAdminApiTransactionBody(body = {}, partial = false) {
+  if (!partial && !String(body.household_id || "").trim()) return jsonResponse({ ok: false, error: "household_required", reason: "household_required", message: "가계부 ID가 필요합니다." }, 400);
+  if (!partial && !String(body.user_id || "").trim()) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID가 필요합니다." }, 400);
+  if (partial && (Object.hasOwn(body, "household_id") || Object.hasOwn(body, "source"))) return jsonResponse({ ok: false, error: "immutable_field", reason: "immutable_field", message: "수정 요청에서 가계부와 원본 출처는 변경할 수 없습니다." }, 400);
+  if ((!partial || Object.hasOwn(body, "type")) && !["expense", "income"].includes(String(body.type || ""))) return jsonResponse({ ok: false, error: "invalid_type", reason: "invalid_type", message: "구분은 expense 또는 income이어야 합니다." }, 400);
+  if (!partial || Object.hasOwn(body, "amount")) {
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount < 1 || amount > MAX_TRANSACTION_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: `금액은 1원 이상 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하의 정수여야 합니다.` }, 400);
+  }
+  const date = body.transaction_date ?? body.date;
+  if ((!partial || date !== undefined) && !isValidTransactionDateString(String(date || ""))) return jsonResponse({ ok: false, error: "invalid_date", reason: "invalid_date", message: "날짜는 실제 존재하는 YYYY-MM-DD 형식이어야 합니다." }, 400);
+  return null;
 }
 
 function isAdmin(request, env) {
