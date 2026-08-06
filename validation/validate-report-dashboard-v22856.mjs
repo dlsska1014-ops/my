@@ -81,7 +81,7 @@ ok(source.includes("var(--ab12-brand,#6d5dfc)"), "report progress colors inherit
 ok(source.includes("var(--ab12-input-bg,#fff)"), "month input inherits the shared input theme");
 ok(source.includes(".reportMonthNav :is(a,button,input):focus-visible"), "report interactions expose keyboard focus");
 ok(source.includes("color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent)"), "sticky month navigation keeps themed translucency");
-ok(source.includes('const APP_VERSION = "V22.8.74-BUDGET-DARK-CONTRAST"'), "runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT"'), "runtime version is explicit");
 
 const fixture = await createV2265QaFixture();
 try {
@@ -96,6 +96,7 @@ try {
   ok(statsHtml.includes('class="abNavChallenge'), "statistics renders the compact desktop sidebar challenge");
   ok(statsHtml.includes("household_id=house-home"), "statistics drill-downs preserve household scope");
   ok(statsHtml.includes("abAppSurface"), "statistics reserves desktop space for the shared sidebar");
+  ok(statsHtml.includes('class="reportKpis"') && statsHtml.includes("overflow-wrap:anywhere"), "summary KPI values wrap without losing long-amount meaning");
 
   const reportResponse = await request(`/my/analysis?view=report&${context}`);
   eq(reportResponse.status, 200, "server report route renders with the new UX");
@@ -104,7 +105,9 @@ try {
   ok(reportHtml.includes("abAppSurface"), "server report content cannot render beneath the desktop sidebar");
   ok(reportHtml.includes("month=2026-06") && reportHtml.includes("month=2026-08") && reportHtml.includes("view=report"), "server report exposes scoped previous and next month links");
   ok(reportHtml.includes('action="/my/report-challenge/save"'), "manager sees challenge settings");
-  ok(reportHtml.includes('class="reportKpis"') && reportHtml.includes("overflow-wrap:anywhere"), "report KPI values wrap without losing long-amount meaning");
+  // V22.8.75: 한눈에 보기는 요약 화면(소비 분석)이 맡는다. 종합 리포트는 같은 페이지
+  // 안에서 KPI 그리드·핵심 인사이트·예산 게이지로 이미 같은 내용을 더 깊게 보여준다.
+  ok(!reportHtml.includes('class="reportCockpit"'), "deep report no longer repeats the summary cockpit");
 
   const monthlyResponse = await request(`/reports?${context}`);
   eq(monthlyResponse.status, 200, "monthly report route renders");

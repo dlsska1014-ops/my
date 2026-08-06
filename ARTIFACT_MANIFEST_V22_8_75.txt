@@ -1,0 +1,31 @@
+V22.8.75-ANALYSIS-ROLE-SPLIT
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_75.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_75.ps1
+- VALIDATION_REPORT_V22_8_75.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_75.sha256
+
+이번 변경
+- 소비 분석 = 빠르게 보는 요약 / 종합 리포트 = 깊게 보는 분석 으로 역할 분리
+- 종합 리포트에서 "한눈에 보기" 코크핏 제거 (같은 페이지의 4개 카드가 이미 더 깊게 보여줌)
+- 소비 분석의 "이번 달 예산" 카드를 "예산 소비 페이스" 로 축소 (코크핏에 없는 페이스 곡선만 남김)
+- 두 화면 사이 왕복 링크 명시 (깊게 보기 / ← 한눈에 보기)
+- .btn.secondary 가 주요 파란 버튼 규칙에 먹히던 CSS 명시도 문제 보정
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수 변경 없음
+- 홈 기본 스타일시트 주소 mobile-home-v22873 -> v22875 (웹 탭 새로고침 필요)
+
+주의
+- 두 화면과 기존 링크·URL 은 그대로다. 되돌리려면 렌더 호출 한 줄만 되살리면 된다
+- 무지출 데이 챌린지는 홈·요약·리포트가 함께 쓰는 진행 표시라 의도적으로 양쪽에 남겼다
+- 총액 예산이 없는 가계부에서는 "예산 소비 페이스" 카드가 표시되지 않는다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:analysis-role-split (44개 확인)
+- 저장소 전체 자동검사 2,736개 통과

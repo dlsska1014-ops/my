@@ -83,7 +83,7 @@ ok(groupText.includes("선택하려면 아래 문구를 그대로 입력해 주�
 ok(groupText.includes("1. 새 가계부 만들기"), "first guided choice is preserved as text");
 ok(groupText.includes("2. 초대코드로 참여"), "second guided choice is preserved as text");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
-eq(group.response.headers.get("x-accountbook-version"), "V22.8.74-BUDGET-DARK-CONTRAST", "runtime header reports the challenge and activity UX release");
+eq(group.response.headers.get("x-accountbook-version"), "V22.8.75-ANALYSIS-ROLE-SPLIT", "runtime header reports the challenge and activity UX release");
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const userKeyStart = source.indexOf("function getKakaoUserKey(payload)");

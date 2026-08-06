@@ -37,6 +37,7 @@
     "validate:edit-restore": "node validation/validate-edit-restore-v22871.mjs",
     "validate:skip-to-content": "node validation/validate-skip-to-content-v22872.mjs",
     "validate:skill-auth-purge": "node validation/validate-skill-auth-purge-v22873.mjs",
-    "validate:budget-dark-contrast": "node validation/validate-budget-dark-contrast-v22874.mjs"
+    "validate:budget-dark-contrast": "node validation/validate-budget-dark-contrast-v22874.mjs",
+    "validate:analysis-role-split": "node validation/validate-analysis-role-split-v22875.mjs"
   }
 }

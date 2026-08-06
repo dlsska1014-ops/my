@@ -151,12 +151,13 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.74-BUDGET-DARK-CONTRAST"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT"'), "runtime reports the challenge and activity UX release");
 
-// The client-side filtering engine remains protected. The server report renderer
-// intentionally changes in V22.8.56 after the user requested a report UX upgrade.
-eq(functionBlockHash("function insightClientMain("), "b73386dfddd66aa42000b7b34b6c03b7deeda3ac5824b75468db3aa269087a5d", "analysis client source is byte-identical to V22.8.7");
-eq(functionBlockHash("function renderMyAnalysisHtml("), "74b92309ac2369174d6739cf2b2bae3ec06cd14f75828941de8711c33ffd8531", "analysis renderer matches the V22.8.59 explicit-truncation baseline");
+// The client-side filtering engine remains protected. The two analysis renderers
+// intentionally change in V22.8.75, when the summary and deep-analysis screens
+// stopped drawing the same cards twice.
+eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308fc6eaee5a2b43bc42abe9105f87bf0c764b3aaa", "analysis client matches the V22.8.75 role-split baseline");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "818ee3a759a2d0efe5a054a3549b5ef17431b175ebe53fc20c515cca6b201749", "analysis renderer matches the V22.8.75 role-split baseline");
 
 const fixture = await createV2265QaFixture();
 try {
