@@ -8,16 +8,16 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.72-SKIP-TO-CONTENT"'), "runtime exposes the functional UI reliability release");
+ok(source.includes('const APP_VERSION = "V22.8.73-CALENDAR-CHALLENGE-SECURITY"'), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");
 ok(source.includes('button.setAttribute("aria-busy", "true")'), "challenge save exposes its busy state");
 ok(source.includes('challenge_html: renderReportChallenge'), "inline response returns authoritative refreshed challenge markup");
 ok(source.includes('sidebar_html: renderReportChallenge'), "inline response refreshes the shared sidebar challenge");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22872.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22873.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js"'), "changed navigation uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22861.js"'), "changed challenge runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
 ok(source.includes('path === "/annual" || path === "/annual-report"'), "client navigation recognizes annual report routes");
 ok(source.includes('["/budget-alerts", "/today-budget", "/monthly-forecast", "/fixed-preview"]'), "client navigation recognizes all budget alert aliases");
@@ -45,9 +45,9 @@ try {
   eq(adsHead.text, "", "ads.txt HEAD response has no body");
   ok(String(adsHead.response.headers.get("content-type") || "").includes("text/plain"), "ads.txt HEAD preserves its text content type");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22872.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22873.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22872-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22873-css"', "new shell ETag is correct");
   ok(shell.text.includes(".v8-tx summary{display:flex;align-items:center;min-height:44px"), "transaction edit control has a 44px touch target");
   ok(shell.text.includes(".kwRemove{width:40px!important;height:40px!important"), "mobile keyword remove control has a larger touch target");
 
@@ -56,9 +56,9 @@ try {
   eq(nav.response.headers.get("etag"), '"accountbook-nav-v22862-js"', "new navigation ETag is correct");
   ok(nav.text.includes('return "goals"') && nav.text.includes('return "annual"') && nav.text.includes('return "budget-alerts"'), "navigation asset preserves all newly mapped active keys");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22861.js", { cookie: "" });
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js", { cookie: "" });
   eq(v5.response.status, 200, "new V5 runtime asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22861-js"', "new V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "new V5 runtime ETag is correct");
   ok(v5.text.includes("data-report-challenge-form") && v5.text.includes("x-accountbook-inline"), "deployed V5 runtime contains inline challenge save");
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
