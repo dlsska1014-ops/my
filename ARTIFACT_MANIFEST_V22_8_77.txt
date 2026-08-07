@@ -1,0 +1,33 @@
+V22.8.77-INTERRUPTED-SAVE-RECOVERY
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_77.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_77.ps1
+- VALIDATION_REPORT_V22_8_77.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_77.sha256
+
+이번 변경
+- 세션이 풀린 채로 저장하면 예전 관리자 화면으로 던져지던 것을 로그인 화면으로 교정
+- 왜 저장되지 않았는지 안내를 함께 전달
+- 로그인 화면이 돌아갈 주소를 지니고, 로그인 후 쓰던 화면으로 복귀
+- 비밀번호를 틀려 다시 묻는 화면에서도 돌아갈 주소 유지
+- 돌아갈 주소는 앱 안 화면만 허용 (외부·// ·/admin·줄바꿈 전부 차단)
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수 변경 없음
+- 자산 주소 변경 없음 (웹 탭 새로고침 불필요)
+
+주의
+- 적은 내용은 주소에 싣지 않는다. 메모가 주소창과 방문 기록에 남지 않도록 브라우저 안에만 둔다
+- 입력 초안은 그 브라우저 탭 안에만 있다. 탭을 닫으면 되살아나지 않는다
+
+결함이 아니었던 것
+- 저장 후 뒤로 가기: 모든 쓰기가 303 으로 끝나 재제출되지 않는다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:interrupted-save (26개 확인)
+- 저장소 전체 자동검사 2,855개 통과

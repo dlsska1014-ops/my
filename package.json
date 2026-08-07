@@ -39,6 +39,7 @@
     "validate:skill-auth-purge": "node validation/validate-skill-auth-purge-v22873.mjs",
     "validate:budget-dark-contrast": "node validation/validate-budget-dark-contrast-v22874.mjs",
     "validate:analysis-role-split": "node validation/validate-analysis-role-split-v22875.mjs",
-    "validate:kakao-intent-skill-auth": "node validation/validate-kakao-intent-skill-auth-v22876.mjs"
+    "validate:kakao-intent-skill-auth": "node validation/validate-kakao-intent-skill-auth-v22876.mjs",
+    "validate:interrupted-save": "node validation/validate-interrupted-save-v22877.mjs"
   }
 }
