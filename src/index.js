@@ -1192,7 +1192,7 @@ export default {
 
       if (url.pathname === "/health") {
         const missing = missingRuntimeConfiguration(env);
-        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), ready_endpoint: "/ready", time: new Date().toISOString() });
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
@@ -1211,7 +1211,7 @@ export default {
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1695,7 +1695,7 @@ export default {
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
@@ -1903,7 +1903,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT";
+const APP_VERSION = "V22.8.76-KAKAO-INTENT-SKILL-AUTH";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4820,12 +4820,55 @@ function randomEntityId(prefix = "item") {
   return `${String(prefix || "item").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "item"}_${Date.now().toString(36)}_${randomHex(8)}`;
 }
 
-function kakaoSkillCallerAuthorized(request, env = {}) {
-  const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
-  if (!expected) return true;
+// 비밀값을 넣는 순간부터 헤더 없는 호출은 전부 막힌다. OpenBuilder 헤더를
+// 아직 안 넣었다면 그때부터 모든 대화가 실패하는데, 사용자에게는 평범한
+// "다시 보내주세요"가 가고 운영자에게는 아무 신호도 없었다. 그래서
+//   · 통과·거부 횟수를 세어 /health 로 내보내고
+//   · 헤더를 맞추는 동안 잠시 막지 않는 observe 모드를 둔다.
+const AB_SKILL_AUTH_STATS = { accepted: 0, denied: 0, last_denied_at: "", last_accepted_at: "" };
+const KAKAO_SKILL_AUTH_OBSERVE = new Set(["observe", "monitor", "dry-run", "dryrun", "log"]);
+
+function kakaoSkillAuthMode(env = {}) {
+  const configured = !!String(env.KAKAO_SKILL_SECRET || "").trim();
+  if (!configured) return "off";
+  return KAKAO_SKILL_AUTH_OBSERVE.has(String(env.KAKAO_SKILL_AUTH_MODE || "").trim().toLowerCase()) ? "observe" : "enforce";
+}
+
+function kakaoSkillSecretMatches(request, expected = "") {
   const headerSecret = String(request?.headers?.get("x-kakao-skill-secret") || request?.headers?.get("x-api-key") || "").trim();
   const authorization = String(request?.headers?.get("authorization") || "").trim();
   return constantTimeTextEqual(headerSecret, expected) || constantTimeTextEqual(authorization, `Bearer ${expected}`);
+}
+
+function kakaoSkillCallerAuthorized(request, env = {}) {
+  const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
+  if (!expected) return true;
+  const matched = kakaoSkillSecretMatches(request, expected);
+  const at = new Date().toISOString();
+  if (matched) {
+    AB_SKILL_AUTH_STATS.accepted++;
+    AB_SKILL_AUTH_STATS.last_accepted_at = at;
+    return true;
+  }
+  AB_SKILL_AUTH_STATS.denied++;
+  AB_SKILL_AUTH_STATS.last_denied_at = at;
+  // observe 모드에서는 세기만 하고 통과시킨다. 헤더를 맞추는 동안
+  // 카카오톡이 멈추지 않게 하려는 것이고, 기본값은 계속 enforce 다.
+  return kakaoSkillAuthMode(env) === "observe";
+}
+
+function kakaoSkillAuthSnapshot(env = {}) {
+  const mode = kakaoSkillAuthMode(env);
+  return {
+    mode,
+    configured: mode !== "off",
+    accepted: AB_SKILL_AUTH_STATS.accepted,
+    denied: AB_SKILL_AUTH_STATS.denied,
+    last_accepted_at: AB_SKILL_AUTH_STATS.last_accepted_at,
+    last_denied_at: AB_SKILL_AUTH_STATS.last_denied_at,
+    // 켰는데 통과가 하나도 없고 거부만 쌓이면 헤더 설정이 빠진 것이다.
+    header_missing_suspected: mode !== "off" && AB_SKILL_AUTH_STATS.denied > 0 && AB_SKILL_AUTH_STATS.accepted === 0,
+  };
 }
 
 async function makeAdminSession(env) {
@@ -23797,17 +23840,10 @@ function detectKakaoAmbiguity(utterance = "") {
     return { type: "household_action", confidence: 0.99 };
   }
 
-  const amountInfo = extractAmount(raw);
-  if (amountInfo?.amount) {
-    const categoryAliases = ["식비","외식","배달","카페","간식","장보기","교통","교통비","택시","주유","쇼핑","생활비","생활용품","의료비","병원비","교육비","여가비","여행비","보험료","통신비","관리비"];
-    const withoutAmount = normalizeText(raw.replace(amountInfo.raw || "", " ")).replace(/\s+/g, " ").trim();
-    const category = categoryAliases.find((v) => withoutAmount === v || withoutAmount === `${v}비`) || "";
-    const hasExplicitTransaction = /(지출|사용|썼|결제|구매|샀|냈|기록|입력|오늘|어제|카드|현금|이체|페이)/.test(raw);
-    const hasExplicitBudget = /예산/.test(raw);
-    if (category && !hasExplicitTransaction && !hasExplicitBudget) {
-      return { type: "category_amount", confidence: 0.98, category, amount: Number(amountInfo.amount || 0), amountRaw: amountInfo.raw || `${amountInfo.amount}원` };
-    }
-  }
+  // V22.8.76: "주유 5만원"·"카페 4500" 처럼 분류 이름과 금액만 온 말은 더 이상
+  // 되묻지 않고 지출로 바로 기록한다. 되묻는 기준이 21개 단어 목록이라
+  // "카페 4500"은 묻고 "커피 4500"은 안 묻는 식이라 규칙을 알 수 없었다.
+  // 대부분은 지출이라는 뜻이고, 예산은 "식비 예산 30만원"으로 말하면 된다.
   return null;
 }
 
@@ -23839,14 +23875,6 @@ function kakaoAmbiguityGuide(utterance = "", origin = "") {
     return {
       text: "가계부에서 무엇을 하시려는 건가요?",
       quickReplies: [["새로 만들기", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부 전환", "가계부 전환"]],
-      reason: ambiguity.type,
-    };
-  }
-  if (ambiguity.type === "category_amount") {
-    const amountText = numberWithCommas(ambiguity.amount) + "원";
-    return {
-      text: `${ambiguity.category} ${amountText}을 어떻게 처리할까요?`,
-      quickReplies: [["지출로 기록", `기록 ${ambiguity.category} ${amountText}`], ["예산으로 설정", `${ambiguity.category} 예산설정 ${amountText}`]],
       reason: ambiguity.type,
     };
   }
@@ -26394,6 +26422,10 @@ function parseBareInviteCode(text = "") {
 }
 
 function normalizeBudgetCategoryInput(value = "") {
+  // 이 함수는 두 번 거친다(명령 파서에서 한 번, 분류 해석에서 또 한 번).
+  // 첫 번째가 내놓은 "__total"을 두 번째가 다시 정규화하면 밑줄이 지워져
+  // "total"이 되고, 그러면 "전체 예산설정 300만원"이 분류를 못 찾는다.
+  if (String(value || "") === "__total") return "__total";
   const raw = normalizeText(value)
     .replace(/^예산 카테고리\s*/, "")
     .replace(/\s*예산$/, "")
@@ -26422,8 +26454,15 @@ function parseBudgetMonthHint(text = "") {
 
 function parseDirectBudgetSetCommand(text = "") {
   const t = normalizeText(text);
-  const m = t.match(/^(?:(이번달|이번 달|다음달|다음 달|지난달|지난 달|저번달|저번 달|(?:20\d{2}년\s*)?\d{1,2}월)\s*)?(.{1,35}?)\s*예산\s*(?:설정|저장|등록)\s+(.+)$/i);
+  const monthHint = "(이번달|이번 달|다음달|다음 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
+  const explicit = t.match(new RegExp(`^(?:${monthHint}\\s*)?(.{1,35}?)\\s*예산\\s*(?:설정|저장|등록)\\s+(.+)$`, "i"));
+  // "식비 예산 30만원" 처럼 설정·저장·등록을 빼고 말하는 사람이 많다. 예전에는
+  // 이것이 예산이 아니라 30만원짜리 지출로 기록됐다. 다만 "회사 예산 회의 5000"
+  // 처럼 뒤에 다른 말이 붙으면 지출일 수 있으므로, 꼬리가 금액 하나뿐일 때만 받는다.
+  const implicit = explicit ? null : t.match(new RegExp(`^(?:${monthHint}\\s*)?(.{1,35}?)\\s*예산\\s+(.+)$`, "i"));
+  const m = explicit || implicit;
   if (!m) return null;
+  if (implicit && !normalizeKakaoEditAmountValue(m[3])) return null;
   const amount = parseAmountValue(m[3]);
   if (!amount) return null;
   return {

@@ -1,0 +1,37 @@
+V22.8.76-KAKAO-INTENT-SKILL-AUTH
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_76.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_76.ps1
+- VALIDATION_REPORT_V22_8_76.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_76.sha256
+
+이번 변경
+- 분류 이름 + 금액 되묻기 제거, 전부 지출로 통일 (기준이 21개 단어 목록이라 규칙을 알 수 없었음)
+- "식비 예산 30만원"이 30만원짜리 지출로 기록되던 결함 수정, 꼬리가 금액 하나뿐이면 예산으로 인식
+- "전체 예산설정 300만원"이 한 번도 동작하지 않던 결함 수정 (__total 이 두 번 정규화돼 total 이 됨)
+- /skill 인증 통과·거부 집계를 /health 로 노출, 헤더 누락 의심 신호 추가
+- KAKAO_SKILL_AUTH_MODE=observe 추가 (헤더 맞추는 동안 막지 않고 세기만 하는 안전 모드)
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수 1개 추가(선택): KAKAO_SKILL_AUTH_MODE
+- 자산 주소 변경 없음 (웹 탭 새로고침 불필요)
+
+주의
+- KAKAO_SKILL_SECRET 을 넣는 순간부터 헤더 없는 호출은 403 이다. 이미 넣었는데
+  OpenBuilder 헤더를 안 넣었다면 카카오톡이 이미 멈춰 있다. /health 의
+  skill_caller_auth.header_missing_suspected 로 확인하고, observe 모드로 즉시 복구한다
+- KAKAO_SKILL_AUTH_MODE 값을 오타로 적으면 열리지 않고 차단 쪽으로 떨어진다
+- 이전에 "식비 예산 30만원"으로 잘못 기록된 지출은 이 배포가 고쳐 주지 않는다. 직접 삭제해야 한다
+
+판단하고 그대로 둔 것
+- 사이드바 달력 날짜 34개는 Tab 순서에 남긴다 (본문 바로가기가 이미 있고, 빼면 키보드로 못 누름)
+- 구성원 예산·정기지출 저장 권한은 열지 않는다 (서버 가드 정상, 필요하면 관리자로 승격)
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:kakao-intent-skill-auth (70개 확인)
+- 저장소 전체 자동검사 2,806개 통과

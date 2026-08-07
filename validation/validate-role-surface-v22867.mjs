@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT"'), "runtime exposes the role surface release");
+ok(source.includes('const APP_VERSION = "V22.8.76-KAKAO-INTENT-SKILL-AUTH"'), "runtime exposes the role surface release");
 
 // 1. 키워드 편집기가 권한 플래그를 받는지 소스에서 확인한다.
 ok(/function renderKeywordBulkEditor\(\{.*writable = true.*returnTo/.test(source), "keyword editor accepts a writable flag");
