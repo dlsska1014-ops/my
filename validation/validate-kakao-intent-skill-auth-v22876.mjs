@@ -162,5 +162,60 @@ ok((await say("식비 예산 얼마야")).includes("확인할까요"), "금액�
 
 ok(source.includes('if (String(value || "") === "__total") return "__total";'), "전체 예산 표기가 두 번 정규화돼도 무너지지 않는다");
 
+// ---------------------------------------------------------------------------
+// 4. 카카오 재전송 — 응답이 늦으면 같은 발화가 다시 온다
+// ---------------------------------------------------------------------------
+// 중복 방지는 "저장이 끝난 뒤"에 걸리므로 처리 중인 동안 문이 열려 있었다.
+// 카카오의 타임아웃 재전송이 그 창으로 들어와 같은 기록이 두 번 남았다.
+{
+  const before = fixture.db.transactions.length;
+  await say("재전송시험A 7701");
+  await say("재전송시험A 7701");
+  eq(fixture.db.transactions.length - before, 1, "순차 재전송은 한 건만 남긴다");
+}
+for (const [label, times] of [["동시 2회", 2], ["동시 3회", 3]]) {
+  const before = fixture.db.transactions.length;
+  const utterance = `재전송시험${times} 770${times}`;
+  await Promise.all(Array.from({ length: times }, () => say(utterance)));
+  eq(fixture.db.transactions.length - before, 1, `${label} 재전송도 한 건만 남긴다`);
+}
+
+// 처리 중 표시가 내려가지 않으면, 저장에 실패한 요청이 잠긴 채로 남아
+// 사용자가 다시 보내도 아무것도 저장되지 않는다(V22.8.69 에서 고쳤던 결함).
+{
+  const failing = { ...fixture.env };
+  const originalFetch = globalThis.fetch;
+  let broke = false;
+  globalThis.fetch = async (...args) => {
+    const target = String(args[0]?.url || args[0] || "");
+    const method = String(args[1]?.method || "GET");
+    if (!broke && target.includes("/rest/v1/transactions") && method === "POST") {
+      broke = true;
+      throw new Error("network down");
+    }
+    return originalFetch(...args);
+  };
+  try {
+    await skill(failing, "실패후재시도 8801");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  ok(broke, "첫 시도에 저장 실패를 실제로 주입했다");
+  const before = fixture.db.transactions.length;
+  const retry = await say("실패후재시도 8801");
+  eq(fixture.db.transactions.length - before, 1, "저장에 실패한 요청은 잠기지 않고 다시 보내면 저장된다");
+  ok(retry.includes("지출 저장했어요"), "재시도에 저장 안내가 온다");
+}
+
+// 인식하지 못한 말은 몇 번을 보내도 같은 안내가 와야 한다.
+const unknownFirst = await say("ㅁㄴㅇㄹ");
+const unknownSecond = await say("ㅁㄴㅇㄹ");
+ok(!unknownSecond.includes("방금 같은 내용"), "저장되지 않은 말은 중복으로 잠기지 않는다");
+eq(unknownSecond.slice(0, 20), unknownFirst.slice(0, 20), "같은 안내가 그대로 온다");
+
+ok(source.includes("AB_KAKAO_INFLIGHT"), "처리 중 표시가 소스에 있다");
+ok(source.includes("clearKakaoInFlight(repeat.key);"), "처리가 끝나면 표시를 내린다");
+eq(source.split("clearKakaoInFlight(repeat.key);").length - 1, 2, "성공과 오류 양쪽에서 표시를 내린다");
+
 await fixture.cleanup?.();
 console.log(`PASS: V22.8.76 kakao intent and skill auth (${checks} checks)`);

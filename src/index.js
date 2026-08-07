@@ -333,6 +333,7 @@ const AB_TRAFFIC_EVENTS = globalThis.__AB_TRAFFIC_EVENTS || (globalThis.__AB_TRA
 const AB_OPS_EVENTS = globalThis.__AB_OPS_EVENTS || (globalThis.__AB_OPS_EVENTS = []);
 const AB_DUPLICATE_EVENTS = globalThis.__AB_DUPLICATE_EVENTS || (globalThis.__AB_DUPLICATE_EVENTS = []);
 const AB_KAKAO_REPEAT_GUARD = globalThis.__AB_KAKAO_REPEAT_GUARD || (globalThis.__AB_KAKAO_REPEAT_GUARD = new Map());
+const AB_KAKAO_INFLIGHT = globalThis.__AB_KAKAO_INFLIGHT || (globalThis.__AB_KAKAO_INFLIGHT = new Map());
 
 function rememberOpsEvent(event = {}) {
   try {
@@ -25781,7 +25782,22 @@ function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}, payload =
   // 사용자가 같은 문구를 다시 보내도 막히면서 결국 아무것도 저장되지 않는다.
   // 실제로 저장이 끝난 뒤에만 armKakaoRepeatGuard 로 잠근다.
   if (last && now - Number(last) < windowMs) return { ok: false, key, elapsedMs: now - Number(last), windowMs };
+  // 저장이 끝난 뒤에만 잠그다 보니 "처리 중"인 동안은 문이 열려 있었다.
+  // 카카오는 응답이 늦으면 같은 발화를 다시 보내는데, 그 재전송이 이 창으로
+  // 들어와 같은 기록이 두 번 남았다. 처리 중 표시를 먼저 걸어 그 창을 닫는다.
+  const inFlightAt = AB_KAKAO_INFLIGHT.get(key) || 0;
+  pruneTimestampMap(AB_KAKAO_INFLIGHT, now);
+  if (inFlightAt && now - Number(inFlightAt) < windowMs) {
+    return { ok: false, key, elapsedMs: now - Number(inFlightAt), windowMs, inFlight: true };
+  }
+  AB_KAKAO_INFLIGHT.set(key, now);
   return { ok: true, key, elapsedMs: last ? now - Number(last) : 0, windowMs };
+}
+
+// 처리가 끝나면 "처리 중" 표시는 반드시 내린다. 저장에 실패한 요청까지
+// 잠긴 채로 남으면 사용자가 다시 보내도 아무것도 저장되지 않는다.
+function clearKakaoInFlight(key = "") {
+  if (key) AB_KAKAO_INFLIGHT.delete(key);
 }
 
 // 카카오 응답이 "실제로 저장·수정·삭제가 일어났다"고 말할 때만 중복 방지를 건다.
@@ -27008,6 +27024,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
     armKakaoRepeatGuard(repeat.key, responsePreview);
+    clearKakaoInFlight(repeat.key);
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: intentMatch.intent, confidence: intentMatch.confidence, result: outcome.result, reason: outcome.reason, latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
@@ -27026,6 +27043,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
+    clearKakaoInFlight(repeat.key);
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
