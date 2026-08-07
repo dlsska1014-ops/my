@@ -5,7 +5,7 @@ const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf
 let checks = 0;
 const ok = (value, message) => { checks += 1; assert.ok(value, message); };
 
-ok(source.includes('const APP_VERSION = "V22.8.75-ANALYSIS-ROLE-SPLIT"'), "stage 1 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.76-KAKAO-INTENT-SKILL-AUTH"'), "stage 1 runtime version is explicit");
 ok(source.includes('function buildNavMonthSummary('), "sidebar month summary helper exists");
 ok(source.includes('function renderNavMiniCalendar('), "desktop mini calendar renderer exists");
 ok(source.includes('function renderNavBudgetUsage('), "live budget usage renderer exists");
