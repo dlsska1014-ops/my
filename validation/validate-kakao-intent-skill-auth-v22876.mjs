@@ -213,6 +213,69 @@ const unknownSecond = await say("ㅁㄴㅇㄹ");
 ok(!unknownSecond.includes("방금 같은 내용"), "저장되지 않은 말은 중복으로 잠기지 않는다");
 eq(unknownSecond.slice(0, 20), unknownFirst.slice(0, 20), "같은 안내가 그대로 온다");
 
+// ---------------------------------------------------------------------------
+// 5. 저장에 실패했을 때 적은 내용이 사라지지 않는가
+// ---------------------------------------------------------------------------
+// 저장이 실패하면 데이터는 안전하지만(0건) 적어 둔 금액·메모가 전부 사라져
+// 처음부터 다시 써야 했다. 주소로 돌려보내면 메모가 주소창과 방문 기록에
+// 남으므로 브라우저 안(sessionStorage)에만 둔다.
+{
+  const householdId = "house-home";
+  const month = new Date().toISOString().slice(0, 7);
+  const originalFetch = globalThis.fetch;
+  let broke = false;
+  globalThis.fetch = async (...args) => {
+    const target = String(args[0]?.url || args[0] || "");
+    const method = String(args[1]?.method || "GET");
+    if (!broke && target.includes("/rest/v1/transactions") && method === "POST") {
+      broke = true;
+      throw new Error("ECONNRESET");
+    }
+    return originalFetch(...args);
+  };
+  let failed;
+  try {
+    failed = await app.fetch(new Request(`${ORIGIN}/admin/transactions`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie: fixture.cookie, "content-type": "application/x-www-form-urlencoded", "user-agent": "Mozilla/5.0" },
+      body: new URLSearchParams({
+        household_id: householdId,
+        month,
+        return_to: `/app?month=${month}&household_id=${householdId}`,
+        type: "expense",
+        amount: "8800",
+        memo: "저장중끊김",
+        category: "식비",
+        transaction_date: `${month}-05`,
+        user_id: "user-bin",
+      }).toString(),
+    }), fixture.env, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  ok(broke, "저장 도중 끊김을 실제로 주입했다");
+  eq(fixture.db.transactions.filter((row) => row.memo === "저장중끊김").length, 0, "저장에 실패하면 기록이 남지 않는다");
+  // 주소의 공백은 "+" 로 인코딩된다. decodeURIComponent 는 그것을 되돌리지 않으므로
+  // 먼저 바꿔 두지 않으면 멀쩡한 문구를 못 찾는다.
+  const location = decodeURIComponent(String(failed.headers.get("location") || "").replace(/\+/g, "%20"));
+  ok(location.startsWith("/app?"), "실패해도 사용자가 있던 화면으로 돌아온다");
+  ok(location.includes("저장하지 못했습니다"), "실패 사유가 함께 전달된다");
+  ok(location.includes("quick=1"), "입력 시트가 다시 열리도록 표시된다");
+  ok(!/amount=8800|memo=/.test(location), "적어 둔 내용이 주소에 실려 기록에 남지 않는다");
+
+  const backHtml = await (await app.fetch(new Request(`${ORIGIN}${failed.headers.get("location")}`, {
+    headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" },
+  }), fixture.env, {})).text();
+  ok(backHtml.includes("저장하지 못했습니다"), "돌아온 화면에 실패 안내가 보인다");
+}
+
+ok(source.includes('var DRAFT_KEY = "abQuickInputDraft";'), "입력 초안을 브라우저 안에 둔다");
+ok(source.includes("rememberDraft(form);"), "제출 직전에 초안을 남긴다");
+ok(source.includes('if (!params.get("err")) forgetDraft();'), "성공했으면 초안을 버린다");
+ok(source.includes('if (params.get("err") && restoreDraft())'), "실패했을 때만 초안을 되살린다");
+ok(source.includes("forgetDraft();\n    var draft = null;"), "되살린 초안은 곧바로 지운다");
+
 ok(source.includes("AB_KAKAO_INFLIGHT"), "처리 중 표시가 소스에 있다");
 ok(source.includes("clearKakaoInFlight(repeat.key);"), "처리가 끝나면 표시를 내린다");
 eq(source.split("clearKakaoInFlight(repeat.key);").length - 1, 2, "성공과 오류 양쪽에서 표시를 내린다");

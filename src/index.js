@@ -11741,11 +11741,57 @@ function accountbookQuickInputClientMain() {
     if (form) form.addEventListener("submit", function() {
       var input = section.querySelector('input[name="transaction_date"],#txDate');
       if (input) syncReturnTarget(input.value);
+      rememberDraft(form);
     });
     overlay.addEventListener("click", function(event) {
       if (event.target && event.target.closest && event.target.closest("[data-ab-quick-close]")) close();
     });
     return overlay;
+  }
+  // 저장에 실패하면 지금까지는 적은 내용이 전부 사라져 처음부터 다시 써야 했다.
+  // 주소로 돌려보내면 메모가 주소창과 방문 기록에 남으므로 브라우저 안에만 둔다.
+  var DRAFT_KEY = "abQuickInputDraft";
+  var DRAFT_FIELDS = ["amount", "memo", "category", "payment_method", "transaction_date", "type", "user_id"];
+  function draftStore() {
+    try { return window.sessionStorage; } catch (_error) { return null; }
+  }
+  function rememberDraft(form) {
+    var store = draftStore();
+    if (!store || !form) return;
+    var draft = {};
+    DRAFT_FIELDS.forEach(function (name) {
+      var field = form.querySelector('[name="' + name + '"]:checked') || form.querySelector('[name="' + name + '"]');
+      if (field && field.value) draft[name] = String(field.value).slice(0, 200);
+    });
+    try { store.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_error) {}
+  }
+  function forgetDraft() {
+    var store = draftStore();
+    if (store) { try { store.removeItem(DRAFT_KEY); } catch (_error) {} }
+  }
+  function restoreDraft() {
+    var store = draftStore();
+    if (!store || !section) return false;
+    var raw = "";
+    try { raw = store.getItem(DRAFT_KEY) || ""; } catch (_error) { return false; }
+    if (!raw) return false;
+    forgetDraft();
+    var draft = null;
+    try { draft = JSON.parse(raw); } catch (_error) { return false; }
+    if (!draft || typeof draft !== "object") return false;
+    var restored = false;
+    DRAFT_FIELDS.forEach(function (name) {
+      var value = draft[name];
+      if (!value) return;
+      var radio = section.querySelector('[name="' + name + '"][value="' + String(value).replace(/"/g, "") + '"]');
+      if (radio && (radio.type === "radio" || radio.type === "checkbox")) { radio.checked = true; restored = true; return; }
+      var field = section.querySelector('[name="' + name + '"]');
+      if (!field || field.type === "radio" || field.type === "checkbox") return;
+      field.value = value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      restored = true;
+    });
+    return restored;
   }
   function setDate(date) {
     var input = section && section.querySelector('input[name="transaction_date"],#txDate');
@@ -11808,8 +11854,11 @@ function accountbookQuickInputClientMain() {
   function autoOpen() {
     var params = new URLSearchParams(location.search);
     var hash = String(location.hash || "");
+    // 저장에 성공했으면 남은 초안은 버린다. 실패했을 때만 되살린다.
+    if (!params.get("err")) forgetDraft();
     if (location.pathname !== "/app" || !(params.get("quick") === "1" || hash === "#add" || hash === "#quick")) return;
     open(requestedDate(null), null);
+    if (params.get("err") && restoreDraft()) setDate(section && section.querySelector('input[name="transaction_date"],#txDate') ? section.querySelector('input[name="transaction_date"],#txDate').value : "");
     if (params.get("quick") === "1" && window.history && window.history.replaceState) {
       params.delete("quick");
       var query = params.toString();

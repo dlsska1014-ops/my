@@ -15,6 +15,7 @@ V22.8.76-KAKAO-INTENT-SKILL-AUTH
 - /skill 인증 통과·거부 집계를 /health 로 노출, 헤더 누락 의심 신호 추가
 - KAKAO_SKILL_AUTH_MODE=observe 추가 (헤더 맞추는 동안 막지 않고 세기만 하는 안전 모드)
 - 카카오 재전송(응답 지연 시 같은 발화 재수신)으로 기록이 두 번 남던 결함 수정 — 11단계 점검에서 발견
+- 저장 실패 시 적어 둔 금액·메모가 사라지던 것 수정 (브라우저 안 초안, 주소에 싣지 않음)
 
 운영 변경 여부
 - 신규 SQL 없음
@@ -27,7 +28,7 @@ V22.8.76-KAKAO-INTENT-SKILL-AUTH
   skill_caller_auth.header_missing_suspected 로 확인하고, observe 모드로 즉시 복구한다
 - KAKAO_SKILL_AUTH_MODE 값을 오타로 적으면 열리지 않고 차단 쪽으로 떨어진다
 - 이전에 "식비 예산 30만원"으로 잘못 기록된 지출은 이 배포가 고쳐 주지 않는다. 직접 삭제해야 한다
-- 저장 실패 시 오류 문구가 화면에 뜨지 않는 문제는 확인만 하고 고치지 않았다 (KNOWN-ISSUES 참고)
+- 입력 초안은 그 브라우저 탭 안에만 있다. 탭을 닫거나 다른 기기에서 열면 되살아나지 않는다
 - 재전송 중복 방지의 "처리 중" 표시는 isolate 단위 메모리라 완전한 보장은 아니다
 
 판단하고 그대로 둔 것
@@ -36,5 +37,5 @@ V22.8.76-KAKAO-INTENT-SKILL-AUTH
 
 검증
 - node .codex/scripts/verify-repository.mjs
-- npm run validate:kakao-intent-skill-auth (81개 확인)
-- 저장소 전체 자동검사 2,817개 통과
+- npm run validate:kakao-intent-skill-auth (93개 확인)
+- 저장소 전체 자동검사 2,829개 통과
