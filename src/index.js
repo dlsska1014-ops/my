@@ -1904,7 +1904,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.76-KAKAO-INTENT-SKILL-AUTH";
+const APP_VERSION = "V22.8.77-INTERRUPTED-SAVE-RECOVERY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5066,6 +5066,19 @@ function validateRecordFormFields({ id = "", householdId = "", amount = 0, trans
   return "";
 }
 
+// 세션이 풀린 채로 저장하면 예전 관리자 화면(/?legacy=1)으로 던져져, 왜 안 됐는지도
+// 모르고 적어 둔 내용도 잃었다. 쓰던 화면으로 돌아올 수 있게 로그인으로 보낸다.
+function signedOutWriteRedirect(form) {
+  const back = safeUserReturnPath(String(form?.get?.("return_to") || ""), "");
+  if (!back) return "/?legacy=1";
+  let target;
+  try { target = new URL(back, "https://accountbook.local"); }
+  catch (_error) { return "/?legacy=1"; }
+  target.searchParams.set("err", "로그인이 풀려서 저장하지 못했습니다. 다시 로그인하면 적어 두신 내용이 그대로 있습니다.");
+  target.searchParams.set("quick", "1");
+  return `/my?return_to=${encodeURIComponent(`${target.pathname}${target.search}`)}`;
+}
+
 function transactionReturnFallback(month, householdId, extra = {}) {
   return dashboardQuery(month, householdId, { tab: "transactions", ...extra });
 }
@@ -5115,7 +5128,7 @@ async function handleAdminAddTransaction(request, env) {
   const access = await resolveTransactionAccess(request, env, householdId);
   if (!access.ok) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "기록 입력 권한이 없습니다." }), transactionAddRedirectExtras(form, { err: "기록 입력 권한이 없습니다." }, "error")));
-    return redirectResponse("/?legacy=1");
+    return redirectResponse(signedOutWriteRedirect(form));
   }
   const txType = normalizeTransactionType(form.get("type"));
   const transactionDate = String(form.get("transaction_date") || formatDate(nowKstDate())).trim();
@@ -5188,7 +5201,7 @@ async function handleAdminDeleteTransaction(request, env) {
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
-    return redirectResponse("/?legacy=1");
+    return redirectResponse(signedOutWriteRedirect(form));
   }
   const validationError = validateRecordFormFields({ id, mode: "delete" });
   if (validationError) {
@@ -5216,7 +5229,7 @@ async function handleAdminUpdateTransaction(request, env) {
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 수정할 권한이 없습니다." }), { err: "이 기록을 수정할 권한이 없습니다." }));
-    return redirectResponse("/?legacy=1");
+    return redirectResponse(signedOutWriteRedirect(form));
   }
   const typeValues = form.getAll("type").map((v) => String(v || "").trim()).filter(Boolean);
   const transactionDate = String(form.get("transaction_date") || formatDate(nowKstDate())).trim();
@@ -18281,7 +18294,7 @@ async function handleMyJoin(request, env) {
 
 async function handleMyPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
-  if (!userId) return htmlResponse(renderUserLoginHtml(env));
+  if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", "")));
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (access.restricted) {
@@ -22734,16 +22747,18 @@ async function handleMyLocalLogin(request, env) {
   const nickname = String(form.get("login_name") || form.get("nickname") || "").trim().slice(0, 80);
   const accessCode = String(form.get("access_code") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();
-  if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요."), 400);
-  if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요."), 400);
+  // 로그인이 풀려 튕겨 온 사람은 비밀번호를 틀려도 복귀 주소를 잃으면 안 된다.
+  const loginReturnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
+  if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요.", loginReturnTo), 400);
+  if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요.", loginReturnTo), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false);
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
-    if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요."), 401);
+    if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
     await recordAuthAttempt(env, request, "/my/local-login", true);
-    let location = "/my";
+    let location = loginReturnTo || "/my";
     if (inviteCode) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
@@ -22895,11 +22910,13 @@ function renderKakaoLoginCheckHtml(env, url) {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 카카오 로그인 점검</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}.ok{color:#166534;background:#dcfce7;border-radius:999px;padding:5px 9px;font-weight:1000}.bad{color:#991b1b;background:#fee2e2;border-radius:999px;padding:5px 9px;font-weight:1000}code{background:#f1f5f9;border-radius:8px;padding:2px 6px;overflow-wrap:anywhere}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>카카오 로그인 점검</h1><p>카카오 로그인은 명시적으로 켜고, 공개 주소와 Redirect URI가 정확히 일치할 때만 사용자에게 표시됩니다.</p><table><tbody>${row("KAKAO_LOGIN_ENABLED", config.enabled, "명시적으로 <code>1</code> 설정")}${row("KAKAO_REST_API_KEY", config.apiKeyConfigured, "카카오 앱의 REST API 키 설정")}${row("PUBLIC_BASE_URL", !!config.publicBase && !config.issues.includes("public_base_url_invalid"), `<code>${escapeHtml(config.publicBase || "미설정")}</code>`)}${row("Redirect URI 형식", redirectFormatOk, `<code>${escapeHtml(config.redirectUri || "미설정")}</code>`)}${row("공개 주소와 호스트 일치", originMatch, originMatch ? "같은 HTTPS 호스트" : "PUBLIC_BASE_URL과 Redirect URI의 호스트를 같게 설정")}${row("Client Secret", !config.clientSecretRequired || config.clientSecretConfigured, config.clientSecretRequired ? "필수 모드: Secret 설정 필요" : "카카오 앱에서 Client Secret을 켰을 때만 설정")}${row("사용 가능 상태", config.ready, config.ready ? "로컬 설정 일치 · 로그인 버튼 표시" : escapeHtml(issues || "기능이 꺼져 있음"))}</tbody></table><p class="warn"><b>마지막 외부 확인</b><br/>위 Redirect URI와 완전히 같은 주소를 동일한 카카오 앱의 Redirect URI 목록에 등록해야 합니다. 이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.</p><p><a class="btn" href="/my">로그인 화면으로 돌아가기</a></p></section></main></body></html>`;
 }
 
-function renderUserLoginHtml(env, error = "") {
+function renderUserLoginHtml(env, error = "", returnTo = "") {
   const title = escapeHtml(appName(env));
   const kakaoPart = kakaoLoginStatusBlock(env);
+  // 로그인이 풀려 튕겨 나온 사람은 원래 보던 화면으로 돌아가야 한다.
+  const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login"><div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
 }
 
 

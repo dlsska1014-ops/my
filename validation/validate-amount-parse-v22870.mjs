@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.76-KAKAO-INTENT-SKILL-AUTH"'), "runtime exposes the amount parsing fix release");
+ok(source.includes('const APP_VERSION = "V22.8.77-INTERRUPTED-SAVE-RECOVERY"'), "runtime exposes the amount parsing fix release");
 
 // 1. 숫자 사이 쉼표는 문장 구분자가 아니다.
 ok(source.includes("(?<!\\d)[,，](?!\\d)"), "clause splitting skips commas that sit between digits");
