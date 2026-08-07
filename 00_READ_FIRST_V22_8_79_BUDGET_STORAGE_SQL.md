@@ -5,10 +5,38 @@
 ## 요약
 
 - **SQL 파일 하나뿐입니다. `src/index.js` 는 한 줄도 바뀌지 않았습니다.**
-- **아직 운영에 적용하지 않았습니다.** 이 저장소는 운영 DB 에 접근하지 않습니다.
-  운영자가 Supabase SQL Editor 에서 실행해야 합니다.
+- **적용 완료 — 2026-08-07 운영자가 Supabase SQL Editor 에서 실행했다고 알려 왔습니다.**
+  결과는 아래 "적용 결과" 참고. 이 저장소는 운영 DB 에 접근하지 않으므로 직접 확인하지는
+  못했고, 운영자가 보내 준 사후점검 출력으로 판정했습니다.
 - 실행하지 않아도 예산 화면은 지금처럼 동작합니다. 설정 JSON 폴백을 계속 탈 뿐입니다.
 - Worker 배포와 순서를 맞출 필요가 없습니다. 적용 전에도 후에도 같은 Worker 가 그대로 돕니다.
+
+## 적용 결과 (2026-08-07)
+
+| 열 | 값 | 판정 |
+|---|---|---|
+| `table_present` | `true` | |
+| `upsert_ready` | `true` | **목표 달성.** 개별 예산 저장이 표로 갑니다 |
+| `duplicate_groups` | `0` | 중복 없음 |
+| `leftover_settings_budget_keys` | `0` | **폴백 JSON 이 완전히 비었습니다.** 이중화 해소 |
+| `budget_rows` | `4` | 표로 통합된 예산 |
+| `rls_enabled` | `true` | |
+| `anon_or_authenticated_grants` | `14` | 아래 참고 |
+
+`anon_or_authenticated_grants` 14 는 Supabase 가 `public` 스키마 표에 주는 기본값입니다
+(`anon`·`authenticated` 각 7개). **RLS 가 켜져 있으므로 정책이 하나도 없으면 실제 노출은
+없습니다.** 이 표에 정책이 있는지는 아래 조회로 확인합니다.
+
+```sql
+select policyname, roles, cmd, qual
+from pg_policies
+where schemaname = 'public' and tablename = 'accountbook_budgets';
+```
+
+0행이면 지금 상태로 안전합니다. 다만 V22.7.0 에서 만든 다른 표들은 `anon`·`authenticated`
+에서 명시적으로 회수해 두었으므로, 톤을 맞추려면 별도 회수 SQL 을 둘 수 있습니다.
+Worker 는 `SUPABASE_SERVICE_ROLE_KEY` 만 쓰므로(`supabase()` — `src/index.js:28752`,
+코드에 anon 키 사용처가 없음) 회수해도 앱은 영향받지 않습니다.
 
 > 이 파일의 내용은 V22.8.79 릴리스가 나갈 때 `SQL_HISTORY.md` 와 `KNOWN-ISSUES.md` 로
 > 옮겨집니다. 지금 그 두 파일을 고치지 않은 이유는 `BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256`
