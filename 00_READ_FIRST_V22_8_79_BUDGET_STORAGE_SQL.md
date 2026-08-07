@@ -51,8 +51,41 @@ anon 으로 truncate → TRUNCATE TABLE  (성공, 표가 비워짐)
 그래서 `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 을 추가했습니다. Worker 는
 `SUPABASE_SERVICE_ROLE_KEY` 만 쓰므로(`supabase()` — `src/index.js:28752`,
 `supabaseExactCount()` — `7576`, 코드에 `SUPABASE_ANON_KEY` 사용처 없음) 회수해도 앱
-동작은 달라지지 않습니다. 그 파일의 사후점검 2 가 **나머지 표의 같은 상태도 함께
-보고**하므로, `truncate_exposed` 가 `true` 인 표가 더 있는지 한 번에 볼 수 있습니다.
+동작은 달라지지 않습니다.
+
+### 조사 결과 → `05_APPLY_TABLE_GRANTS_V22_8_79.sql`
+
+04 의 사후점검 2 로 `public` 스키마 전체를 훑은 결과입니다(2026-08-07).
+
+**같은 상태인 표가 11개 더 있었습니다.** RLS 켜짐 · 정책 0건 · `anon`·`authenticated`
+에 7개 권한 전부:
+
+`accountbook_meme_cards`, `accountbook_recurring`, `accountbook_settings`, `budgets`,
+`household_members`, `households`, `nlu_failure_samples`, `nlu_intent_metrics_hourly`,
+`transactions`, `unrecognized_inputs`, `users`
+
+이미 잠겨 있던 7개는 저장소 SQL(V22.6.8·V22.7.0)이 만든 표와 03 으로 정리한
+`accountbook_budgets` 입니다. **패턴이 분명합니다 — 저장소 SQL 이 만든 표만 잠겨 있고,
+그보다 먼저 만들어진 표는 Supabase 기본값이 그대로 남아 있었습니다.**
+
+`05_APPLY_TABLE_GRANTS_V22_8_79.sql` 이 나머지 11개를 같은 방식으로 정리합니다.
+
+앱에 영향이 없는 근거가 04 보다 한 겹 더 있습니다.
+
+1. Worker 는 service_role 키만 씁니다(위와 같음).
+2. **브라우저는 Supabase 에 직접 닿지 못합니다.** CSP 의 `connect-src` 가
+   `'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com
+   https://kapi.kakao.com` 뿐이라 Supabase 주소가 없습니다.
+3. **11개 표 모두 RLS 가 켜져 있고 정책이 0건이라 `anon`·`authenticated` 는 이미
+   데이터에 접근하지 못합니다.** 그래서 회수로 실제 닫히는 것은 RLS 가 못 덮는
+   `TRUNCATE`·`TRIGGER`·`REFERENCES` 뿐이고, **동작하던 흐름은 끊길 수 없습니다.**
+
+`budgets`(맨 이름)는 코드 호출이 **0건**인 잔존 표로 보입니다. 현재 코드가 쓰는 것은
+`accountbook_budgets` 입니다. **확인 없이 지우지 않고 권한만 정리했습니다.**
+
+**확인하지 못한 것:** 이 저장소 밖에서 같은 DB 에 붙는 다른 소비자(다른 앱·Realtime
+구독·외부 스크립트)가 anon 키로 이 표들을 쓰고 있다면 그쪽은 영향을 받습니다.
+운영자만 알 수 있는 부분입니다. 되돌리는 방법은 SQL 파일 맨 아래에 있습니다.
 
 > 이 파일의 내용은 V22.8.79 릴리스가 나갈 때 `SQL_HISTORY.md` 와 `KNOWN-ISSUES.md` 로
 > 옮겨집니다. 지금 그 두 파일을 고치지 않은 이유는 `BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256`
