@@ -1,0 +1,30 @@
+V22.8.78-DRAFT-PERSISTENCE
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_78.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_78.ps1
+- VALIDATION_REPORT_V22_8_78.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256
+
+이번 변경
+- 적다가 새로고침·이탈하면 내용이 말없이 사라지던 것 수정 (beforeunload 경고가 아예 없었음)
+- 제출할 때만 남기던 초안을 적는 동안에도 남기도록 변경 (0.4초 디바운스)
+- 금액이나 메모가 있을 때만 초안으로 인정, 30분 시한, 이미 적힌 칸은 덮지 않음
+- 초안 폐기 규칙을 "실패가 아니면 버림" → "성공했을 때만 버림" 으로 교정
+- 카카오 그룹방 동시 입력 확인 — 결함 아님 (사람·대화방·내용으로 구분)
+
+운영 변경 여부
+- 신규 SQL 없음
+- 환경변수 변경 없음
+- 자산 주소 변경 없음 (웹 탭 새로고침 불필요)
+
+주의
+- 초안은 그 브라우저 탭 안에만 있다. 탭을 닫거나 다른 기기에서 열면 되살아나지 않는다
+- 브라우저 경고창은 일부러 넣지 않았다. 성가시고 모바일 사파리에서 잘 뜨지 않는다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- npm run validate:draft-persistence (19개 확인)
+- 저장소 전체 자동검사 2,874개 통과
