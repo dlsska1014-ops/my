@@ -1904,7 +1904,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.77-INTERRUPTED-SAVE-RECOVERY";
+const APP_VERSION = "V22.8.78-DRAFT-PERSISTENCE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -11756,6 +11756,15 @@ function accountbookQuickInputClientMain() {
       if (input) syncReturnTarget(input.value);
       rememberDraft(form);
     });
+    // 새로고침이나 화면 이탈은 경고 없이 일어난다. 적는 동안에도 남겨 둬야
+    // 돌아왔을 때 이어서 쓸 수 있다.
+    if (form) {
+      var draftTimer = null;
+      form.addEventListener("input", function() {
+        if (draftTimer) clearTimeout(draftTimer);
+        draftTimer = setTimeout(function() { rememberDraft(form); }, 400);
+      });
+    }
     overlay.addEventListener("click", function(event) {
       if (event.target && event.target.closest && event.target.closest("[data-ab-quick-close]")) close();
     });
@@ -11768,14 +11777,19 @@ function accountbookQuickInputClientMain() {
   function draftStore() {
     try { return window.sessionStorage; } catch (_error) { return null; }
   }
+  var DRAFT_MAX_AGE_MS = 30 * 60 * 1000;
   function rememberDraft(form) {
     var store = draftStore();
     if (!store || !form) return;
-    var draft = {};
+    var draft = { at: Date.now() };
+    var typed = false;
     DRAFT_FIELDS.forEach(function (name) {
       var field = form.querySelector('[name="' + name + '"]:checked') || form.querySelector('[name="' + name + '"]');
-      if (field && field.value) draft[name] = String(field.value).slice(0, 200);
+      if (field && field.value) { draft[name] = String(field.value).slice(0, 200); }
+      if (field && field.value && (name === "amount" || name === "memo")) typed = true;
     });
+    // 날짜·유형은 기본값이라 그것만으로는 "적던 중"이 아니다.
+    if (!typed) { forgetDraft(); return; }
     try { store.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_error) {}
   }
   function forgetDraft() {
@@ -11792,6 +11806,8 @@ function accountbookQuickInputClientMain() {
     var draft = null;
     try { draft = JSON.parse(raw); } catch (_error) { return false; }
     if (!draft || typeof draft !== "object") return false;
+    // 오래된 초안이 되살아나면 지난번에 그만둔 입력이 엉뚱하게 끼어든다.
+    if (draft.at && Date.now() - Number(draft.at) > DRAFT_MAX_AGE_MS) return false;
     var restored = false;
     DRAFT_FIELDS.forEach(function (name) {
       var value = draft[name];
@@ -11800,6 +11816,8 @@ function accountbookQuickInputClientMain() {
       if (radio && (radio.type === "radio" || radio.type === "checkbox")) { radio.checked = true; restored = true; return; }
       var field = section.querySelector('[name="' + name + '"]');
       if (!field || field.type === "radio" || field.type === "checkbox") return;
+      // 이미 적혀 있는 칸은 덮지 않는다.
+      if (field.value && name !== "transaction_date") return;
       field.value = value;
       field.dispatchEvent(new Event("change", { bubbles: true }));
       restored = true;
@@ -11867,11 +11885,15 @@ function accountbookQuickInputClientMain() {
   function autoOpen() {
     var params = new URLSearchParams(location.search);
     var hash = String(location.hash || "");
-    // 저장에 성공했으면 남은 초안은 버린다. 실패했을 때만 되살린다.
-    if (!params.get("err")) forgetDraft();
+    // 저장에 성공했으면 남은 초안은 버린다. 그 밖에는 되살릴 기회를 준다 —
+    // 저장 실패로 돌아온 경우와, 적다가 새로고침한 경우가 모두 여기에 해당한다.
+    if (params.get("msg")) { forgetDraft(); return; }
     if (location.pathname !== "/app" || !(params.get("quick") === "1" || hash === "#add" || hash === "#quick")) return;
     open(requestedDate(null), null);
-    if (params.get("err") && restoreDraft()) setDate(section && section.querySelector('input[name="transaction_date"],#txDate') ? section.querySelector('input[name="transaction_date"],#txDate').value : "");
+    if (restoreDraft()) {
+      var dateField = section && section.querySelector('input[name="transaction_date"],#txDate');
+      setDate(dateField ? dateField.value : "");
+    }
     if (params.get("quick") === "1" && window.history && window.history.replaceState) {
       params.delete("quick");
       var query = params.toString();

@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.77-INTERRUPTED-SAVE-RECOVERY"'), "runtime exposes the skip-to-content release");
+ok(source.includes('const APP_VERSION = "V22.8.78-DRAFT-PERSISTENCE"'), "runtime exposes the skip-to-content release");
 ok(source.includes("function addSkipToContentLink("), "the shell inserts a skip-to-content link");
 // 감추는 방식이 중요하다. display:none·visibility:hidden 이면 포커스가 가지 않아 링크가 없는 것과 같다.
 ok(!/\.abSkipLink\{[^}]*(display:none|visibility:hidden)/.test(source), "the skip link is not hidden in a way that blocks focus");
