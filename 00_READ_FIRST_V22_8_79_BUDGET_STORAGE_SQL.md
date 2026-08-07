@@ -23,20 +23,36 @@
 | `rls_enabled` | `true` | |
 | `anon_or_authenticated_grants` | `14` | 아래 참고 |
 
-`anon_or_authenticated_grants` 14 는 Supabase 가 `public` 스키마 표에 주는 기본값입니다
-(`anon`·`authenticated` 각 7개). **RLS 가 켜져 있으므로 정책이 하나도 없으면 실제 노출은
-없습니다.** 이 표에 정책이 있는지는 아래 조회로 확인합니다.
+### 권한 확인 결과 → `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 로 이어집니다
 
-```sql
-select policyname, roles, cmd, qual
-from pg_policies
-where schemaname = 'public' and tablename = 'accountbook_budgets';
+같은 날 확인한 결과입니다.
+
+- `pg_policies` 조회: **0행** (정책 없음)
+- 권한: `anon`·`authenticated`·`postgres`·`service_role` 이 각각 7개 전부
+  (`DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE`)
+
+**읽기는 안전합니다.** 정책이 없는 RLS 는 기본 거부라서 `anon` 으로 `select` 하면
+0행이 나옵니다.
+
+**그러나 RLS 는 `TRUNCATE` 를 덮지 않습니다.** 로컬 PostgreSQL 16.13 에 같은 상태를
+만들어 확인했습니다.
+
+```
+anon 으로 select   → 0행             (RLS 가 막음)
+anon 으로 truncate → TRUNCATE TABLE  (성공, 표가 비워짐)
 ```
 
-0행이면 지금 상태로 안전합니다. 다만 V22.7.0 에서 만든 다른 표들은 `anon`·`authenticated`
-에서 명시적으로 회수해 두었으므로, 톤을 맞추려면 별도 회수 SQL 을 둘 수 있습니다.
-Worker 는 `SUPABASE_SERVICE_ROLE_KEY` 만 쓰므로(`supabase()` — `src/index.js:28752`,
-코드에 anon 키 사용처가 없음) 회수해도 앱은 영향받지 않습니다.
+`REFERENCES`·`TRIGGER` 도 RLS 가 다루는 권한이 아닙니다. 지금 당장 뚫려 있다는 뜻은
+아닙니다 — PostgREST 는 REST 로 TRUNCATE 를 노출하지 않으므로 anon 키만으로 이 경로에
+닿지는 않습니다. 다만 RLS 가 구조적으로 못 덮는 영역이라 권한 자체를 회수하는 편이
+확실하고, V22.7.0 이 만든 표들은 이미 그렇게 해 두었습니다
+(`schema_v22_7_0_auth_atomicity.sql:72-82`).
+
+그래서 `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 을 추가했습니다. Worker 는
+`SUPABASE_SERVICE_ROLE_KEY` 만 쓰므로(`supabase()` — `src/index.js:28752`,
+`supabaseExactCount()` — `7576`, 코드에 `SUPABASE_ANON_KEY` 사용처 없음) 회수해도 앱
+동작은 달라지지 않습니다. 그 파일의 사후점검 2 가 **나머지 표의 같은 상태도 함께
+보고**하므로, `truncate_exposed` 가 `true` 인 표가 더 있는지 한 번에 볼 수 있습니다.
 
 > 이 파일의 내용은 V22.8.79 릴리스가 나갈 때 `SQL_HISTORY.md` 와 `KNOWN-ISSUES.md` 로
 > 옮겨집니다. 지금 그 두 파일을 고치지 않은 이유는 `BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256`
