@@ -1,5 +1,13 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.80
+
+- 신규 SQL·스키마·RLS·RPC·인덱스: 없음
+- 예산 settings JSON 폴백 제거는 **코드만** 바꾼다. V22.8.79 SQL(03)이 이미 폴백 데이터를 표로 이관하고 키를 지웠기 때문에 지금은 읽을 것이 없다
+- 고정지출 화면 통합도 코드만 바꾼다. `accountbook_recurring` 표와 `accountbook_apply_recurring_v227` RPC 는 그대로다
+- 되돌리려면 코드를 되돌리면 된다. SQL 을 되돌릴 필요는 없다 — 되돌리면 이중화가 다시 시작된다
+- 배포: 검증된 `src/index.js` 전체 교체 + 셸 CSS 자산 주소 갱신(v22879 → v22880)
+
 ## V22.8.79 예산 저장소 정합성과 표 권한
 
 - **신규 SQL 3개 있음**: `03_APPLY_BUDGET_STORAGE_V22_8_79.sql`, `04_APPLY_BUDGET_GRANTS_V22_8_79.sql`, `05_APPLY_TABLE_GRANTS_V22_8_79.sql`

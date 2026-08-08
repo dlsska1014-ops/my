@@ -8,16 +8,24 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.80-RECURRING-MERGE-BUDGET-CLEANUP"'), "runtime reports the challenge and activity UX release");
 ok(source.includes('key: `transaction-create:${fingerprint}`'), "web transaction creation uses a cross-instance operation lease");
 ok(source.includes('kind: "transaction_edit_history_save_failed"'), "secondary edit-history failures are reported separately");
 ok(!source.includes('await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`'), "budget deletion no longer swallows table failures");
 ok(source.includes("const selected = selectRequestedScopedHousehold(households, requestedHouseholdId);"), "card-benefit payload never falls back from an inaccessible explicit household");
 const budgetDeleteSource = source.slice(source.indexOf("async function handleBudgetDelete"), source.indexOf("async function pcScopedContext"));
-ok(budgetDeleteSource.includes("const hasTableBudget") && budgetDeleteSource.includes("const hasSettingsBudget"), "budget deletion checks each backing store before mutating either one");
+// V22.8.80: 예산은 accountbook_budgets 한 곳에만 있다(V22.8.79 SQL 03 이 폴백을 이관·삭제).
+// 지우기 전에 존재를 먼저 확인하는 성질은 그대로 지킨다.
+ok(budgetDeleteSource.includes("tableRows.length > 0"), "budget deletion checks the row exists before mutating");
+ok(!budgetDeleteSource.includes("accountbook_settings"), "budget deletion no longer touches the settings store");
+ok(!budgetDeleteSource.includes("deleteSettingsBudget"), "the settings-side delete helper is gone");
 ok(source.includes('key: `payment-assets-write:${String(householdId || "").trim()}`'), "all payment-asset writes use a household-wide cross-instance lease");
 ok(source.includes("payment_asset_saved_snapshot_deferred"), "committed asset writes distinguish a deferred snapshot from a failed asset save");
-ok(source.includes("budget_saved_fallback_cleanup_deferred"), "committed table budgets distinguish deferred fallback cleanup from a failed budget save");
+// V22.8.80: 폴백이 사라져 "저장은 됐지만 정리가 밀렸다" 라는 중간 상태 자체가 없어졌다.
+// 대신 저장 실패가 조용히 넘어가지 않는지를 본다(예전에는 settings 로 새 나갔다).
+ok(!source.includes("budget_saved_fallback_cleanup_deferred"), "the deferred fallback-cleanup state is gone with the fallback");
+ok(source.includes('rememberOpsEvent({ kind: "budget_save_failed"'), "a failed budget save is reported instead of silently falling back");
+ok(source.includes('rememberOpsEvent({ kind: "budget_row_upsert_failed"'), "a failed budget upsert is reported instead of silently falling back");
 ok(source.includes("async function getSettingValueStrict"), "read-modify-write settings paths can fail closed instead of treating read errors as empty values");
 ok(source.includes('reason: "goal_save_failed"'), "goal write failures provide an explicit retryable response");
 ok(source.includes("function showError(err)") && source.includes("catch(function (err) { showError(err); })"), "goal create failures are surfaced in the browser instead of being silently ignored");
@@ -224,11 +232,6 @@ try {
 
 const budgetFailureFixture = await createV2265QaFixture();
 try {
-  budgetFailureFixture.db.accountbook_settings.push({
-    id: "setting-budget-table-failure",
-    key: "budgets:house-home:2026-07",
-    value: JSON.stringify([{ household_id: "house-home", month: "2026-07", category: "식비", amount: 800000 }]),
-  });
   const fixtureFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
     const target = new URL(typeof input === "string" ? input : input.url);
@@ -244,7 +247,6 @@ try {
     });
     ok(String(failedDelete.headers.get("location") || "").includes("err="), "budget table delete failure is returned as a failure");
     ok(budgetFailureFixture.db.accountbook_budgets.some((row) => row.household_id === "house-home" && row.month === "2026-07" && row.category === "식비"), "failed budget deletion leaves the table row intact");
-    ok(JSON.parse(budgetFailureFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === "식비"), "table deletion failure leaves the settings fallback intact");
   } finally {
     globalThis.fetch = fixtureFetch;
   }
@@ -252,56 +254,38 @@ try {
   budgetFailureFixture.restore();
 }
 
-const budgetFallbackFailureFixture = await createV2265QaFixture();
-try {
-  budgetFallbackFailureFixture.db.accountbook_settings.push({
-    id: "setting-budget-fallback-failure",
-    key: "budgets:house-home:2026-07",
-    value: JSON.stringify([{ household_id: "house-home", month: "2026-07", category: "식비", amount: 800000 }]),
-  });
-  budgetFallbackFailureFixture.db.__fail_next_settings_write = true;
-  const failedFallbackDelete = await request(budgetFallbackFailureFixture, "/admin/budget/delete", {
-    method: "POST",
-    body: form({ household_id: "house-home", month: "2026-07", category: "식비", return_to: "/budgets?month=2026-07&household_id=house-home" }),
-  });
-  ok(String(failedFallbackDelete.headers.get("location") || "").includes("err="), "settings fallback cleanup failure is returned as a budget deletion failure");
-  ok(!budgetFallbackFailureFixture.db.accountbook_budgets.some((row) => row.household_id === "house-home" && row.month === "2026-07" && row.category === "식비"), "fallback cleanup runs only after the primary table deletion succeeds");
-  ok(JSON.parse(budgetFallbackFailureFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === "식비"), "failed fallback cleanup keeps the settings budget visible instead of losing both copies");
-} finally {
-  budgetFallbackFailureFixture.restore();
-}
+// V22.8.80: settings 폴백 정리 실패 경로를 검사하던 블록이 여기 있었다.
+// V22.8.79 SQL(03)이 폴백을 표로 이관·삭제했고 코드에서도 걷어냈으므로
+// "표에는 저장됐는데 settings 정리가 밀렸다" 라는 상태 자체가 없다.
+// 대신 저장·삭제 실패가 조용히 넘어가지 않는지는 위에서 본다.
 
-const settingsOnlyBudgetFixture = await createV2265QaFixture();
+// V22.8.80: 표에 없는 분류를 지울 때 쓸데없는 DELETE 를 쏘지 않는지는 그대로 지킨다.
+// (예전에는 settings 에만 있던 예산을 지우는 상황이었고, 지금은 아무 데도 없는 경우다.)
+const missingBudgetFixture = await createV2265QaFixture();
 try {
-  const settingsOnlyCategory = "구형설정예산";
-  settingsOnlyBudgetFixture.db.accountbook_settings.push({
-    id: "setting-budget-only",
-    key: "budgets:house-home:2026-07",
-    value: JSON.stringify([{ household_id: "house-home", month: "2026-07", category: settingsOnlyCategory, amount: 123000 }]),
-  });
+  const missingCategory = "없는분류";
   let tableDeleteAttempts = 0;
   const fixtureFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
     const target = new URL(typeof input === "string" ? input : input.url);
     if (target.hostname === "mock.supabase.co" && target.pathname.endsWith("/accountbook_budgets") && String(init.method || "GET").toUpperCase() === "DELETE") {
       tableDeleteAttempts += 1;
-      return new Response(JSON.stringify({ code: "QA_UNNECESSARY_TABLE_DELETE", message: "settings-only budget must not touch table delete" }), { status: 503, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ code: "QA_UNNECESSARY_TABLE_DELETE", message: "a missing budget must not touch table delete" }), { status: 503, headers: { "content-type": "application/json" } });
     }
     return fixtureFetch(input, init);
   };
   try {
-    const settingsOnlyDelete = await request(settingsOnlyBudgetFixture, "/admin/budget/delete", {
+    const missingDelete = await request(missingBudgetFixture, "/admin/budget/delete", {
       method: "POST",
-      body: form({ household_id: "house-home", month: "2026-07", category: settingsOnlyCategory, return_to: "/budgets?month=2026-07&household_id=house-home" }),
+      body: form({ household_id: "house-home", month: "2026-07", category: missingCategory, return_to: "/budgets?month=2026-07&household_id=house-home" }),
     });
-    ok(String(settingsOnlyDelete.headers.get("location") || "").includes("msg=budget_deleted"), "settings-only fallback budget deletes successfully without a table mutation");
-    eq(tableDeleteAttempts, 0, "settings-only fallback budget never issues an unnecessary table DELETE");
-    ok(!JSON.parse(settingsOnlyBudgetFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === settingsOnlyCategory), "settings-only fallback budget is removed from its actual store");
+    ok(String(missingDelete.headers.get("location") || "").includes("msg=budget_deleted"), "deleting a budget that is not there reports success without a table mutation");
+    eq(tableDeleteAttempts, 0, "a missing budget never issues an unnecessary table DELETE");
   } finally {
     globalThis.fetch = fixtureFetch;
   }
 } finally {
-  settingsOnlyBudgetFixture.restore();
+  missingBudgetFixture.restore();
 }
 
 const budgetSuccessFixture = await createV2265QaFixture();
@@ -358,37 +342,49 @@ try {
   assetSnapshotFixture.restore();
 }
 
-const budgetCleanupFixture = await createV2265QaFixture();
+// V22.8.80: 저장이 표에 그대로 반영되는지는 그대로 지킨다.
+// 예전에는 여기서 "같은 분류의 settings 잔재까지 지웠는지" 를 함께 봤지만,
+// V22.8.79 SQL(03)이 그 잔재를 이관·삭제했고 코드에서도 폴백을 걷어냈다.
+const budgetTableSaveFixture = await createV2265QaFixture();
 try {
-  budgetCleanupFixture.db.accountbook_settings.push({ id: "setting-budget-stale", key: "budgets:house-home:2026-07", value: JSON.stringify([
-    { household_id: "house-home", month: "2026-07", category: "식비", amount: 111000 },
-    { household_id: "house-home", month: "2026-07", category: "교통", amount: 222000 },
-  ]) });
-  const cleanupResponse = await request(budgetCleanupFixture, "/admin/budget/save", {
+  const saveResponse = await request(budgetTableSaveFixture, "/admin/budget/save", {
     method: "POST",
-    body: form({ household_id: "house-home", month: "2026-07", category: "식비", amount: "900000", return_to: "/budgets?month=2026-07&household_id=house-home" }),
+    body: form({ household_id: "house-home", month: "2026-07", category: "식비", amount: "640000", return_to: "/budgets?month=2026-07&household_id=house-home" }),
   });
-  ok(String(cleanupResponse.headers.get("location") || "").includes("msg=budget_saved"), "table budget save reports normal success after stale fallback cleanup");
-  eq(Number(budgetCleanupFixture.db.accountbook_budgets.find((row) => row.household_id === "house-home" && row.month === "2026-07" && row.category === "식비")?.amount), 900000, "table budget stores the new amount");
-  ok(!JSON.parse(budgetCleanupFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === "식비"), "successful table save removes the same-category stale settings fallback");
-  ok(JSON.parse(budgetCleanupFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === "교통" && Number(row.amount) === 222000), "same-category cleanup preserves unrelated settings fallback budgets");
+  ok(String(saveResponse.headers.get("location") || "").includes("msg=budget_saved"), "a table budget save reports success");
+  eq(Number(budgetTableSaveFixture.db.accountbook_budgets.find((row) => row.household_id === "house-home" && row.month === "2026-07" && row.category === "식비")?.amount || 0), 640000, "the saved amount lands in the budgets table");
+  eq(budgetTableSaveFixture.db.accountbook_settings.some((row) => String(row.key || "").startsWith("budgets:")), false, "a budget save never writes to the settings store");
 } finally {
-  budgetCleanupFixture.restore();
+  budgetTableSaveFixture.restore();
 }
 
-const budgetCleanupFailureFixture = await createV2265QaFixture();
+// V22.8.80: "표에는 저장됐는데 settings 정리가 밀렸다" 라는 부분 성공 상태를 검사하던
+// 블록이 여기 있었다. 폴백이 없어져 그 상태 자체가 사라졌다.
+// 대신 표 저장이 실패하면 성공이라고 말하지 않는지를 본다(예전에는 settings 로 새 나갔다).
+const budgetSaveFailureFixture = await createV2265QaFixture();
 try {
-  budgetCleanupFailureFixture.db.accountbook_settings.push({ id: "setting-budget-stale-failure", key: "budgets:house-home:2026-07", value: JSON.stringify([{ household_id: "house-home", month: "2026-07", category: "식비", amount: 112000 }]) });
-  budgetCleanupFailureFixture.db.__fail_next_settings_write = true;
-  const cleanupFailureResponse = await request(budgetCleanupFailureFixture, "/admin/budget/save", {
-    method: "POST",
-    body: form({ household_id: "house-home", month: "2026-07", category: "식비", amount: "910000", return_to: "/budgets?month=2026-07&household_id=house-home" }),
-  });
-  eq(Number(budgetCleanupFailureFixture.db.accountbook_budgets.find((row) => row.household_id === "house-home" && row.month === "2026-07" && row.category === "식비")?.amount), 910000, "table budget remains committed when stale fallback cleanup fails");
-  ok(JSON.parse(budgetCleanupFailureFixture.db.accountbook_settings.find((row) => row.key === "budgets:house-home:2026-07")?.value || "[]").some((row) => row.category === "식비"), "failed cleanup leaves the fallback copy intact for later retry");
-  ok(String(cleanupFailureResponse.headers.get("location") || "").includes("budget_saved_fallback_cleanup_deferred"), "fallback cleanup failure reports partial success without claiming the budget save failed");
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const target = new URL(typeof input === "string" ? input : input.url);
+    if (target.hostname === "mock.supabase.co" && target.pathname.endsWith("/accountbook_budgets") && String(init.method || "GET").toUpperCase() === "POST") {
+      return new Response(JSON.stringify({ code: "42P10", message: "simulated on-conflict rejection" }), { status: 400, headers: { "content-type": "application/json" } });
+    }
+    return fixtureFetch(input, init);
+  };
+  try {
+    const failedSave = await request(budgetSaveFailureFixture, "/admin/budget/save", {
+      method: "POST",
+      body: form({ household_id: "house-home", month: "2026-07", category: "식비", amount: "700000", return_to: "/budgets?month=2026-07&household_id=house-home" }),
+    });
+    const location = String(failedSave.headers.get("location") || "");
+    ok(location.includes("err="), "a rejected table save is reported as a failure");
+    eq(location.includes("msg=budget_saved"), false, "a rejected table save never claims success");
+    eq(budgetSaveFailureFixture.db.accountbook_settings.some((row) => String(row.key || "").startsWith("budgets:")), false, "a rejected table save no longer leaks into the settings store");
+  } finally {
+    globalThis.fetch = fixtureFetch;
+  }
 } finally {
-  budgetCleanupFailureFixture.restore();
+  budgetSaveFailureFixture.restore();
 }
 
 const budgetReplaceFixture = await createV2265QaFixture();

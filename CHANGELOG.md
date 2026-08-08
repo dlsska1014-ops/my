@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## V22.8.80 · 정기 항목 화면 통합 · 예산 폴백 제거 · 2026-08-08
+
+- **고정지출을 `/reserve-plans` 로 합쳤다** — V22.8.79 에서 홈의 고정지출 섹션을 걷어내면서 `/admin/recurring/*` 에 UI 진입점이 하나도 남지 않았다. 정기 항목 관리가 한 화면으로 모인다
+- 라우트·시그니처와 반영 RPC(`accountbook_apply_recurring_v227`)는 그대로다. 화면만 옮겼다
+- 세 핸들러의 돌아갈 곳이 사라진 `/app#fixed` 를 가리키고 있었다. `/reserve-plans#fixed` 로 바로잡았다
+- 지출자 선택은 기존 `renderSpenderOptions` 를 재사용한다. 처음에 직접 만들었더니 활성 참여자 판정이 빠져 저장이 거부됐다
+- **예산 settings JSON 폴백을 걷어냈다** — V22.8.79 SQL(03)이 유니크 인덱스를 만들어 표 저장이 42P10 으로 거절당하던 원인을 없앴고, 남아 있던 `budgets:` 키를 표로 이관한 뒤 지웠다(적용 후 `leftover_settings_budget_keys=0`)
+- 지운 것: `budgetsSettingsKey`·`normalizeBudgetRows`·`fetchSettingsBudgets(Strict)`·`mergeBudgetRows`·`saveSettingsBudget`·`deleteSettingsBudget`·`cleanupSettingsBudgetAfterTableSave` (100줄)
+- **저장 실패가 조용히 넘어가지 않는다** — 예전에는 표 저장이 실패하면 settings 로 새 나가 화면에 "저장됨"이 떴다. 이제는 오류를 올리고 운영 이벤트로 남긴다
+- 홈이 예산 설정 키를 더 읽지 않는다(설정 묶음 질의에서 키 하나 감소)
+- 폴백을 검사하던 기존 검사 4개는 **약화가 아니라 새 계약 검사로 교체**했다 — 없는 예산 삭제 시 불필요한 DELETE 미발생, 표 저장 반영, 표 저장 실패 시 성공이라 말하지 않음, settings 로 새지 않음
+- 회귀 검사 53개 추가, 되돌린 결함 5종이 모두 잡히는 것 확인. 저장소 전체 3,211개 통과
+
 ## V22.8.79 · 수입·예산 IA · 테마 2택 · 거래내역 탭 · 정기 편집 · 2026-08-08
 
 - **예산이 두 곳에 나뉘어 저장되던 것을 SQL 로 해소** — 개별 저장이 유니크 인덱스가 없어 `42P10` 으로 거절당하면 코드가 조용히 설정 JSON 폴백으로 넘어갔다. 화면에는 "저장됨"이 떠서 겉으로는 멀쩡해 보였다. 적용 전 실패 → 적용 후 성공을 로컬에서 재현해 확정했다
