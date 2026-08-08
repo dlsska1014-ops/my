@@ -1,0 +1,48 @@
+V22.8.79-UIUX-INCOME-BUDGET-THEME
+
+핵심 배포 파일
+- src/index.js
+- 00_READ_FIRST_V22_8_79.md
+- 10_VERIFY_AFTER_DEPLOY_V22_8_79.ps1
+- VALIDATION_REPORT_V22_8_79.md
+- RELEASE-CHECKLIST.md
+- BUNDLE_FILE_CHECKSUMS_V22_8_79.sha256
+
+SQL (이미 적용 완료 · 2026-08-07)
+- 03_APPLY_BUDGET_STORAGE_V22_8_79.sql
+- 04_APPLY_BUDGET_GRANTS_V22_8_79.sql
+- 05_APPLY_TABLE_GRANTS_V22_8_79.sql
+- 00_READ_FIRST_V22_8_79_BUDGET_STORAGE_SQL.md
+
+이번 변경
+- 예산이 표와 설정 JSON 두 곳에 나뉘어 저장되던 것 해소 (SQL, 적용 완료)
+- public 스키마 18개 표의 anon·authenticated 권한 회수 (SQL, 적용 완료)
+- URL 에 박힌 달이 계속 따라다니던 것에 "이번 달로 이동" 길 추가
+- 좌측상단 브랜드 아이콘이 배경과 붙어 보이던 CSS 충돌 정리
+- 테마를 라이트/다크 2택으로 (시스템 선택지 제거, 기존 저장값은 라이트로 정정)
+- 라이트 사이드바의 대메뉴/하위 메뉴 위계를 구조 신호로 구분
+- 거래내역을 홈 안 섹션에서 독립 탭(tab=transactions)으로 분리
+- 홈의 고정지출 입력폼을 걷어내고 정기 관리 진입 카드로 교체
+- 정기 항목에 수정 기능 신설 (예전에는 삭제만 있었음)
+- 정기 항목에 수입/지출 구분과 매월 반복 지정 추가
+- 홈의 '오늘 써도 되는 돈'을 수입 대비 사용률 게이지로 교체
+- 홈에 소비 흐름 일/주/월 기간 전환 추가
+
+운영 변경 여부
+- 신규 SQL 있음 (03·04·05 — 2026-08-07 운영자가 이미 실행)
+- 환경변수 변경 없음
+- 자산 주소 변경 있음 → 배포 후 웹 탭 새로고침 권장
+  mobile-home.css / accountbook-shell.css / accountbook-theme.js
+  mobile-home.js / mobile-home-shell.js / accountbook-nav.js  → 전부 v22879
+
+주의
+- 예전에 화면 모드를 '시스템'으로 저장해 둔 브라우저는 라이트로 정정된다
+- 홈의 소비 흐름은 기본이 기간 탭만이고, 고른 사람만 그래프를 받는다
+  (일별은 56KB 로 무겁다 — 홈 기본 예산과 질의 수를 지키기 위한 선택)
+- 정기 항목의 type·is_recurring 은 없으면 지출·주기에서 파생된다 (하위호환)
+- /admin/recurring/* 라우트는 남아 있으나 UI 진입점이 없다
+
+검증
+- node .codex/scripts/verify-repository.mjs
+- 저장소 전체 자동검사 3,154개 통과 (체크섬 91개)
+- 이번 릴리스 신규 회귀 검사 280개 (6단계 × 43~54개)

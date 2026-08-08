@@ -151,13 +151,16 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.78-DRAFT-PERSISTENCE"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens
 // stopped drawing the same cards twice.
+// V22.8.79: renderMyAnalysisHtml changes again — the category budget table gained a
+// read-only note and a "예산 설정 →" link so that editing budgets happens only on
+// /budgets. The table itself and renderBudgetGaugeRows stay untouched.
 eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308fc6eaee5a2b43bc42abe9105f87bf0c764b3aaa", "analysis client matches the V22.8.75 role-split baseline");
-eq(functionBlockHash("function renderMyAnalysisHtml("), "818ee3a759a2d0efe5a054a3549b5ef17431b175ebe53fc20c515cca6b201749", "analysis renderer matches the V22.8.75 role-split baseline");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "61a3cc27d578cc728c4338cac05b89b2457458722930e8c9e4f984a664296fba", "analysis renderer matches the V22.8.79 budget-path baseline");
 
 const fixture = await createV2265QaFixture();
 try {

@@ -1,0 +1,270 @@
+# V22.8.79 예산 저장소 정합성 SQL 안내
+
+적용 파일 3개 — **모두 적용 완료(2026-08-07)**
+
+| 파일 | 내용 |
+|---|---|
+| `03_APPLY_BUDGET_STORAGE_V22_8_79.sql` | 예산 표/설정 JSON 이중화 해소 |
+| `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` | `accountbook_budgets` 권한 회수 |
+| `05_APPLY_TABLE_GRANTS_V22_8_79.sql` | 나머지 표 11개 권한 회수 |
+
+## 요약
+
+- **SQL 뿐입니다. `src/index.js` 는 한 줄도 바뀌지 않았습니다.**
+- **적용 완료 — 2026-08-07 운영자가 Supabase SQL Editor 에서 셋 다 실행했다고 알려
+  왔습니다.** 결과는 아래 "적용 결과" 참고. 이 저장소는 운영 DB 에 접근하지 않으므로
+  직접 확인하지는 못했고, 운영자가 보내 준 사후점검 출력으로 판정했습니다.
+- 실행하지 않아도 예산 화면은 지금처럼 동작했습니다. 설정 JSON 폴백을 계속 탈 뿐입니다.
+- Worker 배포와 순서를 맞출 필요가 없습니다. 적용 전에도 후에도 같은 Worker 가 그대로 돕니다.
+
+## 최종 상태 (2026-08-07, 03·04·05 적용 후)
+
+**예산 이중화 해소:** `upsert_ready = true`, `leftover_settings_budget_keys = 0`.
+개별 저장이 표로 가고 폴백 JSON 은 완전히 비었습니다.
+
+**권한 정리:** `public` 스키마 **18개 표 전부**가 아래로 수렴했습니다.
+
+```
+rls_enabled = true · policy_count = 0
+anon_or_authenticated_grants = 0 · truncate_exposed = false
+service_role_grants = 7
+```
+
+`service_role_grants` 가 7인 것은 의도한 대로입니다. 이 SQL 들은 `service_role` 에서
+회수한 적이 없고 필요한 4개(SELECT·INSERT·UPDATE·DELETE)를 보장만 하므로, Supabase
+기본값 7개가 그대로 남습니다. V22.7.0 이 만든 표들도 같은 이유로 7입니다.
+
+`budgets`(맨 이름) 표는 **지우지 않고 권한만 정리한 상태로 남아 있습니다.** 코드 호출이
+0건인 잔존 표로 보이지만, 내용을 확인한 뒤 지울지는 운영자가 판단할 일입니다.
+
+## 적용 결과 — `03` 직후 (2026-08-07)
+
+| 열 | 값 | 판정 |
+|---|---|---|
+| `table_present` | `true` | |
+| `upsert_ready` | `true` | **목표 달성.** 개별 예산 저장이 표로 갑니다 |
+| `duplicate_groups` | `0` | 중복 없음 |
+| `leftover_settings_budget_keys` | `0` | **폴백 JSON 이 완전히 비었습니다.** 이중화 해소 |
+| `budget_rows` | `4` | 표로 통합된 예산 |
+| `rls_enabled` | `true` | |
+| `anon_or_authenticated_grants` | `14` | 여기서 `04`·`05` 로 이어졌습니다 |
+
+### 권한 확인 결과 → `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 로 이어집니다
+
+같은 날 확인한 결과입니다.
+
+- `pg_policies` 조회: **0행** (정책 없음)
+- 권한: `anon`·`authenticated`·`postgres`·`service_role` 이 각각 7개 전부
+  (`DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE`)
+
+**읽기는 안전합니다.** 정책이 없는 RLS 는 기본 거부라서 `anon` 으로 `select` 하면
+0행이 나옵니다.
+
+**그러나 RLS 는 `TRUNCATE` 를 덮지 않습니다.** 로컬 PostgreSQL 16.13 에 같은 상태를
+만들어 확인했습니다.
+
+```
+anon 으로 select   → 0행             (RLS 가 막음)
+anon 으로 truncate → TRUNCATE TABLE  (성공, 표가 비워짐)
+```
+
+`REFERENCES`·`TRIGGER` 도 RLS 가 다루는 권한이 아닙니다. 지금 당장 뚫려 있다는 뜻은
+아닙니다 — PostgREST 는 REST 로 TRUNCATE 를 노출하지 않으므로 anon 키만으로 이 경로에
+닿지는 않습니다. 다만 RLS 가 구조적으로 못 덮는 영역이라 권한 자체를 회수하는 편이
+확실하고, V22.7.0 이 만든 표들은 이미 그렇게 해 두었습니다
+(`schema_v22_7_0_auth_atomicity.sql:72-82`).
+
+그래서 `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 을 추가했습니다. Worker 는
+`SUPABASE_SERVICE_ROLE_KEY` 만 쓰므로(`supabase()` — `src/index.js:28752`,
+`supabaseExactCount()` — `7576`, 코드에 `SUPABASE_ANON_KEY` 사용처 없음) 회수해도 앱
+동작은 달라지지 않습니다.
+
+### 조사 결과 → `05_APPLY_TABLE_GRANTS_V22_8_79.sql`
+
+04 의 사후점검 2 로 `public` 스키마 전체를 훑은 결과입니다(2026-08-07).
+
+**같은 상태인 표가 11개 더 있었습니다.** RLS 켜짐 · 정책 0건 · `anon`·`authenticated`
+에 7개 권한 전부:
+
+`accountbook_meme_cards`, `accountbook_recurring`, `accountbook_settings`, `budgets`,
+`household_members`, `households`, `nlu_failure_samples`, `nlu_intent_metrics_hourly`,
+`transactions`, `unrecognized_inputs`, `users`
+
+이미 잠겨 있던 7개는 저장소 SQL(V22.6.8·V22.7.0)이 만든 표와 03 으로 정리한
+`accountbook_budgets` 입니다. **패턴이 분명합니다 — 저장소 SQL 이 만든 표만 잠겨 있고,
+그보다 먼저 만들어진 표는 Supabase 기본값이 그대로 남아 있었습니다.**
+
+`05_APPLY_TABLE_GRANTS_V22_8_79.sql` 이 나머지 11개를 같은 방식으로 정리합니다.
+
+앱에 영향이 없는 근거가 04 보다 한 겹 더 있습니다.
+
+1. Worker 는 service_role 키만 씁니다(위와 같음).
+2. **브라우저는 Supabase 에 직접 닿지 못합니다.** CSP 의 `connect-src` 가
+   `'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com
+   https://kapi.kakao.com` 뿐이라 Supabase 주소가 없습니다.
+3. **11개 표 모두 RLS 가 켜져 있고 정책이 0건이라 `anon`·`authenticated` 는 이미
+   데이터에 접근하지 못합니다.** 그래서 회수로 실제 닫히는 것은 RLS 가 못 덮는
+   `TRUNCATE`·`TRIGGER`·`REFERENCES` 뿐이고, **동작하던 흐름은 끊길 수 없습니다.**
+
+`budgets`(맨 이름)는 코드 호출이 **0건**인 잔존 표로 보입니다. 현재 코드가 쓰는 것은
+`accountbook_budgets` 입니다. **확인 없이 지우지 않고 권한만 정리했습니다.**
+
+**확인하지 못한 것:** 이 저장소 밖에서 같은 DB 에 붙는 다른 소비자(다른 앱·Realtime
+구독·외부 스크립트)가 anon 키로 이 표들을 쓰고 있다면 그쪽은 영향을 받습니다.
+운영자만 알 수 있는 부분입니다. 되돌리는 방법은 SQL 파일 맨 아래에 있습니다.
+
+### `04`·`05` 적용 결과 (2026-08-07)
+
+18개 표 전부가 아래로 수렴했습니다. **목표 달성** — `anon_or_authenticated_grants` 0,
+`truncate_exposed` false.
+
+| table_name | rls_enabled | policy_count | anon_or_auth | service_role | truncate_exposed |
+|---|---|---|---|---|---|
+| `accountbook_admin_security` | true | 0 | 0 | 7 | false |
+| `accountbook_auth_attempts` | true | 0 | 0 | 7 | false |
+| `accountbook_budgets` | true | 0 | 0 | 7 | false |
+| `accountbook_meme_cards` | true | 0 | 0 | 7 | false |
+| `accountbook_operation_locks` | true | 0 | 0 | 7 | false |
+| `accountbook_recurring` | true | 0 | 0 | 7 | false |
+| `accountbook_settings` | true | 0 | 0 | 7 | false |
+| `accountbook_transaction_audit` | true | 0 | 0 | 7 | false |
+| `accountbook_user_identities` | true | 0 | 0 | 7 | false |
+| `accountbook_user_security` | true | 0 | 0 | 7 | false |
+| `budgets` | true | 0 | 0 | 7 | false |
+| `household_members` | true | 0 | 0 | 7 | false |
+| `households` | true | 0 | 0 | 7 | false |
+| `nlu_failure_samples` | true | 0 | 0 | 7 | false |
+| `nlu_intent_metrics_hourly` | true | 0 | 0 | 7 | false |
+| `transactions` | true | 0 | 0 | 7 | false |
+| `unrecognized_inputs` | true | 0 | 0 | 7 | false |
+| `users` | true | 0 | 0 | 7 | false |
+
+`accountbook_budgets` 가 0 인 것은 `04` 를 함께 실행했다는 뜻입니다. `05` 의 대상
+목록에는 그 표가 없습니다.
+
+**앞으로 새 표를 만들 때는** `anon`·`authenticated` 회수를 함께 해야 이 상태가
+유지됩니다. Supabase 는 `public` 스키마 새 표에 기본 권한 7개를 자동으로 붙입니다.
+V22.7.0 이 만든 표들이 이미 그렇게 하고 있습니다
+(`schema_v22_7_0_auth_atomicity.sql:72-82`).
+
+> 이 파일의 내용은 V22.8.79 릴리스가 나갈 때 `SQL_HISTORY.md` 와 `KNOWN-ISSUES.md` 로
+> 옮겨집니다. 지금 그 두 파일을 고치지 않은 이유는 `BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256`
+> 가 V22.8.78 트리를 고정하고 있어서, 거기 묶인 파일을 고치면 그 기록이 더 이상
+> V22.8.78 을 가리키지 않게 되기 때문입니다.
+
+## 무엇이 문제였나 — 예산이 두 곳에 나뉘어 저장되고 있었습니다
+
+`src/index.js` 는 예산을 두 곳에 씁니다.
+
+1. `public.accountbook_budgets` 표 (정본)
+2. `public.accountbook_settings` 의 `budgets:<가계부ID>:<월>` JSON (폴백)
+
+개별 저장(`handleBudgetSave`, `/admin/budget/save`)은 PostgREST 로 이렇게 보냅니다.
+
+```
+POST /rest/v1/accountbook_budgets?on_conflict=household_id,month,category
+Prefer: resolution=merge-duplicates
+```
+
+이 세 열을 덮는 유니크 인덱스가 없으면 PostgREST 가 거절합니다.
+
+```
+42P10  there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
+
+그러면 코드는 `catch` 로 넘어가 `saveSettingsBudget` 폴백에 씁니다. **화면에는 "저장됨"
+이 뜨므로 겉으로는 아무 문제가 없어 보입니다.** 대신 `fetchBudgets` 가 매 요청마다 표와
+설정을 둘 다 읽어 `mergeBudgetRows` 로 합치고 있습니다.
+
+일괄 저장(`handleMyBudgetBulkSave`, `/my/budget-bulk/save`)은 RPC 로 표에 바로 씁니다.
+그래서 **같은 가계부의 예산이 어느 경로로 저장했느냐에 따라 다른 곳에 있었습니다.**
+
+로컬 PostgreSQL 16.13 에서 적용 전 upsert 가 실제로 42P10 으로 실패하고, 적용 후
+성공하는 것을 확인했습니다.
+
+## 이 SQL 이 하는 일
+
+1. `public.accountbook_budgets` 가 없으면 만듭니다. 운영에는 이미 있을 것이므로 대개
+   무동작입니다. **새로 만들 때만** RLS 를 켜고 `service_role` 전용으로 권한을 겁니다.
+2. Worker 가 `select` 하는 열을 확인합니다. `household_id`·`month`·`category`·`amount`
+   중 하나라도 없으면 **이름을 찍고 중단·롤백합니다**(사람 판단이 필요한 상황입니다).
+   `id`·`created_at` 은 없으면 안전하게 추가합니다.
+3. `(household_id, month, category)` 중복 행을 `created_at` 이 가장 늦은 1건만 남기고
+   정리합니다. 동률이면 금액이 큰 쪽, 그래도 동률이면 물리 순서로 정합니다.
+4. 같은 세 열의 유니크 인덱스를 만듭니다. **이미 같은 열 집합을 덮는 유니크가 있으면
+   재사용하고 만들지 않습니다.** 열 순서는 상관없습니다 — PostgREST 의 `on_conflict` 은
+   열 집합으로 추론합니다.
+5. `budgets:<가계부ID>:<월>` 설정 JSON 을 표로 이관하고 그 키를 지웁니다.
+
+## 하지 않는 일
+
+- `drop`·`truncate` 없음. 기존 예산 금액을 바꾸지 않습니다.
+- `accountbook_replace_budget_plan_v227` RPC 본문을 손대지 않습니다.
+- **이미 있는 표의 RLS·권한을 바꾸지 않습니다.** 현재 상태는 사후점검이 보고만 하고,
+  조일지 여부는 운영자가 판단합니다.
+- `src/index.js` 의 폴백 코드를 지우지 않습니다. 그대로 두어야 적용 전에도 동작합니다.
+
+## 실행 방법
+
+Supabase SQL Editor 에 파일 전체를 붙여 넣고 한 번 실행합니다. 재시도해도 안전합니다
+(멱등). 두 번째 실행은 중복 0건·이관 0건으로 끝납니다.
+
+맨 아래 비변경 조회가 결과를 냅니다.
+
+| 열 | 기대값 | 뜻 |
+|---|---|---|
+| `upsert_ready` | `true` | 이 값이 `true` 여야 개별 예산 저장이 표로 갑니다. **가장 중요합니다.** |
+| `duplicate_groups` | `0` | 남은 중복 조합 |
+| `leftover_settings_budget_keys` | 0 이 아니어도 정상 | 아래 "남기는 키" 참고 |
+| `rls_enabled` | 보고만 | `false` 면 별도 판단 |
+| `anon_or_authenticated_grants` | 보고만 | 0 초과면 별도 판단 |
+
+## 알아 둘 것
+
+- **금액이 0 이하이거나 분류가 빈 항목은 옮기지 않고 버립니다.** `budgetSummary`·
+  `incomePlans`·`expensePlans` 가 모두 `amount > 0` 만 세므로 화면과 집계에서 이미
+  무시되던 값입니다. 다만 `__income` 을 0원으로 저장해 둔 행이 있었다면 사라집니다.
+- **표와 설정에 같은 분류가 서로 다른 금액으로 있으면 표 값이 남습니다.**
+  `mergeBudgetRows` 가 이미 표를 우선하고 있어, 화면에 보이던 값이 유지되는 쪽입니다.
+  설정 쪽 금액은 없어집니다.
+- **남기는 키:** 가계부 ID 가 uuid 가 아니거나(`budgets:default:…`), 가계부가 이미
+  삭제됐거나, JSON 이 깨졌거나 배열이 아닌 설정 키는 건드리지 않고 남깁니다.
+  `leftover_settings_budget_keys` 가 그 개수입니다. 지우지 않으므로 나중에 사람이
+  보고 판단할 수 있습니다.
+- **유니크 인덱스가 생기면 같은 분류를 중복으로 넣는 저장은 이제 실패합니다.**
+  `accountbook_replace_budget_plan_v227` 은 `p_rows` 를 중복 제거 없이 넣기 때문입니다.
+  `handleMyBudgetBulkSave` 가 `normalizeText(분류)` 를 키로 하는 `Map` 으로 먼저
+  합치므로 **앱에서 중복이 나가는 경로는 없습니다.** 앞뒤 공백·특수문자·대소문자·
+  80자 공유 접두·이모지 절단까지 확인했습니다. 다른 경로로 이 RPC 를 직접 호출한다면
+  중복 제거를 호출하는 쪽에서 해야 합니다.
+- **표 저장 금액에 상한 검사를 걸지 않았습니다.** `handleBudgetSave` 가 금액을 clamp
+  하지 않아서, 상한을 걸면 큰 입력이 표 저장에 실패해 다시 설정 폴백으로 갈라집니다.
+  상한(20억)은 일괄 저장 RPC 가 이미 걸고 있습니다.
+- **검증은 로컬 PostgreSQL 16.13 에서 했습니다. 운영 DB 의 실제 제약·RLS·데이터는
+  확인하지 못했습니다.**
+
+## 검증한 경로
+
+로컬에 운영과 같은 형태(유니크 없음·중복 3행·폴백 JSON 8종)를 만들어 확인했습니다.
+
+- 적용 전 upsert 가 42P10 으로 실패 → 적용 후 성공
+- 표가 없는 환경에서 생성 경로(RLS 켜짐, `anon` 권한 없음)
+- 열 순서가 다른 기존 유니크 제약을 재사용하고 인덱스를 새로 만들지 않음
+- 필수 열 누락 시 이름을 찍고 중단·롤백(표 구조 그대로)
+- 중복 3행 → `created_at` 최신 1건만 남음
+- 표가 설정을 이김 / 빈 분류·0원·문자 금액 버림 / JSON 내부 중복은 큰 금액만
+- `reserve_plans:` 등 예산과 무관한 설정 키는 그대로
+- 이관 후 `accountbook_replace_budget_plan_v227` 왕복 정상
+- 재실행 멱등
+
+## 되돌리기
+
+인덱스만 지우면 적용 전 동작으로 돌아갑니다. 이관된 예산은 표에 남고, 코드가 표를
+우선하므로 화면 값은 그대로입니다.
+
+```sql
+drop index if exists public.accountbook_budgets_household_month_category_unique_v22879;
+```
+
+이관으로 지워진 설정 키는 이 명령으로 돌아오지 않습니다. 되돌릴 계획이 조금이라도
+있으면 실행 전에 백업을 만드세요.

@@ -112,7 +112,7 @@ function exerciseThemeRuntime(runtime) {
   root.style = {};
   const status = control();
   const meta = control();
-  const themeButtons = ["system", "light", "dark"].map((value) => control({ "data-ab-theme-choice": value }));
+  const themeButtons = ["light", "dark"].map((value) => control({ "data-ab-theme-choice": value }));
   const toneButtons = ["blue", "emerald", "violet", "amber"].map((value) => control({ "data-ab-tone-choice": value }));
   const storage = new Map();
   const windowListeners = new Map();
@@ -142,23 +142,32 @@ function exerciseThemeRuntime(runtime) {
     addEventListener(type, listener) { windowListeners.set(type, listener); },
   };
   new Function("document", "window", runtime)(documentStub, windowStub);
-  const defaultsWork = root.getAttribute("data-ab-theme") === "system"
+  const defaultsWork = root.getAttribute("data-ab-theme") === "light"
     && root.getAttribute("data-ab-resolved-theme") === "light"
     && root.getAttribute("data-ab-tone") === "blue";
-  themeButtons[2].fire("click");
+  themeButtons[1].fire("click");
   toneButtons[2].fire("click");
   const choicesPersist = storage.get("ab:appearance:theme") === "dark"
     && storage.get("ab:appearance:tone") === "violet"
     && root.getAttribute("data-ab-resolved-theme") === "dark"
     && root.getAttribute("data-ab-tone") === "violet"
-    && themeButtons[2].getAttribute("aria-pressed") === "true"
+    && themeButtons[1].getAttribute("aria-pressed") === "true"
     && toneButtons[2].getAttribute("aria-pressed") === "true";
   themeButtons[0].fire("click");
+  const backToLight = storage.get("ab:appearance:theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light"
+    && status.textContent.includes("라이트 모드");
+  // V22.8.79: 시스템 선택지를 없앴으므로 OS 다크 전환이 화면을 흔들면 안 된다.
   media.matches = true;
   mediaListeners.get("change")?.();
-  const systemSyncs = root.getAttribute("data-ab-theme") === "system"
-    && root.getAttribute("data-ab-resolved-theme") === "dark";
-  return defaultsWork && choicesPersist && systemSyncs && status.textContent.includes("시스템 설정");
+  const ignoresOsPreference = root.getAttribute("data-ab-theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light";
+  // 예전에 "system" 을 저장해 둔 브라우저는 라이트로 정정돼야 한다.
+  storage.set("ab:appearance:theme", "system");
+  windowListeners.get("pageshow")?.();
+  const migratesLegacySystem = root.getAttribute("data-ab-theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light";
+  return defaultsWork && choicesPersist && backToLight && ignoresOsPreference && migratesLegacySystem;
 }
 
 try {
@@ -217,9 +226,9 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 46 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22875.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22874.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22870.js") && externalScripts.includes("/assets/accountbook-nav-v22862.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22879.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "home loads the current shell stylesheet once");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22879.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -251,7 +260,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22875.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22874.css"];
+  const cssPaths = ["/assets/mobile-home-v22879.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22879.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -267,26 +276,26 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22875.css") {
-      eq(createHash("sha256").update(bytes).digest("hex"), "9563069ae31b5a622472ce0a45ab078f46b9621883275fa59ad7b28970fea797", "legacy home stylesheet bytes remain pinned");
+    if (path === "/assets/mobile-home-v22879.css") {
+      eq(createHash("sha256").update(bytes).digest("hex"), "365eed3f36e9627cc2ba3f358c7137ecf48639574bccdeb4e07043d843087eea", "legacy home stylesheet bytes remain pinned");
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22870.js");
+  const legacyJs = await request("/assets/mobile-home-v22879.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22870.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22879.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
-  eq(createHash("sha256").update(legacyBytes).digest("hex"), "1d5d6b37f59e8b188aa25e0b4711baf6cb8a2e68786fd16e5ec1c25e837b2632", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22870-js"', "legacy home runtime ETag remains pinned");
+  eq(createHash("sha256").update(legacyBytes).digest("hex"), "0d96148d07d20245b2b364f9c0db3e9e317763543bc0212fa6b6cf26d1e86952", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22879-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22870.js");
+  const shellJs = await request("/assets/mobile-home-shell-v22879.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22870.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v22879.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");
@@ -326,16 +335,16 @@ try {
   ok(!!shippedThousands, "shipped runtime keeps a working thousands-separator regex");
   eq(String(1234567).replace(new RegExp(shippedThousands[1], "g"), ","), "1,234,567", "shipped thousands-separator regex formats an amount");
 
-  const stage4NavJs = await request("/assets/accountbook-nav-v22862.js");
+  const stage4NavJs = await request("/assets/accountbook-nav-v22879.js");
   const stage4NavRuntime = await stage4NavJs.text();
   const stage4NavGetDatabaseCalls = calls.length;
-  const stage4NavHead = await request("/assets/accountbook-nav-v22862.js", { method: "HEAD" });
+  const stage4NavHead = await request("/assets/accountbook-nav-v22879.js", { method: "HEAD" });
   const stage4NavHeadBody = await stage4NavHead.text();
   const stage4NavHeadDatabaseCalls = calls.length;
   eq(stage4NavJs.status, 200, "V22.8.18 stage 4 navigation runtime GET succeeds");
   ok(stage4NavHead.status === 200 && stage4NavHeadBody.length === 0, "V22.8.18 stage 4 navigation runtime HEAD succeeds without a body");
   ok(stage4NavJs.headers.get("content-type")?.startsWith("text/javascript") && stage4NavJs.headers.get("cache-control")?.includes("immutable"), "stage 4 navigation runtime uses immutable JavaScript delivery");
-  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22862-js"', "V5 navigation runtime has a versioned ETag");
+  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22879-js"', "V5 navigation runtime has a versioned ETag");
   ok(stage4NavRuntime.includes('label: "기록"') && stage4NavRuntime.includes('label: "입력"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('label: "전체"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('if (!document.querySelector(".abLayoutNav")) return') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"') && stage4NavRuntime.includes('event.key === "Escape" && dialog && dialog.open') && stage4NavRuntime.includes('event.key === "/"'), "V5 runtime maps the home sidebar state and connects Escape-safe authenticated search, quick actions, and appearance controls");
   eq(stage4NavGetDatabaseCalls, 0, "stage 4 navigation runtime GET requires no database access");
   eq(stage4NavHeadDatabaseCalls, 0, "stage 4 navigation runtime HEAD requires no database access");
@@ -349,7 +358,7 @@ try {
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22874.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22879.css");
   const shellCss = await shellCssResponse.text();
   const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
@@ -391,35 +400,35 @@ try {
   ok(shellCss.includes("body.abV22812Shell.abAppSurface .abLayoutNav{width:238px!important}") && shellCss.includes("body.abV22812Shell.abAppSurface{padding-left:238px!important}"), "unified desktop navigation and body offset share the enforced 238px width");
   ok(shellCss.includes("body.abV22812Shell.abAppSurface.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}") && shellCss.includes("body.abV22812Shell.abAppSurface.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)!important}"), "collapsed unified navigation keeps its existing compact width contract");
 
-  const themeJs = await request("/assets/accountbook-theme-v22812.js");
+  const themeJs = await request("/assets/accountbook-theme-v22879.js");
   const themeRuntime = await themeJs.text();
   const themeJsGetDatabaseCalls = calls.length;
-  const themeHead = await request("/assets/accountbook-theme-v22812.js", { method: "HEAD" });
+  const themeHead = await request("/assets/accountbook-theme-v22879.js", { method: "HEAD" });
   const themeJsHeadDatabaseCalls = calls.length;
   ok(themeJs.status === 200 && themeHead.status === 200 && themeHead.headers.get("etag") === themeJs.headers.get("etag"), "theme runtime GET and HEAD succeed with matching ETags");
   ok(themeJs.headers.get("content-type")?.startsWith("text/javascript") && themeJs.headers.get("cache-control")?.includes("immutable"), "theme runtime uses immutable JavaScript delivery");
-  ok(exerciseThemeRuntime(themeRuntime), "theme runtime persists system/light/dark and color-tone choices");
+  ok(exerciseThemeRuntime(themeRuntime), "theme runtime persists light/dark and colour tone, ignores the OS preference, and migrates a stored system value");
   eq(themeJsGetDatabaseCalls, 0, "theme runtime GET requires no database access");
   eq(themeJsHeadDatabaseCalls, 0, "theme runtime HEAD requires no database access");
 
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22874.css"'), 1, "accountbook management loads the shell once");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "accountbook management loads the shell once");
   ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('data-key="my-households" class="active"') && !householdsHtml.includes('data-key="members" class="active"') && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes its surfaces and selects the exact accountbook-management route");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22874.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22879.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22874.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
   ok(backupHtml.includes("abPageAccountSecurity") && backupHtml.includes('class="abLayoutNav ') && backupHtml.includes("abV5RemainingPage"), "account security receives the shared navigation and isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22874.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
   ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
@@ -450,7 +459,7 @@ try {
       && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
     const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
     const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22874.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22879.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22879.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
@@ -459,7 +468,7 @@ try {
     if (path.startsWith("/my/backup?")) ok(html.includes("abPageBackup"), "backup management receives its dark-mode route scope");
     if (path.startsWith("/start-guide?")) ok(html.includes("abPageGuide"), "start guide receives its dark-mode route scope");
     if (path.startsWith("/menu?")) {
-      ok(html.includes("화면 설정") && html.includes('data-ab-theme-choice="system"') && html.includes('data-ab-theme-choice="dark"') && html.includes('data-ab-tone-choice="amber"'), "menu exposes accessible theme and color-tone controls");
+      ok(html.includes("화면 설정") && html.includes('data-ab-theme-choice="light"') && html.includes('data-ab-theme-choice="dark"') && html.includes('data-ab-tone-choice="amber"'), "menu exposes accessible theme and color-tone controls");
     }
   }
 
@@ -495,7 +504,7 @@ try {
     const html = await response.text();
     const hasExpectedScope = !item.scope || html.includes(`data-nav-scope="${item.scope}"`);
     const hasAnyUserShellAsset = /accountbook-shell-v\d+/i.test(html);
-    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
+    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22879") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
   // V22.8.53: 초과 지출 시 홈의 예산 사용률 표기가 100%에서 잘리지 않아야 한다.

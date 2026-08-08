@@ -1,5 +1,20 @@
 # SQL 적용 이력과 현재 판정
 
+## V22.8.79 예산 저장소 정합성과 표 권한
+
+- **신규 SQL 3개 있음**: `03_APPLY_BUDGET_STORAGE_V22_8_79.sql`, `04_APPLY_BUDGET_GRANTS_V22_8_79.sql`, `05_APPLY_TABLE_GRANTS_V22_8_79.sql`
+- **적용 완료 — 2026-08-07 운영자가 Supabase SQL Editor 에서 셋 다 실행했다고 알려 왔다.** 이 저장소는 운영 DB 에 접근하지 않으므로 직접 확인하지 못했고, 운영자가 보내 준 사후점검 출력으로 판정했다
+- `03` 예산 저장소: `accountbook_budgets` 에 `(household_id, month, category)` 유니크 인덱스를 만들어 `on_conflict` upsert 를 살리고, `budgets:<가계부ID>:<월>` 설정 JSON 을 표로 이관한 뒤 그 키를 지운다. 스키마 변경 없이 인덱스와 데이터 이동만 한다
+  - 결과: `upsert_ready=true`, `leftover_settings_budget_keys=0`, `duplicate_groups=0`
+- `04`·`05` 권한: `public`·`anon`·`authenticated` 에서만 회수하고 `service_role` 에 필요한 4개를 보장한다. **`postgres` 는 건드리지 않는다**(DB 소유자이자 SQL Editor 가 쓰는 역할)
+  - 결과: 18개 표 전부 `anon_or_authenticated_grants=0`, `truncate_exposed=false`
+- 회수의 근거: RLS 가 켜져 있고 정책이 0건이라 읽기·쓰기는 이미 막혀 있었지만, **RLS 는 `TRUNCATE`·`TRIGGER`·`REFERENCES` 를 덮지 않는다.** 로컬 PostgreSQL 16.13 에서 `anon` 으로 `select` 는 0행이지만 `truncate` 는 성공하는 것을 확인했다
+- 앱 영향 없음의 근거: Worker 는 `SUPABASE_SERVICE_ROLE_KEY` 만 쓰고(`supabase()` — `src/index.js`), 브라우저는 CSP 의 `connect-src` 에 Supabase 주소가 없어 직접 닿지 못한다
+- `drop`·`truncate` 없음. 기존 금액을 바꾸지 않는다. RPC 본문도 손대지 않았다
+- 재실행 안전(멱등). 되돌리는 방법은 각 파일 맨 아래에 있다
+- `budgets`(맨 이름) 표는 코드 호출이 0건인 잔존 표로 보이지만 **지우지 않고 권한만 정리했다**
+- 기존 V22.6.8·V22.7.0·V22.7.1·V22.8.46·V22.8.71 SQL 은 재실행하지 않는다
+
 ## V22.8.78
 
 - 신규 SQL·스키마·RLS·RPC·인덱스: 없음
