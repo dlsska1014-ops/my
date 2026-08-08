@@ -1,17 +1,43 @@
 # V22.8.79 예산 저장소 정합성 SQL 안내
 
-적용 파일: `03_APPLY_BUDGET_STORAGE_V22_8_79.sql`
+적용 파일 3개 — **모두 적용 완료(2026-08-07)**
+
+| 파일 | 내용 |
+|---|---|
+| `03_APPLY_BUDGET_STORAGE_V22_8_79.sql` | 예산 표/설정 JSON 이중화 해소 |
+| `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` | `accountbook_budgets` 권한 회수 |
+| `05_APPLY_TABLE_GRANTS_V22_8_79.sql` | 나머지 표 11개 권한 회수 |
 
 ## 요약
 
-- **SQL 파일 하나뿐입니다. `src/index.js` 는 한 줄도 바뀌지 않았습니다.**
-- **적용 완료 — 2026-08-07 운영자가 Supabase SQL Editor 에서 실행했다고 알려 왔습니다.**
-  결과는 아래 "적용 결과" 참고. 이 저장소는 운영 DB 에 접근하지 않으므로 직접 확인하지는
-  못했고, 운영자가 보내 준 사후점검 출력으로 판정했습니다.
-- 실행하지 않아도 예산 화면은 지금처럼 동작합니다. 설정 JSON 폴백을 계속 탈 뿐입니다.
+- **SQL 뿐입니다. `src/index.js` 는 한 줄도 바뀌지 않았습니다.**
+- **적용 완료 — 2026-08-07 운영자가 Supabase SQL Editor 에서 셋 다 실행했다고 알려
+  왔습니다.** 결과는 아래 "적용 결과" 참고. 이 저장소는 운영 DB 에 접근하지 않으므로
+  직접 확인하지는 못했고, 운영자가 보내 준 사후점검 출력으로 판정했습니다.
+- 실행하지 않아도 예산 화면은 지금처럼 동작했습니다. 설정 JSON 폴백을 계속 탈 뿐입니다.
 - Worker 배포와 순서를 맞출 필요가 없습니다. 적용 전에도 후에도 같은 Worker 가 그대로 돕니다.
 
-## 적용 결과 (2026-08-07)
+## 최종 상태 (2026-08-07, 03·04·05 적용 후)
+
+**예산 이중화 해소:** `upsert_ready = true`, `leftover_settings_budget_keys = 0`.
+개별 저장이 표로 가고 폴백 JSON 은 완전히 비었습니다.
+
+**권한 정리:** `public` 스키마 **18개 표 전부**가 아래로 수렴했습니다.
+
+```
+rls_enabled = true · policy_count = 0
+anon_or_authenticated_grants = 0 · truncate_exposed = false
+service_role_grants = 7
+```
+
+`service_role_grants` 가 7인 것은 의도한 대로입니다. 이 SQL 들은 `service_role` 에서
+회수한 적이 없고 필요한 4개(SELECT·INSERT·UPDATE·DELETE)를 보장만 하므로, Supabase
+기본값 7개가 그대로 남습니다. V22.7.0 이 만든 표들도 같은 이유로 7입니다.
+
+`budgets`(맨 이름) 표는 **지우지 않고 권한만 정리한 상태로 남아 있습니다.** 코드 호출이
+0건인 잔존 표로 보이지만, 내용을 확인한 뒤 지울지는 운영자가 판단할 일입니다.
+
+## 적용 결과 — `03` 직후 (2026-08-07)
 
 | 열 | 값 | 판정 |
 |---|---|---|
@@ -21,7 +47,7 @@
 | `leftover_settings_budget_keys` | `0` | **폴백 JSON 이 완전히 비었습니다.** 이중화 해소 |
 | `budget_rows` | `4` | 표로 통합된 예산 |
 | `rls_enabled` | `true` | |
-| `anon_or_authenticated_grants` | `14` | 아래 참고 |
+| `anon_or_authenticated_grants` | `14` | 여기서 `04`·`05` 로 이어졌습니다 |
 
 ### 권한 확인 결과 → `04_APPLY_BUDGET_GRANTS_V22_8_79.sql` 로 이어집니다
 
@@ -86,6 +112,40 @@ anon 으로 truncate → TRUNCATE TABLE  (성공, 표가 비워짐)
 **확인하지 못한 것:** 이 저장소 밖에서 같은 DB 에 붙는 다른 소비자(다른 앱·Realtime
 구독·외부 스크립트)가 anon 키로 이 표들을 쓰고 있다면 그쪽은 영향을 받습니다.
 운영자만 알 수 있는 부분입니다. 되돌리는 방법은 SQL 파일 맨 아래에 있습니다.
+
+### `04`·`05` 적용 결과 (2026-08-07)
+
+18개 표 전부가 아래로 수렴했습니다. **목표 달성** — `anon_or_authenticated_grants` 0,
+`truncate_exposed` false.
+
+| table_name | rls_enabled | policy_count | anon_or_auth | service_role | truncate_exposed |
+|---|---|---|---|---|---|
+| `accountbook_admin_security` | true | 0 | 0 | 7 | false |
+| `accountbook_auth_attempts` | true | 0 | 0 | 7 | false |
+| `accountbook_budgets` | true | 0 | 0 | 7 | false |
+| `accountbook_meme_cards` | true | 0 | 0 | 7 | false |
+| `accountbook_operation_locks` | true | 0 | 0 | 7 | false |
+| `accountbook_recurring` | true | 0 | 0 | 7 | false |
+| `accountbook_settings` | true | 0 | 0 | 7 | false |
+| `accountbook_transaction_audit` | true | 0 | 0 | 7 | false |
+| `accountbook_user_identities` | true | 0 | 0 | 7 | false |
+| `accountbook_user_security` | true | 0 | 0 | 7 | false |
+| `budgets` | true | 0 | 0 | 7 | false |
+| `household_members` | true | 0 | 0 | 7 | false |
+| `households` | true | 0 | 0 | 7 | false |
+| `nlu_failure_samples` | true | 0 | 0 | 7 | false |
+| `nlu_intent_metrics_hourly` | true | 0 | 0 | 7 | false |
+| `transactions` | true | 0 | 0 | 7 | false |
+| `unrecognized_inputs` | true | 0 | 0 | 7 | false |
+| `users` | true | 0 | 0 | 7 | false |
+
+`accountbook_budgets` 가 0 인 것은 `04` 를 함께 실행했다는 뜻입니다. `05` 의 대상
+목록에는 그 표가 없습니다.
+
+**앞으로 새 표를 만들 때는** `anon`·`authenticated` 회수를 함께 해야 이 상태가
+유지됩니다. Supabase 는 `public` 스키마 새 표에 기본 권한 7개를 자동으로 붙입니다.
+V22.7.0 이 만든 표들이 이미 그렇게 하고 있습니다
+(`schema_v22_7_0_auth_atomicity.sql:72-82`).
 
 > 이 파일의 내용은 V22.8.79 릴리스가 나갈 때 `SQL_HISTORY.md` 와 `KNOWN-ISSUES.md` 로
 > 옮겨집니다. 지금 그 두 파일을 고치지 않은 이유는 `BUNDLE_FILE_CHECKSUMS_V22_8_78.sha256`
