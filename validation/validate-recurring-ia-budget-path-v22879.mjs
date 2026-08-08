@@ -26,7 +26,10 @@ ok(source.includes("async function handleRecurringApply"), "the apply handler is
 // 3. 집계는 기존 함수를 호출만 한다.
 ok(source.includes("const homeReserve = reserveDashboard(reservePlans);"), "the card reuses reserveDashboard");
 ok(source.includes("function reserveDashboard(plans = [], fromDate = nowKstDate()) {"), "reserveDashboard itself is untouched");
-ok(source.includes("const monthlyReserveTotal = statuses.reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);"), "the monthly total logic is unchanged");
+// 5단계에서 수입 항목이 생기면서 이 합계는 "지출만" 을 세도록 좁혀졌다.
+// 예전 데이터는 전부 지출이라 값은 달라지지 않는다(홈 카드의 뜻도 그대로).
+ok(source.includes("const monthlyReserveTotal = statuses.filter((s) => !isIncome(s)).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);"), "the monthly preparation total sums expense plans");
+ok(source.includes("const monthlyIncomeTotal = statuses.filter(isIncome).reduce"), "income plans are totalled separately");
 
 // 4. 정기항목을 안 불러온 달에서는 건수를 단정하지 않는다.
 ok(source.includes("const homeReserveHeadline = !reserveLoaded"), "the headline branches on whether reserve data was loaded");

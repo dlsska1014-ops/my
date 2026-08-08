@@ -1,5 +1,5 @@
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
-8a508c54ac9cb7cfc95ed35dff6836b4edd8a227b81953b8f1e51c7e1298ca14  ./.codex/scripts/verify-repository.mjs
+6f56db201a1cb7e937159896ee54fdfa55811cd340401f7dba93a6f3f9179aba  ./.codex/scripts/verify-repository.mjs
 301a55f71560c73fe7e2c739c6418d5f3eb90850b92649bbea60ee522a8a7fa3  ./.github/workflows/verify.yml
 ef23d1270b14425e794fca19f1bb98459b48e9aa61c27f2279c31cc6c1aa2646  ./00_READ_FIRST_V22_8_74.md
 ede0146ee505893034cfb04bfd3cb5e0a8bc6f60bb10a60de589aaa0f5ed0c23  ./00_READ_FIRST_V22_8_75.md
@@ -39,7 +39,7 @@ bec5f7bde6533e1abfb7aeaf693f7764dadf332b4e404f976ae2bc7b9369f7b9  ./VALIDATION_R
 86f62f7d2c4041647b703bea118d4d12606a56d1b89bded76d4ca4ec3eda14bc  ./VERSION.txt
 5347e02e9cf3f88e4596731e4026793be9c1ad6a68014d02d4dd0d8305ae45ac  ./docs/codex/VERIFICATION.md
 bcb75d0a9a9bd813453836271d77142e630f9fab2b3bc6edff671095355a6244  ./package.json
-4f68ca8e8dfd1be88388e29cb4d4dd89b57ab694dca6f09c22583ffbc84b7553  ./src/index.js
+578a10839b6c63c12daece2d65ecec4d57b57e3ba7450358ae2f8d01b817c1bb  ./src/index.js
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22874.sh
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22875.sh
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22876.sh
@@ -70,8 +70,9 @@ cab47274af71f8300d4ad7c060e3badb6069f4848f6c3dca26c6de44c76926d9  ./validation/v
 9fe2a311350f53c836bf2fabdf2fad2d481d3da7f703996194a5004928d4a8b6  ./validation/validate-month-reset-brand-icon-v22879.mjs
 13e5352760d4c9036a9b1a017615faf9f5518d8d3f015e2df745fdb517420e48  ./validation/validate-performance-v22811.mjs
 b03d96ea9307eedf4a1e8f1c0db84af2df8cc66f9c393721d7016b288a97d60a  ./validation/validate-receipt.mjs
-a14620e9eb476862a32c4bd9e3b7ef9f8b73db66953981d945934a285057a8e2  ./validation/validate-recurring-ia-budget-path-v22879.mjs
+198bb2f602166c00fc2121ac2d016041c8d5019789bb15b935e0265563934907  ./validation/validate-recurring-ia-budget-path-v22879.mjs
 0fa63b267d3aacb0da7181f54d098aa1aafe33d7b25b16bd99990fc99462b3a8  ./validation/validate-report-dashboard-v22856.mjs
+008aee9782009a5d584ccddc2b492d7de11d9ae28bd3fd359e5f43d15f84c581  ./validation/validate-reserve-plan-edit-v22879.mjs
 aa4a1966242a3f33034d270912ec545300134ac124a3358e6e9ed0a43d61531b  ./validation/validate-role-surface-v22867.mjs
 680de72cf12b51672f564387a83cadc5e9232f1405aa04a6b70c74181f41d648  ./validation/validate-skill-auth-purge-v22873.mjs
 18f148469d7407f8ad53b7aefd8730e5a023484a2a5196c7563c71b6885cb217  ./validation/validate-skip-to-content-v22872.mjs
