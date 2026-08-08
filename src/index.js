@@ -1904,7 +1904,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.79-MONTH-RESET-BRAND-ICON";
+const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -13199,7 +13199,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
   const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
   const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
-  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
@@ -19585,7 +19585,7 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22870.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22879.css";
-const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22812.js";
+const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22870.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22862.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
@@ -20013,6 +20013,16 @@ body.abV22812Shell .abNavLinks{display:flex!important;flex-direction:column!impo
 body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:11px!important;background:transparent!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:600!important;box-shadow:none!important}
 body.abV22812Shell .abNavLinks a:hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell .abNavLinks a.active{background:var(--accent-weak)!important;color:var(--accent)!important;font-weight:800!important}
+/* 라이트 사이드바의 대메뉴/하위 위계.
+   색을 더 얹지 않고 구조 신호(구분선·자간·들여쓰기 레일)로만 층을 나눈다.
+   대비를 낮추는 변경은 넣지 않는다 — 강조하는 쪽(abNavGroupPrimary)만 --text 로 올린다.
+   다크는 그대로 둔다(회귀 방지). */
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroup+.abNavGroup{border-top:1px solid var(--line)!important;margin-top:9px!important;padding-top:7px!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroup summary b{letter-spacing:.055em!important;font-size:11.5px!important;font-weight:800!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroupPrimary>summary b{color:var(--text)!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks{margin-left:17px!important;padding-left:11px!important;border-left:1px solid var(--line)!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks a{padding-left:10px!important;font-size:13.5px!important;letter-spacing:0!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abNavCollapsed .abNavLinks{margin-left:0!important;padding-left:0!important;border-left:0!important}
 body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:15px!important}
 body.abV22812Shell .abNavFooter{padding:12px 10px!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavGuide{background:var(--card-2)!important;border:1px solid var(--line)!important;color:var(--accent)!important;border-radius:12px!important;box-shadow:none!important}
@@ -20622,9 +20632,8 @@ function accountbookThemeClientMain() {
   var root = document.documentElement;
   var themeKey = "ab:appearance:theme";
   var toneKey = "ab:appearance:tone";
-  var themes = ["system", "light", "dark"];
+  var themes = ["light", "dark"];
   var tones = ["blue", "emerald", "violet", "amber"];
-  var media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
   function read(key, fallback) {
     try { return window.localStorage?.getItem(key) || fallback; } catch (_error) { return fallback; }
   }
@@ -20635,13 +20644,13 @@ function accountbookThemeClientMain() {
     return allowed.includes(value) ? value : fallback;
   }
   function currentTheme() {
-    return valid(read(themeKey, "system"), themes, "system");
+    return valid(read(themeKey, "light"), themes, "light");
   }
   function currentTone() {
     return valid(read(toneKey, "blue"), tones, "blue");
   }
   function resolved(theme) {
-    return theme === "system" ? (media?.matches ? "dark" : "light") : theme;
+    return theme === "dark" ? "dark" : "light";
   }
   function syncMeta(mode, tone) {
     var light = { blue: "#1d4ed8", emerald: "#047857", violet: "#6d28d9", amber: "#92400e" };
@@ -20658,13 +20667,13 @@ function accountbookThemeClientMain() {
     });
     var status = document.getElementById("abAppearanceStatus");
     if (status) {
-      var themeLabel = { system: "시스템 설정", light: "라이트 모드", dark: "다크 모드" }[theme];
+      var themeLabel = { light: "라이트 모드", dark: "다크 모드" }[theme];
       var toneLabel = { blue: "블루", emerald: "그린", violet: "바이올렛", amber: "앰버" }[tone];
       status.textContent = (announce ? "저장했습니다. " : "") + themeLabel + " · " + toneLabel + " 컬러톤";
     }
   }
   function apply(theme, tone, announce) {
-    theme = valid(theme, themes, "system");
+    theme = valid(theme, themes, "light");
     tone = valid(tone, tones, "blue");
     var mode = resolved(theme);
     root.setAttribute("data-ab-theme", theme);
@@ -20679,7 +20688,7 @@ function accountbookThemeClientMain() {
       if (button.getAttribute("data-ab-bound") === "1") return;
       button.setAttribute("data-ab-bound", "1");
       button.addEventListener("click", function() {
-        var theme = valid(button.getAttribute("data-ab-theme-choice"), themes, "system");
+        var theme = valid(button.getAttribute("data-ab-theme-choice"), themes, "light");
         write(themeKey, theme);
         apply(theme, currentTone(), true);
       });
@@ -20698,11 +20707,6 @@ function accountbookThemeClientMain() {
   apply(currentTheme(), currentTone(), false);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true });
   else bind();
-  if (media) {
-    var onSystemChange = function() { if (currentTheme() === "system") apply("system", currentTone(), false); };
-    if (typeof media.addEventListener === "function") media.addEventListener("change", onSystemChange);
-    else if (typeof media.addListener === "function") media.addListener(onSystemChange);
-  }
   window.addEventListener("storage", function(event) {
     if (event.key === themeKey || event.key === toneKey) apply(currentTheme(), currentTone(), false);
   });
@@ -21039,7 +21043,7 @@ function accountbookStage4NavClientMain() {
       '<button type="button" class="abGlobalActionChoice" data-abv5-notif-open>' + iconSvg("bell") + '<span>알림 센터</span><span class="abV5NotifBadge" hidden></span></button>' +
       '<button type="button" class="abGlobalActionChoice" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
       '</div></div>' +
-      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="system" aria-pressed="false">시스템</button><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
+      '<div class="abGlobalDialogBody" data-ab-global-panel="appearance" hidden><div class="abGlobalAppearance"><div class="abGlobalAppearanceRow"><b>화면 모드</b><div class="abGlobalAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div class="abGlobalAppearanceRow"><b>컬러톤</b><div class="abGlobalAppearanceChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false">블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false">그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false">바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false">앰버</button></div></div><p class="abGlobalAppearanceNote">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +
       '</dialog>';
   }
   function openGlobalAction(panelName, trigger) {
@@ -21803,7 +21807,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22879-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
-          ? '"accountbook-theme-v22812-js"'
+          ? '"accountbook-theme-v22879-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22870-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH

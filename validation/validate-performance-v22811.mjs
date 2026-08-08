@@ -112,7 +112,7 @@ function exerciseThemeRuntime(runtime) {
   root.style = {};
   const status = control();
   const meta = control();
-  const themeButtons = ["system", "light", "dark"].map((value) => control({ "data-ab-theme-choice": value }));
+  const themeButtons = ["light", "dark"].map((value) => control({ "data-ab-theme-choice": value }));
   const toneButtons = ["blue", "emerald", "violet", "amber"].map((value) => control({ "data-ab-tone-choice": value }));
   const storage = new Map();
   const windowListeners = new Map();
@@ -142,23 +142,32 @@ function exerciseThemeRuntime(runtime) {
     addEventListener(type, listener) { windowListeners.set(type, listener); },
   };
   new Function("document", "window", runtime)(documentStub, windowStub);
-  const defaultsWork = root.getAttribute("data-ab-theme") === "system"
+  const defaultsWork = root.getAttribute("data-ab-theme") === "light"
     && root.getAttribute("data-ab-resolved-theme") === "light"
     && root.getAttribute("data-ab-tone") === "blue";
-  themeButtons[2].fire("click");
+  themeButtons[1].fire("click");
   toneButtons[2].fire("click");
   const choicesPersist = storage.get("ab:appearance:theme") === "dark"
     && storage.get("ab:appearance:tone") === "violet"
     && root.getAttribute("data-ab-resolved-theme") === "dark"
     && root.getAttribute("data-ab-tone") === "violet"
-    && themeButtons[2].getAttribute("aria-pressed") === "true"
+    && themeButtons[1].getAttribute("aria-pressed") === "true"
     && toneButtons[2].getAttribute("aria-pressed") === "true";
   themeButtons[0].fire("click");
+  const backToLight = storage.get("ab:appearance:theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light"
+    && status.textContent.includes("라이트 모드");
+  // V22.8.79: 시스템 선택지를 없앴으므로 OS 다크 전환이 화면을 흔들면 안 된다.
   media.matches = true;
   mediaListeners.get("change")?.();
-  const systemSyncs = root.getAttribute("data-ab-theme") === "system"
-    && root.getAttribute("data-ab-resolved-theme") === "dark";
-  return defaultsWork && choicesPersist && systemSyncs && status.textContent.includes("시스템 설정");
+  const ignoresOsPreference = root.getAttribute("data-ab-theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light";
+  // 예전에 "system" 을 저장해 둔 브라우저는 라이트로 정정돼야 한다.
+  storage.set("ab:appearance:theme", "system");
+  windowListeners.get("pageshow")?.();
+  const migratesLegacySystem = root.getAttribute("data-ab-theme") === "light"
+    && root.getAttribute("data-ab-resolved-theme") === "light";
+  return defaultsWork && choicesPersist && backToLight && ignoresOsPreference && migratesLegacySystem;
 }
 
 try {
@@ -219,7 +228,7 @@ try {
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22879.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22812.js") && externalScripts.includes("/assets/mobile-home-shell-v22870.js") && externalScripts.includes("/assets/accountbook-nav-v22862.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22870.js") && externalScripts.includes("/assets/accountbook-nav-v22862.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -391,14 +400,14 @@ try {
   ok(shellCss.includes("body.abV22812Shell.abAppSurface .abLayoutNav{width:238px!important}") && shellCss.includes("body.abV22812Shell.abAppSurface{padding-left:238px!important}"), "unified desktop navigation and body offset share the enforced 238px width");
   ok(shellCss.includes("body.abV22812Shell.abAppSurface.abNavCollapsed{padding-left:var(--abNavCollapsed)!important}") && shellCss.includes("body.abV22812Shell.abAppSurface.abNavCollapsed .abLayoutNav{width:var(--abNavCollapsed)!important}"), "collapsed unified navigation keeps its existing compact width contract");
 
-  const themeJs = await request("/assets/accountbook-theme-v22812.js");
+  const themeJs = await request("/assets/accountbook-theme-v22879.js");
   const themeRuntime = await themeJs.text();
   const themeJsGetDatabaseCalls = calls.length;
-  const themeHead = await request("/assets/accountbook-theme-v22812.js", { method: "HEAD" });
+  const themeHead = await request("/assets/accountbook-theme-v22879.js", { method: "HEAD" });
   const themeJsHeadDatabaseCalls = calls.length;
   ok(themeJs.status === 200 && themeHead.status === 200 && themeHead.headers.get("etag") === themeJs.headers.get("etag"), "theme runtime GET and HEAD succeed with matching ETags");
   ok(themeJs.headers.get("content-type")?.startsWith("text/javascript") && themeJs.headers.get("cache-control")?.includes("immutable"), "theme runtime uses immutable JavaScript delivery");
-  ok(exerciseThemeRuntime(themeRuntime), "theme runtime persists system/light/dark and color-tone choices");
+  ok(exerciseThemeRuntime(themeRuntime), "theme runtime persists light/dark and colour tone, ignores the OS preference, and migrates a stored system value");
   eq(themeJsGetDatabaseCalls, 0, "theme runtime GET requires no database access");
   eq(themeJsHeadDatabaseCalls, 0, "theme runtime HEAD requires no database access");
 
@@ -450,7 +459,7 @@ try {
       && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
     const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
     const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22879.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22812.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22879.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22879.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
@@ -459,7 +468,7 @@ try {
     if (path.startsWith("/my/backup?")) ok(html.includes("abPageBackup"), "backup management receives its dark-mode route scope");
     if (path.startsWith("/start-guide?")) ok(html.includes("abPageGuide"), "start guide receives its dark-mode route scope");
     if (path.startsWith("/menu?")) {
-      ok(html.includes("화면 설정") && html.includes('data-ab-theme-choice="system"') && html.includes('data-ab-theme-choice="dark"') && html.includes('data-ab-tone-choice="amber"'), "menu exposes accessible theme and color-tone controls");
+      ok(html.includes("화면 설정") && html.includes('data-ab-theme-choice="light"') && html.includes('data-ab-theme-choice="dark"') && html.includes('data-ab-tone-choice="amber"'), "menu exposes accessible theme and color-tone controls");
     }
   }
 
@@ -495,7 +504,7 @@ try {
     const html = await response.text();
     const hasExpectedScope = !item.scope || html.includes(`data-nav-scope="${item.scope}"`);
     const hasAnyUserShellAsset = /accountbook-shell-v\d+/i.test(html);
-    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22812") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
+    ok(response.status === 200 && hasExpectedScope && !html.includes('data-nav-scope="user"') && !hasAnyUserShellAsset && !html.includes("accountbook-theme-v22879") && !html.includes("abV22812Shell"), `${item.path} stays outside every version of the user theme shell${item.scope ? ` with ${item.scope} scope` : ""} (status=${response.status}, expectedScope=${hasExpectedScope}, userScope=${html.includes('data-nav-scope="user"')}, shellAsset=${hasAnyUserShellAsset}, shellClass=${html.includes("abV22812Shell")})`);
   }
 
   // V22.8.53: 초과 지출 시 홈의 예산 사용률 표기가 100%에서 잘리지 않아야 한다.
