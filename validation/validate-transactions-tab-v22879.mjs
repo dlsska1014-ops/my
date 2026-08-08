@@ -43,7 +43,10 @@ ok(source.includes("renderV8TxCards(txRows,"), "the tab reuses renderV8TxCards")
 for (const cls of ["txTabHead", "txTabFilter", "txPager", "txPickLabel"]) {
   ok(source.includes(`.${cls}{`) || source.includes(`.${cls} `), `light styling exists for .${cls}`);
 }
-ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.txTabHead,.txTabFilter)'), "dark coverage exists for the tab surfaces");
+// 셀렉터 목록은 다른 단계에서 늘어날 수 있으므로 두 클래스가 덮이는지만 본다.
+const darkSurfaceRule = (source.match(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell :is\([^)]*\.txTabHead[^)]*\)\{[^}]*\}/) || [""])[0];
+ok(darkSurfaceRule.includes(".txTabHead") && darkSurfaceRule.includes(".txTabFilter"), "dark coverage exists for the tab surfaces");
+ok(/background:var\(--ab12-surface\)!important/.test(darkSurfaceRule), "the dark rule repaints the tab surfaces");
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .txPager span'), "dark coverage exists for the pager");
 
 // 9. 하단탭 "거래" 는 이제 앵커가 아니라 탭 주소를 가리킨다.

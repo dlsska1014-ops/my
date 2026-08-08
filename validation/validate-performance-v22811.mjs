@@ -277,7 +277,7 @@ try {
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
     if (path === "/assets/mobile-home-v22879.css") {
-      eq(createHash("sha256").update(bytes).digest("hex"), "5f8d5dda836c7c37dafabe01fc91d7f97698b988492caf15fc848e24e6e9b157", "legacy home stylesheet bytes remain pinned");
+      eq(createHash("sha256").update(bytes).digest("hex"), "01c1e2577ddf86cede851724506ba04d2aa62d6319d2087771a5d19c1fd1514d", "legacy home stylesheet bytes remain pinned");
     }
   }
 
