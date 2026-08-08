@@ -1908,7 +1908,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME";
+const APP_VERSION = "V22.8.80-RECURRING-MERGE-BUDGET-CLEANUP";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -6512,6 +6512,17 @@ async function handleReservePlansPage(request, env, url) {
   const customCategoryRows = await fetchCustomCategories(env, householdId);
   const paymentAssetRows = await fetchPaymentAssets(env, householdId);
   const plans = await fetchReservePlans(env, householdId);
+  // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
+  // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
+  const [recurringRows, recurringMembers] = await Promise.all([
+    fetchRecurring(env, householdId),
+    fetchHouseholdMembers(env, householdId),
+  ]);
+  const recurring = safeArray(recurringRows);
+  const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
+  const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
   const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
@@ -6521,7 +6532,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span,.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0}.reserveTypeSeg input{position:absolute;opacity:0;width:0;height:0}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap"><section class="hero"><h1>정기 수입·지출</h1><p>재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리합니다. 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 납부 예정</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 납부 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,#b45309);color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span,.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0}.reserveTypeSeg input{position:absolute;opacity:0;width:0;height:0}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap"><section class="hero"><h1>정기 수입·지출</h1><p>재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리합니다. 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 납부 예정</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 납부 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -15137,9 +15148,10 @@ async function upsertMyBudgetRow(env, householdId = "", month = currentMonthKst(
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(body),
     });
-    await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
   } catch (err) {
-    await saveSettingsBudget(env, householdId, month, category, body.amount);
+    // 예전에는 여기서 settings 폴백에 써서 실패가 보이지 않았다. 이제는 올린다.
+    rememberOpsEvent({ kind: "budget_row_upsert_failed", severity: "warn", path: "/budget/upsert", method: "POST", detail: safeError(err) });
+    throw err;
   }
   return body;
 }
@@ -15149,10 +15161,6 @@ async function clearMyBudgetPlan(env, householdId = "", month = currentMonthKst(
   const m = validMonth(month) || currentMonthKst();
   if (!hid) return;
   await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(hid)}&month=eq.${encodeURIComponent(m)}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  }, null);
-  await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(budgetsSettingsKey(hid, m))}`, {
     method: "DELETE",
     headers: { Prefer: "return=minimal" },
   }, null);
@@ -17515,15 +17523,11 @@ async function handleMyBudgetSave(request, env) {
   const amount = readOptionalFormAmount(form);
   if (amount === null) return redirectResponse(mySettingsLocation(month, selected.id, { err: "budget_amount_invalid" }));
   try {
-    try {
-      await supabase(env, "/rest/v1/accountbook_budgets?on_conflict=household_id,month,category", {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ household_id: selected.id, month, category, amount }),
-      });
-    } catch (err) {
-      await saveSettingsBudget(env, selected.id, month, category, amount);
-    }
+    await supabase(env, "/rest/v1/accountbook_budgets?on_conflict=household_id,month,category", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ household_id: selected.id, month, category, amount }),
+    });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "budget_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_budget_save_failed", severity: "warn", path: "/my/budget/save", method: "POST", detail: safeError(err) });
@@ -18457,128 +18461,35 @@ async function optionalSupabase(env, path, init = {}, fallback = []) {
 }
 
 
-function budgetsSettingsKey(householdId = "", month = currentMonthKst()) {
-  return `budgets:${String(householdId || "default").trim() || "default"}:${validMonth(month) || currentMonthKst()}`;
-}
+// V22.8.79-1: 예산 settings JSON 폴백을 걷어냈다.
+//   budgetsSettingsKey / normalizeBudgetRows / fetchSettingsBudgets(Strict) /
+//   mergeBudgetRows / saveSettingsBudget / deleteSettingsBudget /
+//   cleanupSettingsBudgetAfterTableSave 가 여기 있었다.
+// V22.8.79 SQL(03)이 유니크 인덱스를 만들어 표 저장이 42P10 으로 거절당하던 원인을
+// 없앴고, 남아 있던 'budgets:<가계부ID>:<월>' 키를 표로 이관한 뒤 지웠다
+// (운영 적용 후 leftover_settings_budget_keys=0). 더 쓰지 않으므로 지운다.
+// 되살릴 일이 생기면 git 이력에서 꺼내되, 그때는 SQL 부터 되돌려야 한다.
 
-function normalizeBudgetRows(value, householdId = "", month = currentMonthKst()) {
-  let raw = value;
-  if (typeof raw === "string") {
-    try { raw = raw ? JSON.parse(raw) : []; } catch (err) { raw = []; }
-  }
-  if (raw && !Array.isArray(raw) && Array.isArray(raw.items)) raw = raw.items;
-  const arr = Array.isArray(raw) ? raw : [];
-  return arr.map((x, i) => {
-    const item = safeObject(x);
-    const category = String(item.category || "__total").trim().slice(0, 80) || "__total";
-    const amount = Math.max(0, Math.round(Number(item.amount || 0)));
-    if (!amount && category !== "__income") return null;
-    return {
-      id: String(item.id || `budget_${i}_${category}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 120),
-      household_id: item.household_id || householdId || "",
-      month: validMonth(item.month) || validMonth(month) || currentMonthKst(),
-      category,
-      amount,
-      created_at: item.created_at || new Date(0).toISOString(),
-      storage: item.storage || "settings",
-    };
-  }).filter(Boolean);
-}
-
-async function fetchSettingsBudgets(env, householdId = "", month = currentMonthKst()) {
-  try {
-    const value = await getSettingValue(env, budgetsSettingsKey(householdId, month));
-    return normalizeBudgetRows(value, householdId, month);
-  } catch (err) {
-    return [];
-  }
-}
-
-async function fetchSettingsBudgetsStrict(env, householdId = "", month = currentMonthKst()) {
-  const value = await getSettingValueStrict(env, budgetsSettingsKey(householdId, month));
-  return normalizeBudgetRows(value, householdId, month);
-}
-
-function mergeBudgetRows(primary = [], fallback = []) {
-  const map = new Map();
-  for (const b of safeArray(fallback)) map.set(String(b.category || "__total"), b);
-  for (const b of safeArray(primary)) map.set(String(b.category || "__total"), { ...b, storage: b.storage || "table" });
-  return [...map.values()].sort((a, b) => String(a.category).localeCompare(String(b.category), "ko"));
-}
-
-async function saveSettingsBudget(env, householdId = "", month = currentMonthKst(), category = "__total", amount = 0) {
-  const current = await fetchSettingsBudgets(env, householdId, month);
-  const cleanCategory = String(category || "__total").trim() || "__total";
-  const next = current.filter((b) => String(b.category) !== cleanCategory);
-  if (Number(amount || 0) > 0 || cleanCategory === "__income") {
-    next.push({
-      id: randomEntityId("budget"),
-      household_id: householdId || "",
-      month: validMonth(month) || currentMonthKst(),
-      category: cleanCategory,
-      amount: Math.max(0, Math.round(Number(amount || 0))),
-      created_at: new Date().toISOString(),
-      storage: "settings",
-    });
-  }
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
-  });
-  return next;
-}
-
-async function deleteSettingsBudget(env, householdId = "", month = currentMonthKst(), category = "") {
-  const current = await fetchSettingsBudgets(env, householdId, month);
-  const next = current.filter((b) => String(b.category) !== String(category));
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
-  });
-  return next;
-}
-
-async function cleanupSettingsBudgetAfterTableSave(env, householdId = "", month = currentMonthKst(), category = "") {
-  try {
-    const rows = await fetchSettingsBudgetsStrict(env, householdId, month);
-    if (!rows.some((item) => String(item.category) === String(category))) return true;
-    const next = rows.filter((item) => String(item.category) !== String(category));
-    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: budgetsSettingsKey(householdId, month), value: JSON.stringify(next) }),
-    });
-    return true;
-  } catch (err) {
-    rememberOpsEvent({ kind: "budget_fallback_cleanup_failed", severity: "warn", path: "/budgets", method: "POST", detail: `${householdId}:${month}:${category}:${safeError(err)}` });
-    return false;
-  }
-}
-
+// V22.8.79-1: 예산은 accountbook_budgets 한 곳에만 있다.
+// V22.8.79 SQL(03)이 유니크 인덱스를 만들고 settings JSON 폴백을 표로 이관한 뒤
+// 그 키를 지웠다(적용 후 leftover_settings_budget_keys=0). 이중 읽기를 걷어낸다.
 async function fetchBudgets(env, householdId, month, options = {}) {
   if (!householdId) return [];
-  const settingsPromise = Object.prototype.hasOwnProperty.call(options || {}, "settingsRows")
-    ? Promise.resolve(normalizeBudgetRows(options.settingsRows, householdId, month))
-    : options?.settingsRowsPromise
-      ? Promise.resolve(options.settingsRowsPromise).then((rows) => normalizeBudgetRows(rows, householdId, month)).catch(() => [])
-      : fetchSettingsBudgets(env, householdId, month);
   const params = new URLSearchParams();
   params.set("select", "id,household_id,month,category,amount,created_at");
   params.set("household_id", `eq.${householdId}`);
   params.set("month", `eq.${month}`);
   params.set("order", "category.asc");
-  const tablePromise = supabase(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { method: "GET" })
+  // 표를 못 읽으면 빈 목록이다. 폴백이 있던 시절에도 settings 가 비어 있으면
+  // 결과는 같았으므로 동작이 달라지지 않는다.
+  return supabase(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { method: "GET" })
     .then((rows) => Array.isArray(rows) ? rows : [])
-    .catch(() => null);
-  const [settingsRows, tableRows] = await Promise.all([settingsPromise, tablePromise]);
-  return tableRows === null ? settingsRows : mergeBudgetRows(tableRows, settingsRows);
+    .catch(() => []);
 }
 
 async function fetchMobileHomeSettings(env, householdId = "", month = currentMonthKst(), options = {}) {
-  if (!householdId) return { aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [], challengeValue: {} };
-  const keys = [memberAliasSettingsKey(householdId), budgetsSettingsKey(householdId, month), reportChallengeSettingsKey(householdId)];
+  if (!householdId) return { aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} };
+  const keys = [memberAliasSettingsKey(householdId), reportChallengeSettingsKey(householdId)];
   if (options.includeReserve) keys.push(reservePlansKey(householdId));
   if (options.includePayment) keys.push(paymentAssetsKey(householdId));
   const params = new URLSearchParams();
@@ -18589,7 +18500,6 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   const values = new Map(safeArray(rows).map((row) => [String(row.key || ""), row.value]));
   return {
     aliases: normalizeMemberAliasMap(values.get(memberAliasSettingsKey(householdId)) || {}),
-    budgetRows: normalizeBudgetRows(values.get(budgetsSettingsKey(householdId, month)) || [], householdId, month),
     reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
@@ -19687,7 +19597,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22879.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22879.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22880.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js";
@@ -21921,7 +21831,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22879-css"'
+        ? '"accountbook-shell-v22880-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22879-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -22319,7 +22229,7 @@ async function handleMobileV8Page(request, env, url) {
   const includeReserve = !!selectedHousehold && month === currentMonthKst();
   const homeSettingsPromise = selectedHousehold
     ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions })
-    : Promise.resolve({ aliases: {}, budgetRows: [], reservePlans: [], paymentAssets: [], challengeValue: {} });
+    : Promise.resolve({ aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} });
   const [members, rawMonthlyRows, prevAmountRows, monthlyTrendRows, budgets, homeSettings] = await Promise.all([
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
@@ -22334,7 +22244,7 @@ async function handleMobileV8Page(request, env, url) {
           }).catch(() => ({ month: ym, income: 0, expense: 0 }));
         }))
       : [],
-    selectedHousehold ? fetchBudgets(env, householdId, month, { settingsRowsPromise: homeSettingsPromise.then((settings) => settings.budgetRows) }) : [],
+    selectedHousehold ? fetchBudgets(env, householdId, month) : [],
     homeSettingsPromise,
   ]);
   const reservePlans = homeSettings.reservePlans;
@@ -22392,15 +22302,10 @@ async function handleBudgetSave(request, env) {
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify({ household_id: householdId, month, category, amount }),
     });
-    const fallbackCleanupOk = await cleanupSettingsBudgetAfterTableSave(env, householdId, month, category);
-    return redirectResponse(addQueryToUrl(returnTo, { msg: fallbackCleanupOk ? "budget_saved" : "budget_saved_fallback_cleanup_deferred" }));
+    return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
   } catch (err) {
-    try {
-      await saveSettingsBudget(env, householdId, month, category, amount);
-      return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
-    } catch (fallbackErr) {
-      return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장을 완료하지 못했습니다." }));
-    }
+    rememberOpsEvent({ kind: "budget_save_failed", severity: "warn", path: "/admin/budget/save", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장을 완료하지 못했습니다." }));
   }
 }
 
@@ -22427,16 +22332,9 @@ async function handleBudgetDelete(request, env) {
       const optionalTableMissing = /(?:\bPGRST205\b|\b42P01\b|relation[^\n]*accountbook_budgets[^\n]*does not exist|could not find[^\n]*accountbook_budgets)/i.test(detail);
       if (!optionalTableMissing) throw tableReadError;
     }
-    const settingsRows = await fetchSettingsBudgets(env, householdId, month);
-    const hasTableBudget = tableRows.length > 0;
-    const hasSettingsBudget = settingsRows.some((item) => String(item.category) === category);
-    // 실제로 존재하는 저장소만 삭제한다. 테이블 삭제가 실패하면 settings는 손대지 않고,
-    // settings 정리가 실패하면 fallback 행이 남으므로 오류 안내 뒤에도 예산 데이터가 유지된다.
-    if (hasTableBudget) {
+    // 예산은 표 한 곳에만 있다. 없으면 지울 것도 없다.
+    if (tableRows.length > 0) {
       await supabase(env, tablePath, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    }
-    if (hasSettingsBudget) {
-      await deleteSettingsBudget(env, householdId, month, category);
     }
     return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_deleted" }));
   } catch (err) {
@@ -22847,11 +22745,11 @@ async function handleRecurringSave(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/app?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 저장 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 저장 권한이 없습니다.")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "").trim();
-  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/app#fixed");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
   const members = await fetchHouseholdMembers(env, householdId);
   const spenderId = String(form.get("user_id") || "").trim();
   const row = {
@@ -22882,11 +22780,11 @@ async function handleRecurringDelete(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/app?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 삭제 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 삭제 권한이 없습니다.")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const id = String(form.get("id") || "");
-  const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/app#fixed");
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
   if (!id) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
   try {
     const deleted = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(_hh)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
@@ -22904,12 +22802,12 @@ async function handleRecurringApply(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/app?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 반영 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 반영 권한이 없습니다.")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/app?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
       method: "POST",
@@ -24058,7 +23956,6 @@ function formatMessage(msg) {
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
-    budget_saved_fallback_cleanup_deferred: "예산은 저장했습니다. 이전 호환 데이터 정리가 지연되어 잠시 후 다시 확인해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",

@@ -8,8 +8,8 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME"'), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22879.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const APP_VERSION = "V22.8.80-RECURRING-MERGE-BUDGET-CLEANUP"'), "runtime exposes the mobile surface repair release");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22880.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed quick input runtime uses a new immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "byte-pinned legacy home stylesheet keeps its path");
@@ -89,9 +89,9 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22879.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22880.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22879-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22880-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
   ok(shell.text.includes(".abNavMobileTopActions"), "deployed shell styles the docked top-bar action group");
   ok(shell.text.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}"), "deployed shell frees drawer height for the menu list");
@@ -110,7 +110,7 @@ try {
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22879.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-shell-v22880.css"), "home loads the refreshed shell");
   ok(home.text.includes("/assets/accountbook-nav-v22879.js"), "home loads the refreshed navigation runtime");
   ok(home.text.includes("/assets/accountbook-v5-v22873.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");

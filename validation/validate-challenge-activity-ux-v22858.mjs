@@ -14,10 +14,10 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.79-UIUX-INCOME-BUDGET-THEME"'), "V22.8.58 runtime version is explicit");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22879.css"'), "shell uses a fresh immutable URL");
+ok(source.includes('const APP_VERSION = "V22.8.80-RECURRING-MERGE-BUDGET-CLEANUP"'), "V22.8.58 runtime version is explicit");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22880.css"'), "shell uses a fresh immutable URL");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "activity runtime uses a fresh immutable URL");
-ok(source.includes('"accountbook-shell-v22879-css"'), "shell ETag is refreshed");
+ok(source.includes('"accountbook-shell-v22880-css"'), "shell ETag is refreshed");
 ok(source.includes('"accountbook-v5-v22873-js"'), "activity runtime ETag is refreshed");
 ok(source.includes('const displayMode = settings.periodDays <= 7 ? "daily" : "percent"'), "one-week display threshold is explicit");
 // V22.8.73 에서 챌린지가 3종으로 늘어 성공 문구가 유형별 라벨이 됐다.
@@ -97,7 +97,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with the upgraded challenge");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22879.css'), "home loads the refreshed shell");
+  ok(home.text.includes('/assets/accountbook-shell-v22880.css'), "home loads the refreshed shell");
   ok(home.text.includes('/assets/accountbook-v5-v22873.js'), "home loads the refreshed activity runtime");
   ok(home.text.includes('class="reportChallengeDays"') || home.text.includes('class="reportChallengePercent"'), "home challenge uses one responsive progress mode");
   eq(fixture.db.transactions.length, before, "home rendering remains read-only");
@@ -124,9 +124,9 @@ try {
   eq(activityQueries[0].searchParams.get("limit"), "81", "activity endpoint requests one sentinel row beyond the 80-row display bound");
   eq(fixture.db.transactions.length, before, "activity endpoint remains read-only");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22879.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22880.css");
   eq(shell.response.status, 200, "refreshed shell is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22879-css"', "refreshed shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22880-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".reportChallengeDays"), "shell includes challenge date-cell styling");
   ok(shell.text.includes(".abChallengePercent"), "shell includes long-period percentage styling");
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
