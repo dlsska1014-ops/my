@@ -228,7 +228,7 @@ try {
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22879.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22879.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22870.js") && externalScripts.includes("/assets/accountbook-nav-v22862.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22879.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -277,25 +277,25 @@ try {
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
     if (path === "/assets/mobile-home-v22879.css") {
-      eq(createHash("sha256").update(bytes).digest("hex"), "013900fff91b38be870f2f749f5bf2d97b1bc5d922622ec3e832fe181ea2e016", "legacy home stylesheet bytes remain pinned");
+      eq(createHash("sha256").update(bytes).digest("hex"), "5f8d5dda836c7c37dafabe01fc91d7f97698b988492caf15fc848e24e6e9b157", "legacy home stylesheet bytes remain pinned");
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22870.js");
+  const legacyJs = await request("/assets/mobile-home-v22879.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22870.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22879.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
-  eq(createHash("sha256").update(legacyBytes).digest("hex"), "1d5d6b37f59e8b188aa25e0b4711baf6cb8a2e68786fd16e5ec1c25e837b2632", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22870-js"', "legacy home runtime ETag remains pinned");
+  eq(createHash("sha256").update(legacyBytes).digest("hex"), "0d96148d07d20245b2b364f9c0db3e9e317763543bc0212fa6b6cf26d1e86952", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22879-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22870.js");
+  const shellJs = await request("/assets/mobile-home-shell-v22879.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22870.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v22879.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");
@@ -335,16 +335,16 @@ try {
   ok(!!shippedThousands, "shipped runtime keeps a working thousands-separator regex");
   eq(String(1234567).replace(new RegExp(shippedThousands[1], "g"), ","), "1,234,567", "shipped thousands-separator regex formats an amount");
 
-  const stage4NavJs = await request("/assets/accountbook-nav-v22862.js");
+  const stage4NavJs = await request("/assets/accountbook-nav-v22879.js");
   const stage4NavRuntime = await stage4NavJs.text();
   const stage4NavGetDatabaseCalls = calls.length;
-  const stage4NavHead = await request("/assets/accountbook-nav-v22862.js", { method: "HEAD" });
+  const stage4NavHead = await request("/assets/accountbook-nav-v22879.js", { method: "HEAD" });
   const stage4NavHeadBody = await stage4NavHead.text();
   const stage4NavHeadDatabaseCalls = calls.length;
   eq(stage4NavJs.status, 200, "V22.8.18 stage 4 navigation runtime GET succeeds");
   ok(stage4NavHead.status === 200 && stage4NavHeadBody.length === 0, "V22.8.18 stage 4 navigation runtime HEAD succeeds without a body");
   ok(stage4NavJs.headers.get("content-type")?.startsWith("text/javascript") && stage4NavJs.headers.get("cache-control")?.includes("immutable"), "stage 4 navigation runtime uses immutable JavaScript delivery");
-  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22862-js"', "V5 navigation runtime has a versioned ETag");
+  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22879-js"', "V5 navigation runtime has a versioned ETag");
   ok(stage4NavRuntime.includes('label: "기록"') && stage4NavRuntime.includes('label: "입력"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('label: "전체"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('if (!document.querySelector(".abLayoutNav")) return') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"') && stage4NavRuntime.includes('event.key === "Escape" && dialog && dialog.open') && stage4NavRuntime.includes('event.key === "/"'), "V5 runtime maps the home sidebar state and connects Escape-safe authenticated search, quick actions, and appearance controls");
   eq(stage4NavGetDatabaseCalls, 0, "stage 4 navigation runtime GET requires no database access");
   eq(stage4NavHeadDatabaseCalls, 0, "stage 4 navigation runtime HEAD requires no database access");

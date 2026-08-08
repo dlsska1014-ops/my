@@ -52,6 +52,7 @@ const validationScripts = [
   ["작성 내용 보존·그룹 동시 입력", "validation/validate-draft-persistence-v22878.mjs"],
   ["월 고정·브랜드 아이콘", "validation/validate-month-reset-brand-icon-v22879.mjs"],
   ["테마 2택·사이드 위계", "validation/validate-theme-duo-nav-tier-v22879.mjs"],
+  ["거래내역 탭", "validation/validate-transactions-tab-v22879.mjs"],
 ];
 
 function sha256(filePath) {
@@ -175,7 +176,7 @@ function main() {
     console.log("\n[건너뜀] 압축 해제본에는 Git 메타데이터가 없어 diff 공백 검사를 생략합니다.");
   }
 
-  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 2964개, ESM 진입점 통과`);
+  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 3017개, ESM 진입점 통과`);
   console.log(`src/index.js SHA-256: ${sha256(resolve(repositoryRoot, "src/index.js"))}`);
   console.log("운영 도메인·실기기 항목은 RELEASE-CHECKLIST.md에서 별도 확인해야 합니다.");
 }

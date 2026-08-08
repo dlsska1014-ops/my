@@ -51,7 +51,7 @@ try {
 
   for (const [path, mime] of [
     ["/assets/accountbook-shell-v22879.css", "text/css"],
-    ["/assets/accountbook-nav-v22862.js", "javascript"],
+    ["/assets/accountbook-nav-v22879.js", "javascript"],
     ["/assets/accountbook-v5-v22873.js", "javascript"],
     ["/assets/accountbook-goals-v22843.js", "javascript"],
   ]) {
@@ -64,7 +64,7 @@ try {
   eq(home.response.status, 200, "V5 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "V5 home keeps the HTML shell below 35 KiB");
   ok(home.text.includes("accountbook-v5-v22873.js"), "V5 home loads the shared bundle");
-  ok(home.text.includes("accountbook-nav-v22862.js"), "V5 home loads the shared navigation runtime");
+  ok(home.text.includes("accountbook-nav-v22879.js"), "V5 home loads the shared navigation runtime");
 
   const annual = await request(fixture, "/annual?month=2026-07&household_id=house-home");
   eq(annual.response.status, 200, "annual report renders in the selected household");
