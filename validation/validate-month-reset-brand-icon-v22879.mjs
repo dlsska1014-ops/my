@@ -6,7 +6,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.81-BUDGET-BASIS-INCOME-WORDING-IA"'), "runtime exposes the month reset and brand icon release");
+ok(source.includes('const APP_VERSION = "V22.8.82-TONE-TOKENS-ALERT-WINDOW"'), "runtime exposes the month reset and brand icon release");
 
 // ---------------------------------------------------------------------------
 // P0-1. 월이 계속 지난달로 고정되는 문제
@@ -84,9 +84,9 @@ ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .abNa
 
 // 15. 자산은 immutable 1년 캐시라 내용이 바뀌면 경로가 올라가야 반영된다.
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "the mobile home stylesheet path is bumped");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22880.css"'), "the shell stylesheet path is bumped");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "the shell stylesheet path is bumped");
 ok(source.includes("'\"mobile-home-v22879-css\"'") || source.includes('\'"mobile-home-v22879-css"\''), "the mobile home stylesheet ETag matches its path");
-ok(source.includes('\'"accountbook-shell-v22880-css"\''), "the shell stylesheet ETag matches its path");
+ok(source.includes('\'"accountbook-shell-v22882-css"\''), "the shell stylesheet ETag matches its path");
 eq(source.includes("accountbook-shell-v22874"), false, "no stale shell stylesheet reference remains");
 eq(source.includes("mobile-home-v22875"), false, "no stale mobile home stylesheet reference remains");
 
