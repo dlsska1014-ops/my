@@ -1908,7 +1908,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.83-TONE-AWARE-HEROES";
+const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3419,6 +3419,24 @@ function approximateWonLabel(raw = "") {
 // Function#toString. Writing these directly inside a server template literal
 // consumes regular-expression backslashes before the browser sees them.
 function receiptCaptureClientMain() {
+  // V22.8.84: 영수증에는 금액보다 큰 숫자가 늘 있다 — 사업자등록번호, 카드번호,
+  //   승인번호, 전화번호. 이 줄들을 먼저 걷어내지 않으면 날짜도 금액도 그 숫자에
+  //   걸려 넘어진다. 아래 두 파서는 같은 기준으로 그것들을 버리고 시작한다.
+  //   이 세 값은 아래 `if (!text || !status) return;` 보다 **위**에 있어야 한다.
+  //   파서는 QA 에서 DOM 없이 단독으로 돌려 보는데, 아래에 두면 var 호이스팅으로
+  //   이름만 남고 값이 undefined 가 되어 그때만 터진다(실제로 그렇게 터뜨려 봤다).
+  var RECEIPT_ID_LINE = /(사업자|등록번호|대표자|전화|tel|phone|카드번호|승인\s*번호|가맹점\s*번호|단말기|pos|일련\s*번호|주소|사업장)/i;
+  var RECEIPT_ID_TOKEN = /\d{3}-\d{2}-\d{5}|\d{2,4}-\d{3,4}-\d{4}|(?:\d{4}[-\s]){3}\d{4}|\*{2,}\d+/g;
+  // OCR 이 흘리는 글자까지 받아 준다. 합계→합게·한계·함계, 총액→총맥·좋액.
+  // 인식률이 나쁠수록 이 줄이 깨지는데, 예전에는 깨지는 순간 "가장 큰 숫자" 로
+  // 폴백해서 승인번호가 금액 칸에 들어갔다.
+  var RECEIPT_TOTAL_LINE = /(합\s*[계게걔]|[총좋충]\s*[액맥애]|결제\s*금액|승인\s*금액|받을\s*금액|판매\s*금액|total|amount)/i;
+  // 현금 영수증의 "받은금액"(낸 돈)·"거스름돈"은 지출이 아니다. 받을금액과 한 글자
+  // 차이라 총액으로 오해하기 쉽고, 그러면 낸 돈이 지출로 기록된다. 총액 후보에서
+  // 빼는 정도로는 부족하다 — 합계 줄이 OCR 로 통째로 깨진 달에는 이 줄이 "가장 큰
+  // 금액" 이 되어 그대로 뽑히기 때문에, 아예 후보에서 제외한다.
+  // 포인트 잔액·적립·한도도 같은 이유로 뺀다. 산 물건 값이 아니다.
+  var RECEIPT_NOT_TOTAL_LINE = /(받은\s*금액|거스름|잔\s*돈|현금\s*받음|포인트|마일리지|적립|잔\s*액|한도|change|point)/i;
   var albumFile = document.getElementById("receiptImage");
   var cameraFile = document.getElementById("receiptCamera");
   var sourceInputs = [albumFile, cameraFile].filter(Boolean);
@@ -3733,32 +3751,62 @@ function receiptCaptureClientMain() {
     });
   }
 
+  function receiptScanLines(raw) {
+    return String(raw || "").split(/\n/).map(function(line) {
+      return RECEIPT_ID_LINE.test(line) ? "" : line.replace(RECEIPT_ID_TOKEN, " ");
+    });
+  }
+
   function parseDate(raw) {
-    var match = raw.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
-    if (!match) match = raw.match(/(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/);
-    if (!match) return "";
-    var year = Number(match[1]);
-    if (year < 100) year += 2000;
-    var month = Number(match[2]);
-    var day = Number(match[3]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return "";
-    return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+    var text = receiptScanLines(raw).join("\n");
+    var patterns = [
+      /(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/g,
+      /(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/g,
+    ];
+    for (var index = 0; index < patterns.length; index += 1) {
+      var match;
+      // 첫 매치가 날짜가 아닐 수 있다. 예전에는 거기서 포기해 뒤의 진짜 날짜를 놓쳤다.
+      while ((match = patterns[index].exec(text)) !== null) {
+        var year = Number(match[1]);
+        if (year < 100) year += 2000;
+        var month = Number(match[2]);
+        var day = Number(match[3]);
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+        }
+      }
+    }
+    return "";
   }
 
   function parseAmount(raw) {
-    var candidates = [];
-    raw.split(/\n/).forEach(function(line) {
-      var score = /(총\s*액|합\s*계|결제\s*금액|승인\s*금액|받을\s*금액|total)/i.test(line) ? 10 : 0;
-      var numbers = line.match(/\d[\d,.\s]{2,}\s*원?/g) || [];
-      numbers.forEach(function(number) {
-        var value = Number(number.replace(/[^0-9]/g, ""));
-        if (value >= 100 && value <= 2000000000) candidates.push({ value: value, score: score });
+    var moneyShaped = [];
+    var bare = [];
+    receiptScanLines(raw).forEach(function(line, index) {
+      if (!line || RECEIPT_NOT_TOTAL_LINE.test(line)) return;
+      var isTotal = RECEIPT_TOTAL_LINE.test(line);
+      // 돈처럼 생긴 것: 천단위 쉼표가 있거나 "원" 이 붙은 것.
+      (line.match(/\d{1,3}(?:,\d{3})+|\d{3,9}\s*원/g) || []).forEach(function(token) {
+        var value = Number(token.replace(/[^0-9]/g, ""));
+        if (value >= 100 && value <= 2000000000) moneyShaped.push({ value: value, isTotal: isTotal, index: index });
+      });
+      // 쉼표도 원도 없는 맨숫자는 마지막 수단으로만 쓴다. 예전 정규식은 문자군에
+      // 공백을 넣어 두어 "2026 08 10" 같은 것도 한 덩어리 숫자로 삼켰다.
+      (line.match(/(?<![\d,.\-])\d{3,7}(?![\d,.\-])/g) || []).forEach(function(token) {
+        var value = Number(token);
+        if (value >= 100 && value <= 2000000000) bare.push({ value: value, isTotal: isTotal, index: index });
       });
     });
-    candidates.sort(function(left, right) {
-      return right.score - left.score || right.value - left.value;
-    });
-    return candidates.length ? candidates[0].value : 0;
+    function pick(list) {
+      if (!list.length) return 0;
+      var totals = list.filter(function(item) { return item.isTotal; });
+      // 영수증의 합계는 아래쪽에 있다. 할인 뒤 결제금액을 집으려면 더 아래를 믿어야 한다.
+      if (totals.length) {
+        return totals.sort(function(a, b) { return b.index - a.index || b.value - a.value; })[0].value;
+      }
+      return list.sort(function(a, b) { return b.value - a.value; })[0].value;
+    }
+    return pick(moneyShaped) || pick(bare);
   }
 
   function parseMerchant(raw) {

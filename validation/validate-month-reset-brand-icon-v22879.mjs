@@ -6,7 +6,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.83-TONE-AWARE-HEROES"'), "runtime exposes the month reset and brand icon release");
+ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the month reset and brand icon release");
 
 // ---------------------------------------------------------------------------
 // P0-1. 월이 계속 지난달로 고정되는 문제

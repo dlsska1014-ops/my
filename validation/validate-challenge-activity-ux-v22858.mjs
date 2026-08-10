@@ -14,7 +14,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.83-TONE-AWARE-HEROES"'), "V22.8.58 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "V22.8.58 runtime version is explicit");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "shell uses a fresh immutable URL");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "activity runtime uses a fresh immutable URL");
 ok(source.includes('"accountbook-shell-v22882-css"'), "shell ETag is refreshed");
