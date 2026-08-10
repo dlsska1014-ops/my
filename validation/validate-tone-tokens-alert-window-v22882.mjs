@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.82-TONE-TOKENS-ALERT-WINDOW"'), "runtime exposes the V22.8.82 release");
+ok(source.includes('const APP_VERSION = "V22.8.83-TONE-AWARE-HEROES"'), "runtime exposes the V22.8.82 release");
 
 // ---------------------------------------------------------------------------
 // 1. 컬러톤을 블루로 바꿔도 일부 화면이 amber 로 남던 문제
@@ -47,7 +47,9 @@ ok(source.includes('html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell
 ok(source.includes('html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small){color:var(--ab12-accent)!important}'), "the light reserve alert text follows the tone");
 
 // 눈에 띄는 화면의 히어로 그라디언트도 톤을 따라간다.
-eq((source.match(/linear-gradient\(135deg,#111827,var\(--ab12-brand,#b45309\)\)/g) || []).length, 3, "the reserve and budget-alert heroes read the tone brand colour");
+// V22.8.83 에서 토큰이 --ab12-brand 에서 --ab12-action 으로 바뀌었다. brand 는 흰
+// 글자 대비가 8개 조합 중 5개에서 4.5:1 에 못 미쳐(최저 2.91) 히어로에 쓸 수 없다.
+eq((source.match(/linear-gradient\(135deg,#111827,var\(--ab12-action,#b45309\)\)/g) || []).length, 3, "the reserve and budget-alert heroes read the contrast-safe tone token");
 eq(source.includes("linear-gradient(135deg,#111827,#b45309)"), false, "no fixed amber hero gradient remains");
 
 // 톤 정의 자체는 그대로 살아 있어야 한다(회수가 아니라 참조로 바꾼 것이다).
