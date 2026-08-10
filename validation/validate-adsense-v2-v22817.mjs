@@ -154,14 +154,17 @@ try {
   const backupSafety = await request("/backup-safety");
   eq(backupSafety.status, 200, "backup safety guide renders for contrast review");
   const backupSafetyHtml = await backupSafety.text();
-  ok(backupSafetyHtml.includes("linear-gradient(135deg,#111827,#92400e);color:#fff") && backupSafetyHtml.includes(".hero p{color:#fff"), "backup safety hero copy meets the stronger foreground rule");
+  // V22.8.83: 히어로 그라디언트가 컬러톤을 따라간다. 흰 글자를 이고 있으므로
+  // 대비 안전 토큰인 --ab12-action 을 읽는다(--ab12-brand 는 8개 조합 중 5개에서
+  // 흰 글자 4.5:1 을 못 넘긴다). 폴백은 원래 색이라 셸 밖에서는 그대로다.
+  ok(backupSafetyHtml.includes("linear-gradient(135deg,#111827,var(--ab12-action,#92400e));color:#fff") && backupSafetyHtml.includes(".hero p{color:#fff"), "backup safety hero copy meets the stronger foreground rule");
   const siteMap = await request("/site-map");
   const siteMapHtml = await siteMap.text();
   ok(siteMapHtml.includes(".pubFooter{display:grid") && siteMapHtml.includes("color:#596579"), "public footer copy uses the strengthened review-page foreground");
   ok(source.includes(".abBusinessFooter{margin:18px") && source.includes("color:#596579;font-size:11px"), "business identity footer uses the strengthened foreground");
   const householdFlow = await request("/household-flow");
   const householdFlowHtml = await householdFlow.text();
-  ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,#0e7490);color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
+  ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,var(--ab12-action,#0e7490));color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
 
   const shellResponse = await request("/assets/accountbook-shell-v22882.css");
   eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
@@ -241,7 +244,7 @@ try {
   ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.82-TONE-TOKENS-ALERT-WINDOW'), "analysis keeps the protected external runtime with the new cache version");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.83-TONE-AWARE-HEROES'), "analysis keeps the protected external runtime with the new cache version");
   eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });

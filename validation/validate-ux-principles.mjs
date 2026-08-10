@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.82-TONE-TOKENS-ALERT-WINDOW"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.83-TONE-AWARE-HEROES"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens
@@ -160,7 +160,10 @@ ok(source.includes('const APP_VERSION = "V22.8.82-TONE-TOKENS-ALERT-WINDOW"'), "
 // read-only note and a "예산 설정 →" link so that editing budgets happens only on
 // /budgets. The table itself and renderBudgetGaugeRows stay untouched.
 eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308fc6eaee5a2b43bc42abe9105f87bf0c764b3aaa", "analysis client matches the V22.8.75 role-split baseline");
-eq(functionBlockHash("function renderMyAnalysisHtml("), "61a3cc27d578cc728c4338cac05b89b2457458722930e8c9e4f984a664296fba", "analysis renderer matches the V22.8.79 budget-path baseline");
+// V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
+// 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을
+// 확인했다). `.meme` 의 #f59e0b 은 히어로가 아니라 그대로 둔다.
+eq(functionBlockHash("function renderMyAnalysisHtml("), "8c9994fdcd9b72d34fb724960bcc1bf831ef0a75e84f53ce76fc50a0919bf9e4", "analysis renderer matches the V22.8.83 tone-aware hero baseline");
 
 const fixture = await createV2265QaFixture();
 try {
