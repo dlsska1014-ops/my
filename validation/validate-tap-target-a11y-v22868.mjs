@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.80-RECURRING-MERGE-BUDGET-CLEANUP"'), "runtime exposes the tap target release");
+ok(source.includes('const APP_VERSION = "V22.8.81-BUDGET-BASIS-INCOME-WORDING-IA"'), "runtime exposes the tap target release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22880.css"'), "shell asset moved to a fresh immutable path");
 ok(source.includes('"accountbook-shell-v22880-css"'), "shell asset has a fresh immutable ETag");
 
