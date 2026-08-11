@@ -1908,7 +1908,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY";
+const APP_VERSION = "V22.8.85-DESIGN-TOKENS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19682,7 +19682,7 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22879.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js";
@@ -19761,6 +19761,19 @@ const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
 html{background:#f2f4f6;color-scheme:light}
 html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
 body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#5f6b7a;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff;--ab12-warn-bg:#fff7ed;--ab12-warn-text:#9a3412;--ab12-warn-line:#fed7aa}
+/* V22.8.85 통합 작업지시서 2.2: 색 말고 나머지 축(간격·타이포·모서리·그림자·전환)에도
+   토큰을 준다. 화면마다 톤이 달랐던 원인이 여기였다 — 각 페이지 인라인 CSS 가 제 값을
+   따로 적어 왔다. 지금은 아무도 쓰지 않으므로 이 커밋의 화면 변화는 0건이고, 이후 PR 이
+   리터럴을 이 토큰으로 옮겨 온다. 리터럴을 새로 적기 전에 여기를 먼저 본다.
+   간격은 6단계 고정이고 중간값을 쓰지 않는다. --ab12-fs-* 는 크기, --ab12-fw-* 는 그
+   크기에 딸린 굵기다(지시서가 "34px / 700" 로 적은 것을 CSS 가 담을 수 있게 나눴다). */
+body.abV22812Shell{--ab12-sp-1:4px;--ab12-sp-2:8px;--ab12-sp-3:12px;--ab12-sp-4:16px;--ab12-sp-5:24px;--ab12-sp-6:32px;--ab12-r-sm:8px;--ab12-r-md:12px;--ab12-r-lg:16px;--ab12-fs-num-xl:34px;--ab12-fw-num-xl:700;--ab12-fs-num-lg:22px;--ab12-fw-num-lg:700;--ab12-fs-title:16px;--ab12-fw-title:700;--ab12-fs-body:14px;--ab12-fw-body:400;--ab12-fs-cap:12px;--ab12-fw-cap:500;--ab12-disabled:#94a3b8;--ab12-elev-card:0 1px 2px rgba(0,0,0,.04);--ab12-elev-float:0 8px 24px rgba(0,0,0,.12);--ab12-dur:180ms;--ab12-ease:cubic-bezier(.2,.8,.2,1)}
+/* V22.8.85 통합 작업지시서 2.1: 증감(--ab12-up/down)과 파싱 밑줄(--ab12-parse-*)은
+   톤을 따라가지 않는다. 뜻을 가리키는 색이지 강조색이 아니라서, 톤을 바꿨다고 "늘었다"가
+   보라색이 되면 안 된다. 그래서 톤 선택자에는 넣지 않고 여기 한 곳에만 둔다.
+   다크에서만 명도를 올린다 — 같은 뜻, 어두운 바탕에서 읽히는 값. */
+body.abV22812Shell{--ab12-up:#c2410c;--ab12-down:#0f766e;--ab12-parse-text:#3182f6;--ab12-parse-amount:#c2410c;--ab12-parse-method:#0f766e}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-up:#fb923c;--ab12-down:#2dd4bf;--ab12-parse-text:#60a5fa;--ab12-parse-amount:#fb923c;--ab12-parse-method:#2dd4bf}
 /* V22.8.82: 경고색은 일부러 톤을 따라가지 않는다. 파란 경고는 경고로 읽히지 않는다.
    대신 값을 흩뿌리지 않고 --ab12-warn-* 한 곳에 모아 "안 바뀌는 것이 의도"임을 남긴다.
    강조색(--ab12-accent*)을 써야 할 자리에 이 값을 쓰면 톤 전환이 닿지 않는다. */
@@ -21920,7 +21933,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22882-css"'
+        ? '"accountbook-shell-v22885-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22879-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

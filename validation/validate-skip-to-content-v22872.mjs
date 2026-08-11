@@ -8,15 +8,15 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the skip-to-content release");
+ok(source.includes('const APP_VERSION = "V22.8.85-DESIGN-TOKENS"'), "runtime exposes the skip-to-content release");
 ok(source.includes("function addSkipToContentLink("), "the shell inserts a skip-to-content link");
 // 감추는 방식이 중요하다. display:none·visibility:hidden 이면 포커스가 가지 않아 링크가 없는 것과 같다.
 ok(!/\.abSkipLink\{[^}]*(display:none|visibility:hidden)/.test(source), "the skip link is not hidden in a way that blocks focus");
 ok(/body\.abV22812Shell \.abSkipLink\{[^}]*position:fixed/.test(source), "the skip link is taken out of the layout flow");
 ok(/\.abSkipLink:focus[^{]*\{[^}]*top:12px/.test(source), "the skip link comes into view when focused");
 ok(/\.abSkipLink\{[^}]*min-height:44px/.test(source), "the skip link meets the 44px target size");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "the shell stylesheet moved to a new immutable address");
-ok(source.includes('"accountbook-shell-v22882-css"'), "the shell stylesheet ships a matching ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css"'), "the shell stylesheet moved to a new immutable address");
+ok(source.includes('"accountbook-shell-v22885-css"'), "the shell stylesheet ships a matching ETag");
 
 const ORIGIN = "https://ttokttok-accountbook.com";
 const q = "month=2026-08&household_id=house-home";

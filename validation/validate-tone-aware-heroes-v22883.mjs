@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the V22.8.83 release");
+ok(source.includes('const APP_VERSION = "V22.8.85-DESIGN-TOKENS"'), "runtime exposes the V22.8.83 release");
 
 // ---------------------------------------------------------------------------
 // 1. 히어로 그라디언트 62곳이 컬러톤을 따라간다
@@ -81,7 +81,7 @@ ok(source.includes("linear-gradient(135deg,#111827,#334155)"), "the slate decora
 //   immutable 1년 캐시 때문에 사용자에게 영영 반영되지 않는다.
 // ---------------------------------------------------------------------------
 
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(source), false, "the swept literals are gone from the shell too");
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ for (const [name, path, fallback] of [
 }
 
 // 셸 CSS 는 정말로 그대로다(내용이 같으면 주소를 올리지 않는 것이 맞다).
-const shellRes = await get("/assets/accountbook-shell-v22882.css");
+const shellRes = await get("/assets/accountbook-shell-v22885.css");
 eq(shellRes.status, 200, "the shell stylesheet is still served at its current address");
 const shellCss = await shellRes.text();
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(shellCss), false, "the shipped shell has no pinned hero colour either");
