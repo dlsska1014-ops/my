@@ -8,9 +8,9 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.85-DESIGN-TOKENS"'), "runtime exposes the mobile surface repair release");
+ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime exposes the mobile surface repair release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22886.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed quick input runtime uses a new immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
@@ -98,9 +98,9 @@ try {
   ok(shell.text.includes(".abQuickInputBody{overscroll-behavior:contain"), "deployed shell contains the quick input scroll");
   ok(shell.text.includes('.chipRow button:before{content:var(--ab-chip-icon'), "deployed shell draws quick input chip icons");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22879.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22886.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22879-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22886-js"', "new navigation ETag is correct");
   ok(nav.text.includes("dockMobileAction"), "deployed navigation runtime docks the mobile action button");
 
   const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js", { cookie: "" });
@@ -111,7 +111,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
   ok(home.text.includes("/assets/accountbook-shell-v22885.css"), "home loads the refreshed shell");
-  ok(home.text.includes("/assets/accountbook-nav-v22879.js"), "home loads the refreshed navigation runtime");
+  ok(home.text.includes("/assets/accountbook-nav-v22886.js"), "home loads the refreshed navigation runtime");
   ok(home.text.includes("/assets/accountbook-v5-v22873.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");

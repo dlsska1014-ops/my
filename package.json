@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.85-design-tokens-validation",
+  "name": "kakao-accountbook-v22.8.86-deferred-edit-forms-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22885.sh",
+    "validate:unix": "bash validate_v22886.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -53,6 +53,7 @@
     "validate:tone-tokens-alert-window": "node validation/validate-tone-tokens-alert-window-v22882.mjs",
     "validate:tone-aware-heroes": "node validation/validate-tone-aware-heroes-v22883.mjs",
     "validate:receipt-parse-accuracy": "node validation/validate-receipt-parse-accuracy-v22884.mjs",
-    "validate:design-tokens": "node validation/validate-design-tokens-v22885.mjs"
+    "validate:design-tokens": "node validation/validate-design-tokens-v22885.mjs",
+    "validate:deferred-edit-forms": "node validation/validate-deferred-edit-forms-v22886.mjs"
   }
 }

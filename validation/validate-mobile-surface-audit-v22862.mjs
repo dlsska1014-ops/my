@@ -8,9 +8,9 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.85-DESIGN-TOKENS"'), "runtime exposes the audit fix release");
+ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "navigation runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22886.js"'), "navigation runtime uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
@@ -46,9 +46,9 @@ try {
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
   ok(shell.text.includes(".chipRow button:before{content:var(--ab-chip-icon"), "V22.8.61 chip icons are preserved");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22879.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22886.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22879-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22886-js"', "new navigation ETag is correct");
   ok(nav.text.includes("dockMobileAction"), "deployed navigation runtime still docks the mobile action button");
 
   // 점검한 모든 사용자 탭이 200으로 응답하고 새 셸을 정확히 한 번 참조해야 한다.

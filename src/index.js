@@ -1025,6 +1025,12 @@ export default {
         return handleAdminUpdateTransaction(request, env);
       }
 
+      if (url.pathname === "/transactions/edit" && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => {
+          return handleTransactionEditPage(request, env, url);
+        }, "기록 수정 화면");
+      }
+
       if (url.pathname === "/admin/bulk" && request.method === "POST") {
         return handleAdminBulkUpdate(request, env);
       }
@@ -1908,7 +1914,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.85-DESIGN-TOKENS";
+const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5267,6 +5273,55 @@ async function handleAdminDeleteTransaction(request, env) {
     const message = "거래내역을 삭제하지 못했습니다. 기존 기록은 유지됩니다.";
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
   }
+}
+
+// V22.8.86 통합 작업지시서 4.5. 카드에서 뺀 수정 폼을 돌려주는 자리.
+// 두 가지 얼굴을 가진다: fragment=1 이면 <form> 만, 아니면 링크로 도달하는 온전한 화면.
+// 후자가 있어야 JS 가 없거나 늦어도 수정·삭제에 도달할 수 있다(점진적 향상).
+// 권한 판정은 handleAdminUpdateTransaction 과 같은 식을 쓴다 — 여기서 느슨해지면
+// 폼을 못 받게 하는 것이 아니라 남의 기록 내용을 보여 주게 된다.
+async function handleTransactionEditPage(request, env, url) {
+  const id = String(url.searchParams.get("id") || "").trim();
+  const wantsFragment = url.searchParams.get("fragment") === "1";
+  const targetRow = await fetchTransactionRowById(env, id);
+  const rowHousehold = String(targetRow?.household_id || "");
+  const access = await resolveTransactionAccess(request, env, rowHousehold);
+  const isManager = access.admin || ["owner", "admin"].includes(access.role);
+  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  const month = validMonth(String(targetRow?.transaction_date || "").slice(0, 7)) || currentMonthKst();
+  const fallbackPath = `/app?month=${encodeURIComponent(month)}${rowHousehold ? `&household_id=${encodeURIComponent(rowHousehold)}` : ""}`;
+  const backTo = safeUserReturnPath(url.searchParams.get("return_to") || "", fallbackPath);
+
+  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+    const denied = "이 기록을 수정할 권한이 없습니다.";
+    if (wantsFragment) {
+      // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
+      return new Response(`<p class="v8-editError">${escapeHtml(denied)}</p>`, {
+        status: 403,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+      });
+    }
+    if (!access.admin && access.userId) {
+      const target = new URL(backTo, "https://accountbook.local");
+      target.searchParams.set("err", denied);
+      return redirectResponse(`${target.pathname}${target.search}`);
+    }
+    return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
+  }
+
+  const members = await fetchHouseholdMembers(env, rowHousehold);
+  const formHtml = renderV8TxEditForm(targetRow, backTo, members, isManager);
+  if (wantsFragment) {
+    // 개인 기록이므로 캐시에 남기지 않는다.
+    return new Response(formHtml, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+    });
+  }
+
+  const memo = targetRow.memo || targetRow.raw_text || "기록";
+  const title = escapeHtml(appName(env));
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
 }
 
 async function handleAdminUpdateTransaction(request, env) {
@@ -18898,10 +18953,33 @@ function memeCardFor({ rows = [], stats = calculateStats([]), budget = null, mon
   return cards[0] || { id: 'default', rarity: 'N', level: '평온', title: '오늘의 소비몬', line: '지갑이 아직 숨을 쉽니다.', emoji: '😌', expense: 0, balance: 0, topCategory: '기타', month };
 }
 
+// V22.8.86 통합 작업지시서 4.5(지연 로드 계약).
+// 수정 폼은 행마다 1,356 B 이고 홈에 10행이 붙어 13.2 KiB 를 차지했다. 열어 보지도 않는
+// 폼을 첫 응답에 실어 보내던 셈이라, 초기 HTML 에서 빼고 <details> 를 열 때 받는다.
+// 폼 마크업 자체는 한 곳(renderV8TxEditForm)에만 두고 카드·조각·전체 화면이 모두
+// 그것을 쓴다 — 삭제 버튼이 소유 폼 안에 있어야 한다는 V22.8.66 의 계약이 세 갈래로
+// 갈라지면 다시 깨진다.
+function txEditPath(id = "", returnTo = "") {
+  const params = new URLSearchParams({ id: String(id || "") });
+  const back = String(returnTo || "");
+  if (back) params.set("return_to", back);
+  return `/transactions/edit?${params.toString()}`;
+}
+
+function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpender = false) {
+  const memo = t.memo || t.raw_text || "-";
+  const spenderLabel = t.type === "income" ? "수입자" : "지출자";
+  const names = memberNameMap(members);
+  const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
+  const spenderEditor = canEditSpender
+    ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
+    : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
+  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" aria-label="금액"/><input name="memo" value="${escapeHtml(memo === "-" ? "" : memo)}" placeholder="내용" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
+}
+
 function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false) {
   if (!rows.length) return `<div class="v8-empty">아직 기록이 없습니다. 아래 입력 버튼으로 첫 거래를 기록해보세요.</div>`;
   if (!members.length) members = safeArray(rows[0]?.__spenderMembers);
-  canEditSpender = canEditSpender || Boolean(rows[0]?.__canEditSpender);
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
     const memo = t.memo || t.raw_text || "-";
@@ -18909,10 +18987,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     const cls = t.type === "income" ? "income" : "expense";
     const spenderLabel = t.type === "income" ? "수입자" : "지출자";
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
-    const spenderEditor = canEditSpender
-      ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
-      : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
-    return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}"><div class="v8-tx-main"><div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong></div>${(!canEditRow || canEditRow(t)) ? `<details><summary>수정/삭제</summary><form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" aria-label="금액"/><input name="memo" value="${escapeHtml(memo === "-" ? "" : memo)}" placeholder="내용" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form></details>` : ""}</article>`;
+    return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}"><div class="v8-tx-main"><div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong></div>${(!canEditRow || canEditRow(t)) ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary>수정/삭제</summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : ""}</article>`;
   }).join("");
 }
 
@@ -19685,7 +19760,7 @@ const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2281
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22886.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
@@ -21248,11 +21323,51 @@ function accountbookStage4NavClientMain() {
       }
     });
   }
+  // V22.8.86 지연 로드 계약(작업지시서 4.5). 수정 폼은 초기 HTML 에 없다.
+  // <details> 를 처음 열 때 조각을 받아 슬롯을 채운다. 실패하면 슬롯에 남아 있는
+  // 링크를 그대로 두어 화면 이동으로 도달할 수 있게 한다 — 되돌아갈 길을 지운 뒤
+  // 실패하는 것이 가장 나쁘다. 이 스크립트가 아예 안 와도 링크는 처음부터 있다.
+  function bindDeferredEditForms(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    Array.from(scope.querySelectorAll("details[data-ab-edit-src]")).forEach(function (details) {
+      if (details.getAttribute("data-ab-edit-bound") === "1") return;
+      details.setAttribute("data-ab-edit-bound", "1");
+      details.addEventListener("toggle", function () {
+        if (!details.open) return;
+        if (details.getAttribute("data-ab-edit-state")) return;
+        var slot = details.querySelector(".v8-editSlot");
+        var src = details.getAttribute("data-ab-edit-src");
+        if (!slot || !src) return;
+        details.setAttribute("data-ab-edit-state", "loading");
+        slot.setAttribute("aria-busy", "true");
+        fetch(src + (src.indexOf("?") >= 0 ? "&" : "?") + "fragment=1", { credentials: "same-origin", headers: { "x-requested-with": "fetch" } })
+          .then(function (response) {
+            if (!response.ok) throw new Error("status " + response.status);
+            return response.text();
+          })
+          .then(function (html) {
+            if (!html) throw new Error("empty");
+            slot.innerHTML = html;
+            slot.removeAttribute("aria-busy");
+            details.setAttribute("data-ab-edit-state", "ready");
+            var first = slot.querySelector("select,input,button");
+            if (first && typeof first.focus === "function") first.focus();
+          })
+          .catch(function () {
+            // 링크는 지우지 않았으므로 그대로 남는다. 재시도할 수 있게 상태만 푼다.
+            slot.removeAttribute("aria-busy");
+            details.removeAttribute("data-ab-edit-state");
+          });
+      });
+    });
+  }
+
   function apply() {
     bindGlobalActions();
     Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
     hydrateIcons();
     syncActiveNavigation();
+    bindDeferredEditForms(document);
   }
   bindShell();
   apply();
@@ -21939,7 +22054,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22879-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22879-js"'
+          ? '"accountbook-nav-v22886-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
