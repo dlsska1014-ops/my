@@ -60,8 +60,8 @@ try {
   // 4. 스크립트는 이미 받고 있던 내비 자산에 넣었다. 홈 HTML 에 <script> 가
   //    늘지 않아야 "초기 HTML 증가 0" 이 성립한다.
   eq((home.text.match(/<script\b[^>]*\bsrc="/g) || []).length, 4, "홈이 부르는 외부 스크립트 수가 그대로다");
-  ok(home.text.includes('src="/assets/accountbook-nav-v22886.js"'), "지연 로드 처리가 들어간 내비 자산을 새 주소로 받는다");
-  const navAsset = await get("/assets/accountbook-nav-v22886.js", "");
+  ok(home.text.includes('src="/assets/accountbook-nav-v22889.js"'), "지연 로드 처리가 들어간 내비 자산을 새 주소로 받는다");
+  const navAsset = await get("/assets/accountbook-nav-v22889.js", "");
   eq(navAsset.response.status, 200, "새 내비 자산이 서빙된다");
   ok(navAsset.text.includes("data-ab-edit-src"), "내비 자산이 지연 로드 처리를 담고 있다");
   ok(navAsset.text.includes("fragment=1"), "내비 자산이 조각을 요청한다");
@@ -82,7 +82,7 @@ try {
   eq(page.response.status, 200, "링크로 여는 수정 화면이 열린다");
   ok(page.text.includes('class="v8-edit"'), "그 화면에 수정 폼이 있다");
   ok(page.text.includes('data-nav-scope="user"'), "그 화면이 공통 내비를 쓴다");
-  ok(page.text.includes('href="/assets/accountbook-shell-v22888.css"'), "그 화면이 공통 셸을 받는다");
+  ok(page.text.includes('href="/assets/accountbook-shell-v22889.css"'), "그 화면이 공통 셸을 받는다");
 
   // 7. 권한. 새 GET 경로는 쓰기 경로와 같은 판정을 써야 한다 — 느슨하면 폼을 막는
   //    것이 아니라 남의 기록 내용을 보여 준다.

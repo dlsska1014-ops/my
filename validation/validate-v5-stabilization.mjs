@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.88-HOME-BLOCKS-DAILY"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER"'), "runtime reports the challenge and activity UX release");
 ok(source.includes("function selectRequestedScopedHousehold"), "user APIs share strict household selection");
 ok(source.includes('"&household_id=" + encodeURIComponent(currentHousehold())'), "search result links retain the active household");
 ok(source.includes("favIds[fk] = !on"), "favorite optimistic rollback restores the previous state");
@@ -50,8 +50,8 @@ try {
   eq(fixture.db.accountbook_settings.length, settingsBefore, "invalid favorite request creates no setting");
 
   for (const [path, mime] of [
-    ["/assets/accountbook-shell-v22888.css", "text/css"],
-    ["/assets/accountbook-nav-v22886.js", "javascript"],
+    ["/assets/accountbook-shell-v22889.css", "text/css"],
+    ["/assets/accountbook-nav-v22889.js", "javascript"],
     ["/assets/accountbook-v5-v22873.js", "javascript"],
     ["/assets/accountbook-goals-v22843.js", "javascript"],
   ]) {
@@ -64,7 +64,7 @@ try {
   eq(home.response.status, 200, "V5 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "V5 home keeps the HTML shell below 35 KiB");
   ok(home.text.includes("accountbook-v5-v22873.js"), "V5 home loads the shared bundle");
-  ok(home.text.includes("accountbook-nav-v22886.js"), "V5 home loads the shared navigation runtime");
+  ok(home.text.includes("accountbook-nav-v22889.js"), "V5 home loads the shared navigation runtime");
 
   const annual = await request(fixture, "/annual?month=2026-07&household_id=house-home");
   eq(annual.response.status, 200, "annual report renders in the selected household");

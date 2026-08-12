@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.88-HOME-BLOCKS-DAILY"'), "runtime exposes the V22.8.82 release");
+ok(source.includes('const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER"'), "runtime exposes the V22.8.82 release");
 
 // ---------------------------------------------------------------------------
 // 1. 컬러톤을 블루로 바꿔도 일부 화면이 amber 로 남던 문제
@@ -74,8 +74,8 @@ ok(source.includes("const maxAlert = Math.max(...safeArray(plan.alert_days || [9
 //   셸 CSS 내용이 바뀌었다. immutable 1년 캐시라 주소를 올려야 반영된다.
 // ---------------------------------------------------------------------------
 
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22888.css"'), "the shell stylesheet path is bumped");
-ok(source.includes('\'"accountbook-shell-v22888-css"\''), "the shell stylesheet ETag matches its path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22889.css"'), "the shell stylesheet path is bumped");
+ok(source.includes('\'"accountbook-shell-v22889-css"\''), "the shell stylesheet ETag matches its path");
 eq(source.includes("accountbook-shell-v22880"), false, "no stale shell stylesheet reference remains");
 
 // ---------------------------------------------------------------------------
@@ -90,9 +90,9 @@ const form = (data) => ({ method: "POST", body: new URLSearchParams(data), heade
 
 // 배포되는 셸 CSS 안에 amber 리터럴이 남아 있으면 그 규칙은 톤을 따라가지 못한다.
 // 정의(토큰·톤) 밖에서 값이 쓰이는 순간 같은 버그가 다시 생긴다.
-const shellRes = await get("/assets/accountbook-shell-v22888.css");
+const shellRes = await get("/assets/accountbook-shell-v22889.css");
 eq(shellRes.status, 200, "the bumped shell stylesheet is served");
-eq(shellRes.headers.get("etag"), '"accountbook-shell-v22888-css"', "the served ETag matches the path");
+eq(shellRes.headers.get("etag"), '"accountbook-shell-v22889-css"', "the served ETag matches the path");
 const shellCss = await shellRes.text();
 const amberUsers = shellCss.split("\n").filter((line) => /#49351a|#fcd34d|#765b26/.test(line));
 eq(amberUsers.length, 3, "amber values appear only where colours are defined, never where they are applied");
