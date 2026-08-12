@@ -78,11 +78,28 @@ for (const token of ["--ab12-up", "--ab12-down", "--ab12-parse-text", "--ab12-pa
   eq(toneRules.some((rule) => rule.includes(`${token}:`)), false, `no tone override touches ${token}`);
 }
 
-// 6. 이 PR 은 선언만 한다. 아직 아무 규칙도 새 토큰을 소비하지 않아야 "화면 변화 0건"이
-//    성립한다. 소비가 시작되면 이 검사를 그 PR 에서 의도적으로 갱신하게 된다.
-const consumingTokens = ["--ab12-sp-", "--ab12-r-", "--ab12-fs-", "--ab12-fw-", "--ab12-elev-", "--ab12-parse-", "--ab12-dur", "--ab12-ease", "--ab12-up", "--ab12-down", "--ab12-disabled"];
-for (const token of consumingTokens) {
-  eq(shellCss.includes(`var(${token}`), false, `nothing consumes ${token}* yet, so this PR changes no pixels`);
+// 6. V22.8.85 에서는 "아직 아무도 안 쓴다"를 검사했다(그것이 화면 변화 0건의 근거였다).
+//    V22.8.87(M1)이 첫 소비자다 — 하단 탭 가운데 ＋ 와 서랍 안 조작 묶음이 토큰을 읽는다.
+//    그래서 검사를 "쓰기 시작한 것은 폴백과 함께 쓴다"로 바꾼다. 셸은 immutable 1년
+//    캐시라, 새 마크업이 옛 셸을 만나는 창이 존재한다. 그때 폴백이 없으면 ＋ 가 배경 없이
+//    투명하게 뜬다 — 눌러야 할 것이 보이지 않는 상태가 가장 나쁘다.
+const consumedWithFallback = [
+  ["--ab12-r-lg", "16px"],
+  ["--ab12-action", "#1d4ed8"],
+  ["--ab12-elev-float", "0 8px 24px rgba(0,0,0,.12)"],
+  ["--ab12-r-md", "12px"],
+  ["--ab12-line", "#edf1f6"],
+  ["--ab12-surface", "#fff"],
+  ["--ab12-text", "#191f28"],
+  ["--ab12-fs-cap", "12px"],
+];
+for (const [token, fallback] of consumedWithFallback) {
+  ok(shellCss.includes(`var(${token},${fallback})`), `${token} is consumed with a fallback for stale cached shells`);
+}
+// 아직 쓰지 않는 것들은 그대로 두고, 쓰기 시작하는 PR 이 이 목록을 의도적으로 옮기게 한다.
+const notYetConsumed = ["--ab12-sp-", "--ab12-fw-", "--ab12-fs-num-", "--ab12-parse-", "--ab12-dur", "--ab12-ease", "--ab12-up", "--ab12-down", "--ab12-disabled", "--ab12-elev-card"];
+for (const token of notYetConsumed) {
+  eq(shellCss.includes(`var(${token}`), false, `nothing consumes ${token}* yet`);
 }
 
 // 7. 홈 초기 HTML 은 1바이트도 늘지 않아야 한다. 토큰은 외부 셸 자산에만 있고,

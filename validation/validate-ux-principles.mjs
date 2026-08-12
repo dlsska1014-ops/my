@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.87-MOBILE-DOCK-TABS"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens
@@ -163,7 +163,10 @@ eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308f
 // V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
 // 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을
 // 확인했다). `.meme` 의 #f59e0b 은 히어로가 아니라 그대로 둔다.
-eq(functionBlockHash("function renderMyAnalysisHtml("), "8c9994fdcd9b72d34fb724960bcc1bf831ef0a75e84f53ce76fc50a0919bf9e4", "analysis renderer matches the V22.8.83 tone-aware hero baseline");
+// V22.8.87(M1): 머리말 버튼이 하나 늘었다 — 정산. 하단 탭 다섯 칸에서 정산을 빼고
+// 가운데를 기록(＋)에 내주면서, 정산으로 가는 길을 통계 화면 머리말로 옮겼다.
+// /settlement-summary 주소 자체는 그대로다. 함수의 다른 부분은 바뀌지 않았다.
+eq(functionBlockHash("function renderMyAnalysisHtml("), "99773ac36716fb1116464d81862b7003f93477b0b9bf137dab70565a76b9a8d0", "analysis renderer matches the V22.8.87 settlement-entry baseline");
 
 const fixture = await createV2265QaFixture();
 try {

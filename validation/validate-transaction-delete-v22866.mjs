@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime exposes the delete fix release");
+ok(source.includes('const APP_VERSION = "V22.8.87-MOBILE-DOCK-TABS"'), "runtime exposes the delete fix release");
 
 // formaction은 폼에 소속된 제출 버튼에서만 동작한다. 버튼이 </form> 뒤에 있으면
 // 소유 폼이 없어 눌러도 아무 요청이 나가지 않는다.

@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime exposes the V22.8.79 release");
+ok(source.includes('const APP_VERSION = "V22.8.87-MOBILE-DOCK-TABS"'), "runtime exposes the V22.8.79 release");
 
 // ---------------------------------------------------------------------------
 // 정적 계약
@@ -50,7 +50,9 @@ ok(/background:var\(--ab12-surface\)!important/.test(darkSurfaceRule), "the dark
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .txPager span'), "dark coverage exists for the pager");
 
 // 9. 하단탭 "거래" 는 이제 앵커가 아니라 탭 주소를 가리킨다.
-ok(source.includes('["records", "거래", "records", `${app}&tab=transactions`],'), "the unified bottom tab points at the transactions tab without a dead anchor");
+// V22.8.87(M1): 정의에 "가운데 ＋ 인가" 표시가 한 칸 붙었다. 거래 탭이 가리키는
+// 주소는 그대로여야 한다.
+ok(source.includes('["records", "거래", "records", `${app}&tab=transactions`, false],'), "the unified bottom tab points at the transactions tab without a dead anchor");
 eq(source.includes("tab=transactions#feed"), false, "the dead #feed anchor is gone");
 
 // ---------------------------------------------------------------------------

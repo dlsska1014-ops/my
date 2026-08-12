@@ -227,7 +227,16 @@ try {
   eq(currentMonthCalendar.status, 200, "current month calendar renders");
   ok((await currentMonthCalendar.text()).includes('aria-current="date"'), "current date is exposed to assistive technology");
   ok(calendarHomeHtml.includes('aria-label="이전 달"') && calendarHomeHtml.includes('aria-label="다음 달"'), "calendar month navigation has accessible names");
-  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>정산</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
+  // V22.8.87(M1): 다섯 칸은 유지하되 가운데가 정산 → 기록(＋)으로 바뀌었다.
+  // 정산은 통계 화면 머리말의 진입점으로 내려갔고 /settlement-summary 주소는 그대로다.
+  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>입력</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
+  ok(calendarHomeHtml.includes('class="abNavQuick"') && calendarHomeHtml.includes("data-ab-quick-open"), "the centre destination is the quick-entry action");
+  // 정산은 사이드바 "함께" 그룹에 그대로 있다. 사라진 것은 하단 탭 자리뿐이므로
+  // 하단 탭 마크업만 떼어 확인한다.
+  const calendarBottomNav = (calendarHomeHtml.match(/<nav class="abNavBottom"[\s\S]*?<\/nav>/) || [""])[0];
+  ok(calendarBottomNav.length > 0, "the bottom navigation is rendered");
+  ok(!calendarBottomNav.includes('data-key="settlement"'), "settlement no longer occupies a bottom tab");
+  ok(calendarHomeHtml.includes('href="/settlement-summary?month=2026-07&amp;household_id=house-home"'), "settlement stays reachable from the drawer");
   ok(!calendarHomeHtml.includes('class="tab tabAdd"'), "stage 4 mobile home does not duplicate the visible quick-entry action in bottom navigation");
   ok(calendarHomeHtml.includes('class="abLayoutNav ') && calendarHomeHtml.includes("abNavMobileDrawer") && !calendarHomeHtml.includes('class="homeDesktopNav"'), "home uses the shared V5 sidebar as a functional mobile drawer instead of a home-only copy");
   eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22885.css"'), 1, "home loads the current shell exactly once");
@@ -244,7 +253,7 @@ try {
   ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.86-DEFERRED-EDIT-FORMS'), "analysis keeps the protected external runtime with the new cache version");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.87-MOBILE-DOCK-TABS'), "analysis keeps the protected external runtime with the new cache version");
   eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22885.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });

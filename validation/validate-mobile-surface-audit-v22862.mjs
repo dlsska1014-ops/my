@@ -8,14 +8,17 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS"'), "runtime exposes the audit fix release");
+ok(source.includes('const APP_VERSION = "V22.8.87-MOBILE-DOCK-TABS"'), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22885.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22886.js"'), "navigation runtime uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
-// 1. 상단바에 도킹한 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.
-ok(source.includes("body.abV22812Shell .abNavMobileTopActions>*{flex:0 0 auto;width:auto!important}"), "docked top-bar controls keep their intrinsic width");
+// 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.
+//    V22.8.87(M1)에서 "작업" 버튼이 사라지며 감싸던 묶음(.abNavMobileTopActions)도 없어졌다.
+//    그 묶음이 막아 주던 것을 상단바가 직접 막는다 — 늘어나면 가계부 이름이 밀려난다.
+ok(source.includes("body.abV22812Shell .abNavMobileTop>button{flex:0 0 auto;width:auto!important}"), "top-bar controls keep their intrinsic width");
+ok(source.includes("body.abV22812Shell .abNavMobileTop>a{flex:1 1 auto;min-width:0}"), "the accountbook name takes the remaining width and can shrink");
 
 // 2. 최근 내역 필터가 폼 밖으로 칸을 밀어내면 안 된다.
 ok(source.includes("body.abV22812Shell .mobileFilterForm{grid-template-columns:minmax(0,1fr)!important}"), "mobile filter form track can shrink");
@@ -49,7 +52,8 @@ try {
   const nav = await request(fixture, "/assets/accountbook-nav-v22886.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
   eq(nav.response.headers.get("etag"), '"accountbook-nav-v22886-js"', "new navigation ETag is correct");
-  ok(nav.text.includes("dockMobileAction"), "deployed navigation runtime still docks the mobile action button");
+  // V22.8.87(M1): 도킹이 사라지고 뷰포트에 따라 자리를 잡는 방식으로 바뀌었다.
+  ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
 
   // 점검한 모든 사용자 탭이 200으로 응답하고 새 셸을 정확히 한 번 참조해야 한다.
   const month = "2026-07";

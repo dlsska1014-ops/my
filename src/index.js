@@ -40,7 +40,6 @@ function kakaoClientSecret(env) {
 const AB_SKILL_RATE_BUCKETS = globalThis.__AB_SKILL_RATE_BUCKETS || (globalThis.__AB_SKILL_RATE_BUCKETS = new Map());
 const AB_SKILL_EVENTS = globalThis.__AB_SKILL_EVENTS || (globalThis.__AB_SKILL_EVENTS = []);
 
-
 const AB_NLU_RUNTIME_EVENTS = globalThis.__AB_NLU_RUNTIME_EVENTS || (globalThis.__AB_NLU_RUNTIME_EVENTS = []);
 const AB_NLU_RUNTIME_METRICS = globalThis.__AB_NLU_RUNTIME_METRICS || (globalThis.__AB_NLU_RUNTIME_METRICS = new Map());
 const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalThis.__AB_EFFECTIVE_USER_CACHE = new Map());
@@ -327,7 +326,6 @@ function checkSkillRateLimit(userKey = "", env = {}) {
   return { ok: bucket.count <= limit, count: bucket.count, limit, resetInMs };
 }
 
-
 const AB_TRAFFIC_BUCKETS = globalThis.__AB_TRAFFIC_BUCKETS || (globalThis.__AB_TRAFFIC_BUCKETS = new Map());
 const AB_TRAFFIC_EVENTS = globalThis.__AB_TRAFFIC_EVENTS || (globalThis.__AB_TRAFFIC_EVENTS = []);
 const AB_OPS_EVENTS = globalThis.__AB_OPS_EVENTS || (globalThis.__AB_OPS_EVENTS = []);
@@ -363,7 +361,6 @@ function getOpsEventsSnapshot() {
   const lastError = recent.find((e) => e.severity === "error" || e.kind === "server_error" || e.kind === "route_error") || null;
   return { recent, byKind, bySeverity, lastError };
 }
-
 
 function rememberDuplicateEvent(event = {}) {
   try {
@@ -642,7 +639,6 @@ function rateLimitedKakaoText(origin = "") {
     origin ? `가계부 확인\n${origin}/my` : "",
   ].filter(Boolean).join("\n"));
 }
-
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -1011,7 +1007,6 @@ export default {
       if (url.pathname === "/share" && request.method === "GET") {
         return htmlResponse(renderPublicShareCardHtml(url, env));
       }
-
 
       if (url.pathname === "/admin/transactions" && request.method === "POST") {
         return handleAdminAddTransaction(request, env);
@@ -1914,7 +1909,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.86-DEFERRED-EDIT-FORMS";
+const APP_VERSION = "V22.8.87-MOBILE-DOCK-TABS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -1990,7 +1985,6 @@ function publicBaseUrl(env = {}, url = null) {
 function currentRequestBaseUrl(url = null) {
   return normalizeBaseUrl(url?.origin || "");
 }
-
 
 const KAKAO_REPRESENTATIVE_COMMANDS = Object.freeze([
   { order: 1, label: "시작", command: "시작", messageText: "시작", description: "" },
@@ -2091,7 +2085,6 @@ function renderBusinessInfoFooter() {
     <span class="abBusinessFooterItem"><b>서비스</b>${businessFooterText(info.service)}</span>
   </div></footer>`;
 }
-
 
 function publicSupportEmail(env = {}) {
   const value = String(env.PUBLIC_SUPPORT_EMAIL || env.SUPPORT_EMAIL || "").trim();
@@ -4533,7 +4526,6 @@ function attachBusinessInfoFooter(html = "") {
   return source;
 }
 
-
 function safeError(err) {
   if (!err) return "unknown";
   return String(err.message || err).slice(0, 400);
@@ -4690,7 +4682,6 @@ function csvResponse(csv, filename = "accountbook_backup.csv") {
   });
 }
 
-
 function redirectResponse(location, headers = {}) {
   return new Response(null, {
     status: 303,
@@ -4752,7 +4743,6 @@ function mobileAppLocation(url) {
   const hash = tab === "calendar" ? "#calendar" : tab === "import" ? "#file" : tab === "transactions" ? "#quick" : "";
   return `/app${qs.toString() ? `?${qs.toString()}` : ""}${hash}`;
 }
-
 
 function base64UrlEncode(buffer) {
   let binary = "";
@@ -5074,7 +5064,6 @@ function dashboardQuery(month, householdId, extra = {}) {
   const text = qs.toString();
   return text ? `/?${text}` : "/?legacy=1";
 }
-
 
 function isValidTransactionDateString(value) {
   const v = String(value || "").trim();
@@ -5425,8 +5414,6 @@ async function handleAdminHouseholdDelete(request, env) {
   return redirectResponse("/households?msg=deleted");
 }
 
-
-
 async function handleAdminMemberUpdate(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
@@ -5533,11 +5520,9 @@ async function handleAdminMemberNickname(request, env) {
   return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_alias_updated" }));
 }
 
-
 function categorySettingsKey(householdId = "") {
   return `custom_categories:${String(householdId || "default").trim() || "default"}`;
 }
-
 
 function categoryKeywordsSettingsKey(householdId = "") {
   return `category_keywords:${String(householdId || "default").trim() || "default"}`;
@@ -5607,7 +5592,6 @@ function attachCategoryKeywords(categories = [], keywordMap = {}) {
     return { ...c, type, keywords: normalizeCategoryKeywords([...own, ...mapped]) };
   });
 }
-
 
 function keywordEditorCategories(keywordMap = {}, customCategories = []) {
   const guideNames = CATEGORY_KEYWORD_GUIDE.map((g) => g.category);
@@ -5862,7 +5846,6 @@ async function fetchCustomCategories(env, householdId = "") {
     return [...attached, ...defaultCategoryKeywordRows(keywordMap, householdId)];
   }
 }
-
 
 function paymentAssetsKey(householdId = "") {
   return `payment_assets:${String(householdId || "default").trim() || "default"}`;
@@ -6244,7 +6227,6 @@ function applyUserSettingsToParsedTransactions(parsedList = [], categories = [],
   });
 }
 
-
 async function resolveManualInputClassification(env, householdId = "", type = "expense", fields = {}) {
   const cleanType = type === "income" ? "income" : "expense";
   const rawText = normalizeText([fields.raw_text, fields.memo, fields.category, fields.payment_method].filter(Boolean).join(" "));
@@ -6360,7 +6342,6 @@ async function handlePaymentAssetDelete(request, env) {
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
 }
-
 
 function reservePlansKey(householdId = "") {
   return `reserve_plans:${String(householdId || "default").trim() || "default"}`;
@@ -6731,7 +6712,6 @@ async function handleReservePlanDelete(request, env) {
   return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&msg=reserve_deleted`);
 }
 
-
 const CATEGORY_KEYWORD_GUIDE = [
   { category: "식비", type: "expense", why: "식사·장보기·배달처럼 먹는 돈", examples: ["점심","저녁","아침","김밥","도시락","배달","치킨","피자","마트","장보기","편의점","반찬","외식"] },
   { category: "카페/간식", type: "expense", why: "커피·디저트·간식 지출", examples: ["커피","아메리카노","스타벅스","스벅","투썸","메가커피","컴포즈","디저트","빵","베이커리","아이스크림","간식"] },
@@ -6769,8 +6749,6 @@ function keywordGuideChips(name = "", type = "expense", current = []) {
   if (!suggestions.length) return `<span class="emptyKw">추천 키워드 없음</span>`;
   return suggestions.map((k) => `<button class="kwSuggest" type="button" data-kw="${escapeHtml(k)}" onclick="addKeywordToInput(this)">${escapeHtml(k)}</button>`).join("");
 }
-
-
 
 async function handleChatbotEditGuidePage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
@@ -6831,7 +6809,6 @@ async function handleCategoryAdminPage(request, env, url) {
   return htmlResponse(renderCategoryAdminHtml({ env, households, selected, householdId, custom, displayCategories, msg, err }));
 }
 
-
 async function handleCategoryCreate(request, env) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const form = await request.formData();
@@ -6887,7 +6864,6 @@ async function handleCategoryDelete(request, env) {
     }
   }
 }
-
 
 async function handleCategoryKeywordsSave(request, env) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -7645,8 +7621,6 @@ function selectRequestedScopedHousehold(households = [], householdId = "") {
   return safeArray(households).find((h) => String(h.id) === requested) || null;
 }
 
-
-
 function memberAliasSettingsKey(householdId = "") {
   return `member_aliases:${String(householdId || "default").trim() || "default"}`;
 }
@@ -7756,7 +7730,6 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
   });
 }
 
-
 async function fetchAllHouseholdMembersMap(env, households = []) {
   const out = {};
   for (const h of households || []) {
@@ -7840,7 +7813,6 @@ async function countHouseholdTransactions(env, householdId) {
   return supabaseExactCount(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(householdId)}&select=id`);
 }
 
-
 function memberNameMap(members = []) {
   const map = {};
   for (const m of members) if (m.user_id) map[m.user_id] = m.nickname || "구성원";
@@ -7908,7 +7880,6 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   return fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`, { limit: rowLimit, maxRows: rowLimit });
 }
 
-
 function renderServerLoginHtml(env, error = "", returnTo = "/?legacy=1") {
   const title = escapeHtml(appName(env));
   const safeReturnTo = safeAdminReturnPath(returnTo, "/?legacy=1");
@@ -7921,7 +7892,6 @@ body{margin:0;background:#f5f7fb;color:#111827;font-family:system-ui,-apple-syst
 
 const SERVER_DASHBOARD_CSS = `
 :root{--bg:#eef3fb;--card:#fff;--line:#e2e8f0;--text:#0f172a;--muted:#64748b;--blue:#2563eb;--blue2:#dbeafe;--red:#ef4444;--red2:#fee2e2;--green:#16a34a;--green2:#dcfce7;--amber:#f59e0b;--purple:#7c3aed;--shadow:0 16px 36px rgba(15,23,42,.09)}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at top left,#dbeafe 0,#eef3fb 30%,#f8fafc 82%);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1380px;margin:0 auto;padding:22px}.hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.brand{display:flex;gap:14px;align-items:center}.logo{width:54px;height:54px;border-radius:20px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:var(--shadow)}h1{font-size:30px;margin:0 0 5px;letter-spacing:-.04em}.subtitle{color:var(--muted);font-size:13px;line-height:1.55}.card{background:rgba(255,255,255,.94);border:1px solid rgba(226,232,240,.95);border-radius:24px;box-shadow:var(--shadow);padding:18px;margin:14px 0}h3{margin:0 0 12px;letter-spacing:-.03em}.sectionHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.toolbar{display:grid;grid-template-columns:1.1fr 150px 120px 150px 150px 1fr 96px 88px 76px;gap:9px}input,select,button{font:inherit;border-radius:13px}input,select{border:1px solid #cbd5e1;background:#fff;padding:10px;min-width:0}button,.btn{border:0;background:var(--blue);color:#fff;font-weight:850;padding:10px 13px;text-decoration:none;display:inline-block;border-radius:13px;cursor:pointer;white-space:nowrap}.secondary{background:#e2e8f0;color:#0f172a}.danger{background:#ef4444}.ghost{background:#fff;color:#1e293b;border:1px solid #cbd5e1}.small{font-size:12px;padding:7px 10px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}.muted{color:var(--muted);font-size:13px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 2px;position:sticky;top:0;z-index:20;background:rgba(238,243,251,.82);backdrop-filter:blur(10px);padding:9px;border-radius:18px;border:1px solid rgba(226,232,240,.8)}.tab{padding:10px 14px;border-radius:999px;text-decoration:none;color:#334155;background:#fff;border:1px solid #cbd5e1;font-weight:900;font-size:13px}.tab.active{background:#0f172a;color:#fff;border-color:#0f172a}.grid8{display:grid;grid-template-columns:repeat(8,1fr);gap:12px}.kpi{min-height:122px;position:relative;overflow:hidden}.kpi:after{content:"";position:absolute;right:-18px;top:-18px;width:74px;height:74px;border-radius:50%;background:rgba(37,99,235,.09)}.kpi span{color:var(--muted);font-size:12px;font-weight:900}.kpi b{display:block;font-size:23px;margin-top:9px;letter-spacing:-.04em}.kpi small{display:block;color:var(--muted);font-size:11px;margin-top:5px}.income{color:var(--green)}.expense{color:var(--red)}.balance{color:var(--blue)}.amber{color:var(--amber)}.purple{color:var(--purple)}.quick{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}.chip{border-radius:999px;padding:7px 11px;background:#fff;border:1px solid #cbd5e1;text-decoration:none;color:#0f172a;font-weight:850;font-size:12px;display:inline-block}.chip.hot{background:var(--red2);border-color:#fecaca;color:#991b1b}.chip.blue{background:var(--blue2);border-color:#bfdbfe;color:#1d4ed8}.layout{display:grid;grid-template-columns:1.25fr .75fr;gap:14px}.layout2{display:grid;grid-template-columns:.95fr 1.05fr;gap:14px}.analysisGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.insight{border-radius:18px;border:1px solid var(--line);padding:14px;background:#fff}.insight.warn{background:#fff7ed;border-color:#fed7aa}.insight.danger{background:#fef2f2;border-color:#fecaca}.insight.good{background:#f0fdf4;border-color:#bbf7d0}.insight b{display:block;font-size:17px;margin-bottom:5px}.memeCard{border-radius:28px;padding:21px;color:#fff;background:linear-gradient(135deg,#1d4ed8,#7c3aed 55%,#db2777);box-shadow:0 18px 45px rgba(79,70,229,.24);min-height:258px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden;animation:floatCard 4s ease-in-out infinite alternate}.memeCard:before{content:"";position:absolute;inset:-20%;background:linear-gradient(120deg,transparent 25%,rgba(255,255,255,.28) 45%,transparent 65%);transform:translateX(-120%) rotate(12deg);animation:holoSweep 4.2s linear infinite}.memeCard:hover{transform:translateY(-4px) rotate(-.8deg)}.memeEmoji{font-size:50px}.memeTitle{font-size:28px;font-weight:950;letter-spacing:-.05em}.memeTag{font-size:15px;line-height:1.55;opacity:.95}.memeShare{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);padding:11px;border-radius:16px;font-size:12px;line-height:1.45}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.weekday{text-align:center;color:var(--muted);font-weight:950;font-size:12px;padding:4px}.day{min-height:106px;border:1px solid var(--line);border-radius:20px;background:#fff;padding:10px;text-decoration:none;color:inherit;position:relative;transition:.14s}.day:hover{outline:3px solid #bfdbfe;transform:translateY(-1px)}.blank{background:transparent;border:0}.heat0{background:#fff}.heat1{background:#eff6ff}.heat2{background:#dbeafe}.heat3{background:#bfdbfe}.heat4{background:#93c5fd}.heat5{background:#60a5fa;color:#0f172a}.selected{outline:3px solid var(--blue)}.today{box-shadow:inset 0 0 0 2px #111827}.dateNo{font-weight:950}.dayAmt{font-size:12px;margin-top:8px;font-weight:950}.dayCount{font-size:11px;color:var(--muted);margin-top:3px}.legend{display:inline-block;width:18px;height:10px;border-radius:999px;border:1px solid #cbd5e1;margin:0 4px}.calendarLegend{font-size:12px;color:var(--muted);white-space:nowrap}.bar{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed)}.rank{margin:11px 0}.rankTop{display:flex;justify-content:space-between;gap:10px;margin-bottom:6px}.rankTop b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.empty{color:var(--muted);padding:18px;text-align:center}.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:18px}table{width:100%;border-collapse:separate;border-spacing:0;background:#fff}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;font-size:13px;vertical-align:top}th{color:var(--muted);background:#f8fafc;position:sticky;top:0;z-index:1}tr:last-child td{border-bottom:0}.pill{border-radius:999px;padding:4px 9px;font-weight:900;font-size:12px}.pill.income{background:#dcfce7;color:#166534}.pill.expense{background:#fee2e2;color:#991b1b}.tag{border-radius:999px;background:#f1f5f9;color:#334155;font-weight:850;font-size:12px;padding:4px 8px;display:inline-block}.tag.miss{background:#fef2f2;color:#991b1b}.editBox{display:grid;grid-template-columns:92px 128px 105px 140px 150px 1fr 66px;gap:6px;margin-top:8px}.addGrid{display:grid;grid-template-columns:110px 150px 130px 1fr 1fr 145px 90px;gap:8px}.bulkBar{display:grid;grid-template-columns:1fr 150px 150px 150px 150px 105px 105px;gap:8px;align-items:center;margin:10px 0}.statTable td,.statTable th{font-size:12px}.footerNote{font-size:12px;color:var(--muted);margin:18px 0}.onboardHero{border-radius:28px;padding:20px;background:linear-gradient(135deg,#eff6ff,#fdf2f8,#fff7ed);border:1px solid #dbeafe;box-shadow:0 16px 36px rgba(15,23,42,.08)}.onboardHero h3{font-size:24px}.onboardGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.onboardStep{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:16px;box-shadow:0 10px 25px rgba(15,23,42,.05)}.onboardStep b{display:block;font-size:17px;margin:7px 0}.onboardStep span{font-size:13px;color:#64748b;line-height:1.5}.exampleGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.exampleChip{border-radius:16px;background:#0f172a;color:#fff;padding:12px;font-weight:900;font-size:13px;line-height:1.45}.exampleChip.light{background:#fff;color:#0f172a;border:1px solid #e2e8f0}.copyBox{border-radius:18px;background:#f8fafc;border:1px dashed #cbd5e1;padding:13px;font-size:13px;line-height:1.65}.onboardActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.onboardActions a,.onboardActions button{border-radius:999px;background:#111827!important;color:#fff!important;text-decoration:none!important;font-weight:950;font-size:12px;padding:9px 12px;border:0;opacity:1}.onboardActions .soft{background:#fff!important;color:#0f172a!important;border:1px solid #cbd5e1!important}.checkList{display:grid;gap:8px}.checkItem{display:flex;gap:8px;align-items:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:11px;font-size:13px}.checkItem span:first-child{font-size:16px}.welcomeBanner{border-radius:24px;padding:18px;background:linear-gradient(135deg,#111827,#2563eb);color:#fff;box-shadow:0 16px 36px rgba(37,99,235,.18)}.welcomeBanner p{margin:6px 0 0;opacity:.9;line-height:1.5}.shareTextArea{width:100%;min-height:86px;border:1px solid #cbd5e1;border-radius:16px;padding:12px;font:inherit;background:#fff}.miniGuide{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.miniGuide{grid-template-columns:1fr}}.premiumHero{border-radius:28px;padding:22px;background:linear-gradient(135deg,#111827,#7c3aed,#db2777);color:#fff;box-shadow:0 22px 60px rgba(79,70,229,.25);position:relative;overflow:hidden}.premiumHero:before{content:"";position:absolute;inset:-30%;background:radial-gradient(circle at 20% 10%,rgba(255,255,255,.24),transparent 25%),linear-gradient(120deg,transparent 35%,rgba(255,255,255,.18) 50%,transparent 65%);animation:holoSweep 5s linear infinite}.premiumHero>*{position:relative;z-index:1}.premiumHero h3{font-size:28px}.premiumGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.premiumCard{border-radius:22px;padding:16px;background:#fff;border:1px solid #e2e8f0;box-shadow:0 12px 28px rgba(15,23,42,.07);position:relative;overflow:hidden}.premiumCard.locked{filter:saturate(.7);background:#f8fafc}.premiumCard .lock{position:absolute;right:14px;top:14px;border-radius:999px;background:#111827;color:#fff;font-size:11px;font-weight:950;padding:5px 8px}.premiumTitle{font-size:18px;font-weight:950;letter-spacing:-.04em;margin:9px 0 5px}.premiumValue{font-size:26px;font-weight:1000;letter-spacing:-.05em}.premiumDesc{font-size:13px;line-height:1.5;color:#475569}.premiumMission{border-radius:18px;background:#fff;border:1px solid #e2e8f0;padding:13px;display:grid;gap:7px}.missionTop{display:flex;justify-content:space-between;gap:10px;align-items:center}.missionBadge{border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:950;padding:5px 8px}.premiumCta{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.premiumCta a,.premiumCta span{border-radius:999px;background:#fff;color:#111827;text-decoration:none;font-weight:950;font-size:12px;padding:9px 12px}.premiumCta .dark{background:#111827;color:#fff}.paywallBox{border-radius:22px;padding:18px;background:linear-gradient(135deg,#fff7ed,#eff6ff);border:1px solid #fed7aa}.premiumPlan{border-radius:22px;border:1px solid #e2e8f0;background:#fff;padding:16px}.premiumPlan b{font-size:22px;display:block;letter-spacing:-.04em}.price{font-size:30px;font-weight:1000;letter-spacing:-.06em;margin:8px 0}.premiumRibbon{display:inline-flex;border-radius:999px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:950;padding:6px 9px}.lockedBlur{position:relative}.lockedBlur:after{content:"고급에서 잠금 해제";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.72);backdrop-filter:blur(2px);font-weight:950;color:#111827;border-radius:inherit}.userLoginHero{max-width:520px;margin:8vh auto}.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#fee500;color:#191919!important;border-radius:14px;padding:13px 16px;font-weight:950;text-decoration:none;border:1px solid #f2d900}.myHero{border-radius:26px;padding:20px;background:linear-gradient(135deg,#fff8dc,#fee500,#fef3c7);border:1px solid #facc15}.myGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.myBox{background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:16px;box-shadow:0 10px 25px rgba(15,23,42,.06)}.myBox b{display:block;font-size:22px;letter-spacing:-.04em}.myTable{overflow:auto;border:1px solid #e2e8f0;border-radius:18px}.loginSetup{font-size:12px;line-height:1.7;background:#0f172a;color:#e5e7eb;border-radius:16px;padding:14px;overflow:auto}.joinGrid{display:grid;grid-template-columns:1fr auto;gap:8px}.userPill{display:inline-flex;gap:6px;align-items:center;border-radius:999px;background:#fff;border:1px solid #e2e8f0;padding:7px 10px;font-size:12px;font-weight:900}.affiliateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.affiliateCard{position:relative;border-radius:22px;padding:16px;background:#fff;border:1px solid #e2e8f0;box-shadow:0 12px 28px rgba(15,23,42,.07);overflow:hidden}.affiliateCard:before{content:"";position:absolute;right:-24px;top:-24px;width:86px;height:86px;border-radius:50%;background:linear-gradient(135deg,#dbeafe,#fef3c7)}.affiliateCard>*{position:relative;z-index:1}.affiliateLabel{display:inline-flex;border-radius:999px;padding:5px 8px;background:#f1f5f9;color:#334155;font-size:11px;font-weight:950}.affiliateTitle{font-size:18px;font-weight:950;letter-spacing:-.04em;margin:9px 0 5px}.affiliateDesc{font-size:13px;line-height:1.5;color:#475569;min-height:58px}.affiliateReason{font-size:12px;line-height:1.45;color:#7c2d12;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;padding:9px;margin:10px 0}.affiliateAction{display:flex;gap:8px;align-items:center;justify-content:space-between}.affiliateAction a{border-radius:999px;background:#0f172a;color:#fff;text-decoration:none;font-size:12px;font-weight:950;padding:9px 11px}.affiliateAction a.disabled{background:#e2e8f0;color:#64748b;pointer-events:none}.adDisclosure{font-size:12px;line-height:1.55;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:12px}.roadmapGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.roadmapBox{border-radius:18px;padding:14px;background:#fff;border:1px solid #e2e8f0}.roadmapBox b{display:block;font-size:16px;margin-bottom:5px}.roadmapBox span{font-size:13px;color:#64748b;line-height:1.5}.partnerHero{border-radius:26px;padding:20px;background:linear-gradient(135deg,#eff6ff,#fdf2f8,#fff7ed);border:1px solid #dbeafe}.partnerHero h3{font-size:24px}.envCode{font-size:12px;line-height:1.7;background:#0f172a;color:#e5e7eb;border-radius:16px;padding:14px;overflow:auto}.shareActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shareBtn{display:inline-block;border-radius:999px;padding:8px 11px;background:#0f172a;color:#fff;text-decoration:none;font-size:12px;font-weight:950}.shareBtn.light{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32)}.miniShare{display:inline-block;margin-top:8px;color:#fff;text-decoration:none;font-size:11px;font-weight:950;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 8px}.cardBackHint{font-size:12px;opacity:.9;margin-top:6px}.packBanner{border-radius:24px;padding:18px;color:#fff;background:linear-gradient(135deg,#ff6b6b,#f59e0b,#22c55e,#3b82f6,#a855f7);box-shadow:0 18px 44px rgba(15,23,42,.15);animation:sparkPop 1.4s ease-in-out infinite alternate}.packBanner b{font-size:26px;letter-spacing:-.04em}.printOnly{display:none}@media print{body{background:#fff}.wrap>*:not(.printTarget){display:none!important}.printOnly{display:block}.sharePage{box-shadow:none!important}}.collectionGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.lootCard{position:relative;border-radius:24px;padding:16px;color:#fff;min-height:220px;overflow:hidden;box-shadow:0 18px 40px rgba(15,23,42,.16);display:flex;flex-direction:column;justify-content:space-between;border:2px solid rgba(255,255,255,.25)}.lootCard:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 15% 10%,rgba(255,255,255,.28),transparent 32%),radial-gradient(circle at 85% 15%,rgba(255,255,255,.16),transparent 28%)}.lootCard>*{position:relative;z-index:1}.lootCard .rarity{display:inline-block;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;background:rgba(255,255,255,.18);backdrop-filter:blur(6px)}.lootCard .cardEmoji{font-size:44px;line-height:1}.lootCard .cardName{font-size:24px;font-weight:950;line-height:1.1;letter-spacing:-.04em}.lootCard .cardLine{font-size:14px;line-height:1.45;font-weight:800}.lootCard .cardSub{font-size:12px;line-height:1.45;opacity:.95}.lootCard .cardShare{margin-top:10px;border-radius:16px;padding:10px 12px;background:rgba(255,255,255,.16);font-size:12px;line-height:1.45}.lootRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.lootMini{border-radius:18px;padding:14px;color:#fff;min-height:168px;box-shadow:0 10px 28px rgba(15,23,42,.12);display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}.lootMini .dayBadge{font-size:11px;font-weight:900;opacity:.9}.lootMini .cardEmoji{font-size:34px}.lootMini .cardName{font-size:19px;font-weight:950;line-height:1.15}.lootMini .cardLine{font-size:13px;line-height:1.35;font-weight:800}.lootMini .cardSub{font-size:11px;line-height:1.4;opacity:.95}.rarity-N,.rarity-C{background:linear-gradient(135deg,#64748b,#334155)}.rarity-R,.rarity-B{background:linear-gradient(135deg,#0ea5e9,#2563eb)}.rarity-SR,.rarity-A{background:linear-gradient(135deg,#7c3aed,#9333ea)}.rarity-SSR,.rarity-S{background:linear-gradient(135deg,#db2777,#f97316)}.rarity-UR,.rarity-SS{background:linear-gradient(135deg,#14b8a6,#06b6d4,#3b82f6)}.rarity-LEGEND,.rarity-SSS{background:linear-gradient(135deg,#f59e0b,#ef4444,#db2777)}.spark{animation:sparkPop 1.6s ease-in-out infinite alternate}.wiggle{animation:wiggle 1.8s ease-in-out infinite}.bounce{animation:bouncy 1.2s ease-in-out infinite alternate}.collectionMeta{display:flex;gap:10px;flex-wrap:wrap}.metaChip{padding:8px 10px;border-radius:999px;background:#fff;border:1px solid #cbd5e1;font-size:12px;font-weight:900}.shareWall{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.shareQuote{border-radius:18px;background:#fff7ed;border:1px solid #fed7aa;padding:12px;font-size:13px;line-height:1.5;font-weight:800}.shareQuote.pink{background:#fdf2f8;border-color:#fbcfe8}.shareQuote.blue{background:#eff6ff;border-color:#bfdbfe}@keyframes floatCard{from{transform:translateY(0)}to{transform:translateY(-6px)}}@keyframes holoSweep{0%{transform:translateX(-120%) rotate(12deg)}100%{transform:translateX(120%) rotate(12deg)}}@keyframes wiggle{0%{transform:rotate(-1deg)}100%{transform:rotate(1deg)}}@keyframes bouncy{0%{transform:translateY(0)}100%{transform:translateY(-5px)}}@keyframes sparkPop{0%{filter:saturate(1)}100%{filter:saturate(1.35) brightness(1.12)}}.progress{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden}.progress span{display:block;height:100%;background:linear-gradient(90deg,#16a34a,#f59e0b,#ef4444)}.filterNote{border:1px dashed #cbd5e1;background:#f8fafc;border-radius:14px;padding:9px 11px;color:#334155;font-size:13px;margin:8px 0 10px}.cleanupGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.cleanupBox{text-decoration:none;color:#0f172a;border:1px solid #e2e8f0;background:#fff;border-radius:18px;padding:17px;display:block}.cleanupBox b{display:block;font-size:26px;color:#ef4444}.cleanupBox span{font-size:13px;color:#64748b}.guideList{line-height:1.9}.tx-card{scroll-margin-top:92px}.tx-row.hiddenByDate{display:none}.trendBars{display:grid;gap:10px}.trendLine{display:grid;grid-template-columns:80px 1fr 120px;gap:10px;align-items:center}.trendLabel{font-size:12px;font-weight:900}.trendValue{text-align:right;font-size:12px}.deltaUp{color:#dc2626;font-weight:900}.deltaDown{color:#16a34a;font-weight:900}.deltaFlat{color:#64748b;font-weight:900}@media(max-width:1100px){.toolbar,.grid8,.layout,.layout2,.analysisGrid,.addGrid,.bulkBar,.cleanupGrid{grid-template-columns:1fr}.hero{display:block}.calendar{font-size:12px}.day{min-height:82px}th,td{font-size:12px;padding:7px}.editBox{grid-template-columns:1fr}.wrap{padding:13px}.tabs{position:static}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}
-
 
 .bulkQuickPanel{display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center;border:1px solid #e7dfd3;background:#fbf7f0;border-radius:18px;padding:13px}.bulkQuickTitle b{display:block;color:#3b352e}.bulkQuickTitle span{font-size:12px;color:#82786c}.bulkQuickPanel button,.bulkQuickPanel .chip{white-space:nowrap}.selectedCount{display:inline-flex;align-items:center;border-radius:999px;background:#dbeafe!important;color:#1e3a8a!important;border:1px solid #93c5fd!important;font-size:12px;font-weight:950;padding:5px 9px;margin-left:6px}@media(max-width:900px){.bulkQuickPanel{grid-template-columns:1fr 1fr}.bulkQuickTitle{grid-column:1/-1}}@media(max-width:560px){.bulkQuickPanel{grid-template-columns:1fr}.bulkQuickPanel button,.bulkQuickPanel .chip{width:100%;justify-content:center}}
 /* v4.0.3 transaction manager */
@@ -8272,17 +8242,6 @@ ${renderMobileBottomNav(tab, month, householdValue)}
 </main>${renderCalendarFilterScript(date)}${renderAutoRefreshScript()}</body></html>`;
 }
 
-
-
-
-
-
-
-
-
-
-
-
 async function checkTableAvailable(env, table) {
   try {
     await supabase(env, `/rest/v1/${table}?select=*&limit=1`, { method: "GET" });
@@ -8315,7 +8274,6 @@ async function checkRpcAvailable(env, rpcName) {
     return { ok: true, detail: "존재(안전 점검 중단)" };
   }
 }
-
 
 async function getSettingValue(env, key) {
   const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" }, []);
@@ -8392,9 +8350,6 @@ function renderSettingsHtml({ env, hasDbPassword, msg = "", err = "" }) {
 *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.top{height:58px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;padding:0 18px;position:sticky;top:0}.top a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:12px;border:1px solid #d1d5db;background:#fff;color:#111827;text-decoration:none;font-weight:900;padding:0 13px;cursor:pointer}.primary,button{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.wrap{max-width:840px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}label{display:block;font-weight:900;margin:12px 0 6px}input{width:100%;height:44px;border:1px solid #cbd5e1;border-radius:14px;padding:0 12px;font:inherit}.muted{color:#64748b;font-size:13px;line-height:1.6}.ok{background:#dcfce7;color:#166534;border-radius:14px;padding:11px;margin:10px 0}.err{background:#fee2e2;color:#991b1b;border-radius:14px;padding:11px;margin:10px 0}.pill{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:900;font-size:12px;background:#eff6ff;color:#1d4ed8}.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:12px;line-height:1.6}</style></head><body>${renderUnifiedNav("settings")}<header class="top"><b>설정</b><nav><a href="/?legacy=1">관리자 홈</a> <a href="/app">모바일 입력</a> <a href="/diagnostics">시스템진단</a></nav></header><main class="wrap"><h1>보안 설정</h1>${msg ? `<div class="ok">${escapeHtml(msgMap[msg] || msg)}</div>` : ""}${err ? `<div class="err">${escapeHtml(errMap[err] || err)}</div>` : ""}<section class="card"><h2>관리자 비밀번호</h2><p class="muted">가계부 접속 비밀번호는 정상입니다. 가족/관리자 외 접근을 막기 위한 관리자 보호장치입니다. 비밀번호는 PBKDF2 방식으로 저장되며 원문은 보관하지 않습니다.</p><p><span class="pill">${hasDbPassword ? "앱 비밀번호 설정됨" : "Cloudflare 초기 비밀번호 사용 중"}</span></p><form method="post" action="/admin/settings/password"><label>현재 비밀번호</label><input name="current_password" type="password" autocomplete="current-password" required/><label>새 비밀번호</label><input name="new_password" type="password" autocomplete="new-password" minlength="10" required/><label>새 비밀번호 확인</label><input name="confirm_password" type="password" autocomplete="new-password" minlength="10" required/><p><button type="submit">비밀번호 변경</button></p></form><div class="warn"><b>중요</b><br/>변경하면 다른 관리자 로그인 세션은 즉시 만료되고 현재 화면은 유지됩니다. 이후에는 Cloudflare 초기 비밀번호가 로그인 수단으로 사용되지 않습니다.</div></section><section class="card"><h2>공유 설정</h2><p class="muted">공유 기능은 기본 공유와 문구 복사를 우선 제공합니다.</p></section><section class="card"><h2>저장 상태</h2><p class="muted">설정 저장이 정상 처리되는지 화면에서 확인하세요.</p></section></main></body></html>`;
 }
 
-
-
-
 function canonicalRouteRows(month = currentMonthKst(), householdId = "") {
   const hid = safeNavHouseholdId(householdId);
   const hh = hid ? `&household_id=${encodeURIComponent(hid)}` : "";
@@ -8429,8 +8384,6 @@ async function handleRouteAuditPage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>경로 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:14px 0}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}a{color:#2563eb;font-weight:900}.ok{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 9px;font-size:12px;font-weight:1000}.note{color:#64748b;line-height:1.6}</style></head><body>${renderUnifiedNav("route-audit", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><section class="hero"><h1>경로 점검</h1><p class="note">화면마다 메뉴명이 달라지지 않도록 표준 메뉴명과 진입 경로를 한 곳에서 확인합니다.</p><form class="filters" method="get" action="/route-audit"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">기준 변경</button></form></section><table><thead><tr><th>표준 메뉴명</th><th>표준 경로</th><th>용도</th><th>상태</th></tr></thead><tbody>${body}</tbody></table></main></body></html>`);
 }
 
-
-
 async function handleTopTabAuditPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const rows = [
@@ -8458,8 +8411,6 @@ async function handleRecordFlowAuditPage(request, env, url) {
   const body = rows.map(([name, route, method, check]) => `<tr><td><b>${escapeHtml(name)}</b></td><td><code>${escapeHtml(route)}</code></td><td>${escapeHtml(method)}</td><td>${escapeHtml(check)}</td><td><span class="ok">점검대상</span></td></tr>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 흐름 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:14px 0}.note{color:#64748b;line-height:1.6}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}code{background:#f1f5f9;border-radius:8px;padding:3px 7px}.ok{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 9px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900;padding:0 12px}</style></head><body>${renderUnifiedNav("flow-audit")}<main class="wrap"><section class="hero"><h1>기록 흐름 점검</h1><p class="note">입력·수정·삭제·일괄변경의 저장 경로와 검증 기준입니다. 실제 DB 변경은 하지 않는 점검 화면입니다.</p><p><a class="btn" href="/?legacy=1&tab=transactions">기록 관리로 이동</a></p></section><table><thead><tr><th>흐름</th><th>경로</th><th>방식</th><th>검증</th><th>상태</th></tr></thead><tbody>${body}</tbody></table></main></body></html>`);
 }
-
-
 
 function backupJsonResponse(data, filename) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -8555,7 +8506,6 @@ async function handleBackupCenterPage(request, env, url) {
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(qs)}">1. 현재 가계부 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">전체 가계부 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
 }
-
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -8682,9 +8632,6 @@ async function handleBackupPreviewPost(request, env) {
     return htmlResponse(renderBackupPreviewHtml({ error: "JSON 파일 형식이나 백업 구조를 확인해 주세요. 원본 데이터는 변경되지 않았습니다." }), 400);
   }
 }
-
-
-
 
 function normalizeComparableText(value) {
   return String(value || "").trim();
@@ -8850,7 +8797,6 @@ async function handleBackupComparePost(request, env) {
   }
 }
 
-
 function renderImportCandidateRows(rows = []) {
   const arr = safeArray(rows).slice(0, 200);
   if (!arr.length) return `<tr><td colspan="8">가져오기 후보가 없습니다.</td></tr>`;
@@ -8917,7 +8863,6 @@ async function handleBackupCandidateSelectPost(request, env) {
     return htmlResponse(renderBackupCandidateSelectHtml({ households, error: "가져오기 후보를 분석하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
   }
 }
-
 
 function safeCandidatePlanRows(plan) {
   const p = safeObject(plan);
@@ -9023,7 +8968,6 @@ async function handleImportFinalCheckPost(request, env) {
     return htmlResponse(renderImportFinalCheckHtml({ households, error: "최종 확인을 완료하지 못했습니다. 후보 파일을 다시 생성해 주세요." }), 400);
   }
 }
-
 
 const IMPORT_APPLY_LIMIT = 20;
 const IMPORT_CONFIRM_TEXT = "가져오기 적용";
@@ -9142,7 +9086,6 @@ async function handleImportApplyPost(request, env) {
   }
 }
 
-
 function isBackupImportSource(value) {
   return String(value || "").includes("backup_import_");
 }
@@ -9230,7 +9173,6 @@ async function handleImportHistoryCsv(request, env, url) {
   });
 }
 
-
 function renderRollbackCandidateRows(rows = []) {
   const arr = safeArray(rows).slice(0, 500);
   if (!arr.length) return `<tr><td colspan="10">되돌리기 후보가 없습니다.</td></tr>`;
@@ -9289,7 +9231,6 @@ async function handleRollbackCandidatePage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>되돌리기 후보</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1200px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#fff7ed;color:#9a3412;font-weight:1000}.actions{display:flex;gap:8px;flex-wrap:wrap}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:1080px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.rollbackCheck{width:20px;height:20px}code{background:#f1f5f9;border-radius:8px;padding:3px 6px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>되돌리기 후보 화면</h1><p>가져오기 이력 중 되돌릴 후보만 선택해 계획 JSON을 만듭니다. 이 화면은 DB에서 삭제하지 않습니다.</p><form class="filters" method="get" action="/backup/rollback-candidates"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="source"><option value="">source 전체</option>${sourceOptions}</select><button type="submit">후보 조회</button></form></section><section class="grid"><div class="metric"><span>되돌리기 후보</span><b>${numberWithCommas(summary.count)}건</b></div><div class="metric"><span>수입 후보</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 후보</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>주의</h2><p class="warnBox">되돌리기 후보 화면은 계획 파일만 만듭니다. 실제 삭제는 다음 단계에서 관리자 비밀번호 재확인, 확인 문구, 중복/존재 재검사 후 제한적으로 처리하는 방식이 안전합니다.</p><div class="actions"><a class="btn light" href="/backup/import-history?${escapeHtml(qs.toString())}">가져오기 이력으로 돌아가기</a><button type="button" class="btn light" onclick="setRollbackChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setRollbackChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadRollbackPlan()">선택 계획 JSON 저장</button></div><div class="selectedBar"><b id="rollbackSelectedCount">0건 선택</b><span id="rollbackSelectedAmount">0원</span></div></section><section class="card"><h2>source별 후보</h2><div class="tableWrap"><table><thead><tr><th>source</th><th>건수</th></tr></thead><tbody>${renderRollbackSourceRows(summary.bySource)}</tbody></table></div></section><section class="card"><h2>되돌리기 후보 상세</h2><p class="note">최근 500건까지만 화면에 표시합니다. 선택 계획은 거래 ID와 거래 요약을 포함합니다.</p><div class="tableWrap"><table><thead><tr><th>선택</th><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderRollbackCandidateRows(rows)}</tbody></table></div></section></main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setRollbackChecks=function(v){document.querySelectorAll('.rollbackCheck').forEach(function(x){x.checked=!!v});updateRollbackSelection()};function selectedRows(){var out=[];document.querySelectorAll('.rollbackCheck').forEach(function(x){if(!x.checked)return;var tr=x.closest('tr');var payload=tr?tr.querySelector('.rollbackPayload'):null;try{if(payload)out.push(JSON.parse(payload.value||'{}'))}catch(e){}});return out}function updateRollbackSelection(){var rows=selectedRows();var amount=0;rows.forEach(function(r){if((r.type||'expense')==='income')amount-=Number(r.amount||0);else amount+=Number(r.amount||0)});var c=document.getElementById('rollbackSelectedCount');var a=document.getElementById('rollbackSelectedAmount');if(c)c.textContent=rows.length+'건 선택';if(a)a.textContent='되돌리기 순지출 영향 '+money(amount)}document.querySelectorAll('.rollbackCheck').forEach(function(x){x.addEventListener('change',updateRollbackSelection)});window.downloadRollbackPlan=function(){var selected=selectedRows();var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'rollback_candidate_plan_only_no_db_write',month:${JSON.stringify(month)},household_id:${JSON.stringify(hid)},selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_rollback_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateRollbackSelection();})();</script></body></html>`);
 }
-
 
 function safeRollbackPlanRows(plan) {
   const p = safeObject(plan);
@@ -9482,12 +9423,6 @@ async function handleUiAuditPage(request, env, url) {
   const rows = checks.map(([name, ok, detail]) => `<tr><td>${escapeHtml(name)}</td><td><b class="${ok ? "ok" : "bad"}">${ok ? "정상" : "확인필요"}</b></td><td>${escapeHtml(detail)}</td></tr>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>UI 안정화 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1000px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900;padding:0 12px}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left}.ok{color:#166534}.bad{color:#991b1b}.card{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;margin:14px 0}</style></head><body>${renderUnifiedNav("ui-audit")}<main class="wrap"><div class="top"><div><h1>UI 안정화 점검</h1><p>웹 배치와 기록 관련 핵심 안정화 항목입니다.</p></div><nav><a class="btn" href="/app">앱</a> <a class="btn" href="/?legacy=1&tab=transactions">기록 관리</a> <a class="btn" href="/diagnostics">시스템진단</a></nav></div><section class="card"><table><thead><tr><th>항목</th><th>상태</th><th>내용</th></tr></thead><tbody>${rows}</tbody></table></section></main></body></html>`);
 }
-
-
-
-
-
-
 
 async function handleUserReadyCheckPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -9760,8 +9695,6 @@ function renderFinalRouteLinks(routes = []) {
 function finalReleaseBaseStyle() {
   return `*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1220px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#020617,#1d4ed8,#0f766e);color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.22)}.hero h1{margin:0;font-size:32px}.hero p{line-height:1.65;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.okb,.badb,.planb{display:inline-flex;border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.planb{background:#e0f2fe;color:#075985}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;background:#fff;min-width:900px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.routeGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.routeLink{display:block;text-decoration:none;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:10px;font-weight:900;overflow-wrap:anywhere}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.note{color:#64748b;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.card{padding:14px}table{min-width:760px}}`;
 }
-
-
 
 async function handleFinalReleasePage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -10281,7 +10214,6 @@ function renderAssetAddSection(ctx = {}) {
 
 const PAYMENT_METHODS_PAGE_STYLE = `*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f4f6fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.srOnly{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#0b1220 0%,#1e3a8a 62%,#2563eb 100%);color:#fff;border-radius:28px;padding:24px 22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.22)}.heroLabel{margin:0;font-size:13px;font-weight:800;color:#bfdbfe;letter-spacing:.02em}.heroNet{font-size:38px;overflow-wrap:anywhere;font-weight:1000;letter-spacing:-.02em;margin:4px 0 2px}.heroDelta{margin:2px 0 0;font-size:14px;font-weight:800}.heroDelta.up{color:#6ee7b7}.heroDelta.down{color:#fca5a5}.heroDelta.flat{color:#cbd5e1;font-weight:600}.heroChips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.heroChips span{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:800}.heroChips span.dim{background:transparent;color:#bfdbfe;font-weight:600}.filters{display:grid;grid-template-columns:1.4fr 1fr auto;gap:8px;margin-top:16px}.filters select,.filters input,.filters button{height:44px;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:0 12px;background:rgba(255,255,255,.95);font:inherit}.filters button{background:#fff;color:#1e3a8a;font-weight:1000;cursor:pointer}.card{background:#fff;border:1px solid #e7eaf0;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.05);overflow:hidden;min-width:0}.card h2{margin:0 0 10px;font-size:18px}.note{color:#64748b;font-size:13px;line-height:1.55}.ok{background:#e8f6ec;color:#166534;border:1px solid #bbe3c8;border-radius:14px;padding:11px 13px;margin:10px 0;font-weight:700}.error{background:#fdeeea;color:#9a3412;border:1px solid #f5cbb9;border-radius:14px;padding:11px 13px;margin:10px 0;font-weight:700}.donutWrap{display:grid;grid-template-columns:190px 1fr;gap:18px;align-items:center}.donut{position:relative;width:180px;height:180px;border-radius:50%}.donut i{position:absolute;inset:34px;background:#fff;border-radius:50%;display:grid;place-content:center;text-align:center;font-style:normal}.donut i b{font-size:20px}.donut i small{display:block;color:#64748b;font-size:11px;margin-top:2px}.assetLegend{list-style:none;margin:0;padding:0;display:grid;gap:8px}.assetLegend li{display:grid;grid-template-columns:12px 1fr auto auto;gap:8px;align-items:center;font-size:13px}.assetLegend i{width:12px;height:12px;border-radius:4px;display:block}.assetLegend b{font-weight:900}.assetLegend em{font-style:normal;color:#64748b;width:38px;text-align:right}.trendWrap svg{width:100%;height:auto;display:block}.groupHead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.groupHead h3{display:flex;align-items:center;gap:8px;margin:0;font-size:16px}.groupHead h3 i{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;font-style:normal;font-size:17px}.groupHead .cnt{color:#94a3b8;font-size:13px;font-weight:800}.groupSum{text-align:right}.groupSum small{display:block;color:#94a3b8;font-size:11px;font-weight:800}.groupSum b{font-size:17px}.groupSum.neg b{color:#dc2626}.rowList{display:grid}.assetRow{border-top:1px solid #f1f5f9}.assetRow>summary,.rowStatic{display:grid;grid-template-columns:40px 1fr auto 16px;gap:12px;align-items:center;padding:12px 2px;list-style:none}.rowStatic{grid-template-columns:40px 1fr auto}.assetRow>summary{cursor:pointer}.assetRow>summary::-webkit-details-marker{display:none}.rowIcon{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;font-size:19px}.rowMain{min-width:0}.rowMain b{display:block;font-size:15px;overflow-wrap:anywhere}.rowMain small{display:block;color:#64748b;font-size:12px;margin-top:2px}.rowMain em{font-style:normal}.rowMain em.stale{color:#b45309;font-weight:800}.rowVal{text-align:right}.rowVal strong{font-size:15px;white-space:nowrap}.rowVal small{display:block;color:#94a3b8;font-size:11px;margin-top:2px}.rowVal.loanVal strong{color:#dc2626}.excluded>summary,.excluded .rowStatic{opacity:.55}.chev{color:#cbd5e1;transition:transform .15s}.assetRow[open]>summary .chev{transform:rotate(180deg)}.rowBody{background:#f8fafc;border:1px solid #eef2f7;border-radius:16px;padding:12px;margin:0 0 12px;display:grid;gap:10px}.quickBal{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.quickBal label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}.quickBal input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 12px;font:inherit;font-weight:800}.quickBal button{height:44px;border:0;border-radius:12px;background:#1d4ed8;color:#fff;font-weight:1000;padding:0 16px;cursor:pointer}.editBox>summary{cursor:pointer;color:#475569;font-weight:900;font-size:13px}.editGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}.editGrid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}.editGrid input,.editGrid select{height:42px;border:1px solid #d1d5db;border-radius:12px;padding:0 10px;font:inherit;background:#fff;width:100%}.editGrid .chk{display:flex;align-items:center;gap:8px;font-size:13px}.editGrid button{height:42px;border:0;border-radius:12px;background:#111827;color:#fff;font-weight:1000;cursor:pointer}.delForm{display:flex;justify-content:flex-end}.delBtn{height:34px;border:0;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 12px;cursor:pointer}.cardCalcLink{font-size:13px;font-weight:900;color:#1d4ed8;text-decoration:none}.kindChips{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px;margin:10px 0}.kindChip{position:relative}.kindChip input{position:absolute;opacity:0;pointer-events:none}.kindChip span{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid #e2e8f0;border-radius:14px;padding:10px 6px;font-size:12px;font-weight:900;color:#475569;background:#fff;cursor:pointer;text-align:center}.kindChip span i{font-style:normal;font-size:19px}.kindChip input:checked+span{border-color:#1d4ed8;background:#eff6ff;color:#1d4ed8;box-shadow:0 0 0 3px rgba(29,78,216,.12)}.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}.formGrid label{display:grid;gap:5px;font-size:12px;font-weight:900;color:#475569}.formGrid input{height:44px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;font:inherit;width:100%}.formGrid .chk{display:flex;align-items:center;gap:8px;font-size:13px}.formGrid .chk small{color:#64748b;font-weight:700}.privacyNote{background:#fff7ed;border:1px solid #fed7aa;color:#92400e;border-radius:14px;padding:11px 12px;font-size:13px;line-height:1.55}.primaryBtn{height:44px;border:0;border-radius:13px;background:#1d4ed8;color:#fff;font-weight:1000;cursor:pointer}.presetRow{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;align-items:center}.presetRow>span{color:#94a3b8;font-size:12px;font-weight:900}.preset{display:inline-flex;align-items:center;gap:4px;border:1px solid #dbe3ee;background:#f8fafc;border-radius:999px;padding:7px 11px;font-size:12.5px;font-weight:900;color:#334155;text-decoration:none}.preset.warn{background:#fff7ed;border-color:#fed7aa;color:#9a3412}.unregBox{background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:12px;margin-bottom:12px}.unregBox b{font-size:14px}.unregBox p{margin:4px 0 0;color:#92400e;font-size:12.5px;line-height:1.5}.steps{margin:8px 0 0;padding-left:18px;color:#475569;line-height:1.7;font-size:14px}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;min-width:680px}th,td{border-bottom:1px solid #eef2f7;padding:10px;text-align:left;font-size:13px}th{color:#64748b;font-size:12px}.badge{display:inline-flex;border-radius:999px;padding:4px 9px;font-size:11.5px;font-weight:900}.badge.okb{background:#dcfce7;color:#166534}:where(a,button,input,select,summary):focus-visible{outline:3px solid #93c5fd;outline-offset:2px}.regLink{color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:999px;padding:4px 9px;font-size:11.5px;font-weight:900;text-decoration:none}@media(max-width:760px){.groupSum{width:100%;text-align:left;padding-left:44px}.wrap{padding:12px 12px 90px}.heroNet{font-size:31px}.filters{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr;justify-items:center}.assetLegend{width:100%}.quickBal{grid-template-columns:1fr}.assetRow>summary{grid-template-columns:36px 1fr auto 12px;gap:8px}.rowStatic{grid-template-columns:36px 1fr auto;gap:8px}.rowIcon{width:36px;height:36px;font-size:17px}}`;
 
-
 async function handlePaymentMethodsPage(request, env, url) {
   const scoped = await getScopedHouseholdsForPage(request, env);
   if (scoped.scope === "none") return redirectResponse("/my");
@@ -10430,7 +10362,6 @@ async function buildProductionOpsAudit(env) {
   };
 }
 
-
 function renderOpsAuditRows(rows = []) {
   return rows.map(([name, ok, detail]) => `<tr><td><b>${escapeHtml(name)}</b></td><td><span class="${ok ? "okb" : "badb"}">${ok ? "정상" : "확인필요"}</span></td><td>${escapeHtml(detail || "")}</td></tr>`).join("");
 }
@@ -10497,8 +10428,6 @@ function renderDiagnosticsHtml({ envStatus, checks, households }) {
   const row = (name, ok, detail) => `<tr><td>${escapeHtml(name)}</td><td><span class="${ok ? "okb" : "badb"}">${ok ? "정상" : "확인필요"}</span></td><td>${escapeHtml(detail || "")}</td></tr>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>진단 · 가계부</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:12px;background:#111827;color:#fff!important;text-decoration:none;font-weight:900;padding:0 12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb,.badb{border-radius:999px;padding:5px 9px;font-weight:900;font-size:12px}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.link{display:block;border:1px solid #e5e7eb;border-radius:16px;padding:13px;text-decoration:none;color:#111827;background:#f8fafc;font-weight:900}</style></head><body>${renderUnifiedNav("diagnostics")}<main class="wrap"><div class="top"><div><h1>시스템진단</h1><p>운영 서버와 Supabase 연결 상태를 화면에서 확인합니다. 민감한 키 값은 표시하지 않습니다.</p></div><a class="btn" href="/?legacy=1">관리자 홈</a></div><section class="card"><h2>환경변수</h2><table><tbody>${envStatus.map(([k, ok]) => row(k, ok, ok ? "설정됨" : "미설정")).join("")}</tbody></table></section><section class="card"><h2>DB/기능 테이블</h2><table><tbody>${checks.map((c) => row(c[0], c[1], c[2])).join("")}</tbody></table><p>확인필요 항목이 보이면 운영센터에서 상태를 확인한 뒤 관리자에게 점검을 요청하세요.</p></section><section class="card"><h2>주요 화면 바로가기</h2><div class="grid"><a class="link" href="/app">모바일 앱</a><a class="link" href="/?legacy=1">관리자 홈</a><a class="link" href="/?legacy=1&tab=import">파일 업로드</a><a class="link" href="/households">가계부·참여자</a><a class="link" href="/categories">분류 설정</a><a class="link" href="/budgets">예산 관리</a><a class="link" href="/smart-tools">무료 스마트 도구</a><a class="link" href="/payment-methods">결제수단</a><a class="link" href="/final-release">최종 배포판</a><a class="link" href="/feature-map">기능맵</a><a class="link" href="/deploy-runbook">배포 런북</a><a class="link" href="/kakao-recent">카카오 저장 확인</a><a class="link" href="/ledger">기록 관리</a><a class="link" href="/ops-audit">배포운영 점검</a><a class="link" href="/health">Health</a></div></section><section class="card"><h2>가계부 목록</h2><table><tbody>${households.map((h) => `<tr><td>${escapeHtml(h.name || "")}</td><td>${escapeHtml(h.id || "")}</td></tr>`).join("") || `<tr><td colspan="2">가계부가 없습니다. /households에서 생성하세요.</td></tr>`}</tbody></table></section></main></body></html>`;
 }
-
-
 
 function userHouseholdRoleLabel(role = "") {
   const map = { owner: "소유자", admin: "관리자", member: "구성원", viewer: "조회전용", pending: "승인대기", blocked: "차단" };
@@ -10574,15 +10503,6 @@ function maskKey(value = "") {
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
 
-
-
-
-
-
-
-
-
-
 function safeNavMonth(month) {
   return validMonth(String(month || "")) || currentMonthKst();
 }
@@ -10656,19 +10576,32 @@ function renderUnifiedNav(active = "home", opts = {}) {
     const links = g.items.map(([key, label, href, itemIcon = "home"]) => `<a data-key="${escapeHtml(key)}"${key === activeKey ? ' class="active"' : ""} href="${escapeHtml(href)}"${key === activeKey ? ' aria-current="page"' : ""}><i class="abNavItemIcon" data-ab-nav-icon="${escapeHtml(itemIcon)}"></i><span>${escapeHtml(label)}</span></a>`).join("");
     return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
+  // V22.8.87 통합 작업지시서 M1. 다섯 칸은 유지하되 가운데를 기록으로 넘긴다.
+  // 정산은 다섯 손가락 자리를 차지할 만큼 자주 쓰는 화면이 아니라 통계 화면
+  // 머리말의 진입점으로 내렸다. /settlement-summary 주소는 그대로다 — 기존 링크와
+  // 북마크가 살아 있어야 한다.
+  //
+  // ＋ 를 <button> 이 아니라 <a> 로 둔 이유: 지시서는 "시트를 여는 버튼"이라고
+  // 적었지만, 버튼은 JS 가 없으면 아무 데도 가지 못한다. 링크로 두면 JS 가 있을 때
+  // 시트를 열고(기존 data-ab-quick-open 경로) 없으면 입력 자리로 이동한다.
+  // 지시서가 대체 목적지로 적은 /quick 은 이 앱에 없는 주소여서, 이미 동작하는
+  // 입력 앵커를 쓴다.
   const bottomDefs = [
-    ["home", "홈", "home", app],
-    ["records", "거래", "records", `${app}&tab=transactions`],
-    ["settlement", "정산", "settlement", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
-    ["stats", "통계", "stats", `/my/analysis?month=${encodeURIComponent(month)}${hh}`],
-    ["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`],
+    ["home", "홈", "home", app, false],
+    ["records", "거래", "records", `${app}&tab=transactions`, false],
+    ["quick", "입력", "plus", `${app}#add`, true],
+    ["stats", "통계", "stats", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, false],
+    ["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`, false],
   ];
-  const bottomLinks = bottomDefs.map(([key, label, icon, href]) => {
-    const on = key === activeKey
+  const bottomLinks = bottomDefs.map(([key, label, icon, href, isQuick]) => {
+    // ＋ 는 어느 화면에 있든 "현재 위치"가 아니다. active 를 주면 파란 원이
+    // 현재 탭 표시와 겹쳐 읽힌다.
+    const on = !isQuick && (key === activeKey
       || (key === "home" && activeKey === "app")
       || (key === "records" && activeKey === "calendar")
-      || (key === "stats" && activeKey === "analysis");
-    return `<a data-key="${escapeHtml(key)}" class="${on ? "active" : ""}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
+      || (key === "stats" && activeKey === "analysis"));
+    const cls = [isQuick ? "abNavQuick" : "", on ? "active" : ""].filter(Boolean).join(" ");
+    return `<a data-key="${escapeHtml(key)}"${isQuick ? ' data-ab-quick-open aria-label="빠른 입력"' : ""} class="${cls}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
   return `<div class="abNavScope" data-nav-scope="${navScope}" hidden></div>${navScope === "user" ? "" : `<style id="unifiedNavStyle">
 :root{--abNavW:238px;--abNavCollapsed:72px;--abSafeTop:env(safe-area-inset-top,0px);--abSafeBottom:env(safe-area-inset-bottom,0px)}
@@ -10817,8 +10750,6 @@ input,select,textarea{border-radius:13px!important}
 </style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
-
-
 async function handleUiPolishCheckPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
@@ -10874,13 +10805,6 @@ async function handleDeploymentCheckPage(request, env, url) {
   ].map(([t, href, d]) => `<a class="linkCard" href="${escapeHtml(href)}"><b>${escapeHtml(t)}</b><span>${escapeHtml(d)}</span></a>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>배포점검</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.02em}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.55;opacity:.92}.progress{height:13px;background:rgba(255,255,255,.22);border-radius:999px;overflow:hidden;margin-top:16px}.progress i{display:block;height:100%;background:#FEE500;border-radius:999px;width:${percent}%}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:13px;font-weight:800}.metric b{font-size:25px}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}.ok,.warn{border-radius:999px;padding:5px 9px;font-size:12px;font-weight:1000}.ok{background:#dcfce7;color:#166534}.warn{background:#fff7ed;color:#9a3412}.linkCard{display:block;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.linkCard b{display:block}.linkCard span{display:block;color:#64748b;font-size:13px;margin-top:4px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:13px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("deployment-check", { month, householdId })}<main class="wrap"><section class="hero"><h1>배포점검</h1><p>최종 배포 전후에 핵심 기능이 살아있는지 한 화면에서 확인합니다. 실제 운영 비밀키 값은 표시하지 않습니다.</p><div class="progress"><i></i></div><p>점검률 ${percent}% · ${okCount}/${checks.length}</p></section><section class="grid"><div class="metric"><span>가계부</span><b>${numberWithCommas(households.length)}개</b></div><div class="metric"><span>이번 달 기록</span><b>${numberWithCommas(rows.length)}건</b></div><div class="metric"><span>예산 설정</span><b>${numberWithCommas(budgets.length)}개</b></div><div class="metric"><span>정기지출</span><b>${numberWithCommas(reserves.length)}개</b></div></section><section class="card"><h2>기능 점검</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>세부</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></section><section class="card"><h2>주요 화면 바로가기</h2><div class="grid">${linkCards}</div></section><section class="card"><h2>배포 전 권장 순서</h2><div class="tip">1. /backup에서 현재 데이터 백업<br/>2. 새 index.js 배포<br/>3. /health에서 버전 확인<br/>4. /start-guide, /app, /budgets, /reserve-plans 확인<br/>5. 카카오 챗봇에서 "요약"과 지출 입력 테스트</div></section></main></body></html>`);
 }
-
-
-
-
-
-
-
 
 async function handleTermsPage(request, env, url) {
   const title = escapeHtml(appName(env));
@@ -10990,7 +10914,6 @@ async function handleBackupSafetyGuidePage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 백업 안전가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#92400e));color:#fff}.hero p{color:#fff;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.step p{color:#64748b}.step a,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>백업·복구 안전가이드</h1><p>베타 운영에서는 새 기능보다 복구 가능성이 먼저입니다. 배포 전후에는 이 순서를 기준으로 움직입니다.</p><p><a class="btn" href="/backup">백업센터</a><a class="btn" href="/operation-center">운영센터</a></p></section><section class="grid">${steps}</section><section class="card"><h2>주의</h2><div class="warn">가져오기와 되돌리기는 전체 데이터를 직접 바꾸는 작업입니다. 반드시 백업 파일을 저장한 뒤, 미리보기 → 비교 → 최종 확인 순서로 진행하세요.</div></section></main></body></html>`);
 }
 
-
 function kakaoGroupFlowBaseStyle() {
   return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#0b1739,#153878);color:#fff}.hero h1{margin:0;font-size:31px;letter-spacing:-.06em}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.flowCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.flowCard span,.tag{display:inline-flex;border-radius:999px;background:#fef9c3;color:#713f12;font-size:12px;font-weight:1000;padding:6px 10px}.flowCard b{display:block;margin-top:10px;font-size:18px}.flowCard p,.muted{color:#64748b;line-height:1.55}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500!important;color:#191919!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:13px;line-height:1.6}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}code,.cmd{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;color:#334155}.commandList{display:grid;gap:8px}.commandList div{border:1px solid #e5e7eb;border-radius:16px;padding:12px;background:#fff}.commandList b{display:block}.commandList span{color:#64748b;font-size:13px}.copyBox{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:12px;white-space:pre-wrap;line-height:1.6}.pillRow{display:flex;flex-wrap:wrap;gap:7px}.pillRow span{display:inline-flex;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:1000;font-size:12px;padding:7px 10px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.grid{grid-template-columns:1fr}table{min-width:680px}}`;
 }
@@ -11082,7 +11005,6 @@ async function handleOpenBuilderFinalUtterancePage(request, env, url) {
   ].join("\n");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>오픈빌더 최종 발화</title><style>${kakaoGroupFlowBaseStyle()}</style></head><body>${renderUnifiedNav("openbuilder-final")}<main class="wrap"><section class="hero"><h1>카카오 OpenBuilder 최종 발화·블록 기준</h1><p>비즈니스 심사와 베타 운영에서 빠지는 발화가 없도록, 대표 발화와 폴백을 모두 /skill로 연결하는 기준입니다.</p><p><a class="btn kakao" href="/kakao-group-flow">단톡방 연결 흐름</a><a class="btn" href="/kakao-commands">챗봇 명령어</a><a class="btn light" href="/openbuilder-guide">기존 설정 가이드</a></p></section><section class="card"><h2>최종 연결 표</h2><div class="tableWrap"><table><thead><tr><th>영역</th><th>대표 발화</th><th>블록 기준</th><th>Skill URL</th></tr></thead><tbody>${openBuilderFinalRows(origin)}</tbody></table></div></section><section class="card"><h2>복사용 요약</h2><div class="copyBox">${escapeHtml(copy)}</div></section><section class="card"><h2>운영 주의</h2><div class="notice">사용자가 실제로 입력하는 자연어는 대부분 폴백으로 들어옵니다. 폴백이 /skill로 연결되지 않으면 Worker 코드가 정상이어도 카카오톡에서는 기본 응답만 나옵니다.</div></section></main></body></html>`);
 }
-
 
 function userPolishBaseStyle() {
   return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em;overflow-x:hidden}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.hero h1{margin:8px 0 10px;font-size:32px;letter-spacing:-.06em}.tag{display:inline-flex;border-radius:999px;background:#FEE500;color:#111827;padding:7px 11px;font-size:12px;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.step{background:#f8fafc;border:1px solid #e8edf4;border-radius:20px;padding:16px}.step b{display:block;font-size:18px}.step span{display:block;color:#64748b;line-height:1.55;margin-top:7px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500;color:#111827!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}.copy{white-space:pre-wrap;background:#111827;color:#f9fafb;border-radius:18px;padding:16px;line-height:1.6;font-family:inherit}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{display:inline-flex;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:13px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e8edf4;padding:11px;text-align:left;vertical-align:top}code{background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;white-space:pre-wrap}.tableWrap{overflow:auto}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.grid{grid-template-columns:1fr}table{font-size:13px}}`;
@@ -11226,7 +11148,6 @@ async function handleMemeCardContentPage(request, env, url) {
   ].map(x=>`<li>${escapeHtml(x)}</li>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 밈 카드 콘텐츠</title><style>${userPolishBaseStyle()}.policy{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.policy li{margin:6px 0}.badge{display:inline-flex;background:#dcfce7;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:1000}.tableWrap table{min-width:760px}</style></head><body>${renderUnifiedNav("meme-card-content")}<main class="wrap"><section class="hero"><span class="tag">밈 카드 콘텐츠</span><h1>Nano Banana 2용 안전한 피식 밈 기준</h1><p>병맛은 살짝만, 문구는 전체이용가로, 카카오 심사에서 걸릴 수 있는 단어 없이 표정과 상황으로 웃기는 방향입니다.</p>${userPolishNav()}</section><section class="card"><h2>우선 제작 카드 4종</h2><div class="tableWrap"><table><thead><tr><th>#</th><th>문구</th><th>캐릭터</th><th>짧은 움직임 아이디어</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>콘텐츠 안전 규칙</h2><ul class="policy">${rules}</ul></section><section class="card"><h2>앱 반영 기준</h2><p><span class="badge">추천</span> 밈 이미지는 먼저 /meme-lab에서 검수하고, 공개/숨김 상태를 둔 뒤 /meme-archive와 공유 화면에 노출합니다. 자동 재생 GIF/WebP는 용량을 작게 유지하고, 정지 이미지 대체본도 같이 보관합니다.</p></section></main></body></html>`);
 }
-
 
 const MEME_CONTENT_LIBRARY = Object.freeze([
   {
@@ -11388,7 +11309,6 @@ async function handleOpsSnapshotJson(request, env, url) {
   return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
 }
 
-
 function renderDuplicateSafetyHtml(env = {}) {
   const snapshot = buildOpsSnapshot(env);
   const d = snapshot.duplicates || { recent: [], byKind: {}, bySource: {} };
@@ -11397,7 +11317,6 @@ function renderDuplicateSafetyHtml(env = {}) {
   const kindCards = Object.entries(d.byKind || {}).map(([k,v]) => `<div class="metric"><span>${escapeHtml(k)}</span><b>${numberWithCommas(v)}</b></div>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>중복 저장 방어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:14px}.metric span{display:block;color:#64748b}.metric b{font-size:23px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:9px;text-align:left;font-size:13px;vertical-align:top}.tableWrap{overflow:auto}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.note{color:#64748b;line-height:1.6}code{font-size:11px;word-break:break-all}</style></head><body><main class="wrap"><section class="hero"><h1>중복 저장·대량 입력 안전센터</h1><p>카카오 재전송, 같은 폼 반복 제출, CSV 대량 가져오기에서 데이터 중복과 과부하를 막는 운영 현황입니다.</p><p><a class="btn" href="/operation-center">운영센터</a> <a class="btn" href="/ops-dashboard">운영 대시보드</a> <a class="btn" href="/ops-duplicates">중복 방어</a></p></section><section class="grid"><div class="metric"><span>중복 방어 시간</span><b>${numberWithCommas(limits.duplicate_guard_seconds || 0)}초</b></div><div class="metric"><span>카카오 재전송 방어</span><b>${numberWithCommas(limits.kakao_retry_dedup_seconds || 0)}초</b></div><div class="metric"><span>카카오 반복 발화</span><b>${numberWithCommas(limits.kakao_repeat_guard_seconds || 0)}초</b></div><div class="metric"><span>CSV 1회 처리 제한</span><b>${numberWithCommas(limits.my_import_limit || 0)}건</b></div><div class="metric"><span>카카오 1회 처리 제한</span><b>${numberWithCommas(limits.kakao_bulk_limit || 0)}건</b></div></section><section class="card"><h2>이벤트 요약</h2><div class="grid">${kindCards || `<div class="metric"><span>최근 이벤트</span><b>0</b></div>`}</div><p class="note">이 목록은 Worker 인스턴스 메모리 기준입니다. 배포/재시작/인스턴스 변경 시 초기화될 수 있습니다.</p></section><section class="card"><h2>최근 이벤트</h2><div class="tableWrap"><table><thead><tr><th>시간</th><th>종류</th><th>입력경로</th><th>날짜</th><th>금액</th><th>가계부</th><th>내용</th></tr></thead><tbody>${rows}</tbody></table></div></section></main></body></html>`;
 }
-
 
 function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [] }) {
   const budget = budgetSummary(rows, budgets);
@@ -12697,7 +12616,6 @@ async function handleBudgetAlertGuidePage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 예산 알림 가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:960px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff}.hero p{color:#ffedd5;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.box{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px}.box p{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}</style></head><body><main class="wrap"><section class="hero"><h1>예산 알림 가이드</h1><p>예산 알림은 사용자를 재촉하는 기능이 아니라 오늘 얼마나 써도 되는지 알려주는 생활 안내판입니다.</p><p><a class="btn" href="/budget-alerts">예산 알림 센터</a></p></section><section class="grid"><div class="box"><h2>오늘 사용 가능</h2><p>남은 예산을 남은 날짜로 나눠 계산합니다. 이번 달 예산을 넘기지 않기 위한 하루 기준 금액입니다.</p></div><div class="box"><h2>월말 예상</h2><p>오늘까지의 평균 지출 속도를 월말까지 이어간다고 가정해 예상 지출을 계산합니다.</p></div><div class="box"><h2>정기지출 반영 예정</h2><p>아직 이번 달에 반영되지 않은 정기지출을 별도로 보여줘서 월말 예상의 빈칸을 줄입니다.</p></div><div class="box"><h2>초과/주의 분류</h2><p>분류별 예산 대비 85% 이상이면 주의, 100% 이상이면 초과로 표시합니다.</p></div></section><section class="card"><h2>운영 기준</h2><p>이 화면은 기존 거래 저장 로직과 권한 구조를 바꾸지 않습니다. 로그인 사용자는 자신이 참여한 가계부 범위 안에서만 예산 알림을 볼 수 있습니다.</p></section></main></body></html>`);
 }
 
-
 function settlementRoleAllowed(role = "") {
   return !["blocked"].includes(String(role || "").toLowerCase());
 }
@@ -12778,7 +12696,6 @@ function renderTemplateCreateForm(title, description, suggestedName, emoji, temp
   const href = `/my/households?template=${encodeURIComponent(templateKey)}&suggested_name=${encodeURIComponent(suggestedName)}#create`;
   return `<article class="tmpl"><div class="emoji">${escapeHtml(emoji)}</div><b>${escapeHtml(title)}</b><p>${escapeHtml(description)}</p><small>추천 이름: ${escapeHtml(suggestedName)}</small><a class="templateStart" href="${escapeHtml(href)}">이름·비밀번호 확인 후 만들기</a></article>`;
 }
-
 
 async function handleReleaseCandidateCheckPage(request, env, url) {
   const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
@@ -13016,7 +12933,6 @@ async function handleTrafficOpsPage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 트래픽 운영</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff}.hero p{color:#fed7aa;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px}.box b{display:block;font-size:24px;margin-top:5px}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{border-radius:999px;padding:7px 10px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:900}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.note{color:#64748b;line-height:1.6}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}</style></head><body><main class="wrap"><section class="hero"><h1>트래픽 운영센터</h1><p>쓰기 요청과 카카오 스킬 요청의 과도 호출을 1차로 방어하고, 최근 제한 이벤트를 확인합니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/deployment-check">배포점검</a></p></section><section class="grid"><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets)}</b></div><div class="box"><span>Traffic 제한 이벤트</span><b>${numberWithCommas(traffic.recent.length)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000))}/분</b></div></section><section class="card"><h2>스킬 이벤트 요약</h2><div class="chips">${skillKind}</div><p class="note">인스턴스 메모리 기반 임시 상태입니다. 장기 통계가 필요하면 다음 단계에서 Supabase 운영 로그 테이블 또는 외부 로그 저장소로 분리합니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section></main></body></html>`);
 }
 
-
 async function handleBrandKitPage(request, env, url) {
   const title = escapeHtml(appName(env));
   const slogan = "말하면 알아서 정리되는 우리집 가계부";
@@ -13065,7 +12981,6 @@ async function handleOpenBuilderReportPage(request, env, url) {
   ].map((x) => `<li>${escapeHtml(x)}</li>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 운영점검</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.startHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.flowGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.flowCard{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;text-decoration:none;color:#111827;border:1px solid #e8edf4;background:#fff;border-radius:18px;padding:13px;min-width:0}.flowCard span{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:999px;background:#111827;color:#fff;font-weight:1000}.flowCard b{display:block}.flowCard small{display:block;color:#667085;font-size:13px;margin-top:4px;line-height:1.35}.flowCard em{font-style:normal;font-size:11px;color:#64748b;background:#f1f5f9;border-radius:999px;padding:5px 8px;white-space:nowrap}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#d1fae5}.skill{background:#111827;color:#fff;border-radius:18px;padding:14px;word-break:break-all;font-weight:1000}.muted{color:#667085;line-height:1.6}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.65}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:11px;text-align:left;vertical-align:top}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-size:13px;font-weight:900}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:10px}}</style></head><body><main class="wrap"><section class="hero"><h1>챗봇 운영점검 리포트</h1><p>정식 챗봇 운영 전 OpenBuilder 블록, 폴백, 응답 문구, 사용자 식별 안정성을 점검합니다.</p></section><section class="card"><h2>Skill URL</h2><div class="skill">${escapeHtml(origin)}/skill</div><p class="warn"><b>가장 중요</b><br/>폴백 블록도 반드시 Skill URL로 연결해야 합니다. 폴백이 고정 문구면 Worker 안정화가 적용되지 않습니다.</p></section><section class="card"><h2>필수 블록/발화</h2><table><thead><tr><th>블록</th><th>대표 발화</th><th>연결</th></tr></thead><tbody>${rows}</tbody></table></section><section class="grid"><div class="card"><h2>심사/운영 주의사항</h2><ul>${warnings}</ul></div><div class="card"><h2>배포 후 테스트 발화</h2><div class="chips">${tests}</div><p class="muted">테스트 중 하나라도 기본 응답으로 빠지면 해당 발화 또는 폴백이 /skill로 연결되지 않은 것입니다.</p></div></section><div class="ok"><b>v15.8 운영 기준</b><br/>/skill에는 과도 요청 제한, 안전 fallback, 최근 이벤트 로그가 적용되어 있습니다. 운영 상태는 /skill-ops에서 확인합니다.</div></main></body></html>`);
 }
-
 
 async function fetchPersistentNluMetrics(env = {}, hours = 168) {
   const cfg = nluOpsConfig(env);
@@ -13223,8 +13138,6 @@ function renderPublicStartGuideHtml({ env, url }) {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작가이드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 46%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.step{background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px}.step b{display:block;font-size:17px}.step span{display:block;color:#667085;margin-top:6px;line-height:1.5}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}</style></head><body><main class="wrap"><section class="hero"><h1>${title} 시작가이드</h1><p>카카오 로그인 없이도 이름과 개인 접속코드로 시작할 수 있습니다.</p><p><a class="btn" href="/my">가계부 시작하기</a></p></section><section class="card"><h2>처음 사용 순서</h2><div class="grid"><div class="step"><b>1. 내 이름과 접속코드</b><span>/my에서 본인만 아는 코드로 접속합니다.</span></div><div class="step"><b>2. 새 가계부 만들기 또는 초대 참여</b><span>가족/모임별로 가계부를 나눕니다.</span></div><div class="step"><b>3. 수입·예산 설정</b><span>분류별 예산 합계가 월 예산이 됩니다.</span></div><div class="step"><b>4. 정기지출 등록</b><span>보험, 통신비, 관리비처럼 반복되는 돈을 등록합니다.</span></div><div class="step"><b>5. 키워드 연결</b><span>자주 쓰는 표현을 분류에 연결합니다.</span></div><div class="step"><b>6. 기록/분석 확인</b><span>홈, 캘린더, 종합분석에서 흐름을 확인합니다.</span></div></div></section></main></body></html>`;
 }
 
-
-
 function renderUserStartGuideHtml({ env, user, households = [], month = currentMonthKst(), checklist = null, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "사용자");
@@ -13284,8 +13197,6 @@ document.querySelectorAll('.tabBtn').forEach(function(btn){
 });
 </script></body></html>`;
 }
-
-
 
 async function handleBeginnerGuidePage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
@@ -13490,8 +13401,6 @@ function renderGuideTab({ month, household, origin = "", skillUrl = "" }) {
   return `<section class="onboardHero"><h3>시작 가이드</h3><p class="muted">처음 쓰는 사람도 바로 기록할 수 있도록 핵심만 정리했습니다.</p><div class="onboardGrid"><div class="onboardStep"><b>1. 기록</b><span>점심 12000원처럼 짧게 입력하거나 모바일에서 금액부터 바로 기록합니다.</span></div><div class="onboardStep"><b>2. 분류</b><span>식비, 교통, 주거, 보험, 의료처럼 기본 분류를 추천하고 직접 분류를 추가할 수 있습니다.</span></div><div class="onboardStep"><b>3. 가족 관리</b><span>초대코드는 가계부·참여자 화면에서만 확인하고, 참여자는 관리자가 승인·제한·방출합니다.</span></div></div></section><section class="layout2"><div class="card"><h3>입력 예시</h3><div class="exampleGrid">${examples}</div><p class="muted">날짜와 결제수단을 함께 쓰면 더 정확합니다. 예: “어제 병원 만오천원”, “쿠팡 3만원 삼성페이”</p></div><div class="card"><h3>운영 메뉴</h3><div class="copyBox"><b>초대코드는 공개하지 않습니다.</b><br/><br/>가계부·참여자에서 초대코드 확인, 참여 승인, 방출, 이름 수정, 삭제를 처리하세요.</div><p class="muted"><a class="btn ghost" href="/households${household?.id ? `?household_id=${encodeURIComponent(household.id)}` : ""}">가계부·참여자</a> <a class="btn ghost" href="/categories">분류 설정</a></p></div></section><section class="layout2"><div class="card"><h3>기본 확인</h3><div class="checkList"><div class="checkItem"><span>✓</span><span>초대코드 입력 후 참여자 수 확인</span></div><div class="checkItem"><span>✓</span><span>카카오톡 입력 후 웹 반영 확인</span></div><div class="checkItem"><span>✓</span><span>요약, 최근, 취소 명령어 확인</span></div></div></div><div class="card"><h3>연결 정보</h3><div class="copyBox"><b>사용자 웹</b><br/>${escapeHtml(origin ? `${origin}/my` : "/my")}<br/><br/><b>스킬 URL</b><br/>${escapeHtml(skillUrl || "-")}</div></div></section>`;
 }
 
-
-
 function renderImportTab({ month, households = [], household, defaultHouseholdId = "", members = [] }) {
   const effectiveHouseholdId = household?.id || defaultHouseholdId || households[0]?.id || "";
   const selectedHousehold = households.find((h) => h.id === effectiveHouseholdId) || household || households[0] || null;
@@ -13515,7 +13424,6 @@ document.getElementById('importFile').addEventListener('change',function(ev){var
 </script>`;
 }
 
-
 function renderTabs(active, month, householdId, extra) {
   const tabs = [
     ["overview", "홈"],
@@ -13536,11 +13444,9 @@ function renderCalendarFilterScript(selectedDate) {
   return `<script>(function(){try{var active=${JSON.stringify(selectedDate || "")};function qs(s){return document.querySelector(s)}function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function apply(date){var visible=0;qsa('.tx-row').forEach(function(r){var show=!date||r.getAttribute('data-date')===date;r.classList.toggle('hiddenByDate',!show);if(show)visible++;});qsa('.calendarDay').forEach(function(a){a.classList.toggle('selected',a.getAttribute('data-date')===date);});var note=qs('#txFilterNote');if(note)note.textContent=date?(date+' 거래 '+visible+'건 표시 중'):(visible+'건 전체 표시 중');var u=new URL(location.href);if(date){u.searchParams.set('date',date);u.searchParams.set('tab','calendar');}else{u.searchParams.delete('date');}history.replaceState(null,'',u.pathname+u.search+(date?'#transactionsSection':''));}qsa('.calendarDay').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var d=this.getAttribute('data-date');apply(d);var t=qs('#transactionsSection');if(t&&t.scrollIntoView)t.scrollIntoView({behavior:'smooth',block:'start'});});});var clear=qs('#clearDateFilter');if(clear){clear.addEventListener('click',function(){apply('');});}if(active)apply(active);}catch(e){console.log('calendar filter disabled',e);}})();</script>`;
 }
 
-
 function renderAutoRefreshScript() {
   return `<script>(function(){try{document.documentElement.setAttribute('data-autorefresh','off');}catch(e){}})();</script>`;
 }
-
 
 function userSessionSecret(env) {
   return requiredSecret(env, "USER_SESSION_SECRET");
@@ -14355,20 +14261,16 @@ async function handleKakaoLoginCallback(request, env, url) {
   }
 }
 
-
 function handleMyLogout() {
   return redirectResponse("/my", {
     "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
   });
 }
 
-
-
 async function fetchUserById(env, userId) {
   const rows = await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=id,nickname,kakao_user_key,created_at&limit=1`, { method: "GET" });
   return rows?.[0] || null;
 }
-
 
 async function fetchRawHouseholdMembers(env, householdId = "") {
   if (!householdId) return [];
@@ -14411,7 +14313,6 @@ async function fetchUserHouseholds(env, userId) {
     return household ? { ...household, role: membership.role || "member", joined_at: membership.created_at } : null;
   }).filter(Boolean);
 }
-
 
 async function createUserHousehold(env, userId, name, nickname) {
   const householdName = String(name || `${nickname || "내"} 가계부`).trim().slice(0, 80) || "내 가계부";
@@ -14463,8 +14364,6 @@ async function withHouseholdCreateLock(env, userId = "", name = "", task) {
     }
   });
 }
-
-
 
 // Excel·Google Sheets는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 셀을 수식으로
 // 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
@@ -14599,7 +14498,6 @@ async function findExactDuplicateTransaction(env, row = {}, options = {}) {
   }) || null;
 }
 
-
 async function handleMyMembersPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -14653,8 +14551,6 @@ async function handleMyBackupPage(request, env, url) {
   const disabled = canImport ? "" : " disabled";
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 UTF-8 CSV로 받습니다. 엑셀에서 바로 열 수 있습니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a></p><p class="muted">컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section><section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script></body></html>`);
 }
-
-
 
 async function handleMyBackupCsv(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -15020,7 +14916,6 @@ function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [],
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 결과</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.ok b{color:#166534}.warn b{color:#9a3412}.bad b{color:#b91c1c}.meta{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.6}.reasonList{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.reasonList li{display:flex;justify-content:space-between;gap:8px;border:1px solid #e5e7eb;border-radius:15px;padding:11px}.reasonList span{color:#64748b}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small,td span{display:block;color:#64748b;line-height:1.5;margin-top:4px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}.soft{background:#eef2f7;color:#111827}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}table{min-width:680px}.btn{width:100%;margin:4px 0}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>가져오기 결과</h1><p>${escapeHtml(selected.name || "가계부")} · ${escapeHtml(parsed.format === "table" ? "제목이 있는 표" : parsed.format === "headerless_table" ? "제목 없는 표" : "자연어 목록")} · ${escapeHtml(parsed.delimiter || "자연어")}로 인식했습니다.</p><p><a class="btn soft" href="${escapeHtml(back)}">백업·가져오기로 돌아가기</a></p></section><section class="metrics"><div class="metric"><span>선택한 행</span><b>${numberWithCommas(selectedCount || imported + duplicate + failed)}</b></div><div class="metric ok"><span>저장 완료</span><b>${numberWithCommas(imported)}</b></div><div class="metric warn"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>설명·합계 제외</span><b>${numberWithCommas(ignored)}</b></div><div class="metric bad"><span>미인식</span><b>${numberWithCommas(notRecognized)}</b></div><div class="metric bad"><span>저장 오류</span><b>${numberWithCommas(failed)}</b></div><div class="metric warn"><span>처리 한도 초과</span><b>${numberWithCommas(limited)}</b></div></section><section class="card"><h2>분석 기준</h2><div class="meta">원본 ${numberWithCommas(parsed.total_rows || 0)}행 · 인식 가능 ${numberWithCommas(parsed.accepted_count || parsed.accepted?.length || 0)}행 · 1회 저장 한도 ${numberWithCommas(importLimit)}행${parsed.header_row ? ` · 제목 행 ${numberWithCommas(parsed.header_row)}번째` : " · 제목 행 없음"}</div><p class="notice"><b>원본 파일은 수정하지 않았습니다.</b><br/>저장하지 못한 행은 아래 원인과 수정 방법을 확인한 뒤 해당 행만 다시 가져오면 됩니다. 중복 제외 행도 새 기록으로 만들지 않았습니다.</p></section><section class="card"><h2>인식한 행 제목</h2><div class="tableWrap"><table><thead><tr><th>원본 제목</th><th></th><th>인식 필드</th></tr></thead><tbody>${mappingRows}</tbody></table></div></section><section class="card"><h2>제외·미인식 사유 요약</h2><ul class="reasonList">${reasonSummary}</ul></section><section class="card"><h2>행별 원인과 수정 방법</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${outcomeRows}</tbody></table></div>${outcomes.length > 160 ? `<p class="notice">화면에는 처음 160행만 표시했습니다. 같은 사유 ${numberWithCommas(outcomes.length - 160)}행은 요약에 포함되어 있습니다.</p>` : ""}</section><section class="card"><h2>저장했지만 자동 보정한 행</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>보정 내용</th><th>원본 미리보기</th></tr></thead><tbody>${warningRows}</tbody></table></div></section><section class="card"><a class="btn" href="${escapeHtml(back)}">다른 파일 가져오기</a> <a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}&feed=all#feed">가져온 기록 확인</a></section></div></div></main><script>try{history.replaceState(null,"",${JSON.stringify(back)});}catch(e){}</script></body></html>`;
 }
 
-
 function recurringDateForMonth(month = currentMonthKst(), day = 1) {
   const ym = validMonth(month) || currentMonthKst();
   const y = Number(ym.slice(0, 4));
@@ -15158,7 +15053,6 @@ function mySettingsLocation(month = currentMonthKst(), householdId = "", extra =
   return `/my/settings?${qs.toString()}`;
 }
 
-
 async function handleMyGroupsPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -15175,8 +15069,6 @@ async function handleMyGroupsPage(request, env, url) {
   const title = escapeHtml(appName(env));
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 단톡방 연결</title><style>${myNavCss()}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.cmd{background:#111827;color:#fff;border-radius:18px;padding:15px;font-size:20px;font-weight:1000;word-break:break-all}.muted{color:#667085;line-height:1.65}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "groups")}<div class="pageMain"><section class="hero"><h1>단톡방-가계부 연결</h1><p>카카오 챗봇이 초대되어 있는 그룹 채팅방에서만 연결할 수 있습니다.</p></section><section class="card"><h2>연결 조건</h2><div class="warn"><b>중요</b><br/>이 기능은 카카오 챗봇이 해당 단톡방에 들어가 있고, 그 방에서 봇에게 메시지를 보낼 수 있을 때만 동작합니다. 일반 웹 화면에서 버튼만 눌러 연결하는 방식이 아닙니다. 웹 접속 사용자와 카카오 챗봇 사용자의 고유키가 다를 수 있으므로, 초대코드를 알고 있는 것을 연결 승인 기준으로 사용합니다.</div></section><section class="card"><h2>연결 명령어</h2><p class="muted">연결하려는 카카오 그룹 채팅방에서 아래 문장을 그대로 보내세요.</p><div class="cmd">단톡방 연결 ${escapeHtml(code)}</div><p class="muted">초대코드는 외부에 공개하지 마세요. 연결 후에는 이 방에서 “점심 12000원 국민카드”, “요약”, “남은예산”을 사용할 수 있습니다.</p><p><a class="btn secondary" href="/my?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}">내 가계부</a> <a class="btn secondary" href="/my/settings?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}">설정</a></p></section><section class="card"><h2>현재 연결 목록</h2><table><thead><tr><th>그룹키</th><th>가계부</th><th>연결일</th><th>연결자</th></tr></thead><tbody>${rows}</tbody></table></section></div></div></main></body></html>`);
 }
-
-
 
 function incomeBudgetCategory(name = "") {
   const clean = String(name || "").trim().slice(0, 60);
@@ -15326,7 +15218,6 @@ async function handleMyBudgetBulkSave(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { err: "budget_save_failed" }));
   }
 }
-
 
 async function getMyPageContext(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -16268,7 +16159,7 @@ svg text{font-family:inherit}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
 ${reportUxCss()}
 </style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
-<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">리포트</span><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 분석합니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
+<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">리포트</span><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 분석합니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
 ${renderReportDashboard(dashboard)}
 ${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) })}
@@ -17447,8 +17338,6 @@ function renderBudgetGaugeRows(budget = {}) {
   }).join("") : `<tr><td colspan="5">아직 분류별 예산이 없습니다. 예산·분류에서 예산을 먼저 설정하세요.</td></tr>`;
 }
 
-
-
 function shortWonLabel(amount = 0) {
   const n = Number(amount || 0);
   if (!n) return "0";
@@ -17505,7 +17394,6 @@ function renderWeekdayTrend(rows = []) {
   }).join("");
   return `<div class="weekdayTrendGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;width:100%;box-sizing:border-box;">${cells}</div>`;
 }
-
 
 function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month = currentMonthKst() }) {
   const income = Number(stats.totals?.income || analysis.income || 0);
@@ -17598,7 +17486,6 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 @media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}.budgetTableHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.budgetTableHead h2{margin:0}.budgetTableSet{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 깊게 보는 분석 화면입니다. 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}#reportCockpitTitle">← 한눈에 보기(소비 분석)</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><div class="budgetTableHead"><h2>분류별 예산 사용률</h2><a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a></div><p class="muted">여기서는 사용률만 봅니다. 금액을 바꾸려면 예산 설정으로 이동하세요.</p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
 }
 
-
 function shiftMonthString(month = currentMonthKst(), delta = 0) {
   const m = validMonth(month) || currentMonthKst();
   const y = Number(m.slice(0, 4));
@@ -17606,9 +17493,6 @@ function shiftMonthString(month = currentMonthKst(), delta = 0) {
   const d = new Date(y, mm - 1 + Number(delta || 0), 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-
-
-
 
 async function handleMySettingsPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -17675,7 +17559,6 @@ async function handleMyCategoryKeywordsSave(request, env) {
     return redirectResponse(keywordEditorLocation(returnTo, month, selected.id, { err: "category_keywords_save_failed" }));
   }
 }
-
 
 async function handleMyCategoryKeywordsBulkSave(request, env) {
   const userId = await verifyUserSession(request, env);
@@ -17938,7 +17821,6 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
   return { households, memberships, selected, restricted: null, invalidRequested: "" };
 }
 
-
 function transactionEditHistoryKey(householdId = "") {
   return `transaction_edit_history:${String(householdId || "default").trim() || "default"}`;
 }
@@ -18155,7 +18037,6 @@ async function handleMyDeleteTransaction(request, env) {
     return redirectResponse(myReturnLocation(month, selected.id, { err: "record_delete_failed" }));
   }
 }
-
 
 function householdTemplatePreset(key = "") {
   const presets = {
@@ -18566,8 +18447,6 @@ async function handleMyPage(request, env, url) {
   return htmlResponse(renderMyStartChoiceHtml({ env, user, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
-
-
 async function optionalSupabase(env, path, init = {}, fallback = []) {
   try {
     const v = await supabase(env, path, init);
@@ -18576,7 +18455,6 @@ async function optionalSupabase(env, path, init = {}, fallback = []) {
     return fallback;
   }
 }
-
 
 // V22.8.79-1: 예산 settings JSON 폴백을 걷어냈다.
 //   budgetsSettingsKey / normalizeBudgetRows / fetchSettingsBudgets(Strict) /
@@ -18680,7 +18558,6 @@ function budgetSummary(rows = [], budgets = []) {
     categoryAlerts,
   };
 }
-
 
 function budgetCenterSummary(rows = [], budgets = []) {
   const stats = calculateStats(rows);
@@ -18850,7 +18727,6 @@ function budgetFeedbackLine(rows = [], budgets = [], category = "") {
   return "";
 }
 
-
 async function kakaoBudgetStatusText(env, householdId, month, origin = "", householdName = "") {
   try {
     const budgets = await fetchBudgets(env, householdId, month);
@@ -18991,7 +18867,6 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
   }).join("");
 }
 
-
 function lastNDaysExpense(rows = [], days = 7) {
   const today = nowKstDate();
   const start = addDays(today, -(days - 1));
@@ -19085,7 +18960,6 @@ function memeShareText(card, month = currentMonthKst()) {
 function renderV81MemeCards(cards = [], month = currentMonthKst(), householdId = '') {
   return cards.map((c, idx) => `<article class="memeMini v8-meme-mini theme-${escapeHtml(c.theme || 'chaos')}"><div class="v8-meme-mini-top"><span class="rarity ${escapeHtml(String(c.rarity || 'R').toLowerCase())}">${escapeHtml(c.rarity || 'R')}</span><span class="level">${escapeHtml(c.level)}</span></div><div class="emoji">${escapeHtml(c.emoji)}</div><h3>${escapeHtml(c.title)}</h3><p>${escapeHtml(c.line)}</p><small>${escapeHtml(c.subtitle || '소비몬 자동 판정')}</small><div class="memeMiniActions v8-meme-mini-actions"><button type="button" data-share="${escapeHtml(memeShareText(c, month))}" onclick="copyMemeText(this)">문구 복사</button><a href="/meme?month=${encodeURIComponent(month)}&card=${encodeURIComponent(c.id || idx)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}">공유 카드</a></div></article>`).join('');
 }
-
 
 function memeThemeCss(card = {}) {
   if (/SSR/.test(card.rarity || "")) return "linear-gradient(135deg,#312e81,#6d28d9,#ec4899)";
@@ -19220,7 +19094,6 @@ async function handleMemeImage(request, env, url) {
   });
 }
 
-
 async function fetchSavedMemeCards(env, householdId = "", month = "") {
   const buildParams = (mode = "stats") => {
     const params = new URLSearchParams();
@@ -19280,8 +19153,6 @@ async function safeIncrementMemeMetric(env, id, field) {
   }
 }
 
-
-
 async function handleMemeReact(request, env) {
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
@@ -19302,8 +19173,6 @@ async function handleMemeReact(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { err: "반응 저장 실패: 저장 구조 확인 실행 필요" }));
   }
 }
-
-
 
 async function handleMemeSave(request, env) {
   const form = await request.formData();
@@ -19365,7 +19234,6 @@ async function handleMemeDelete(request, env) {
   }
 }
 
-
 async function handleMemeRankPage(request, env, url) {
   const scope = await resolveMemeScope(request, env, url);
   if (scope.response) return scope.response;
@@ -19389,7 +19257,6 @@ async function handleMemeArchivePage(request, env, url) {
   const cardHtml = cards.length ? cards.map((c) => `<article class="savedCard theme-${escapeHtml(c.theme || "chaos")}"><div class="badgeRow"><span>${escapeHtml(c.rarity || "R")}</span><span>${escapeHtml(c.level || "밈")}</span></div><div class="emoji">${escapeHtml(c.emoji || "😶")}</div><h2>${escapeHtml(c.title || "소비몬")}</h2><p>${escapeHtml(c.line || "")}</p><small>${escapeHtml(c.subtitle || "")}</small><div class="metrics"><span>👍 ${numberWithCommas(c.like_count || 0)}</span><span>공유 ${numberWithCommas(c.share_count || 0)}</span></div><div class="actions"><button type="button" data-share="${escapeHtml(c.share_text || "")}" onclick="copyArchive(this)">복사</button><button type="button" data-public="/share/meme?id=${encodeURIComponent(c.id)}" onclick="copyPublicLink(this)">공개링크</button><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="like"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">좋아요</button></form><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="share"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">공유+1</button></form><a href="/share/meme?id=${encodeURIComponent(c.id)}">공개보기</a><a href="/meme?month=${encodeURIComponent(c.month || month)}&card=${encodeURIComponent(c.card_id || "main")}${c.household_id ? `&household_id=${encodeURIComponent(c.household_id)}` : ""}">공유 카드</a><form method="post" action="/admin/meme/delete" onsubmit="return confirm('저장한 소비 카드를 삭제할까요?')"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">삭제</button></form></div></article>`).join("") : `<section class="empty"><h2>아직 저장한 소비 카드가 없습니다.</h2><p>소비 카드 만들기에서 마음에 드는 카드를 연 뒤 “보관함에 저장”을 눌러보세요.</p><p>저장이 계속 실패하면 가계부 관리자에게 저장 구조 확인을 요청해 주세요.</p></section>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>소비 카드 보관함</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.top button{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff;color:#111827}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:16px}.savedCard{border-radius:24px;padding:16px;min-height:330px;background:linear-gradient(135deg,#111827,#7c3aed,#ec4899);color:#fff;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}.savedCard:after{content:"";position:absolute;right:-36px;top:-36px;width:130px;height:130px;border-radius:999px;background:rgba(255,255,255,.16)}.badgeRow{display:flex;gap:8px;position:relative;z-index:1}.badgeRow span,.metrics span{font-size:12px;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 9px;font-weight:1000}.emoji{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif!important;font-size:44px;position:relative;z-index:1}.wrap .savedCard h2{margin:0;font-size:22px;line-height:1.1;position:relative;z-index:1;color:#fff!important}.savedCard p{line-height:1.45;font-weight:800;position:relative;z-index:1}.savedCard small{opacity:.82;font-weight:900;position:relative;z-index:1}.metrics{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;position:relative;z-index:1}.actions a,.actions button{height:38px;border:0;border-radius:13px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center;width:100%;font-size:12px}.actions form{margin:0}.grid>.empty{grid-column:1/-1;width:100%;background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin-top:0;color:#111827}.empty h2{font-size:22px;line-height:1.35;word-break:keep-all}.empty p{line-height:1.6;word-break:keep-all}.notice{border-radius:14px;padding:12px;margin-top:12px;font-weight:900}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}@media(max-width:420px){.wrap{padding:12px}.grid{grid-template-columns:minmax(0,1fr)}.top h1{font-size:26px}}</style></head><body>${renderUnifiedNav("meme-archive", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>소비 카드 보관함</h1><p>저장한 소비 카드를 다시 보고 공유할 수 있습니다.</p></div><nav><a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a> <a href="/meme-lab?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">카드 만들기</a> <a href="/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">랭킹</a> <a href="/meme-stats?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">통계</a></nav></div>${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice err">${escapeHtml(err)}</div>` : ""}<form class="filters" method="get" action="/meme-archive"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><section class="grid">${cardHtml}</section></main><script>function copyArchive(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{prompt('복사하세요',text);}}function copyPublicLink(btn){var path=btn.getAttribute('data-public')||'';var link=location.origin+path;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(link).then(function(){btn.textContent='링크복사됨';});}else{prompt('공개 링크',link);}}</script></body></html>`);
 }
-
 
 async function loadSavedMemeCardById(env, id) {
   const clean = String(id || "").trim();
@@ -19454,8 +19321,6 @@ async function handlePublicMemeImage(request, env, url) {
   });
 }
 
-
-
 function publicMemeCookieName(prefix, id) {
   const clean = String(id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) || "card";
   return `sobimon_${prefix}_${clean}`;
@@ -19485,8 +19350,6 @@ async function handlePublicMemeShareCount(request, env) {
   if (id) await safeIncrementMemeMetric(env, id, "share_count");
   return redirectResponse(`/share/meme?id=${encodeURIComponent(id)}&shared=1`);
 }
-
-
 
 async function handlePublicMemeSharePage(request, env, url) {
   const row = await loadSavedMemeCardById(env, url.searchParams.get("id"));
@@ -19559,7 +19422,6 @@ async function handleMemeLabPage(request, env, url) {
   const title = escapeHtml(appName(env));
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 소비 카드 만들기</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{width:100%;max-width:980px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px}.card{min-width:0;border-radius:24px;padding:16px;min-height:250px;background:linear-gradient(135deg,#111827,#7c3aed,#ec4899);color:#fff;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}.card:after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:999px;background:rgba(255,255,255,.18)}.row{display:flex;gap:8px;position:relative;z-index:1}.pill{font-size:12px;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 9px;font-weight:1000}.emoji{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif!important;font-size:44px;position:relative;z-index:1}.wrap .card h2{margin:0;font-size:22px;line-height:1.1;position:relative;z-index:1;color:#fff!important}.card p{line-height:1.45;font-weight:800;position:relative;z-index:1;word-break:keep-all}.card small{opacity:.82;font-weight:900;position:relative;z-index:1}.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:auto;position:relative;z-index:1}.actions button,.actions a{min-width:0;height:38px;border:0;border-radius:13px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center}@media(max-width:420px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.top>div{min-width:0}.top h1{font-size:26px}}</style></head><body>${renderUnifiedNav("meme-lab", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>소비 카드 만들기</h1><p>이번 달 소비 데이터를 가볍고 재미있는 카드로 정리합니다.</p></div><nav><a href="/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}#meme">가계부로</a></nav></div><section class="grid">${cards.map((c, idx) => `<article class="card"><div class="row"><span class="pill">${escapeHtml(c.rarity || 'R')}</span><span class="pill">${escapeHtml(c.level)}</span></div><div class="emoji">${escapeHtml(c.emoji)}</div><h2>${escapeHtml(c.title)}</h2><p>${escapeHtml(c.line)}</p><small>${escapeHtml(c.subtitle || '')}</small><div class="actions"><button type="button" data-share="${escapeHtml(memeShareText(c, month))}" onclick="copyLab(this)">복사</button><a href="/meme?month=${encodeURIComponent(month)}&card=${encodeURIComponent(c.id || idx)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}">공유</a><a href="/meme-image?month=${encodeURIComponent(month)}&card=${encodeURIComponent(c.id || idx)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}">이미지</a></div></article>`).join('')}</section></main><script>function copyLab(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{prompt('복사하세요',text);}}</script></body></html>`);
 }
-
 
 function categoryEmoji(category = "", type = "expense") {
   if (type === "income") return "수";
@@ -20269,6 +20131,15 @@ body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!importa
   body.abV22812Shell .abNavMobileTop button{min-width:44px!important;min-height:44px!important;padding:0 12px!important}
   body.abV22812Shell .abNavBottom{height:calc(64px + var(--abSafeBottom))!important;padding-bottom:var(--abSafeBottom)!important;backdrop-filter:none!important}
   body.abV22812Shell .abNavBottom a{gap:3px!important;min-height:44px!important}
+  /* V22.8.87 M1: 가운데 기록 버튼. 지시서의 52×52 · --ab12-r-lg · margin-top:-14px 를
+     그대로 쓰되 색은 --ab12-action 으로 잡아 톤 4종을 따라가게 한다(--ab12-brand 는
+     흰 글자에서 대비가 모자란다 — 2.1). 토큰이 닿지 않는 옛 셸을 위해 폴백을 둔다.
+     탭 영역은 원이 아니라 칸 전체가 받는다 — 원만 누를 수 있게 하면 44px 규칙을
+     지키고도 실제로는 누르기 어려워진다. */
+  body.abV22812Shell .abNavBottom a.abNavQuick{justify-content:flex-start}
+  body.abV22812Shell .abNavBottom a.abNavQuick i{width:52px!important;height:52px!important;margin-top:-14px;border-radius:var(--ab12-r-lg,16px);background:var(--ab12-action,#1d4ed8);color:#fff;display:grid;place-items:center;opacity:1!important;box-shadow:var(--ab12-elev-float,0 8px 24px rgba(0,0,0,.12))}
+  body.abV22812Shell .abNavBottom a.abNavQuick i .abNavIconSvg{width:26px;height:26px;stroke-width:2.2}
+  body.abV22812Shell .abNavBottom a.abNavQuick:before{display:none!important}
   body.abV22812Shell .abNavBottom a i{font-size:20px!important}
   body.abV22812Shell main.wrap{padding:14px!important}
 }
@@ -20358,7 +20229,7 @@ body.abV22812Shell .abGlobalActionPrimary:hover{color:#fff!important;filter:brig
 html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary,
 html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abGlobalActionPrimary span{color:#fff!important}
 body.abV22812Shell .abGlobalAction .abNavIconSvg{width:18px;height:18px;flex:0 0 18px}
-body.abV22812Shell .abGlobalActionsMobile{display:none}
+
 body.abV22812Shell .abGlobalDialog{width:min(560px,calc(100% - 32px));max-height:min(720px,calc(100dvh - 32px));margin:auto;padding:0;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--text);box-shadow:0 24px 70px rgba(15,23,42,.28);overflow:auto}
 body.abV22812Shell .abGlobalDialog::backdrop{background:rgba(15,23,42,.58);backdrop-filter:blur(3px)}
 body.abV22812Shell.abGlobalDialogOpen{overflow:hidden!important}
@@ -20383,7 +20254,15 @@ body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 1
 body.abV22812Shell .abGlobalAppearanceChoices button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--card));color:var(--accent)}
 body.abV22812Shell .abGlobalAppearanceNote{margin:0;color:var(--sub);font-size:12px;line-height:1.5}
 @media(min-width:900px){body.abV22812Shell .abGlobalActions{left:calc(var(--abNavWidth,238px) + 22px);right:auto;top:auto;bottom:18px}body.abV22812Shell.abNavCollapsed .abGlobalActions{left:90px}}
-@media(max-width:899px){body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:calc(112px + env(safe-area-inset-right,0px));gap:0}body.abV22812Shell.abTopActionsDocked .abGlobalActions{display:none!important}body.abV22812Shell .abGlobalActions>.abGlobalAction:not(.abGlobalActionsMobile){display:none}body.abV22812Shell .abGlobalActionsMobile{display:inline-flex;width:auto;min-width:52px;padding:0 9px}body.abV22812Shell .abGlobalActionsMobile span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:899px){/* V22.8.87 M1: 모바일에서 이 독은 화면에 남지 않는다. 검색·알림·화면 설정은
+   전체 메뉴 서랍 안으로 옮겼고(syncGlobalActionPlacement), 빠른 입력은 하단 탭
+   가운데 ＋ 가 맡는다. 상단 오른쪽에 떠 있던 조작 묶음이 사라지면서 좁은 화면에서
+   가계부 이름과 자리를 다투던 것도 함께 없어진다. */
+body.abV22812Shell .abGlobalActions{display:none!important}
+body.abV22812Shell .abNavDrawerActions{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:0 0 10px}
+body.abV22812Shell .abNavDrawerActions .abGlobalAction{display:inline-flex;align-items:center;justify-content:flex-start;gap:8px;width:auto;min-height:44px;padding:0 12px;border-radius:var(--ab12-r-md,12px);border:1px solid var(--ab12-line,#edf1f6);background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);font-size:var(--ab12-fs-cap,12px);font-weight:700;box-shadow:none;position:static}
+body.abV22812Shell .abNavDrawerActions .abGlobalAction span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}
+body.abV22812Shell .abNavDrawerActions [data-ab-global-open='appearance']{grid-column:1/-1}body.abV22812Shell .abGlobalDialog{width:calc(100% - 20px);max-height:calc(100dvh - 20px);margin:auto 10px 10px;border-radius:20px 20px 14px 14px}body.abV22812Shell .abGlobalDialogHeader{padding:18px 16px 13px}body.abV22812Shell .abGlobalDialogBody{padding:16px}body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:420px){body.abV22812Shell .abGlobalActionGrid{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm{grid-template-columns:1fr}body.abV22812Shell .abGlobalSearchForm button{width:100%}}
 
 /* V22.8.25 V5 통합 검색 오버레이. */
@@ -20716,17 +20595,16 @@ body.abV22812Shell .v8-tx summary{display:flex;align-items:center;min-height:44p
 /* V22.8.61 모바일 상단바·전체 메뉴·빠른 입력 시트 정리.
    공통 작업 버튼을 상단바 안으로 넣어 "전체 메뉴"와 겹치지 않게 하고,
    서랍에서는 메뉴 목록이 쓰는 높이와 터치 영역을 되돌린다. */
-body.abV22812Shell .abNavMobileTopActions{display:none}
+
 @media(max-width:899px){
   body.abV22812Shell .abNavMobileTop{gap:8px}
   body.abV22812Shell .abNavMobileTop>a{flex:1 1 auto;min-width:0}
-  body.abV22812Shell .abNavMobileTopActions{display:flex;flex:0 0 auto;align-items:center;gap:8px}
-  /* 일부 화면의 전역 button width:100% 규칙 탓에 도킹한 버튼이 상단바 폭 전체로 늘어난다. */
-  body.abV22812Shell .abNavMobileTopActions>*{flex:0 0 auto;width:auto!important}
-  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:auto;min-height:46px!important;padding:0 13px;border:1px solid var(--line)!important;border-radius:13px;background:var(--card-2)!important;color:var(--text)!important;box-shadow:none!important;font-size:13px;font-weight:800;white-space:nowrap}
-  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile>span{flex:none;white-space:nowrap}
-  body.abV22812Shell .abNavMobileTopActions .abGlobalActionsMobile .abNavIconSvg{flex:0 0 17px;width:17px!important;height:17px!important}
-  body.abV22812Shell .abNavMobileTopActions #abMobileMenuButton{min-height:46px!important;padding:0 13px!important;border-radius:13px;white-space:nowrap}
+  /* V22.8.87 M1: "작업" 버튼이 사라지면서 상단바의 버튼이 감싸는 묶음 밖으로 나왔다.
+     그 묶음이 막아 주던 것을 여기서 다시 막는다 — 일부 화면의 전역
+     button{width:100%} 규칙이 "전체 메뉴" 버튼을 상단바 폭 전체로 늘려 가계부 이름을
+     밀어낸다. (지시서 M6 의 전역 규칙 정리는 별건이고, 여기서는 상단바만 지킨다.) */
+  body.abV22812Shell .abNavMobileTop>button{flex:0 0 auto;width:auto!important}
+
   /* 서랍에서는 홈에도 있는 달력·예산 위젯을 접어 메뉴 목록에 높이를 돌려준다. */
   body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}
   body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavTop{flex:none}
@@ -21058,6 +20936,9 @@ function accountbookStage4NavClientMain() {
       receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
       import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/>',
       settlement: '<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>',
+      // V22.8.87: 없던 키였다. iconSvg 는 모르는 이름을 home 으로 되돌려 주므로
+      // "빠른 입력" 버튼이 집 모양을 달고 있었다. M1 의 가운데 ＋ 도 이 키를 쓴다.
+      plus: '<path d="M12 5v14M5 12h14"/>',
       report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
       stats: '<path d="M4 20V12M10 20V7M16 20V3M22 20H2"/>',
       budget: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M16 11h5M7 6V4h10v2"/>',
@@ -21234,7 +21115,9 @@ function accountbookStage4NavClientMain() {
       '<a class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick" data-ab-global-direct="quick" data-ab-quick-open href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
       '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
       '<button type="button" class="abGlobalAction" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
-      '<button type="button" class="abGlobalAction abGlobalActionsMobile" data-ab-global-open="actions" aria-label="공통 작업 열기">' + iconSvg("more") + '<span>작업</span></button>' +
+      // V22.8.87 M1: 모바일 상단바의 "작업" 버튼을 뺐다. 그 버튼이 열던 목록은
+      // 검색·알림·화면 설정 셋이었고, 셋 다 이제 전체 메뉴 서랍 안에 직접 놓인다.
+      // 상단바에 아이콘을 쌓으면 좁은 화면에서 가계부 이름과 자리를 다툰다.
       '</div>';
   }
   function dialogMarkup() {
@@ -21280,25 +21163,56 @@ function accountbookStage4NavClientMain() {
     if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();
     globalActionReturnFocus = null;
   }
-  // 모바일 공통 작업 버튼을 상단바 안으로 옮긴다.
-  // 고정 레이어로 띄우면 "전체 메뉴" 버튼과 겹쳐 문구와 아이콘이 잘린다.
-  function dockMobileAction() {
-    var top = document.querySelector(".abNavMobileTop");
-    var action = document.querySelector(".abGlobalActionsMobile");
-    if (!top || !action || top.querySelector(".abNavMobileTopActions")) return;
-    var menu = document.getElementById("abMobileMenuButton");
-    var group = document.createElement("div");
-    group.className = "abNavMobileTopActions";
-    top.appendChild(group);
-    group.appendChild(action);
-    if (menu) group.appendChild(menu);
-    document.body.classList.add("abTopActionsDocked");
+  // V22.8.87 M1: 예전에는 "작업" 버튼을 상단바로 옮겨 붙였다. 이제 그 버튼이 없고,
+  // 검색·알림·화면 설정 셋을 전체 메뉴 서랍 안으로 옮긴다.
+  //
+  // 복제가 아니라 이동을 쓴다: 검색·알림 트리거는 첫 번째 요소에만 묶일 수 있어
+  // 복제본은 눌러도 아무 일이 없는 채로 조용히 남을 수 있다.
+  // 대신 되돌리는 길을 만든다 — 이 셋은 데스크톱 독에서도 쓰는 요소라, 창을 넓혔을 때
+  // 서랍에 남아 있으면 데스크톱에서 사라진다. 폭이 바뀔 때마다 제자리를 다시 잡는다.
+  var GLOBAL_ACTION_ORDER = ["[data-abv5-search-open]", "[data-ab-quick-open]", "[data-abv5-notif-open]", "[data-ab-global-open='appearance']"];
+  var mobileActionQuery = window.matchMedia ? window.matchMedia("(max-width:899px)") : null;
+  function findGlobalAction(selector) {
+    return document.querySelector(".abGlobalActions " + selector) || document.querySelector(".abNavDrawerActions " + selector);
+  }
+  function syncGlobalActionPlacement() {
+    var actions = document.querySelector(".abGlobalActions");
+    var footer = document.querySelector(".abLayoutNav .abNavFooter");
+    if (!actions || !footer) return;
+    var wantDrawer = mobileActionQuery ? mobileActionQuery.matches : false;
+    var group = footer.querySelector(".abNavDrawerActions");
+    if (wantDrawer) {
+      if (!group) {
+        group = document.createElement("div");
+        group.className = "abNavDrawerActions";
+        group.setAttribute("aria-label", "빠른 실행");
+        footer.insertBefore(group, footer.firstChild);
+      }
+      // 빠른 입력은 옮기지 않는다 — 모바일에서는 하단 탭 가운데 ＋ 가 그 일을 한다.
+      ["[data-abv5-search-open]", "[data-abv5-notif-open]", "[data-ab-global-open='appearance']"].forEach(function(selector) {
+        var element = findGlobalAction(selector);
+        if (element && element.parentNode !== group) group.appendChild(element);
+      });
+      return;
+    }
+    if (!group) return;
+    // 데스크톱으로 돌아갈 때는 원래 순서대로 다시 붙인다. 옮겨 온 것만 되돌리면
+    // 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.
+    GLOBAL_ACTION_ORDER.forEach(function(selector) {
+      var element = findGlobalAction(selector);
+      if (element) actions.appendChild(element);
+    });
+    group.remove();
   }
   function bindGlobalActions() {
     if (!document.querySelector(".abLayoutNav")) return;
     if (document.getElementById("abGlobalActionDialog")) return;
     document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
-    dockMobileAction();
+    syncGlobalActionPlacement();
+    if (mobileActionQuery) {
+      if (mobileActionQuery.addEventListener) mobileActionQuery.addEventListener("change", syncGlobalActionPlacement);
+      else if (mobileActionQuery.addListener) mobileActionQuery.addListener(syncGlobalActionPlacement);
+    }
     var dialog = document.getElementById("abGlobalActionDialog");
     document.addEventListener("click", function(event) {
       var v5Action = event.target && event.target.closest && event.target.closest("[data-abv5-search-open],[data-abv5-notif-open],[data-ab-quick-open]");
@@ -22494,8 +22408,6 @@ async function handleMobileV8Page(request, env, url) {
   return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk }));
 }
 
-
-
 async function handleBudgetSave(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
@@ -22560,7 +22472,6 @@ async function handleBudgetDelete(request, env) {
   }
 }
 
-
 async function pcScopedContext(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return null;
@@ -22589,7 +22500,6 @@ function pcHouseholdMonthFilters(action, households = [], selected = null, month
   const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   return `<form class="filters" method="get" action="${escapeHtml(action)}"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form>`;
 }
-
 
 const ANALYSIS_DONUT_COLORS = ["#3182F6", "#7c3aed", "#f59e0b", "#ef4444", "#10b981", "#ec4899", "#94a3b8"];
 
@@ -23082,24 +22992,12 @@ function addQueryToUrl(path, params = {}) {
   return `${u.pathname}${u.search}${u.hash}`;
 }
 
-
-
-
-
-
-
-
-
-
-
-
 function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "카카오사용자");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 가계부 시작</title><style>
   *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래 두 가지 중 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section><section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
-
 
 function localWebUserKey(nickname = "", accessCode = "") {
   const seed = `${normalizeText(nickname)}|${String(accessCode || "").trim()}`;
@@ -23238,7 +23136,6 @@ async function handleMyLocalSignup(request, env) {
   });
 }
 
-
 function kakaoLoginStatusBlock(env) {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
@@ -23249,8 +23146,6 @@ function kakaoLoginStatusBlock(env) {
   }
   return `<div class="warn"><b>카카오 로그인 설정을 확인하고 있어요</b><br/>주소나 앱 설정이 맞기 전에는 오류 페이지로 이동하지 않도록 버튼을 숨깁니다.</div><div class="mobileAccessHelp"><b>지금 모바일에서 접속하려면</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 계정 로그인 비밀번호를 설정한 뒤 아래 기존 계정 로그인을 사용하세요.</div>`;
 }
-
-
 
 async function handleMyBackupLoginPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -23332,7 +23227,6 @@ function renderUserLoginHtml(env, error = "", returnTo = "") {
   *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
 }
 
-
 function myNavCss() {
   return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:900px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:899px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
 /* v19.0 통합 디자인 시스템 — /my 화면도 다른 화면들과 같은 톤으로 통일 */
@@ -23375,8 +23269,6 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
 function renderMemberOptions(members = [], selected = "") {
   return safeArray(members).filter((m) => m.user_id && !["blocked","pending"].includes(String(m.role || ""))).map((m) => `<option value="${escapeHtml(m.user_id)}"${String(selected || "") === String(m.user_id) ? " selected" : ""}>${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(m.role || "member")}</option>`).join("");
 }
-
-
 
 function addMonthsYm(month, delta) {
   const d = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1);
@@ -23572,7 +23464,6 @@ function forecastMonthlyExpense(currentExpense, month) {
   const elapsed = month === currentMonth ? Math.max(1, today.getDate()) : daysInMonth;
   return Math.round(currentExpense / elapsed * daysInMonth);
 }
-
 
 function chooseMemeCard(a) {
   const key = detectMonthlyCardKey(a);
@@ -23791,8 +23682,6 @@ function buildShareWall(monthlyCard, dailyCards) {
   return quotes.map((q, i) => ({ text:q, cls:i%3===0?"blue":i%3===1?"pink":"" }));
 }
 
-
-
 function isPremiumUnlocked(env) {
   return premiumBetaEnabled(env);
 }
@@ -23876,10 +23765,6 @@ function renderPremiumBudgetTable(items) {
   if (!items.length) return `<div class="empty">예산 추천을 위한 지출 데이터가 없습니다.</div>`;
   return `<div class="tableWrap"><table class="statTable"><thead><tr><th>카테고리</th><th>현재</th><th>추천 예산</th><th>절약 후보</th></tr></thead><tbody>${items.map(x=>`<tr><td><b>${escapeHtml(x.name)}</b></td><td class="expense">${numberWithCommas(x.current)}원</td><td>${numberWithCommas(x.suggested)}원</td><td class="income">${numberWithCommas(x.diff)}원</td></tr>`).join("")}</tbody></table></div>`;
 }
-
-
-
-
 
 function buildAffiliateState({ env, month, allRows, analysis, extended, origin }) {
   const catMap = categoryExpenseMap(allRows || []);
@@ -23997,7 +23882,6 @@ function renderAffiliateTab(state) {
   return `<section class="partnerHero"><h3>생활비 팁</h3><p class="muted">이번 달 기록을 기준으로 바로 확인하면 좋은 관리 포인트를 정리했습니다.</p></section><section class="card"><h3>이번 달 추천 관리 포인트</h3><div class="affiliateGrid">${state.cards.map(renderAffiliateCard).join("")}</div></section><section class="card"><h3>관리 순서</h3><div class="roadmapGrid"><div class="roadmapBox"><b>1. 미분류 정리</b><span>분류가 비어 있으면 분석이 흐려집니다. 정리센터에서 먼저 확인하세요.</span></div><div class="roadmapBox"><b>2. 결제수단 정리</b><span>카드, 현금, 계좌이체를 구분하면 월별 흐름이 더 잘 보입니다.</span></div><div class="roadmapBox"><b>3. 반복 지출 확인</b><span>관리비, 보험, 구독처럼 매달 나가는 항목을 따로 점검하세요.</span></div></div></section>`;
 }
 
-
 function renderCollectionTab(state, month, origin = "") {
   const monthly = state.monthlyCard;
   const monthlyShareUrl = buildCardShareUrl(origin, month, monthly, "monthly");
@@ -24080,7 +23964,6 @@ function renderCustomStats(items) {
   return `<div class="tableWrap"><table class="statTable"><thead><tr><th>항목</th><th>건수</th><th>수입</th><th>지출</th><th>잔액</th><th>비중</th></tr></thead><tbody>${items.map((x) => { const pct = Math.round(Math.max(x.expense, x.income) / max * 100); return `<tr><td><b>${escapeHtml(x.name)}</b><div class="bar"><span style="width:${pct}%"></span></div></td><td>${x.count}건</td><td class="income">${numberWithCommas(x.income)}원</td><td class="expense">${numberWithCommas(x.expense)}원</td><td>${numberWithCommas(x.balance)}원</td><td>${pct}%</td></tr>`; }).join("")}</tbody></table></div>`;
 }
 
-
 function renderServerCalendar(days, month, householdId, selectedDate, type, q, quality, category, paymentMethod, groupBy) {
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7));
@@ -24101,9 +23984,6 @@ function renderServerCalendar(days, month, householdId, selectedDate, type, q, q
   return out + `</div>`;
 }
 
-
-
-
 function renderTransactionPager({ month, householdId, tab, total, page, perPage, type, q, quality, category, payment_method, date, groupBy }) {
   const pageCount = Math.max(1, Math.ceil(Number(total || 0) / Number(perPage || 50)));
   if (pageCount <= 1) return "";
@@ -24123,7 +24003,6 @@ function renderTransactionPager({ month, householdId, tab, total, page, perPage,
   return `<nav class="txPager"><div>${items.join("")}</div><div class="pagerSizes">${sizeLinks}</div></nav>`;
 }
 
-
 function renderTransactionEditModal(members = [], filterHidden = "") {
   return `<div id="txEditModal" class="txModal" hidden><div class="txModalBackdrop" onclick="closeTxEdit()"></div><section class="txModalCard"><div class="txModalHead"><h3>거래 수정</h3><button class="ghost small" type="button" onclick="closeTxEdit()">닫기</button></div><form id="txEditModalForm" method="post" action="/admin/update" class="txModalGrid"><input type="hidden" name="id" id="txm_id"/><div class="formField"><label>구분</label><select name="type" id="txm_type"><option value="expense">지출</option><option value="income">수입</option></select></div><div class="formField"><label>날짜</label><input type="date" name="transaction_date" id="txm_date"/></div><div class="formField"><label>금액</label><input type="text" inputmode="numeric" name="amount" id="txm_amount" placeholder="예: 12,000"/></div><div class="formField"><label>분류</label><input name="category" id="txm_category" list="categoryList" placeholder="분류"/></div><div class="formField"><label>결제수단</label><input name="payment_method" id="txm_payment" list="paymentList" placeholder="결제수단"/></div><div class="formField"><label>수입자·지출자</label><select name="user_id" id="txm_user" required>${renderSpenderOptions(members, "", "참여자 선택")}</select></div><div class="formField full"><label>메모</label><input name="memo" id="txm_memo" placeholder="메모"/></div><div class="txModalActions"><button type="submit">저장</button><button class="ghost" type="button" onclick="closeTxEdit()">취소</button></div>${filterHidden}</form></section></div>`;
 }
@@ -24131,7 +24010,6 @@ function renderTransactionEditModal(members = [], filterHidden = "") {
 function renderTransactionTurboScript() {
   return `<script>(function(){function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function selectedCount(){return qsa('.txCheck:checked').length}function esc(v){return String(v==null?'':v)}window.setTxChecks=function(checked){qsa('.tx-row:not(.hiddenByLive) .txCheck').forEach(function(c){c.checked=!!checked});window.updateTxSelectedCount&&window.updateTxSelectedCount();};window.updateTxSelectedCount=function(){var n=selectedCount();var el=document.getElementById('txSelectedCount');if(el)el.textContent=n+'건 선택';};window.confirmBulkType=function(type){var n=selectedCount();if(!n){alert('먼저 수정할 거래를 선택하세요.');return false;}return confirm(n+'건을 '+(type==='income'?'수입':'지출')+'으로 변경할까요?');};window.confirmBulkDelete=function(){var n=selectedCount();if(!n){alert('먼저 삭제할 거래를 선택하세요.');return false;}return confirm(n+'건을 삭제할까요? 삭제 후 복구할 수 없습니다.');};window.openTxEdit=function(btn){var m=document.getElementById('txEditModal');if(!m)return;document.getElementById('txm_id').value=esc(btn.dataset.id);document.getElementById('txm_type').value=esc(btn.dataset.type)||'expense';document.getElementById('txm_date').value=esc(btn.dataset.date);document.getElementById('txm_amount').value=esc(btn.dataset.amount);document.getElementById('txm_category').value=esc(btn.dataset.category);document.getElementById('txm_payment').value=esc(btn.dataset.payment);document.getElementById('txm_memo').value=esc(btn.dataset.memo);document.getElementById('txm_user').value=esc(btn.dataset.user);m.hidden=false;document.body.classList.add('modalOpen');setTimeout(function(){var x=document.getElementById('txm_amount');if(x)x.focus();},0);};window.closeTxEdit=function(){var m=document.getElementById('txEditModal');if(m)m.hidden=true;document.body.classList.remove('modalOpen');};function updateCount(){var total=qsa('.tx-row').length;var visible=qsa('.tx-row:not(.hiddenByLive)').length;var el=document.getElementById('txLiveCount');if(el)el.textContent='현재 페이지 '+visible+'/'+total+'건 표시';}var timer=null;var live=document.getElementById('txLiveSearch');if(live){live.addEventListener('input',function(){clearTimeout(timer);var self=this;timer=setTimeout(function(){var q=self.value.toLowerCase().trim();qsa('.tx-row').forEach(function(r){var hit=!q||String(r.getAttribute('data-search')||'').toLowerCase().indexOf(q)>=0;r.classList.toggle('hiddenByLive',!hit);var cb=r.querySelector('.txCheck');if(cb&&!hit)cb.checked=false;});window.updateTxSelectedCount&&window.updateTxSelectedCount();updateCount();},180);});}document.addEventListener('change',function(e){if(e.target&&e.target.classList&&e.target.classList.contains('txCheck'))window.updateTxSelectedCount();});document.addEventListener('keydown',function(e){if(e.key==='Escape')window.closeTxEdit&&window.closeTxEdit();});function bindAmountFormat(input){if(!input)return;input.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\B(?=(\d{3})+(?!\d))/g,','):'';});var f=input.closest('form');if(f){f.addEventListener('submit',function(){input.value=input.value.replace(/,/g,'');});}}bindAmountFormat(document.querySelector('.ledgerAmountInput'));var modalAmount=document.getElementById('txm_amount');bindAmountFormat(modalAmount);setTimeout(function(){window.updateTxSelectedCount&&window.updateTxSelectedCount();updateCount();},0);})();</script>`;
 }
-
 
 function renderDesktopTransactionTable(rows, filterHidden = "") {
   if (!rows.length) return `<div class="txEmpty">조건에 맞는 기록이 없습니다.</div>`;
@@ -24145,12 +24023,6 @@ function renderDesktopTransactionTable(rows, filterHidden = "") {
   }).join("");
   return `<div class="tableShell"><table class="ledgerTable"><thead><tr><th class="checkCol"><input type="checkbox" onclick="setTxChecks(this.checked)"/></th><th>일자</th><th>유형</th><th>분류</th><th>결제수단</th><th>내용 / 지출자</th><th class="amountHead">금액</th><th>관리</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
-
-
-
-
-
-
 
 const DEFAULT_CATEGORIES = ["식비","외식","배달","카페/간식","장보기","편의점","교통","택시","주유/충전","차량관리","쇼핑","의류/잡화","생활용품","주거/월세","관리비","공과금","통신비","보험","의료/병원","약국","건강","교육/학습","도서","육아/자녀","문화/여가","여행","운동","구독","경조사/선물","반려동물","미용","세금/수수료","가족/용돈","저축/투자","대출/이자","급여","상여/보너스","용돈수입","환급","이자배당","부업/매출","기타"];
 const DEFAULT_PAYMENTS = ["카드","신용카드","체크카드","현금","계좌이체","자동이체","삼성페이","카카오페이","네이버페이","토스","신한카드","현대카드","삼성카드","국민카드","우리카드","롯데카드","하나카드","농협카드"];
@@ -24243,7 +24115,6 @@ function groupLabel(groupBy) {
   return { category: "분류별", payment_method: "결제수단별", transaction_date: "날짜별", weekday: "요일별", type: "기록 유형별", source: "입력경로별" }[groupBy] || "분류별";
 }
 
-
 function kakaoSkillSafeFallbackText(origin = "") {
   return [
     "잠시 처리 흐름을 정리하고 있어요 😊",
@@ -24298,8 +24169,6 @@ function kakaoNoMatchGuideText(utterance = "", origin = "") {
     "• 수정가이드",
   ].filter(Boolean).join("\n");
 }
-
-
 
 function detectKakaoAmbiguity(utterance = "") {
   const raw = normalizeText(stripKakaoBotMention(utterance));
@@ -24509,8 +24378,6 @@ function kakaoDataPolicyText(origin = "") {
     origin ? `자세히 보기\n${origin}/privacy` : "",
   ].filter(Boolean).join("\n");
 }
-
-
 
 // V22.1: 외부 LLM 호출 없이 동작하는 저비용 한국어 의도 정규화·명확화 계층.
 // OpenBuilder는 대표 명령 라우팅만 담당하고, 롱테일 자연어와 모호한 표현은 이 Registry/명확화 엔진에서 판별합니다.
@@ -24961,7 +24828,6 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
   }
 }
 
-
 function kakaoEditConversationScope(payload = {}) {
   return getKakaoBotGroupKey(payload) || "direct";
 }
@@ -25149,7 +25015,6 @@ async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, ka
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
   return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, Math.max(1, Number(limit || 5)));
 }
-
 
 function isKakaoDailyListCommand(text = "") {
   const raw = normalizeText(text);
@@ -26190,8 +26055,6 @@ async function handleKakaoEditCommandV4(env, ctx) {
   return null;
 }
 
-
-
 function stripKakaoBotMention(text = "") {
   let t = String(text || "").trim();
   // 그룹챗봇 payload에 멘션 문자열이 포함되는 환경도 안전하게 처리합니다.
@@ -26354,7 +26217,6 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
   }
 }
 
-
 // -----------------------------------------------------------------------------
 // V21.5 guided onboarding / budget setup / date summary
 // OpenBuilder routes only; Worker owns the flow and accountbook_settings stores state.
@@ -26475,7 +26337,6 @@ function kakaoBudgetAmountQuickReplies() {
     ["취소", "취소"],
   ]);
 }
-
 
 const KAKAO_FLOW_STEPS_V2254 = Object.freeze({
   create_household: Object.freeze(["kind", "name", "confirm_name"]),
@@ -26628,7 +26489,6 @@ async function clearKakaoFlowState(env, userId = "", payload = {}) {
     });
   } catch (err) {}
 }
-
 
 // -----------------------------------------------------------------------------
 // V22.5.1 household context safety
@@ -27655,7 +27515,6 @@ async function handleKakaoSkill(request, env) {
     return kakaoText([`가계부 이름: ${createHouseholdName}`, kind !== "직접 입력" ? `용도: ${kind}` : "", "", "이 이름으로 만들까요?"].filter(Boolean).join("\n"), [["이 이름으로 만들기", "이 이름으로 만들기"], ["이름 다시 입력", "이름 다시 입력"], ["취소", "취소"]]);
   }
 
-
   if (isHouseholdSwitchCommand(utterance)) {
     const households = await fetchUserHouseholds(env, user.id);
     const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: botGroupKey ? "bind" : "select", origin, groupKey: botGroupKey, forceChoice: !!botGroupKey });
@@ -27930,7 +27789,6 @@ async function insertKakaoTransactions(env, rows) {
   return [...existing, ...insertedRows];
 }
 
-
 async function handleKakaoRecentDebug(request, env, url) {
   const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 20)));
   const params = new URLSearchParams();
@@ -27941,7 +27799,6 @@ async function handleKakaoRecentDebug(request, env, url) {
   const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>Kakao Recent</title><style>body{font-family:system-ui,sans-serif;background:#f6f7f9;margin:0;padding:20px}table{width:100%;border-collapse:collapse;background:#fff}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f1f5f9}code{font-size:12px}</style></head><body><h2>최근 카카오 저장 내역</h2><p>최근 ${rows.length}건 · <a href="/ledger?all=1">기록 전체 보기</a></p><table><thead><tr><th>created</th><th>date</th><th>type</th><th>amount</th><th>category</th><th>memo</th><th>household</th><th>user key(마스킹)</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${escapeHtml(r.created_at || "")}</td><td>${escapeHtml(r.transaction_date || "")}</td><td>${escapeHtml(r.type || "")}</td><td>${numberWithCommas(r.amount)}</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td><code>${escapeHtml(r.household_id || "")}</code></td><td><code>${escapeHtml(maskKey(r.source_user_key || ""))}</code></td></tr>`).join("")}</tbody></table></body></html>`);
 }
-
 
 // V22.8.25 V5 통합 검색: user 세션 스코프로 활성 가계부의 전 기간 거래를 검색한다.
 // 기존 admin 전용 /api/* 와 분리된 user 스코프 엔드포인트.
@@ -28403,7 +28260,6 @@ async function handleUserGoals(request, env, url) {
   }
 }
 
-
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
@@ -28501,7 +28357,6 @@ async function handleApi(request, env, url) {
   return jsonResponse({ ok: false, error: "api_not_found", reason: "api_not_found", message: "요청한 API를 찾지 못했습니다." }, 404);
 }
 
-
 function normalizeApiTransactionBody(body = {}, partial = false) {
   const out = {};
   const map = {
@@ -28564,7 +28419,6 @@ async function readJson(request) {
     return {};
   }
 }
-
 
 function getKakaoBotGroupKey(payload) {
   const props = payload?.userRequest?.user?.properties || {};
@@ -28821,7 +28675,6 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     "예: 점심 12000원 국민카드",
   ].filter(Boolean).join("\n");
 }
-
 
 function maskIdentityKey(value = "") {
   const text = String(value || "");
@@ -29125,7 +28978,6 @@ async function getPendingHousehold(env, userId) {
   return null;
 }
 
-
 async function getHouseholdMemberRole(env, userId, householdId) {
   if (!userId || !householdId) return "";
   const rows = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }, []) || [];
@@ -29138,7 +28990,6 @@ function roleBlockedMessage(role, householdName = "") {
   if (role === "pending") return `🕒 아직 승인 대기 중입니다.\n가계부: ${householdName || "-"}\n\n관리자가 /households 화면에서 참여자를 승인해야 기록할 수 있습니다.`;
   return "";
 }
-
 
 async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
@@ -29167,7 +29018,6 @@ function parseJoinCode(text) {
   const m = text.match(/(?:가계부\s*)?(?:참여|연결|join)\s+([A-Z0-9]{5,12})/i);
   return m ? m[1].toUpperCase() : null;
 }
-
 
 function isHelpCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
@@ -29265,7 +29115,6 @@ function parseGroupBindCommand(text = "") {
   return m ? m[1].trim().toUpperCase() : "";
 }
 
-
 function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
@@ -29353,7 +29202,6 @@ function findAmountTokenSpans(text) {
   }
   return spans;
 }
-
 
 function parseTransaction(text, payload) {
   const raw = normalizeText(text);
@@ -29659,7 +29507,6 @@ function normalizeDateValue(value) {
   return extractDate(value);
 }
 
-
 function parseDateStrict(value) {
   let t = String(value || "").trim();
   if (!t) return "";
@@ -29783,7 +29630,6 @@ function ymd(year, month, day) {
   const d = new Date(year, month - 1, day);
   return formatDate(d);
 }
-
 
 function nowKstDate() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -30143,7 +29989,6 @@ async function bulkTransactionsAtomic(env, ids = [], householdId = "", patch = {
   return Array.isArray(result) ? result[0] : result;
 }
 
-
 function recommendCategory(text = "", type = "expense") {
   const t = normalizeText(text).toLowerCase();
   if (type === "income") {
@@ -30188,7 +30033,6 @@ function recommendCategory(text = "", type = "expense") {
   for (const [name, re] of rules) if (re.test(t)) return name;
   return "기타";
 }
-
 
 function sanitizeTransactionBody(body, partial = false) {
   const out = {};
@@ -30302,11 +30146,9 @@ function formatSummary(summary, month) {
     .join("\n");
 }
 
-
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
-
 
 function renderDomainStatusRows(env = {}, url = null) {
   const requestBase = currentRequestBaseUrl(url);
@@ -30385,7 +30227,6 @@ async function handleBetaReleaseCandidateFinalPage(request, env, url) {
   ].map(([label, href]) => `<a class="tile" href="${escapeHtml(href)}"><b>${escapeHtml(label)}</b><span>${escapeHtml(href)}</span></a>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · V21 최종 후보 점검</title><style>${releaseCandidateDomainStyle()}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="tag">${escapeHtml(APP_VERSION)}</span><h1>V21 베타 릴리스 후보 점검</h1><p>실제 베타 오픈 전 주소, 심사 정보, 권한, 입력, 카카오, 미완성 기능 숨김, 운영 메뉴를 한 번에 확인합니다.</p><p><a class="btn light" href="/domain-migration">도메인 이전 점검</a><a class="btn light" href="/release-dry-run">릴리스 드라이런</a><a class="btn light" href="/operation-center">운영센터</a></p></section><section class="card"><h2>최종 후보 핵심 체크</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>도메인/카카오 주소 체크</h2><div class="tableWrap"><table><tbody>${domainRows}</tbody></table></div><p class="warn">PUBLIC_BASE_URL을 설정하면 카카오 응답, 오픈빌더 안내, Redirect URI 안내에 새 주소가 우선 표시됩니다. CANONICAL_REDIRECT는 커스텀 도메인 연결 확인 후 켜세요.</p></section><section class="card"><h2>바로 점검</h2><div class="grid">${go}</div></section></main></body></html>`);
 }
-
 
 function launchStatusBadge(ok = true) {
   return ok ? '<span class="badge">준비</span>' : '<span class="badge" style="background:#fee2e2;color:#991b1b">확인 필요</span>';
