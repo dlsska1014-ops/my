@@ -8,10 +8,10 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER"'), "runtime exposes the audit fix release");
+ok(source.includes('const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID"'), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22889.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "navigation runtime uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "unchanged V5 runtime keeps its immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22889.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.

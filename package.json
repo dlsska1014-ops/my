@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.89-quick-sheet-two-tier-validation",
+  "name": "kakao-accountbook-v22.8.90-desktop-nav-grid-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22889.sh",
+    "validate:unix": "bash validate_v22890.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -57,6 +57,7 @@
     "validate:deferred-edit-forms": "node validation/validate-deferred-edit-forms-v22886.mjs",
     "validate:mobile-dock-tabs": "node validation/validate-mobile-dock-tabs-v22887.mjs",
     "validate:home-blocks-daily": "node validation/validate-home-blocks-daily-v22888.mjs",
-    "validate:quick-sheet-two-tier": "node validation/validate-quick-sheet-two-tier-v22889.mjs"
+    "validate:quick-sheet-two-tier": "node validation/validate-quick-sheet-two-tier-v22889.mjs",
+    "validate:desktop-nav-grid": "node validation/validate-desktop-nav-grid-v22890.mjs"
   }
 }

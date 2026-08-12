@@ -14,11 +14,11 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER"'), "V22.8.58 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID"'), "V22.8.58 runtime version is explicit");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22889.css"'), "shell uses a fresh immutable URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "activity runtime uses a fresh immutable URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "activity runtime uses a fresh immutable URL");
 ok(source.includes('"accountbook-shell-v22889-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22873-js"'), "activity runtime ETag is refreshed");
+ok(source.includes('"accountbook-v5-v22890-js"'), "activity runtime ETag is refreshed");
 ok(source.includes('const displayMode = settings.periodDays <= 7 ? "daily" : "percent"'), "one-week display threshold is explicit");
 // V22.8.73 에서 챌린지가 3종으로 늘어 성공 문구가 유형별 라벨이 됐다.
 // 무지출 방식은 기존 문구를 그대로 쓰고, 나머지는 자기 라벨을 쓴다.
@@ -98,7 +98,7 @@ try {
   eq(home.response.status, 200, "home renders with the upgraded challenge");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
   ok(home.text.includes('/assets/accountbook-shell-v22889.css'), "home loads the refreshed shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22873.js'), "home loads the refreshed activity runtime");
+  ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the refreshed activity runtime");
   ok(home.text.includes('class="reportChallengeDays"') || home.text.includes('class="reportChallengePercent"'), "home challenge uses one responsive progress mode");
   eq(fixture.db.transactions.length, before, "home rendering remains read-only");
 
@@ -132,9 +132,9 @@ try {
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
   ok(shell.text.includes(".abActivityItem:focus-visible"), "activity items have a visible keyboard focus state");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js");
   eq(v5.response.status, 200, "refreshed activity runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "refreshed activity runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22890-js"', "refreshed activity runtime ETag is correct");
   ok(v5.text.includes("function iconSvg(kind)"), "runtime contains the controlled SVG icon renderer");
   ok(v5.text.includes('class="abActivityTypeIcon kind-') && v5.text.includes("교통"), "runtime emits semantic category icon classes");
   ok(v5.text.includes("aria-label"), "runtime emits accessible activity labels");

@@ -1909,7 +1909,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER";
+const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -10523,12 +10523,6 @@ function renderNavMiniCalendar(month = "", householdId = "", rows = []) {
   return `<section class="abNavCalendar" data-ab-nav-calendar data-month="${escapeHtml(safeNavMonth(month))}" data-household-id="${escapeHtml(householdId)}" data-active-days="${escapeHtml(activeDays)}"></section>`;
 }
 
-function renderNavBudgetUsage(month = "", householdId = "", budget = {}) {
-  const total = Math.max(0, Number(budget.totalBudget || 0));
-  const used = Math.max(0, Number(budget.expense || 0));
-  return `<a class="abNavBudget" data-ab-nav-budget data-month="${escapeHtml(safeNavMonth(month))}" data-household-id="${escapeHtml(householdId)}" data-budget-total="${total}" data-budget-used="${used}" href="/budgets?month=${encodeURIComponent(safeNavMonth(month))}&household_id=${encodeURIComponent(householdId)}"></a>`;
-}
-
 function renderAccountbookBrandIcon(className = "abBrandIcon") {
   return `<svg class="${escapeHtml(className)}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="3"></rect><path d="M8 3.5v17M11 8h5M11 12h5M11 16h3"></path></svg>`;
 }
@@ -10544,7 +10538,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const sidebarChallenge = requestedSidebarChallenge && typeof requestedSidebarChallenge === "object" ? requestedSidebarChallenge : null;
   const showSidebarDashboard = !!opts.showSidebarDashboard && !!householdId;
   const sidebarDashboardHtml = showSidebarDashboard
-    ? `<div class="abNavDashboard">${renderNavMiniCalendar(month, householdId, sidebarRows)}${renderNavBudgetUsage(month, householdId, sidebarBudget)}${sidebarChallenge ? renderReportChallenge(sidebarChallenge, { householdId, compact: true }) : ""}</div>`
+    ? `<div class="abNavDashboard">${renderNavMiniCalendar(month, householdId, sidebarRows)}${sidebarChallenge ? renderReportChallenge(sidebarChallenge, { householdId, compact: true }) : ""}</div>`
     : "";
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
@@ -11774,29 +11768,45 @@ function accountbookSidebarDashboardClientMain() {
     var today = new Date();
     var todayKey = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
     var html = '<div class="abNavCalHead"><a href="' + qs(addMonth(month, -1), householdId) + '" aria-label="이전 달">‹</a><b>' + year + '년 ' + mon + '월</b><a href="' + qs(addMonth(month, 1), householdId) + '" aria-label="다음 달">›</a></div>';
-    html += '<div class="abNavCalDows" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="abNavCalGrid">';
-    for (var b = 0; b < firstDow; b++) html += '<span class="abNavCalBlank" aria-hidden="true"></span>';
+    html += '<div class="abNavCalDows" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="abNavCalGrid" role="grid" aria-label="' + year + '년 ' + mon + '월 달력">';
+    for (var b = 0; b < firstDow; b++) html += '<span class="abNavCalBlank" role="presentation"></span>';
+    // V22.8.90 지시서 4.2: 격자는 탭 정지점 하나다. 42칸을 각각 링크로 두면 그것만으로
+    // 정지점이 마흔 개 넘게 생기고, 사이드바를 지나 본문에 닿기까지 탭을 그만큼 눌러야 한다.
+    // 한 칸만 tabindex=0 으로 두고 나머지는 -1 로 내린 뒤 방향키로 옮긴다(roving tabindex).
+    var focusDay = todayKey.slice(0, 7) === month ? Number(todayKey.slice(8, 10)) : 1;
     for (var day = 1; day <= days; day++) {
       var date = month + "-" + String(day).padStart(2, "0");
       var cls = "abNavCalDay" + (active[day] ? " hasRecord" : "") + (date === todayKey ? " isToday" : "");
       var href = qs(month, householdId, "&view=calendar&date=" + encodeURIComponent(date) + "&feed=all#feed");
-      html += '<a class="' + cls + '" href="' + href + '" data-ab-day="' + date + '" data-ab-household-id="' + householdId + '" aria-label="' + mon + '월 ' + day + '일' + (active[day] ? ', 기록 있음' : ', 기록 없음') + '"><span>' + day + '</span>' + (active[day] ? '<i aria-hidden="true"></i>' : '') + '</a>';
+      html += '<a class="' + cls + '" role="gridcell" tabindex="' + (day === focusDay ? "0" : "-1") + '" href="' + href + '" data-ab-day="' + date + '" data-ab-household-id="' + householdId + '" aria-label="' + mon + '월 ' + day + '일' + (active[day] ? ', 기록 있음' : ', 기록 없음') + '"><span>' + day + '</span>' + (active[day] ? '<i aria-hidden="true"></i>' : '') + '</a>';
     }
     html += '</div><a class="abNavCalToday" href="' + qs(todayKey.slice(0, 7), householdId) + '">오늘이 있는 달로</a>';
     root.innerHTML = html;
+    bindCalendarRoving(root);
   }
-  function renderBudget(root) {
-    var total = Math.max(0, Number(root.getAttribute("data-budget-total") || 0));
-    var used = Math.max(0, Number(root.getAttribute("data-budget-used") || 0));
-    if (!total) {
-      root.classList.add("abNavBudgetEmpty");
-      root.innerHTML = '<span><b>이번 달 예산</b><em>미설정</em></span><small>예산을 정하면 사용률이 표시됩니다.</small><strong>예산 설정하기</strong>';
-      return;
-    }
-    var rawRate = Math.round(used / total * 100);
-    var barRate = Math.max(0, Math.min(100, rawRate));
-    root.classList.add(rawRate >= 90 ? "isOver" : rawRate >= 70 ? "isWarn" : "isSafe");
-    root.innerHTML = '<span><b>이번 달 예산 사용</b><em>' + rawRate + '%</em></span><div class="abNavBudgetTrack" role="progressbar" aria-label="이번 달 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + barRate + '"><i style="width:' + barRate + '%"></i></div><small><b>' + fmt(used) + '원</b> / ' + fmt(total) + '원</small>';
+  // 방향키로 날짜를 옮긴다. 격자를 벗어나는 이동은 하지 않는다 — 마지막 칸에서 오른쪽을
+  // 누르면 다음 달로 넘어가는 대신 그 자리에 머무는 편이 예측 가능하다.
+  function bindCalendarRoving(root) {
+    var grid = root.querySelector('[role="grid"]');
+    if (!grid) return;
+    grid.addEventListener("keydown", function (event) {
+      var step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1
+        : event.key === "ArrowDown" ? 7 : event.key === "ArrowUp" ? -7 : 0;
+      var cells = Array.prototype.slice.call(grid.querySelectorAll('[role="gridcell"]'));
+      if (!cells.length) return;
+      var index = cells.indexOf(event.target);
+      if (index < 0) return;
+      var next = index;
+      if (step) next = index + step;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = cells.length - 1;
+      else return;
+      if (next < 0 || next >= cells.length) return;
+      event.preventDefault();
+      cells[index].setAttribute("tabindex", "-1");
+      cells[next].setAttribute("tabindex", "0");
+      cells[next].focus();
+    });
   }
   function renderChallengeDays(root) {
     var states = { s: ["success", "✓", "무지출 성공"], x: ["spent", "−", "지출 있음"], t: ["today", "●", "오늘 진행 중"], f: ["future", "", "예정"] };
@@ -11812,7 +11822,6 @@ function accountbookSidebarDashboardClientMain() {
     }).join("");
   }
   document.querySelectorAll("[data-ab-nav-calendar]").forEach(renderCalendar);
-  document.querySelectorAll("[data-ab-nav-budget]").forEach(renderBudget);
   document.querySelectorAll("[data-ab-challenge-slots]").forEach(renderChallengeDays);
 }
 
@@ -19625,7 +19634,7 @@ const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -22007,7 +22016,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22873-js"'
+          ? '"accountbook-v5-v22890-js"'
           : '"mobile-home-v22889-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });

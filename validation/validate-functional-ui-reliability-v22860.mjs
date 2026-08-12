@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.89-QUICK-SHEET-TWO-TIER"'), "runtime exposes the functional UI reliability release");
+ok(source.includes('const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID"'), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");
@@ -17,7 +17,7 @@ ok(source.includes('challenge_html: renderReportChallenge'), "inline response re
 ok(source.includes('sidebar_html: renderReportChallenge'), "inline response refreshes the shared sidebar challenge");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22889.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "changed navigation uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed challenge runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
 ok(source.includes('path === "/annual" || path === "/annual-report"'), "client navigation recognizes annual report routes");
 ok(source.includes('["/budget-alerts", "/today-budget", "/monthly-forecast", "/fixed-preview"]'), "client navigation recognizes all budget alert aliases");
@@ -56,9 +56,9 @@ try {
   eq(nav.response.headers.get("etag"), '"accountbook-nav-v22889-js"', "new navigation ETag is correct");
   ok(nav.text.includes('return "goals"') && nav.text.includes('return "annual"') && nav.text.includes('return "budget-alerts"'), "navigation asset preserves all newly mapped active keys");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js", { cookie: "" });
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js", { cookie: "" });
   eq(v5.response.status, 200, "new V5 runtime asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "new V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22890-js"', "new V5 runtime ETag is correct");
   ok(v5.text.includes("data-report-challenge-form") && v5.text.includes("x-accountbook-inline"), "deployed V5 runtime contains inline challenge save");
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
