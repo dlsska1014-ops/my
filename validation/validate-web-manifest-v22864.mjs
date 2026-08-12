@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID"'), "runtime exposes the web manifest release");
+ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime exposes the web manifest release");
 ok(source.includes('const AB_MANIFEST_PATH = "/manifest.json"'), "manifest has one canonical path");
 ok(source.includes('["/icon-192.png", { kind: "png", size: 192 }]'), "192px install icon is served");
 ok(source.includes('["/icon-512.png", { kind: "png", size: 512 }]'), "512px install icon is served");

@@ -77,7 +77,7 @@ try {
 
   // 5. 저장 버튼은 시트 아래에 붙는다. 안전 영역도 함께 본다.
   ok(sheet.includes('class="quickSubmit"'), "저장 영역이 따로 묶여 있다");
-  const shell = await get("/assets/accountbook-shell-v22889.css", "");
+  const shell = await get("/assets/accountbook-shell-v22891.css", "");
   eq(shell.response.status, 200, "셸이 서빙된다");
   const submitRule = (shell.text.match(/body\.abV22812Shell \.quickSubmit\{[^}]*\}/) || [""])[0];
   ok(submitRule.includes("position:sticky") && submitRule.includes("bottom:0"), "저장 버튼이 시트 하단에 고정된다");

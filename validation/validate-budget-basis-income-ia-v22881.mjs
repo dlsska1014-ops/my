@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.90-DESKTOP-NAV-GRID"'), "runtime exposes the V22.8.81 release");
+ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime exposes the V22.8.81 release");
 
 // ---------------------------------------------------------------------------
 // 1. 분류별 예산만 잡은 달의 거짓 초과 경보
