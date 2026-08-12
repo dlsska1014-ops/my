@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.87-mobile-dock-tabs-validation",
+  "name": "kakao-accountbook-v22.8.88-home-blocks-daily-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22887.sh",
+    "validate:unix": "bash validate_v22888.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -55,6 +55,7 @@
     "validate:receipt-parse-accuracy": "node validation/validate-receipt-parse-accuracy-v22884.mjs",
     "validate:design-tokens": "node validation/validate-design-tokens-v22885.mjs",
     "validate:deferred-edit-forms": "node validation/validate-deferred-edit-forms-v22886.mjs",
-    "validate:mobile-dock-tabs": "node validation/validate-mobile-dock-tabs-v22887.mjs"
+    "validate:mobile-dock-tabs": "node validation/validate-mobile-dock-tabs-v22887.mjs",
+    "validate:home-blocks-daily": "node validation/validate-home-blocks-daily-v22888.mjs"
   }
 }

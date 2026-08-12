@@ -77,7 +77,7 @@ try {
   eq(home.text.includes("<span>작업</span>"), false, "작업 버튼이 사라졌다");
 
   // 6. 겹침의 원인 제거. 모바일에서 떠 있는 조작 레이어가 없어야 한다.
-  const shell = await get("/assets/accountbook-shell-v22885.css", "");
+  const shell = await get("/assets/accountbook-shell-v22888.css", "");
   eq(shell.response.status, 200, "셸이 서빙된다");
   ok(shell.text.includes("body.abV22812Shell .abGlobalActions{display:none!important}"), "모바일에서 떠 있는 조작 묶음이 없다");
   ok(shell.text.includes("body.abV22812Shell .abNavDrawerActions"), "그 조작들이 전체 메뉴 서랍 안에 자리를 갖는다");
