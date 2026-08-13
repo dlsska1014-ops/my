@@ -5,7 +5,7 @@ const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf
 let checks = 0;
 const ok = (value, message) => { checks += 1; assert.ok(value, message); };
 
-ok(source.includes('const APP_VERSION = "V22.8.95-DESKTOP-CURSOR"'), "stage 1 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.96-HOME-TAB-STOPS"'), "stage 1 runtime version is explicit");
 ok(source.includes('function buildNavMonthSummary('), "sidebar month summary helper exists");
 ok(source.includes('function renderNavMiniCalendar('), "desktop mini calendar renderer exists");
 // V22.8.90(지시서 4.2): 좌측 예산 위젯을 제거했다. 중앙 P0 와 같은 숫자를 두 번 말하고

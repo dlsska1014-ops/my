@@ -226,7 +226,7 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 46 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22892.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22896.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22895.css"'), 1, "home loads the current shell stylesheet once");
   ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22893.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
@@ -266,7 +266,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22892.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22895.css"];
+  const cssPaths = ["/assets/mobile-home-v22896.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22895.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -282,26 +282,28 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22892.css") {
+    if (path === "/assets/mobile-home-v22896.css") {
+      // V22.8.96: 바로가기·찾기 접기(3장 P3)의 스타일이 들어왔다. 주소를 v22892 →
+      // v22896 으로 올리고 고정 해시도 함께 옮긴다.
       // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
       // 켜면 전환을 걷어내는 규칙이 이 자산에 들어왔다. 숫자 쪽 전환과 **같은 값**을
       // 써야 한 동작으로 읽힌다. 바이트 고정 자산이라 내용이 바뀌면 주소를 올려야
       // 하는데, 이 파일의 주소는 V22.8.92 에서 이미 v22892 로 올렸고 그 배포가
       // 아직 나가지 않았으므로 같은 주소 안에서 해시만 옮긴다.
-      eq(createHash("sha256").update(bytes).digest("hex"), "2fb4236dab948f2d2900623e274368205fbfc8b9de8011a420af57507db2c185", "legacy home stylesheet bytes remain pinned");
+      eq(createHash("sha256").update(bytes).digest("hex"), "7223f46762711c23de808b90cc3109a7dffe46c6681edc8a415101b47398a3fc", "legacy home stylesheet bytes remain pinned");
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22892.js");
+  const legacyJs = await request("/assets/mobile-home-v22896.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22892.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22896.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
   // V22.8.89(M4): 빠른 입력 런타임이 바뀌었다 — "채우기" 버튼을 없애고 적는 동안
 // 파싱하도록 고쳤다. 이 자산은 바이트로 고정돼 있으므로 내용이 바뀌면 주소를
 // 올려야 한다(v22879 → v22889). 고정 해시도 새 주소의 것으로 함께 옮긴다.
 eq(createHash("sha256").update(legacyBytes).digest("hex"), "c78fab08d1cad3ed3bf6977304a07f4a0c39d59992bbca21e45a517c409c6062", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22892-js"', "legacy home runtime ETag remains pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22896-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
