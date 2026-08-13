@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.93-number-transitions-validation",
+  "name": "kakao-accountbook-v22.8.94-home-layout-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -61,6 +61,7 @@
     "validate:desktop-nav-grid": "node validation/validate-desktop-nav-grid-v22890.mjs",
     "validate:home-reports": "node validation/validate-home-reports-v22891.mjs",
     "validate:screen-cleanup": "node validation/validate-screen-cleanup-v22892.mjs",
-    "validate:number-transitions": "node validation/validate-number-transitions-v22893.mjs"
+    "validate:number-transitions": "node validation/validate-number-transitions-v22893.mjs",
+    "validate:home-layout": "node validation/validate-home-layout-v22894.mjs"
   }
 }

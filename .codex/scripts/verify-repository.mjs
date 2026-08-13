@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_93.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_8_94.sha256",
 );
 const validationScripts = [
   ["영수증 안정화", "validation/validate-receipt.mjs"],
@@ -70,6 +70,7 @@ const validationScripts = [
   ["홈 리포트 4장", "validation/validate-home-reports-v22891.mjs"],
   ["화면별 정리 7.2–7.6", "validation/validate-screen-cleanup-v22892.mjs"],
   ["영향 피드백·숫자 전환", "validation/validate-number-transitions-v22893.mjs"],
+  ["홈 구성", "validation/validate-home-layout-v22894.mjs"],
 ];
 
 function sha256(filePath) {
@@ -127,7 +128,7 @@ function run(command, args, label) {
 // 있지 않으니 검사가 사라져도 숫자는 그대로였고, "줄어들면 실패로 본다"는 규칙이
 // 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
-const EXPECTED_MINIMUM_CHECKS = 3966;
+const EXPECTED_MINIMUM_CHECKS = 4016;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

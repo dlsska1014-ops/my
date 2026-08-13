@@ -235,8 +235,14 @@ try {
   ok(homeHtml.includes("/settlement-summary?month=2026-07&amp;household_id=house-home"), "home navigation preserves escaped month and accountbook context");
   ok(homeHtml.includes("우리집 생활비") && homeHtml.includes("3,200,000"), "home preserves selected accountbook data and amounts");
   ok(!homeHtml.includes('id="v2281GuidedUiUxStyle"') && !homeHtml.includes("parseKoreanAmount(text)"), "large shared CSS and runtime are not repeated inline");
-  ok(calls.length <= 9, `personal home uses at most nine database calls (${calls.length})`);
-  eq(calls.filter((path) => path.includes("/accountbook_settings?")).length, 1, "home settings are fetched once");
+  // V22.8.94(8.4): 홈 구성이 (가계부·사용자) 설정 한 줄을 더 읽는다. 지키려는 것은
+  // "홈이 질의를 흩뿌리지 않는다"이고 그건 그대로다 — 늘어난 하나가 정확히 그
+  // 한 줄인지까지 아래에서 확인한다.
+  ok(calls.length <= 10, `personal home uses at most ten database calls (${calls.length})`);
+  eq(calls.filter((path) => path.includes("/accountbook_settings?")).length, 2, "home settings are fetched in two single round trips");
+  const layoutCall = calls.filter((path) => decodeURIComponent(path).includes("key=eq.home-layout:v1:"));
+  eq(layoutCall.length, 1, "the home layout is read exactly once");
+  ok(layoutCall[0].includes("limit=1"), "the home layout read stays a single row");
   ok(calls.some((path) => path.includes("/users?id=in.")), "member profiles are fetched in one bulk query");
   ok(!calls.some((path) => /[?&]offset=(?!0(?:&|$))/.test(decodeURIComponent(path))), "short lists stop without an empty pagination probe");
   ok(home.headers.get("cache-control")?.includes("no-store"), "personal home HTML remains no-store");
