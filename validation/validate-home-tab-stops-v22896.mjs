@@ -87,11 +87,56 @@ try {
 
   // 지금 값을 천장으로 고정한다. 늘어나면 실패한다 — 이 숫자가 조용히 되돌아가는
   // 것을 막는 것이 이 검사의 목적이다.
-  ok(total <= 56, `홈 HTML 전체 정지점이 56개 이하다 (${total})`);
-  ok(desktop <= 49, `데스크톱 정지점이 49개 이하다 (${desktop})`);
-  ok(mobile <= 42, `모바일 정지점이 42개 이하다 (${mobile})`);
-  // 지시서의 출발점(모바일 54)보다는 확실히 아래여야 한다.
-  ok(mobile < 54, `모바일 정지점이 지시서 기준선 54보다 적다 (${mobile})`);
+  ok(total <= 56, `가벼운 픽스처의 전체 정지점이 56개 이하다 (${total})`);
+  ok(desktop <= 49, `가벼운 픽스처의 데스크톱 정지점이 49개 이하다 (${desktop})`);
+  ok(mobile <= 42, `가벼운 픽스처의 모바일 정지점이 42개 이하다 (${mobile})`);
+
+  // -------------------------------------------------------------------------
+  // 실사용 부하에서 다시 잰다 — 여기가 진짜 천장이다
+  // -------------------------------------------------------------------------
+  // V22.8.99: 처음에는 기본 픽스처(기록 5건)로만 쟀다. 그런데 정지점이 가장 많아지는
+  // 곳은 최근 내역이고, 그 목록은 기록이 많을수록 길어진다(행마다 수정 접기 하나).
+  // 기록 5건짜리 화면을 재고 "42개"라고 못 박으면, 정작 사람들이 쓰는 화면은
+  // 재지 않은 채로 남는다 — 세는 법을 고쳐 놓고 쉬운 경우만 잰 셈이었다.
+  // 성능 예산과 같은 200행 부하에서 다시 재고, 그 값을 천장으로 삼는다.
+  const heavy = await createV2265QaFixture();
+  let heavyHtml = "";
+  try {
+    const categories = ["식비", "교통", "쇼핑"];
+    const payments = ["국민카드", "현금"];
+    for (let index = 0; index < 200; index += 1) {
+      const day = String((index % 28) + 1).padStart(2, "0");
+      heavy.db.transactions.push({
+        id: `stop-${index}`, household_id: "house-home", user_id: "user-bin",
+        transaction_date: `2026-07-${day}`, type: index % 9 === 0 ? "income" : "expense",
+        amount: 1000 + (index * 137) % 90000, category: categories[index % 3],
+        memo: `기록 ${index}`, payment_method: payments[index % 2], source: "web",
+        created_at: `2026-07-${day}T09:00:00.000Z`,
+      });
+    }
+    const heavyResponse = await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`, { headers: { cookie: heavy.cookie, "user-agent": "Mozilla/5.0" } }), heavy.env, {});
+    heavyHtml = await heavyResponse.text();
+  } finally {
+    heavy.restore();
+  }
+  const heavySlice = (start, end) => countTabStops(heavyHtml.slice(start, end)).length;
+  const heavySidebar = heavySlice(heavyHtml.indexOf('<aside id="abDesktopSidebar"'), heavyHtml.indexOf("</aside>"));
+  const heavyMobileTopStart = heavyHtml.indexOf('<div class="abNavMobileTop"');
+  const heavyBottomStart = heavyHtml.indexOf('<nav class="abNavBottom"');
+  const heavyMobileTop = heavySlice(heavyMobileTopStart, heavyBottomStart);
+  const heavyBottom = heavySlice(heavyBottomStart, heavyHtml.indexOf("</nav>", heavyBottomStart));
+  const heavyTotal = countTabStops(heavyHtml).length;
+  const heavyDesktop = heavyTotal - heavyMobileTop - heavyBottom;
+  const heavyMobile = heavyTotal - heavySidebar;
+
+  // 부하가 걸린 쪽이 실제로 더 많아야 한다. 같거나 적으면 픽스처가 부하를 만들지
+  // 못한 것이고, 그러면 이 절이 아무것도 지키지 못한다.
+  ok(heavyTotal > total, `부하 픽스처가 실제로 더 많은 정지점을 만든다 (${total} → ${heavyTotal})`);
+  ok(heavyTotal <= 62, `실사용 부하의 전체 정지점이 62개 이하다 (${heavyTotal})`);
+  ok(heavyDesktop <= 55, `실사용 부하의 데스크톱 정지점이 55개 이하다 (${heavyDesktop})`);
+  ok(heavyMobile <= 48, `실사용 부하의 모바일 정지점이 48개 이하다 (${heavyMobile})`);
+  // 지시서의 출발점(모바일 54)보다는 부하가 걸린 쪽에서도 아래여야 한다.
+  ok(heavyMobile < 54, `부하가 걸려도 모바일 정지점이 지시서 기준선 54보다 적다 (${heavyMobile})`);
 
   // -------------------------------------------------------------------------
   // 줄인 방법 — 3장 P3 "진입점은 접기 영역에 모음"
@@ -113,7 +158,14 @@ try {
   // 줄이지 **않는** 것 — M4 가 1단에 두라고 정한 것들
   // -------------------------------------------------------------------------
   // 숫자를 맞추려고 빠른 입력을 접으면 M4 위반이다. 1단은 항상 보여야 한다.
-  const addPanel = html.slice(html.indexOf('<section id="add" class="panel">'), html.indexOf('<section id="budget"'));
+  // V22.8.99: 경계를 '<section id="budget"' 로 잡고 있었는데 그 섹션은 후처리에서
+  // 걷어내져 응답에 없다. indexOf 가 -1 을 돌려주면 slice 는 "끝에서 한 글자 앞"
+  // 까지를 뜻하므로, 이 조각은 사실상 문서 나머지 전체였다 — includes 검사는 그래도
+  // 통과했지만 정지점 하한은 아무것도 재지 못하고 있었다. 실제로 있는 경계로 바꾼다.
+  const addStart = html.indexOf('<section id="add" class="panel">');
+  const addEnd = html.indexOf('<section id="feed"');
+  ok(addStart > 0 && addEnd > addStart, "빠른 입력 구간의 경계가 응답에 실제로 있다");
+  const addPanel = html.slice(addStart, addEnd);
   eq(/<details class="[^"]*"[^>]*>\s*<summary>[^<]*<\/summary>\s*<div class="smartLine"/.test(addPanel), false, "한 줄 입력을 접지 않는다");
   for (const [label, marker] of [
     ["한 줄 입력", 'id="smartInput"'],

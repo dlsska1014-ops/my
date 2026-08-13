@@ -1927,7 +1927,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.98-RECEIPT-ORIGINALS";
+const APP_VERSION = "V22.8.99-AUDIT-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -20573,7 +20573,7 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22897.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22897.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22895.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22899.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
@@ -20816,16 +20816,6 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity mai
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="error"]{color:#fca5a5!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="success"]{color:#6ee7b7!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
-
-/* V22.8.17 V2 information hierarchy and review-safe contrast layer */
-body.abV22812Shell.abMobileAppSurface :is(.homeSpendHero,.homeBudget,.homeMetric,.homeCard,.homeQuick a,.homeCalendar){border-radius:18px!important;box-shadow:none!important}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero{margin:12px 0;padding:24px;background:var(--ab12-surface);border:1px solid var(--ab12-line);color:var(--ab12-text)}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>span{display:block;color:var(--ab12-muted);font-size:13px;font-weight:900}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{display:block;margin:7px 0 3px;color:var(--ab12-text);font-size:38px;line-height:1.12;letter-spacing:-.055em;overflow-wrap:anywhere}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>p{margin:0;font-size:13px;font-weight:850;line-height:1.5}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendUp{color:#b42318}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendDown{color:#067647}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendFlat{color:var(--ab12-muted)}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:850}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta b{color:var(--ab12-accent)}
@@ -20945,9 +20935,6 @@ body.abV22812Shell.abPageCalendar .day.emptyDay{background:transparent!important
 body.abV22812Shell.abPageCalendar .day.hasSpend{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
 body.abV22812Shell.abPageCalendar .day :is(em,small){color:var(--ab12-muted)!important}
 body.abV22812Shell.abPageCalendar .day span{color:var(--ab12-accent)!important}
-
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendUp{color:#fca5a5}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeSpendHero>p.spendDown{color:#6ee7b7}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sun:not(.sel):not(.isToday) b{color:#fda4af!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.sat:not(.sel):not(.isToday) b{color:#93c5fd!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeCalendar .calDow.sun{color:#fda4af!important}
@@ -20963,8 +20950,8 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.good
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.bad{background:rgba(127,29,29,.32)!important;border-color:#f87171!important;color:#fecaca!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.hasRec.sel :is(b,strong,em,small){color:#fff!important}
 
-@media(min-width:900px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:28px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:44px}body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
-@media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeSpendHero{padding:20px}body.abV22812Shell.abMobileAppSurface .homeSpendHero>strong{font-size:34px}body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:5px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
+@media(min-width:900px){body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:5px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
 @media(max-width:360px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:8px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:2px}}
 @media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
 
@@ -21194,7 +21181,6 @@ body.abV22812Shell .abNavGuide{display:grid!important;gap:2px!important;padding:
 body.abV22812Shell .abNavGuide span,body.abV22812Shell .abNavGuide small{display:block!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader{position:relative!important;top:auto!important;z-index:20;width:auto!important}
 body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader .selectLine{margin-top:14px!important}
-body.abV22812Shell.abMobileAppSurface .homeSpendHero,body.abV22812Shell.abMobileAppSurface .homeBudget,body.abV22812Shell.abMobileAppSurface .homeCard,body.abV22812Shell.abMobileAppSurface .panel{border-radius:18px!important}
 @media(max-width:899px){
   body.abV22812Shell .abV5PageHeader{margin:10px 0!important;padding:17px 16px!important;border-radius:16px!important}
   body.abV22812Shell .abV5PageHeaderTop{display:grid;gap:12px}
@@ -23094,7 +23080,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22895-css"'
+        ? '"accountbook-shell-v22899-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22879-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -23502,7 +23488,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 흡수하고 이 카드를 남겨 뒀다. 남은 내용은 이미 두 곳에 그대로 있다 —
   // 지출·수입과 전월 대비는 homeMetrics 가, 남은 예산은 P0 헤드라인이 말한다.
   // 같은 이야기를 세 번 하던 것을 한 번으로 줄인다.
-  const homeSpendHero = reportChallenge ? renderReportChallenge(reportChallenge, { householdId, canManage: appIsManager, home: true }) : "";
+  const homeChallengeHtml = reportChallenge ? renderReportChallenge(reportChallenge, { householdId, canManage: appIsManager, home: true }) : "";
   if (reportChallenge && budget && typeof budget === "object") budget.reportChallenge = reportChallenge;
   // The remaining template uses rows.length only for the feed's "view all"
   // affordance. Dashboard summaries above have already been built from all
@@ -23533,7 +23519,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `${homeSpendHero}<section class="homeBudget">
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `${homeChallengeHtml}<section class="homeBudget">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div>
     <div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
     <div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>
