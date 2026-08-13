@@ -1072,6 +1072,14 @@ export default {
         }, "PC 예산 화면");
       }
 
+      if (url.pathname === "/cursor-preference" && request.method === "GET") {
+        return handleCursorPreference(request, env, url);
+      }
+
+      if (url.pathname === "/cursor-preference/save" && request.method === "POST") {
+        return handleCursorPreferenceSave(request, env);
+      }
+
       if (url.pathname === "/home-layout" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
           return handleHomeLayoutPage(request, env, url);
@@ -1919,7 +1927,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.94-HOME-LAYOUT";
+const APP_VERSION = "V22.8.95-DESKTOP-CURSOR";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -13362,7 +13370,12 @@ async function handleUnifiedMenuPage(request, env, url) {
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
   const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
   const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
-  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p></section>`;
+  // V22.8.95 (10.1): 마우스 따라오는 표시 스위치. 테마·톤과 달리 이 값은 기기가
+  // 아니라 계정에 붙으므로(지시서) 폼 하나로 서버에 저장한다. 데스크톱에서만 뜻이
+  // 있어서 모바일에서는 아무것도 하지 않는다는 사실을 문구로 말한다.
+  const cursorOn = String(await getSettingValue(env, cursorPrefKey(hid, userId || "shared")).catch(() => "") || "") !== "off";
+  const cursorSwitchHtml = `<form class="abCursorPref" method="post" action="/cursor-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label class="abCursorPick"><input type="checkbox" name="cursor" value="on"${cursorOn ? " checked" : ""}/><span><b>마우스 따라오는 표시</b><small>마우스가 있는 큰 화면에서만 켜집니다. 동작 줄이기를 켜 두면 이 설정과 무관하게 나타나지 않습니다.</small></span></label><button type="submit">표시 설정 저장</button></form>`;
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
 }
 
@@ -19820,6 +19833,102 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 @media(max-width:360px){.topActions{gap:4px}.topActions a{padding:0 7px}.filterQuick{grid-template-columns:1fr}}
 `;
 
+// V22.8.95 (10장) 데스크톱 커서 — cursify 의 Follow Cursor 기법을 쓰되 장식으로
+// 두지 않고 "지금 무엇을 누를 수 있는지"를 말하게 만든다.
+//
+// 이 항목은 PR 순서의 맨 끝이고, 문제가 생기면 **가장 먼저 되돌린다**. 그래서
+// 되돌리기 쉬운 모양으로 둔다 — 자산 하나 + 내비 자산 안의 로더 한 덩어리이고,
+// 다른 규칙을 바꾸지 않는다.
+//
+// 원본과 다르게 만든 것:
+//   · z-index 1 — 원본은 비워 두는데 그러면 저장 토스트 위에 점이 얹힌다.
+//   · 색은 런타임에 --ab12-brand 를 읽는다. 원본의 #323232a6 은 토큰 밖 값이고
+//     다크에서 보이지 않는다. 테마·톤 전환을 그대로 따라가야 한다.
+//   · 조작 요소 위에서 반지름 9 → 22px, 알파 .28 → .14. 판정은 elementFromPoint 를
+//     **마우스가 움직일 때만** 한다(프레임마다 하면 비싸다).
+//   · 입력 영역 위에서는 숨긴다. I빔 커서와 겹치면 글자 위치를 가린다.
+//   · 배경 탭·비활성 창·창 밖으로 나간 상태에서는 rAF 를 멈춘다. 원본은 계속 돌아
+//     배터리를 먹는다.
+//   · resize 는 150ms 디바운스. 원본은 매 이벤트마다 캔버스를 다시 잡아 창 조절
+//     중 프레임이 떨어진다.
+//   · 기본 커서를 숨기지 않고(cursor:none 금지), 꼬리·잔상·클릭 파동을 만들지 않는다.
+const AB_CURSOR_ASSET_PATH = "/assets/ab-cursor-v22895.mjs";
+const AB_CURSOR_ASSET_SOURCE = `/*! 10장 데스크톱 커서 · 덧붙임이고 정보가 아니다 · 근거는 src/index.js 주석 */
+let canvas = null, ctx = null, raf = 0, timer = 0;
+let pos = null, target = null, r = 9, want = 9, alpha = 0.28, hide = false;
+const tone = () => getComputedStyle(document.body).getPropertyValue("--ab12-brand").trim() || "#3182f6";
+const sized = () => {
+  if (!canvas) return;
+  const d = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(innerWidth * d);
+  canvas.height = Math.floor(innerHeight * d);
+  canvas.style.width = innerWidth + "px";
+  canvas.style.height = innerHeight + "px";
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+};
+const onResize = () => { clearTimeout(timer); timer = setTimeout(sized, 150); };
+const draw = () => {
+  raf = 0;
+  if (!ctx || !pos || !target) return;
+  pos.x += (target.x - pos.x) / 10;
+  pos.y += (target.y - pos.y) / 10;
+  r += (want - r) / 6;
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  if (!hide) {
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = tone();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  loop();
+};
+const loop = () => {
+  if (raf || document.hidden || !document.hasFocus()) return;
+  raf = requestAnimationFrame(draw);
+};
+const halt = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
+const onMove = (e) => {
+  target = { x: e.clientX, y: e.clientY };
+  if (!pos) pos = { x: e.clientX, y: e.clientY };
+  const at = document.elementFromPoint(e.clientX, e.clientY);
+  const typing = at && at.closest && at.closest("input,textarea,[contenteditable]");
+  const hit = at && at.closest && at.closest("a,button,[role=button],.calDay,.abNavCalDay,.txChip,.dateChip");
+  hide = !!typing;
+  want = hit && !typing ? 22 : 9;
+  alpha = hit && !typing ? 0.14 : 0.28;
+  loop();
+};
+const onLeave = () => { hide = true; loop(); halt(); };
+export function start() {
+  if (canvas) return;
+  canvas = document.createElement("canvas");
+  canvas.className = "abCursorCanvas";
+  canvas.setAttribute("aria-hidden", "true");
+  canvas.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1";
+  ctx = canvas.getContext("2d");
+  document.body.appendChild(canvas);
+  sized();
+  addEventListener("resize", onResize);
+  addEventListener("mousemove", onMove);
+  addEventListener("mouseout", onLeave);
+  addEventListener("blur", halt);
+  addEventListener("focus", loop);
+  document.addEventListener("visibilitychange", loop);
+}
+export function stop() {
+  halt();
+  removeEventListener("resize", onResize);
+  removeEventListener("mousemove", onMove);
+  removeEventListener("mouseout", onLeave);
+  removeEventListener("blur", halt);
+  removeEventListener("focus", loop);
+  document.removeEventListener("visibilitychange", loop);
+  if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+  canvas = null; ctx = null; pos = null; target = null; hide = false;
+}
+`;
 // V22.8.93 (9.4): number-flow 0.6.2 (MIT, Maxwell Barvian) 를 자산 폴더에 담아
 // 버전 주소로 배포한다. CDN 을 런타임에 참조하지 않는다 — 카카오톡 인앱 브라우저에서
 // 외부 도메인이 막히는 경우가 있다. 원본 5개 ESM 파일을 한 파일로 합친 것 외에
@@ -20393,7 +20502,7 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22892.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22892.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22895.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
@@ -20511,7 +20620,7 @@ body.abV22812Shell [style*="color:#8B95A1"],body.abV22812Shell [style*="color:#8
 body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span){color:var(--ab12-muted)!important}
 body.abV22812Shell a{color:var(--ab12-accent)}
 body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
-.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}
+.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:3px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:1000;cursor:pointer;justify-self:start;padding:0 14px}
 .abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
 .abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
 .abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
@@ -22181,6 +22290,43 @@ function accountbookStage4NavClientMain() {
     });
   }
 
+  // V22.8.95 (10장): 데스크톱 커서 로더. 켜는 조건 넷을 **모두** 만족할 때만
+  // 스크립트를 내려받는다. 터치 기기와 899px 이하에서는 네트워크에 아무것도 뜨지
+  // 않는다(10.5). 초기 HTML 증가 0바이트 — 로더는 이미 내려가던 이 자산 안에 있다.
+  var abCursorModule = null;
+  var abCursorMotion = null;
+  function abCursorAllowed() {
+    if (!window.matchMedia) return false;
+    if (!window.matchMedia("(hover:hover) and (pointer:fine)").matches) return false;
+    if (abCursorMotion && abCursorMotion.matches) return false;
+    return Math.min(window.innerWidth || 0, (document.documentElement || {}).clientWidth || 0) >= 900;
+  }
+  function abCursorStop() {
+    if (abCursorModule) abCursorModule.then(function (mod) { if (mod && mod.stop) mod.stop(); });
+  }
+  function abCursorStart() {
+    if (abCursorModule || !abCursorAllowed()) return;
+    // 스위치는 (가계부·사용자) 설정이다. 기본은 켜짐이고, 못 읽으면 켜지 않는다 —
+    // 꺼 둔 사람에게 잘못 켜는 쪽이 그 반대보다 나쁘다.
+    abCursorModule = fetch("/cursor-preference" + location.search, { credentials: "same-origin" })
+      .then(function (response) { return response.ok ? response.json() : { on: false }; })
+      .then(function (pref) {
+        if (!pref || pref.on === false || !abCursorAllowed()) return null;
+        return import("/assets/ab-cursor-v22895.mjs").then(function (mod) { mod.start(); return mod; });
+      })
+      .catch(function () { return null; });
+  }
+  function bindCursorEffect() {
+    if (!window.matchMedia) return;
+    abCursorMotion = window.matchMedia("(prefers-reduced-motion:reduce)");
+    // 동작 줄이기를 켜면 즉시 해제하고 캔버스를 지운다. 다시 끄면 되살아난다.
+    var onMotion = function () { if (abCursorMotion.matches) { abCursorStop(); abCursorModule = null; } };
+    if (abCursorMotion.addEventListener) abCursorMotion.addEventListener("change", onMotion);
+    else if (abCursorMotion.addListener) abCursorMotion.addListener(onMotion);
+    if (!abCursorAllowed()) return;
+    window.addEventListener("mousemove", abCursorStart, { once: true });
+  }
+
   function apply() {
     bindGlobalActions();
     Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
@@ -22189,6 +22335,7 @@ function accountbookStage4NavClientMain() {
     bindDeferredEditForms(document);
     bindGaugeHandoff(document);
   }
+  bindCursorEffect();
   bindShell();
   apply();
   window.addEventListener("hashchange", apply);
@@ -22832,10 +22979,12 @@ async function appIconAssetResponse(request, url) {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
+  const assetPaths = [AB_CURSOR_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
-  const content = path === NUMBER_FLOW_ASSET_PATH
+  const content = path === AB_CURSOR_ASSET_PATH
+    ? AB_CURSOR_ASSET_SOURCE
+    : path === NUMBER_FLOW_ASSET_PATH
     ? NUMBER_FLOW_ASSET_SOURCE
     : path === MOBILE_HOME_CSS_ASSET_PATH
     ? mobileHomeCssAsset()
@@ -22865,14 +23014,16 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "cache-control": "public, max-age=31536000, immutable",
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
-    etag: path === NUMBER_FLOW_ASSET_PATH
+    etag: path === AB_CURSOR_ASSET_PATH
+      ? '"ab-cursor-v22895-mjs"'
+      : path === NUMBER_FLOW_ASSET_PATH
       ? '"number-flow-v22893-mjs"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
       ? '"mobile-home-v22892-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22891-css"'
+        ? '"accountbook-shell-v22895-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22879-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -23832,6 +23983,38 @@ function moneyPlanTabsCss() {
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a small{color:#b3bdc9}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#4e96fa;border-color:#4e96fa;color:#fff!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on small{color:#dbeafe}`;
+}
+
+// V22.8.95 (10.1): "마우스 따라오는 표시" 스위치. 기본 켜짐이고 값은 홈 구성과
+// 같은 키-값 저장소에 담는다(새 표 없음). 기본값이 켜짐이라 **꺼 둔 사람만** 줄이
+// 생긴다 — 대다수 계정에서 저장 자체가 없다.
+function cursorPrefKey(householdId, userKey) {
+  return `cursor:v1:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
+}
+async function handleCursorPreference(request, env, url) {
+  const userId = await verifyUserSession(request, env);
+  const adminOk = await verifyAdminSession(request, env);
+  if (!userId && !adminOk) return jsonResponse({ ok: false, on: true }, 401);
+  const householdId = String(url.searchParams.get("household_id") || "").trim();
+  const value = String(await getSettingValue(env, cursorPrefKey(householdId, userId || "shared")).catch(() => "") || "");
+  // 값이 없으면 켜짐. 이 폴백이 기본값이다.
+  return jsonResponse({ ok: true, on: value !== "off" });
+}
+async function handleCursorPreferenceSave(request, env) {
+  const userId = await verifyUserSession(request, env);
+  const adminOk = await verifyAdminSession(request, env);
+  const form = await request.formData();
+  const householdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const back = `/menu?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
+  if (!userId && !adminOk) return redirectResponse("/my");
+  if (userId) {
+    const role = await getHouseholdMemberRole(env, userId, householdId);
+    if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) return redirectResponse("/app?err=household_scope");
+  }
+  const on = String(form.get("cursor") || "") === "on";
+  await saveSettingValue(env, cursorPrefKey(householdId, userId || "shared"), on ? "on" : "off");
+  return redirectResponse(`${back}&msg=cursor_saved#abAppearanceTitle`);
 }
 
 // V22.8.94 (8.4) 홈 구성 편집 화면.

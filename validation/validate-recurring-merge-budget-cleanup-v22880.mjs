@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes(`const APP_VERSION = "V22.8.94-HOME-LAYOUT"`), "runtime exposes the V22.8.80 release");
+ok(source.includes(`const APP_VERSION = "V22.8.95-DESKTOP-CURSOR"`), "runtime exposes the V22.8.80 release");
 
 // ---------------------------------------------------------------------------
 // 1. 고정지출을 정기 관리 화면으로 합침

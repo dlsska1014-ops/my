@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.94-HOME-LAYOUT"'), "runtime exposes the edit and restore fix release");
+ok(source.includes('const APP_VERSION = "V22.8.95-DESKTOP-CURSOR"'), "runtime exposes the edit and restore fix release");
 
 // 1. 날짜 힌트는 명령 접두부에서만 읽는다.
 ok(source.includes("function splitKakaoEditDatePrefixV4("), "edit commands read the date hint from a dedicated prefix splitter");

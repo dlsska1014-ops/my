@@ -8,14 +8,14 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.94-HOME-LAYOUT"'), "runtime exposes the functional UI reliability release");
+ok(source.includes('const APP_VERSION = "V22.8.95-DESKTOP-CURSOR"'), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");
 ok(source.includes('button.setAttribute("aria-busy", "true")'), "challenge save exposes its busy state");
 ok(source.includes('challenge_html: renderReportChallenge'), "inline response returns authoritative refreshed challenge markup");
 ok(source.includes('sidebar_html: renderReportChallenge'), "inline response refreshes the shared sidebar challenge");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22895.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
@@ -45,9 +45,9 @@ try {
   eq(adsHead.text, "", "ads.txt HEAD response has no body");
   ok(String(adsHead.response.headers.get("content-type") || "").includes("text/plain"), "ads.txt HEAD preserves its text content type");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22891.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22895.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22891-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22895-css"', "new shell ETag is correct");
   ok(shell.text.includes(".v8-tx summary{display:flex;align-items:center;min-height:44px"), "transaction edit control has a 44px touch target");
   ok(shell.text.includes(".kwRemove{width:40px!important;height:40px!important"), "mobile keyword remove control has a larger touch target");
 

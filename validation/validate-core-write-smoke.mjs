@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.94-HOME-LAYOUT"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.95-DESKTOP-CURSOR"'), "runtime reports the challenge and activity UX release");
 ok(source.includes('key: `transaction-create:${fingerprint}`'), "web transaction creation uses a cross-instance operation lease");
 ok(source.includes('kind: "transaction_edit_history_save_failed"'), "secondary edit-history failures are reported separately");
 ok(!source.includes('await optionalSupabase(env, `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`'), "budget deletion no longer swallows table failures");
