@@ -9,7 +9,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const purgeSql = readFileSync(new URL("../02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime exposes the merged release");
+ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the merged release");
 
 const ORIGIN = "https://ttokttok-accountbook.com";
 const USER = "kakao_login:2265";

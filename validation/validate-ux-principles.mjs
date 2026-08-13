@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens
@@ -166,7 +166,11 @@ eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308f
 // V22.8.87(M1): 머리말 버튼이 하나 늘었다 — 정산. 하단 탭 다섯 칸에서 정산을 빼고
 // 가운데를 기록(＋)에 내주면서, 정산으로 가는 길을 통계 화면 머리말로 옮겼다.
 // /settlement-summary 주소 자체는 그대로다. 함수의 다른 부분은 바뀌지 않았다.
-eq(functionBlockHash("function renderMyAnalysisHtml("), "99773ac36716fb1116464d81862b7003f93477b0b9bf137dab70565a76b9a8d0", "analysis renderer matches the V22.8.87 settlement-entry baseline");
+// V22.8.92(7.4): 머리말 문장이 한 줄 길어졌다 — 두 화면이 서로의 역할을 같은
+// 문장으로 말한다("소비 분석은 필터로 좁혀 보는 화면 / 종합 리포트는 이번 달
+// 전체를 고정해 보는 화면"). V22.8.75 가 정한 역할 자체는 그대로이고, 무엇이
+// 실제로 다른지를 덧붙였을 뿐이다. 계산·필터 로직은 손대지 않았다(7.4 규칙).
+eq(functionBlockHash("function renderMyAnalysisHtml("), "c4f0632fbb1d11844a88d6b869c49dfd8d1aa3eca2bc6f7d212fa90669428112", "analysis renderer matches the V22.8.92 role-sentence baseline");
 
 const fixture = await createV2265QaFixture();
 try {

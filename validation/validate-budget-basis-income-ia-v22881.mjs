@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime exposes the V22.8.81 release");
+ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the V22.8.81 release");
 
 // ---------------------------------------------------------------------------
 // 1. 분류별 예산만 잡은 달의 거짓 초과 경보
@@ -17,7 +17,12 @@ ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime expo
 // ---------------------------------------------------------------------------
 
 ok(source.includes('const basis = categoryBudgetTotal ? "category" : "total";'), "budgetSummary records which basis it used");
-ok(source.includes("const budgetedExpense = basis === \"category\"\n    ? categoryBudgets.reduce((a, b) => a + Number(byCategory[b.category] || 0), 0)\n    : expense;"), "the budgeted spend only sums categories that carry a budget");
+// V22.8.92: 합계를 만드는 방식이 한 번 더 좁아졌다 — 예산 행이 아니라 **분류 이름**
+// 을 훑는다. 같은 분류의 예산 행이 둘이면 그 분류의 지출이 두 번 더해져 사용액이
+// 실제 지출보다 커졌고, 남은 예산은 그만큼 작게 나왔다. V22.8.81 이 지키려던
+// "예산을 잡은 분류의 지출만 견준다"는 그대로이고, 중복만 사라진다.
+ok(source.includes("const budgetedExpense = basis === \"category\"\n    ? [...new Set(categoryBudgets.map((b) => b.category))].reduce((a, category) => a + Number(byCategory[category] || 0), 0)\n    : expense;"), "the budgeted spend only sums categories that carry a budget");
+ok(!/categoryBudgets\.reduce\(\(a, b\) => a \+ Number\(byCategory\[b\.category\] \|\| 0\), 0\)/.test(source), "a duplicated budget row can no longer double-count its category");
 ok(source.includes("const uncoveredExpense = Math.max(0, expense - budgetedExpense);"), "spend outside the budgeted categories is kept as a separate figure");
 ok(source.includes("basis, budgetedExpense, uncoveredExpense,"), "the summary exposes the new fields");
 ok(source.includes("remaining: totalBudget ? Math.max(0, totalBudget - budgetedExpense) : 0,"), "the remaining figure uses the budgeted spend");

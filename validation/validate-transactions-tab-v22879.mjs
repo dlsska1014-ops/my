@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.91-HOME-REPORTS"'), "runtime exposes the V22.8.79 release");
+ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the V22.8.79 release");
 
 // ---------------------------------------------------------------------------
 // 정적 계약
@@ -36,8 +36,15 @@ ok(source.includes(`'action="/app"><input type="hidden" name="tab" value="transa
 // 6. 클라 즉시검색은 그대로 병행한다.
 ok(source.includes('<input id="v8Search" placeholder="이 페이지에서 빠른 검색"/>'), "the client-side quick search stays");
 
-// 7. 카드 렌더는 기존 함수를 재사용한다.
-ok(source.includes("renderV8TxCards(txRows,"), "the tab reuses renderV8TxCards");
+// 7. 행 마크업은 여전히 한 곳에서만 나온다.
+// V22.8.92(7.2): 탭이 renderV8TxCards 를 직접 부르는 대신 renderV22TxDayGroups 를
+// 거친다 — 날짜 헤더로 묶기 위해서다. 지키려던 것은 "탭이 행 마크업을 따로 한 벌
+// 더 갖지 않는다"였고, 그 성질은 그대로다: 묶기 함수는 각 묶음을 다시 같은
+// renderV8TxCards 에 넘긴다. 그래서 호출을 그대로 요구하는 대신 위임을 확인한다.
+ok(source.includes("renderV8TxDayGroups(txRows,"), "the tab renders rows through the day grouper");
+const dayGrouper = source.slice(source.indexOf("function renderV8TxDayGroups("), source.indexOf("function lastNDaysExpense("));
+ok(dayGrouper.includes("renderV8TxCards(group.rows,"), "the day grouper still delegates row markup to renderV8TxCards");
+ok(!/<article class="v8-tx"/.test(dayGrouper), "the day grouper does not carry a second copy of the row markup");
 
 // 8. 라이트/다크 스타일이 모두 있다.
 for (const cls of ["txTabHead", "txTabFilter", "txPager", "txPickLabel"]) {

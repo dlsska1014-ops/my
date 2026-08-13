@@ -226,7 +226,7 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 46 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22889.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22892.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22891.css"'), 1, "home loads the current shell stylesheet once");
   ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22889.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
@@ -260,7 +260,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22889.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22891.css"];
+  const cssPaths = ["/assets/mobile-home-v22892.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22891.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -276,23 +276,24 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22889.css") {
-      // V22.8.89(M4): 죽은 "채우기" 버튼 규칙을 걷어내고 한 줄 입력이 폭을 다 쓰도록
-      // smartLine 을 한 칸 그리드로 고쳤다. 바이트 고정 자산이므로 주소를 함께 올린다.
-      eq(createHash("sha256").update(bytes).digest("hex"), "4270bd11f514f367874765853159d3f35210b2a78e51d6d1abef95d0a73900bd", "legacy home stylesheet bytes remain pinned");
+    if (path === "/assets/mobile-home-v22892.css") {
+      // V22.8.92(7.2): 거래내역 탭이 날짜 헤더 + 구분선 목록 + 한 줄 칩 바로 바뀌며
+      // 그 규칙들이 이 자산에 들어왔다. 바이트 고정 자산이므로 주소를 함께 올린다
+      // (v22889 → v22892). 고정 해시도 새 주소의 것으로 옮긴다.
+      eq(createHash("sha256").update(bytes).digest("hex"), "2adb999983e0d7f0380b6ad0e888d7df9f38e0c312308376bd503ab742dbb5cf", "legacy home stylesheet bytes remain pinned");
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22889.js");
+  const legacyJs = await request("/assets/mobile-home-v22892.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22889.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22892.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
   // V22.8.89(M4): 빠른 입력 런타임이 바뀌었다 — "채우기" 버튼을 없애고 적는 동안
 // 파싱하도록 고쳤다. 이 자산은 바이트로 고정돼 있으므로 내용이 바뀌면 주소를
 // 올려야 한다(v22879 → v22889). 고정 해시도 새 주소의 것으로 함께 옮긴다.
 eq(createHash("sha256").update(legacyBytes).digest("hex"), "c78fab08d1cad3ed3bf6977304a07f4a0c39d59992bbca21e45a517c409c6062", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22889-js"', "legacy home runtime ETag remains pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22892-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");

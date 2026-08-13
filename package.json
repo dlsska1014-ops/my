@@ -59,6 +59,7 @@
     "validate:home-blocks-daily": "node validation/validate-home-blocks-daily-v22888.mjs",
     "validate:quick-sheet-two-tier": "node validation/validate-quick-sheet-two-tier-v22889.mjs",
     "validate:desktop-nav-grid": "node validation/validate-desktop-nav-grid-v22890.mjs",
-    "validate:home-reports": "node validation/validate-home-reports-v22891.mjs"
+    "validate:home-reports": "node validation/validate-home-reports-v22891.mjs",
+    "validate:screen-cleanup": "node validation/validate-screen-cleanup-v22892.mjs"
   }
 }
