@@ -14,7 +14,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.96-HOME-TAB-STOPS"'), "current runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.98-RECEIPT-ORIGINALS"'), "current runtime version is explicit");
 ok(source.includes('if (url.pathname === "/u/api/recent-transactions" && request.method === "GET")'), "recent transaction API is GET-only");
 ok(!source.includes('url.pathname === "/u/api/recent-transactions" && request.method === "POST"'), "right rail adds no write route");
 ok(source.includes("async function handleUserRecentTransactions"), "scoped recent transaction handler exists");

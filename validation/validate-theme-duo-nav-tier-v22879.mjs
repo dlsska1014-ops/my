@@ -6,7 +6,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.96-HOME-TAB-STOPS"'), "runtime exposes the V22.8.79 release");
+ok(source.includes('const APP_VERSION = "V22.8.98-RECEIPT-ORIGINALS"'), "runtime exposes the V22.8.79 release");
 
 // 테마 런타임 본문만 떼어내 검사한다. 다른 곳의 "system"(actorKind 등)에 걸리지 않게 한다.
 const themeStart = source.indexOf("function accountbookThemeClientMain()");

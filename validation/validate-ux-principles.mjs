@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.96-HOME-TAB-STOPS"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.98-RECEIPT-ORIGINALS"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens

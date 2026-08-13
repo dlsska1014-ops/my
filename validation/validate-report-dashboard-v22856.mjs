@@ -81,7 +81,7 @@ ok(source.includes("var(--ab12-brand,#6d5dfc)"), "report progress colors inherit
 ok(source.includes("var(--ab12-input-bg,#fff)"), "month input inherits the shared input theme");
 ok(source.includes(".reportMonthNav :is(a,button,input):focus-visible"), "report interactions expose keyboard focus");
 ok(source.includes("color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent)"), "sticky month navigation keeps themed translucency");
-ok(source.includes('const APP_VERSION = "V22.8.96-HOME-TAB-STOPS"'), "runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.98-RECEIPT-ORIGINALS"'), "runtime version is explicit");
 
 const fixture = await createV2265QaFixture();
 try {
