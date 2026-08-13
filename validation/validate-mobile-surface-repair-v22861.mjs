@@ -8,19 +8,27 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the mobile surface repair release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime exposes the mobile surface repair release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed quick input runtime uses a new immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22892.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
+// V22.8.93: 담아 온 number-flow 번들(9.4)은 이 검사의 대상이 아니다. 그 안의
+// --current/--length/--n/--width 는 라이브러리가 그림자 DOM 안에서
+// style.setProperty 로 직접 채우는 값이라 CSS 선언으로는 잡히지 않는다. 여기서
+// 지키려는 것은 **우리가 쓴 CSS** 에 정의되지 않은 변수가 남지 않는 것이다.
+const vendorStart = source.indexOf("const NUMBER_FLOW_ASSET_SOURCE = ");
+const ownSource = vendorStart < 0 ? source
+  : source.slice(0, vendorStart) + source.slice(source.indexOf("\nconst MOBILE_HOME_CSS_ASSET_PATH", vendorStart));
+ok(vendorStart < 0 || ownSource.length < source.length, "vendored library body is excluded from the CSS scan");
 const usedVariables = new Set();
 const definedVariables = new Set();
-for (const match of source.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)\s*([),])/g)) {
+for (const match of ownSource.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)\s*([),])/g)) {
   if (match[2] === ")") usedVariables.add(match[1]);
 }
-for (const match of source.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)) definedVariables.add(match[1]);
+for (const match of ownSource.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)) definedVariables.add(match[1]);
 const undefinedVariables = [...usedVariables].filter((name) => !definedVariables.has(name)).sort();
 eq(undefinedVariables.join(","), "", `every fallback-free CSS custom property is defined (${undefinedVariables.join(", ") || "none"})`);
 ok(source.includes("--action:var(--ab12-action);--accent-soft:var(--ab12-accent-soft);--soft:var(--ab12-surface-raised);"), "shell aliases the action, accent-soft and soft tokens");
@@ -106,9 +114,9 @@ try {
   ok(shell.text.includes(".abQuickInputBody{overscroll-behavior:contain"), "deployed shell contains the quick input scroll");
   ok(shell.text.includes('.chipRow button:before{content:var(--ab-chip-icon'), "deployed shell draws quick input chip icons");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22889.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22889-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "new navigation ETag is correct");
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
   ok(!nav.text.includes("dockMobileAction"), "deployed navigation runtime no longer docks a mobile action button");
 
@@ -120,7 +128,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
   ok(home.text.includes("/assets/accountbook-shell-v22891.css"), "home loads the refreshed shell");
-  ok(home.text.includes("/assets/accountbook-nav-v22889.js"), "home loads the refreshed navigation runtime");
+  ok(home.text.includes("/assets/accountbook-nav-v22893.js"), "home loads the refreshed navigation runtime");
   ok(home.text.includes("/assets/accountbook-v5-v22890.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");

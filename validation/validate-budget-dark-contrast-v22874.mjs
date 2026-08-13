@@ -9,7 +9,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const perf = readFileSync(new URL("./validate-performance-v22811.mjs", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the budget and dark contrast release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime exposes the budget and dark contrast release");
 
 // ── 1. 예산 검사가 "이번 달"을 재야 한다 ────────────────────────────
 // 2026-07 을 고정으로 보면 그 달이 지난 뒤에는 오늘 표시가 빠져 더 작게 측정된다.

@@ -1909,7 +1909,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.8.92-SCREEN-CLEANUP";
+const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19673,7 +19673,7 @@ const MOBILE_V81_CSS = `
 .mobileFilterForm input[name="q"]{grid-column:1/-1}
 @media(max-width:420px){.mobileFilterForm{grid-template-columns:1fr!important}.mobileFilterForm input[name="q"],.mobileFilterForm button,.mobileFilterForm a{grid-column:1/-1}}
 
-.homeBudget{background:#fff;border:1px solid #f0f0f0;border-radius:24px;padding:20px;box-shadow:0 8px 22px rgba(15,23,42,.055);overflow:hidden;position:relative;margin:12px 0}.homeBudget:after{content:"";position:absolute;right:-34px;top:-34px;width:110px;height:110px;background:rgba(254,229,0,.35);border-radius:999px}.homeBudgetTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;position:relative;z-index:1}.homeBudgetTop span{display:block;color:#8b95a1;font-size:13px;font-weight:800}.homeBudgetTop em{font-style:normal;background:#FEE500;color:#191919;border-radius:999px;padding:6px 9px;font-size:12px;font-weight:1000}.homeBudgetAmount{position:relative;z-index:1;margin:10px 0 12px}.homeBudgetAmount b{font-size:34px;letter-spacing:-.05em}.homeBudgetAmount small{color:#8b95a1;font-weight:800;margin-left:4px}.homeProgress{height:11px;background:#f1f3f5;border-radius:999px;overflow:hidden;position:relative;z-index:1}.homeProgress i{display:block;height:100%;background:#FEE500;border-radius:999px}.homeBudgetFoot{display:flex;justify-content:space-between;margin-top:10px;color:#8b95a1;font-size:12px;font-weight:800}.homeMetrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.homeMetric{background:#fff;border:1px solid #f0f0f0;border-radius:18px;padding:14px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeMetric span{display:block;font-size:12px;color:#8b95a1;font-weight:800}.homeMetric b{display:block;margin-top:4px;font-size:16px}.homeQuick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.homeQuick a{text-decoration:none;color:#191919;background:#fff;border:1px solid #f0f0f0;border-radius:18px;padding:13px 8px;text-align:center;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeQuick b{display:block;font-size:13px}.homeQuick span{display:block;font-size:11px;color:#8b95a1;margin-top:3px}.homeGrid{display:grid;grid-template-columns:1fr;gap:12px;margin:12px 0}.homeCard{background:#fff;border:1px solid #f0f0f0;border-radius:22px;padding:16px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeCard h2{margin:0 0 12px;font-size:15px}.homeTx{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 4px;border-bottom:1px solid #f3f4f6}.homeTx:last-child{border-bottom:0}.homeTxLeft{display:flex;align-items:center;gap:12px}.homeIcon{width:42px;height:42px;border-radius:15px;background:#f4f5f7;display:flex;align-items:center;justify-content:center;font-size:18px}.homeTx b{display:block;font-size:14px}.homeTx span{display:block;color:#8b95a1;font-size:12px;margin-top:2px}.homeTxAmt{text-align:right;font-size:13px;font-weight:1000;white-space:nowrap}.homeTxAmt.income{color:#0a9f58}.homeTxAmt small{display:block;color:#9ca3af;font-size:10px;margin-top:3px;max-width:90px;overflow:hidden;text-overflow:ellipsis}.homeBarRow{margin:12px 0}.homeBarRow>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}.homeBarRow b{font-size:12px}.homeBarRow span{color:#8b95a1;font-weight:800}.homeBar{height:9px;background:#f1f3f5;border-radius:999px;overflow:hidden;margin-top:6px}.homeBar i{display:block;height:100%;border-radius:999px}.homeBar .bar0{background:#ef4444}.homeBar .bar1{background:#3276f6}.homeBar .bar2{background:#f59e0b}.homeBar .bar3{background:#9ca3af}.homeNotice{background:linear-gradient(135deg,#191919,#30343b);color:#fff;border-radius:22px;padding:16px;box-shadow:0 8px 22px rgba(15,23,42,.055);position:relative;overflow:hidden;margin:12px 0}.homeNotice:after{content:"📊";position:absolute;right:-8px;bottom:-16px;font-size:80px;opacity:.08}.homeNotice b{display:block;color:#FEE500;font-size:12px;letter-spacing:.04em;margin-bottom:6px}.homeNotice p{margin:0;color:#e5e7eb;font-size:13px;line-height:1.55;font-weight:700}.homeEmpty{color:#8b95a1;font-size:13px;line-height:1.5;margin:0}@media(min-width:900px){.wrap{max-width:1120px}.homeGrid{grid-template-columns:2fr 1fr}.homeQuick{grid-template-columns:repeat(6,1fr)}}
+.homeBudget{background:#fff;border:1px solid #f0f0f0;border-radius:24px;padding:20px;box-shadow:0 8px 22px rgba(15,23,42,.055);overflow:hidden;position:relative;margin:12px 0}.homeBudget:after{content:"";position:absolute;right:-34px;top:-34px;width:110px;height:110px;background:rgba(254,229,0,.35);border-radius:999px}.homeBudgetTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;position:relative;z-index:1}.homeBudgetTop span{display:block;color:#8b95a1;font-size:13px;font-weight:800}.homeBudgetTop em{font-style:normal;background:#FEE500;color:#191919;border-radius:999px;padding:6px 9px;font-size:12px;font-weight:1000}.homeBudgetAmount{position:relative;z-index:1;margin:10px 0 12px}.homeBudgetAmount b{font-size:34px;letter-spacing:-.05em}.homeBudgetAmount small{color:#8b95a1;font-weight:800;margin-left:4px}.homeProgress{height:11px;background:#f1f3f5;border-radius:999px;overflow:hidden;position:relative;z-index:1}.homeProgress i{display:block;height:100%;background:#FEE500;border-radius:999px;transition:width 620ms cubic-bezier(.2,.8,.2,1)}@media(prefers-reduced-motion:reduce){.homeProgress i{transition:none}}.homeBudgetFoot{display:flex;justify-content:space-between;margin-top:10px;color:#8b95a1;font-size:12px;font-weight:800}.homeMetrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.homeMetric{background:#fff;border:1px solid #f0f0f0;border-radius:18px;padding:14px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeMetric span{display:block;font-size:12px;color:#8b95a1;font-weight:800}.homeMetric b{display:block;margin-top:4px;font-size:16px}.homeQuick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.homeQuick a{text-decoration:none;color:#191919;background:#fff;border:1px solid #f0f0f0;border-radius:18px;padding:13px 8px;text-align:center;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeQuick b{display:block;font-size:13px}.homeQuick span{display:block;font-size:11px;color:#8b95a1;margin-top:3px}.homeGrid{display:grid;grid-template-columns:1fr;gap:12px;margin:12px 0}.homeCard{background:#fff;border:1px solid #f0f0f0;border-radius:22px;padding:16px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.homeCard h2{margin:0 0 12px;font-size:15px}.homeTx{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 4px;border-bottom:1px solid #f3f4f6}.homeTx:last-child{border-bottom:0}.homeTxLeft{display:flex;align-items:center;gap:12px}.homeIcon{width:42px;height:42px;border-radius:15px;background:#f4f5f7;display:flex;align-items:center;justify-content:center;font-size:18px}.homeTx b{display:block;font-size:14px}.homeTx span{display:block;color:#8b95a1;font-size:12px;margin-top:2px}.homeTxAmt{text-align:right;font-size:13px;font-weight:1000;white-space:nowrap}.homeTxAmt.income{color:#0a9f58}.homeTxAmt small{display:block;color:#9ca3af;font-size:10px;margin-top:3px;max-width:90px;overflow:hidden;text-overflow:ellipsis}.homeBarRow{margin:12px 0}.homeBarRow>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}.homeBarRow b{font-size:12px}.homeBarRow span{color:#8b95a1;font-weight:800}.homeBar{height:9px;background:#f1f3f5;border-radius:999px;overflow:hidden;margin-top:6px}.homeBar i{display:block;height:100%;border-radius:999px}.homeBar .bar0{background:#ef4444}.homeBar .bar1{background:#3276f6}.homeBar .bar2{background:#f59e0b}.homeBar .bar3{background:#9ca3af}.homeNotice{background:linear-gradient(135deg,#191919,#30343b);color:#fff;border-radius:22px;padding:16px;box-shadow:0 8px 22px rgba(15,23,42,.055);position:relative;overflow:hidden;margin:12px 0}.homeNotice:after{content:"📊";position:absolute;right:-8px;bottom:-16px;font-size:80px;opacity:.08}.homeNotice b{display:block;color:#FEE500;font-size:12px;letter-spacing:.04em;margin-bottom:6px}.homeNotice p{margin:0;color:#e5e7eb;font-size:13px;line-height:1.55;font-weight:700}.homeEmpty{color:#8b95a1;font-size:13px;line-height:1.5;margin:0}@media(min-width:900px){.wrap{max-width:1120px}.homeGrid{grid-template-columns:2fr 1fr}.homeQuick{grid-template-columns:repeat(6,1fr)}}
 /* v13.4 visual polish */
 body{background:linear-gradient(180deg,#f8fafc 0%,#f3f6fb 100%)!important;color:#101828}
 .appTop{border-bottom:1px solid rgba(226,232,240,.8)!important;box-shadow:0 8px 24px rgba(15,23,42,.035)}
@@ -19744,13 +19744,583 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 @media(max-width:360px){.topActions{gap:4px}.topActions a{padding:0 7px}.filterQuick{grid-template-columns:1fr}}
 `;
 
+// V22.8.93 (9.4): number-flow 0.6.2 (MIT, Maxwell Barvian) 를 자산 폴더에 담아
+// 버전 주소로 배포한다. CDN 을 런타임에 참조하지 않는다 — 카카오톡 인앱 브라우저에서
+// 외부 도메인이 막히는 경우가 있다. 원본 5개 ESM 파일을 한 파일로 합친 것 외에
+// 라이브러리 코드를 고치지 않았다(합치는 스크립트는 커밋 메시지에 남긴다).
+// 초기 HTML 에는 들어가지 않는다. 첫 값 변화 시점에 import() 로만 내려온다.
+const NUMBER_FLOW_ASSET_PATH = "/assets/number-flow-v22893.mjs";
+const NUMBER_FLOW_ASSET_SOURCE = `/*! number-flow v0.6.2 | MIT | (c) Maxwell Barvian | https://github.com/barvian/number-flow
+ * 9.4: CDN 을 런타임에 참조하지 않는다(카카오톡 인앱에서 외부 도메인이 막히는 경우가 있다).
+ * 원본 5개 ESM 파일을 한 파일로 합친 것 외에 코드를 고치지 않았다. */
+const __nf = {};
+__nf.ssr = (function(){
+const o = true;
+
+const h = String.raw, m = String.raw, v = o && (() => {
+  try {
+    document.createElement("div").animate({ opacity: 0 }, { easing: "linear(0, 1)" });
+  } catch {
+    return !1;
+  }
+  return !0;
+})(), k = o && typeof CSS < "u" && CSS.supports && CSS.supports("line-height", "mod(1,1)"), S = o && typeof matchMedia < "u" ? matchMedia("(prefers-reduced-motion: reduce)") : null, d = "--_number-flow-d-opacity", g = "--_number-flow-d-width", c = "--_number-flow-dx", u = "--_number-flow-d", _ = (() => {
+  try {
+    return CSS.registerProperty({
+      name: d,
+      syntax: "<number>",
+      inherits: !1,
+      initialValue: "0"
+    }), CSS.registerProperty({
+      name: c,
+      syntax: "<length>",
+      inherits: !0,
+      initialValue: "0px"
+    }), CSS.registerProperty({
+      name: g,
+      syntax: "<number>",
+      inherits: !1,
+      initialValue: "0"
+    }), CSS.registerProperty({
+      name: u,
+      syntax: "<number>",
+      inherits: !0,
+      initialValue: "0"
+    }), !0;
+  } catch {
+    return !1;
+  }
+})(), s = "round(nearest, calc(var(--number-flow-mask-height, 0.25em) / 2), 1px)", t = \`calc(\${s} * 2)\`, p = "var(--number-flow-mask-width, 0.5em)", n = \`calc(\${p} / var(--scale-x))\`, r = "#000 0, transparent 71%", x = m\`:host{display:inline-block;direction:ltr;white-space:nowrap;isolation:isolate;line-height:1}.number,.number__inner{display:inline-block;transform-origin:left top}:host([data-will-change]) :is(.number,.number__inner,.section,.digit,.digit__num,.symbol){will-change:transform}.number{--scale-x:calc(1 + var(\${g}) / var(--width));transform:translateX(var(\${c})) scaleX(var(--scale-x));margin:0 calc(-1 * \${p});position:relative;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 \${n},#000 calc(100% - \${n}),transparent ),linear-gradient(to bottom,transparent 0,#000 \${t},#000 calc(100% - \${t}),transparent 100% ),radial-gradient(at bottom right,\${r}),radial-gradient(at bottom left,\${r}),radial-gradient(at top left,\${r}),radial-gradient(at top right,\${r});-webkit-mask-size:100% calc(100% - \${t} * 2),calc(100% - \${n} * 2) 100%,\${n} \${t},\${n} \${t},\${n} \${t},\${n} \${t};-webkit-mask-position:center,center,top left,top right,bottom right,bottom left;-webkit-mask-repeat:no-repeat}.number__inner{padding:\${s} \${p};transform:scaleX(calc(1 / var(--scale-x))) translateX(calc(-1 * var(\${c})))}:host > :not(.number){z-index:5}.section,.symbol{display:inline-block;position:relative;isolation:isolate}.section::after{content:'\\200b';display:inline-block}.section--justify-left{transform-origin:center left}.section--justify-right{transform-origin:center right}.section > [inert],.symbol > [inert]{margin:0 !important;position:absolute !important;z-index:-1}.digit{display:inline-block;position:relative;--c:var(--current) + var(\${u})}.digit__num,.number .section::after{padding:\${s} 0}.digit__num{display:inline-block;--offset-raw:mod(var(--length) + var(--n) - mod(var(--c),var(--length)),var(--length));--offset:calc( var(--offset-raw) - var(--length) * round(down,var(--offset-raw) / (var(--length) / 2),1) );--y:clamp(-100%,var(--offset) * 100%,100%);transform:translateY(var(--y))}.digit__num[inert]{position:absolute;top:0;left:50%;transform:translateX(-50%) translateY(var(--y))}.digit:not(.is-spinning) .digit__num[inert]{display:none}.symbol__value{display:inline-block;mix-blend-mode:plus-lighter;white-space:pre}.section--justify-left .symbol > [inert]{left:0}.section--justify-right .symbol > [inert]{right:0}.animate-presence{opacity:calc(1 + var(\${d}))}\`, M = o && typeof HTMLElement < "u" ? HTMLElement : class {
+}, y = m\`:host{display:inline-block;direction:ltr;white-space:nowrap;line-height:1}span{display:inline-block}:host([data-will-change]) span{will-change:transform}.number,.digit{padding:\${s} 0}.symbol{white-space:pre}\`, b = (e) => \`<span class="\${e.type === "integer" || e.type === "fraction" ? "digit" : "symbol"}" part="\${e.type === "integer" || e.type === "fraction" ? \`digit \${e.type}-digit\` : \`symbol \${e.type}\`}">\${e.value}</span>\`, i = (e, a) => \`<span part="\${a}">\${e.reduce((l, f) => l + b(f), "")}</span>\`, $ = (e = "") => m\`:where(number-flow\${e}){line-height:1}number-flow\${e} > span{font-kerning:none;display:inline-block;padding:\${t} 0}\`, V = (e, { nonce: a, elementSuffix: l } = {}) => (
+  // shadowroot="open" non-standard attribute for old Chrome:
+  h\`<template shadowroot="open" shadowrootmode="open"
+			><style\${a ? \` nonce="\${a}"\` : ""}>\${y}</style
+			><span role="img" aria-label="\${e.valueAsString}"
+				>\${i(e.pre, "left")}<span part="number" class="number"
+					>\${i(e.integer, "integer")}\${i(e.fraction, "fraction")}</span
+				>\${i(e.post, "right")}</span
+			></template
+		><style\${a ? \` nonce="\${a}"\` : ""}>\${$(l)}</style
+		><span>\${e.valueAsString}</span>\`
+);
+return {
+  S: M,
+  a: $,
+  b: x,
+  c: k,
+  d: v,
+  e: _,
+  f: c,
+  g: u,
+  o: d,
+  p: S,
+  r: V,
+  s: y,
+  w: g
+};;
+})();
+__nf.plugins = (function(){
+
+const f = (e, n) => e == null ? n : n == null ? e : Math.max(e, n), i = /* @__PURE__ */ new WeakMap(), l = {
+  onUpdate(e, n, o) {
+    if (i.set(o, void 0), !o.computedTrend)
+      return;
+    const s = n.integer.concat(n.fraction).filter((t) => t.type === "integer" || t.type === "fraction"), r = e.integer.concat(e.fraction).filter((t) => t.type === "integer" || t.type === "fraction"), u = s.find((t) => !r.find((c) => c.pos === t.pos && c.value === t.value)), a = r.find((t) => !s.find((c) => t.pos === c.pos && t.value === c.value));
+    i.set(o, f(u == null ? void 0 : u.pos, a == null ? void 0 : a.pos));
+  },
+  getDelta(e, n, o) {
+    const s = e - n, r = i.get(o.flow);
+    if (!s && r != null && r >= o.pos)
+      return o.length * o.flow.computedTrend;
+  }
+};
+return {
+  continuous: l
+};;
+})();
+__nf.csp = (function(){
+const { s: e, a: l, b: t } = __nf.ssr;
+
+const r = (s) => [e, l(s), t];
+return {
+  buildStyles: r
+};;
+})();
+__nf.lite = (function(){
+const j = true;
+const { c: S, d: T, e: L, S: M, b: P, p: w, f: N, w: $, g: V, o: b } = __nf.ssr;
+const { r: q } = __nf.ssr;
+const { continuous: J } = __nf.plugins;
+
+
+
+
+const f = (n, t, e) => {
+  const i = document.createElement(n), [s, o] = Array.isArray(t) ? [void 0, t] : [t, e];
+  return s && Object.assign(i, s), o == null || o.forEach((a) => i.appendChild(a)), i;
+}, D = (n, t) => {
+  var e;
+  return t === "left" ? n.offsetLeft : (((e = n.offsetParent instanceof HTMLElement ? n.offsetParent : null) == null ? void 0 : e.offsetWidth) ?? 0) - n.offsetWidth - n.offsetLeft;
+}, W = (n) => n.offsetWidth > 0 && n.offsetHeight > 0, X = (n, t) => {
+  j && typeof HTMLElement < "u" && typeof customElements < "u" && !customElements.get(n) && customElements.define(n, t);
+};
+function k(n, t, { reverse: e = !1 } = {}) {
+  const i = n.length;
+  for (let s = e ? i - 1 : 0; e ? s >= 0 : s < i; e ? s-- : s++)
+    t(n[s], s);
+}
+function z(n, t, e, i) {
+  const s = t.formatToParts(n);
+  e && s.unshift({ type: "prefix", value: e }), i && s.push({ type: "suffix", value: i });
+  const o = [], a = [], r = [], d = [], c = {}, p = (l) => \`\${l}:\${c[l] = (c[l] ?? -1) + 1}\`;
+  let u = "", m = !1, g = !1;
+  for (const l of s) {
+    u += l.value;
+    const h = l.type === "minusSign" || l.type === "plusSign" ? "sign" : l.type;
+    h === "integer" ? (m = !0, a.push(...l.value.split("").map((_) => ({ type: h, value: parseInt(_) })))) : h === "group" ? a.push({ type: h, value: l.value }) : h === "decimal" ? (g = !0, r.push({ type: h, value: l.value, key: p(h) })) : h === "fraction" ? r.push(...l.value.split("").map((_) => ({
+      type: h,
+      value: parseInt(_),
+      key: p(h),
+      pos: -1 - c[h]
+    }))) : (m || g ? d : o).push({
+      type: h,
+      value: l.value,
+      key: p(h)
+    });
+  }
+  const v = [];
+  for (let l = a.length - 1; l >= 0; l--) {
+    const h = a[l];
+    v.unshift(h.type === "integer" ? {
+      ...h,
+      key: p(h.type),
+      pos: c[h.type]
+    } : {
+      ...h,
+      key: p(h.type)
+    });
+  }
+  return {
+    pre: o,
+    integer: v,
+    fraction: r,
+    post: d,
+    valueAsString: u,
+    value: typeof n == "string" ? parseFloat(n) : n
+  };
+}
+const E = S && T && L;
+class B extends M {
+  constructor() {
+    super(), this.created = !1, this.batched = !1, this._preUpdated = !1;
+    const { animated: t, ...e } = this.constructor.defaultProps;
+    this._animated = this.computedAnimated = t, Object.assign(this, e);
+  }
+  get animated() {
+    return this._animated;
+  }
+  set animated(t) {
+    var e;
+    this.animated !== t && (this._animated = t, (e = this.shadowRoot) == null || e.getAnimations().forEach((i) => i.finish()));
+  }
+  /**
+   * @internal
+   */
+  set data(t) {
+    var r, d;
+    if (t == null || t === this._data)
+      return;
+    const { pre: e, integer: i, fraction: s, post: o, value: a } = t;
+    if (this.created) {
+      const c = this._data;
+      this._data = t, this.computedTrend = typeof this.trend == "function" ? this.trend(c.value, a) : this.trend, this.computedAnimated = E && this._animated && (!this.respectMotionPreference || !((r = w) != null && r.matches)) && // https://github.com/barvian/number-flow/issues/9
+      W(this) && // https://github.com/barvian/number-flow/issues/165
+      this.ownerDocument.visibilityState === "visible", (d = this.plugins) == null || d.forEach((p) => {
+        var u;
+        return (u = p.onUpdate) == null ? void 0 : u.call(p, t, c, this);
+      }), this.batched || this.willUpdate(), this._pre.update(e), this._num.update({ integer: i, fraction: s }), this._post.update(o), this.batched || this.didUpdate();
+    } else {
+      this._data = t, this.attachShadow({ mode: "open" });
+      try {
+        this._internals ?? (this._internals = this.attachInternals()), this._internals.role = "img";
+      } catch {
+      }
+      const c = document.createElement("style");
+      this.nonce && (c.nonce = this.nonce), c.textContent = P, this.shadowRoot.appendChild(c), this._pre = new U(this, e, {
+        justify: "right",
+        part: "left"
+      }), this.shadowRoot.appendChild(this._pre.el), this._num = new F(this, i, s), this.shadowRoot.appendChild(this._num.el), this._post = new U(this, o, {
+        justify: "left",
+        part: "right"
+      }), this.shadowRoot.appendChild(this._post.el), this.created = !0;
+    }
+    try {
+      this._internals.ariaLabel = t.valueAsString;
+    } catch {
+    }
+  }
+  /**
+   * @internal
+   */
+  willUpdate() {
+    var t;
+    this._preUpdated = E && this._animated && (!this.respectMotionPreference || !((t = w) != null && t.matches)) && this.ownerDocument.visibilityState === "visible", this._preUpdated && (this._pre.willUpdate(), this._num.willUpdate(), this._post.willUpdate());
+  }
+  /**
+   * @internal
+   */
+  didUpdate() {
+    if (!this.computedAnimated || !this._preUpdated)
+      return;
+    this._abortAnimationsFinish ? this._abortAnimationsFinish.abort() : this.dispatchEvent(new Event("animationsstart")), this._pre.didUpdate(), this._num.didUpdate(), this._post.didUpdate();
+    const t = new AbortController();
+    Promise.all(this.shadowRoot.getAnimations().map((e) => e.finished)).then(() => {
+      t.signal.aborted || (this.dispatchEvent(new Event("animationsfinish")), this._abortAnimationsFinish = void 0);
+    }), this._abortAnimationsFinish = t;
+  }
+}
+B.defaultProps = {
+  transformTiming: {
+    duration: 900,
+    // Make sure to keep this minified:
+    easing: "linear(0,.005,.019,.039,.066,.096,.129,.165,.202,.24,.278,.316,.354,.39,.426,.461,.494,.526,.557,.586,.614,.64,.665,.689,.711,.731,.751,.769,.786,.802,.817,.831,.844,.856,.867,.877,.887,.896,.904,.912,.919,.925,.931,.937,.942,.947,.951,.955,.959,.962,.965,.968,.971,.973,.976,.978,.98,.981,.983,.984,.986,.987,.988,.989,.99,.991,.992,.992,.993,.994,.994,.995,.995,.996,.996,.9963,.9967,.9969,.9972,.9975,.9977,.9979,.9981,.9982,.9984,.9985,.9987,.9988,.9989,1)"
+  },
+  spinTiming: void 0,
+  opacityTiming: { duration: 450, easing: "ease-out" },
+  animated: !0,
+  trend: (n, t) => Math.sign(t - n),
+  respectMotionPreference: !0,
+  plugins: void 0,
+  digits: void 0
+};
+class F {
+  constructor(t, e, i, { className: s, ...o } = {}) {
+    this.flow = t, this._integer = new A(t, e, {
+      justify: "right",
+      part: "integer"
+    }), this._fraction = new A(t, i, {
+      justify: "left",
+      part: "fraction"
+    }), this._inner = f("span", {
+      className: "number__inner"
+    }, [this._integer.el, this._fraction.el]), this.el = f("span", {
+      ...o,
+      part: "number",
+      className: \`number \${s ?? ""}\`
+    }, [this._inner]);
+  }
+  willUpdate() {
+    this._prevWidth = this.el.offsetWidth, this._prevLeft = this.el.getBoundingClientRect().left, this._integer.willUpdate(), this._fraction.willUpdate();
+  }
+  update({ integer: t, fraction: e }) {
+    this._integer.update(t), this._fraction.update(e);
+  }
+  didUpdate() {
+    const t = this.el.getBoundingClientRect();
+    this._integer.didUpdate(), this._fraction.didUpdate();
+    const e = this._prevLeft - t.left, i = this.el.offsetWidth, s = this._prevWidth - i;
+    this.el.style.setProperty("--width", String(i)), this.el.animate({
+      [N]: [\`\${e}px\`, "0px"],
+      [$]: [s, 0]
+    }, {
+      ...this.flow.transformTiming,
+      composite: "accumulate"
+    });
+  }
+}
+class R {
+  constructor(t, e, { justify: i, className: s, ...o }, a) {
+    this.flow = t, this.children = /* @__PURE__ */ new Map(), this.onCharRemove = (d) => () => {
+      this.children.delete(d);
+    }, this.justify = i;
+    const r = e.map((d) => this.addChar(d).el);
+    this.el = f("span", {
+      ...o,
+      className: \`section section--justify-\${i} \${s ?? ""}\`
+    }, a ? a(r) : r);
+  }
+  addChar(t, { startDigitsAtZero: e = !1, ...i } = {}) {
+    const s = t.type === "integer" || t.type === "fraction" ? new C(this, t.type, e ? 0 : t.value, t.pos, {
+      ...i,
+      onRemove: this.onCharRemove(t.key)
+    }) : new I(this, t.type, t.value, {
+      ...i,
+      onRemove: this.onCharRemove(t.key)
+    });
+    return this.children.set(t.key, s), s;
+  }
+  unpop(t) {
+    t.el.removeAttribute("inert"), t.el.style.top = "", t.el.style[this.justify] = "";
+  }
+  pop(t) {
+    t.forEach((e) => {
+      e.el.style.top = \`\${e.el.offsetTop}px\`, e.el.style[this.justify] = \`\${D(e.el, this.justify)}px\`;
+    }), t.forEach((e) => {
+      e.el.setAttribute("inert", ""), e.present = !1;
+    });
+  }
+  addNewAndUpdateExisting(t) {
+    const e = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), s = this.justify === "left", o = s ? "prepend" : "append";
+    if (k(t, (a) => {
+      let r;
+      this.children.has(a.key) ? (r = this.children.get(a.key), i.set(a, r), this.unpop(r), r.present = !0) : (r = this.addChar(a, { startDigitsAtZero: !0, animateIn: !0 }), e.set(a, r)), this.el[o](r.el);
+    }, { reverse: s }), this.flow.computedAnimated) {
+      const a = this.el.getBoundingClientRect();
+      e.forEach((r) => {
+        r.willUpdate(a);
+      });
+    }
+    e.forEach((a, r) => {
+      a.update(r.value);
+    }), i.forEach((a, r) => {
+      a.update(r.value);
+    });
+  }
+  willUpdate() {
+    const t = this.el.getBoundingClientRect();
+    this._prevOffset = t[this.justify], this.children.forEach((e) => e.willUpdate(t));
+  }
+  didUpdate() {
+    const t = this.el.getBoundingClientRect();
+    this.children.forEach((s) => s.didUpdate(t));
+    const e = t[this.justify], i = this._prevOffset - e;
+    i && this.children.size && this.el.animate({
+      transform: [\`translateX(\${i}px)\`, "none"]
+    }, {
+      ...this.flow.transformTiming,
+      composite: "accumulate"
+    });
+  }
+}
+class A extends R {
+  update(t) {
+    const e = /* @__PURE__ */ new Map();
+    this.children.forEach((i, s) => {
+      t.find((o) => o.key === s) || e.set(s, i), this.unpop(i);
+    }), this.addNewAndUpdateExisting(t), e.forEach((i) => {
+      i instanceof C && i.update(0);
+    }), this.pop(e);
+  }
+}
+class U extends R {
+  update(t) {
+    const e = /* @__PURE__ */ new Map();
+    this.children.forEach((i, s) => {
+      t.find((o) => o.key === s) || e.set(s, i);
+    }), this.pop(e), this.addNewAndUpdateExisting(t);
+  }
+}
+class y {
+  constructor(t, e, { onRemove: i, animateIn: s = !1 } = {}) {
+    this.flow = t, this.el = e, this._present = !0, this._remove = () => {
+      var o;
+      this.el.remove(), (o = this._onRemove) == null || o.call(this);
+    }, this.el.classList.add("animate-presence"), this.flow.computedAnimated && s && this.el.animate({
+      [b]: [-0.9999, 0]
+    }, {
+      ...this.flow.opacityTiming,
+      composite: "accumulate"
+    }), this._onRemove = i;
+  }
+  get present() {
+    return this._present;
+  }
+  set present(t) {
+    if (this._present !== t) {
+      if (this._present = t, t ? this.el.removeAttribute("inert") : this.el.setAttribute("inert", ""), !this.flow.computedAnimated) {
+        t || this._remove();
+        return;
+      }
+      this.el.style.setProperty("--_number-flow-d-opacity", t ? "0" : "-.999"), this.el.animate({
+        [b]: t ? [-0.9999, 0] : [0.999, 0]
+      }, {
+        ...this.flow.opacityTiming,
+        composite: "accumulate"
+      }), t ? this.flow.removeEventListener("animationsfinish", this._remove) : this.flow.addEventListener("animationsfinish", this._remove, {
+        once: !0
+      });
+    }
+  }
+}
+class x extends y {
+  constructor(t, e, i, s) {
+    super(t.flow, i, s), this.section = t, this.value = e, this.el = i;
+  }
+}
+class C extends x {
+  constructor(t, e, i, s, o) {
+    var c, p;
+    const a = (((p = (c = t.flow.digits) == null ? void 0 : c[s]) == null ? void 0 : p.max) ?? 9) + 1, r = Array.from({ length: a }).map((u, m) => {
+      const g = f("span", { className: "digit__num" }, [
+        document.createTextNode(String(m))
+      ]);
+      return m !== i && g.setAttribute("inert", ""), g.style.setProperty("--n", String(m)), g;
+    }), d = f("span", {
+      part: \`digit \${e}-digit\`,
+      className: "digit"
+    }, r);
+    d.style.setProperty("--current", String(i)), d.style.setProperty("--length", String(a)), super(t, i, d, o), this.pos = s, this._onAnimationsFinish = () => {
+      this.el.classList.remove("is-spinning");
+    }, this._numbers = r, this.length = a;
+  }
+  willUpdate(t) {
+    const e = this.el.getBoundingClientRect();
+    this._prevValue = this.value;
+    const i = e[this.section.justify] - t[this.section.justify], s = e.width / 2;
+    this._prevCenter = this.section.justify === "left" ? i + s : i - s;
+  }
+  update(t) {
+    this.el.style.setProperty("--current", String(t)), this._numbers.forEach((e, i) => i === t ? e.removeAttribute("inert") : e.setAttribute("inert", "")), this.value = t;
+  }
+  didUpdate(t) {
+    const e = this.el.getBoundingClientRect(), i = e[this.section.justify] - t[this.section.justify], s = e.width / 2, o = this.section.justify === "left" ? i + s : i - s, a = this._prevCenter - o;
+    a && this.el.animate({
+      transform: [\`translateX(\${a}px)\`, "none"]
+    }, {
+      ...this.flow.transformTiming,
+      composite: "accumulate"
+    });
+    const r = this.getDelta();
+    r && (this.el.classList.add("is-spinning"), this.el.animate({
+      [V]: [-r, 0]
+    }, {
+      ...this.flow.spinTiming ?? this.flow.transformTiming,
+      composite: "accumulate"
+    }), this.flow.addEventListener("animationsfinish", this._onAnimationsFinish, { once: !0 }));
+  }
+  getDelta() {
+    var i;
+    if (this.flow.plugins)
+      for (const s of this.flow.plugins) {
+        const o = (i = s.getDelta) == null ? void 0 : i.call(s, this.value, this._prevValue, this);
+        if (o != null)
+          return o;
+      }
+    const t = this.value - this._prevValue, e = this.flow.computedTrend || Math.sign(t);
+    return e < 0 && this.value > this._prevValue ? this.value - this.length - this._prevValue : e > 0 && this.value < this._prevValue ? this.length - this._prevValue + this.value : t;
+  }
+}
+class I extends x {
+  constructor(t, e, i, s) {
+    const o = f("span", {
+      className: "symbol__value",
+      textContent: i
+    });
+    super(t, i, f("span", {
+      part: \`symbol \${e}\`,
+      className: "symbol"
+    }, [o]), s), this.type = e, this._children = /* @__PURE__ */ new Map(), this._onChildRemove = (a) => () => {
+      this._children.delete(a);
+    }, this._children.set(i, new y(this.flow, o, {
+      onRemove: this._onChildRemove(i)
+    }));
+  }
+  willUpdate(t) {
+    if (this.type === "decimal")
+      return;
+    const e = this.el.getBoundingClientRect();
+    this._prevOffset = e[this.section.justify] - t[this.section.justify];
+  }
+  update(t) {
+    if (this.value !== t) {
+      const e = this._children.get(this.value);
+      e && (e.present = !1);
+      const i = this._children.get(t);
+      if (i)
+        i.present = !0;
+      else {
+        const s = f("span", {
+          className: "symbol__value",
+          textContent: t
+        });
+        this.el.appendChild(s), this._children.set(t, new y(this.flow, s, {
+          animateIn: !0,
+          onRemove: this._onChildRemove(t)
+        }));
+      }
+    }
+    this.value = t;
+  }
+  didUpdate(t) {
+    if (this.type === "decimal")
+      return;
+    const i = this.el.getBoundingClientRect()[this.section.justify] - t[this.section.justify], s = this._prevOffset - i;
+    s && this.el.animate({
+      transform: [\`translateX(\${s}px)\`, "none"]
+    }, { ...this.flow.transformTiming, composite: "accumulate" });
+  }
+}
+return {
+  Digit: C,
+  canAnimate: E,
+  continuous: J,
+  default: B,
+  define: X,
+  formatToData: z,
+  prefersReducedMotion: w,
+  renderInnerHTML: q
+};;
+})();
+__nf.index = (function(){
+const u = __nf.lite.default;
+const { define: l, formatToData: r } = __nf.lite;
+const { Digit: N, canAnimate: T } = __nf.lite;
+const { r: m } = __nf.ssr;
+const { p: L } = __nf.ssr;
+const { buildStyles: c } = __nf.csp;
+const { continuous: I } = __nf.plugins;
+
+
+
+
+
+
+const v = c(), f = "number-flow-connect", h = "number-flow-update", E = (e, { locales: t, format: s, numberPrefix: n, numberSuffix: o, nonce: i } = {}) => {
+  const a = r(e, new Intl.NumberFormat(t, s), n, o);
+  return m(a, { nonce: i });
+};
+class b extends u {
+  constructor() {
+    super(...arguments), this.connected = !1;
+  }
+  connectedCallback() {
+    this.connected = !0, this.dispatchEvent(new Event(f, { bubbles: !0 }));
+  }
+  disconnectedCallback() {
+    this.connected = !1;
+  }
+  get value() {
+    return this._value;
+  }
+  update(t) {
+    (!this._formatter || this._prevFormat !== this.format || this._prevLocales !== this.locales) && (this._formatter = new Intl.NumberFormat(this.locales, this.format), this._prevFormat = this.format, this._prevLocales = this.locales), t != null && (this._value = t), this.dispatchEvent(new Event(h, { bubbles: !0 })), this.data = r(this._value, this._formatter, this.numberPrefix, this.numberSuffix);
+  }
+}
+l("number-flow", b);
+return {
+  CONNECT_EVENT: f,
+  Digit: N,
+  UPDATE_EVENT: h,
+  canAnimate: T,
+  continuous: I,
+  default: b,
+  define: l,
+  formatToData: r,
+  prefersReducedMotion: L,
+  renderInnerHTML: E,
+  styles: v
+};;
+})();
+export default __nf.index.default;
+export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit } = __nf.index;
+`;
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22892.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22892.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22879.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
@@ -21459,12 +22029,89 @@ function accountbookStage4NavClientMain() {
     });
   }
 
+  // V22.8.93 (9장): 서버는 완성된 글자를 보내고(9.3), 여기서는 **값이 처음 바뀌는
+  // 순간에만** 그 자리를 <number-flow> 로 바꾼다. 그래서 JS 가 없거나 늦어도 화면은
+  // 처음부터 완성 상태이고, 첫 진입에서 0부터 올라오는 카운트업도 일어나지 않는다(9.2).
+  // 라이브러리는 초기 HTML 에 없다 — 첫 값 변화 때 import() 로만 내려온다(9.4).
+  var abFlowModule = null;
+  function abLoadNumberFlow() {
+    if (abFlowModule) return abFlowModule;
+    abFlowModule = import("/assets/number-flow-v22893.mjs")
+      .then(function () { return customElements.whenDefined("number-flow"); });
+    return abFlowModule;
+  }
+  function abNumValue(node) {
+    var raw = node && node.getAttribute ? node.getAttribute("data-ab-num") : "";
+    var value = Number(raw);
+    return raw === "" || raw === null || !isFinite(value) ? null : value;
+  }
+  // 9.5: 그림자 DOM 안에는 0~9 자릿수 더미가 들어 있어 그대로 읽히면 뜻이 없는 소리가
+  // 된다. 단위까지 포함한 완성 문장을 값이 바뀔 때마다 다시 붙인다.
+  function abFlowLabel(host, text) {
+    var label = (host.getAttribute("data-ab-num-label") || "").trim();
+    if (!label) {
+      var box = host.closest(".homeBudget,.homeDailyPlan,.budgetP0");
+      var lead = box && box.querySelector("span");
+      label = lead ? (lead.textContent || "").trim() : "";
+    }
+    return (label ? label + " " : "") + text + (host.getAttribute("data-ab-num-unit") || "");
+  }
+  function abUpgradeNumber(host, next) {
+    return abLoadNumberFlow().then(function () {
+      var flow = host.__abFlow;
+      if (!flow) {
+        flow = document.createElement("number-flow");
+        // 9.5: 설정은 업그레이드 후 · update() 전. 엘리먼트가 정의되기 전에 대입하면
+        // 세터에 닿지 않고 죽은 속성으로 남는다 — whenDefined 뒤에 넣는 이유다.
+        var spin = { duration: 620, easing: "cubic-bezier(.2,.8,.2,1)" };
+        flow.transformTiming = spin;
+        flow.spinTiming = spin;
+        flow.opacityTiming = { duration: 340, easing: "ease-out" };
+        flow.locales = "ko-KR";
+        // 퍼센트는 비율을 받는다. 29 를 넘기면 Intl 이 다시 100 을 곱해 2,900% 가 된다.
+        if (host.getAttribute("data-ab-num-style") === "percent") flow.format = { style: "percent" };
+        flow.style.lineHeight = "0.85";
+        flow.style.fontVariantNumeric = "tabular-nums";
+        host.textContent = "";
+        host.appendChild(flow);
+        host.__abFlow = flow;
+        // 첫 교체는 지금 화면에 있는 값에서 출발해야 굴러가는 방향이 뜻과 맞는다.
+        flow.update(abNumValue(host));
+      }
+      flow.update(next);
+      host.setAttribute("aria-label", abFlowLabel(host, flow.textContent || String(next)));
+      host.setAttribute("data-ab-num", String(next));
+    });
+  }
+  // 밖에서 값을 바꿀 때 쓰는 하나의 입구. 값이 그대로면 아무것도 하지 않는다 —
+  // 바뀌지 않은 숫자를 굴리면 "무언가 달라졌다"는 거짓 신호가 된다.
+  window.abSetNumber = function (host, next) {
+    if (!host || !isFinite(Number(next))) return;
+    if (abNumValue(host) === Number(next)) return;
+    abUpgradeNumber(host, Number(next));
+  };
+  // 8.2: 저장하고 돌아오면 게이지가 이전 값에서 출발해 실제 값으로 움직인다. 서버가
+  // 담아 준 이전 값으로 한 프레임 되돌린 뒤 실제 값을 돌려준다. 동작 줄이기가 켜져
+  // 있으면 CSS 쪽 전환이 0 이라 결과만 바뀐다(전환을 건너뛴 것과 같다).
+  function bindGaugeHandoff(root) {
+    Array.from((root || document).querySelectorAll(".homeProgress i[data-ab-prev-used]")).forEach(function (bar) {
+      if (bar.__abHandoff) return;
+      bar.__abHandoff = true;
+      var target = bar.style.width;
+      bar.style.width = bar.getAttribute("data-ab-prev-used") + "%";
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { bar.style.width = target; });
+      });
+    });
+  }
+
   function apply() {
     bindGlobalActions();
     Array.from(document.querySelectorAll("nav.bottom,nav.abNavBottom,nav.abUxBottom")).forEach(render);
     hydrateIcons();
     syncActiveNavigation();
     bindDeferredEditForms(document);
+    bindGaugeHandoff(document);
   }
   bindShell();
   apply();
@@ -22109,10 +22756,12 @@ async function appIconAssetResponse(request, url) {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH];
+  const assetPaths = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
-  const content = path === MOBILE_HOME_CSS_ASSET_PATH
+  const content = path === NUMBER_FLOW_ASSET_PATH
+    ? NUMBER_FLOW_ASSET_SOURCE
+    : path === MOBILE_HOME_CSS_ASSET_PATH
     ? mobileHomeCssAsset()
     : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
       ? ACCOUNTBOOK_SHELL_V22811_CSS
@@ -22140,7 +22789,9 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "cache-control": "public, max-age=31536000, immutable",
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
-    etag: path === MOBILE_HOME_CSS_ASSET_PATH
+    etag: path === NUMBER_FLOW_ASSET_PATH
+      ? '"number-flow-v22893-mjs"'
+      : path === MOBILE_HOME_CSS_ASSET_PATH
       ? '"mobile-home-v22892-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
@@ -22151,7 +22802,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22879-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22889-js"'
+          ? '"accountbook-nav-v22893-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -22280,7 +22931,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
       ? `<div class="homeDailyPlan homeDailyPlanOver"><b>이번 달 예산을 ${numberWithCommas(budgetOverAmt)}원 넘겼어요</b></div>`
       : !isCurrentMonth
         ? ""
-        : `<div class="homeDailyPlan"><span>남은 ${remainDays}일 동안</span><b>하루 ${numberWithCommas(dailyAllowanceAmt)}원</b>${dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>` : ""}</div>`;
+        : `<div class="homeDailyPlan"><span>남은 ${remainDays}일 동안</span><b>하루 <span data-ab-num="${dailyAllowanceAmt}" data-ab-num-unit="원">${numberWithCommas(dailyAllowanceAmt)}</span>원</b>${dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>` : ""}</div>`;
   const freqMap = {};
   for (const r of rows) {
     if (r.type === "income") continue;
@@ -22446,6 +23097,24 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 둘을 같은 값으로 쓰면 207% 초과 지출이 홈에서 100%로 보여 초과 사실이 가려진다.
   const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));
   const displayBudgetPercent = Math.max(0, budgetPercent || 0);
+  // V22.8.93 (9.5): 퍼센트는 **비율**로 넘긴다. Intl 의 percent 스타일이 다시 100을
+  // 곱하므로 26 을 넘기면 2,600% 가 된다. 화면 글자는 서버가 이미 완성해 두었고
+  // (9.3), 이 값은 스크립트가 값을 굴릴 때만 쓰인다.
+  const budgetUsedRatio = Math.round(Math.max(0, budgetPercent || 0)) / 100;
+  // V22.8.93 (8.2): 저장하고 돌아온 화면에서 게이지가 **이전 값에서 출발해** 실제
+  // 값으로 움직인다. 이전 값은 방금 저장한 기록을 사용액에서 빼면 나온다 — 새 질의도,
+  // 쓰기 경로 변경도 필요 없다. 저장 직후가 아니거나 예산이 없으면 속성을 달지 않고,
+  // 그때 게이지는 지금처럼 처음부터 실제 값에 있다.
+  const homeJustSaved = ["added", "created", "updated"].includes(String(msg || ""));
+  const homeNewestRow = homeJustSaved
+    ? safeArray(rows).filter((r) => r.type !== "income").sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0]
+    : null;
+  const homeCountsToward = homeNewestRow && (budget.basis !== "category"
+    || safeArray(budget.categoryAlerts).some((item) => normalizeText(item.category) === normalizeText(homeNewestRow.category || "기타")));
+  const homePrevUsed = homeCountsToward ? Math.max(0, budgetUsed - Number(homeNewestRow.amount || 0)) : null;
+  const homePrevBarAttr = budgetTotal && homePrevUsed !== null && homePrevUsed !== budgetUsed
+    ? ` data-ab-prev-used="${Math.max(0, Math.min(100, Math.round((homePrevUsed / budgetTotal) * 100)))}"`
+    : "";
   // V22.8.89 통합 작업지시서 M4. "자세히"는 접힌 채로도 무엇이 들어가는지 보여야 한다.
   // 접힌 헤더가 비어 있으면 열어 보기 전에는 날짜가 오늘인지 어제인지 알 수 없고,
   // 그러면 접는 것이 위험해진다. 서버가 기본값으로 첫 요약을 만들고, 값이 바뀌면
@@ -22539,9 +23208,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `${homeSpendHero}<section class="homeBudget">
-    <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>
-    <div class="homeBudgetAmount"><b>${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
-    <div class="homeProgress"><i style="width:${budgetBarPercent}%"></i></div>
+    <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div>
+    <div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
+    <div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>
     <div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>
     ${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}
     ${dailyPlanHtml}

@@ -8,9 +8,9 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the audit fix release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "navigation runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "navigation runtime uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22892.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
@@ -49,9 +49,9 @@ try {
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
   ok(shell.text.includes(".chipRow button:before{content:var(--ab-chip-icon"), "V22.8.61 chip icons are preserved");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22889.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22889-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "new navigation ETag is correct");
   // V22.8.87(M1): 도킹이 사라지고 뷰포트에 따라 자리를 잡는 방식으로 바뀌었다.
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
 

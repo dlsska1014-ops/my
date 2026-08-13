@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the contrast release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime exposes the contrast release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "changed shell uses a new immutable path");
 
 // 1. 연간 리포트: 연도 이동 버튼이 흰 배경에 흰 글자로 사라졌다.

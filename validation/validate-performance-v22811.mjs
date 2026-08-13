@@ -228,7 +228,7 @@ try {
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22892.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22891.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22889.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22893.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -277,10 +277,12 @@ try {
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
     if (path === "/assets/mobile-home-v22892.css") {
-      // V22.8.92(7.2): 거래내역 탭이 날짜 헤더 + 구분선 목록 + 한 줄 칩 바로 바뀌며
-      // 그 규칙들이 이 자산에 들어왔다. 바이트 고정 자산이므로 주소를 함께 올린다
-      // (v22889 → v22892). 고정 해시도 새 주소의 것으로 옮긴다.
-      eq(createHash("sha256").update(bytes).digest("hex"), "2adb999983e0d7f0380b6ad0e888d7df9f38e0c312308376bd503ab742dbb5cf", "legacy home stylesheet bytes remain pinned");
+      // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
+      // 켜면 전환을 걷어내는 규칙이 이 자산에 들어왔다. 숫자 쪽 전환과 **같은 값**을
+      // 써야 한 동작으로 읽힌다. 바이트 고정 자산이라 내용이 바뀌면 주소를 올려야
+      // 하는데, 이 파일의 주소는 V22.8.92 에서 이미 v22892 로 올렸고 그 배포가
+      // 아직 나가지 않았으므로 같은 주소 안에서 해시만 옮긴다.
+      eq(createHash("sha256").update(bytes).digest("hex"), "2fb4236dab948f2d2900623e274368205fbfc8b9de8011a420af57507db2c185", "legacy home stylesheet bytes remain pinned");
     }
   }
 
@@ -341,16 +343,16 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "c78fab08d1cad3ed3bf6
   ok(!!shippedThousands, "shipped runtime keeps a working thousands-separator regex");
   eq(String(1234567).replace(new RegExp(shippedThousands[1], "g"), ","), "1,234,567", "shipped thousands-separator regex formats an amount");
 
-  const stage4NavJs = await request("/assets/accountbook-nav-v22889.js");
+  const stage4NavJs = await request("/assets/accountbook-nav-v22893.js");
   const stage4NavRuntime = await stage4NavJs.text();
   const stage4NavGetDatabaseCalls = calls.length;
-  const stage4NavHead = await request("/assets/accountbook-nav-v22889.js", { method: "HEAD" });
+  const stage4NavHead = await request("/assets/accountbook-nav-v22893.js", { method: "HEAD" });
   const stage4NavHeadBody = await stage4NavHead.text();
   const stage4NavHeadDatabaseCalls = calls.length;
   eq(stage4NavJs.status, 200, "V22.8.18 stage 4 navigation runtime GET succeeds");
   ok(stage4NavHead.status === 200 && stage4NavHeadBody.length === 0, "V22.8.18 stage 4 navigation runtime HEAD succeeds without a body");
   ok(stage4NavJs.headers.get("content-type")?.startsWith("text/javascript") && stage4NavJs.headers.get("cache-control")?.includes("immutable"), "stage 4 navigation runtime uses immutable JavaScript delivery");
-  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22889-js"', "V5 navigation runtime has a versioned ETag");
+  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22893-js"', "V5 navigation runtime has a versioned ETag");
   ok(stage4NavRuntime.includes('label: "기록"') && stage4NavRuntime.includes('label: "입력"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('label: "전체"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('if (!document.querySelector(".abLayoutNav")) return') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"') && stage4NavRuntime.includes('event.key === "Escape" && dialog && dialog.open') && stage4NavRuntime.includes('event.key === "/"'), "V5 runtime maps the home sidebar state and connects Escape-safe authenticated search, quick actions, and appearance controls");
   eq(stage4NavGetDatabaseCalls, 0, "stage 4 navigation runtime GET requires no database access");
   eq(stage4NavHeadDatabaseCalls, 0, "stage 4 navigation runtime HEAD requires no database access");
@@ -529,10 +531,16 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "c78fab08d1cad3ed3bf6
     await overspendPost("/admin/budget/save", { household_id: "house-home", month: "2026-08", category: "식비", amount: "200000" });
     const overspendHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
     const overspendHtml = await overspendHome.text();
-    const shownRate = overspendHtml.match(/예산 사용률 (\d+)%/);
+    // V22.8.93(9.3): 사용률 숫자가 <span data-ab-num> 로 감싸졌다. 서버가 보내는
+    // **글자**는 그대로여야 하므로(스크립트가 없어도 200% 가 보여야 한다) 태그를
+    // 걷어낸 뒤 견준다. 지키려던 것은 "표기는 실제 사용률, 막대는 100% 에서 멈춤"이다.
+    const shownRate = overspendHtml.replace(/<[^>]*>/g, "").match(/예산 사용률 (\d+)%/);
     const barWidth = overspendHtml.match(/homeProgress"><i style="width:(\d+)%"/);
     eq(shownRate?.[1], "200", "home shows the real budget usage rate when spending exceeds the budget");
     eq(barWidth?.[1], "100", "home progress bar still stops at 100% width");
+    // 그리고 스크립트가 굴릴 값은 **비율**이어야 한다 — 200 을 넘기면 20,000% 가 된다.
+    const ratioAttr = overspendHtml.match(/data-ab-num="([\d.]+)" data-ab-num-style="percent"/);
+    eq(ratioAttr?.[1], "2", "the rate is handed to the script as a ratio, not a percentage");
   } finally {
     overspendFixture.restore();
   }

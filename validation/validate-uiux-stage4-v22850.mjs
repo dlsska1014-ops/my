@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "stage 4 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "stage 4 runtime version is explicit");
 ok(source.includes('data-ab-quick-dock aria-label="빠른 실행"'), "desktop quick actions expose a named dock");
 ok(source.includes('class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick"'), "quick input is the dock primary action");
 ok(source.includes('data-abv5-search-open'), "dock keeps transaction search");
@@ -52,10 +52,10 @@ ok(source.includes('(${accountbookSaveFeedbackClientMain.toString()})();'), "sav
 ok(source.includes('별도 쓰기 API를 추가하지 않는다'), "existing transaction write contract remains explicit");
 ok(!source.includes('/u/api/quick-input'), "stage 4 adds no parallel quick-input write API");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "current release uses a fresh shell asset");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "stage 4 uses a fresh navigation asset");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "stage 4 uses a fresh navigation asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a fresh V5 asset");
 ok(source.includes('"accountbook-shell-v22891-css"'), "current shell has a fresh immutable ETag");
-ok(source.includes('"accountbook-nav-v22889-js"'), "stage 4 navigation has a fresh immutable ETag");
+ok(source.includes('"accountbook-nav-v22893-js"'), "stage 4 navigation has a fresh immutable ETag");
 ok(source.includes('"accountbook-v5-v22890-js"'), "current V5 runtime has a fresh immutable ETag");
 
 function form(values) { return new URLSearchParams(values); }
@@ -79,7 +79,7 @@ try {
   eq(home.response.status, 200, "stage 4 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "default home stays below the protected 35 KiB HTML budget");
   ok(home.text.includes('/assets/accountbook-shell-v22891.css'), "home loads the current shell");
-  ok(home.text.includes('/assets/accountbook-nav-v22889.js'), "home loads the stage 4 navigation runtime");
+  ok(home.text.includes('/assets/accountbook-nav-v22893.js'), "home loads the stage 4 navigation runtime");
   ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the current V5 runtime");
   ok(!home.text.includes('data-ab-save-feedback'), "default home emits no false save feedback");
   eq(fixture.db.transactions.length, before, "rendering stage 4 home does not mutate transactions");
@@ -105,9 +105,9 @@ try {
   ok(shell.text.includes('[data-ab-quick-dock]'), "stage 4 shell contains dock styles");
   ok(shell.text.includes('.abSaveFeedback'), "stage 4 shell contains feedback styles");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22889.js");
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js");
   eq(nav.response.status, 200, "stage 4 navigation runtime is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22889-js"', "stage 4 navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "stage 4 navigation ETag is correct");
 
   const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js");
   eq(v5.response.status, 200, "stage 4 V5 runtime is served");

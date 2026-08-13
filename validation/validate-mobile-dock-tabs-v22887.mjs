@@ -98,7 +98,7 @@ try {
 
   // 9. 아이콘. 모르는 이름은 집 모양으로 돌아가므로, ＋ 가 진짜 ＋ 인지 본다.
   ok(source.includes("plus: '<path d=\"M12 5v14M5 12h14\"/>',"), "＋ 아이콘이 아이콘표에 있다");
-  const nav = await get("/assets/accountbook-nav-v22889.js", "");
+  const nav = await get("/assets/accountbook-nav-v22893.js", "");
   eq(nav.response.status, 200, "내비 자산이 서빙된다");
   ok(nav.text.includes('plus: \'<path d="M12 5v14M5 12h14"/>\''), "배포되는 자산에도 ＋ 아이콘이 담긴다");
 

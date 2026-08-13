@@ -85,7 +85,12 @@ ok(/href="\/budgets\?/.test(noBudgetPlan.block), "그 줄에서 예산 설정으
 const slow = await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); });
 const slowPlan = planOf(slow.html);
 ok(/남은 \d+일 동안/.test(slowPlan.text), `남은 일수를 말한다 (${slowPlan.text})`);
-ok(/하루 [\d,]+원/.test(slowPlan.text), "하루 기준 금액을 말한다");
+// V22.8.93(9.3): 금액이 <span data-ab-num> 로 감싸져 태그를 걷어내면 숫자와 단위
+// 사이에 공백이 생긴다. 화면에 보이는 글자는 그대로다 — 지키려는 것은 "하루 기준
+// 금액을 말한다"이므로 태그 경계의 공백은 허용한다.
+ok(/하루 [\d,]+\s*원/.test(slowPlan.text), `하루 기준 금액을 말한다 (${slowPlan.text})`);
+// 그리고 그 금액에는 스크립트가 굴릴 값이 실려 있어야 한다(9.1).
+ok(/<span data-ab-num="\d+" data-ab-num-unit="원">/.test(slowPlan.block), "하루 환산 금액에 전환 대상 값이 실려 있다");
 ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니다"), "느린 속도에서는 남을 금액을 말한다");
 
 const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });

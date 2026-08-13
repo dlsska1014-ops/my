@@ -5,7 +5,7 @@ const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf
 let checks = 0;
 const ok = (value, message) => { checks += 1; assert.ok(value, message); };
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "stage 1 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "stage 1 runtime version is explicit");
 ok(source.includes('function buildNavMonthSummary('), "sidebar month summary helper exists");
 ok(source.includes('function renderNavMiniCalendar('), "desktop mini calendar renderer exists");
 // V22.8.90(지시서 4.2): 좌측 예산 위젯을 제거했다. 중앙 P0 와 같은 숫자를 두 번 말하고
@@ -14,8 +14,12 @@ ok(source.includes('function renderNavMiniCalendar('), "desktop mini calendar re
 // V22.8.88 에서 그 자리는 홈 P0 가 되었으므로 거기서 확인한다.
 ok(!source.includes('function renderNavBudgetUsage('), "sidebar budget widget renderer is gone");
 ok(!source.includes('data-ab-nav-budget'), "no sidebar budget markup or client renderer remains");
-ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 ${displayBudgetPercent}%</em></div>'), "budget usage is stated once, in the home P0");
-ok(source.includes('<div class="homeProgress"><i style="width:${budgetBarPercent}%"></i></div>'), "the P0 draws the usage gauge");
+// V22.8.93(9.3): 사용률 숫자와 게이지 막대에 스크립트가 쓸 값이 붙었다. 지키던
+// 성질은 "예산 사용률을 한 곳에서, 홈 P0 에서 말한다"이고 그건 그대로다. 마크업이
+// 한 벌만 있는지를 보면 되므로 문구와 값 배선만 견주고 속성은 따지지 않는다.
+ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div>'), "budget usage is stated once, in the home P0");
+ok((source.match(/예산 사용률 <span data-ab-num/g) || []).length === 1, "the usage sentence exists exactly once");
+ok(source.includes('<div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>'), "the P0 draws the usage gauge");
 ok(source.includes('const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));'), "the gauge is still capped at 100 percent");
 ok(source.includes('const displayBudgetPercent = Math.max(0, budgetPercent || 0);'), "the printed rate still shows real overuse above 100 percent");
 ok(source.includes('showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget'), "app reuses already-fetched rows and budget without a new DB request");

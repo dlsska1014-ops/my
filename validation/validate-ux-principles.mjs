@@ -151,7 +151,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime reports the challenge and activity UX release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens

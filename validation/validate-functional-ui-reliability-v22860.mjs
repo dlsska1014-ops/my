@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.92-SCREEN-CLEANUP"'), "runtime exposes the functional UI reliability release");
+ok(source.includes('const APP_VERSION = "V22.8.93-NUMBER-TRANSITIONS"'), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");
@@ -16,7 +16,7 @@ ok(source.includes('button.setAttribute("aria-busy", "true")'), "challenge save 
 ok(source.includes('challenge_html: renderReportChallenge'), "inline response returns authoritative refreshed challenge markup");
 ok(source.includes('sidebar_html: renderReportChallenge'), "inline response refreshes the shared sidebar challenge");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22891.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22889.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
 ok(source.includes('path === "/annual" || path === "/annual-report"'), "client navigation recognizes annual report routes");
@@ -51,9 +51,9 @@ try {
   ok(shell.text.includes(".v8-tx summary{display:flex;align-items:center;min-height:44px"), "transaction edit control has a 44px touch target");
   ok(shell.text.includes(".kwRemove{width:40px!important;height:40px!important"), "mobile keyword remove control has a larger touch target");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22889.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22889-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "new navigation ETag is correct");
   ok(nav.text.includes('return "goals"') && nav.text.includes('return "annual"') && nav.text.includes('return "budget-alerts"'), "navigation asset preserves all newly mapped active keys");
 
   const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js", { cookie: "" });
