@@ -131,6 +131,26 @@ try {
   ok(addStops >= 10, `빠른 입력 1단이 정지점으로 살아 있다 (${addStops})`);
 
   // -------------------------------------------------------------------------
+  // M2 블록 3 — 최근 7일 스트립은 정지점을 하나도 쓰지 않는다
+  // -------------------------------------------------------------------------
+  // 일곱 칸을 링크로 두면 그것만으로 정지점이 일곱 개 늘어난다. 달력에서 이미
+  // 같은 실수를 했고(PR6), 그래서 이 블록은 정보 표시로만 만들었다.
+  const now = new Date().toISOString().slice(0, 7);
+  const thisMonth = await app.fetch(new Request(`${ORIGIN}/app?month=${now}&household_id=house-home`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+  const thisMonthHtml = await thisMonth.text();
+  const stripStart = thisMonthHtml.indexOf('<ol class="homeWeek"');
+  ok(stripStart > 0, "이번 달 홈에 7일 스트립이 있다");
+  const strip = thisMonthHtml.slice(stripStart, thisMonthHtml.indexOf("</ol>", stripStart));
+  eq(countTabStops(strip).length, 0, "스트립은 탭 정지점을 쓰지 않는다");
+  eq((strip.match(/<li/g) || []).length, 7, "칸은 일곱 개다");
+  eq((strip.match(/aria-current="date"/g) || []).length, 1, "오늘이 한 칸만 표시된다");
+  // 지난 달에는 그리지 않는다 — "최근 7일"은 오늘 기준이라 지난 달에서는 뜻이 없다.
+  const pastHtml = html;
+  eq(pastHtml.includes('<ol class="homeWeek"'), false, "지난 달 화면에는 7일 스트립을 그리지 않는다");
+  // 7.1 이 지시한 중복 제거가 되돌아가지 않았는지.
+  eq(thisMonthHtml.includes('class="homeSpendHero"'), false, "'N월 지출' 카드가 다시 생기지 않았다");
+
+  // -------------------------------------------------------------------------
   // 달력은 정지점 하나 — PR6 이 정한 규칙이 되돌아가지 않았는지
   // -------------------------------------------------------------------------
   ok(source.includes('role="grid"'), "달력은 격자 하나다");

@@ -170,7 +170,10 @@ try {
   eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
   eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22895-css"', "current shell has a fresh immutable ETag");
   const shell = await shellResponse.text();
-  ok(shell.includes(".homeSpendHero") && shell.includes("font-size:38px"), "V2 home hierarchy includes a large monthly expense hero");
+  // V22.8.97(7.1): "N월 지출" 히어로를 걷어냈다. V22.8.17 이 지키려던 것은
+  // "홈이 큰 대표 숫자 하나로 시작한다"였고 그 성질은 그대로다 — 이제 그 자리는
+  // P0(이번 달 쓸 수 있는 돈)이고, 34px 토큰을 쓴다. 히어로가 둘이 아니라 하나다.
+  ok(shell.includes(".homeBudgetAmount b{font-size:34px") || shell.includes("--ab12-fs-num-xl"), "V2 home hierarchy still leads with one large number");
   ok(shell.includes(".calDay.noRec{background:transparent!important") && shell.includes("opacity:1!important"), "calendar empty dates use transparent readable cells instead of whole-cell opacity");
   ok(shell.includes(".calDay.isToday b"), "calendar stylesheet has a distinct current-day treatment");
   ok(shell.includes(".filterBar{top:8px;margin:12px 0;padding:12px;background:var(--ab12-surface)!important;background:color-mix"), "analysis filter bar has a shared-surface fallback before color-mix enhancement");
@@ -215,7 +218,11 @@ try {
   const calendarHome = await request(`/app?${context}&view=calendar`, { cookie: fixture.cookie });
   eq(calendarHome.status, 200, "integrated home calendar renders");
   const calendarHomeHtml = await calendarHome.text();
-  ok(calendarHomeHtml.includes('class="homeSpendHero"') && calendarHomeHtml.includes("7월 지출"), "home renders the V2 monthly expense hierarchy from real data");
+  // 같은 성질을 실제 렌더에서 확인한다: 대표 숫자 자리가 하나 있고, 그 달의 지출
+  // 금액은 사라진 게 아니라 homeMetrics 로 옮겨져 여전히 실제 값으로 보인다.
+  ok(calendarHomeHtml.includes('class="homeBudget"') && calendarHomeHtml.includes("이번 달 쓸 수 있는 돈"), "home renders one P0 hierarchy from real data");
+  ok(calendarHomeHtml.includes("나간 돈") && /나간 돈[\s\S]{0,120}-[\d,]+원/.test(calendarHomeHtml), "the month expense figure is still shown, from real data");
+  ok(!calendarHomeHtml.includes('class="homeSpendHero"'), "the duplicated monthly expense card is gone");
   ok(calendarHomeHtml.includes('class="panel homeCalendar"') && calendarHomeHtml.includes("기록이 없는 날은 배경 없이"), "home calendar uses the V2 empty-date hierarchy");
   ok(calendarHomeHtml.includes("calDay noRec") && calendarHomeHtml.includes("calDay hasRec"), "calendar keeps distinct empty and recorded dates");
   ok(/class="calDay [^"]*\bsun\b/.test(calendarHomeHtml) && /class="calDay [^"]*\bsat\b/.test(calendarHomeHtml), "calendar marks both weekend columns on date cells");

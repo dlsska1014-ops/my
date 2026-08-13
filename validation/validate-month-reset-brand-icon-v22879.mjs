@@ -83,9 +83,9 @@ ok(source.includes("background:linear-gradient(135deg,#FEE500,#ffd84d);color:#19
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .abNavLogo{background:var(--brand)!important;color:#fff!important;border-color:transparent!important}'), "dark keeps the brand background and a white icon");
 
 // 15. 자산은 immutable 1년 캐시라 내용이 바뀌면 경로가 올라가야 반영된다.
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22896.css"'), "the mobile home stylesheet path is bumped");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22897.css"'), "the mobile home stylesheet path is bumped");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22895.css"'), "the shell stylesheet path is bumped");
-ok(source.includes("'\"mobile-home-v22896-css\"'") || source.includes('\'"mobile-home-v22896-css"\''), "the mobile home stylesheet ETag matches its path");
+ok(source.includes("'\"mobile-home-v22897-css\"'") || source.includes('\'"mobile-home-v22897-css"\''), "the mobile home stylesheet ETag matches its path");
 ok(source.includes('\'"accountbook-shell-v22895-css"\''), "the shell stylesheet ETag matches its path");
 eq(source.includes("accountbook-shell-v22874"), false, "no stale shell stylesheet reference remains");
 // V22.8.85: 토큰이 늘면서 셸 내용이 바뀌었다. 직전 주소가 남아 있으면 1년 캐시를 물고 있는

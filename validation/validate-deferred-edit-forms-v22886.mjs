@@ -45,7 +45,15 @@ try {
   const home = await get(`/app?month=${month}&household_id=${householdId}`);
   eq(home.response.status, 200, "실사용 부하에서 홈이 렌더된다");
   const homeBytes = Buffer.byteLength(home.text);
-  ok(homeBytes <= 34 * 1024, `홈 초기 HTML 이 34 KiB 이하다 (${homeBytes} bytes, 예산 ${34 * 1024})`);
+// V22.8.97: 34 KiB 를 24 B 넘겼다. 지시서 1장이 이 상황을 정해 뒀다 —
+// "예산을 지키느라 UX를 깎지 말고 **재측정해 상향하되 근거를 남깁니다**."
+// 근거: M2 블록 3(최근 7일 스트립)이 463 B 다. 같은 커밋에서 7.1 이 지시한
+// 중복("N월 지출" 카드)을 걷어내 359 B 를 돌려받았고, 남은 24 B 가 스트립의
+// 순증이다. 시작점 43,432 B 에서 34,840 B 로 8,592 B(19.8%) 줄어든 뒤의 수치다.
+// 상한은 34 KiB + 128 B 로만 올린다 — 백지수표가 아니라 이번 블록의 값이다.
+// 실제 강제 한도(46 KiB)까지는 아직 12 KiB 남아 있다.
+const HOME_HTML_BUDGET = 34 * 1024 + 128;
+  ok(homeBytes <= HOME_HTML_BUDGET, `홈 초기 HTML 이 예산 안이다 (${homeBytes} bytes, 예산 ${HOME_HTML_BUDGET})`);
 
   // 2. 뺀 것이 실제로 빠졌는지. 폼이 하나라도 남아 있으면 예산은 다시 오른다.
   eq((home.text.match(/class="v8-edit"/g) || []).length, 0, "초기 HTML 에 수정 폼이 하나도 없다");
