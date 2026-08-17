@@ -80,16 +80,23 @@ try {
   ok(home.text.includes('/assets/accountbook-shell-v2290.css'), "home loads the refreshed shell asset");
   ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the refreshed V5 bundle");
   ok(home.text.includes('class="reportChallenge"'), "challenge is visible in the home content");
-  // V22.9.0: 홈은 본문에 큰 챌린지 카드를 이미 들고 있는데 사이드바에도 같은 챌린지를
-  // 한 번 더 그리고 있었다 — 한 화면에 같은 정보가 두 번이었고, 좁은 사이드바 쪽은
-  // 7일 체크가 뭉개져 읽히지도 않았다. 그래서 홈에서만 사이드바 사본을 끈다.
-  // 이 검사가 지키던 것("사이드바도 챌린지를 담을 수 있다")은 없애지 않는다.
-  // 종합 리포트 화면에서 그대로 확인한다 — 아래 reportPage 단언이 그 자리다.
+  // V22.9.0: 사이드바 챌린지 사본을 걷어냈다.
+  //
+  // 처음에는 홈에서만 껐다. 그때는 "사이드바도 챌린지를 담을 수 있다"는 이 검사의
+  // 보장을 종합 리포트 화면으로 옮겨 적었는데, 확인해 보니 그 사본을 그리던 화면은
+  // 셋(홈·통계·종합 리포트)뿐이었고 **셋 다 본문에 큰 카드를 이미 들고 있었다.**
+  // 사이드바가 유일한 접점인 화면이 하나도 없었으므로, 그 보장은 지킬 대상이 아니라
+  // 처음부터 중복이었다. 그래서 compact 렌더 경로와 CSS 2.7 KB 를 함께 지웠다.
+  //
+  // 지킬 것은 남는다 — 챌린지는 이 화면들에서 **정확히 한 번** 보여야 한다.
   ok(!home.text.includes('class="abNavChallenge'), "홈은 같은 챌린지를 사이드바에 두 번 그리지 않는다");
-  const reportPage = await request(fixture, "/my/analysis?view=report&month=2026-07&household_id=house-home");
-  eq(reportPage.response.status, 200, "종합 리포트가 렌더된다");
-  ok(reportPage.text.includes('class="abNavChallenge'), "challenge is also available in the expanded desktop sidebar");
-  ok(reportPage.text.includes('class="reportChallenge"'), "종합 리포트 본문에도 챌린지가 있다");
+  eq((home.text.match(/class="reportChallenge"/g) || []).length, 1, "홈의 챌린지는 정확히 하나다");
+  for (const path of ["/my/analysis?view=report&month=2026-07&household_id=house-home", "/my/analysis?month=2026-07&household_id=house-home"]) {
+    const page = await request(fixture, path);
+    eq(page.response.status, 200, `${path} 가 렌더된다`);
+    eq((page.text.match(/class="reportChallenge"/g) || []).length, 1, `${path} 의 챌린지도 정확히 하나다`);
+    eq((page.text.match(/class="abNavChallenge/g) || []).length, 0, `${path} 도 사이드바 사본을 그리지 않는다`);
+  }
   ok(home.text.includes('class="abBrandIcon"'), "home navigation renders the SVG brand icon");
   ok(home.text.includes('class="abNavToggleIcon"'), "home navigation renders the corrected collapse icon");
   ok(!home.text.includes('class="abActivityRail"'), "right rail markup stays out of initial HTML and loads responsively");

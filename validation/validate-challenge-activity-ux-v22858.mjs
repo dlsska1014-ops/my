@@ -26,9 +26,13 @@ ok(source.includes('state === "success" ? (settings.type === "no_spend_days" ? "
 ok(source.includes('successLabel: "한도 지킴"') && source.includes('successLabel: "분류 한도 지킴"'), "each challenge type names its own success state");
 ok(source.includes('state === "spent" ? (settings.type === "no_spend_days" ? "지출 있음" : settings.failureLabel)'), "day slots expose a textual spend state");
 ok(source.includes('class="reportChallengeDays"'), "full challenge renders date cells");
-ok(source.includes('class="abChallengeDays"'), "sidebar challenge renders compact date cells");
+// V22.9.0: 사이드바 챌린지 사본과 그 compact 렌더 경로를 걷어냈다. 이 사본을 그리던
+// 화면 셋(홈·통계·종합 리포트)은 모두 본문에 큰 카드를 이미 들고 있어서, 사이드바가
+// 유일한 접점인 적이 한 번도 없었다. 지키던 성질(짧은 챌린지는 날짜 칸, 긴 챌린지는
+// 퍼센트)은 본문 렌더에서 그대로 확인한다 — 아래 두 줄과 longHtml 단언이 그 자리다.
+ok(!source.includes('class="abChallengeDays"'), "사이드바 전용 날짜 칸 렌더는 남아 있지 않다");
 ok(source.includes('class="reportChallengePercent"'), "long challenge renders percent progress");
-ok(source.includes('class="abChallengePercent"'), "long sidebar challenge renders compact percent progress");
+ok(!source.includes('class="abChallengePercent"'), "사이드바 전용 퍼센트 렌더도 남아 있지 않다");
 ok(source.includes("function iconKind(row)"), "activity rail has deterministic category icon mapping");
 ok(source.includes("function iconSvg(kind)"), "activity rail uses controlled inline SVG icons");
 ok(source.includes('class="abActivityTypeIcon kind-'), "activity items receive semantic icon classes");
@@ -58,9 +62,10 @@ ok(freshHtml.includes('class="reportChallengeDays"'), "seven-day full view conta
 eq((freshHtml.match(/<li class="is-/g) || []).length, 7, "seven-day full view contains seven visual slots");
 ok(freshHtml.includes("오늘 진행 중"), "date-cell accessible label states today is in progress");
 ok(freshHtml.includes("✓ 무지출 · − 지출 · ● 오늘 · ○ 예정"), "full view includes a shape-and-text legend");
-const compactFresh = renderReportChallenge(fresh, { householdId: "hh-1", compact: true });
-ok(compactFresh.includes('class="abChallengeDays"'), "sidebar renders compact date cells");
-ok(compactFresh.includes('data-ab-challenge-slots="'), "sidebar defers compact date hydration to the shared runtime");
+// 지연 수화(data-ab-challenge-slots)는 사이드바만의 것이 아니었다. 본문 렌더도 같은
+// 계약을 쓰므로, 사본이 사라져도 그 성질은 여기서 계속 확인한다.
+ok(source.includes('data-ab-challenge-slots="'), "날짜 칸 수화 계약이 그대로 있다");
+ok(source.includes('<ol class="reportChallengeDays" data-ab-challenge-slots'), "수화 경로도 본문 날짜 칸을 쓴다");
 
 const past = buildReportChallenge([
   { type: "expense", amount: 1000, transaction_date: "2025-02-03" },
@@ -80,9 +85,8 @@ const longHtml = renderReportChallenge(longChallenge, { householdId: "hh-1" });
 ok(longHtml.includes('class="reportChallengePercent"'), "long full view renders percent progress");
 ok(!longHtml.includes('class="reportChallengeDays"'), "long full view omits date cells");
 ok(longHtml.includes('aria-valuemax="100"'), "long progress exposes a percentage range");
-const compactLong = renderReportChallenge(longChallenge, { householdId: "hh-1", compact: true });
-ok(compactLong.includes('class="abChallengePercent"'), "long sidebar renders compact percent progress");
-ok(!compactLong.includes('class="abChallengeDays"'), "long sidebar omits date cells");
+// 긴 챌린지가 날짜 칸을 그리지 않는다는 성질은 본문 렌더에서 이미 위에서 확인했다
+// (longHtml). 사본이 사라졌으므로 같은 말을 두 번 하지 않는다.
 
 async function request(fixture, path, { cookie = fixture.cookie, method = "GET" } = {}) {
   const headers = { accept: "text/html,application/json", "user-agent": "Mozilla/5.0" };
@@ -128,7 +132,11 @@ try {
   eq(shell.response.status, 200, "refreshed shell is served");
   eq(shell.response.headers.get("etag"), '"accountbook-shell-v2290-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".reportChallengeDays"), "shell includes challenge date-cell styling");
-  ok(shell.text.includes(".abChallengePercent"), "shell includes long-period percentage styling");
+  // 사이드바 사본과 함께 .abChallengePercent / .abChallengeDays CSS 4.3 KB 도 걷어냈다.
+  // 긴 챌린지의 퍼센트 표시는 본문 쪽 .reportChallengePercent 가 계속 담당한다.
+  ok(shell.text.includes(".reportChallengePercent"), "shell includes long-period percentage styling");
+  ok(!shell.text.includes(".abChallengePercent"), "죽은 사이드바 챌린지 CSS 가 자산에 남아 있지 않다");
+  ok(!shell.text.includes(".abNavChallenge"), "죽은 사이드바 챌린지 컨테이너 CSS 도 없다");
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
   ok(shell.text.includes(".abActivityItem:focus-visible"), "activity items have a visible keyboard focus state");
 

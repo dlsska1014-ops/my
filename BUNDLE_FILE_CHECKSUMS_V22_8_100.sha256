@@ -1,5 +1,5 @@
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
-b02c3be585a896b8e2695d21e74fbfab5e8c553acc7c0f5f1af7a73fdb071877  ./.codex/scripts/verify-repository.mjs
+12b39290e9e52c11639492eab2e6464f63aabf242484d54c45fb4366c4416118  ./.codex/scripts/verify-repository.mjs
 301a55f71560c73fe7e2c739c6418d5f3eb90850b92649bbea60ee522a8a7fa3  ./.github/workflows/verify.yml
 ef23d1270b14425e794fca19f1bb98459b48e9aa61c27f2279c31cc6c1aa2646  ./00_READ_FIRST_V22_8_74.md
 ede0146ee505893034cfb04bfd3cb5e0a8bc6f60bb10a60de589aaa0f5ed0c23  ./00_READ_FIRST_V22_8_75.md
@@ -43,7 +43,7 @@ ccbc5dc78d2eac6718fa641e0011dd869695aab3eb43234ba6c0ff00d9e42294  ./VALIDATION_R
 71ecb04630fe4b522633e88d106dcb88100e41384f752a722a94607f637b5923  ./VERSION.txt
 5347e02e9cf3f88e4596731e4026793be9c1ad6a68014d02d4dd0d8305ae45ac  ./docs/codex/VERIFICATION.md
 07485eef7dc1359eb661c72a3b243fc053ef39ec38cf51d3dd9d4e95e4063fc6  ./package.json
-6a8471491243301c25662b45c163504af6276cc8eac4c9aecca180034e3d5617  ./src/index.js
+ae35f885d233def0b17f37ac1d8bf66a128782b6f09284e4356947c96fb49323  ./src/index.js
 20d2c5054c92b00d796204b9e50aafd0fc81141b30abc1d12f323331ec2e5b1d  ./tools/bundle-number-flow.mjs
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22874.sh
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22875.sh
@@ -58,7 +58,7 @@ bdfbbf1aa23cda55d7b0da1e5932b6f840dd88574854a54e1edf5e8ce39e707c  ./validation/v
 4d37d48ad6b8787c99c4bfde56c117dfb7daa4ef1eb8639e50c1a720a62cb958  ./validation/validate-app-icon-assets-v22863.mjs
 5e80d6eee10e503e1ea628596f494e49724a5d0cc7baa7a1a21dc989e3c42a27  ./validation/validate-budget-basis-income-ia-v22881.mjs
 aba42da469f76d953f51a3869e08d139dc5530fdff0ca586148b3ffffa5b0ddc  ./validation/validate-budget-dark-contrast-v22874.mjs
-d28afe1af4e91c5131367a5f6951171a4b2d7b184e69c92f71e34c4534876908  ./validation/validate-challenge-activity-ux-v22858.mjs
+058d2b49144696506e9b3e8e5abf450957d149b61ec8b851614b39a774e9d05c  ./validation/validate-challenge-activity-ux-v22858.mjs
 fed80f4c1b2429682b40d35118115c9206bc88a0c513a5694eb63caa4342a708  ./validation/validate-core-write-smoke.mjs
 3e274769601463b58667dff2dde243ce2a171c8dcdbabd59ff22c0d5ec7ee450  ./validation/validate-deferred-edit-forms-v22886.mjs
 5d35111b959884db93c484c9601d5306ee4524be5536e2e31c18cc84cb98dd8f  ./validation/validate-design-tokens-v22885.mjs
@@ -67,10 +67,10 @@ c823520a85792d3db7bbd16810a01881bea75f223239ae063709224b97a54aef  ./validation/v
 3099f063fb25759a1ec773922b4b00088aea34717e547d3f1344089a8c5600d2  ./validation/validate-draft-persistence-v22878.mjs
 f1c99a87a134b502d2885d306497259e35a3007c546a74c1b6ad92b345a3cc71  ./validation/validate-edit-restore-v22871.mjs
 7be77109fb190adfe4f1138e0d5ca07b51921ebe00ad618214870234fcb4c752  ./validation/validate-emit-then-strip-v22900.mjs
-0e9e287a08e83c928429534736078eac63b188bebe8977b25c9627c203157abd  ./validation/validate-functional-ui-reliability-v22860.mjs
+da5bd297b2c3c11aa0d7d5353779b0919a42c225500c907e6b0f29842d58ff95  ./validation/validate-functional-ui-reliability-v22860.mjs
 1d2ba4e4bf9e3e0f07dce038209584e97caf519af4c02687350ef56d29b53047  ./validation/validate-home-blocks-daily-v22888.mjs
 509247b729df60be845d67d6daf74a6e83551053f0ab2c02d7ffd2a2a51e86ff  ./validation/validate-home-layout-v22894.mjs
-32469c85439c3a036ba9228453c122122c2faac4ff3447a775f53ae8b84f0718  ./validation/validate-home-rail-challenge-v22857.mjs
+52e5eb41e006425d977dfecaf9e385bab7a38c485601729a4b2082e6970304ad  ./validation/validate-home-rail-challenge-v22857.mjs
 782189f05ba381f05f4aa4ef1899f64bf6a9f03d39750b7457f4660d44b31bc3  ./validation/validate-home-reports-v22891.mjs
 b2cd8b0b6910fa94a0049fff93a1d3cf61bf27517dc7a8d867bca76c2d07d366  ./validation/validate-home-tab-stops-v22896.mjs
 1b3a44927b374cc7909bf2aaa079adcfb42112bf11129cdacb23b6a95963e2c8  ./validation/validate-home-trend-usage-v22879.mjs
@@ -93,7 +93,7 @@ bfbf3336900b13cd7edac185ecffa21a3cb625c2c9e606fde963d386272489fd  ./validation/v
 1976e60cc08df560e910c4b327cb3303c2d65c35611df4cbae97d1ab11c0f024  ./validation/validate-receipt.mjs
 8050d07a664d06ddac6db13761140ecc2ca51917d90e6d3df6a444b9e09d23eb  ./validation/validate-recurring-ia-budget-path-v22879.mjs
 10f6e9521586d712b1e358803190d41004c631feceb4bd2406d82195a0dbe2d7  ./validation/validate-recurring-merge-budget-cleanup-v22880.mjs
-da683fda5dd51cf14d491dba3041bb4b0e2fbbef8aa5ddc7aae6e12afdd0f823  ./validation/validate-report-dashboard-v22856.mjs
+7e43e14f307fedcc59ec8c1fde11d4a8a292a78373cd032f2ce97abde3635664  ./validation/validate-report-dashboard-v22856.mjs
 bc3819849a979d2ba273fe9ae796983d93a6eee6edfdbf435e943efce0fa68fb  ./validation/validate-reserve-plan-edit-v22879.mjs
 1262ddafc30dc3ad6fafdc5503a8b7f61e6ca831c226abbfc0af0c51beffa32a  ./validation/validate-role-surface-v22867.mjs
 d2493b68b76ee45042062889d2b2b01ceb5479aadf40688756f7e4586c9ea021  ./validation/validate-screen-cleanup-v22892.mjs
