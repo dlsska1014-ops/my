@@ -21025,7 +21025,14 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .ins
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .trendLabel{color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport :is(.trendValue,.seriesLegend span){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .deltaUp{color:#fca5a5!important}
-body.abV22812Shell :is(.card,.panel){padding:20px 22px!important}
+/* V22.9.2: 패널 기하를 한 규칙에서 정한다. .card/.panel 패딩은 이미 다른 한 줄이
+   20px 22px 로 통일하고 있었는데 .hero 는 빠져 있어 화면마다 제각각이었다. 그 줄을
+   여기로 합치고 .hero 를 넣는다 — .card 값은 그대로라 보이는 변화가 없고 .hero 만
+   같은 값으로 들어온다. 좁은 화면 값도 여기서 정한다(이 규칙이 화면별 미디어쿼리를
+   이기므로 그 책임까지 가져와야 한다). */
+body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important}
+@media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}
+
 body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}
 body.abV22812Shell :is(button,.btn){transition:filter .12s ease,background .12s ease,border-color .12s ease;box-shadow:none}
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}

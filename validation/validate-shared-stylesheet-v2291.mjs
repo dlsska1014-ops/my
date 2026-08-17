@@ -146,4 +146,37 @@ try {
   fixture.restore();
 }
 
+// ---------------------------------------------------------------------------
+// 4) 패널 기하는 한 규칙에서만 정한다 (개편 2단계)
+// ---------------------------------------------------------------------------
+// 화면마다 .card/.hero 정의가 흩어져 있었다 — 소스에 177곳, 모서리 22/24/26/28px 이
+// 고르게 섞여 있어 어느 하나가 설계값이라고 볼 수 없었다. 다만 **실제로 이기는 값**을
+// 재 보니 배경·테두리·모서리·그림자는 셸이 이미 통일하고 있었고, .card 패딩도
+// `:is(.card,.panel){padding:20px 22px}` 한 줄이 이미 잡고 있었다. 빠진 것은 .hero
+// 뿐이었다. 그래서 두 줄을 하나로 합치고 .hero 를 넣었다.
+//
+// (여기서 한 번 틀렸다. 처음 쓴 측정 도구가 `:is()` 셀렉터를 콤마로 잘라 버려서
+//  .card 가 다섯 가지로 보였고, 이미 통일된 것을 다시 통일하려 했다. 도구가 틀리면
+//  진단도 틀린다 — 그래서 이 검사는 서빙된 CSS 문자열을 그대로 확인한다.)
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v2290.css`), {}, {})).text();
+const PANEL_BASE = "body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important}";
+const PANEL_NARROW = "@media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}";
+eq(shellCss.split(PANEL_BASE).length - 1, 1, "패널 패딩 정본이 셸에 정확히 하나 있다");
+eq(shellCss.split(PANEL_NARROW).length - 1, 1, "좁은 화면 값도 같은 규칙이 책임진다");
+// 합치기 전의 두 줄짜리 상태로 돌아가지 않는지 본다.
+eq(shellCss.split("body.abV22812Shell :is(.card,.panel){padding:").length - 1, 0, "합치기 전의 .card 전용 패딩 줄이 되살아나지 않았다");
+// 정본 뒤에서 같은 것을 다시 정하면 정본이 정본이 아니게 된다.
+const afterBase = shellCss.slice(shellCss.indexOf(PANEL_BASE) + PANEL_BASE.length);
+const rivals = (afterBase.match(/[^{}]*\{[^{}]*\}/g) || []).filter((rule) => {
+  const [selector, body = ""] = [rule.slice(0, rule.indexOf("{")), rule.slice(rule.indexOf("{"))];
+  return /\.card\b|\.hero\b|\.panel\b/.test(selector) && /padding:/.test(body) && /!important/.test(body);
+});
+// 남아도 되는 것은 바로 위에서 확인한 좁은 화면 규칙 하나뿐이다.
+eq(rivals.length, 1, `정본 뒤에 패딩을 다시 정하는 규칙이 좁은 화면 하나뿐이다 (${rivals.length})`);
+// .hero 가 빠지면 이 통일은 뜻이 없다 — 원래 빠져 있던 것이 그것이다.
+ok(PANEL_BASE.includes(".hero"), "정본이 .hero 를 포함한다");
+// 배경까지 묶으면 어두운 그라디언트 히어로 30개가 흰 카드가 된다. 기하만 묶는 것이 의도다.
+ok(!/:is\(\.card,\.hero,\.panel,\.homeCard,\.startPanel\)\{[^}]*background/.test(shellCss), "정본은 배경을 건드리지 않는다(그라디언트 히어로 보존)");
+ok(shellCss.includes("linear-gradient"), "그라디언트 히어로 스타일이 살아 있다");
+
 console.log(`V22.9.1 공유 스타일시트 검사 통과 (${checks} checks)`);
