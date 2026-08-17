@@ -2922,13 +2922,14 @@ const V2285_NAV_STYLE = `
 @media(max-width:899px){.abNavMobileDrawer .abNavItemIcon{display:none}.abNavMobileDrawer .abNavLinks a>span{font-size:13px}.abNavMobileDrawer .abNavGroupCount{margin-left:auto;font-size:10px;color:#98a2b3}.abNavMobileDrawer .abNavGroup summary:after{content:"⌄";margin-left:auto}.abNavMobileDrawer .abNavGroup[open] summary:after{content:"⌃"}}
 `;
 
-function v2285UiStyleFor(html = "") {
-  const source = String(html || "");
-  let css = "";
-  if (source.includes("abPageMenu")) css += V2285_MENU_STYLE;
-  if (source.includes("abPageLogin")) css += V2285_LOGIN_STYLE;
-  if (source.includes('class="abLayoutNav"')) css += V2285_NAV_STYLE;
-  return css ? `<style id="v2285MobileAccessHierarchyStyle">${css}</style>` : "";
+// V22.9.1 (개편 1단계): 메뉴·로그인 조각은 공유 자산(abUiuxCssAsset)으로 옮겼다.
+// 셀렉터가 전부 abPageMenu / abPageLogin 으로 가드돼 있어서, 그 클래스가 없는 화면에
+// 실려 있어도 매치되지 않는다 — 화면마다 다시 보낼 이유가 없었다.
+//
+// 내비 조각만 여기 남는다. 그 조각은 :root 에 변수를 푸는 유일한 것이라 가드가 없다.
+function v2285NavStyleFor(html = "") {
+  if (!String(html || "").includes('class="abLayoutNav"')) return "";
+  return `<style id="v2285MobileAccessHierarchyStyle">${V2285_NAV_STYLE}</style>`;
 }
 
 const V2281_GUIDED_NAV_STYLE = `<style id="v2281GuidedNavStyle">
@@ -4500,8 +4501,20 @@ function attachUiUxRuntime(html = "") {
   let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
   const optimizedMobileHome = source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
     && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
-  if (!optimizedMobileHome && source && !source.includes('id="v2262UiUxStyle"') && source.includes("</head>")) {
-    source = source.replace("</head>", UIUX_RUNTIME_STYLE + V2281_GUIDED_UIUX_STYLE + v2284UiStyleFor(source) + v2285UiStyleFor(source) + "</head>");
+  // 여기가 홈을 뺀 열네 화면이 매 요청마다 20~30 KB 의 CSS 를 인라인으로 실어 보내던
+  // 자리다. 홈만 캐시되는 스타일시트를 링크해서 인라인 CSS 가 1% 였고, 나머지 화면은
+  // 27~50% 였다. 같은 CSS 를 화면마다 다시 보내는 것이라 합계 260 KB 가 낭비였다.
+  //
+  // 이제 링크 한 줄로 바꾼다. **끼워 넣는 위치는 그대로 </head> 직전**이다 — 이 뒤에
+  // 셸 링크가 다시 마지막으로 옮겨가므로 캐스케이드 순서가 이전과 똑같이 유지된다.
+  // 인라인이든 링크든 문서 순서로 적용되므로 어느 규칙이 이기는지는 바뀌지 않는다.
+  //
+  // v2285 의 내비 조각만 인라인으로 남는다. 그 조각은 :root 에 변수를 전역으로 푸는
+  // 유일한 것이라(다른 조각들은 전부 페이지 클래스로 가드돼 있다) 공유 자산에 담으면
+  // 내비가 없는 화면에도 변수가 정의된다. 1,952 B 라 그대로 두는 편이 안전하다.
+  if (!optimizedMobileHome && source && !source.includes(`href="${AB_UIUX_CSS_ASSET_PATH}"`) && source.includes("</head>")) {
+    const uiuxLink = `<link rel="stylesheet" href="${AB_UIUX_CSS_ASSET_PATH}"/>`;
+    source = source.replace("</head>", uiuxLink + v2285NavStyleFor(source) + "</head>");
   }
   const v22812ShellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
   if (source.includes(v22812ShellLink) && source.includes("</head>")) {
@@ -20570,6 +20583,7 @@ export default __nf.index.default;
 export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit } = __nf.index;
 `;
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v2290.css";
+const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v2290.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2290.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css";
@@ -21841,6 +21855,36 @@ function unwrapStyleElement(style = "") {
     .replace(/<\/style>\s*$/i, "");
 }
 
+// 홈을 뺀 열네 화면은 이 CSS 를 **요청마다 인라인으로** 새로 내려보내고 있었다.
+// 화면당 22~43 KB, 페이지의 27~50% 였고, 13개 화면이 공유하는 규칙만 20 KB 였다.
+// 홈만 캐시되는 스타일시트를 링크해서 1% 였다 — 나머지를 홈과 같은 방식으로 바꾼다.
+//
+// 조각 넷은 원래 페이지 내용을 보고 골라 넣던 것이다(v2284 는 구역을 잘라내고,
+// v2285 는 메뉴·로그인 블록을 더한다). 여기서는 **합집합**을 담는다. 안전한 이유는
+// 그 조각들의 셀렉터가 전부 페이지 클래스로 가드돼 있기 때문이다 — abMobileAppSurface,
+// abPageReceipts, abPageKeywords, abPageBackup, abPageMenu, abPageLogin. 해당 클래스가
+// 없는 화면에서는 규칙이 아예 매치되지 않으므로 실려 있어도 아무 일도 하지 않는다.
+// (그 가드를 실제로 세어서 확인했고, 검사로 고정해 뒀다.)
+//
+// V2285_NAV_STYLE 은 일부러 뺐다. 그 조각만 :root 에 변수를 전역으로 푼다 — 가드가
+// 없는 유일한 조각이라 조건부 인라인으로 남긴다.
+let AB_UIUX_CSS_CACHE = "";
+function abUiuxCssAsset() {
+  if (!AB_UIUX_CSS_CACHE) {
+    AB_UIUX_CSS_CACHE = [
+      unwrapStyleElement(UIUX_RUNTIME_STYLE),
+      unwrapStyleElement(V2281_GUIDED_UIUX_STYLE),
+      // V2284 상수는 <style> 태그까지 들고 있다(V2285 조각들은 아니다). 그대로 넣으면
+      // CSS 파일 안에 태그가 섞여 그 뒤 규칙 하나가 통째로 죽는다 — 실제로 :root 변수
+      // 블록과 .abPageMenu 규칙이 그렇게 사라졌고, 규칙 집합 비교 검사가 그걸 잡았다.
+      unwrapStyleElement(V2284_UI_REVALIDATION_STYLE),
+      V2285_MENU_STYLE,
+      V2285_LOGIN_STYLE,
+    ].filter(Boolean).join("\n");
+  }
+  return AB_UIUX_CSS_CACHE;
+}
+
 function mobileHomeCssAsset() {
   if (!AB_MOBILE_HOME_CSS_CACHE) {
     const mobileProbe = '<body class="abV2281 abMobileAppSurface"><main id="smartInput"></main></body>';
@@ -23075,13 +23119,15 @@ async function appIconAssetResponse(request, url) {
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
-  const assetPaths = [AB_CURSOR_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
+  const assetPaths = [AB_CURSOR_ASSET_PATH, AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
-  const isCss = [MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
+  const isCss = [AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
   const content = path === AB_CURSOR_ASSET_PATH
     ? AB_CURSOR_ASSET_SOURCE
     : path === NUMBER_FLOW_ASSET_PATH
     ? NUMBER_FLOW_ASSET_SOURCE
+    : path === AB_UIUX_CSS_ASSET_PATH
+    ? abUiuxCssAsset()
     : path === MOBILE_HOME_CSS_ASSET_PATH
     ? mobileHomeCssAsset()
     : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
@@ -23114,6 +23160,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
       ? '"number-flow-v22893-mjs"'
+      : path === AB_UIUX_CSS_ASSET_PATH
+      ? '"ab-uiux-v2290-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
       ? '"mobile-home-v2290-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
