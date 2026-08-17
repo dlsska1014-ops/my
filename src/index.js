@@ -21029,8 +21029,13 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .del
    20px 22px 로 통일하고 있었는데 .hero 는 빠져 있어 화면마다 제각각이었다. 그 줄을
    여기로 합치고 .hero 를 넣는다 — .card 값은 그대로라 보이는 변화가 없고 .hero 만
    같은 값으로 들어온다. 좁은 화면 값도 여기서 정한다(이 규칙이 화면별 미디어쿼리를
-   이기므로 그 책임까지 가져와야 한다). */
-body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important}
+   이기므로 그 책임까지 가져와야 한다).
+
+   margin 도 여기서 정한다. 셸에는 이 셋의 margin 규칙이 하나도 없어서 화면별 값이
+   그대로 이겼고, 14px 0 이 66곳 · 12px 0 이 41곳으로 갈려 있었다 — 카드 사이 세로
+   간격이 화면마다 달랐다는 뜻이다. 어느 쪽도 "설계값"이 아니라 토큰 눈금 위에 있는
+   12px(--ab12-sp-3)을 정본으로 삼는다. 14px 을 쓰던 자리는 2px 좁아진다. */
+body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important;margin:var(--ab12-sp-3,12px) 0!important}
 @media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}
 
 body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}

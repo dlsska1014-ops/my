@@ -159,7 +159,7 @@ try {
 //  .card 가 다섯 가지로 보였고, 이미 통일된 것을 다시 통일하려 했다. 도구가 틀리면
 //  진단도 틀린다 — 그래서 이 검사는 서빙된 CSS 문자열을 그대로 확인한다.)
 const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v2290.css`), {}, {})).text();
-const PANEL_BASE = "body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important}";
+const PANEL_BASE = "body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important;margin:var(--ab12-sp-3,12px) 0!important}";
 const PANEL_NARROW = "@media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}";
 eq(shellCss.split(PANEL_BASE).length - 1, 1, "패널 패딩 정본이 셸에 정확히 하나 있다");
 eq(shellCss.split(PANEL_NARROW).length - 1, 1, "좁은 화면 값도 같은 규칙이 책임진다");
@@ -175,6 +175,16 @@ const rivals = (afterBase.match(/[^{}]*\{[^{}]*\}/g) || []).filter((rule) => {
 eq(rivals.length, 1, `정본 뒤에 패딩을 다시 정하는 규칙이 좁은 화면 하나뿐이다 (${rivals.length})`);
 // .hero 가 빠지면 이 통일은 뜻이 없다 — 원래 빠져 있던 것이 그것이다.
 ok(PANEL_BASE.includes(".hero"), "정본이 .hero 를 포함한다");
+// margin 은 셸에 규칙이 **하나도 없어서** 화면별 값이 그대로 이겼다 — 14px 0 이 66곳,
+// 12px 0 이 41곳으로 갈려 카드 사이 세로 간격이 화면마다 달랐다. 정본이 margin 도
+// 정하는지, 그리고 그 뒤에서 다시 정하는 규칙이 없는지 함께 본다.
+ok(PANEL_BASE.includes("margin:"), "정본이 margin 도 정한다");
+const marginRules = (shellCss.match(/[^{}]*\{[^{}]*\}/g) || []).filter((rule) => {
+  const selector = rule.slice(0, rule.indexOf("{"));
+  const body = rule.slice(rule.indexOf("{"));
+  return /\.card\b|\.hero\b|\.panel\b/.test(selector) && /margin:/.test(body) && /!important/.test(body);
+});
+eq(marginRules.length, 1, `패널 margin 을 정하는 셸 규칙이 정확히 하나다 (${marginRules.length})`);
 // 배경까지 묶으면 어두운 그라디언트 히어로 30개가 흰 카드가 된다. 기하만 묶는 것이 의도다.
 ok(!/:is\(\.card,\.hero,\.panel,\.homeCard,\.startPanel\)\{[^}]*background/.test(shellCss), "정본은 배경을 건드리지 않는다(그라디언트 히어로 보존)");
 ok(shellCss.includes("linear-gradient"), "그라디언트 히어로 스타일이 살아 있다");
