@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_84.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_8_100.sha256",
 );
 const validationScripts = [
   ["영수증 안정화", "validation/validate-receipt.mjs"],
@@ -61,6 +61,20 @@ const validationScripts = [
   ["컬러톤 토큰·알림 창", "validation/validate-tone-tokens-alert-window-v22882.mjs"],
   ["히어로 컬러톤 연결", "validation/validate-tone-aware-heroes-v22883.mjs"],
   ["영수증 파싱 정확도", "validation/validate-receipt-parse-accuracy-v22884.mjs"],
+  ["디자인 토큰 도입", "validation/validate-design-tokens-v22885.mjs"],
+  ["수정 폼 지연 로드", "validation/validate-deferred-edit-forms-v22886.mjs"],
+  ["모바일 하단 독·탭 통합", "validation/validate-mobile-dock-tabs-v22887.mjs"],
+  ["홈 블록 합치기·하루 환산", "validation/validate-home-blocks-daily-v22888.mjs"],
+  ["빠른 입력 2단·토스트", "validation/validate-quick-sheet-two-tier-v22889.mjs"],
+  ["데스크톱 달력 격자·예산 위젯", "validation/validate-desktop-nav-grid-v22890.mjs"],
+  ["홈 리포트 4장", "validation/validate-home-reports-v22891.mjs"],
+  ["화면별 정리 7.2–7.6", "validation/validate-screen-cleanup-v22892.mjs"],
+  ["영향 피드백·숫자 전환", "validation/validate-number-transitions-v22893.mjs"],
+  ["홈 구성", "validation/validate-home-layout-v22894.mjs"],
+  ["데스크톱 커서", "validation/validate-desktop-cursor-v22895.mjs"],
+  ["홈 탭 정지점", "validation/validate-home-tab-stops-v22896.mjs"],
+  ["영수증 인식 원값·확인", "validation/validate-receipt-original-values-v22898.mjs"],
+  ["만들었다 지우는 마크업", "validation/validate-emit-then-strip-v22900.mjs"],
 ];
 
 function sha256(filePath) {
@@ -114,6 +128,48 @@ function run(command, args, label) {
   }
 }
 
+// V22.8.85: 요약줄의 검사 개수는 여기 박아 둔 문자열이었다. 실제 실행 결과와 이어져
+// 있지 않으니 검사가 사라져도 숫자는 그대로였고, "줄어들면 실패로 본다"는 규칙이
+// 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
+// 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
+const EXPECTED_MINIMUM_CHECKS = 4188;
+
+function runValidation(script, label) {
+  console.log(`\n[실행] ${label}`);
+  const result = spawnSync(process.execPath, [script], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+
+  if (result.error) {
+    throw new Error(`${label} 실행 실패: ${result.error.message}`);
+  }
+  const stdout = result.stdout || "";
+  process.stdout.write(stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.status !== 0) {
+    throw new Error(`${label} 실패 (종료 코드 ${result.status ?? "없음"})`);
+  }
+
+  // 요약줄 형식이 스크립트마다 다르다(오래된 것부터 쌓여 온 결과다). 네 가지를 모두
+  // 읽되, 하나도 못 읽으면 조용히 0으로 세지 않고 여기서 멈춘다 — 세지 못하는 것은
+  // 지키지 못하는 것이다. 새 검사를 추가할 때는 이 중 한 형식으로 요약을 찍으면 된다.
+  const summaryPattern = /\((\d+) checks?\)|(\d+) checks passed|passed:\s*(\d+) checks?|(\d+)개 확인/g;
+  let scriptChecks = 0;
+  let matchedAny = false;
+  for (const match of stdout.matchAll(summaryPattern)) {
+    matchedAny = true;
+    scriptChecks += Number(match[1] ?? match[2] ?? match[3] ?? match[4]);
+  }
+  if (!matchedAny) {
+    throw new Error(
+      `${label}: 검사 개수를 읽지 못했습니다. "(N checks)" · "N checks passed" · "passed: N checks" · "N개 확인" 중 한 형식의 요약줄이 필요합니다.`,
+    );
+  }
+  return scriptChecks;
+}
+
 function runSelfTest() {
   const knownHash = createHash("sha256").update("abc").digest("hex");
   if (
@@ -165,8 +221,9 @@ function main() {
   console.log(`원본 배포 묶음 체크섬: ${checksumCount}개 통과`);
 
   run(process.execPath, ["--check", "src/index.js"], "Worker 문법 검사");
+  let totalChecks = 0;
   for (const [label, script] of validationScripts) {
-    run(process.execPath, [script], label);
+    totalChecks += runValidation(script, label);
   }
   run(
     process.execPath,
@@ -184,7 +241,14 @@ function main() {
     console.log("\n[건너뜀] 압축 해제본에는 Git 메타데이터가 없어 diff 공백 검사를 생략합니다.");
   }
 
-  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 3436개, ESM 진입점 통과`);
+  if (totalChecks < EXPECTED_MINIMUM_CHECKS) {
+    throw new Error(
+      `자동 검사가 줄었습니다: ${totalChecks}개 (하한 ${EXPECTED_MINIMUM_CHECKS}개).\n` +
+        "검사를 의도적으로 뺐다면 verify-repository.mjs 의 EXPECTED_MINIMUM_CHECKS 를 함께 내리고 그 이유를 남기세요.",
+    );
+  }
+
+  console.log(`\n검증 완료: 체크섬 ${checksumCount}개, 자동 검사 ${totalChecks}개(하한 ${EXPECTED_MINIMUM_CHECKS}), ESM 진입점 통과`);
   console.log(`src/index.js SHA-256: ${sha256(resolve(repositoryRoot, "src/index.js"))}`);
   console.log("운영 도메인·실기기 항목은 RELEASE-CHECKLIST.md에서 별도 확인해야 합니다.");
 }

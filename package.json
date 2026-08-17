@@ -1,5 +1,5 @@
 {
-  "name": "kakao-accountbook-v22.8.74-budget-dark-contrast-validation",
+  "name": "kakao-accountbook-v22.8.98-receipt-original-values-validation",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
-    "validate:unix": "bash validate_v22874.sh",
+    "validate:unix": "bash validate_v22891.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
     "validate:uiux-stage1": "node validation/validate-uiux-stage1-v22847.mjs",
     "validate:uiux-stage2": "node validation/validate-uiux-stage2-v22848.mjs",
@@ -41,6 +41,30 @@
     "validate:analysis-role-split": "node validation/validate-analysis-role-split-v22875.mjs",
     "validate:kakao-intent-skill-auth": "node validation/validate-kakao-intent-skill-auth-v22876.mjs",
     "validate:interrupted-save": "node validation/validate-interrupted-save-v22877.mjs",
-    "validate:draft-persistence": "node validation/validate-draft-persistence-v22878.mjs"
+    "validate:draft-persistence": "node validation/validate-draft-persistence-v22878.mjs",
+    "validate:month-reset-brand-icon": "node validation/validate-month-reset-brand-icon-v22879.mjs",
+    "validate:theme-duo-nav-tier": "node validation/validate-theme-duo-nav-tier-v22879.mjs",
+    "validate:transactions-tab": "node validation/validate-transactions-tab-v22879.mjs",
+    "validate:recurring-ia-budget-path": "node validation/validate-recurring-ia-budget-path-v22879.mjs",
+    "validate:reserve-plan-edit": "node validation/validate-reserve-plan-edit-v22879.mjs",
+    "validate:home-trend-usage": "node validation/validate-home-trend-usage-v22879.mjs",
+    "validate:recurring-merge-budget-cleanup": "node validation/validate-recurring-merge-budget-cleanup-v22880.mjs",
+    "validate:budget-basis-income-ia": "node validation/validate-budget-basis-income-ia-v22881.mjs",
+    "validate:tone-tokens-alert-window": "node validation/validate-tone-tokens-alert-window-v22882.mjs",
+    "validate:tone-aware-heroes": "node validation/validate-tone-aware-heroes-v22883.mjs",
+    "validate:receipt-parse-accuracy": "node validation/validate-receipt-parse-accuracy-v22884.mjs",
+    "validate:design-tokens": "node validation/validate-design-tokens-v22885.mjs",
+    "validate:deferred-edit-forms": "node validation/validate-deferred-edit-forms-v22886.mjs",
+    "validate:mobile-dock-tabs": "node validation/validate-mobile-dock-tabs-v22887.mjs",
+    "validate:home-blocks-daily": "node validation/validate-home-blocks-daily-v22888.mjs",
+    "validate:quick-sheet-two-tier": "node validation/validate-quick-sheet-two-tier-v22889.mjs",
+    "validate:desktop-nav-grid": "node validation/validate-desktop-nav-grid-v22890.mjs",
+    "validate:home-reports": "node validation/validate-home-reports-v22891.mjs",
+    "validate:screen-cleanup": "node validation/validate-screen-cleanup-v22892.mjs",
+    "validate:number-transitions": "node validation/validate-number-transitions-v22893.mjs",
+    "validate:home-layout": "node validation/validate-home-layout-v22894.mjs",
+    "validate:desktop-cursor": "node validation/validate-desktop-cursor-v22895.mjs",
+    "validate:home-tab-stops": "node validation/validate-home-tab-stops-v22896.mjs",
+    "validate:receipt-original-values": "node validation/validate-receipt-original-values-v22898.mjs"
   }
 }

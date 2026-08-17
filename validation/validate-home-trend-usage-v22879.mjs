@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the V22.8.79 release");
+ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "runtime exposes the V22.8.79 release");
 
 // ---------------------------------------------------------------------------
 // P3-①. 수입 대비 사용률 게이지

@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "stage 4 runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "stage 4 runtime version is explicit");
 ok(source.includes('data-ab-quick-dock aria-label="빠른 실행"'), "desktop quick actions expose a named dock");
 ok(source.includes('class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick"'), "quick input is the dock primary action");
 ok(source.includes('data-abv5-search-open'), "dock keeps transaction search");
@@ -31,7 +31,10 @@ ok(source.includes('aria-live="${feedbackKind === "error" ? "assertive" : "polit
 ok(source.includes('.abSaveFeedback.isError'), "error feedback has dedicated styling");
 ok(source.includes('.abSaveFeedback.isWarning'), "warning feedback has dedicated styling");
 ok(source.includes('.abSaveFeedbackMark{display:grid') && source.includes('var(--pos)'), "success feedback uses the positive base style");
-ok(source.includes('@media(max-width:899px){') && source.includes('bottom:calc(82px + env(safe-area-inset-bottom,0px))'), "mobile feedback is positioned above the bottom navigation");
+// V22.8.89(M6): 지시서는 토스트를 하단 탭 위 12px 로 둔다. 탭 바가 64px + 안전 영역이라
+// 82px(18px 띄움) → 76px 이 그 값이다. 지켜야 할 성질은 그대로다 — 탭 위에 뜨고,
+// 하단 안전 영역을 넘어 잘리지 않는다.
+ok(source.includes('@media(max-width:899px){') && source.includes('bottom:calc(76px + env(safe-area-inset-bottom,0px))'), "mobile feedback is positioned above the bottom navigation");
 ok(source.includes('function returnUrlForDate(date)'), "quick input can construct a date-specific return target");
 ok(source.includes('&view=calendar&date=') && source.includes('&feed=all'), "return target preserves calendar date context");
 ok(source.includes('function syncReturnTarget(date)'), "existing form return_to is synchronized before submission");
@@ -48,12 +51,12 @@ ok(source.includes('params.delete("quick")'), "quick-input one-shot parameter is
 ok(source.includes('(${accountbookSaveFeedbackClientMain.toString()})();'), "save feedback client is included in the immutable V5 bundle");
 ok(source.includes('별도 쓰기 API를 추가하지 않는다'), "existing transaction write contract remains explicit");
 ok(!source.includes('/u/api/quick-input'), "stage 4 adds no parallel quick-input write API");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "current release uses a fresh shell asset");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "stage 4 uses a fresh navigation asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "current release uses a fresh V5 asset");
-ok(source.includes('"accountbook-shell-v22882-css"'), "current shell has a fresh immutable ETag");
-ok(source.includes('"accountbook-nav-v22879-js"'), "stage 4 navigation has a fresh immutable ETag");
-ok(source.includes('"accountbook-v5-v22873-js"'), "current V5 runtime has a fresh immutable ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22899.css"'), "current release uses a fresh shell asset");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "stage 4 uses a fresh navigation asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a fresh V5 asset");
+ok(source.includes('"accountbook-shell-v22899-css"'), "current shell has a fresh immutable ETag");
+ok(source.includes('"accountbook-nav-v22893-js"'), "stage 4 navigation has a fresh immutable ETag");
+ok(source.includes('"accountbook-v5-v22890-js"'), "current V5 runtime has a fresh immutable ETag");
 
 function form(values) { return new URLSearchParams(values); }
 async function request(fixture, path, { cookie = fixture.cookie, method = "GET", body } = {}) {
@@ -75,9 +78,9 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "stage 4 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "default home stays below the protected 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22882.css'), "home loads the current shell");
-  ok(home.text.includes('/assets/accountbook-nav-v22879.js'), "home loads the stage 4 navigation runtime");
-  ok(home.text.includes('/assets/accountbook-v5-v22873.js'), "home loads the current V5 runtime");
+  ok(home.text.includes('/assets/accountbook-shell-v22899.css'), "home loads the current shell");
+  ok(home.text.includes('/assets/accountbook-nav-v22893.js'), "home loads the stage 4 navigation runtime");
+  ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the current V5 runtime");
   ok(!home.text.includes('data-ab-save-feedback'), "default home emits no false save feedback");
   eq(fixture.db.transactions.length, before, "rendering stage 4 home does not mutate transactions");
 
@@ -96,19 +99,19 @@ try {
   ok(errorPage.text.includes('0원보다 큰 금액을 입력해 주세요.'), "error feedback explains the correction");
   ok(errorPage.text.includes('name="transaction_date"'), "error page keeps the existing quick-input date field");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22882.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22899.css");
   eq(shell.response.status, 200, "stage 4 shell is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22882-css"', "current shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22899-css"', "current shell ETag is correct");
   ok(shell.text.includes('[data-ab-quick-dock]'), "stage 4 shell contains dock styles");
   ok(shell.text.includes('.abSaveFeedback'), "stage 4 shell contains feedback styles");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22879.js");
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js");
   eq(nav.response.status, 200, "stage 4 navigation runtime is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22879-js"', "stage 4 navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "stage 4 navigation ETag is correct");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js");
   eq(v5.response.status, 200, "stage 4 V5 runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "current V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22890-js"', "current V5 runtime ETag is correct");
   ok(v5.text.includes("accountbookSaveFeedbackClientMain") || v5.text.includes("data-ab-save-feedback"), "V5 runtime contains save feedback behavior");
   ok(v5.text.includes("returnUrlForDate"), "V5 runtime contains date return behavior");
 

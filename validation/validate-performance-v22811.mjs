@@ -226,17 +226,23 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 46 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22879.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22879.js") && externalScripts.includes("/assets/accountbook-v5-v22873.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22897.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "home loads the current shell stylesheet once");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22879.js") && externalScripts.includes("/assets/mobile-home-shell-v22879.js") && externalScripts.includes("/assets/accountbook-nav-v22893.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
   ok(homeHtml.includes("/settlement-summary?month=2026-07&amp;household_id=house-home"), "home navigation preserves escaped month and accountbook context");
   ok(homeHtml.includes("우리집 생활비") && homeHtml.includes("3,200,000"), "home preserves selected accountbook data and amounts");
   ok(!homeHtml.includes('id="v2281GuidedUiUxStyle"') && !homeHtml.includes("parseKoreanAmount(text)"), "large shared CSS and runtime are not repeated inline");
-  ok(calls.length <= 9, `personal home uses at most nine database calls (${calls.length})`);
-  eq(calls.filter((path) => path.includes("/accountbook_settings?")).length, 1, "home settings are fetched once");
+  // V22.8.94(8.4): 홈 구성이 (가계부·사용자) 설정 한 줄을 더 읽는다. 지키려는 것은
+  // "홈이 질의를 흩뿌리지 않는다"이고 그건 그대로다 — 늘어난 하나가 정확히 그
+  // 한 줄인지까지 아래에서 확인한다.
+  ok(calls.length <= 10, `personal home uses at most ten database calls (${calls.length})`);
+  eq(calls.filter((path) => path.includes("/accountbook_settings?")).length, 2, "home settings are fetched in two single round trips");
+  const layoutCall = calls.filter((path) => decodeURIComponent(path).includes("key=eq.home-layout:v1:"));
+  eq(layoutCall.length, 1, "the home layout is read exactly once");
+  ok(layoutCall[0].includes("limit=1"), "the home layout read stays a single row");
   ok(calls.some((path) => path.includes("/users?id=in.")), "member profiles are fetched in one bulk query");
   ok(!calls.some((path) => /[?&]offset=(?!0(?:&|$))/.test(decodeURIComponent(path))), "short lists stop without an empty pagination probe");
   ok(home.headers.get("cache-control")?.includes("no-store"), "personal home HTML remains no-store");
@@ -260,7 +266,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22879.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22882.css"];
+  const cssPaths = ["/assets/mobile-home-v22897.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22899.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -276,18 +282,28 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22879.css") {
-      eq(createHash("sha256").update(bytes).digest("hex"), "365eed3f36e9627cc2ba3f358c7137ecf48639574bccdeb4e07043d843087eea", "legacy home stylesheet bytes remain pinned");
+    if (path === "/assets/mobile-home-v22897.css") {
+      // V22.8.97(M2 블록 3): 최근 7일 스트립의 스타일이 들어왔다. 주소를 v22896 →
+      // v22897 로 올리고 고정 해시도 함께 옮긴다.
+      // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
+      // 켜면 전환을 걷어내는 규칙이 이 자산에 들어왔다. 숫자 쪽 전환과 **같은 값**을
+      // 써야 한 동작으로 읽힌다. 바이트 고정 자산이라 내용이 바뀌면 주소를 올려야
+      // 하는데, 이 파일의 주소는 V22.8.92 에서 이미 v22892 로 올렸고 그 배포가
+      // 아직 나가지 않았으므로 같은 주소 안에서 해시만 옮긴다.
+      eq(createHash("sha256").update(bytes).digest("hex"), "5efe069bf5e2869c8105f8bd33c8267b970d6112b983922da56247b3b2ad5fec", "legacy home stylesheet bytes remain pinned");
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22879.js");
+  const legacyJs = await request("/assets/mobile-home-v22897.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22879.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22897.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
-  eq(createHash("sha256").update(legacyBytes).digest("hex"), "0d96148d07d20245b2b364f9c0db3e9e317763543bc0212fa6b6cf26d1e86952", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22879-js"', "legacy home runtime ETag remains pinned");
+  // V22.8.89(M4): 빠른 입력 런타임이 바뀌었다 — "채우기" 버튼을 없애고 적는 동안
+// 파싱하도록 고쳤다. 이 자산은 바이트로 고정돼 있으므로 내용이 바뀌면 주소를
+// 올려야 한다(v22879 → v22889). 고정 해시도 새 주소의 것으로 함께 옮긴다.
+eq(createHash("sha256").update(legacyBytes).digest("hex"), "c78fab08d1cad3ed3bf6977304a07f4a0c39d59992bbca21e45a517c409c6062", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22897-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
@@ -335,16 +351,16 @@ try {
   ok(!!shippedThousands, "shipped runtime keeps a working thousands-separator regex");
   eq(String(1234567).replace(new RegExp(shippedThousands[1], "g"), ","), "1,234,567", "shipped thousands-separator regex formats an amount");
 
-  const stage4NavJs = await request("/assets/accountbook-nav-v22879.js");
+  const stage4NavJs = await request("/assets/accountbook-nav-v22893.js");
   const stage4NavRuntime = await stage4NavJs.text();
   const stage4NavGetDatabaseCalls = calls.length;
-  const stage4NavHead = await request("/assets/accountbook-nav-v22879.js", { method: "HEAD" });
+  const stage4NavHead = await request("/assets/accountbook-nav-v22893.js", { method: "HEAD" });
   const stage4NavHeadBody = await stage4NavHead.text();
   const stage4NavHeadDatabaseCalls = calls.length;
   eq(stage4NavJs.status, 200, "V22.8.18 stage 4 navigation runtime GET succeeds");
   ok(stage4NavHead.status === 200 && stage4NavHeadBody.length === 0, "V22.8.18 stage 4 navigation runtime HEAD succeeds without a body");
   ok(stage4NavJs.headers.get("content-type")?.startsWith("text/javascript") && stage4NavJs.headers.get("cache-control")?.includes("immutable"), "stage 4 navigation runtime uses immutable JavaScript delivery");
-  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22879-js"', "V5 navigation runtime has a versioned ETag");
+  eq(stage4NavJs.headers.get("etag"), '"accountbook-nav-v22893-js"', "V5 navigation runtime has a versioned ETag");
   ok(stage4NavRuntime.includes('label: "기록"') && stage4NavRuntime.includes('label: "입력"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('label: "전체"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('if (!document.querySelector(".abLayoutNav")) return') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"') && stage4NavRuntime.includes('event.key === "Escape" && dialog && dialog.open') && stage4NavRuntime.includes('event.key === "/"'), "V5 runtime maps the home sidebar state and connects Escape-safe authenticated search, quick actions, and appearance controls");
   eq(stage4NavGetDatabaseCalls, 0, "stage 4 navigation runtime GET requires no database access");
   eq(stage4NavHeadDatabaseCalls, 0, "stage 4 navigation runtime HEAD requires no database access");
@@ -358,7 +374,7 @@ try {
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22882.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22899.css");
   const shellCss = await shellCssResponse.text();
   const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
@@ -379,12 +395,15 @@ try {
     ["#d1fae5", "#123c33"],
     ["#fcd34d", "#49351a"],
   ];
+  // V22.8.87(M1): 모바일 상단바의 "작업" 버튼(.abGlobalActionsMobile)을 없앴다.
+  // 검색·알림·화면 설정은 전체 메뉴 서랍의 .abNavDrawerActions 안으로 옮겼으므로,
+  // 셸이 반응형 공통 조작을 여전히 담고 있는지는 그 클래스로 확인한다.
   const lightMutedPairs = [["#5f6b7a", "#ffffff"], ["#5f6b7a", "#f4f6f8"], ["#5f6b7a", "#f2f4f6"]];
   const tonePairs = [
     ["#1d4ed8", "#e8f3ff"], ["#047857", "#dff7ed"], ["#6d28d9", "#f0e8ff"], ["#92400e", "#fff3d6"],
     ["#93c5fd", "#1d2c42"], ["#6ee7b7", "#123c33"], ["#c4b5fd", "#35255d"], ["#fcd34d", "#49351a"],
   ];
-  ok(shellCss.includes("body.abV22812Shell") && shellCss.includes('html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}') && shellCss.includes("--ab12-accent:#1d4ed8") && shellCss.includes("--abNavW:238px") && shellCss.includes("V22.8.23 UI V5 step 3") && shellCss.includes("V22.8.24 UI V5 shell correctness") && shellCss.includes("V22.8.25 UI V5 global actions") && shellCss.includes(".abGlobalDialog::backdrop") && shellCss.includes(".abGlobalDialog [hidden]{display:none!important}") && shellCss.includes("z-index:2210") && shellCss.includes(".abGlobalActionsMobile") && shellCss.includes("@media(max-width:899px)") && shellCss.includes("@media(min-width:900px)") && shellCss.includes("body.abV22812Shell.abV5RemainingPage") && shellCss.includes("white-space:normal!important;overflow:visible!important;text-overflow:clip!important") && verifiedContrastPairs.every(([foreground, background]) => normalizedShellCss.includes(foreground) && normalizedShellCss.includes(background) && contrastRatio(foreground, background) >= 4.5), "shared shell preserves contrast, full KPI values, and the dark document canvas while adding visible, correctly layered responsive global actions");
+  ok(shellCss.includes("body.abV22812Shell") && shellCss.includes('html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}') && shellCss.includes("--ab12-accent:#1d4ed8") && shellCss.includes("--abNavW:238px") && shellCss.includes("V22.8.23 UI V5 step 3") && shellCss.includes("V22.8.24 UI V5 shell correctness") && shellCss.includes("V22.8.25 UI V5 global actions") && shellCss.includes(".abGlobalDialog::backdrop") && shellCss.includes(".abGlobalDialog [hidden]{display:none!important}") && shellCss.includes("z-index:2210") && shellCss.includes(".abNavDrawerActions") && shellCss.includes("@media(max-width:899px)") && shellCss.includes("@media(min-width:900px)") && shellCss.includes("body.abV22812Shell.abV5RemainingPage") && shellCss.includes("white-space:normal!important;overflow:visible!important;text-overflow:clip!important") && verifiedContrastPairs.every(([foreground, background]) => normalizedShellCss.includes(foreground) && normalizedShellCss.includes(background) && contrastRatio(foreground, background) >= 4.5), "shared shell preserves contrast, full KPI values, and the dark document canvas while adding visible, correctly layered responsive global actions");
   ok(shellCss.includes("prefers-reduced-motion") && shellCss.includes("focus-visible") && shellCss.includes("font-size:16px"), "shared shell includes motion, focus, and mobile input safeguards");
   ok(lightMutedPairs.every(([foreground, background]) => contrastRatio(foreground, background) >= 4.5) && shellCss.includes("--ab12-muted:#5f6b7a"), "measured light muted text clears 4.5:1 on page, card, and raised surfaces");
   ok(tonePairs.every(([foreground, background]) => contrastRatio(foreground, background) >= 4.5), "all light and dark accent-soft tone pairs clear 4.5:1");
@@ -414,21 +433,21 @@ try {
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "accountbook management loads the shell once");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "accountbook management loads the shell once");
   ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('data-key="my-households" class="active"') && !householdsHtml.includes('data-key="members" class="active"') && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes its surfaces and selects the exact accountbook-management route");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22882.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22899.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
   ok(backupHtml.includes("abPageAccountSecurity") && backupHtml.includes('class="abLayoutNav ') && backupHtml.includes("abV5RemainingPage"), "account security receives the shared navigation and isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
   ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
@@ -459,7 +478,7 @@ try {
       && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
     const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
     const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22882.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22879.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22899.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22879.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
@@ -520,10 +539,16 @@ try {
     await overspendPost("/admin/budget/save", { household_id: "house-home", month: "2026-08", category: "식비", amount: "200000" });
     const overspendHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
     const overspendHtml = await overspendHome.text();
-    const shownRate = overspendHtml.match(/예산 사용률 (\d+)%/);
+    // V22.8.93(9.3): 사용률 숫자가 <span data-ab-num> 로 감싸졌다. 서버가 보내는
+    // **글자**는 그대로여야 하므로(스크립트가 없어도 200% 가 보여야 한다) 태그를
+    // 걷어낸 뒤 견준다. 지키려던 것은 "표기는 실제 사용률, 막대는 100% 에서 멈춤"이다.
+    const shownRate = overspendHtml.replace(/<[^>]*>/g, "").match(/예산 사용률 (\d+)%/);
     const barWidth = overspendHtml.match(/homeProgress"><i style="width:(\d+)%"/);
     eq(shownRate?.[1], "200", "home shows the real budget usage rate when spending exceeds the budget");
     eq(barWidth?.[1], "100", "home progress bar still stops at 100% width");
+    // 그리고 스크립트가 굴릴 값은 **비율**이어야 한다 — 200 을 넘기면 20,000% 가 된다.
+    const ratioAttr = overspendHtml.match(/data-ab-num="([\d.]+)" data-ab-num-style="percent"/);
+    eq(ratioAttr?.[1], "2", "the rate is handed to the script as a ratio, not a percentage");
   } finally {
     overspendFixture.restore();
   }

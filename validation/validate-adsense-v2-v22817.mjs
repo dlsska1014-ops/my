@@ -166,11 +166,14 @@ try {
   const householdFlowHtml = await householdFlow.text();
   ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,var(--ab12-action,#0e7490));color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
 
-  const shellResponse = await request("/assets/accountbook-shell-v22882.css");
+  const shellResponse = await request("/assets/accountbook-shell-v22899.css");
   eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
-  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22882-css"', "current shell has a fresh immutable ETag");
+  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22899-css"', "current shell has a fresh immutable ETag");
   const shell = await shellResponse.text();
-  ok(shell.includes(".homeSpendHero") && shell.includes("font-size:38px"), "V2 home hierarchy includes a large monthly expense hero");
+  // V22.8.97(7.1): "N월 지출" 히어로를 걷어냈다. V22.8.17 이 지키려던 것은
+  // "홈이 큰 대표 숫자 하나로 시작한다"였고 그 성질은 그대로다 — 이제 그 자리는
+  // P0(이번 달 쓸 수 있는 돈)이고, 34px 토큰을 쓴다. 히어로가 둘이 아니라 하나다.
+  ok(shell.includes(".homeBudgetAmount b{font-size:34px") || shell.includes("--ab12-fs-num-xl"), "V2 home hierarchy still leads with one large number");
   ok(shell.includes(".calDay.noRec{background:transparent!important") && shell.includes("opacity:1!important"), "calendar empty dates use transparent readable cells instead of whole-cell opacity");
   ok(shell.includes(".calDay.isToday b"), "calendar stylesheet has a distinct current-day treatment");
   ok(shell.includes(".filterBar{top:8px;margin:12px 0;padding:12px;background:var(--ab12-surface)!important;background:color-mix"), "analysis filter bar has a shared-surface fallback before color-mix enhancement");
@@ -204,18 +207,22 @@ try {
   ok(source.includes("syncMobileMenu(open)") && source.includes('setAttribute("aria-expanded",open?"true":"false")'), "mobile menu runtime keeps accessibility state synchronized");
   ok(source.includes('class="filterBar abV5FilterBar"') && source.includes('class="kpiRow abV5KpiGrid"'), "interactive analysis uses the shared V5 filter and KPI contracts");
   ok(source.includes('${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true') && source.includes('reportChallenge: challenge })}<main class="wrap"><div class="pageMain">'), "interactive statistics uses the shared service shell with its report dashboard context");
-  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "V5 navigation ships as a separately versioned asset");
+  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "V5 navigation ships as a separately versioned asset");
 
-  const stage4NavResponse = await request("/assets/accountbook-nav-v22879.js");
+  const stage4NavResponse = await request("/assets/accountbook-nav-v22893.js");
   eq(stage4NavResponse.status, 200, "V5 navigation runtime is served");
-  eq(stage4NavResponse.headers.get("etag"), '"accountbook-nav-v22879-js"', "V5 navigation runtime has the reviewed immutable ETag");
+  eq(stage4NavResponse.headers.get("etag"), '"accountbook-nav-v22893-js"', "V5 navigation runtime has the reviewed immutable ETag");
   const stage4NavRuntime = await stage4NavResponse.text();
   ok(stage4NavRuntime.includes('label: "기록"') && stage4NavRuntime.includes('label: "입력"') && stage4NavRuntime.includes('label: "예산"') && stage4NavRuntime.includes('label: "전체"') && stage4NavRuntime.includes('path === "/my/households"') && stage4NavRuntime.includes('event.key !== "Tab"') && stage4NavRuntime.includes('var sidebarActive = active === "home" ? "app" : active') && stage4NavRuntime.includes('data-abv5-search-open') && stage4NavRuntime.includes('data-ab-theme-choice="dark"'), "V5 runtime keeps route-aware state and connects the reviewed global actions");
 
   const calendarHome = await request(`/app?${context}&view=calendar`, { cookie: fixture.cookie });
   eq(calendarHome.status, 200, "integrated home calendar renders");
   const calendarHomeHtml = await calendarHome.text();
-  ok(calendarHomeHtml.includes('class="homeSpendHero"') && calendarHomeHtml.includes("7월 지출"), "home renders the V2 monthly expense hierarchy from real data");
+  // 같은 성질을 실제 렌더에서 확인한다: 대표 숫자 자리가 하나 있고, 그 달의 지출
+  // 금액은 사라진 게 아니라 homeMetrics 로 옮겨져 여전히 실제 값으로 보인다.
+  ok(calendarHomeHtml.includes('class="homeBudget"') && calendarHomeHtml.includes("이번 달 쓸 수 있는 돈"), "home renders one P0 hierarchy from real data");
+  ok(calendarHomeHtml.includes("나간 돈") && /나간 돈[\s\S]{0,120}-[\d,]+원/.test(calendarHomeHtml), "the month expense figure is still shown, from real data");
+  ok(!calendarHomeHtml.includes('class="homeSpendHero"'), "the duplicated monthly expense card is gone");
   ok(calendarHomeHtml.includes('class="panel homeCalendar"') && calendarHomeHtml.includes("기록이 없는 날은 배경 없이"), "home calendar uses the V2 empty-date hierarchy");
   ok(calendarHomeHtml.includes("calDay noRec") && calendarHomeHtml.includes("calDay hasRec"), "calendar keeps distinct empty and recorded dates");
   ok(/class="calDay [^"]*\bsun\b/.test(calendarHomeHtml) && /class="calDay [^"]*\bsat\b/.test(calendarHomeHtml), "calendar marks both weekend columns on date cells");
@@ -227,11 +234,20 @@ try {
   eq(currentMonthCalendar.status, 200, "current month calendar renders");
   ok((await currentMonthCalendar.text()).includes('aria-current="date"'), "current date is exposed to assistive technology");
   ok(calendarHomeHtml.includes('aria-label="이전 달"') && calendarHomeHtml.includes('aria-label="다음 달"'), "calendar month navigation has accessible names");
-  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>정산</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
+  // V22.8.87(M1): 다섯 칸은 유지하되 가운데가 정산 → 기록(＋)으로 바뀌었다.
+  // 정산은 통계 화면 머리말의 진입점으로 내려갔고 /settlement-summary 주소는 그대로다.
+  ok(calendarHomeHtml.includes('<span>홈</span>') && calendarHomeHtml.includes('<span>거래</span>') && calendarHomeHtml.includes('<span>입력</span>') && calendarHomeHtml.includes('<span>통계</span>') && calendarHomeHtml.includes('<span>예산</span>'), "mobile home uses the V5 five-destination task navigation");
+  ok(calendarHomeHtml.includes('class="abNavQuick"') && calendarHomeHtml.includes("data-ab-quick-open"), "the centre destination is the quick-entry action");
+  // 정산은 사이드바 "함께" 그룹에 그대로 있다. 사라진 것은 하단 탭 자리뿐이므로
+  // 하단 탭 마크업만 떼어 확인한다.
+  const calendarBottomNav = (calendarHomeHtml.match(/<nav class="abNavBottom"[\s\S]*?<\/nav>/) || [""])[0];
+  ok(calendarBottomNav.length > 0, "the bottom navigation is rendered");
+  ok(!calendarBottomNav.includes('data-key="settlement"'), "settlement no longer occupies a bottom tab");
+  ok(calendarHomeHtml.includes('href="/settlement-summary?month=2026-07&amp;household_id=house-home"'), "settlement stays reachable from the drawer");
   ok(!calendarHomeHtml.includes('class="tab tabAdd"'), "stage 4 mobile home does not duplicate the visible quick-entry action in bottom navigation");
   ok(calendarHomeHtml.includes('class="abLayoutNav ') && calendarHomeHtml.includes("abNavMobileDrawer") && !calendarHomeHtml.includes('class="homeDesktopNav"'), "home uses the shared V5 sidebar as a functional mobile drawer instead of a home-only copy");
-  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "home loads the current shell exactly once");
-  eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-nav-v22879.js"'), 1, "home loads the V5 navigation runtime exactly once after preserved runtimes");
+  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "home loads the current shell exactly once");
+  eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-nav-v22893.js"'), 1, "home loads the V5 navigation runtime exactly once after preserved runtimes");
 
   const selectedCalendarHome = await request(`/app?${context}&view=calendar&date=2026-07-04`, { cookie: fixture.cookie });
   eq(selectedCalendarHome.status, 200, "calendar renders a selected recorded date");
@@ -244,8 +260,8 @@ try {
   ok(insightHtml.includes("abPageInsight") && insightHtml.includes('class="abLayoutNav ') && !insightHtml.includes('class="appMenu"') && insightHtml.includes("소비 분석"), "interactive analysis receives its isolated scope and shared V5 navigation/header");
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
-  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.84-RECEIPT-PARSE-ACCURACY'), "analysis keeps the protected external runtime with the new cache version");
-  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22882.css"'), 1, "analysis loads the current shell exactly once");
+  ok(insightHtml.includes('/my/analysis/app.js?v=V22.8.100-DEAD-MARKUP'), "analysis keeps the protected external runtime with the new cache version");
+  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22899.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });
   eq(report.status, 200, "analysis report renders");

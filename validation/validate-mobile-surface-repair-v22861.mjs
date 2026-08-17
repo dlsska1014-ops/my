@@ -8,28 +8,43 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22882.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22879.js"'), "changed navigation uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22873.js"'), "changed quick input runtime uses a new immutable path");
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22879.css"'), "byte-pinned legacy home stylesheet keeps its path");
+ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "runtime exposes the mobile surface repair release");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22899.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed quick input runtime uses a new immutable path");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22897.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
+// V22.8.93: 담아 온 number-flow 번들(9.4)은 이 검사의 대상이 아니다. 그 안의
+// --current/--length/--n/--width 는 라이브러리가 그림자 DOM 안에서
+// style.setProperty 로 직접 채우는 값이라 CSS 선언으로는 잡히지 않는다. 여기서
+// 지키려는 것은 **우리가 쓴 CSS** 에 정의되지 않은 변수가 남지 않는 것이다.
+const vendorStart = source.indexOf("const NUMBER_FLOW_ASSET_SOURCE = ");
+const ownSource = vendorStart < 0 ? source
+  : source.slice(0, vendorStart) + source.slice(source.indexOf("\nconst MOBILE_HOME_CSS_ASSET_PATH", vendorStart));
+ok(vendorStart < 0 || ownSource.length < source.length, "vendored library body is excluded from the CSS scan");
 const usedVariables = new Set();
 const definedVariables = new Set();
-for (const match of source.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)\s*([),])/g)) {
+for (const match of ownSource.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)\s*([),])/g)) {
   if (match[2] === ")") usedVariables.add(match[1]);
 }
-for (const match of source.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)) definedVariables.add(match[1]);
+for (const match of ownSource.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)) definedVariables.add(match[1]);
 const undefinedVariables = [...usedVariables].filter((name) => !definedVariables.has(name)).sort();
 eq(undefinedVariables.join(","), "", `every fallback-free CSS custom property is defined (${undefinedVariables.join(", ") || "none"})`);
 ok(source.includes("--action:var(--ab12-action);--accent-soft:var(--ab12-accent-soft);--soft:var(--ab12-surface-raised);"), "shell aliases the action, accent-soft and soft tokens");
 
-// 2. 공통 작업 버튼은 상단바 안에 들어가야 "전체 메뉴"와 겹치지 않는다.
-ok(source.includes("function dockMobileAction()"), "mobile action button is docked into the top bar");
-ok(source.includes('group.className = "abNavMobileTopActions"'), "docked action shares one flex group with the menu button");
-ok(source.includes('document.body.classList.add("abTopActionsDocked")'), "successful docking is announced to CSS");
-ok(source.includes("body.abV22812Shell.abTopActionsDocked .abGlobalActions{display:none!important}"), "docked layout retires the overlapping floating layer");
+// 2. V22.8.61 은 "작업" 버튼을 상단바 안으로 넣어 "전체 메뉴"와의 겹침을 없앴다.
+//    V22.8.87(M1)은 그 버튼 자체를 없애 같은 문제를 한 단계 위에서 해소한다 —
+//    버튼이 없으면 겹칠 것도 없다. 지켜야 할 성질은 그대로다: 모바일 상단에 떠 있는
+//    조작 레이어가 없을 것, 그리고 그 버튼이 열던 기능이 사라지지 않을 것.
+ok(!source.includes('<span>작업</span>'), "the mobile action button is gone rather than docked");
+ok(!source.includes("abGlobalActionsMobile"), "no styling survives for the retired mobile action button");
+ok(source.includes("body.abV22812Shell .abGlobalActions{display:none!important}"), "no floating action layer remains on mobile to overlap the top bar");
+// 기능은 전체 메뉴 서랍으로 옮겨 간다. 옮기고 끝내면 창을 넓혔을 때 데스크톱 독에서
+// 사라지므로, 되돌리는 경로가 함께 있어야 한다.
+ok(source.includes("function syncGlobalActionPlacement()"), "global actions are placed by viewport rather than docked once");
+ok(source.includes('group.className = "abNavDrawerActions"'), "mobile places search, notifications and appearance inside the drawer");
+ok(source.includes("GLOBAL_ACTION_ORDER") && source.includes("mobileActionQuery"), "desktop restores the dock in its original order when the viewport grows");
 ok(!source.includes("body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-inset-top) + 8px);right:92px"), "hard-coded 92px offset that collided with the menu button is gone");
 
 // 3. 전체 메뉴 서랍은 달력 위젯이 아니라 메뉴 목록에 높이를 써야 한다.
@@ -89,30 +104,32 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22882.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22899.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22882-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22899-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
-  ok(shell.text.includes(".abNavMobileTopActions"), "deployed shell styles the docked top-bar action group");
+  ok(shell.text.includes(".abNavDrawerActions"), "deployed shell styles the drawer action group that replaced the top-bar dock");
+  ok(!shell.text.includes(".abNavMobileTopActions"), "deployed shell carries no styling for the retired top-bar dock");
   ok(shell.text.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}"), "deployed shell frees drawer height for the menu list");
   ok(shell.text.includes(".abQuickInputBody{overscroll-behavior:contain"), "deployed shell contains the quick input scroll");
   ok(shell.text.includes('.chipRow button:before{content:var(--ab-chip-icon'), "deployed shell draws quick input chip icons");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22879.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22893.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22879-js"', "new navigation ETag is correct");
-  ok(nav.text.includes("dockMobileAction"), "deployed navigation runtime docks the mobile action button");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22893-js"', "new navigation ETag is correct");
+  ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
+  ok(!nav.text.includes("dockMobileAction"), "deployed navigation runtime no longer docks a mobile action button");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22873.js", { cookie: "" });
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js", { cookie: "" });
   eq(v5.response.status, 200, "new V5 runtime asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22873-js"', "new V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22890-js"', "new V5 runtime ETag is correct");
   ok(v5.text.includes("function lockScroll()") && v5.text.includes("window.scrollTo(0, lockedScrollY)"), "deployed quick input runtime carries the scroll lock");
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22882.css"), "home loads the refreshed shell");
-  ok(home.text.includes("/assets/accountbook-nav-v22879.js"), "home loads the refreshed navigation runtime");
-  ok(home.text.includes("/assets/accountbook-v5-v22873.js"), "home loads the refreshed V5 runtime");
+  ok(home.text.includes("/assets/accountbook-shell-v22899.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-nav-v22893.js"), "home loads the refreshed navigation runtime");
+  ok(home.text.includes("/assets/accountbook-v5-v22890.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");
   ok(!home.text.includes('class="bottom"'), "home keeps the single unified bottom navigation");

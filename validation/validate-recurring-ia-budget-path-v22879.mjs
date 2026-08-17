@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.84-RECEIPT-PARSE-ACCURACY"'), "runtime exposes the V22.8.79 release");
+ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "runtime exposes the V22.8.79 release");
 
 // ---------------------------------------------------------------------------
 // P1-A. 홈 고정지출 폼 → 정기 관리 페이지 진입 카드
@@ -60,7 +60,8 @@ ok(source.includes("function budgetCenterSummary(rows = [], budgets = []) {"), "
 // V22.8.81 부터 사이드바 항목 이름은 "예산·정기"다(예산·정기·설정을 한 묶음으로 합쳤다).
 // 이름은 바뀌었지만 진입 주소가 /budgets 하나라는 계약은 그대로다.
 ok(source.includes('["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"]'), "the sidebar budget entry points at /budgets");
-ok(source.includes('["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`]'), "the bottom budget tab points at /budgets");
+// V22.8.87(M1): 정의에 "가운데 ＋ 인가" 표시가 한 칸 붙었다. 주소 계약은 그대로다.
+ok(source.includes('["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`, false]'), "the bottom budget tab points at /budgets");
 
 // ---------------------------------------------------------------------------
 // 실제 렌더
