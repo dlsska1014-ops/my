@@ -21037,6 +21037,31 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAnalysisReport .del
    12px(--ab12-sp-3)을 정본으로 삼는다. 14px 을 쓰던 자리는 2px 좁아진다. */
 body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important;margin:var(--ab12-sp-3,12px) 0!important}
 @media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}
+/* V22.9.4 (개편 4단계): 화면 전환.
+
+   이 앱은 링크로 도는 MPA 다 — 월 바꾸기, 탭 전환, 메뉴 이동이 전부 전체 페이지
+   로드다. 그래서 누를 때마다 화면이 하얗게 깜빡였고, 실기기에서 "밋밋하다"고 지적된
+   것의 절반이 이것이었다.
+
+   @view-transition 은 그 깜빡임만 없앤다. 지원하지 않는 브라우저(현재 Firefox)는
+   이 at-rule 을 무시하므로 지금과 **완전히 동일하게** 동작한다 — 폴백 코드가 필요
+   없다는 뜻이다. 자바스크립트도 쓰지 않는다.
+
+   내비와 상단 헤더에는 이름을 준다. 이름이 없으면 문서 전체가 한 덩어리로 교차
+   페이드되는데, 그러면 양쪽 화면에 똑같이 있는 내비까지 같이 흐려진다. 이름을 주면
+   그 요소는 제자리에 남고 본문만 바뀐다 — 화면이 "넘어간다"가 아니라 "이어진다"로
+   읽히는 이유가 그것이다.
+
+   이름은 문서 안에서 유일해야 한다. 셋 다 화면당 한 번만 나오는 요소다. */
+@view-transition{navigation:auto}
+body.abV22812Shell .abLayoutNav{view-transition-name:abNav}
+body.abV22812Shell .abNavBottom{view-transition-name:abBottomNav}
+body.abV22812Shell .appTop{view-transition-name:abTopBar}
+/* 동작 줄이기를 켠 사람에게는 전환을 걷어낸다. 이 앱은 이미 게이지·숫자 전환에서
+   같은 규칙을 지키고 있다(V22.8.93). 전환만 끄고 이동 자체는 그대로 동작한다. */
+@media(prefers-reduced-motion:reduce){
+  ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
+}
 
 body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}
 body.abV22812Shell :is(button,.btn){transition:filter .12s ease,background .12s ease,border-color .12s ease;box-shadow:none}

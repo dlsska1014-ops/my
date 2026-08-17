@@ -189,4 +189,48 @@ eq(marginRules.length, 1, `패널 margin 을 정하는 셸 규칙이 정확히 �
 ok(!/:is\(\.card,\.hero,\.panel,\.homeCard,\.startPanel\)\{[^}]*background/.test(shellCss), "정본은 배경을 건드리지 않는다(그라디언트 히어로 보존)");
 ok(shellCss.includes("linear-gradient"), "그라디언트 히어로 스타일이 살아 있다");
 
+// ---------------------------------------------------------------------------
+// 5) 화면 전환 (개편 4단계)
+// ---------------------------------------------------------------------------
+// 이 앱은 링크로 도는 MPA 라 월 전환·탭 전환이 전부 전체 페이지 로드다. 그래서 누를
+// 때마다 화면이 하얗게 깜빡였고, 실기기에서 "밋밋하다"고 지적된 것의 절반이 그것이었다.
+// @view-transition 은 그 깜빡임만 없애고, 지원하지 않는 브라우저는 at-rule 을 무시해
+// 지금과 완전히 같게 동작한다 — 그래서 폴백도 자바스크립트도 없다.
+eq(shellCss.split("@view-transition{navigation:auto}").length - 1, 1, "문서 간 전환이 셸에 한 번 선언돼 있다");
+ok(/@media\(prefers-reduced-motion:reduce\)\{[^}]*::view-transition-group\(\*\)/.test(shellCss.replace(/\s+/g, "")), "동작 줄이기를 켜면 전환 애니메이션을 걷어낸다");
+
+// 이름이 이 방식의 전제다. view-transition-name 은 **문서 안에서 유일**해야 하고,
+// 중복되면 브라우저가 전환을 통째로 취소한다 — 조용히 아무 일도 안 일어난다.
+// 그래서 이름을 준 요소가 화면마다 한 번만 나오는지 직접 센다.
+const NAMED = [["abLayoutNav", /class="[^"]*\babLayoutNav\b/g], ["abNavBottom", /class="[^"]*\babNavBottom\b/g], ["appTop", /class="[^"]*\bappTop\b/g]];
+for (const [cls] of NAMED) ok(shellCss.includes(`.${cls}{view-transition-name:`), `.${cls} 에 전환 이름이 있다`);
+// 이름이 겹치는 길은 둘이다. (1) 같은 클래스가 한 문서에 두 번 나온다 — 아래에서 센다.
+// (2) **서로 다른 셀렉터가 같은 이름을 쓴다** — 이쪽이 더 흔한 실수인데, 처음 쓴 검사는
+// (1)만 보고 있어서 .abNavBody 에 abNav 를 또 준 실패 사례를 놓쳤다. 둘 다 본다.
+const assigned = [...shellCss.matchAll(/([^{}]+)\{[^{}]*view-transition-name:([a-zA-Z][\w-]*)/g)]
+  .map((match) => [match[2], match[1].replace(/\s+/g, " ").trim()]);
+ok(assigned.length >= NAMED.length, `전환 이름이 실제로 배정돼 있다 (${assigned.length}개)`);
+const byName = new Map();
+for (const [name, selector] of assigned) byName.set(name, [...(byName.get(name) || []), selector]);
+for (const [name, selectors] of byName) {
+  eq(selectors.length, 1, `전환 이름 ${name} 을 쓰는 셀렉터가 하나다${selectors.length > 1 ? ` — 겹침: ${selectors.join(" / ")}` : ""}`);
+}
+const nameFixture = await createV2265QaFixture();
+try {
+  for (const path of ["/app", "/app?tab=transactions", "/budgets", "/my/analysis", "/menu", "/receipts", "/my/settings"]) {
+    const url = `${ORIGIN}${path}${path.includes("?") ? "&" : "?"}month=2026-07&household_id=house-home`;
+    const response = await app.fetch(new Request(url, { headers: { cookie: nameFixture.cookie, "user-agent": "Mozilla/5.0" } }), nameFixture.env, {});
+    eq(response.status, 200, `${path} 가 렌더된다(전환 이름 확인)`);
+    const html = await response.text();
+    for (const [cls, pattern] of NAMED) {
+      const count = (html.match(pattern) || []).length;
+      ok(count <= 1, `${path} 의 .${cls} 가 문서에 한 번만 있다 (${count})`);
+    }
+  }
+} finally {
+  nameFixture.restore();
+}
+// 전환을 넣자고 스크립트를 늘리지 않았다는 것도 함께 본다 — 이게 이 단계의 값이다.
+ok(!source.includes("startViewTransition"), "전환에 자바스크립트를 쓰지 않는다");
+
 console.log(`V22.9.1 공유 스타일시트 검사 통과 (${checks} checks)`);
