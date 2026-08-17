@@ -32,7 +32,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const ORIGIN = "https://ttokttok-accountbook.com";
 
-ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "런타임이 V22.8.100 을 알린다");
+ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "런타임이 V22.8.100 을 알린다");
 
 // ---------------------------------------------------------------------------
 // 1) 만들었다 지우는 패턴 자체를 금지한다
