@@ -66,10 +66,24 @@ ok(source.includes('document.addEventListener("paste"'), "clipboard paste select
 ok(source.includes('toLocaleString("ko-KR")'), "manual amount input is comma formatted");
 
 // 5. 인라인 스크립트가 실제 브라우저 문법으로 컴파일되는지 확인합니다.
-const scripts = Array.from(html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi), (m) => m[1]).filter((s) => s.trim());
+// V22.9.7: type 이 자바스크립트가 아닌 <script> 도 생겼다(speculation rules 는 JSON).
+// 브라우저도 그것을 스크립트로 실행하지 않으므로 JS 문법으로 재면 안 된다. 다만
+// "그 안의 내용이 문법에 맞는가"라는 보장 자체는 유지해야 하므로, JS 는 JS 로,
+// 데이터 블록은 JSON 으로 각각 확인한다 — 어느 쪽도 검사에서 빠지지 않는다.
+const scriptBlocks = Array.from(
+  html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi),
+  (m) => ({ attrs: m[1], body: m[2] }),
+).filter((block) => block.body.trim());
+const dataBlocks = scriptBlocks.filter((block) => /type="(?!text\/javascript|module)[^"]+"/.test(block.attrs));
+const scripts = scriptBlocks.filter((block) => !dataBlocks.includes(block)).map((block) => block.body);
 ok(scripts.length > 0, "receipt page includes its browser runtime");
 scripts.forEach((script, index) => {
   assert.doesNotThrow(() => new Function(script), `inline script ${index + 1} compiles`);
+  checks += 1;
+});
+ok(dataBlocks.length > 0, "receipt page carries its non-JavaScript script data block");
+dataBlocks.forEach((block, index) => {
+  assert.doesNotThrow(() => JSON.parse(block.body), `inline data block ${index + 1} is valid JSON`);
   checks += 1;
 });
 

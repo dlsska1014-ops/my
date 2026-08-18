@@ -4528,6 +4528,29 @@ function attachUiUxRuntime(html = "") {
   if (source.includes("</head>") && !source.includes(AB_MANIFEST_LINK)) {
     source = source.replace("</head>", `${AB_MANIFEST_LINK}</head>`);
   }
+
+  // V22.9.7: 이 앱은 링크로 도는 MPA 라 월 전환·탭 전환이 전부 전체 페이지 로드다.
+  // Speculation Rules 는 바로 그 구조를 위해 만들어진 API 라 SPA 로 갈아엎지 않고
+  // 다음 화면을 미리 준비할 수 있다. JS 0줄, 이 JSON 한 덩어리가 전부다.
+  //
+  // eagerness 를 conservative 로 둔 이유가 이 변경의 핵심이다.
+  //   · moderate/eager 는 마우스를 올리거나 링크가 화면에 들어오기만 해도 그 주소를
+  //     **실제로 연다.** 홈 한 번 여는 데 DB 호출이 10회쯤 드는 앱에서, 누르지도 않은
+  //     링크마다 그만큼이 더 나간다 — 무료 한도를 쓰는 방식으로는 맞지 않다.
+  //   · conservative 는 사용자가 이미 누르기 시작한 뒤(pointerdown)에야 움직인다.
+  //     그 요청은 어차피 일어날 요청이므로 **서버 부하가 늘지 않는다.** 얻는 것은
+  //     누르고 놓는 사이의 100~200ms 를 미리 쓰는 것이다.
+  //
+  // prerender 는 그 주소를 진짜로 여는 것이므로, GET 인데 데이터를 바꾸는 주소가
+  // 있으면 안 된다. 홈에서 링크되는 45개 주소를 GET 으로 열어 쓰기가 생기는지 세어
+  // 확인했다(0건). 그래도 쓰기 계열 경로는 규칙에서 이름으로 빼 둔다 — 나중에
+  // 누가 그런 주소를 링크해도 여기서 막힌다.
+  //
+  // 미지원 브라우저(현재 Firefox·Safari)는 이 script 태그를 그냥 무시한다.
+  // 폴백 코드가 필요 없다는 뜻이다.
+  if (source.includes("</head>") && !source.includes('type="speculationrules"')) {
+    source = source.replace("</head>", `${AB_SPECULATION_RULES_TAG}</head>`);
+  }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
@@ -23139,6 +23162,7 @@ const AB_WEB_MANIFEST = {
 const AB_WEB_MANIFEST_JSON = JSON.stringify(AB_WEB_MANIFEST);
 const AB_MANIFEST_PATH = "/manifest.json";
 const AB_MANIFEST_LINK = `<link rel="manifest" href="${AB_MANIFEST_PATH}"/>`;
+const AB_SPECULATION_RULES_TAG = "<script type=\"speculationrules\">{\"prerender\":[{\"where\":{\"and\":[{\"href_matches\":\"/*\"},{\"not\":{\"href_matches\":[\"/assets/*\",\"/admin/*\",\"/backup/*\",\"/cron/*\",\"/logout*\",\"/my/logout*\",\"/api/*\",\"/kakao/*\"]}}]},\"eagerness\":\"conservative\"}]}</script>";
 
 const AB_ICON_ROUTES = new Map([
   ["/favicon.ico", { kind: "ico", size: 32 }],
