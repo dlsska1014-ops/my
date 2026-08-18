@@ -18,8 +18,26 @@ function functionBlockHash(marker) {
   return createHash("sha256").update(source.slice(start, end)).digest("hex");
 }
 
+// V22.9.7: type 이 자바스크립트가 아닌 <script> 도 생겼다(speculation rules 는 JSON).
+// 브라우저가 스크립트로 실행하지 않는 것을 JS 문법으로 재면 안 된다. 대신 데이터
+// 블록은 아래 inlineDataBlocks 로 JSON 문법을 확인하므로 검사에서 빠지지 않는다.
+function scriptBlocks(html) {
+  return Array.from(
+    html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi),
+    (match) => ({ attrs: match[1], body: match[2] }),
+  ).filter((block) => block.body.trim());
+}
+
+function isDataBlock(block) {
+  return /type="(?!text\/javascript|module)[^"]+"/.test(block.attrs);
+}
+
 function inlineScripts(html) {
-  return Array.from(html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi), (match) => match[1]).filter((script) => script.trim());
+  return scriptBlocks(html).filter((block) => !isDataBlock(block)).map((block) => block.body);
+}
+
+function inlineDataBlocks(html) {
+  return scriptBlocks(html).filter(isDataBlock).map((block) => block.body);
 }
 
 function scriptById(html, id) {
@@ -185,6 +203,12 @@ try {
   ok(loginScripts.length >= 2, "login page includes credential and shared action-feedback runtimes");
   loginScripts.forEach((script, index) => {
     assert.doesNotThrow(() => new Function(script), `login inline script ${index + 1} compiles`);
+    checks += 1;
+  });
+  const loginDataBlocks = inlineDataBlocks(loginHtml);
+  ok(loginDataBlocks.length > 0, "login page carries its non-JavaScript script data block");
+  loginDataBlocks.forEach((block, index) => {
+    assert.doesNotThrow(() => JSON.parse(block), `login inline data block ${index + 1} is valid JSON`);
     checks += 1;
   });
   const loginCredentialRuntime = scriptById(loginHtml, "credentialMatchRuntime");
