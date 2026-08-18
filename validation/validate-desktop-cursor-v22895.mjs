@@ -165,7 +165,7 @@ try {
   ok(menu.text.includes("마우스 따라오는 표시"), "화면 설정에 스위치가 있다");
   ok(/name="cursor" value="on" checked/.test(menu.text), "기본 상태가 켜짐으로 보인다");
   // 스위치 스타일은 페이지가 아니라 공유 셸 자산에 있다(그래서 주소를 함께 올렸다).
-  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v2290.css`), fixture.env, {});
+  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v2299.css`), fixture.env, {});
   eq(shell.status, 200, "셸 스타일이 새 주소에서 내려온다");
   const shellCss = await shell.text();
   ok(shellCss.includes(".abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px"), "스위치가 44px 탭 영역을 갖는다");

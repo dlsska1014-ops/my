@@ -28,9 +28,9 @@ ok(source.includes('class="abNavCalendar"'), "sidebar calendar markup is rendere
 ok(source.includes('new Date(Date.UTC(year, mon - 1, 1)).getUTCDay()'), "calendar weekday offset is computed in the external runtime");
 ok(source.includes('for (var b = 0; b < firstDow; b++)'), "calendar renders computed leading blanks");
 ok(source.includes('&view=calendar&date=" + encodeURIComponent(date) + "&feed=all#feed'), "calendar date links preserve the existing date-filter flow");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css"'), "current release uses a fresh immutable shell asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2299.css"'), "current release uses a fresh immutable shell asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a fresh immutable V5 bundle");
-ok(source.includes('"accountbook-shell-v2290-css"'), "current shell has a distinct ETag");
+ok(source.includes('"accountbook-shell-v2299-css"'), "current shell has a distinct ETag");
 ok(source.includes('body.abV22812Shell{--abNavW:252px}'), "desktop sidebar width follows the design handoff");
 ok(source.includes('.abNavCalGrid{display:grid;grid-template-columns:repeat(7'), "mini calendar uses a seven-column grid");
 ok(source.includes('.abNavBudget.isWarn'), "warning state style exists");

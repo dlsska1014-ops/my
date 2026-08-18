@@ -4290,7 +4290,7 @@ function normalizeUserFacingUi(html = "") {
   }
 
   if (source.includes(" · 고급 정산</title>")) {
-    source = source.replace('<section class="hero"><h1>고급 정산</h1><p>', '<section class="hero abV5PageHeader"><div class="abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">함께</span><h1>정산</h1><p>');
+    source = source.replace('<section class="hero"><h1>고급 정산</h1><p>', '<section class="hero abV5PageHeader"><div class="abV5PageHeaderTop"><div class="abV5PageTitle"><h1>정산</h1><p>');
     source = source.replace('</p><form class="filters" method="get" action="/settlement-summary">', '</p></div></div><form class="filters abV5ControlBar" method="get" action="/settlement-summary">');
     source = source.replaceAll('<section class="card">', '<section class="card abV5SectionCard">');
     source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
@@ -4313,8 +4313,18 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace(/<nav class="bottom"[^>]*>[\s\S]*?<\/nav>/, "");
     source = source.replace('<div class="topLine"><b>', '<div class="topLine"><h1>');
     source = source.replace('</b><a href="/analysis?', '</h1><a href="/analysis?');
-    source = source.replace('<header class="appTop" id="top"><div class="topLine"><h1>', '<header class="appTop abV5PageHeader" id="top"><div class="topLine abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">기록</span><h1>');
-    source = source.replace('</h1></div><form class="selectLine"', '</h1><p>이번 달 흐름과 빠른 기록을 한곳에서 확인합니다.</p></div></div><form class="selectLine abV5ControlBar"');
+    // V22.9.9: 눈썹("기록")과 설명문을 뺀다.
+    //   · 눈썹은 옛 사이드바 그룹명이었다. V22.9.5 에서 그룹을 적는다·본다·계획한다·
+    //     설정으로 바꿨으므로 지금은 **틀린 이름**을 띄우고 있었다. 현재 위치는
+    //     사이드바 활성 표시와 하단 탭이 이미 알려 준다.
+    //   · "이번 달 흐름과 빠른 기록을 한곳에서 확인합니다" 는 정보가 0인 문장이면서
+    //     첫 화면 세로 공간을 먹었다. 홈에서 가장 중요한 숫자(쓸 수 있는 돈)가 그만큼
+    //     접힘 아래로 밀렸다.
+    // 홈에서 가계부 이름은 세 번 나왔다 — 상단 바, 이 제목, 그리고 가계부 고르는
+    // select. 제목은 상단 바와 **글자까지 같은** 중복이라 눈에만 지우고 문서 구조에는
+    // 남긴다(화면에 h1 이 하나도 없으면 보조기기 사용자가 현재 문서를 잃는다).
+    source = source.replace('<header class="appTop" id="top"><div class="topLine"><h1>', '<header class="appTop abV5PageHeader" id="top"><div class="topLine abV5PageHeaderTop"><div class="abV5PageTitle"><h1 class="srOnly">');
+    source = source.replace('</h1></div><form class="selectLine"', '</h1></div></div><form class="selectLine abV5ControlBar"');
     source = source.replace('<section class="homeMetrics">', '<section class="homeMetrics abV5KpiGrid">');
     const runtimeMarker = "<script>(function(){var q=document.getElementById('v8Search');";
     const runtimeStart = source.indexOf(runtimeMarker);
@@ -4490,7 +4500,7 @@ function normalizeUiV5RemainingPages(html = "") {
   });
   source = source.replace(/<section class="hero(?![^"]*abV5PageHeader)([^"]*)"/i, '<section class="hero$1 abV5PageHeader abV5RemainingHeader"');
   if (source.includes("<title>자산·결제수단</title>") && !source.includes("<h1>자산·결제수단</h1>")) {
-    source = source.replace('<section class="hero abV5PageHeader abV5RemainingHeader"><p class="heroLabel">', '<section class="hero abV5PageHeader abV5RemainingHeader"><div class="abV5PageTitle"><span class="abV5Eyebrow">관리</span><h1>자산·결제수단</h1></div><p class="heroLabel">');
+    source = source.replace('<section class="hero abV5PageHeader abV5RemainingHeader"><p class="heroLabel">', '<section class="hero abV5PageHeader abV5RemainingHeader"><div class="abV5PageTitle"><h1>자산·결제수단</h1></div><p class="heroLabel">');
   }
   source = source.replace(/<section class="card(?![^"]*abV5SectionCard)([^"]*)"/gi, '<section class="card$1 abV5SectionCard"');
   source = source.replace(/class="(toolbar|filters)(?![^"]*abV5ControlBar)([^"]*)"/gi, 'class="$1$2 abV5ControlBar"');
@@ -4548,6 +4558,29 @@ function attachUiUxRuntime(html = "") {
   //
   // 미지원 브라우저(현재 Firefox·Safari)는 이 script 태그를 그냥 무시한다.
   // 폴백 코드가 필요 없다는 뜻이다.
+  // V22.9.9: 화면마다 머리말에 붙는 안내문을 접을 수 있게 한다.
+  //
+  // 재 보니 첫 844px 중 머리말이 차지하는 비율이 화면당 25~77% 였다(자산 547px,
+  // 정산 400px, 예산 388px). 그 대부분이 "이 화면은 무엇을 하는 곳인가"를 설명하는
+  // 문장인데, 세 번째 방문부터는 읽지 않으면서 자리는 계속 차지한다.
+  //
+  // 지우지는 않는다 — 예산 화면의 안내문처럼 실제 규칙을 설명하는 것이 섞여 있다.
+  // 대신 접을 수 있게 하고, 접은 상태를 그 브라우저에 기억시킨다(localStorage,
+  // 서버 비용 0). 다시 펼 수 있는 버튼은 항상 남는다.
+  //
+  // 무엇이 "안내문"인가: 머리말 안의 **class 없는 <p>** 와 <p class="heroDelta">.
+  // 자산 화면의 .heroLabel/.heroNet/.heroChips 처럼 클래스가 붙은 문단은 값이므로
+  // 건드리지 않는다 — 실제로 그 화면의 순자산 금액이 <p> 형제로 들어 있다.
+  if (source.includes("abV5PageHeader")) {
+    const noteKey = (source.match(/<title>([^<]*)<\/title>/) || ["", "page"])[1]
+      .replace(/[^가-힣A-Za-z0-9]+/g, "-").slice(0, 40) || "page";
+    const wrap = (inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p>${inner}</p>`
+      + `<button type="button" class="abHeadNoteToggle" aria-expanded="true">접기</button></div>`;
+    let wrapped = 0;
+    source = source.replace(/<\/h1><p>([\s\S]*?)<\/p>/, (full, inner) => { wrapped += 1; return `</h1>${wrap(inner)}`; });
+    if (!wrapped) source = source.replace(/<p class="heroDelta([^"]*)">([\s\S]*?)<\/p>/, (full, extra, inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p class="heroDelta${extra}">${inner}</p><button type="button" class="abHeadNoteToggle" aria-expanded="true">접기</button></div>`);
+  }
+
   if (source.includes("</head>") && !source.includes('type="speculationrules"')) {
     source = source.replace("</head>", `${AB_SPECULATION_RULES_TAG}</head>`);
   }
@@ -16273,7 +16306,7 @@ svg text{font-family:inherit}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
 ${reportUxCss()}
 </style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
-<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><span class="abV5Eyebrow">리포트</span><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
+<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
 ${renderReportDashboard(dashboard)}
 ${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) })}
@@ -20630,8 +20663,8 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v2290.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v2290.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2298.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css";
-const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2299.css";
+const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v2298.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
@@ -21263,7 +21296,6 @@ body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!importa
 body.abV22812Shell .abV5PageHeader{max-width:1280px;margin:14px auto!important;padding:22px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:var(--shadow)!important}
 body.abV22812Shell .abV5PageHeaderTop{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
 body.abV22812Shell .abV5PageTitle{min-width:0}
-body.abV22812Shell .abV5Eyebrow{display:block;margin-bottom:5px;color:var(--accent)!important;font-size:11px;font-weight:800;letter-spacing:.04em}
 body.abV22812Shell .abV5PageHeader h1{margin:0!important;color:var(--text)!important;font-size:28px!important;line-height:1.25;letter-spacing:-.035em}
 body.abV22812Shell .abV5PageHeader p{margin:7px 0 0!important;color:var(--sub)!important;line-height:1.55!important}
 body.abV22812Shell .abV5HeaderActions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
@@ -21756,12 +21788,10 @@ body.abV22812Shell .deductBox small{color:var(--sub)!important}
 /* 자체 배경을 가진 칩·배지는 스스로 대비를 맞추므로 아래 규칙에서 제외한다. */
 body.abV22812Shell :is(.hero,.abV5RemainingHeader) :is(p,small,.note,.muted,.heroLabel,.heroDelta){color:var(--sub)!important}
 body.abV22812Shell :is(.hero,.abV5RemainingHeader) :is(h1,h2,h3){color:var(--text)!important}
-body.abV22812Shell :is(.hero,.abV5RemainingHeader) .abV5Eyebrow{color:var(--accent)!important}
 /* 자산·계좌는 어두운 히어로용 색을 같은 특이도로 고정해 두어 짝이 되는 규칙이 따로 필요하다. */
 body.abV22812Shell.abPageAssets .hero :is(p,.heroLabel,.heroDelta,.note){color:var(--sub)!important}
 body.abV22812Shell.abPageAssets .hero :is(h1,h2,h3){color:var(--text)!important}
-body.abV22812Shell.abPageAssets .hero :is(.abV5Eyebrow,b,strong){color:var(--text)!important}
-body.abV22812Shell.abPageAssets .hero .abV5Eyebrow{color:var(--accent)!important}
+body.abV22812Shell.abPageAssets .hero :is(b,strong){color:var(--text)!important}
 body.abV22812Shell.abPageAssets .heroChips span{background:var(--card-2)!important;border-color:var(--line)!important;color:var(--text)!important}
 /* 일별 소비 흐름 격자. 원래 이 31칸은 칸마다 style="" 로 같은 CSS 를 700 B 씩 다시
    적어 보내서, 홈 HTML 이 27KB 늘었다(실사용 부하 33,545 → 60,705 B). 그 무게 때문에
@@ -21836,7 +21866,43 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.empty,.homeEmpty){ba
    글자가 남았다(2.87:1). 같은 조건으로 한 번 더 눌러 흰 글자를 되돌린다. */
 html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!important}
 `
-  + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`;
+  + `\n/* 빠른 입력 칩 아이콘. 홈 HTML 예산을 지키기 위해 마크업 대신 기존 data 속성으로 그린다. */\n${quickChipIconCss()}\n`
+  + `\n/* V22.9.9 (개편 5단계): 머리말이 첫 화면을 먹지 않게 조인다.
+
+   재 보니 390×844 화면에서 머리말 높이가 화면마다 이랬다:
+     자산 547px · 정산 400px · 예산 388px · 분석 278px · 홈 275px
+   상단 앱바(104px)까지 더하면 자산 화면은 첫 화면의 77%가 머리말이었다. 홈은
+   가장 중요한 숫자("이번 달 쓸 수 있는 돈")가 그만큼 접힘 아래로 밀려 있었다.
+
+   지우는 게 아니라 조인다. 안내문은 접을 수 있게 하고(접은 상태는 브라우저가 기억),
+   제목·여백·컨트롤은 눈금을 한 단계씩 내린다. */
+body.abV22812Shell .abV5PageHeader{margin:var(--ab12-sp-3,12px) auto!important;padding:16px 18px!important}
+body.abV22812Shell .abV5PageHeader h1{font-size:22px!important;letter-spacing:-.02em}
+body.abV22812Shell .abHeadNote{position:relative;margin:6px 0 0}
+body.abV22812Shell .heroChips{display:flex!important;flex-wrap:wrap;gap:6px!important;margin-top:8px!important}
+body.abV22812Shell .heroChips>span{min-height:0!important;padding:5px 10px!important;font-size:12px!important}
+body.abV22812Shell .abHeadNote p{margin:0!important;font-size:13px!important;line-height:1.5!important;color:var(--sub)!important}
+body.abV22812Shell .abHeadNote.isFolded p{display:none}
+/* 접기 버튼은 안내문의 일부처럼 조용해야 한다 — 화면의 주된 행동이 아니다. */
+/* 접기 버튼은 안내문 **문장 끝에 이어 붙는다**. 처음엔 문단 아래 블록 버튼으로 뒀는데,
+   1023px 이하에서 터치 타깃 44px 을 강제하는 규칙에 걸려 버튼 혼자 44px 을 먹었다 —
+   높이를 줄이려고 만든 것이 높이를 늘리고 있었다. 인라인 요소에는 min-height 가
+   적용되지 않으므로, 텍스트처럼 흐르게 두면 그 규칙과 싸우지 않고도 0px 을 쓴다.
+   대신 좌우 여백을 넉넉히 줘서 손가락으로 누를 폭은 확보한다. */
+body.abV22812Shell .abHeadNote{display:block}
+body.abV22812Shell .abHeadNote p{display:inline}
+body.abV22812Shell .abHeadNote .abHeadNoteToggle{display:inline-block!important;vertical-align:baseline;margin:0 0 0 6px!important;padding:0 6px!important;min-height:0!important;height:auto!important;background:none!important;border:0!important;color:var(--sub)!important;font-size:12px!important;font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer;white-space:nowrap}
+body.abV22812Shell .abHeadNoteToggle:hover{color:var(--text)!important}
+/* 가계부·월 고르기는 매번 바꾸는 값이 아니다. 세로로 쌓아 세 줄을 먹던 것을
+   한 줄로 눕히고, 조회 버튼은 폭을 내용에 맞춘다. */
+body.abV22812Shell .abV5ControlBar{margin-top:12px!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto!important;align-items:center}
+body.abV22812Shell .abV5PageHeader .abV5ControlBar :is(input,select,button){min-height:40px!important;height:auto!important}
+body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
+@media(max-width:480px){
+  body.abV22812Shell .abV5PageHeader{padding:13px 14px!important}
+  body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
+}
+`;
 
 function accountbookThemeClientMain() {
   var root = document.documentElement;
@@ -21913,6 +21979,30 @@ function accountbookThemeClientMain() {
       });
     });
     apply(currentTheme(), currentTone(), false);
+    bindHeadNotes();
+  }
+  // V22.9.9: 화면 안내문을 접고, 접은 상태를 이 브라우저에 기억한다.
+  // 화면별로 따로 기억한다 — 예산 안내를 접었다고 정산 안내까지 사라지면
+  // 처음 가는 화면에서 설명을 못 보게 된다.
+  function bindHeadNotes() {
+    document.querySelectorAll("[data-ab-note]").forEach(function(note) {
+      var key = "ab:note:" + note.getAttribute("data-ab-note");
+      var button = note.querySelector(".abHeadNoteToggle");
+      if (!button) return;
+      function render(folded) {
+        note.classList.toggle("isFolded", folded);
+        button.setAttribute("aria-expanded", folded ? "false" : "true");
+        button.textContent = folded ? "화면 안내" : "접기";
+      }
+      render(read(key, "") === "1");
+      if (button.getAttribute("data-ab-bound") === "1") return;
+      button.setAttribute("data-ab-bound", "1");
+      button.addEventListener("click", function() {
+        var folded = !note.classList.contains("isFolded");
+        write(key, folded ? "1" : "0");
+        render(folded);
+      });
+    });
   }
   apply(currentTheme(), currentTone(), false);
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true });
@@ -23274,9 +23364,9 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v2290-css"'
+        ? '"accountbook-shell-v2299-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
-          ? '"accountbook-theme-v22879-js"'
+          ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v2298-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
