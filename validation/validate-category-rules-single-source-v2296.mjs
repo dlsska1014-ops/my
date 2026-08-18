@@ -85,7 +85,7 @@ function slice(text, from, to) {
 
 // ① 홈 빠른입력 — 홈이 실제로 받는 캐시 자산에서 떼어낸다. 소스 문자열을 자르면
 //    템플릿 리터럴 이스케이프가 한 겹 더 껴서 브라우저가 받는 것과 다른 코드를 재게 된다.
-const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v2296.js`), {}, {})).text();
+const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v2298.js`), {}, {})).text();
 ok(shellJs.includes("window.AB_CATEGORY_RULES=["), "홈 셸 자산이 규칙을 함께 싣는다(요청이 늘지 않는다)");
 const noDom = { querySelectorAll: () => [] };
 const homeAsk = new Function("window", "document",
