@@ -14,7 +14,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "current runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "current runtime version is explicit");
 ok(source.includes('if (url.pathname === "/u/api/recent-transactions" && request.method === "GET")'), "recent transaction API is GET-only");
 ok(!source.includes('url.pathname === "/u/api/recent-transactions" && request.method === "POST"'), "right rail adds no write route");
 ok(source.includes("async function handleUserRecentTransactions"), "scoped recent transaction handler exists");
@@ -24,9 +24,9 @@ ok(source.includes("rows.slice(0, 80).map"), "right rail response is bounded");
 ok(source.includes("function accountbookActivityRailClientMain"), "desktop activity rail client exists");
 ok(source.includes('window.matchMedia("(min-width:1320px)")'), "activity rail stays desktop-only");
 ok(source.includes('(${accountbookActivityRailClientMain.toString()})();'), "activity rail ships in the immutable shared bundle");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22899.css"'), "changed shell uses a fresh immutable asset URL");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css"'), "changed shell uses a fresh immutable asset URL");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed V5 behavior uses a fresh immutable asset URL");
-ok(source.includes('"accountbook-shell-v22899-css"'), "shell ETag is refreshed");
+ok(source.includes('"accountbook-shell-v2290-css"'), "shell ETag is refreshed");
 ok(source.includes('"accountbook-v5-v22890-js"'), "V5 bundle ETag is refreshed");
 ok(source.includes("renderAccountbookBrandIcon"), "navigation uses one SVG brand icon renderer");
 ok(source.includes('class="abNavToggleIcon"'), "collapse button uses a stable SVG chevron");
@@ -73,11 +73,30 @@ try {
   const before = fixture.db.transactions.length;
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with the restored dashboard layout");
-  ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22899.css'), "home loads the refreshed shell asset");
+  // V22.9.0: 소비 흐름 일별 격자가 기본으로 켜지면서 이 픽스처의 홈이 35 KiB 를
+  // 스쳤다. 실사용 부하 기준 예산은 validate-deferred-edit-forms 가 들고 있고
+  // (거기에 상향 근거를 적었다), 여기서는 "가벼운 화면이 무거워지지 않는다"만 본다.
+  ok(Buffer.byteLength(home.text) < 37 * 1024, "home remains below the protected HTML budget");
+  ok(home.text.includes('/assets/accountbook-shell-v2290.css'), "home loads the refreshed shell asset");
   ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the refreshed V5 bundle");
   ok(home.text.includes('class="reportChallenge"'), "challenge is visible in the home content");
-  ok(home.text.includes('class="abNavChallenge'), "challenge is also available in the expanded desktop sidebar");
+  // V22.9.0: 사이드바 챌린지 사본을 걷어냈다.
+  //
+  // 처음에는 홈에서만 껐다. 그때는 "사이드바도 챌린지를 담을 수 있다"는 이 검사의
+  // 보장을 종합 리포트 화면으로 옮겨 적었는데, 확인해 보니 그 사본을 그리던 화면은
+  // 셋(홈·통계·종합 리포트)뿐이었고 **셋 다 본문에 큰 카드를 이미 들고 있었다.**
+  // 사이드바가 유일한 접점인 화면이 하나도 없었으므로, 그 보장은 지킬 대상이 아니라
+  // 처음부터 중복이었다. 그래서 compact 렌더 경로와 CSS 2.7 KB 를 함께 지웠다.
+  //
+  // 지킬 것은 남는다 — 챌린지는 이 화면들에서 **정확히 한 번** 보여야 한다.
+  ok(!home.text.includes('class="abNavChallenge'), "홈은 같은 챌린지를 사이드바에 두 번 그리지 않는다");
+  eq((home.text.match(/class="reportChallenge"/g) || []).length, 1, "홈의 챌린지는 정확히 하나다");
+  for (const path of ["/my/analysis?view=report&month=2026-07&household_id=house-home", "/my/analysis?month=2026-07&household_id=house-home"]) {
+    const page = await request(fixture, path);
+    eq(page.response.status, 200, `${path} 가 렌더된다`);
+    eq((page.text.match(/class="reportChallenge"/g) || []).length, 1, `${path} 의 챌린지도 정확히 하나다`);
+    eq((page.text.match(/class="abNavChallenge/g) || []).length, 0, `${path} 도 사이드바 사본을 그리지 않는다`);
+  }
   ok(home.text.includes('class="abBrandIcon"'), "home navigation renders the SVG brand icon");
   ok(home.text.includes('class="abNavToggleIcon"'), "home navigation renders the corrected collapse icon");
   ok(!home.text.includes('class="abActivityRail"'), "right rail markup stays out of initial HTML and loads responsively");
@@ -101,9 +120,9 @@ try {
   ok(data.rows.some((row) => row.member === "WIFI♥"), "right rail resolves household member names");
   eq(fixture.db.transactions.length, before, "right rail API remains read-only");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22899.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v2290.css");
   eq(shell.response.status, 200, "refreshed shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22899-css"', "refreshed shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v2290-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".abActivityRail"), "shell contains restored activity rail styles");
   ok(shell.text.includes("body.abV22812Shell .reportChallenge{"), "shell contains home challenge styles");
   ok(shell.text.includes("right:-15px!important;top:20px!important"), "shell contains stable collapse button placement");

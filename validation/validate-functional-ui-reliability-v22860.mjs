@@ -8,14 +8,19 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "runtime exposes the functional UI reliability release");
+ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");
 ok(source.includes('button.setAttribute("aria-busy", "true")'), "challenge save exposes its busy state");
 ok(source.includes('challenge_html: renderReportChallenge'), "inline response returns authoritative refreshed challenge markup");
-ok(source.includes('sidebar_html: renderReportChallenge'), "inline response refreshes the shared sidebar challenge");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22899.css"'), "changed shell uses a new immutable path");
+// V22.9.0: 사이드바 챌린지 사본이 사라져 sidebar_html 을 받을 곳이 없다. 이 검사가
+// 지키던 것은 "저장 뒤 화면이 서버가 준 최신 마크업으로 갱신된다" 이고, 그건 바로 위
+// challenge_html 단언이 이미 지킨다. 죽은 필드를 계속 요구하는 대신, 그 필드가
+// 되살아나지 않는 것과 클라이언트가 그것을 더 이상 읽지 않는 것을 확인한다.
+ok(!source.includes('sidebar_html: renderReportChallenge'), "죽은 sidebar_html 필드가 응답에 다시 들어오지 않는다");
+ok(!source.includes('data.sidebar_html'), "클라이언트도 그 필드를 더 이상 읽지 않는다");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
@@ -45,9 +50,9 @@ try {
   eq(adsHead.text, "", "ads.txt HEAD response has no body");
   ok(String(adsHead.response.headers.get("content-type") || "").includes("text/plain"), "ads.txt HEAD preserves its text content type");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22899.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v2290.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22899-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v2290-css"', "new shell ETag is correct");
   ok(shell.text.includes(".v8-tx summary{display:flex;align-items:center;min-height:44px"), "transaction edit control has a 44px touch target");
   ok(shell.text.includes(".kwRemove{width:40px!important;height:40px!important"), "mobile keyword remove control has a larger touch target");
 
@@ -76,7 +81,7 @@ try {
   const savedPayload = JSON.parse(saved.text);
   eq(savedPayload.ok, true, "inline challenge response reports success");
   ok(savedPayload.challenge_html.includes('class="reportChallengePercent"'), "eight-day challenge immediately switches to percent mode");
-  ok(savedPayload.sidebar_html.includes('class="abChallengePercent"'), "sidebar challenge immediately switches to percent mode");
+  eq(savedPayload.sidebar_html, undefined, "죽은 사이드바 마크업을 더 이상 실어 보내지 않는다");
   const stored = fixture.db.accountbook_settings.find((row) => row.key === "report_challenge:house-home");
   ok(stored, "eight-day challenge is persisted in the household setting");
   eq(JSON.parse(stored.value).target_days, 8, "persisted challenge target is eight days");

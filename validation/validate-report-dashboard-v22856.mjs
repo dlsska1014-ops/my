@@ -81,7 +81,7 @@ ok(source.includes("var(--ab12-brand,#6d5dfc)"), "report progress colors inherit
 ok(source.includes("var(--ab12-input-bg,#fff)"), "month input inherits the shared input theme");
 ok(source.includes(".reportMonthNav :is(a,button,input):focus-visible"), "report interactions expose keyboard focus");
 ok(source.includes("color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent)"), "sticky month navigation keeps themed translucency");
-ok(source.includes('const APP_VERSION = "V22.8.100-DEAD-MARKUP"'), "runtime version is explicit");
+ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime version is explicit");
 
 const fixture = await createV2265QaFixture();
 try {
@@ -93,7 +93,13 @@ try {
   ok(statsHtml.includes('class="reportMonthNav"'), "statistics renders persistent month navigation");
   ok(statsHtml.includes('class="reportCockpit"'), "statistics renders the center dashboard");
   ok(statsHtml.includes('class="reportChallenge"'), "statistics renders the challenge on mobile and content layouts");
-  ok(statsHtml.includes('class="abNavChallenge'), "statistics renders the compact desktop sidebar challenge");
+  // V22.9.0: 사이드바 챌린지 사본은 걷어냈다. 이 사본을 그리던 화면은 셋(홈·통계·
+  // 종합 리포트)뿐이었고 셋 다 본문에 큰 챌린지 카드를 이미 들고 있었다 — 어느
+  // 화면에서도 사이드바가 유일한 접점인 적이 없었다. 지키려던 성질("이 화면에서
+  // 챌린지에 닿을 수 있다")은 위 줄이 이미 보장하므로, 여기서는 **한 번만** 나오는
+  // 것으로 바꿔 적는다. 사본이 돌아오면 여기서 걸린다.
+  eq((statsHtml.match(/class="reportChallenge"/g) || []).length, 1, "statistics renders the challenge exactly once");
+  eq((statsHtml.match(/class="abNavChallenge/g) || []).length, 0, "통계 화면이 사이드바에 챌린지를 한 번 더 그리지 않는다");
   ok(statsHtml.includes("household_id=house-home"), "statistics drill-downs preserve household scope");
   ok(statsHtml.includes("abAppSurface"), "statistics reserves desktop space for the shared sidebar");
   ok(statsHtml.includes('class="reportKpis"') && statsHtml.includes("overflow-wrap:anywhere"), "summary KPI values wrap without losing long-amount meaning");
