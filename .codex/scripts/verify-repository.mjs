@@ -78,6 +78,7 @@ const validationScripts = [
   ["화면이 데이터와 같은 말을 하는가", "validation/validate-screen-truth-v2290.mjs"],
   ["공유 스타일시트", "validation/validate-shared-stylesheet-v2291.mjs"],
   ["내비게이션 정보구조", "validation/validate-nav-information-architecture-v2295.mjs"],
+  ["분류 규칙 정본", "validation/validate-category-rules-single-source-v2296.mjs"],
 ];
 
 function sha256(filePath) {
@@ -135,7 +136,7 @@ function run(command, args, label) {
 // 있지 않으니 검사가 사라져도 숫자는 그대로였고, "줄어들면 실패로 본다"는 규칙이
 // 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
-const EXPECTED_MINIMUM_CHECKS = 4454;
+const EXPECTED_MINIMUM_CHECKS = 4511;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
