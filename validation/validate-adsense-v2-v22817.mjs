@@ -200,7 +200,11 @@ try {
   ok(shell.includes("body.abV22812Shell .flowCard>span{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important"), "signed-in Kakao flow step badges keep readable dark-mode foregrounds");
   ok(shell.includes("body.abV22812Shell.abPageAnalysisReport .insightList>div") && shell.includes("body.abV22812Shell.abPageAnalysisReport .deltaUp{color:#fca5a5!important}"), "analysis report cards and change values keep readable dark-mode foregrounds");
   ok(shell.includes("body.abV22812Shell.abPageAnalysisReport :is(.trendValue,.seriesLegend span){color:var(--ab12-muted)!important}"), "analysis report zero values and legend labels use the readable dark muted token");
-  ok(source.includes('label: "기록"') && source.includes('label: "리포트"') && source.includes('label: "함께"') && source.includes('label: "관리"'), "stage 4 information architecture is applied to the server navigation");
+  // V22.9.5: 사이드바 묶음 기준이 시스템 개념(자산·리포트·함께·관리)에서 사용자가
+  // 하는 일(적는다·본다·계획한다)로 바뀌었다. 지키려던 성질 — "서버가 그리는
+  // 내비게이션이 이름 붙은 그룹으로 앱 전체를 덮는다" — 은 그대로다. 라벨 문자열이
+  // 아니라 그 성질을 렌더 결과에서 확인한다.
+  ok(source.includes('key: "record", label: "적는다"') && source.includes('key: "review", label: "본다"') && source.includes('key: "plan", label: "계획한다"') && source.includes('key: "settings", label: "설정"'), "stage 4 information architecture is applied to the server navigation");
   ok(source.includes('["stats", "통계", "stats"') && source.includes('["budgets", "예산", "budget"') && source.includes('["groups", "단톡방 연결"') && source.includes('["import", "가져오기"'), "V5 navigation exposes the reviewed mobile destinations and complete available desktop routes");
   ok(source.includes('aria-label="가계부 전체 메뉴"') && source.includes('aria-label="가계부 주요 메뉴"'), "stage 4 navigation regions have accessible names");
   ok(source.includes('aria-controls="abDesktopSidebar" aria-expanded="false"') && source.includes('aria-controls="abDesktopSidebar" aria-expanded="true"'), "mobile and desktop navigation controls expose their expanded state for the same shell");

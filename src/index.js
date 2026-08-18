@@ -10613,12 +10613,27 @@ function renderUnifiedNav(active = "home", opts = {}) {
     : "";
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
+  // V22.9.5 (개편 3단계): 묶는 기준을 **시스템 개념에서 하는 일로** 바꾼다.
+  //
+  // 계획서에는 "목적지 21개 → 3개"라고 적었는데, 재 보니 그 진단이 과장이었다.
+  // 사이드바는 이미 그룹마다 <details> 로 접혀 있어서 한 번에 보이는 조작 요소는
+  // 13~15개다. 21개 항목 중 20개는 실제로 서로 다른 화면이고(본문 해시로 확인),
+  // 겹치는 것은 "가져오기"와 "백업·복구" 한 쌍뿐이다 — 그 둘은 같은 페이지의 두
+  // 앵커이고 mode 파라미터는 서버 렌더를 바꾸지 않는다(활성 표시만 정한다).
+  //
+  // 그래서 줄일 것은 개수가 아니라 **분류 기준**이다. 옛 묶음은 자산·리포트·함께·관리
+  // 처럼 시스템이 데이터를 나눈 방식이었고, 그 결과 "리포트" 한 그룹에 보기(통계·분석·
+  // 월 마감·연간)와 계획(예산·정기·예산 알림)과 도구(스마트 도구)가 7개나 섞여 있었다.
+  // 사람이 가계부에서 하는 일은 셋이다 — 적는다 · 본다 · 계획한다. 그 셋으로 나누고
+  // 나머지는 설정으로 내린다. 항목은 하나도 지우지 않고 주소도 그대로다.
+  //
+  // 5/2/7/3/4 → 5/5/4/7. 가장 큰 그룹이 "설정"이 되는데, 설정은 훑어보는 곳이 아니라
+  // 찾아가는 곳이라 그 자리가 낫다.
   let groups = [
-    { key: "day", label: "기록", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "receipt"]] },
-    { key: "assets", label: "자산", icon: "wallet", items: [["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"]] },
-    { key: "report", label: "리포트", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"]] },
-    { key: "together", label: "함께", icon: "users", items: [["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"], ["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"]] },
-    { key: "manage", label: "관리", icon: "tools", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
+    { key: "record", label: "적는다", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "receipt"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
+    { key: "review", label: "본다", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
+    { key: "plan", label: "계획한다", icon: "budget", items: [["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
+    { key: "settings", label: "설정", icon: "tools", items: [["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
     { key: "ops", label: "운영 관리", icon: "shield", items: [["operation-center", "운영센터", "/operation-center", "tools"], ["release-candidate", "릴리스 후보", "/release-candidate", "check"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "users"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "report"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "shield"], ["ops-traffic", "트래픽", "/ops-traffic", "report"], ["skill-ops", "스킬", "/skill-ops", "sparkle"], ["diagnostics", "시스템 진단", "/diagnostics", "tools"], ["deployment-check", "배포점검", "/deployment-check", "check"], ["ui-polish-check", "화면점검", "/ui-polish-check", "check"], ["final-release", "배포 확인", "/final-release", "check"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
@@ -10633,11 +10648,11 @@ function renderUnifiedNav(active = "home", opts = {}) {
   // V22.8.81: 예산·정기·설정은 한 묶음이라 어느 탭에 있어도 "예산·정기" 하나만 켠다.
   const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["households", "my-households"], ["reserve-plans", "budgets"], ["settings", "budgets"]]);
   const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : activeAliases.get(active) || active;
-  const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "day";
+  const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "record";
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
     const links = g.items.map(([key, label, href, itemIcon = "home"]) => `<a data-key="${escapeHtml(key)}"${key === activeKey ? ' class="active"' : ""} href="${escapeHtml(href)}"${key === activeKey ? ' aria-current="page"' : ""}><i class="abNavItemIcon" data-ab-nav-icon="${escapeHtml(itemIcon)}"></i><span>${escapeHtml(label)}</span></a>`).join("");
-    return `<details class="abNavGroup ${g.key === "day" ? "abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
+    return `<details class="abNavGroup ${g.key === "record" ? "abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   // V22.8.87 통합 작업지시서 M1. 다섯 칸은 유지하되 가운데를 기록으로 넘긴다.
   // 정산은 다섯 손가락 자리를 차지할 만큼 자주 쓰는 화면이 아니라 통계 화면
