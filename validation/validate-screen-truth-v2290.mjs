@@ -79,7 +79,7 @@ ok(/class="usageCard isOver"/.test(overBudgets), "분류별 사용 카드가 초
 
 // 상태를 달아 놓고 색이 닿지 않으면 아무 소용이 없다 — 실제로 .homeUsage 가 그랬다.
 // 상태 클래스마다 그 색을 실제로 칠하는 규칙이 셸 자산에 있는지 본다.
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22911.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22912.css`), {}, {})).text();
 for (const selector of [
   ".homeBudget.isOver .homeProgress i",
   ".homeReport.isOver .homeReportBars i",

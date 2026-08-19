@@ -26,17 +26,17 @@ function eq(actual, expected, label) {
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 1. 셸 자산 주소와 ETag 가 함께 올라갔는지. 둘 중 하나만 올리면 캐시가 어긋난다.
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22911.css"'), "shell stylesheet moved to a new immutable address");
-ok(source.includes('\'"accountbook-shell-v22911-css"\''), "shell stylesheet ETag matches its new path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22912.css"'), "shell stylesheet moved to a new immutable address");
+ok(source.includes('\'"accountbook-shell-v22912-css"\''), "shell stylesheet ETag matches its new path");
 
 // 2. 실제로 배달되는 셸 CSS 를 받아서 확인한다. 소스 문자열만 보면 조립 과정에서
 //    빠진 경우를 놓친다(작업지시서 1장: 실제 렌더로 확인).
 const fixture = await createV2265QaFixture();
 let shellCss = "";
 try {
-  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22911.css"), fixture.env, {});
+  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22912.css"), fixture.env, {});
   eq(response.status, 200, "the bumped shell stylesheet is served");
-  eq(response.headers.get("etag"), '"accountbook-shell-v22911-css"', "the served ETag matches the path");
+  eq(response.headers.get("etag"), '"accountbook-shell-v22912-css"', "the served ETag matches the path");
   shellCss = await response.text();
 } finally {
   fixture.restore();
@@ -84,6 +84,10 @@ for (const token of ["--ab12-up", "--ab12-down", "--ab12-parse-text", "--ab12-pa
 //    캐시라, 새 마크업이 옛 셸을 만나는 창이 존재한다. 그때 폴백이 없으면 ＋ 가 배경 없이
 //    투명하게 뜬다 — 눌러야 할 것이 보이지 않는 상태가 가장 나쁘다.
 const consumedWithFallback = [
+  ["--ab12-dur", "180ms"],
+  ["--ab12-dur-fast", "120ms"],
+  ["--ab12-dur-gauge", "620ms"],
+  ["--ab12-ease", "cubic-bezier(.2,.8,.2,1)"],
   ["--ab12-r-lg", "16px"],
   ["--ab12-action", "#1d4ed8"],
   ["--ab12-elev-float", "0 8px 24px rgba(0,0,0,.12)"],
@@ -106,7 +110,11 @@ for (const [token, fallback] of consumedWithFallback) {
   ok(shellCss.includes(`var(${token},${fallback})`), `${token} is consumed with a fallback for stale cached shells`);
 }
 // 아직 쓰지 않는 것들은 그대로 두고, 쓰기 시작하는 PR 이 이 목록을 의도적으로 옮기게 한다.
-const notYetConsumed = ["--ab12-parse-", "--ab12-dur", "--ab12-ease", "--ab12-up", "--ab12-down", "--ab12-disabled"];
+// V22.9.12 가 --ab12-dur / --ab12-ease 를 옮겼다. 그 PR 전까지 전환 속도는 소스에
+// .08~.62초 열세 가지로 흩어져 있었고, 같은 몸짓(막대가 차오른다)에도 네 가지 속도가
+// 쓰였다. 이제 모든 전환이 눈금에서 값을 가져온다 — 그 성질은
+// validate-motion-scale-v22912.mjs 가 따로 지킨다.
+const notYetConsumed = ["--ab12-parse-", "--ab12-up", "--ab12-down", "--ab12-disabled"];
 for (const token of notYetConsumed) {
   eq(shellCss.includes(`var(${token}`), false, `nothing consumes ${token}* yet`);
 }
@@ -118,7 +126,7 @@ try {
   const home = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: homeFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), homeFixture.env, {});
   const html = await home.text();
   eq(home.status, 200, "home still renders");
-  eq((html.match(/href="\/assets\/accountbook-shell-v22911\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
+  eq((html.match(/href="\/assets\/accountbook-shell-v22912\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
   eq(html.includes("--ab12-sp-"), false, "no design token leaks into the home HTML payload");
 } finally {
   homeFixture.restore();

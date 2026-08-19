@@ -27,15 +27,15 @@ const ORIGIN = "https://ttokttok-accountbook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
-  "/assets/accountbook-shell-v22911.css": "98577b29c0ece284b53cbccd4027545f30b463a993cf1aed54ad40722a83b516",
-  "/assets/ab-uiux-v2290.css": "550b95eb681c4722bcf8d3c621d7e0d9d429ca6e81a9125ffff9153f592f63a5",
+  "/assets/accountbook-shell-v22912.css": "500460dbab03e3af2893a81e6ed92d8d191e858cc0515262d34598945900adad",
+  "/assets/ab-uiux-v22912.css": "67d226f6eea593e0f64b2ed4c6a08b9307ab30660258041fcd2ff52610b3593a",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22893.js": "c206a5b0597eb7b1070f58c7184db42f943da3ed3e596e6302cf0fe5b19e4724",
   "/assets/accountbook-v5-v22890.js": "bcc5be2d64d9c7a3be55e0bbe6e7d6f7131720e5975d82315d59c73bd91746da",
   "/assets/mobile-home-v2298.js": "589feb25681ad8f38f68bf66c783f1fe2ae482c5ca03c246d05b2dd9e1c1c071",
   "/assets/mobile-home-shell-v2298.js": "659107f71b0d2f815b653ac47c1b3b2c688338a7fbe492001fbaacf571405c8d",
   "/assets/ab-category-rules-v2296.js": "99257ae11ee08a35362072b6eeda62576fd69400f5784dd53df3b3fe9bf16138",
-  "/assets/mobile-home-v2290.css": "1de74b06538d88685c7e4ac7dbb7f30cfd944f5149e921845df572f1bb57f3a2",
+  "/assets/mobile-home-v22912.css": "f85b82284538b3d2bb47b84de7e49236d5ac612422d320626451c72bef528b60",
 };
 
 const measured = {};

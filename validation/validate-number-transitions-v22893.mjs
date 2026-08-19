@@ -69,7 +69,14 @@ ok(nav.includes("if (abNumValue(host) === Number(next)) return;"), "값이 그�
 // ---------------------------------------------------------------------------
 // 8.2 게이지 — 숫자와 같은 620ms · 같은 이징, 동작 줄이기면 전환 없음
 // ---------------------------------------------------------------------------
-ok(source.includes(".homeProgress i{display:block;height:100%;background:#FEE500;border-radius:999px;transition:width 620ms cubic-bezier(.2,.8,.2,1)}"), "게이지는 숫자와 같은 620ms · 같은 이징으로 움직인다");
+// V22.9.12: 속도를 눈금(--ab12-dur-gauge)에서 가져오게 바뀌었다. 지키려던 성질은
+// 그대로다 — **막대와 숫자가 같은 속도로 움직인다**. 리터럴이 아니라 그 성질을 본다.
+const gaugeMs = Number((source.match(/--ab12-dur-gauge:(\d+)ms/) || [])[1]);
+const spinMs = Number((nav.match(/var spin = \{ duration: (\d+),/) || [])[1]);
+ok(gaugeMs > 0 && spinMs > 0, `두 속도를 모두 찾았다 (게이지 ${gaugeMs}ms · 숫자 ${spinMs}ms)`);
+eq(gaugeMs, spinMs, "게이지는 숫자와 같은 속도로 움직인다 — 어긋나면 같은 값을 말하는 둘이 따로 논다");
+ok(source.includes("--ab12-ease-gauge:cubic-bezier(.2,.8,.2,1)") && nav.includes('easing: "cubic-bezier(.2,.8,.2,1)"'), "이징도 같다");
+ok(source.includes(".homeProgress i{display:block;height:100%;background:#FEE500;border-radius:999px;transition:width var(--ab12-dur-gauge,620ms)"), "홈 게이지가 그 눈금을 쓴다");
 ok(source.includes("@media(prefers-reduced-motion:reduce){.homeProgress i{transition:none}}"), "동작 줄이기를 켜면 게이지 전환이 없다");
 ok(nav.includes("function bindGaugeHandoff("), "게이지가 이전 값에서 출발하는 처리가 있다");
 ok(nav.includes('bar.style.width = bar.getAttribute("data-ab-prev-used") + "%";'), "서버가 담아 준 이전 값에서 시작한다");

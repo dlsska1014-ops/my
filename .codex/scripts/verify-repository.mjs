@@ -84,6 +84,7 @@ const validationScripts = [
   ["불변 자산 주소", "validation/validate-immutable-asset-addresses-v2299.mjs"],
   ["전체 메뉴 구성", "validation/validate-menu-leads-with-menu-v22910.mjs"],
   ["데스크톱 레일 자리", "validation/validate-desktop-rail-space-v22911.mjs"],
+  ["움직임 눈금", "validation/validate-motion-scale-v22912.mjs"],
 ];
 
 function sha256(filePath) {
@@ -141,7 +142,7 @@ function run(command, args, label) {
 // 있지 않으니 검사가 사라져도 숫자는 그대로였고, "줄어들면 실패로 본다"는 규칙이
 // 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
-const EXPECTED_MINIMUM_CHECKS = 4697;
+const EXPECTED_MINIMUM_CHECKS = 4722;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

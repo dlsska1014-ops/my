@@ -25,7 +25,7 @@ ok(source.includes("activeRequest.abort()"), "repeated date selections cancel st
 ok(source.includes("이 날짜가 선택된 빠른 입력을 바로 열 수 있습니다."), "empty day is connected to quick input in the cumulative release");
 ok(source.includes(".abDayDetailOverlay"), "day popup styling exists");
 ok(source.includes("@media(max-width:899px){body.abV22812Shell .abDayDetailOverlay{align-items:flex-end"), "mobile day detail becomes a bottom sheet");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22911.css"'), "current release uses a new shell asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22912.css"'), "current release uses a new shell asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a new V5 asset");
 ok(source.includes('data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}"'), "full calendar emits secure day hooks");
 ok(source.includes('data-ab-day="\' + date + \'" data-ab-household-id="\' + householdId + \'"'), "sidebar calendar emits day hooks");

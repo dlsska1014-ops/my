@@ -29,14 +29,14 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const ORIGIN = "https://ttokttok-accountbook.com";
-const ASSET = "/assets/ab-uiux-v2290.css";
+const ASSET = "/assets/ab-uiux-v22912.css";
 
 // ---------------------------------------------------------------------------
 // 1) 공유 스타일시트가 캐시되는 자산으로 존재한다
 // ---------------------------------------------------------------------------
 const assetResponse = await app.fetch(new Request(`${ORIGIN}${ASSET}`), {}, {});
 eq(assetResponse.status, 200, "공유 스타일시트가 서빙된다");
-eq(assetResponse.headers.get("etag"), '"ab-uiux-v2290-css"', "공유 스타일시트 ETag 가 주소와 맞는다");
+eq(assetResponse.headers.get("etag"), '"ab-uiux-v22912-css"', "공유 스타일시트 ETag 가 주소와 맞는다");
 ok(String(assetResponse.headers.get("content-type") || "").includes("text/css"), "CSS 로 서빙된다");
 ok(String(assetResponse.headers.get("cache-control") || "").includes("immutable"), "1년 캐시 불변 자산이다");
 const assetCss = await assetResponse.text();
@@ -131,7 +131,7 @@ try {
 
   // 홈은 이 개편의 기준점이었다 — 원래도 링크를 쓰고 있었으므로 달라지면 안 된다.
   const home = await get("/app");
-  ok(home.includes("mobile-home-v2290.css"), "홈은 자기 스타일시트를 그대로 쓴다");
+  ok(home.includes("mobile-home-v22912.css"), "홈은 자기 스타일시트를 그대로 쓴다");
   ok(!home.includes(`href="${ASSET}"`), "홈은 공유 스타일시트를 중복으로 받지 않는다");
   ok(inlineCssBytes(home) <= 1024, `홈의 인라인 CSS 가 여전히 1 KiB 이하다 (${inlineCssBytes(home)} B)`);
 
@@ -139,7 +139,7 @@ try {
   // 오래 지켜 온 것이고(다크 모드 보호), 순서가 뒤집히면 어느 규칙이 이기는지 바뀐다.
   const budgets = await get("/budgets");
   const uiuxAt = budgets.indexOf(`href="${ASSET}"`);
-  const shellAt = budgets.indexOf("accountbook-shell-v22911.css");
+  const shellAt = budgets.indexOf("accountbook-shell-v22912.css");
   ok(uiuxAt > 0 && shellAt > 0, "두 스타일시트가 모두 링크돼 있다");
   ok(uiuxAt < shellAt, `공유 스타일시트가 셸보다 먼저 온다 (${uiuxAt} < ${shellAt})`);
 } finally {
@@ -158,7 +158,7 @@ try {
 // (여기서 한 번 틀렸다. 처음 쓴 측정 도구가 `:is()` 셀렉터를 콤마로 잘라 버려서
 //  .card 가 다섯 가지로 보였고, 이미 통일된 것을 다시 통일하려 했다. 도구가 틀리면
 //  진단도 틀린다 — 그래서 이 검사는 서빙된 CSS 문자열을 그대로 확인한다.)
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22911.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22912.css`), {}, {})).text();
 const PANEL_BASE = "body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important;margin:var(--ab12-sp-3,12px) 0!important}";
 const PANEL_NARROW = "@media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}";
 eq(shellCss.split(PANEL_BASE).length - 1, 1, "패널 패딩 정본이 셸에 정확히 하나 있다");
