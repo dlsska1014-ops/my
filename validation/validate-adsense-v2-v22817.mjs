@@ -166,9 +166,9 @@ try {
   const householdFlowHtml = await householdFlow.text();
   ok(householdFlowHtml.includes("linear-gradient(135deg,#111827,var(--ab12-action,#0e7490));color:#fff") && householdFlowHtml.includes(".hero p{color:#fff"), "household flow hero keeps readable copy across its full gradient");
 
-  const shellResponse = await request("/assets/accountbook-shell-v22910.css");
+  const shellResponse = await request("/assets/accountbook-shell-v22911.css");
   eq(shellResponse.status, 200, "V22.8.38 V5 stabilization stylesheet is served");
-  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22910-css"', "current shell has a fresh immutable ETag");
+  eq(shellResponse.headers.get("etag"), '"accountbook-shell-v22911-css"', "current shell has a fresh immutable ETag");
   const shell = await shellResponse.text();
   // V22.8.97(7.1): "N월 지출" 히어로를 걷어냈다. V22.8.17 이 지키려던 것은
   // "홈이 큰 대표 숫자 하나로 시작한다"였고 그 성질은 그대로다 — 이제 그 자리는
@@ -250,7 +250,7 @@ try {
   ok(calendarHomeHtml.includes('href="/settlement-summary?month=2026-07&amp;household_id=house-home"'), "settlement stays reachable from the drawer");
   ok(!calendarHomeHtml.includes('class="tab tabAdd"'), "stage 4 mobile home does not duplicate the visible quick-entry action in bottom navigation");
   ok(calendarHomeHtml.includes('class="abLayoutNav ') && calendarHomeHtml.includes("abNavMobileDrawer") && !calendarHomeHtml.includes('class="homeDesktopNav"'), "home uses the shared V5 sidebar as a functional mobile drawer instead of a home-only copy");
-  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22910.css"'), 1, "home loads the current shell exactly once");
+  eq(countOf(calendarHomeHtml, 'href="/assets/accountbook-shell-v22911.css"'), 1, "home loads the current shell exactly once");
   eq(countOf(calendarHomeHtml, 'src="/assets/accountbook-nav-v22893.js"'), 1, "home loads the V5 navigation runtime exactly once after preserved runtimes");
 
   const selectedCalendarHome = await request(`/app?${context}&view=calendar&date=2026-07-04`, { cookie: fixture.cookie });
@@ -265,7 +265,7 @@ try {
   ok(insightHtml.includes('id="filterBar"') && insightHtml.includes('id="periodChips"'), "analysis preserves its period and filter DOM contract");
   ok(insightHtml.includes('id="trendChart"') && insightHtml.includes('id="catChart"') && insightHtml.includes('id="weekChart"'), "analysis preserves its chart DOM contract");
   ok(insightHtml.includes('/my/analysis/app.js?v=V22.9.0-UX-REPAIR'), "analysis keeps the protected external runtime with the new cache version");
-  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22910.css"'), 1, "analysis loads the current shell exactly once");
+  eq(countOf(insightHtml, 'href="/assets/accountbook-shell-v22911.css"'), 1, "analysis loads the current shell exactly once");
 
   const report = await request(`/my/analysis?view=report&${context}`, { cookie: fixture.cookie });
   eq(report.status, 200, "analysis report renders");

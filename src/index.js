@@ -20663,7 +20663,7 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v2290.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v2290.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2298.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22910.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22911.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v2298.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
@@ -21897,6 +21897,20 @@ body.abV22812Shell.abPageMenu .menuContext :is(select,input,button){min-height:4
 body.abV22812Shell.abPageMenu :is(.menuRowIcon,.featuredIcon) svg{width:20px;height:20px;stroke-width:1.7}
 body.abV22812Shell.abPageMenu .menuRowIcon{display:inline-flex;align-items:center;justify-content:center;color:var(--ab12-accent)!important}
 body.abV22812Shell.abPageMenu .featuredIcon{display:inline-flex;align-items:center;justify-content:center;color:var(--ab12-accent)!important}
+/* V22.9.11 (개편 7단계): 데스크톱에서 비어 있던 340px 과, 모바일에서 하단 탭에
+   깔려 있던 마지막 줄.
+
+   ── 1) 오른쪽 340px ──
+   홈은 1280px 창에서 본문이 656px 만 쓰고 오른쪽 356px 이 비어 있었다. 원인은
+   body 의 padding-right:340px 인데, 그 자리는 활동 레일(.abActivityRail)을 위한
+   것이다. 그런데 레일은 [hidden] 상태였다 — **없는 것을 위해 자리를 비워 두고
+   있었다.** 레일이 실제로 열려 있을 때만 비운다. 레일 폭 변수 하나만 0 으로
+   바꾸면 이 변수를 쓰는 도킹 바·저장 알림 위치 계산이 전부 따라온다.
+
+   :has() 를 모르는 브라우저는 지금과 똑같이 340px 을 비운다(퇴보 없음). */
+@media(min-width:1181px){
+  body.abV22812Shell.abMobileAppSurface:has(.abActivityRail[hidden]){--abActivityRailW:0px}
+}
 body.abV22812Shell .heroChips{display:flex!important;flex-wrap:wrap;gap:6px!important;margin-top:8px!important}
 body.abV22812Shell .heroChips>span{min-height:0!important;padding:5px 10px!important;font-size:12px!important}
 body.abV22812Shell .abHeadNote p{margin:0!important;font-size:13px!important;line-height:1.5!important;color:var(--sub)!important}
@@ -23382,7 +23396,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22910-css"'
+        ? '"accountbook-shell-v22911-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

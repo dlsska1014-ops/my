@@ -110,7 +110,7 @@ ok(paceRead.length > 0, `쓰는 속도에 해석이 있다 (${paceRead})`);
 eq((home.html.match(/class="homeBudgetAmount"/g) || []).length, 1, "34px 대표 숫자는 여전히 화면에 하나다");
 const shellFixture = await createV2265QaFixture();
 try {
-  const shell = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22910.css"), shellFixture.env, {});
+  const shell = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22911.css"), shellFixture.env, {});
   const css = await shell.text();
   ok(css.includes("body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,22px)"), "리포트 숫자는 num-lg 를 쓴다");
   ok(css.includes("body.abV22812Shell .homeReportGrid{display:grid;grid-template-columns:1fr 1fr"), "데스크톱은 2×2 로 놓는다");
