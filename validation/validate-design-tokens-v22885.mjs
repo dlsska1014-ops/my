@@ -26,17 +26,17 @@ function eq(actual, expected, label) {
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 1. 셸 자산 주소와 ETag 가 함께 올라갔는지. 둘 중 하나만 올리면 캐시가 어긋난다.
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22912.css"'), "shell stylesheet moved to a new immutable address");
-ok(source.includes('\'"accountbook-shell-v22912-css"\''), "shell stylesheet ETag matches its new path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "shell stylesheet moved to a new immutable address");
+ok(source.includes('\'"accountbook-shell-v22913-css"\''), "shell stylesheet ETag matches its new path");
 
 // 2. 실제로 배달되는 셸 CSS 를 받아서 확인한다. 소스 문자열만 보면 조립 과정에서
 //    빠진 경우를 놓친다(작업지시서 1장: 실제 렌더로 확인).
 const fixture = await createV2265QaFixture();
 let shellCss = "";
 try {
-  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22912.css"), fixture.env, {});
+  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22913.css"), fixture.env, {});
   eq(response.status, 200, "the bumped shell stylesheet is served");
-  eq(response.headers.get("etag"), '"accountbook-shell-v22912-css"', "the served ETag matches the path");
+  eq(response.headers.get("etag"), '"accountbook-shell-v22913-css"', "the served ETag matches the path");
   shellCss = await response.text();
 } finally {
   fixture.restore();
@@ -126,7 +126,7 @@ try {
   const home = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: homeFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), homeFixture.env, {});
   const html = await home.text();
   eq(home.status, 200, "home still renders");
-  eq((html.match(/href="\/assets\/accountbook-shell-v22912\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
+  eq((html.match(/href="\/assets\/accountbook-shell-v22913\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
   eq(html.includes("--ab12-sp-"), false, "no design token leaks into the home HTML payload");
 } finally {
   homeFixture.restore();

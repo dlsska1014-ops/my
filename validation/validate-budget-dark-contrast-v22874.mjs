@@ -30,14 +30,14 @@ ok(source.includes('? " selected" : ""'), "the space moved inside the selected b
 ok(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell :is\(\.empty,\.homeEmpty\)\{[^}]*background:var\(--ab12-surface-raised\)!important/.test(source), "empty-state boxes take a dark surface in dark mode");
 // 본문 바로가기는 다크의 전역 링크색에 밀려 파란 배경에 연한 파란 글자가 됐다(2.87:1).
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!important}'), "the skip link keeps white text in dark mode");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22912.css"'), "the shell stylesheet moved to a new immutable address");
-ok(source.includes('"accountbook-shell-v22912-css"'), "the shell stylesheet ships a matching ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "the shell stylesheet moved to a new immutable address");
+ok(source.includes('"accountbook-shell-v22913-css"'), "the shell stylesheet ships a matching ETag");
 
 const ORIGIN = "https://ttokttok-accountbook.com";
 const fixture = await createV2265QaFixture();
 try {
   // 규칙이 실제로 셸 자원에 실려 나가는지 확인한다. 소스에만 있고 서빙되지 않으면 소용없다.
-  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22912.css`), fixture.env, {});
+  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22913.css`), fixture.env, {});
   eq(shell.status, 200, "the new shell stylesheet is served");
   const css = await shell.text();
   ok(css.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!important}'), "the served shell carries the skip link dark fix");

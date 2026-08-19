@@ -50,7 +50,7 @@ try {
   eq(fixture.db.accountbook_settings.length, settingsBefore, "invalid favorite request creates no setting");
 
   for (const [path, mime] of [
-    ["/assets/accountbook-shell-v22912.css", "text/css"],
+    ["/assets/accountbook-shell-v22913.css", "text/css"],
     ["/assets/accountbook-nav-v22893.js", "javascript"],
     ["/assets/accountbook-v5-v22890.js", "javascript"],
     ["/assets/accountbook-goals-v22843.js", "javascript"],

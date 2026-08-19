@@ -8083,7 +8083,7 @@ button,.btn{border-radius:13px;background:#00a862;color:#fff;font-weight:900;tra
 .tableWrap{border-radius:18px;border:1px solid #e5ebe7}th{background:#f2f7f4}.calendarDay{border-color:#e5ebe7}.calendarDay.selected{border-color:#00a862;outline:3px solid rgba(0,168,98,.18)}
 .footerNote{color:#8b978e;text-align:center}.notice{border-radius:18px}
 @media(max-width:900px){.portalQuick{grid-template-columns:1fr 1fr}.filterTop{grid-template-columns:1fr 1fr}.filterActions{grid-column:1/-1}.grid8{grid-template-columns:1fr 1fr}.tabs{top:0}}
-@media(max-width:620px){.wrap{padding:10px}.hero{position:relative;border-radius:18px}.portalQuick{grid-template-columns:1fr}.filterTop,.filterMore{grid-template-columns:1fr}.grid8{grid-template-columns:1fr}.tabs{position:sticky;top:0}.tab{padding:9px 11px}.portalAction{padding:13px}.card{border-radius:18px}}
+@media(max-width:620px){.wrap{padding:10px}.hero{position:relative;border-radius:var(--ab12-radius,20px)}.portalQuick{grid-template-columns:1fr}.filterTop,.filterMore{grid-template-columns:1fr}.grid8{grid-template-columns:1fr}.tabs{position:sticky;top:0}.tab{padding:9px 11px}.portalAction{padding:13px}.card{border-radius:18px}}
 
 /* v5.2 income/expense app UX */
 .appInputCard{padding:18px;background:linear-gradient(180deg,#ffffff,#f7fbf8);border-color:#d9eadf}
@@ -20663,7 +20663,7 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22912.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22912.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2298.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22912.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v2298.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
@@ -21012,7 +21012,7 @@ body.abV22812Shell.abPageInsight .fGroup>b{color:var(--ab12-muted)!important}
 body.abV22812Shell.abPageInsight .aChip{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important}
 body.abV22812Shell.abPageInsight :is(.dRow.sel,.hRow.sel){background:var(--ab12-accent-soft)!important;color:var(--ab12-text)!important}
 body.abV22812Shell.abPageInsight :is(.dRow:hover,.hRow:hover,a.txRow:hover){background:var(--ab12-surface-raised)!important}
-body.abV22812Shell.abPageInsight :is(.card,.kpi){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageInsight :is(.card,.kpi){border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell.abPageInsight .kpiRow{gap:10px}
 body.abV22812Shell.abPageInsight .kpi{min-height:108px;padding:17px}
 body.abV22812Shell.abPageInsight .kpi b{font-size:23px}
@@ -21024,12 +21024,12 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell .appMenu>summary:after{ba
 body.abV22812Shell.abPageInsight svg [stroke="#EEF1F4"],body.abV22812Shell.abPageInsight svg [stroke="#D9DEE4"]{stroke:var(--ab12-line)!important}
 body.abV22812Shell.abPageInsight svg [fill="#191F28"],body.abV22812Shell.abPageInsight svg [fill="#4E5968"],body.abV22812Shell.abPageInsight svg [fill="#8B95A1"]{fill:var(--ab12-text)!important}
 
-body.abV22812Shell.abPageAnalysisReport :is(.hero,.card,.box,.gaugeCard){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageAnalysisReport :is(.hero,.card,.box,.gaugeCard){border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell.abPageAnalysisReport .hero{background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border:1px solid var(--ab12-line)!important}
 body.abV22812Shell.abPageAnalysisReport .hero p{color:var(--ab12-muted)!important}
 body.abV22812Shell.abPageCalendar .hero{background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important;box-shadow:none!important}
 body.abV22812Shell.abPageCalendar .hero p{color:var(--ab12-muted)!important}
-body.abV22812Shell.abPageCalendar :is(.card,.day){border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell.abPageCalendar .card{border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}body.abV22812Shell.abPageCalendar .day{border-radius:18px!important;box-shadow:none!important}
 body.abV22812Shell.abPageCalendar .fullCalendar summary{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 body.abV22812Shell.abPageCalendar .day.emptyDay{background:transparent!important;border-color:transparent!important;color:var(--ab12-muted)!important;opacity:1!important}
 body.abV22812Shell.abPageCalendar .day.hasSpend{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
@@ -21063,7 +21063,7 @@ body.abV22812Shell{
   /* V22.8.61: 별칭이 빠져 있던 토큰. --action 미정의 탓에 하단 "입력" 버튼이 배경 없는 흰 아이콘으로 사라졌다. */
   --action:var(--ab12-action);--accent-soft:var(--ab12-accent-soft);--soft:var(--ab12-surface-raised);
   --pos:#087a55;--neg:#c0362c;--warn:#a15c00;--purple:#7b6fe0;
-  --radius:18px;--radius-sm:12px;--radius-xs:10px;
+  --radius:var(--ab12-radius,20px);--radius-sm:12px;--radius-xs:10px;
   --space-1:8px;--space-2:16px;--space-3:24px;--space-4:32px;
   --shadow:0 0 0 1px rgba(25,31,40,.06),0 1px 2px rgba(25,31,40,.03);--shadow-2:0 6px 22px rgba(25,31,40,.08);
   background:var(--bg)!important;color:var(--text)!important;
@@ -21308,7 +21308,7 @@ body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric){min-width:0;paddin
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>span{color:var(--sub)!important;font-size:12px!important;font-weight:750!important}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>b{display:block;margin:6px 0 0!important;color:var(--text)!important;font-size:clamp(19px,1.7vw,25px)!important;line-height:1.25!important;font-variant-numeric:tabular-nums;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>small{display:block;margin-top:5px;color:var(--sub)!important;font-size:11px!important}
-body.abV22812Shell .abV5SectionCard{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px!important;box-shadow:none!important}
+body.abV22812Shell .abV5SectionCard{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell .abV5FilterBar{background:color-mix(in srgb,var(--bg) 90%,transparent)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important;padding:10px!important}
 body.abV22812Shell .abV5FilterBar :is(.pchip,.fBtn,.tchip,.aChip){min-height:40px}
 body.abV22812Shell .abV5FilterBar .searchBox input{min-height:42px!important}
@@ -21346,7 +21346,7 @@ body.abV22812Shell.abV5RemainingPage table{background:var(--card)!important;colo
 body.abV22812Shell.abV5RemainingPage :is(th,td){border-color:var(--line)!important}
 body.abV22812Shell.abV5RemainingPage :is(.btn,button:not(.danger)){border-radius:12px!important}
 @media(max-width:899px){body.abV22812Shell.abV5RemainingPage main.wrap{padding:10px 12px 94px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{padding:16px!important}body.abV22812Shell.abV5RemainingPage :is(.grid,.grid2col,.toolGrid,.budgetForm,.keywordGrid){grid-template-columns:1fr!important}}
-@media(max-width:420px){body.abV22812Shell.abV5RemainingPage main.wrap{padding-left:10px!important;padding-right:10px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{border-radius:16px!important}}
+@media(max-width:420px){body.abV22812Shell.abV5RemainingPage main.wrap{padding-left:10px!important;padding-right:10px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{border-radius:var(--ab12-radius,20px)!important}}
 
 /* V22.8.24 UI V5 shell correctness: 900px boundary, route state and focus-ready drawer. */
 body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:800!important}
@@ -21954,6 +21954,33 @@ body.abV22812Shell .abNavGroup>summary>i{transition:transform var(--ab12-dur,180
   body.abV22812Shell *,body.abV22812Shell *::before,body.abV22812Shell *::after{transition-duration:1ms!important;animation-duration:1ms!important}
   body.abV22812Shell :is(a.featuredCard,a.menuRow,.abNavLinks a):active{transform:none}
 }
+/* V22.9.13 (개편 9단계): 같은 것은 같게 그린다.
+
+   화면을 띄워 재 보니 카드 면 자체는 이미 통일돼 있었다 — 열한 화면 모두 흰 배경에
+   같은 테두리색이다. 갈려 있던 것은 **모서리와 강조 면**이었다.
+
+   ── 1) 모서리 16 / 18 / 20px ──
+   같은 .card 클래스가 화면에 따라 세 가지로 그려졌다(예산 20px · 분석 18px ·
+   자산 16px). 페이지별 CSS 가 각자 값을 적어 왔기 때문이다.
+
+   처음에 --ab12-r-lg(16px)로 모으려다 잘못 짚었다. 카드 모서리의 정본은 이미
+   --ab12-radius(20px)이고, 내 규칙은 그 정본과 싸우면서 16px 짜리 무리를 하나 더
+   만들고 있었다. 정본을 새로 만들 게 아니라 정본을 따르게 되돌리는 것이 맞다. */
+
+/* ── 2) 어두운 강조 면 둘이 서로 다른 어두움 ──
+   홈에는 어두운 블록이 둘 있다 — 챌린지 카드와 SMART NOTICE. 그런데 하나는
+   그라디언트(#171a2b→#222741), 하나는 단색(#111827)이고 모서리도 달랐다. 흰 카드
+   사이에서 강조하겠다는 같은 뜻인데 다른 얼굴이라 톤이 붕 뜬다.
+
+   판단: 그라디언트 대신 단색 --ab12-notice-bg 로 둘을 맞춘다. 어두운 블록이 한 화면에
+   둘이나 있는 상황에서는 조용한 쪽이 낫다고 봤다. 되돌리려면 이 규칙만 지우면 된다. */
+body.abV22812Shell :is(.reportChallenge,.homeNotice){background:var(--ab12-notice-bg,#111827)!important;background-image:none!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:var(--ab12-radius,20px)!important}
+
+/* ── 3) 카드 머리말 링크 하나만 밑줄 ──
+   "홈 구성"은 16px·굵기 400·밑줄이었는데, 같은 자리의 다른 링크("주별"·"월별")는
+   13px·굵기 1000·밑줄 없음이다. 하나만 브라우저 기본 링크처럼 보였다. */
+body.abV22812Shell .homeReportsEdit{font-size:13px!important;font-weight:800!important;text-decoration:none!important;color:var(--ab12-accent)!important}
+body.abV22812Shell .homeReportsEdit:hover{text-decoration:underline!important;text-underline-offset:3px}
 body.abV22812Shell .heroChips{display:flex!important;flex-wrap:wrap;gap:6px!important;margin-top:8px!important}
 body.abV22812Shell .heroChips>span{min-height:0!important;padding:5px 10px!important;font-size:12px!important}
 body.abV22812Shell .abHeadNote p{margin:0!important;font-size:13px!important;line-height:1.5!important;color:var(--sub)!important}
@@ -23439,7 +23466,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22912-css"'
+        ? '"accountbook-shell-v22913-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
