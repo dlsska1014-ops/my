@@ -51,10 +51,10 @@ ok(source.includes('params.delete("quick")'), "quick-input one-shot parameter is
 ok(source.includes('(${accountbookSaveFeedbackClientMain.toString()})();'), "save feedback client is included in the immutable V5 bundle");
 ok(source.includes('별도 쓰기 API를 추가하지 않는다'), "existing transaction write contract remains explicit");
 ok(!source.includes('/u/api/quick-input'), "stage 4 adds no parallel quick-input write API");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2290.css"'), "current release uses a fresh shell asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "current release uses a fresh shell asset");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "stage 4 uses a fresh navigation asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a fresh V5 asset");
-ok(source.includes('"accountbook-shell-v2290-css"'), "current shell has a fresh immutable ETag");
+ok(source.includes('"accountbook-shell-v22913-css"'), "current shell has a fresh immutable ETag");
 ok(source.includes('"accountbook-nav-v22893-js"'), "stage 4 navigation has a fresh immutable ETag");
 ok(source.includes('"accountbook-v5-v22890-js"'), "current V5 runtime has a fresh immutable ETag");
 
@@ -78,7 +78,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "stage 4 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "default home stays below the protected 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v2290.css'), "home loads the current shell");
+  ok(home.text.includes('/assets/accountbook-shell-v22913.css'), "home loads the current shell");
   ok(home.text.includes('/assets/accountbook-nav-v22893.js'), "home loads the stage 4 navigation runtime");
   ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the current V5 runtime");
   ok(!home.text.includes('data-ab-save-feedback'), "default home emits no false save feedback");
@@ -99,9 +99,9 @@ try {
   ok(errorPage.text.includes('0원보다 큰 금액을 입력해 주세요.'), "error feedback explains the correction");
   ok(errorPage.text.includes('name="transaction_date"'), "error page keeps the existing quick-input date field");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v2290.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22913.css");
   eq(shell.response.status, 200, "stage 4 shell is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v2290-css"', "current shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22913-css"', "current shell ETag is correct");
   ok(shell.text.includes('[data-ab-quick-dock]'), "stage 4 shell contains dock styles");
   ok(shell.text.includes('.abSaveFeedback'), "stage 4 shell contains feedback styles");
 

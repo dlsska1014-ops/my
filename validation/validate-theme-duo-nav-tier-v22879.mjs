@@ -50,8 +50,8 @@ eq((source.match(/data-ab-theme-choice="light"/g) || []).length, 2, "both appear
 eq((source.match(/data-ab-theme-choice="dark"/g) || []).length, 2, "both appearance panels keep the dark button");
 
 // 7. 테마 런타임은 자산으로 나가고 immutable 캐시라 경로가 올라가야 반영된다.
-ok(source.includes('const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22879.js"'), "the theme runtime asset path is bumped");
-ok(source.includes('\'"accountbook-theme-v22879-js"\''), "the theme runtime ETag matches its path");
+ok(source.includes('const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js"'), "the theme runtime asset path is bumped");
+ok(source.includes('\'"accountbook-theme-v2299-js"\''), "the theme runtime ETag matches its path");
 eq(source.includes("accountbook-theme-v22812"), false, "no stale theme runtime reference remains");
 
 // 8. 다크 커버리지는 회귀하지 않는다.
