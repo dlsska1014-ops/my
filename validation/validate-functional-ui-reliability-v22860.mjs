@@ -20,7 +20,7 @@ ok(source.includes('challenge_html: renderReportChallenge'), "inline response re
 // 되살아나지 않는 것과 클라이언트가 그것을 더 이상 읽지 않는 것을 확인한다.
 ok(!source.includes('sidebar_html: renderReportChallenge'), "죽은 sidebar_html 필드가 응답에 다시 들어오지 않는다");
 ok(!source.includes('data.sidebar_html'), "클라이언트도 그 필드를 더 이상 읽지 않는다");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2299.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22910.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed challenge runtime uses a new immutable path");
 ok(source.includes('path === "/goals" || path === "/savings-goals"'), "client navigation recognizes goals routes");
@@ -50,9 +50,9 @@ try {
   eq(adsHead.text, "", "ads.txt HEAD response has no body");
   ok(String(adsHead.response.headers.get("content-type") || "").includes("text/plain"), "ads.txt HEAD preserves its text content type");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v2299.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22910.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v2299-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22910-css"', "new shell ETag is correct");
   ok(shell.text.includes(".v8-tx summary{display:flex;align-items:center;min-height:44px"), "transaction edit control has a 44px touch target");
   ok(shell.text.includes(".kwRemove{width:40px!important;height:40px!important"), "mobile keyword remove control has a larger touch target");
 

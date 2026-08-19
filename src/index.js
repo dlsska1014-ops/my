@@ -13456,42 +13456,42 @@ async function handleUnifiedMenuPage(request, env, url) {
     ? households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
   const featured = [
-    ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "✎"],
-    ["최근 기록", `/app?${monthQs}&tab=transactions`, "확인·수정·삭제", "▤"],
-    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "↔"],
-    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "▥"],
+    ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "plus"],
+    ["최근 기록", `/app?${monthQs}&tab=transactions`, "확인·수정·삭제", "records"],
+    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "settlement"],
+    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "stats"],
   ];
   const sections = [
     ["계획과 자산", "돈의 계획과 보유 현황", [
-      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "◴"],
-      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "▣"],
-      ["정기 수입·지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "↻"],
-      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "□"],
+      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "budget"],
+      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "wallet"],
+      ["정기 수입·지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "recurring"],
+      ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "calendar"],
     ]],
     ["가계부 관리", "사람과 분류, 데이터 관리", [
-      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "⇄"],
-      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "+"],
-      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "#"],
-      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "⇩"],
+      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "switch"],
+      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "users"],
+      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "tag"],
+      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "backup"],
     ]],
     ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
-      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "⌁"],
-      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "▥"],
-      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "◇"],
-      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "!"],
+      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "receipt"],
+      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "report"],
+      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
+      ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "bell"],
     ]],
   ];
   const more = [
-    ["내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "계정 로그인·복구", "•"],
-    ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "1"],
-    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "?"],
-    ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "K"],
-    ["이용안내", "/terms", "서비스 이용 기준", "i"],
-    ["개인정보 안내", "/privacy", "데이터 처리 안내", "○"],
+    ["내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "계정 로그인·복구", "shield"],
+    ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "check"],
+    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "chat"],
+    ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
+    ["이용안내", "/terms", "서비스 이용 기준", "file"],
+    ["개인정보 안내", "/privacy", "데이터 처리 안내", "shield"],
   ];
-  const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
+  const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
-  const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true">${escapeHtml(icon)}</span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
+  const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
   const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
   // V22.8.95 (10.1): 마우스 따라오는 표시 스위치. 테마·톤과 달리 이 값은 기기가
   // 아니라 계정에 붙으므로(지시서) 폼 하나로 서버에 저장한다. 데스크톱에서만 뜻이
@@ -13499,7 +13499,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   const cursorOn = String(await getSettingValue(env, cursorPrefKey(hid, userId || "shared")).catch(() => "") || "") !== "off";
   const cursorSwitchHtml = `<form class="abCursorPref" method="post" action="/cursor-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label class="abCursorPick"><input type="checkbox" name="cursor" value="on"${cursorOn ? " checked" : ""}/><span><b>마우스 따라오는 표시</b><small>마우스가 있는 큰 화면에서만 켜집니다. 동작 줄이기를 켜 두면 이 설정과 무관하게 나타나지 않습니다.</small></span></label><button type="submit">표시 설정 저장</button></form>`;
   const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><span class="menuEyebrow">${escapeHtml(month)} · ${escapeHtml(selectedHousehold?.name || "가계부")}</span><h1>전체 메뉴</h1><p>자주 쓰는 기능은 크게, 관리 기능은 빠르게 찾을 수 있게 정리했습니다.</p></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:#2457d6;color:#fff;border-color:#2457d6;font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}</main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
@@ -20663,7 +20663,7 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v2290.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v2290.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2298.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2299.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22910.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v2298.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
@@ -21879,6 +21879,24 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!i
 body.abV22812Shell .abV5PageHeader{margin:var(--ab12-sp-3,12px) auto!important;padding:16px 18px!important}
 body.abV22812Shell .abV5PageHeader h1{font-size:22px!important;letter-spacing:-.02em}
 body.abV22812Shell .abHeadNote{position:relative;margin:6px 0 0}
+/* V22.9.10: 전체 메뉴의 "기준 변경"은 화면에서 가장 강한 요소였다 — 큰 파란 덩어리가
+   폭 전체를 차지했다. 하는 일은 가계부·월 필터를 적용하는 것이고, 이 화면의 주된
+   행동(= 어디로 갈지 고르기)이 아니다. 조용한 보조 버튼으로 내리고 고르는 것들과
+   한 줄에 둔다.
+
+   셀렉터가 긴 이유: 이 버튼을 파랗게 칠하는 규칙이
+   .abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary) 인데
+   특이도가 (0,5,1) 이다 — [type="submit"] 도 클래스 한 칸으로 센다. 처음에 (0,4,3)
+   으로 적었다가 졌고, 이겼는지 아닌지는 브라우저에 직접 물어서(CDP) 확인했다. */
+body.abV22812Shell.abPageMenu .menuContext{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto!important;gap:8px!important;align-items:center}
+body.abV22812Shell.abPageMenu main.menuPage form.menuContext button[type="submit"]{grid-column:auto!important;background:var(--ab12-surface)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important;font-weight:700!important;padding-inline:14px!important;white-space:nowrap}
+body.abV22812Shell.abPageMenu main.menuPage form.menuContext button[type="submit"]:hover{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
+body.abV22812Shell.abPageMenu .menuContext :is(select,input,button){min-height:40px!important}
+/* 메뉴 아이콘은 이제 사이드바와 같은 SVG 다. 글리프 시절의 폰트 크기 대신
+   선 굵기와 상자 크기로 맞춘다. */
+body.abV22812Shell.abPageMenu :is(.menuRowIcon,.featuredIcon) svg{width:20px;height:20px;stroke-width:1.7}
+body.abV22812Shell.abPageMenu .menuRowIcon{display:inline-flex;align-items:center;justify-content:center;color:var(--ab12-accent)!important}
+body.abV22812Shell.abPageMenu .featuredIcon{display:inline-flex;align-items:center;justify-content:center;color:var(--ab12-accent)!important}
 body.abV22812Shell .heroChips{display:flex!important;flex-wrap:wrap;gap:6px!important;margin-top:8px!important}
 body.abV22812Shell .heroChips>span{min-height:0!important;padding:5px 10px!important;font-size:12px!important}
 body.abV22812Shell .abHeadNote p{margin:0!important;font-size:13px!important;line-height:1.5!important;color:var(--sub)!important}
@@ -23364,7 +23382,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v2299-css"'
+        ? '"accountbook-shell-v22910-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

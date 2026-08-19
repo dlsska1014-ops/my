@@ -27,7 +27,7 @@ const ORIGIN = "https://ttokttok-accountbook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
-  "/assets/accountbook-shell-v2299.css": "327e214a26e91946f0a28d25800775c3a46bbcfe04345d742e43a83dc3027529",
+  "/assets/accountbook-shell-v22910.css": "194eb45d61411f06de0a00dab0efd2451aa9f682c05d42ac4bf20673400b8b10",
   "/assets/ab-uiux-v2290.css": "550b95eb681c4722bcf8d3c621d7e0d9d429ca6e81a9125ffff9153f592f63a5",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22893.js": "c206a5b0597eb7b1070f58c7184db42f943da3ed3e596e6302cf0fe5b19e4724",
