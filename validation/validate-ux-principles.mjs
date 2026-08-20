@@ -169,7 +169,7 @@ function createSubmitSimulation(runtime, { action, label, confirmResult = true }
   };
 }
 
-ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime reports the challenge and activity UX release");
+ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime reports the challenge and activity UX release");
 
 // The client-side filtering engine remains protected. The two analysis renderers
 // intentionally change in V22.8.75, when the summary and deep-analysis screens

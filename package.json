@@ -1,5 +1,6 @@
 {
-  "name": "kakao-accountbook-v22.8.98-receipt-original-values-validation",
+  "name": "kakao-accountbook",
+  "version": "22.9.15",
   "private": true,
   "type": "module",
   "scripts": {

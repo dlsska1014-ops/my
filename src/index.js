@@ -1927,7 +1927,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.9.0-UX-REPAIR";
+const APP_VERSION = "V22.9.15-CATEGORY-CANON";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([

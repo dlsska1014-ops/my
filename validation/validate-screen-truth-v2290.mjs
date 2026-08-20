@@ -37,7 +37,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const ORIGIN = "https://ttokttok-accountbook.com";
 
-ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "런타임이 V22.9.0 을 알린다");
+ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "런타임이 V22.9.0 을 알린다");
 
 // 예산을 크게 넘긴 가계부를 만든다. 정상 범위만 재면 "초과일 때 어떻게 보이는가" 는
 // 영원히 재지 않게 된다 — 실제로 그래서 384% 화면이 초록으로 남아 있었다.
