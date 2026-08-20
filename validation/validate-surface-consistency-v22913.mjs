@@ -51,7 +51,7 @@ try {
   //
   // 대신 **캐스케이드에서 이기는 층**만 본다. 셸 CSS 는 head 의 마지막 스타일시트라
   // 여기서 정한 값이 화면에 나온다. 그 층 안의 카드 규칙이 토큰을 쓰면 결과가 하나가 된다.
-  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22913.css`), {}, {})).text();
+  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22914.css`), {}, {})).text();
   const shellCardRules = [...shellCss.matchAll(/[^{}]{0,160}\{[^{}]*border-radius:[^{}]*\}/g)]
     .map((m) => m[0])
     .filter((rule) => /\.(card|panel|homeCard|abV5SectionCard|gaugeCard)\b/.test(rule.split("{")[0]));

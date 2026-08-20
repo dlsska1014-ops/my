@@ -9,7 +9,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the contrast release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "changed shell uses a new immutable path");
 
 // 1. 연간 리포트: 연도 이동 버튼이 흰 배경에 흰 글자로 사라졌다.
 ok(source.includes("body.abV22812Shell .yearNav :is(a,span){background:var(--card-2)!important;color:var(--text)!important}"), "year navigation uses theme tokens");
@@ -74,21 +74,21 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22913.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22914.css");
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22913-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22914-css"', "new shell ETag is correct");
   for (const rule of [".yearNav :is(a,span)", ".deductBox{background:var(--card-2)", ".reportChallenge :is(label,label>span,summary)", ".dailyCell.noValue{opacity:.78", ".heroChips span"]) {
     ok(shell.text.includes(rule), `deployed shell ships ${rule}`);
   }
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
-  ok(shell.text.includes(".chipRow button:before{content:var(--ab-chip-icon"), "V22.8.61 chip icons are preserved");
+  ok(shell.text.includes(".chipRow button:before{display:none}"), "V22.9.14 칩 장식은 마크업이 아니라 CSS 에서 다뤄진다(지금은 그리지 않는다)");
   ok(shell.text.includes("scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))"), "V22.8.62 anchor offset is preserved");
 
   const q = "month=2026-07&household_id=house-home";
   for (const [name, path] of [["연간 리포트", "/annual?year=2026&household_id=house-home"], ["자산·계좌", `/payment-methods?${q}`], ["종합 리포트", `/my/analysis?${q}&view=report`], ["스마트 도구", `/smart-tools?${q}`]]) {
     const page = await request(fixture, path);
     eq(page.response.status, 200, `${name} 화면이 200으로 응답한다`);
-    eq(page.text.split('href="/assets/accountbook-shell-v22913.css"').length - 1, 1, `${name} 화면이 새 셸을 정확히 한 번 참조한다`);
+    eq(page.text.split('href="/assets/accountbook-shell-v22914.css"').length - 1, 1, `${name} 화면이 새 셸을 정확히 한 번 참조한다`);
     ok(!page.text.includes("accountbook-shell-v22862.css"), `${name} 화면에 이전 셸이 남아 있지 않다`);
   }
 

@@ -88,7 +88,7 @@ ok(source.includes("body.abV22812Shell :is(a.featuredCard,a.menuRow,.abNavLinks 
 // ---------------------------------------------------------------------------
 // 6) 실제로 서빙되는 CSS 에 들어 있다
 // ---------------------------------------------------------------------------
-const shell = await (await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22913.css"), {}, {})).text();
+const shell = await (await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22914.css"), {}, {})).text();
 ok(shell.includes("--ab12-dur-gauge:620ms"), "눈금이 셸 CSS 로 나간다");
 ok(shell.includes("::details-content"), "펼침 애니메이션이 셸 CSS 로 나간다");
 

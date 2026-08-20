@@ -40,9 +40,9 @@ ok(source.includes('@media(max-width:899px){body.abV22812Shell .abQuickInputOver
 ok(source.includes('body.abQuickInputOpen{overflow:hidden!important}'), "background scrolling is locked while input is open");
 ok(source.includes('.abQuickInputOriginalTitle{display:none!important}'), "duplicate inline title is hidden after modal promotion");
 ok(source.includes('.abDayDetailAdd{background:var(--action)'), "day-detail add action is visually primary");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "current release uses a fresh shell asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "current release uses a fresh shell asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "current release uses a fresh V5 runtime asset");
-ok(source.includes('"accountbook-shell-v22913-css"'), "current shell has an immutable ETag");
+ok(source.includes('"accountbook-shell-v22914-css"'), "current shell has an immutable ETag");
 ok(source.includes('"accountbook-v5-v22890-js"'), "current runtime has an immutable ETag");
 ok(source.includes('(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();'), "quick input loads before day-detail integration");
 ok(source.includes('method="post" action="/admin/transactions"'), "existing transaction form action remains present");
@@ -63,7 +63,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with stage 3 assets");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home stays below the protected 35 KiB HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22913.css'), "home loads the current shell");
+  ok(home.text.includes('/assets/accountbook-shell-v22914.css'), "home loads the current shell");
   ok(home.text.includes('/assets/accountbook-v5-v22890.js'), "home loads the current runtime");
   ok(home.text.includes('id="add"'), "home still emits the existing quick-input form for progressive enhancement");
   ok(home.text.includes('name="transaction_date"'), "home keeps the existing date field");
@@ -80,10 +80,10 @@ try {
   ok(v5.text.includes("openAbQuickInput"), "runtime exposes the shared quick-input opener");
   ok(v5.text.includes("data-ab-day-add"), "runtime connects day details to input");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22913.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22914.css");
   eq(shell.response.status, 200, "stage 3 shell is served");
   ok((shell.response.headers.get("content-type") || "").includes("text/css"), "stage 3 shell has a CSS content type");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22913-css"', "current shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22914-css"', "current shell ETag is correct");
   ok(shell.text.includes(".abQuickInputOverlay"), "shell contains quick-input overlay styles");
   ok(shell.text.includes(".abNavQuickInput"), "shell contains central mobile input styles");
 } finally {

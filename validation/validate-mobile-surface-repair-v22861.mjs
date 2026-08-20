@@ -9,10 +9,10 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22913.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed quick input runtime uses a new immutable path");
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22912.css"'), "byte-pinned legacy home stylesheet keeps its path");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22914.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
 // V22.8.93: 담아 온 number-flow 번들(9.4)은 이 검사의 대상이 아니다. 그 안의
@@ -76,13 +76,19 @@ eq(resolveQuickPaymentIcon("현대카드"), "💳", "card chip resolves the card
 // 아이콘은 마크업이 아니라 CSS로 그려야 홈 HTML 35KB·44KB 예산을 건드리지 않는다.
 const chipCss = quickChipIconCss();
 ok(chipCss.includes('body.abV22812Shell .chipRow button{display:inline-flex;align-items:center;gap:5px}'), "chip icon and label stay on one aligned row");
-ok(chipCss.includes('button:before{content:var(--ab-chip-icon,"🏷️")'), "chips fall back to one neutral icon in CSS too");
-ok(chipCss.includes('button[data-pay-only]{--ab-chip-icon:"💳"}'), "payment chips default to the card icon");
+// V22.9.14: 칩에서 이모지를 뺐다. 아이콘·라벨·횟수 셋이 46px 알약 안에서 경쟁했고,
+// 11px·opacity .75 까지 줄여도 컬러 글리프라 진한 면 위에서 가장 먼저 눈에 들어왔다.
+// 칩이 하는 일("눌러서 내용 채우기")은 라벨이 이미 다 말한다.
+//
+// 이 절이 원래 지키던 성질은 "아이콘이 마크업이 아니라 CSS 에서 다뤄져 홈 HTML 예산을
+// 건드리지 않는다" 였다. 그 성질은 그대로다 — 오히려 더 강해졌다. 값은 CSS 에 남아 있고
+// (되돌리려면 display:none 한 줄만 지우면 된다) 화면에는 그리지 않는다.
+ok(chipCss.includes("body.abV22812Shell .chipRow button:before{display:none}"), "칩은 라벨과 횟수만 보여준다 — 장식은 그리지 않는다");
+ok(chipCss.includes('button[data-pay-only]{--ab-chip-icon:"💳"}'), "되돌릴 수 있게 아이콘 값 자체는 CSS 에 남아 있다");
 for (const [selector, icon] of [['button[data-cat*="커피"]', "☕"], ['button[data-memo*="마트"]', "🛒"], ['button[data-pay-only*="현금"]', "💵"]]) {
   const index = chipCss.indexOf(selector);
-  ok(index >= 0 && chipCss.slice(index).startsWith(selector) === true && chipCss.slice(index).includes(icon), `${selector} is mapped in the generated CSS`);
+  ok(index >= 0 && chipCss.slice(index).includes(icon), `${selector} 매핑이 보존돼 있다`);
 }
-// CSS는 같은 특이도라 뒤 규칙이 이긴다. 우선순위가 높은 항목이 뒤에 와야 해석이 일치한다.
 ok(chipCss.indexOf('[data-cat*="커피"]') > chipCss.indexOf('[data-cat*="식비"]'), "higher priority chip rules are emitted later so CSS matches the resolver");
 ok(chipCss.indexOf('[data-pay-only*="현금"]') > chipCss.indexOf('[data-pay-only*="페이"]'), "higher priority payment rules are emitted later");
 ok(!source.includes('<i class="chipIcon"'), "no per-chip icon markup is added to the budgeted home HTML");
@@ -104,15 +110,17 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22913.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22914.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22913-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22914-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
   ok(shell.text.includes(".abNavDrawerActions"), "deployed shell styles the drawer action group that replaced the top-bar dock");
   ok(!shell.text.includes(".abNavMobileTopActions"), "deployed shell carries no styling for the retired top-bar dock");
   ok(shell.text.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}"), "deployed shell frees drawer height for the menu list");
   ok(shell.text.includes(".abQuickInputBody{overscroll-behavior:contain"), "deployed shell contains the quick input scroll");
-  ok(shell.text.includes('.chipRow button:before{content:var(--ab-chip-icon'), "deployed shell draws quick input chip icons");
+  // V22.9.14: 배포된 셸이 칩 장식을 **CSS 에서** 다루는지 본다(마크업이 아니라).
+  // 지금은 그리지 않는 쪽으로 다루므로 display:none 이 그 자리다.
+  ok(shell.text.includes(".chipRow button:before{display:none}"), "deployed shell keeps quick input chip decoration in CSS, not markup");
 
   const nav = await request(fixture, "/assets/accountbook-nav-v22893.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
@@ -127,7 +135,7 @@ try {
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22913.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-shell-v22914.css"), "home loads the refreshed shell");
   ok(home.text.includes("/assets/accountbook-nav-v22893.js"), "home loads the refreshed navigation runtime");
   ok(home.text.includes("/assets/accountbook-v5-v22890.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
