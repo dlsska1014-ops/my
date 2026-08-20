@@ -1927,7 +1927,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.9.0-UX-REPAIR";
+const APP_VERSION = "V22.9.15-CATEGORY-CANON";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2512,6 +2512,8 @@ function mobileUiUxClientMain() {
     // 규칙은 서버 정본(AB_CATEGORY_RULES)에서 온다. 여기 목록을 다시 적으면
     // 예전처럼 같은 문장에 다른 분류가 나온다.
     var rules = window.AB_CATEGORY_RULES || [];
+    text = String(text || "").toLowerCase();
+    var toks = text.split(/[^a-z0-9가-힣]+/).filter(Boolean);
     var best = null;
     for (var i = 0; i < rules.length; i += 1) {
       var rule = rules[i];
@@ -2520,6 +2522,10 @@ function mobileUiUxClientMain() {
       for (var j = 0; j < rule.words.length; j += 1) {
         var word = rule.words[j];
         if (word && text.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
+      }
+      var exact = rule.exact || [];
+      for (var k = 0; k < exact.length; k += 1) {
+        if (toks.indexOf(exact[k]) >= 0) score += rule.weight + Math.min(exact[k].length, 8);
       }
       if (score > 0 && (!best || score > best.score)) best = { name: rule.name, score: score };
     }
@@ -20670,11 +20676,11 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 `;
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22914.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22914.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v2298.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22915.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v2298.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22915.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
@@ -23490,7 +23496,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
     etag: path === AB_CATEGORY_RULES_ASSET_PATH
-      ? '"ab-category-rules-v2296-js"'
+      ? '"ab-category-rules-v22915-js"'
       : path === AB_CURSOR_ASSET_PATH
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
@@ -23506,7 +23512,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v2298-js"'
+          ? '"mobile-home-shell-v22915-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22893-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
@@ -23519,7 +23525,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
           ? '"accountbook-v5-v22890-js"'
-          : '"mobile-home-v2298-js"',
+          : '"mobile-home-v22915-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
@@ -23954,7 +23960,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}
     ${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}
     ${dailyPlanHtml}
-  </section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveHeadline, reserveHref: homeReserveHref, reserveCount: homeReserveCount, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 style="display:flex;align-items:center;justify-content:space-between">카테고리 비율<a href="/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" style="font-size:12px;color:#2563eb;text-decoration:none;font-weight:1000">월간 리포트 →</a></h2>${homeBars}</div></section><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">한 줄로 쓰면 적는 동안 금액·내용·결제수단이 아래에 채워집니다. 예: 커피 5천 현금 · 월급 250만원</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-daily="${Math.max(0, Number(dailyAllowanceAmt) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" style="width:100%;height:43px;border:1px solid #d6deea;border-radius:15px;padding:0 12px" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);var h=window.AB_TYPE_HINTS||{};if(h.income&&new RegExp('('+h.income+')').test(raw))return'income';if(h.expense&&new RegExp('('+h.expense+')').test(raw))return'expense';if(h.incomeCategory&&new RegExp('('+h.incomeCategory+')').test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(clearInput){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value="'+qType+'"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;if(clearInput){smart.value='';if(!amt&&amount)amount.focus();}abQuickSyncMore();abQuickSyncAfter();}
+  </section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveHeadline, reserveHref: homeReserveHref, reserveCount: homeReserveCount, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 style="display:flex;align-items:center;justify-content:space-between">카테고리 비율<a href="/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" style="font-size:12px;color:#2563eb;text-decoration:none;font-weight:1000">월간 리포트 →</a></h2>${homeBars}</div></section><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">한 줄로 쓰면 적는 동안 금액·내용·결제수단이 아래에 채워집니다. 예: 커피 5천 현금 · 월급 250만원</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-daily="${Math.max(0, Number(dailyAllowanceAmt) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" style="width:100%;height:43px;border:1px solid #d6deea;border-radius:15px;padding:0 12px" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);var h=window.AB_TYPE_HINTS||{};if(h.income&&new RegExp('('+h.income+')').test(raw))return'income';if(h.expense&&new RegExp('('+h.expense+')').test(raw))return'expense';if(h.incomeCategory&&new RegExp('('+h.incomeCategory+')').test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(clearInput){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value="'+qType+'"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;if(clearInput){smart.value='';if(!amt&&amount)amount.focus();}abQuickSyncMore();abQuickSyncAfter();}
 function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){var out=document.getElementById('quickAfter');if(!out)return;if(out.getAttribute('data-has-budget')!=='1')return;var base=Number(out.getAttribute('data-remaining')||0);var daily=Number(out.getAttribute('data-daily')||0);var amountEl=document.getElementById('amountInput');var amt=amountEl?Number(String(amountEl.value||'').replace(/[^0-9]/g,'')):0;var isIncome=!!document.querySelector('input[name=type][value=income]:checked');function comma(n){return String(Math.max(0,Math.round(n))).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');}if(!amt){out.textContent='남은 예산 '+comma(base)+'원'+(daily?' · 하루 '+comma(daily)+'원':'');return;}var next=isIncome?base:Math.max(0,base-amt);var ratio=base>0&&daily>0?daily/base:0;var nextDaily=ratio?Math.round(next*ratio):0;out.textContent='저장하면 남은 예산 '+comma(next)+'원'+(nextDaily?' · 하루 '+comma(nextDaily)+'원':'');}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`;
 }
 
@@ -31509,31 +31515,63 @@ function detectPaymentMethod(text) {
 }
 
 const CATEGORY_RULES = [
-  { name: "급여", type: "income", weight: 100, words: ["급여","월급","상여","보너스","수당","연봉","성과급","알바비","일당"] },
-  { name: "용돈", type: "income", weight: 90, words: ["용돈","축하금","받은돈"] },
-  { name: "환급", type: "income", weight: 90, words: ["환급","캐시백","환불받","돌려받","정산받","반환"] },
-  { name: "이자배당", type: "income", weight: 80, words: ["이자","배당","예금이자","주식배당"] },
+  // 수입 5(+기타수입 폴백) — recommendCategory 에는 "용돈"이 없었다. 갈래가 나뉜 게 아니라
+  // 그냥 빠진 것이라 되살린다.
+  { name: "급여", type: "income", weight: 100, words: ["급여","월급","상여","보너스","성과급","수당","연봉","알바비","일당"] },
+  { name: "용돈", type: "income", weight: 92, words: ["용돈","축하금","받은돈"] },
+  { name: "환급", type: "income", weight: 90, words: ["환급","캐시백","환불받","돌려받","돌려","정산받","반환"] },
+  { name: "이자배당", type: "income", weight: 88, words: ["이자","배당","예금이자","주식배당"] },
   { name: "부업/매출", type: "income", weight: 70, words: ["부업","매출","판매","수익","원고료","강의료"] },
 
-  { name: "주거/관리", type: "expense", weight: 100, words: ["월세","전세","관리비","임대료","주택","아파트","원룸","부동산","대출이자","전월세","수리비","인테리어"] },
-  { name: "공과금/통신", type: "expense", weight: 95, words: ["전기","전기세","가스","가스비","수도","수도세","도시가스","통신비","핸드폰","휴대폰","휴대전화","인터넷","와이파이","알뜰폰","요금","공과금"] },
-  { name: "보험", type: "expense", weight: 90, words: ["보험","보험료","실비","자동차보험","화재보험"] },
-  { name: "의료/건강", type: "expense", weight: 90, words: ["병원","약국","진료","치과","의료","약","검진","한의원","안과","내과","피부과","처방","영양제"] },
-  { name: "교통/차량", type: "expense", weight: 85, words: ["교통","택시","버스","지하철","기차","KTX","SRT","주유","기름","휘발유","경유","톨비","하이패스","주차","주차비","대리운전","정비","세차","카센터"] },
-  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","식자재","슈퍼","마켓","식료품"] },
-  { name: "식비", type: "expense", weight: 80, words: ["식비","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","음식","외식","식당","분식","국밥","고기","회식","술","맥주","소주","와인","배달","배민","요기요","쿠팡이츠","쌀","시리얼","김자반","반찬","식재료","식자재"] },
-  { name: "카페/간식", type: "expense", weight: 78, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리"] },
-  { name: "교육/학습", type: "expense", weight: 75, words: ["교육","학원","책","도서","수강","강의","교재","학교","인강","문제집","자격증","등록금"] },
-  { name: "육아/자녀", type: "expense", weight: 74, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","소아과","학습지","어린이","아동","유아","아기","식기","이유식"] },
-  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","세제","휴지","샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","풋샴푸"] },
-  { name: "쇼핑", type: "expense", weight: 70, words: ["쇼핑","쿠팡","네이버쇼핑","11번가","G마켓","옥션","무신사","옷","의류","신발","가방","화장품","구매","샀","주문","택배"] },
-  { name: "구독", type: "expense", weight: 88, words: ["구독","넷플릭스","유튜브","유튜브고급","멤버십","멜론","디즈니","쿠팡와우","스포티파이","왓챠","티빙","웨이브","애플뮤직","클라우드"] },
-  { name: "문화/여가", type: "expense", weight: 65, words: ["영화","여행","숙박","호텔","펜션","놀이","게임","취미","운동","헬스","골프","캠핑","콘서트","전시","공연","노래방"] },
-  { name: "경조사/선물", type: "expense", weight: 64, words: ["축의금","부의금","조의금","경조사","선물","생일","명절","용돈드림","화환"] },
-  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드"] },
-  { name: "미용", type: "expense", weight: 60, words: ["미용실","헤어","커트","염색","네일","피부관리","마사지"] },
+  // 지출 32 — 30개 체계 + DEFAULT_CATEGORIES 에 이미 있는데 규칙이 없어 손으로만
+  // 넣을 수 있던 둘(저축/투자·대출/이자)을 채웠다. 없으면 "적금 50만"이 기타지출로 간다.
+  //
+  // 무게는 "겹칠 때 누가 이기는가"다. 좁은 분류가 넓은 분류보다 높다 —
+  // "쿠팡이츠"는 쇼핑(쿠팡)이 아니라 배달이어야 하고, "자동차보험"은 차량관리가
+  // 아니라 보험이어야 한다.
+  { name: "주거/월세", type: "expense", weight: 100, words: ["월세","전세","전월세","임대료","집세","주택","원룸","부동산"] },
+  { name: "관리비", type: "expense", weight: 99, words: ["관리비","아파트관리"] },
+  { name: "대출/이자", type: "expense", weight: 98, words: ["대출","대출이자","원리금","상환","할부이자"] },
+  { name: "저축/투자", type: "expense", weight: 97, words: ["저축","적금","예금","투자","주식","펀드","연금","청약"] },
+  { name: "공과금", type: "expense", weight: 96, words: ["공과금","전기","전기세","가스","가스비","수도","수도세","도시가스"] },
+  { name: "통신비", type: "expense", weight: 95, words: ["통신","통신비","핸드폰","휴대폰","휴대전화","인터넷","와이파이","알뜰폰","유플러스","lg유플러스"], exact: ["kt","skt"] },
+  { name: "보험", type: "expense", weight: 94, words: ["보험","보험료","실비","암보험","화재보험","자동차보험"] },
+  { name: "약국", type: "expense", weight: 92, words: ["약국","약값","의약품","처방","영양제"] },
+  { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트"] },
+  { name: "차량관리", type: "expense", weight: 89, words: ["세차","정비","엔진오일","타이어","주차","주차비","하이패스","톨비","카센터","대리운전"] },
+  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전"], exact: ["ev"] },
+  { name: "택시", type: "expense", weight: 87, words: ["택시","카카오t","타다"] },
+  { name: "교통", type: "expense", weight: 86, words: ["교통","버스","지하철","기차","ktx","srt","티머니","캐시비"] },
+  { name: "구독", type: "expense", weight: 85, words: ["구독","넷플릭스","유튜브","유튜브고급","멤버십","멜론","디즈니","쿠팡와우","스포티파이","왓챠","티빙","웨이브","애플뮤직","클라우드"] },
+  { name: "배달", type: "expense", weight: 84, words: ["배달","배민","요기요","쿠팡이츠"] },
+  { name: "편의점", type: "expense", weight: 83, words: ["편의점","gs25","세븐일레븐","이마트24"], exact: ["cu"] },
+  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"] },
+  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리"] },
+  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인"] },
+  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"] },
+  { name: "교육/학습", type: "expense", weight: 75, words: ["교육","학원","수업","수강","강의","교재","학교","인강","문제집","자격증","등록금","공부"] },
+  { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24"] },
+  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"] },
+  { name: "의류/잡화", type: "expense", weight: 71, words: ["옷","의류","신발","가방","잡화","패션"] },
+  { name: "미용", type: "expense", weight: 70, words: ["미용","미용실","헤어","커트","염색","네일","피부관리","마사지","화장품","올리브영"] },
+  { name: "쇼핑", type: "expense", weight: 68, words: ["쇼핑","쿠팡","네이버쇼핑","11번가","g마켓","옥션","무신사","구매","샀","주문","택배"] },
+  { name: "운동", type: "expense", weight: 66, words: ["헬스","운동","필라테스","요가","골프","수영"] },
+  { name: "여행", type: "expense", weight: 65, words: ["여행","호텔","숙박","항공","리조트","펜션","캠핑"] },
+  { name: "문화/여가", type: "expense", weight: 64, words: ["영화","공연","전시","게임","노래방","취미","놀이","콘서트"] },
+  { name: "경조사/선물", type: "expense", weight: 63, words: ["축의금","부의금","조의금","경조사","선물","생일","명절","용돈드림","화환"] },
+  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드","펫"] },
   { name: "세금/수수료", type: "expense", weight: 58, words: ["세금","자동차세","재산세","종부세","부가세","수수료","과태료","벌금"] },
 ];
+
+// 개편 전 규칙이 만들던 넓은 이름들. 이미 저장된 기록에 남아 있으므로 화면에서
+// 사라지면 안 되고, 새로 만들어지지도 않아야 한다. 어느 갈래로 나뉘었는지 적어 둔다.
+const LEGACY_CATEGORY_SPLITS = Object.freeze({
+  "식비": ["외식", "배달", "편의점"],
+  "교통/차량": ["교통", "택시", "주유/충전", "차량관리"],
+  "주거/관리": ["주거/월세", "관리비"],
+  "공과금/통신": ["공과금", "통신비"],
+  "의료/건강": ["의료/병원", "약국"],
+});
 
 // V22.9.6: 같은 질문에 같은 답을 하게 만드는 정본.
 //
@@ -31558,7 +31596,7 @@ const AB_TYPE_HINTS = Object.freeze({
 
 // 1년 캐시되는 불변 자산. 홈 HTML 안에 규칙을 인라인으로 싣던 2,248 B 가 여기로
 // 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다.
-const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v2296.js";
+const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22915.js";
 const AB_CATEGORY_RULES_SCRIPT_TAG = `<script src="${AB_CATEGORY_RULES_ASSET_PATH}"></script>`;
 function abCategoryRulesJsAsset() {
   return `window.AB_CATEGORY_RULES=${JSON.stringify(CATEGORY_RULES)};window.AB_TYPE_HINTS=${JSON.stringify(AB_TYPE_HINTS)};`;
@@ -31573,7 +31611,10 @@ function normalizeCategoryName(value, type) {
 }
 
 function inferCategory(text, type) {
-  const raw = normalizeText(text);
+  // 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓴다. 표의 낱말은
+  // 소문자로 적어 두고 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
+  const raw = normalizeText(text).toLowerCase();
+  const tokens = raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);
   let best = null;
   for (const rule of CATEGORY_RULES) {
     if (rule.type !== type) continue;
@@ -31581,6 +31622,9 @@ function inferCategory(text, type) {
     for (const word of rule.words) {
       if (!word) continue;
       if (raw.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
+    }
+    for (const word of rule.exact || []) {
+      if (tokens.includes(word)) score += rule.weight + Math.min(word.length, 8);
     }
     if (score > 0 && (!best || score > best.score)) best = { category: rule.name, score };
   }
@@ -31828,49 +31872,12 @@ async function bulkTransactionsAtomic(env, ids = [], householdId = "", patch = {
   return Array.isArray(result) ? result[0] : result;
 }
 
+// V22.9.15: 이 함수는 30개짜리 **다른 분류 체계**를 따로 갖고 있었다. 거래를 분류 없이
+// 저장하면 그 이름이 그대로 DB 에 들어가서, 화면은 "식비"라고 제안하는데 저장은 "외식"이
+// 되는 일이 벌어졌다. 사용자가 30개(잘게) 쪽을 정본으로 정했으므로 CATEGORY_RULES 를
+// 그 체계로 다시 쓰고, 이 함수는 정본에 위임만 한다 — 표가 하나가 되었다.
 function recommendCategory(text = "", type = "expense") {
-  const t = normalizeText(text).toLowerCase();
-  if (type === "income") {
-    if (/급여|월급|상여|보너스|성과급/.test(t)) return "급여";
-    if (/환급|캐시백|돌려/.test(t)) return "환급";
-    if (/이자|배당/.test(t)) return "이자배당";
-    if (/부업|매출|판매/.test(t)) return "부업/매출";
-    return "기타수입";
-  }
-  const rules = [
-    ["카페/간식", /커피|카페|스타벅스|스벅|투썸|메가커피|컴포즈|빽다방|디저트|간식|빵|베이커리/],
-    ["외식", /점심|저녁|아침|식당|국밥|치킨|피자|햄버거|맥도날드|버거|고기|회식|외식/],
-    ["배달", /배달|배민|요기요|쿠팡이츠/],
-    ["장보기", /마트|이마트|홈플러스|롯데마트|코스트코|장보기|식자재|농협/],
-    ["편의점", /편의점|cu|gs25|세븐일레븐|이마트24/],
-    ["교통", /버스|지하철|교통|티머니|캐시비|기차|ktx|srt/],
-    ["택시", /택시|카카오t|타다/],
-    ["주유/충전", /주유|휘발유|경유|충전소|전기차충전|ev/],
-    ["차량관리", /세차|정비|엔진오일|타이어|자동차보험|주차|하이패스/],
-    ["쇼핑", /쿠팡|네이버쇼핑|11번가|g마켓|옥션|무신사|쇼핑|구매/],
-    ["의류/잡화", /옷|의류|신발|가방|잡화|패션/],
-    ["생활용품", /다이소|생활용품|문구|청소|세제|휴지/],
-    ["주거/월세", /월세|전세|임대료|집세/],
-    ["관리비", /관리비|아파트관리/],
-    ["공과금", /전기|가스|수도|공과금/],
-    ["통신비", /통신|핸드폰|휴대폰|인터넷|kt|skt|lg유플러스|유플러스/],
-    ["보험", /보험|실비|암보험|자동차보험/],
-    ["의료/병원", /병원|의원|치과|안과|내과|진료|검진|렌즈|콘택트/],
-    ["약국", /약국|약값|의약품/],
-    ["교육/학습", /학원|수업|강의|교육|공부|인강/],
-    ["도서", /책|도서|서점|교보|알라딘|예스24/],
-    ["육아/자녀", /어린이|아이|분유|기저귀|장난감|키즈|유치원|어린이집/],
-    ["문화/여가", /영화|넷플릭스|공연|전시|게임|노래방|취미/],
-    ["여행", /호텔|숙박|항공|여행|리조트|펜션/],
-    ["운동", /헬스|운동|필라테스|요가|골프|수영/],
-    ["구독", /구독|유튜브|넷플릭스|디즈니|쿠팡와우|멤버십/],
-    ["경조사/선물", /축의금|부의금|선물|생일|경조사/],
-    ["반려동물", /강아지|고양이|동물병원|사료|펫/],
-    ["미용", /미용|헤어|네일|화장품|올리브영/],
-    ["세금/수수료", /세금|수수료|과태료|벌금/],
-  ];
-  for (const [name, re] of rules) if (re.test(t)) return name;
-  return "기타";
+  return inferCategory(text, type === "income" ? "income" : "expense");
 }
 
 function sanitizeTransactionBody(body, partial = false) {
@@ -31883,7 +31890,7 @@ function sanitizeTransactionBody(body, partial = false) {
   if (!partial || body.category !== undefined) out.category = String(body.category || "").slice(0, 80);
   if (!partial || body.memo !== undefined) out.memo = String(body.memo || "").slice(0, 160);
   if (!partial && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${body.raw_text || ""} ${body.payment_method || ""}`, out.type);
-  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타";
+  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
   if (!partial || body.payment_method !== undefined) out.payment_method = String(body.payment_method || "").slice(0, 40);
   if (!partial || body.transaction_date !== undefined) out.transaction_date = /^20\d{2}-\d{2}-\d{2}$/.test(String(body.transaction_date || "")) ? String(body.transaction_date) : formatDate(nowKstDate());
   if (!partial) out.source = body.source || "web_admin";

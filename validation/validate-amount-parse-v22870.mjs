@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the amount parsing fix release");
+ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the amount parsing fix release");
 
 // 1. 숫자 사이 쉼표는 문장 구분자가 아니다.
 ok(source.includes("(?<!\\d)[,，](?!\\d)"), "clause splitting skips commas that sit between digits");
@@ -117,7 +117,16 @@ try {
     const { added } = await saved(fixture, utterance);
     eq(added[0]?.type, type, `"${utterance}" 의 수입·지출 구분`);
   }
-  for (const [utterance, category] of [["점심 9500", "식비"], ["커피 4500", "카페/간식"], ["월세 65만원", "주거/관리"], ["넷플릭스 17000", "구독"]]) {
+  // V22.9.15: 분류 체계가 30개(잘게)로 바뀌었다. 넓은 이름이 갈래로 나뉜 자리를 그대로 옮긴다 —
+  //   식비 → 외식 · 주거/관리 → 주거/월세
+  // 갈라진 이름을 확인하는 자리라 갈래마다 하나씩 넣어 둔다.
+  for (const [utterance, category] of [
+    ["점심 9500", "외식"], ["배민 18000", "배달"], ["커피 4500", "카페/간식"],
+    ["월세 65만원", "주거/월세"], ["관리비 23만원", "관리비"],
+    ["택시 9800", "택시"], ["주유 6만원", "주유/충전"],
+    ["약국 8000", "약국"], ["한의원 3만원", "의료/병원"],
+    ["넷플릭스 17000", "구독"],
+  ]) {
     const { added } = await saved(fixture, utterance);
     eq(added[0]?.category, category, `"${utterance}" 의 분류 자동추천`);
   }

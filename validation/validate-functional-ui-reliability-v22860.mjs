@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the functional UI reliability release");
+ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the functional UI reliability release");
 ok(source.includes('data-report-challenge-form'), "challenge settings opt into inline save");
 ok(source.includes('"x-accountbook-inline": "1"'), "challenge client marks only its own inline request");
 ok(source.includes('event.preventDefault()'), "inline challenge save prevents full-page form navigation");

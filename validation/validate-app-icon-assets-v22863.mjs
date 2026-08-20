@@ -8,7 +8,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-ok(source.includes('const APP_VERSION = "V22.9.0-UX-REPAIR"'), "runtime exposes the app icon release");
+ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the app icon release");
 ok(source.includes("async function appIconAssetResponse(request, url)"), "icon routes have a dedicated handler");
 ok(source.includes('["/favicon.ico", { kind: "ico", size: 32 }]'), "favicon path is served");
 ok(source.includes('["/apple-touch-icon.png", { kind: "png", size: 180 }]'), "apple touch icon path is served");

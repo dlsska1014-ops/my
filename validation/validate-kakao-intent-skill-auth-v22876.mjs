@@ -114,7 +114,7 @@ const say = async (utterance) => {
 await say("안녕");
 ok((await say("2")).includes("선택했어요"), "가계부를 선택할 수 있다");
 
-for (const [utterance, category] of [["주유 5만원", "교통/차량"], ["카페 4500", "카페/간식"], ["커피 4500", "카페/간식"], ["외식 2만원", "식비"]]) {
+for (const [utterance, category] of [["주유 5만원", "주유/충전"], ["카페 4500", "카페/간식"], ["커피 4500", "카페/간식"], ["외식 2만원", "외식"]]) {
   const before = fixture.db.transactions.length;
   const reply = await say(utterance);
   const added = fixture.db.transactions.slice(before);
