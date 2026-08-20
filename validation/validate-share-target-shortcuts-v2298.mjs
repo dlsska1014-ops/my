@@ -93,8 +93,8 @@ try {
   // -------------------------------------------------------------------------
   // 여기가 이 기능의 값어치다. 입력칸에 글자만 들어가고 금액·분류가 안 붙으면
   // 사용자는 어차피 손으로 다시 쳐야 한다.
-  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v2296.js`), {}, {})).text();
-  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v2298.js`), {}, {})).text();
+  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22915.js`), {}, {})).text();
+  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22915.js`), {}, {})).text();
   const win = {};
   new Function("window", rulesJs)(win);
   const start = shellJs.indexOf("function parseKoreanAmount(text){");
@@ -107,7 +107,7 @@ try {
   for (const [text, expected] of [
     ["[Web발신] 국민카드 승인 김OO 15,000원 스타벅스 강남점", { amount: 15000, type: "expense", category: "카페/간식", payment: "국민카드" }],
     ["현대카드 승인 32,000원 이마트 일시불", { amount: 32000, type: "expense", category: "장보기", payment: "현대카드" }],
-    ["카카오페이 8,900원 결제 배달의민족", { amount: 8900, type: "expense", category: "식비", payment: "카카오페이" }],
+    ["카카오페이 8,900원 결제 배달의민족", { amount: 8900, type: "expense", category: "배달", payment: "카카오페이" }],
     ["[Web발신] KB국민 12/03 홍길동 급여 3,200,000원 입금", { amount: 3200000, type: "income", category: "급여", payment: "" }],
   ]) {
     const got = parse(text);

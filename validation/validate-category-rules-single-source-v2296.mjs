@@ -31,10 +31,10 @@ const ORIGIN = "https://ttokttok-accountbook.com";
 // ---------------------------------------------------------------------------
 // 1) 정본이 하나 있고, 캐시되는 자산으로 전달된다
 // ---------------------------------------------------------------------------
-const RULES_ASSET = "/assets/ab-category-rules-v2296.js";
+const RULES_ASSET = "/assets/ab-category-rules-v22915.js";
 const rulesResponse = await app.fetch(new Request(`${ORIGIN}${RULES_ASSET}`), {}, {});
 eq(rulesResponse.status, 200, "분류 규칙 자산이 서빙된다");
-eq(rulesResponse.headers.get("etag"), '"ab-category-rules-v2296-js"', "ETag 가 주소와 맞는다");
+eq(rulesResponse.headers.get("etag"), '"ab-category-rules-v22915-js"', "ETag 가 주소와 맞는다");
 ok(String(rulesResponse.headers.get("cache-control") || "").includes("immutable"), "1년 캐시 불변 자산이다");
 const rulesJs = await rulesResponse.text();
 
@@ -59,18 +59,24 @@ for (const word of ["스타벅스", "하이패스", "홈플러스", "넷플릭�
   ok(!mainBody.includes(word), `다른 화면 사본이 "${word}" 를 직접 들고 있지 않다`);
 }
 
-// ── 알려진 예외 하나를 적어 둔다 ──
-// recommendCategory 는 **다른 분류 체계**(30개: 외식·배달·편의점·택시·약국·통신비…)를
-// 갖고 있고, 거래를 저장할 때 분류가 비어 있으면 그 이름이 그대로 DB 에 들어간다
-// (sanitizeTransactionBody). 즉 화면은 "식비"라고 제안하는데 저장은 "외식"이 될 수 있다.
-// 이건 규칙이 갈린 게 아니라 **분류 체계를 둘 중 무엇으로 할지**의 문제라 사람이 정해야
-// 한다. 여기서는 고치지 않고, 그 사이에 이 두 번째 체계가 조용히 더 자라지 않도록
-// 크기만 고정해 둔다.
+// ── V22.9.15: 그 예외가 사라졌다 ──
+// recommendCategory 는 30개짜리 **다른 분류 체계**를 따로 갖고 있었고, 거래를 분류 없이
+// 저장하면 그 이름이 그대로 DB 에 들어갔다 — 화면은 "식비"라고 제안하는데 저장은 "외식".
+// 어느 체계를 정본으로 할지는 제품 결정이라 그때는 크기만 고정해 뒀는데, 30개(잘게)로
+// 가기로 정해졌다. 정본을 그 체계로 다시 쓰고 이 함수는 위임만 한다 — 표가 하나가 됐다.
 const recStart = source.indexOf("function recommendCategory(");
 const recBody = source.slice(recStart, source.indexOf("\n}\n", recStart));
-const recNames = [...recBody.matchAll(/\["([^"]+)", \//g)].map((m) => m[1]);
-eq(recNames.length, 30, `저장 경로의 두 번째 분류 체계가 30개 그대로다 (정본은 ${win.AB_CATEGORY_RULES.length}개) — 늘리려면 통합부터 결정해야 한다`);
-ok(source.includes("out.category = recommendCategory("), "그 체계가 저장 경로에서 쓰이고 있다는 사실 자체를 기록해 둔다");
+eq((recBody.match(/\["([^"]+)", \//g) || []).length, 0, "저장 경로가 제 분류 표를 들고 있지 않다");
+ok(recBody.includes("return inferCategory("), "저장 경로가 정본에 위임한다");
+ok(source.includes("out.category = recommendCategory("), "저장 경로에서 그 함수가 여전히 쓰인다");
+// 두 갈래로 나뉜 옛 이름들은 지우지 않고 기록해 둔다 — 이미 저장된 기록에 남아 있다.
+ok(source.includes("const LEGACY_CATEGORY_SPLITS = Object.freeze({"), "옛 이름이 어느 갈래로 나뉘었는지 적어 두었다");
+for (const legacy of ["식비", "교통/차량", "주거/관리", "공과금/통신", "의료/건강"]) {
+  ok(new RegExp(`"${legacy.replace("/", "\\/")}":`).test(source), `옛 이름 "${legacy}" 의 갈래가 적혀 있다`);
+  ok(!win.AB_CATEGORY_RULES.some((rule) => rule.name === legacy), `"${legacy}" 는 더 이상 새로 만들어지지 않는다`);
+}
+// 마지막 폴백도 정본과 같은 이름을 쓴다 — "기타"와 "기타지출"이 섞이면 분류가 둘이 된다.
+ok(!source.includes('"기타수입" : "기타";'), "저장 경로 폴백이 정본과 같은 이름을 쓴다");
 
 // ---------------------------------------------------------------------------
 // 3) 세 곳을 실제로 돌려서 답을 맞춰 본다
@@ -85,7 +91,7 @@ function slice(text, from, to) {
 
 // ① 홈 빠른입력 — 홈이 실제로 받는 캐시 자산에서 떼어낸다. 소스 문자열을 자르면
 //    템플릿 리터럴 이스케이프가 한 겹 더 껴서 브라우저가 받는 것과 다른 코드를 재게 된다.
-const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v2298.js`), {}, {})).text();
+const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22915.js`), {}, {})).text();
 ok(shellJs.includes("window.AB_CATEGORY_RULES=["), "홈 셸 자산이 규칙을 함께 싣는다(요청이 늘지 않는다)");
 const noDom = { querySelectorAll: () => [] };
 const homeAsk = new Function("window", "document",

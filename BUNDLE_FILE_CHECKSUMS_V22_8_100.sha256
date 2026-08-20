@@ -1,5 +1,5 @@
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
-0cf76cccaef79a3a4e083e16926413f7efde17f1ddb8ca65c244f3283fa2303d  ./.codex/scripts/verify-repository.mjs
+44fbe7dd28aac4f5021f32d3c86e77f3fa799bf2b7b908b8644b1ffe1c64adf1  ./.codex/scripts/verify-repository.mjs
 301a55f71560c73fe7e2c739c6418d5f3eb90850b92649bbea60ee522a8a7fa3  ./.github/workflows/verify.yml
 ef23d1270b14425e794fca19f1bb98459b48e9aa61c27f2279c31cc6c1aa2646  ./00_READ_FIRST_V22_8_74.md
 ede0146ee505893034cfb04bfd3cb5e0a8bc6f60bb10a60de589aaa0f5ed0c23  ./00_READ_FIRST_V22_8_75.md
@@ -43,7 +43,7 @@ ccbc5dc78d2eac6718fa641e0011dd869695aab3eb43234ba6c0ff00d9e42294  ./VALIDATION_R
 e3383843a57c8d3453545e61b36d776f0bb471f1381dbaebc4634b30db6f93c1  ./VERSION.txt
 5347e02e9cf3f88e4596731e4026793be9c1ad6a68014d02d4dd0d8305ae45ac  ./docs/codex/VERIFICATION.md
 33552017f1fee6dee4da70b848b2d5f14795d200e71d4d0371fbfa565061d67a  ./package.json
-7043351ed76d334cf153a9307d5454bee99821d795baf25be7fbfbd58d325126  ./src/index.js
+650ead50a802c29af78d72ee404a269e1cf68c493169d50f32039e57104e1708  ./src/index.js
 20d2c5054c92b00d796204b9e50aafd0fc81141b30abc1d12f323331ec2e5b1d  ./tools/bundle-number-flow.mjs
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22874.sh
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22875.sh
@@ -53,7 +53,7 @@ d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22
 f3631bc02b8fecb7902643caf4f01fdb29deb7f60d204957248ca646de5bb47d  ./validation/qa-fixture.mjs
 b41bccb2cd2ca16ea9b2bea19ef65a9631153b6c98335523e015be91825a38d0  ./validation/validate-account-runtime-reliability-v22859.mjs
 8ff2473d43467bf0d5e2fd09800e7c4e9aa0e4d4b3c093cab4f19e1d5cb15c8d  ./validation/validate-adsense-v2-v22817.mjs
-d425a67e7ad298a5811f24aa45291a92084ceef971d4cf6a9882293d2ea894ad  ./validation/validate-amount-parse-v22870.mjs
+70b379727c1be4360d9105b5fa41e308fd0c530353c0dd7961274b9438769f67  ./validation/validate-amount-parse-v22870.mjs
 8a695cf188cb17f5d08f858d34af8793802716e01ebf7849387dd6eafa3b46d9  ./validation/validate-analysis-role-split-v22875.mjs
 931f69f3986c4a517326ae99e4be665ae26f4ded6550533fba25f20518514cb7  ./validation/validate-app-icon-assets-v22863.mjs
 b45e4de55a24804a925f1ba5f775e3a3c433fb3c93bdb184ed613704fb811379  ./validation/validate-budget-basis-income-ia-v22881.mjs
@@ -78,7 +78,7 @@ abbc0bebacf3b8c611dac7547d2a932f6f01a0a39b0fc87afc695f3d6c8551aa  ./validation/v
 0809f073829960328e128d75ccdae6bb2727419521ea5cd3fb8e5ab4733a631b  ./validation/validate-interrupted-save-v22877.mjs
 e8220f918898b5f4b1181509b9cb79678ebe77f08e30183341f1221fdeb8bcfd  ./validation/validate-kakao-edit-flow.mjs
 cf577484536c555e93dcf4b0b2be3b731fe75ad7104813eb697dec45c5cfaacb  ./validation/validate-kakao-group.mjs
-43e1ad0b025f310ea7b611b289f4b3a5b1e8dd5c6eb3a0445cbdb49042f7cabc  ./validation/validate-kakao-intent-skill-auth-v22876.mjs
+585515ec4a28dd3f4344042a150b77fc019dd649f627656d936a130798bece5d  ./validation/validate-kakao-intent-skill-auth-v22876.mjs
 202580811f85cd7c921e2e32bded31f251e924019c6ef38b3effdc54f7c0c1cb  ./validation/validate-kakao-memo-repeat-v22869.mjs
 cab47274af71f8300d4ad7c060e3badb6069f4848f6c3dca26c6de44c76926d9  ./validation/validate-member-role-schema-v22846.mjs
 2159a1acdf0884f4c8b233761cafa7a9bdfcf95f7253d5e1579dac810bdb7da1  ./validation/validate-mobile-dock-tabs-v22887.mjs
@@ -86,7 +86,7 @@ cab47274af71f8300d4ad7c060e3badb6069f4848f6c3dca26c6de44c76926d9  ./validation/v
 48ef28e9586b639534a8613798ec3e4edc4f6fa88b03c0f7e6e4c9d41333b068  ./validation/validate-mobile-surface-repair-v22861.mjs
 451847ea15e2b89b2acd6588c99c5c3470c93682d4eada78e919da5ce6408df4  ./validation/validate-month-reset-brand-icon-v22879.mjs
 390ce38e3a3cbe04f6352c049d2b91b9c78a391795ad5ff89e338568337e2761  ./validation/validate-number-transitions-v22893.mjs
-291fffbbbdecefb99b2cb23897edfe79487fed594625258b9d51125ca8616d10  ./validation/validate-performance-v22811.mjs
+e12e333612f1e3f6277c0d5c84d9c89ba764efcfd937beebec8fff4b962ad93c  ./validation/validate-performance-v22811.mjs
 829949cd7036be4d20db9b820b8fe8020faeb14436fce72ce0644e52bbc8dfcb  ./validation/validate-quick-sheet-two-tier-v22889.mjs
 db820ce3f2efb9043c91afdc2aae6ccf7726269c135c4560ac67f27ff1db6fc8  ./validation/validate-receipt-original-values-v22898.mjs
 b648aa2d3b6fcb2cd5aa58644c483113639a177acc764a96456e52c9e0c45319  ./validation/validate-receipt-parse-accuracy-v22884.mjs
@@ -100,10 +100,10 @@ d2493b68b76ee45042062889d2b2b01ceb5479aadf40688756f7e4586c9ea021  ./validation/v
 c062fa4076cf9f271407a9ab6d5468319a483904d09863995fb96a69ff5b4060  ./validation/validate-screen-truth-v2290.mjs
 ae1f3e9a618e41da8552386b2ae17f9a17832ed6a0c53b3315e7ca4a82cee32a  ./validation/validate-shared-stylesheet-v2291.mjs
 e06e748519dfefc598bff4460ee07ad6ed280f1b92c4c3b1b06832ab14ef4ed0  ./validation/validate-nav-information-architecture-v2295.mjs
-53bd8ab03231fb5588f1298737be4d06d0b91137d97c0fe78da1af0d1701167b  ./validation/validate-category-rules-single-source-v2296.mjs
+cf5467178f42c5235040a26fb4e4bb66812f2c6655e44a3b12dde1d7919eeb63  ./validation/validate-category-rules-single-source-v2296.mjs
 a6fc76c56d98fad80844d119708f08c2da9f23fd59b88fa1d164c3f87e3a42c1  ./validation/validate-speculation-rules-v2297.mjs
-d70209f062444432cfce9fa8f8db48a0667bb977bf444f5e4e1e9de66078ab14  ./validation/validate-share-target-shortcuts-v2298.mjs
-aeeb2b9ca7ec28762e0c0ae0f6c52a61e14391ff9f41da9a019f315775c8af92  ./validation/validate-immutable-asset-addresses-v2299.mjs
+5033f243e877ed69c6e26f236b166cc02b885bb06c0a913f62acd2325bd84f04  ./validation/validate-share-target-shortcuts-v2298.mjs
+d491622db350feaf20f0589df3f01a53bbfac3c5b8b9a5982f0f1eeebf9e5ca6  ./validation/validate-immutable-asset-addresses-v2299.mjs
 c758c5ed7bec8084b1bc9514a40749eddb7f98dc59de91c5db55bf411d1a2a17  ./validation/validate-menu-leads-with-menu-v22910.mjs
 f40701d34e6cbce594accee7d6983c6d58756d657e3befdff1254b60fb9d1238  ./validation/validate-desktop-rail-space-v22911.mjs
 cf617b331c8301d69ebe4e4dd4e7777500edeb365d1e660ad0f02c1978f2d471  ./validation/validate-motion-scale-v22912.mjs
