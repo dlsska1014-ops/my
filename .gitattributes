@@ -11,3 +11,5 @@
 *.yml text eol=lf
 *.sha256 text eol=lf
 *.toml text eol=lf
+*.sql text eol=lf
+*.ps1 text eol=lf

@@ -23,7 +23,9 @@ function eq(actual, expected, label) {
   checks += 1;
 }
 
-const currentMonth = new Date().toISOString().slice(0, 7);
+// 서버는 KST 기준 달을 쓴다(currentMonthKst). UTC 로 재면 월말 15시 이후 아홉 시간 동안
+// 달이 어긋나 픽스처가 지난달에 실리고 "남은 일수"가 0이 된다.
+const currentMonth = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 7);
 const householdId = "house-home";
 
 async function renderHome(setup = () => {}, month = currentMonth) {
@@ -65,7 +67,9 @@ eq(baseline.status, 200, "홈이 렌더된다");
 // PR4·PR7 이 지키던 것은 "화면을 더하려고 자료를 다시 받지 않는다"였고 그건 그대로다
 // — 거래·예산·가계부 조회는 한 번도 늘지 않았다. 늘어난 하나가 정확히 그 설정 한
 // 줄인지는 validate-home-layout-v22894.mjs 가 키까지 보고 확인한다.
-eq(baseline.calls.length, 11, `홈의 DB 질의 수가 그대로다 (${baseline.calls.length}회)`);
+// V22.9.16: 11회였던 것이 9회로 줄었다(가계부 행을 참여 행에 포함해 읽고, 홈 구성 설정을 묶음에
+// 넣었다). 첫 요청은 통합 계정 캐시가 비어 사용자 행을 한 번 더 읽으므로 9회가 상한이다.
+ok(baseline.calls.length <= 9, `홈의 DB 질의 수가 늘지 않는다 (${baseline.calls.length}회, 상한 9회)`);
 eq(baseline.calls.filter((path) => path.includes("accountbook_budgets")).length, 1, "예산 질의는 한 번뿐이다");
 eq(baseline.calls.filter((path) => path.includes("transactions")).length, 2, "거래 질의 수가 그대로다");
 
@@ -97,9 +101,22 @@ ok(/하루 [\d,]+\s*원/.test(slowPlan.text), `하루 기준 금액을 말한다
 ok(/<span data-ab-num="\d+" data-ab-num-unit="원">/.test(slowPlan.block), "하루 환산 금액에 전환 대상 값이 실려 있다");
 ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니다"), "느린 속도에서는 남을 금액을 말한다");
 
-const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
+// V22.9.16: 이 검사는 "오늘이 며칠인지"에 따라 결과가 달라졌다. 예산 100만원에 80만원을
+// 썼을 때 "먼저 끝난다"가 되려면 이 속도로 달 끝까지 갔을 때 예산을 넘어야 하는데,
+// 28일에 재면 하루 2.9만원 × 30일 = 86만원이라 넘지 않는다. 그래서 월초에만 통과하고
+// 월말(9/28)에는 하네스 전체가 실패했다. 예산에 거의 닿은 값(99만원)을 쓰면 하루 평균이
+// 어느 날에 재도 남은 하루치보다 커서 "먼저 끝난다"가 성립한다 — 단 마지막 날만 빼고.
+// 마지막 날에는 이미 달 끝이라 "먼저 끝날 날"이 없으니 그날은 안내가 비는 것이 맞다.
+const kstToday = new Date(Date.now() + 9 * 3600 * 1000);
+const kstDay = kstToday.getUTCDate();
+const kstDaysInMonth = new Date(Date.UTC(kstToday.getUTCFullYear(), kstToday.getUTCMonth() + 1, 0)).getUTCDate();
+const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 990000); });
 const fastPlan = planOf(fast.html);
-ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+if (kstDay < kstDaysInMonth) {
+  ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+} else {
+  ok(!/먼저 끝납니다|남습니다/.test(fastPlan.text), `달의 마지막 날에는 속도 안내를 비운다 (${fastPlan.text})`);
+}
 
 const over = await renderHome((fixture) => { addTotalBudget(fixture, 500000); addExpense(fixture, 900000); });
 const overPlan = planOf(over.html);

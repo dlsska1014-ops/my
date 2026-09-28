@@ -193,7 +193,9 @@ try {
   // 나머지는 V22.8.91 그대로여야 한다 — 카드 순서를 정하려고 자료를 다시 받지 않는다.
   eq(calls.filter((call) => call.startsWith("/rest/v1/transactions")).length, 2, "거래 조회는 그대로 두 번이다");
   eq(calls.filter((call) => call.startsWith("/rest/v1/accountbook_budgets")).length, 1, "예산 조회는 그대로 한 번이다");
-  eq(calls.filter((call) => call.startsWith("/rest/v1/households")).length, 1, "가계부 조회는 그대로 한 번이다");
+  // V22.9.16: 가계부 행은 참여 행 조회에 포함돼 온다(PostgREST embedding). 따로 읽지 않는다.
+  eq(calls.filter((call) => call.startsWith("/rest/v1/households")).length, 0, "가계부 행은 참여 행에 포함돼 따로 읽지 않는다");
+  eq(calls.filter((call) => call.startsWith("/rest/v1/household_members") && call.includes("households(")).length, 1, "참여 행 조회 한 번이 가계부 행을 포함한다");
 } finally {
   fixture.restore();
 }
