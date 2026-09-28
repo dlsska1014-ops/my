@@ -104,19 +104,20 @@ ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니�
 // V22.9.16: 이 검사는 "오늘이 며칠인지"에 따라 결과가 달라졌다. 예산 100만원에 80만원을
 // 썼을 때 "먼저 끝난다"가 되려면 이 속도로 달 끝까지 갔을 때 예산을 넘어야 하는데,
 // 28일에 재면 하루 2.9만원 × 30일 = 86만원이라 넘지 않는다. 그래서 월초에만 통과하고
-// 월말(9/28)에는 하네스 전체가 실패했다. 예산에 거의 닿은 값(99만원)을 쓰면 하루 평균이
-// 어느 날에 재도 남은 하루치보다 커서 "먼저 끝난다"가 성립한다 — 단 마지막 날만 빼고.
-// 마지막 날에는 이미 달 끝이라 "먼저 끝날 날"이 없으니 그날은 안내가 비는 것이 맞다.
-const kstToday = new Date(Date.now() + 9 * 3600 * 1000);
-const kstDay = kstToday.getUTCDate();
-const kstDaysInMonth = new Date(Date.UTC(kstToday.getUTCFullYear(), kstToday.getUTCMonth() + 1, 0)).getUTCDate();
-const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 990000); });
+// 월말(9/28)에는 하네스 전체가 실패했다.
+// V22.9.17: 서버의 검증 전용 고정 시계로 "이번 달 10일 정오(KST)"에 고정해 잰다. 어느 날에
+// 돌려도 같은 결과가 나오고, 마지막 날에 안내가 비는 갈래는 아래에서 따로 확인한다.
+const pinned = new Date(Date.now() + 9 * 3600 * 1000);
+globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 10, 3, 0, 0); // 10일 12:00 KST
+const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
 const fastPlan = planOf(fast.html);
-if (kstDay < kstDaysInMonth) {
-  ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
-} else {
-  ok(!/먼저 끝납니다|남습니다/.test(fastPlan.text), `달의 마지막 날에는 속도 안내를 비운다 (${fastPlan.text})`);
-}
+ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+const lastDay = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() + 1, 0)).getUTCDate();
+globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
+const lastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
+ok(/남은 1일 동안/.test(lastDayPlan.text), `마지막 날에는 남은 하루를 말한다 (${lastDayPlan.text})`);
+ok(!/먼저 끝납니다/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
+delete globalThis.__AB_QA_FIXED_NOW_MS;
 
 const over = await renderHome((fixture) => { addTotalBudget(fixture, 500000); addExpense(fixture, 900000); });
 const overPlan = planOf(over.html);

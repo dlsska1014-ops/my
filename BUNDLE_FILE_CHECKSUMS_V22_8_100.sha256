@@ -1,5 +1,5 @@
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
-287151841f5e55bb827931e712168aa57cf47181aed9b6480adf604e701c018b  ./.codex/scripts/verify-repository.mjs
+128fed778bf41aff6847cd96a1d8949a76303653fa84478397d6eb7bcad11497  ./.codex/scripts/verify-repository.mjs
 301a55f71560c73fe7e2c739c6418d5f3eb90850b92649bbea60ee522a8a7fa3  ./.github/workflows/verify.yml
 ef23d1270b14425e794fca19f1bb98459b48e9aa61c27f2279c31cc6c1aa2646  ./00_READ_FIRST_V22_8_74.md
 ede0146ee505893034cfb04bfd3cb5e0a8bc6f60bb10a60de589aaa0f5ed0c23  ./00_READ_FIRST_V22_8_75.md
@@ -27,9 +27,9 @@ f81e30563604fd3369238beea1920e849656a71b26236bf8b6bf7d75f0738d3c  ./ARTIFACT_MAN
 f1c1ffef047db863d7b96f7e26d20b41eed2f0c7b997971c01b2c16c1e406ad5  ./ARTIFACT_MANIFEST_V22_8_78.txt
 d2d06bf5d1ec7921031aae3e09ab1d06b9fc1a4c75c0a4eb4b155e4dc5b4e15c  ./ARTIFACT_MANIFEST_V22_8_79.txt
 eb9972bf30bcaf810e96cea846d87f5548e7712590a193ef08a22c74548124df  ./BASELINE.md
-a1f53d60b4b555f9992788d0461ec77efc017f5c88517069b96d643903a07373  ./CHANGELOG.md
+ba63d562ae3e4f1e214d7b8fc64604544d93a887d012c5779985f6df1200acd2  ./CHANGELOG.md
 19faf5faddf257c32950318db4d5caf62fd60eebe9e69e5fa1483d7a4fd83fff  ./DEPLOYMENT_MATRIX.md
-7055034deb19adee3e8be60d7ab1ddbd5446aedd1c31b60886876d6ff8fb0a7f  ./KNOWN-ISSUES.md
+98fe63e657c27ae6b8ab91fa511b4f5d0b6a1d0a8dd79c737b52b634d371156c  ./KNOWN-ISSUES.md
 eae79934fa0d740461c0c77ddc57fc9f8683793ff69dc04db62db24fa64cd139  ./NEXT_UPDATE_PLAN.md
 cb19892a2e2f0e77d0ec72c44ec207bbdda7c795a315a8827e0b65ca51e867ab  ./README.md
 24bb413f0f0c6016a7557b3df4998ab56d9ffde70db9eecbca14e98770b76c47  ./RELEASE-CHECKLIST.md
@@ -40,10 +40,10 @@ cd5c878800d7e7d7bf8f9cb6cadbbbaf2e57fb17d612d4ce1c961442c890621d  ./VALIDATION_R
 5191065e8ef91bf6290a621325905a96e998e6c16889dd3db10565eb2962af90  ./VALIDATION_REPORT_V22_8_77.md
 bec5f7bde6533e1abfb7aeaf693f7764dadf332b4e404f976ae2bc7b9369f7b9  ./VALIDATION_REPORT_V22_8_78.md
 ccbc5dc78d2eac6718fa641e0011dd869695aab3eb43234ba6c0ff00d9e42294  ./VALIDATION_REPORT_V22_8_79.md
-81a98942586d25a55db3a9e58d4478fcf8cd2d5e9f568a4d1ea3795f1aad63b1  ./VERSION.txt
+0db750d73810abe292280be544db94377d3115bf7f71ab1ae78ecf523036f53e  ./VERSION.txt
 5347e02e9cf3f88e4596731e4026793be9c1ad6a68014d02d4dd0d8305ae45ac  ./docs/codex/VERIFICATION.md
-f0b815354b00ab5f58a9ca1b032ab28ab380a12e345fbfb3b5e6f92b8ae77c0a  ./package.json
-49dd2ed2b7a299ad660a8b705919b27e52214780609892955a7efbd5fdb515ec  ./src/index.js
+20ff3f197ca7f74e6db842aaea52384672d70b944f5c3463a0d3e3ece88f339f  ./package.json
+f389b83693c0f843567ee825791a540060f76ff8bcea60eb7374b1c2d81c8f01  ./src/index.js
 20d2c5054c92b00d796204b9e50aafd0fc81141b30abc1d12f323331ec2e5b1d  ./tools/bundle-number-flow.mjs
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22874.sh
 d6d6a3821a2b90c5c6a4e4bd66ca9e65f41e05aa76b87bc221b7abe9d5c1ca14  ./validate_v22875.sh
@@ -68,7 +68,7 @@ c823520a85792d3db7bbd16810a01881bea75f223239ae063709224b97a54aef  ./validation/v
 6ab7c44d51b3e058271a5b630014cd08c401a1db16f535fc388f6ddde3a74d76  ./validation/validate-edit-restore-v22871.mjs
 da2168db108978a01863f71dfdd6d7e9bc2ef39b26d2c55b6cff4714cb725d6d  ./validation/validate-emit-then-strip-v22900.mjs
 afa1aecaceab5b772630b6f4af018b8cf1cef80f9ccc362439d2d2ad84b639f0  ./validation/validate-functional-ui-reliability-v22860.mjs
-102821d7f3b86ac6ca279f3fe223439052fc12dbca10f4a081b803274597586c  ./validation/validate-home-blocks-daily-v22888.mjs
+31fc8535df67b234fc1a117c58f62953fb93b306a5d150cdb8332b516191a3c1  ./validation/validate-home-blocks-daily-v22888.mjs
 22f8a6fe724e3a2db765916b6c2b58231cd63ac8c7004f7ab147100ac1d8eb0f  ./validation/validate-home-layout-v22894.mjs
 1149ffa7acced39f038343e7710d2d9f301675948ef6000ccf097396106ef71f  ./validation/validate-home-rail-challenge-v22857.mjs
 57e9b40ab60ba47d34ec5bef6dacf8cd5fc141babc9c53370bc9d4421c7f4f03  ./validation/validate-home-reports-v22891.mjs
@@ -111,6 +111,7 @@ cf617b331c8301d69ebe4e4dd4e7777500edeb365d1e660ad0f02c1978f2d471  ./validation/v
 9871ebc85062dd19d3c76b29e9b01c0c8e79f8fb61c2c6b8ee821439a9771e97  ./validation/validate-component-css-travels-v22914.mjs
 5994e0ad073ad33750fa525690caab5b3627fed7c92a55ecaf165571bcfacb8e  ./validation/validate-version-single-source-v22915.mjs
 11c6fa922e509b971a081fc5720ab3d6a698093a692d59906037171acea43cbc  ./validation/validate-serial-depth-v22916.mjs
+ca1ed55a19e4368feaff12ab40b8c7f44b98b4bf42467850a1570bc53d3a07ff  ./validation/validate-last-household-memory-v22917.mjs
 5f3859c9b62670bfc885188ce5509e8be91f25cd0589a9426497dd5c25f78fc5  ./validation/validate-skill-auth-purge-v22873.mjs
 01b504eac16e99e8d4de88c6f0cd5037f693ff4745f8591c61464f51d6a0ba6e  ./validation/validate-skip-to-content-v22872.mjs
 248baad9ebcdbf0d3b9acf67345227255386a35ca58075b789753e1c00af85e2  ./validation/validate-tap-target-a11y-v22868.mjs

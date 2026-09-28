@@ -752,8 +752,85 @@ const CORS_HEADERS = {
   "access-control-allow-headers": "content-type,authorization,x-api-key,x-kakao-skill-secret",
 };
 
-export default {
+// V22.9.17: 마지막에 쓰던 가계부를 기억한다.
+//
+// 가계부가 둘 이상이면 `household_id` 없는 진입(로그인 직후 /my, 북마크, 주소 직접 입력)이
+// "가장 최근에 만든/참여한 가계부"로 열렸다. 여행용 가계부를 하나 만들면 그 뒤로 생활비
+// 가계부 대신 여행 가계부가 먼저 떴다. 카카오는 선택 가계부를 설정으로 기억하지만 웹에는
+// 그런 자리가 없었다.
+//
+// 방식: 사용자 화면이 `household_id` 를 달고 정상(200)으로 그려지면 그 값을 브라우저 쿠키
+// `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
+// 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 첫 가계부로
+// 대체하지 않고 가계부 고르기 화면을 낸다 — 기준선 규칙 그대로). 그 화면이 나왔다는 것은
+// 쿠키가 낡았다는 뜻이므로 지운다. DB 왕복은 늘지 않는다. 로그아웃하면 함께 지운다.
+const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
+const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
+const AB_HOUSEHOLD_MEMORY_PATHS = new Set([
+  "/my", "/app", "/m", "/menu", "/budgets", "/reports", "/my/analysis", "/my/settings", "/reserve-plans",
+  "/receipts", "/payment-methods", "/goals", "/savings-goals", "/annual", "/annual-report",
+  "/settlement-summary", "/split-summary", "/meeting-settlement", "/budget-alerts", "/today-budget",
+  "/monthly-forecast", "/smart-tools", "/my/premium", "/keyword-guide", "/my/members", "/my/backup",
+  "/my/groups", "/my/households",
+]);
+
+function isRememberableHouseholdId(value = "") {
+  return /^[A-Za-z0-9_-]{1,80}$/.test(String(value || ""));
+}
+
+function rememberedHouseholdRequest(request) {
+  const none = { request, eligible: false, injected: false, remembered: "" };
+  try {
+    if (String(request?.method || "GET").toUpperCase() !== "GET") return none;
+    const url = new URL(request.url);
+    if (!AB_HOUSEHOLD_MEMORY_PATHS.has(url.pathname)) return none;
+    const remembered = String(getCookie(request, AB_HOUSEHOLD_MEMORY_COOKIE) || "").trim();
+    const requested = String(url.searchParams.get("household_id") || "").trim();
+    if (requested || !isRememberableHouseholdId(remembered)) return { request, eligible: true, injected: false, remembered };
+    url.searchParams.set("household_id", remembered);
+    return { request: new Request(url.toString(), request), eligible: true, injected: true, remembered };
+  } catch (_) {
+    return none;
+  }
+}
+
+function withSetCookie(response, cookie) {
+  const out = new Response(response.body, response);
+  out.headers.append("set-cookie", cookie);
+  return out;
+}
+
+async function withRememberedHouseholdCookie(routed, response) {
+  try {
+    const request = routed.request;
+    const url = new URL(request.url);
+    if (url.pathname === "/my/logout") {
+      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
+    if (!routed.eligible || response.status !== 200) return response;
+    if (!String(response.headers.get("content-type") || "").includes("text/html")) return response;
+    const requested = String(url.searchParams.get("household_id") || "").trim();
+    if (!isRememberableHouseholdId(requested)) return response;
+    if (routed.injected) {
+      // 정상 화면은 링크마다 그 가계부 ID 를 단다. 하나도 없으면 가계부 고르기 화면이다 — 쿠키가 낡았다.
+      const html = await response.clone().text();
+      if (html.includes(`household_id=${requested}`)) return response;
+      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
+    if (requested === routed.remembered) return response;
+    return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=${requested}; ${AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS}`);
+  } catch (_) {
+    return response;
+  }
+}
+
+const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
+    const routed = rememberedHouseholdRequest(request);
+    const response = await ACCOUNTBOOK_WORKER.route(routed.request, env, ctx);
+    return withRememberedHouseholdCookie(routed, response);
+  },
+  async route(request, env, ctx) {
     try {
       const url = new URL(request.url);
 
@@ -1927,7 +2004,9 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.9.16-SERIAL-DEPTH";
+export default ACCOUNTBOOK_WORKER;
+
+const APP_VERSION = "V22.9.17-LAST-HOUSEHOLD";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -26174,7 +26253,27 @@ function kakaoAmbiguityGuide(utterance = "", origin = "") {
   return null;
 }
 
+// V22.9.17: "안녕"·"고마워" 같은 인사에 "이해하지 못했어요"로 답하고 있었다. 첫 인사가 오류 문구면
+// 안 된다. 짧은 인사로 받고 다음 행동만 짚어 준다. 금액이 섞인 문장은 인사로 보지 않는다.
+const KAKAO_GREETING_PATTERN = /^(안녕|안녕하세요|안녕하십니까|하이|헬로|반가워|반갑습니다|ㅎㅇ|좋은\s*아침|굿모닝|굿나잇|잘\s*자|고마워|고맙습니다|감사|감사합니다|땡큐|수고|수고했어|잘\s*했어|최고|짱|ㅋㅋ+|ㅎㅎ+)[!~.^\s]*$/;
+
+function isKakaoGreetingUtterance(utterance = "") {
+  const t = normalizeText(utterance);
+  if (!t || /\d/.test(t)) return false;
+  return KAKAO_GREETING_PATTERN.test(t);
+}
+
+function kakaoGreetingReply(utterance = "") {
+  const t = normalizeText(utterance);
+  const thanks = /(고마|감사|땡큐|수고|잘\s*했|최고|짱)/.test(t);
+  const text = thanks
+    ? "저도 고마워요 😊 오늘 쓴 돈이 있으면 바로 적어 주세요.\n예: 커피 4500원"
+    : "안녕하세요 😊 무엇을 도와드릴까요?\n\n지출은 이렇게 보내면 바로 기록돼요.\n• 점심 12000원 국민카드\n• 어제 병원 15000원";
+  return { text, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"], ["도움말", "도움말"]] };
+}
+
 function kakaoNoMatchGuide(utterance = "", origin = "") {
+  if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
   const nlu = detectKakaoNaturalIntent(utterance);
   const text = kakaoNoMatchGuideText(utterance, origin);
   if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["내 이름 변경", "내 이름 설정"], ["취소", "취소"]] };
@@ -27509,7 +27608,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} '${parsed.value}'${josa(parsed.value, "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/['원]$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -27527,12 +27626,19 @@ function handleEditMessage(session, textRaw, config = {}) {
   });
 }
 
+// V22.9.17: 저장 응답은 "60,000원"인데 수정 응답만 '60000'이었다. 금액은 저장과 같은 표기로 보여 준다.
+function editValueLabel(field, value) {
+  if (field === "amount" && /^\d+$/.test(String(value ?? "").trim())) return `${numberWithCommas(Number(value))}원`;
+  return `'${value}'`;
+}
+
 function applyResult(session, field, value) {
+  const shown = editValueLabel(field, value);
   return finish(session, {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} '${value}'${josa(value, "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/['원]$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -31607,6 +31713,14 @@ function ymd(year, month, day) {
   return formatDate(d);
 }
 
+// V22.9.17: 검증 전용 고정 시계. 검증 스크립트가 globalThis.__AB_QA_FIXED_NOW_MS 에 시각(ms)을
+// 넣으면 KST 기준 "지금"이 그 시각이 된다. 환경변수로는 켜지지 않는다 — 운영에서 시계를
+// 바꿀 길은 없다. 월말·연말에만 달라지는 화면을 아무 날에나 재현하려고 둔다.
+function qaFixedNowMs() {
+  const fixed = globalThis.__AB_QA_FIXED_NOW_MS;
+  return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
+}
+
 function nowKstDate() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -31617,7 +31731,7 @@ function nowKstDate() {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(qaFixedNowMs()));
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
   return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
 }
