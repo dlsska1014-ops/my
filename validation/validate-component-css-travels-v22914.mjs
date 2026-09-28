@@ -28,7 +28,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const ORIGIN = "https://ttokttok-accountbook.com";
 
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22914.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22918.css`), {}, {})).text();
 
 // ---------------------------------------------------------------------------
 // 1) 월별 그래프의 CSS 가 공용 자산에 있다

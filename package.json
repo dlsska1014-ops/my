@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.17",
+  "version": "22.9.18",
   "private": true,
   "type": "module",
   "scripts": {
@@ -66,6 +66,7 @@
     "validate:home-layout": "node validation/validate-home-layout-v22894.mjs",
     "validate:desktop-cursor": "node validation/validate-desktop-cursor-v22895.mjs",
     "validate:home-tab-stops": "node validation/validate-home-tab-stops-v22896.mjs",
-    "validate:receipt-original-values": "node validation/validate-receipt-original-values-v22898.mjs"
+    "validate:receipt-original-values": "node validation/validate-receipt-original-values-v22898.mjs",
+    "audit:screens": "node tools/screen-audit.mjs --shots"
   }
 }
