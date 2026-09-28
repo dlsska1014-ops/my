@@ -56,6 +56,27 @@ function filteredRows(db, table, url) {
   return rows.slice(offset, offset + (Number.isFinite(limit) ? limit : rows.length));
 }
 
+// V22.9.16: PostgREST 자원 포함(`select=...,households(id,name)`) 흉내. 다대일 외래키
+// `<단수>_id` 로 상대 표의 한 행을 찾아 붙인다. 없으면 null — 실제 PostgREST 와 같다.
+// 서버는 외래키가 없을 때 두 단계 조회로 돌아가므로, 픽스처의 `db.__embed_unsupported = true`
+// 로 그 길도 검사할 수 있다(그때는 실제 PostgREST 처럼 400 을 돌려준다).
+function embedRelatedRows(db, rows, select = "") {
+  const embeds = [...String(select || "").matchAll(/([a-z_]+)\(([^)]*)\)/g)];
+  if (!embeds.length) return rows;
+  return rows.map((row) => {
+    const out = { ...row };
+    for (const [, table, columns] of embeds) {
+      const foreignKey = `${table.replace(/s$/, "")}_id`;
+      const target = (db[table] || []).find((item) => String(item.id) === String(row[foreignKey] ?? "")) || null;
+      const wanted = columns.split(",").map((column) => column.trim()).filter(Boolean);
+      out[table] = target
+        ? Object.fromEntries((wanted.length && !wanted.includes("*") ? wanted : Object.keys(target)).map((column) => [column, target[column]]))
+        : null;
+    }
+    return out;
+  });
+}
+
 function upsert(db, table, item, keys, sequence) {
   const rows = db[table] || (db[table] = []);
   const index = rows.findIndex((row) => keys.every((key) => String(row?.[key] ?? "") === String(item?.[key] ?? "")));
@@ -286,10 +307,13 @@ export async function createV2265QaFixture() {
     const table = url.pathname.split("/").filter(Boolean).at(-1);
     if (!db[table]) db[table] = [];
     if (method === "GET") {
+      if (db.__embed_unsupported && /\w+\([^)]*\)/.test(String(url.searchParams.get("select") || ""))) {
+        return new Response(JSON.stringify({ code: "PGRST200", message: "Could not find a relationship in the schema cache" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
       if (table === "accountbook_user_security" && db.__fail_user_security_reads) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
-      return new Response(JSON.stringify(filteredRows(db, table, url)), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify(embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"))), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];

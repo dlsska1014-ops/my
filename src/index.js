@@ -1212,7 +1212,7 @@ export default {
 
       if (url.pathname === "/health") {
         const missing = missingRuntimeConfiguration(env);
-        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), ready_endpoint: "/ready", time: new Date().toISOString() });
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), skill_latency: skillLatencySnapshot(), ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
@@ -1927,7 +1927,7 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.9.15-CATEGORY-CANON";
+const APP_VERSION = "V22.9.16-SERIAL-DEPTH";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5009,6 +5009,40 @@ function randomEntityId(prefix = "item") {
 //   · 통과·거부 횟수를 세어 /health 로 내보내고
 //   · 헤더를 맞추는 동안 잠시 막지 않는 observe 모드를 둔다.
 const AB_SKILL_AUTH_STATS = { accepted: 0, denied: 0, last_denied_at: "", last_accepted_at: "" };
+
+// V22.9.16: /skill 응답 시간을 아이솔레이트 안에서 센다. 카카오는 5초를 넘기면 "스킬 에러"로
+// 끊는데, 지금까지는 응답 헤더에만 숫자가 실려 운영자가 볼 길이 없었다. 최근 300건의
+// p50·p95·최대와 4초 초과 건수를 /health 에 싣고, 4초를 넘긴 발화는 운영 이벤트로 남긴다.
+const AB_SKILL_LATENCY = globalThis.__AB_SKILL_LATENCY || (globalThis.__AB_SKILL_LATENCY = { samples: [], count: 0, slow: 0, max: 0, last_at: "" });
+const AB_SKILL_SLOW_MS = 4000;
+
+function rememberSkillLatency(latencyMs, detail = {}) {
+  const ms = Math.max(0, Math.round(Number(latencyMs) || 0));
+  AB_SKILL_LATENCY.samples.push(ms);
+  if (AB_SKILL_LATENCY.samples.length > 300) AB_SKILL_LATENCY.samples.shift();
+  AB_SKILL_LATENCY.count += 1;
+  AB_SKILL_LATENCY.max = Math.max(AB_SKILL_LATENCY.max, ms);
+  AB_SKILL_LATENCY.last_at = new Date().toISOString();
+  if (ms > AB_SKILL_SLOW_MS) {
+    AB_SKILL_LATENCY.slow += 1;
+    rememberOpsEvent({ kind: "skill_slow", severity: "warn", path: "/skill", method: "POST", detail: `latency_ms=${ms}; intent=${String(detail.intent || "")}; result=${String(detail.result || "")}` });
+  }
+}
+
+function skillLatencySnapshot() {
+  const sorted = [...AB_SKILL_LATENCY.samples].sort((a, b) => a - b);
+  const at = (ratio) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))] : 0);
+  return {
+    window: sorted.length,
+    count: AB_SKILL_LATENCY.count,
+    p50_ms: at(0.5),
+    p95_ms: at(0.95),
+    max_ms: AB_SKILL_LATENCY.max,
+    slow_over_ms: AB_SKILL_SLOW_MS,
+    slow_count: AB_SKILL_LATENCY.slow,
+    last_at: AB_SKILL_LATENCY.last_at,
+  };
+}
 const KAKAO_SKILL_AUTH_OBSERVE = new Set(["observe", "monitor", "dry-run", "dryrun", "log"]);
 
 function kakaoSkillAuthMode(env = {}) {
@@ -5965,14 +5999,16 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
 }
 
 async function fetchCustomCategories(env, householdId = "") {
+  // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,name,type,sort_order,created_at");
+  if (householdId) params.set("household_id", `eq.${householdId}`);
+  params.set("order", "sort_order.asc,created_at.asc");
+  params.set("limit", "300");
+  const categoryRowsPromise = supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" });
   const keywordMap = await fetchCategoryKeywordMap(env, householdId);
   try {
-    const params = new URLSearchParams();
-    params.set("select", "id,household_id,name,type,sort_order,created_at");
-    if (householdId) params.set("household_id", `eq.${householdId}`);
-    params.set("order", "sort_order.asc,created_at.asc");
-    params.set("limit", "300");
-    const rows = (await supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" })) || [];
+    const rows = (await categoryRowsPromise) || [];
     const attached = attachCategoryKeywords(Array.isArray(rows) ? rows : [], keywordMap);
     return [...attached, ...defaultCategoryKeywordRows(keywordMap, householdId)];
   } catch (err) {
@@ -6738,12 +6774,13 @@ async function handleReservePlansPage(request, env, url) {
   if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
-  const customCategoryRows = await fetchCustomCategories(env, householdId);
-  const paymentAssetRows = await fetchPaymentAssets(env, householdId);
-  const plans = await fetchReservePlans(env, householdId);
   // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
   // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
-  const [recurringRows, recurringMembers] = await Promise.all([
+  // V22.9.16: 다섯 조회가 서로 필요 없다. 한 번에 던진다.
+  const [customCategoryRows, paymentAssetRows, plans, recurringRows, recurringMembers] = await Promise.all([
+    fetchCustomCategories(env, householdId),
+    fetchPaymentAssets(env, householdId),
+    fetchReservePlans(env, householdId),
     fetchRecurring(env, householdId),
     fetchHouseholdMembers(env, householdId),
   ]);
@@ -7738,9 +7775,12 @@ async function fetchRowsByPlainIds(env, table = "", ids = [], select = "*") {
 }
 
 async function getScopedHouseholdsForPage(request, env) {
-  const userId = await verifyUserSession(request, env);
-  if (userId) return { userId, adminOk: await verifyAdminSession(request, env), households: (await fetchUserHouseholds(env, userId)).filter((h) => canReadMyHousehold(h.role)), scope: "user" };
-  const adminOk = await verifyAdminSession(request, env);
+  // V22.9.16: 관리자 세션 확인과 가계부 목록은 서로 필요 없다. 함께 던진다.
+  const [userId, adminOk] = await Promise.all([
+    verifyUserSession(request, env),
+    verifyAdminSession(request, env),
+  ]);
+  if (userId) return { userId, adminOk, households: (await fetchUserHouseholds(env, userId)).filter((h) => canReadMyHousehold(h.role)), scope: "user" };
   if (adminOk) return { userId: "", adminOk, households: await fetchAdminHouseholds(env), scope: "admin" };
   return { userId: "", adminOk: false, households: [], scope: "none" };
 }
@@ -7842,12 +7882,21 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
     : options?.aliasesPromise
       ? Promise.resolve(options.aliasesPromise).then(normalizeMemberAliasMap).catch(() => ({}))
       : fetchMemberAliasMap(env, householdId);
-  const [rawMembers, aliases] = await Promise.all([
-    supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&select=user_id,role,created_at&order=created_at.asc`, { method: "GET" }).then((rows) => rows || []),
+  // V22.9.16: 구성원 행에 사용자 행을 포함해 한 번에 읽는다(외래키가 없으면 두 단계로 복귀).
+  const memberPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}`;
+  const [{ rows: rawMembers, embedded }, aliases] = await Promise.all([
+    supabaseWithEmbedFallback(
+      env,
+      "household_members_users",
+      `${memberPath}&select=user_id,role,created_at,users(id,nickname,kakao_user_key,created_at)&order=created_at.asc`,
+      `${memberPath}&select=user_id,role,created_at&order=created_at.asc`,
+    ),
     aliasesPromise,
   ]);
   const members = dedupeMemberRowsByKey(rawMembers, "user_id");
-  const userRows = await fetchRowsByPlainIds(env, "users", members.map((member) => member.user_id), "id,nickname,kakao_user_key,created_at");
+  const userRows = embedded
+    ? members.map((member) => member.users).filter((user) => user && user.id)
+    : await fetchRowsByPlainIds(env, "users", members.map((member) => member.user_id), "id,nickname,kakao_user_key,created_at");
   const usersById = new Map(userRows.map((user) => [String(user.id || ""), user]));
   return members.map((m) => {
     const user = usersById.get(String(m.user_id || "")) || {};
@@ -13641,24 +13690,36 @@ async function makeUserSession(env, userId) {
   return `${data}.${sig}`;
 }
 
-async function verifyRawUserSessionUncached(request, env) {
+// V22.9.16: 서명 확인(CPU)과 세션 판 확인(DB)을 나눴다. 세션 판 조회와 통합 계정 해석은
+// 둘 다 토큰의 사용자 ID 만 있으면 되므로 verifyUserSession 이 나란히 던진다.
+async function parseUserSessionToken(request, env) {
   const token = getCookie(request, "ab_user");
-  if (!token) return "";
+  if (!token) return null;
   const dot = token.lastIndexOf(".");
-  if (dot < 0) return "";
+  if (dot < 0) return null;
   const data = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   const parts = data.split("|");
-  if (parts.length !== 2 && parts.length !== 3) return "";
+  if (parts.length !== 2 && parts.length !== 3) return null;
   const userId = parts[0];
   const exp = Number(parts[1]);
-  if (!userId || !Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return "";
+  if (!userId || !Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
   const expected = await hmacSha256(userSessionSecret(env), data);
-  if (!constantTimeTextEqual(expected, sig)) return "";
+  if (!constantTimeTextEqual(expected, sig)) return null;
   const tokenVersion = parts.length === 3 ? Number(parts[2]) : 1;
-  const currentVersion = await getUserSessionVersion(env, userId);
-  if (!Number.isFinite(tokenVersion) || tokenVersion !== currentVersion) return "";
-  return userId;
+  return { userId, tokenVersion };
+}
+
+function userSessionVersionMatches(tokenVersion, currentVersion) {
+  return Number.isFinite(tokenVersion) && tokenVersion === currentVersion;
+}
+
+async function verifyRawUserSessionUncached(request, env) {
+  const parsed = await parseUserSessionToken(request, env);
+  if (!parsed) return "";
+  const currentVersion = await getUserSessionVersion(env, parsed.userId);
+  if (!userSessionVersionMatches(parsed.tokenVersion, currentVersion)) return "";
+  return parsed.userId;
 }
 
 async function verifyRawUserSession(request, env) {
@@ -13787,8 +13848,26 @@ async function verifyUserSession(request, env) {
   let pending = AB_REQUEST_USER_CACHE.get(request);
   if (!pending) {
     pending = (async () => {
-      const rawUserId = await verifyRawUserSession(request, env);
-      return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+      // 같은 요청에서 원본 세션을 이미 확인했으면 그 결과를 쓴다(왕복 추가 없음).
+      const rawPending = AB_REQUEST_RAW_USER_CACHE.get(request);
+      if (rawPending) {
+        const rawUserId = await rawPending;
+        return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+      }
+      // V22.9.16: 세션 판 확인과 통합 계정 해석을 나란히 던진다. 예전에는 "판 확인 → 사용자
+      // 행" 순서로 두 번 기다렸다. 세션이 무효면 사용자 행 한 번을 헛읽지만, 그 경우는 드물다.
+      const parsed = await parseUserSessionToken(request, env);
+      if (!parsed) {
+        AB_REQUEST_RAW_USER_CACHE.set(request, Promise.resolve(""));
+        return "";
+      }
+      const [currentVersion, effectiveUserId] = await Promise.all([
+        getUserSessionVersion(env, parsed.userId),
+        resolveEffectiveUserId(env, parsed.userId),
+      ]);
+      const valid = userSessionVersionMatches(parsed.tokenVersion, currentVersion);
+      if (!AB_REQUEST_RAW_USER_CACHE.has(request)) AB_REQUEST_RAW_USER_CACHE.set(request, Promise.resolve(valid ? parsed.userId : ""));
+      return valid ? effectiveUserId : "";
     })();
     AB_REQUEST_USER_CACHE.set(request, pending);
   }
@@ -13818,10 +13897,13 @@ async function mergedUserSessionRecoveryResponse(request, env, url) {
     if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
     if (!isMergedSessionRecoveryPath(url.pathname)) return null;
     if (url.pathname === "/my/logout" || url.pathname.startsWith("/auth/kakao/")) return null;
-    const rawUserId = await verifyRawUserSession(request, env);
-    if (!rawUserId) return null;
+    // V22.9.16: 통합 계정 확인을 먼저 부른다. 그 안에서 세션 판 확인과 사용자 행 조회가 나란히
+    // 나가고 원본 세션 결과도 같은 요청 캐시에 남으므로, 뒤의 원본 조회는 왕복 없이 끝난다.
+    // 예전 순서(원본 → 통합)는 둘을 줄줄이 기다려 모든 /my·/app 첫 화면에 한 단계를 보탰다.
     const effectiveUserId = await verifyUserSession(request, env);
-    if (!effectiveUserId || effectiveUserId === rawUserId) return null;
+    if (!effectiveUserId) return null;
+    const rawUserId = await verifyRawUserSession(request, env);
+    if (!rawUserId || effectiveUserId === rawUserId) return null;
     const session = await makeUserSession(env, effectiveUserId);
     return redirectResponse(`${url.pathname}${url.search}`, {
       "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
@@ -14461,8 +14543,36 @@ async function ensureOwnerMembership(env, userId = "", householdId = "", options
   return "owner";
 }
 
+// V22.9.16: PostgREST 자원 포함(embedding)으로 "참여 행 → 가계부 행" 두 왕복을 한 번에 읽는다.
+// 외래키가 없거나 모호해 PostgREST 가 거절(300·400 계열)하면 그 아이솔레이트에서는 예전
+// 두 단계 조회로 돌아가고 운영 이벤트에 남긴다. 네트워크 오류는 예전처럼 그대로 던진다.
+const AB_POSTGREST_EMBED_SUPPORT = globalThis.__AB_POSTGREST_EMBED_SUPPORT || (globalThis.__AB_POSTGREST_EMBED_SUPPORT = { household_members_households: true, household_members_users: true });
+
+function isPostgrestEmbedRejection(err) {
+  return /^Supabase (300|400|404|406)\b/.test(String(err?.message || err || ""));
+}
+
+async function supabaseWithEmbedFallback(env, embedKey, embeddedPath, plainPath) {
+  if (AB_POSTGREST_EMBED_SUPPORT[embedKey]) {
+    try {
+      return { rows: (await supabase(env, embeddedPath, { method: "GET" })) || [], embedded: true };
+    } catch (err) {
+      if (!isPostgrestEmbedRejection(err)) throw err;
+      AB_POSTGREST_EMBED_SUPPORT[embedKey] = false;
+      rememberOpsEvent({ kind: "postgrest_embed_unavailable", severity: "warn", path: embeddedPath.split("?")[0], method: "GET", detail: `${embedKey}: ${safeError(err)}` });
+    }
+  }
+  return { rows: (await supabase(env, plainPath, { method: "GET" })) || [], embedded: false };
+}
+
 async function fetchUserHouseholds(env, userId) {
-  const raw = await supabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(userId)}&select=household_id,role,created_at&order=created_at.desc`, { method: "GET" }) || [];
+  const memberPath = `/rest/v1/household_members?user_id=eq.${encodeURIComponent(userId)}`;
+  const { rows: raw, embedded } = await supabaseWithEmbedFallback(
+    env,
+    "household_members_households",
+    `${memberPath}&select=household_id,role,created_at,households(id,name,invite_code,created_at)&order=created_at.desc`,
+    `${memberPath}&select=household_id,role,created_at&order=created_at.desc`,
+  );
   const byHousehold = new Map();
   for (const m of raw) {
     const hid = String(m.household_id || "");
@@ -14471,7 +14581,9 @@ async function fetchUserHouseholds(env, userId) {
     if (!prev || roleRank(m.role) > roleRank(prev.role) || (roleRank(m.role) === roleRank(prev.role) && String(m.created_at || "") > String(prev.created_at || ""))) byHousehold.set(hid, m);
   }
   const orderedMemberships = [...byHousehold.values()].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  const householdRows = await fetchRowsByPlainIds(env, "households", orderedMemberships.map((membership) => membership.household_id), "id,name,invite_code,created_at");
+  const householdRows = embedded
+    ? orderedMemberships.map((membership) => membership.households).filter((household) => household && household.id)
+    : await fetchRowsByPlainIds(env, "households", orderedMemberships.map((membership) => membership.household_id), "id,name,invite_code,created_at");
   const householdsById = new Map(householdRows.map((household) => [String(household.id || ""), household]));
   return orderedMemberships.map((membership) => {
     const household = householdsById.get(String(membership.household_id || ""));
@@ -15396,13 +15508,15 @@ async function getMyPageContext(request, env, url) {
   const { households, selected, restricted } = access;
   if (restricted) return { redirect: myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month }) };
   if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
-  const [members, rawRows, calendar, budgets] = await Promise.all([
+  // V22.9.16: 달력은 같은 달 거래를 한 번 더 읽어 만들고 있었다(같은 질의 2회). 이미 받은
+  // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
+  const [members, rawRows, budgets] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
-    getCalendar(env, selected.id, month),
     fetchBudgets(env, selected.id, month),
   ]);
   const rows = attachSpenderNames(rawRows, members);
+  const calendar = calendarDaysFromRows(rows, month);
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
   const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
@@ -17650,18 +17764,23 @@ function shiftMonthString(month = currentMonthKst(), delta = 0) {
 async function handleMySettingsPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
-  const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  // V22.9.16: 아홉 번을 줄줄이 기다리던 화면이다. 서로 필요 없는 조회는 함께 던진다.
+  const [user, { households, selected, restricted }] = await Promise.all([
+    fetchUserById(env, userId),
+    getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
+  ]);
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
-  const rows = await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
-  const budgets = await fetchBudgets(env, selected.id, month);
-  const budget = budgetSummary(rows, budgets);
   // V22.8.81: 키워드 편집기는 /keyword-guide 한 곳으로 모았다. 여기서는 더 읽지 않는다.
-  const customCategories = await fetchCustomCategories(env, selected.id);
-  const recurring = await fetchRecurring(env, selected.id);
+  const [rows, budgets, customCategories, recurring] = await Promise.all([
+    fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
+    fetchBudgets(env, selected.id, month),
+    fetchCustomCategories(env, selected.id),
+    fetchRecurring(env, selected.id),
+  ]);
+  const budget = budgetSummary(rows, budgets);
   return htmlResponse(renderMySettingsHtml({ env, url, user, month, households, selected, rows, budgets, budget, customCategories, recurring, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
@@ -24036,7 +24155,11 @@ async function handleMobileV8Page(request, env, url) {
   const homeSettingsPromise = selectedHousehold
     ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions })
     : Promise.resolve({ aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} });
-  const [members, rawMonthlyRows, prevAmountRows, monthlyTrendRows, budgets, homeSettings] = await Promise.all([
+  // V22.8.94 (8.4): 홈 구성은 (가계부·사용자)별 설정 한 줄이다. 읽지 못해도 홈은
+  // 기본 순서로 그려야 하므로 실패를 삼킨다 — 설정 조회가 홈을 막을 이유는 없다.
+  // V22.9.16: 렌더 직전에 따로 기다리던 것을 아래 묶음에 같이 넣었다(왕복 한 단계 절감).
+  const homeLayoutSettingPromise = getSettingValue(env, homeLayoutKey(selectedHousehold?.id || "", userId || "shared")).catch(() => "");
+  const [members, rawMonthlyRows, prevAmountRows, monthlyTrendRows, budgets, homeSettings, homeLayoutSetting] = await Promise.all([
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
     selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId) : [],
@@ -24052,6 +24175,7 @@ async function handleMobileV8Page(request, env, url) {
       : [],
     selectedHousehold ? fetchBudgets(env, householdId, month) : [],
     homeSettingsPromise,
+    homeLayoutSettingPromise,
   ]);
   const reservePlans = homeSettings.reservePlans;
   const paymentAssetRows = homeSettings.paymentAssets;
@@ -24091,9 +24215,6 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  // V22.8.94 (8.4): 홈 구성은 (가계부·사용자)별 설정 한 줄이다. 읽지 못해도 홈은
-  // 기본 순서로 그려야 하므로 실패를 삼킨다 — 설정 조회가 홈을 막을 이유는 없다.
-  const homeLayoutSetting = await getSettingValue(env, homeLayoutKey(selectedHousehold?.id || "", userId || "shared")).catch(() => "");
   return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill }));
 }
 
@@ -24608,16 +24729,21 @@ async function handleHomeLayoutSave(request, env) {
 }
 
 async function handleBudgetCenterPage(request, env, url) {
-  const userId = await verifyUserSession(request, env);
-  const adminOk = await verifyAdminSession(request, env);
+  // V22.9.16: 세션 두 종류, 사용자 행과 가계부 목록, 화면 데이터 네 가지를 각각 함께 던진다.
+  const [userId, adminOk] = await Promise.all([
+    verifyUserSession(request, env),
+    verifyAdminSession(request, env),
+  ]);
   if (!userId && !adminOk) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   let households = [];
   let householdId = "";
   let selected = null;
   if (userId) {
-    const user = await fetchUserById(env, userId);
-    const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+    const [user, access] = await Promise.all([
+      fetchUserById(env, userId),
+      getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
+    ]);
     if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
     households = access.households;
     selected = access.selected;
@@ -24629,10 +24755,13 @@ async function handleBudgetCenterPage(request, env, url) {
   }
   if (!selected) return redirectResponse(userId ? "/my/households?err=no_household" : "/?legacy=1");
   const canManage = adminOk || ["owner", "admin"].includes(String(selected.role || "").toLowerCase());
-  const members = await fetchHouseholdMembers(env, householdId);
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId, type: "all" }), members);
-  const budgets = await fetchBudgets(env, householdId, month);
-  const customCategories = await fetchCustomCategories(env, householdId);
+  const [members, rawRows, budgets, customCategories] = await Promise.all([
+    fetchHouseholdMembers(env, householdId),
+    fetchAdminRows(env, { month, householdId, type: "all" }),
+    fetchBudgets(env, householdId, month),
+    fetchCustomCategories(env, householdId),
+  ]);
+  const rows = attachSpenderNames(rawRows, members);
   const center = budgetCenterSummary(rows, budgets);
   const incomePlans = incomeBudgetRows(budgets).filter((row) => Number(row.amount || 0) > 0);
   while (incomePlans.length < 2) incomePlans.push({ name: defaultIncomeBudgetNames()[incomePlans.length] || "기타수입", amount: 0 });
@@ -28265,7 +28394,10 @@ async function getKakaoFlowState(env, userId = "", payload = {}) {
     const obj = typeof raw === "string" ? JSON.parse(raw || "{}") : raw;
     const valid = normalizeKakaoFlowStateV2254(obj);
     if (!valid) {
-      await clearKakaoFlowState(env, userId, payload);
+      // V22.9.16: 지운 상태는 "{}" 로 남는다. 그것을 다시 "유효하지 않다"고 보고 매 발화마다
+      // 또 지우고 있었다 — 한 번이라도 흐름을 탄 사용자는 이후 모든 메시지에 쓰기 한 번씩이
+      // 붙었다. 흐름 이름이 남아 있는(만료·손상된) 상태만 지운다. 빈 상태는 그대로 둔다.
+      if (String(safeObject(obj).flow || "").trim()) await clearKakaoFlowState(env, userId, payload);
       return null;
     }
     return valid;
@@ -29179,6 +29311,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
+    rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: outcome.result });
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: intentMatch.intent, confidence: intentMatch.confidence, result: outcome.result, reason: outcome.reason, latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
@@ -29198,6 +29331,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     scheduleNluOpsPersistence(ctx, env, nluEvent);
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
     clearKakaoInFlight(repeat.key);
+    rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: "error" });
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
@@ -29224,19 +29358,27 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
   }
 
+  const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
+    isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
+    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
+  const earlyReply = bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
+  const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+
+  // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
+  // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
+  const earlyUserPromise = skillConfigured && kakaoUserKey && !earlyReply
+    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey)).then((user) => ({ user }), (error) => ({ error }))
+    : null;
+
   // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
   // handleEditMessage가 소비하고 다른 어떤 핸들러로도 보내지 않는다.
   // (새 "수정/삭제/복구 NN번" 명령은 아래 본 라우터의 1·2단계에서 새로 시작한다.)
-  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && kakaoUserKey &&
+  if (skillConfigured && kakaoUserKey &&
       !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin });
     if (editSessionReply) return editSessionReply;
   }
 
-  const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
-    isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
-    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
-  const earlyReply = bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   if (earlyReply) return kakaoText(earlyReply);
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -29249,8 +29391,22 @@ async function handleKakaoSkill(request, env) {
   if (!kakaoUserKey) {
     return kakaoText("사용자 식별정보를 확인하지 못했어요. 카카오톡에서 봇을 다시 호출해 주세요. 같은 문제가 계속되면 관리자에게 요청 ID와 함께 문의해 주세요.");
   }
-  const user = await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey));
+  const earlyUser = earlyUserPromise ? await earlyUserPromise : null;
+  if (earlyUser?.error) throw earlyUser.error;
+  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey));
   const botGroupKey = getKakaoBotGroupKey(payload);
+
+  // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
+  // 조회와 나란히 던져 두고 필요한 자리에서 받는다. 가계부를 바꾸는 길(만들기·참여·연결)은
+  // 전부 아래 사용 지점 전에 응답하고 끝나므로 미리 읽은 값이 낡을 일이 없다.
+  const householdsPromise = fetchUserHouseholds(env, user.id).then((rows) => ({ value: rows }), (error) => ({ error }));
+  const linkedGroupPromise = botGroupKey
+    ? getLinkedKakaoGroupHousehold(env, botGroupKey).then((value) => ({ value }), (error) => ({ error }))
+    : Promise.resolve({ value: null });
+  const selectedHouseholdIdPromise = botGroupKey
+    ? Promise.resolve({ value: "" })
+    : getKakaoSelectedHouseholdId(env, user.id).then((value) => ({ value }), (error) => ({ error }));
+  const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
 
   if (isCommandMenuCommand(utterance)) {
     return kakaoText(kakaoCommandMenuText(origin));
@@ -29259,9 +29415,9 @@ async function handleKakaoSkill(request, env) {
   if (isKakaoStartCommand(utterance)) {
     await clearKakaoFlowState(env, user.id, payload);
     const [households, linkedGroupHousehold, selectedHouseholdId] = await Promise.all([
-      fetchUserHouseholds(env, user.id),
-      botGroupKey ? getLinkedKakaoGroupHousehold(env, botGroupKey) : Promise.resolve(null),
-      botGroupKey ? Promise.resolve("") : getKakaoSelectedHouseholdId(env, user.id),
+      settle(householdsPromise),
+      settle(linkedGroupPromise),
+      settle(selectedHouseholdIdPromise),
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey) {
@@ -29284,8 +29440,8 @@ async function handleKakaoSkill(request, env) {
 
   if (isHelpCommand(utterance)) {
     const [households, linkedGroupHousehold] = await Promise.all([
-      fetchUserHouseholds(env, user.id),
-      botGroupKey ? getLinkedKakaoGroupHousehold(env, botGroupKey) : Promise.resolve(null),
+      settle(householdsPromise),
+      settle(linkedGroupPromise),
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey && !linkedGroupHousehold?.id) {
@@ -29331,7 +29487,7 @@ async function handleKakaoSkill(request, env) {
   }
 
   if (isHouseholdSwitchCommand(utterance)) {
-    const households = await fetchUserHouseholds(env, user.id);
+    const households = await settle(householdsPromise);
     const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: botGroupKey ? "bind" : "select", origin, groupKey: botGroupKey, forceChoice: !!botGroupKey });
     return kakaoText(choice.text, choice.quickReplies || []);
   }
@@ -29372,10 +29528,11 @@ async function handleKakaoSkill(request, env) {
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
+  // V22.9.16: 그 조회는 이미 위에서 흐름 상태와 나란히 던져 두었다. 여기서는 받기만 한다.
   const [households, linkedGroupHousehold, selectedHouseholdId] = await Promise.all([
-    fetchUserHouseholds(env, user.id),
-    botGroupKey ? getLinkedKakaoGroupHousehold(env, botGroupKey) : Promise.resolve(null),
-    botGroupKey ? Promise.resolve("") : getKakaoSelectedHouseholdId(env, user.id),
+    settle(householdsPromise),
+    settle(linkedGroupPromise),
+    settle(selectedHouseholdIdPromise),
   ]);
   const pendingHousehold = households.find((h) => String(h.role || "") === "pending") || null;
   const activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
@@ -29508,6 +29665,9 @@ ${formatRecentTransactions(rows)}`);
   const parsedList = preParsedList;
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
 
+  // V22.9.16: 지출자 이름표는 저장 뒤 응답 문구에만 쓰지만, 읽는 데 저장 결과가 필요 없다.
+  // 분류·결제수단과 같이 던져 두고 응답을 만들 때 받는다(왕복 한 단계 절감).
+  const aliasesPromise = fetchMemberAliasMap(env, household.id);
   const [customCategoryRows, paymentAssetRows] = await Promise.all([
     fetchCustomCategories(env, household.id),
     fetchPaymentAssets(env, household.id),
@@ -29544,7 +29704,7 @@ ${formatRecentTransactions(rows)}`);
   const enrichBudgetMs = Math.max(150, Math.min(700, 3900 - (Date.now() - handlerStartedAt)));
   const [seq, aliases] = await Promise.all([
     optionalWithin(dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, 0),
-    optionalWithin(fetchMemberAliasMap(env, household.id), enrichBudgetMs, {}),
+    optionalWithin(aliasesPromise, enrichBudgetMs, {}),
   ]);
   const payerName = aliases?.[user.id] || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
@@ -31956,7 +32116,12 @@ function calculateStats(rows) {
 
 async function getCalendar(env, householdId, month) {
   const rows = await fetchMonthRows(env, householdId, month);
-  const stats = calculateStats(rows);
+  return calendarDaysFromRows(rows, month);
+}
+
+// V22.9.16: 이미 받아 둔 달 거래로 달력을 만든다. 같은 달을 두 번 읽던 화면이 이것을 쓴다.
+function calendarDaysFromRows(rows = [], month = "") {
+  const stats = calculateStats(safeArray(rows));
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const days = [];
   for (let d = 1; d <= daysInMonth; d++) {

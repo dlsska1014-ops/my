@@ -64,7 +64,8 @@ eq(home.status, 200, "데스크톱 홈이 렌더된다");
 // PR4·PR7 이 지키던 것은 "화면을 더하려고 자료를 다시 받지 않는다"였고 그건 그대로다
 // — 거래·예산·가계부 조회는 한 번도 늘지 않았다. 늘어난 하나가 정확히 그 설정 한
 // 줄인지는 validate-home-layout-v22894.mjs 가 키까지 보고 확인한다.
-eq(home.calls.length, 11, `홈의 DB 질의 수가 그대로다 (${home.calls.length}회)`);
+// V22.9.16: 11회 → 9회 이하(가계부 행 포함 조회 · 홈 구성 설정 묶음). 첫 요청 기준 상한이다.
+ok(home.calls.length <= 9, `홈의 DB 질의 수가 늘지 않는다 (${home.calls.length}회, 상한 9회)`);
 ok(source.includes("renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts"), "리포트가 이미 받아 둔 값만 넘겨받는다");
 eq(source.includes("await fetchAdminRowsRange(env, { householdId, start: weekStart"), false, "리포트를 위해 새 조회를 덧붙이지 않았다");
 

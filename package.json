@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.15",
+  "version": "22.9.16",
   "private": true,
   "type": "module",
   "scripts": {

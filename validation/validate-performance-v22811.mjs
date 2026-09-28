@@ -174,7 +174,9 @@ try {
   const entry = await request("/my");
   eq(entry.status, 303, "personal entry redirects directly to the selected accountbook");
   ok(calls.length <= 4, "personal entry uses at most four database calls");
-  ok(calls.some((path) => path.includes("/households?id=in.")), "accountbooks are fetched in one bulk query");
+  // V22.9.16: the household rows ride along on the membership query (PostgREST embedding).
+  ok(calls.some((path) => path.includes("/household_members?") && path.includes("households(")), "accountbooks are embedded in the membership query");
+  ok(!calls.some((path) => path.includes("/households?id=in.")), "no separate bulk accountbook query remains");
   ok(!calls.some((path) => path.includes("/households?id=eq.")), "personal entry avoids per-accountbook lookup queries");
 
   const home = await request("/app?month=2026-07&household_id=house-home");
@@ -243,7 +245,9 @@ try {
   const layoutCall = calls.filter((path) => decodeURIComponent(path).includes("key=eq.home-layout:v1:"));
   eq(layoutCall.length, 1, "the home layout is read exactly once");
   ok(layoutCall[0].includes("limit=1"), "the home layout read stays a single row");
-  ok(calls.some((path) => path.includes("/users?id=in.")), "member profiles are fetched in one bulk query");
+  // V22.9.16: member profiles ride along on the household_members query (PostgREST embedding).
+  ok(calls.some((path) => path.includes("/household_members?household_id=") && path.includes("users(")), "member profiles are embedded in the member query");
+  ok(!calls.some((path) => path.includes("/users?id=in.")), "no separate bulk member-profile query remains");
   ok(!calls.some((path) => /[?&]offset=(?!0(?:&|$))/.test(decodeURIComponent(path))), "short lists stop without an empty pagination probe");
   ok(home.headers.get("cache-control")?.includes("no-store"), "personal home HTML remains no-store");
 
