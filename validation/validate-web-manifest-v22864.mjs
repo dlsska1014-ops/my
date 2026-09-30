@@ -36,7 +36,7 @@ try {
   // 이 응답은 7일 캐시라 주소를 바꿀 필요는 없지만, 내용이 바뀌면 ETag 는 따라 올라가야
   // 이미 받아 간 브라우저가 새것을 가져온다. 지키려던 성질("ETag 가 내용과 함께 움직인다")
   // 은 그대로다.
-  eq(manifest.response.headers.get("etag"), '"ab-manifest-v2298"', "manifest has a stable ETag");
+  eq(manifest.response.headers.get("etag"), '"ab-manifest-v22919"', "manifest has a stable ETag");
   const parsed = JSON.parse(new TextDecoder().decode(manifest.bytes));
   eq(parsed.name, "똑똑한 가계부", "manifest carries the product name");
   eq(parsed.short_name, "가계부", "manifest carries a short name for the home screen");

@@ -31,7 +31,7 @@
   CommerceCard, Carousel을 추가하지 않는다.
 - 사용자 식별은 `botUserKey`, `appUserId`를 우선하며 `plusfriendUserKey`는
   기존 호환용 대체 키로만 취급한다.
-- 영수증 사진은 사용자의 명시적 동작 없이 OCR 또는 업로드하지 않는다.
+- 영수증 사진 등록은 V22.9.19 에서 제거됐다. 되살릴 때는 사용자의 명시적 동작 없이 OCR 또는 업로드하지 않는다.
 - 개인 데이터 HTML은 `no-store`를 유지하고 버전이 붙은 정적 자원은
   장기 immutable 캐시 정책을 유지한다.
 - 기준 성능 예산은 `/my` 데이터 요청 4회 이하, `/app` 9회 이하, 개인 홈 HTML은
@@ -59,7 +59,7 @@
 코드 변경 후 먼저 관련 검증을 실행하고 마지막에 전체 검증을 실행한다.
 
 ```bash
-npm run validate:receipt
+npm run validate:card-import
 npm run validate:kakao-group
 npm run validate:kakao-edit
 npm run validate:household-security
@@ -76,7 +76,7 @@ node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음 체크섬, 영수증 56개, 카카오 그룹 22개, 카카오 수정·삭제·복구 130개, 가계부·운영 보안 89개,
+현재 배포 묶음 체크섬, 카드사 가져오기·로그인 대기·영수증 제거 110개, 카카오 그룹 22개, 카카오 수정·삭제·복구 130개, 가계부·운영 보안 89개,
 참여자 역할 스키마 20개, UX 56개, 사용자 화면·홈 버튼·테마·성능 161개, AdSense 심사·V2 화면 261개, V5 안정화 41개, 핵심 쓰기 스모크 110개,
 UI/UX 1~4단계 218개, 리포트 대시보드 UX 60개, 홈 우측 기록·챌린지 보정 68개, 챌린지·최근 기록 UI/UX 76개, 계정·런타임 신뢰성 16개로 총 1384개, ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 세부 절차는

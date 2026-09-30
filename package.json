@@ -1,10 +1,9 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.18",
+  "version": "22.9.19",
   "private": true,
   "type": "module",
   "scripts": {
-    "validate:receipt": "node validation/validate-receipt.mjs",
     "validate:kakao-group": "node validation/validate-kakao-group.mjs",
     "validate:household-security": "node validation/validate-household-security.mjs",
     "validate:member-role-schema": "node validation/validate-member-role-schema-v22846.mjs",
@@ -14,6 +13,7 @@
     "validate:kakao-edit": "node validation/validate-kakao-edit-flow.mjs",
     "validate:v5": "node validation/validate-v5-stabilization.mjs",
     "validate:core-write": "node validation/validate-core-write-smoke.mjs",
+    "validate:card-import": "node validation/validate-card-import-login-progress-v22919.mjs",
     "validate": "node .codex/scripts/verify-repository.mjs",
     "validate:unix": "bash validate_v22891.sh",
     "validate:report-dashboard": "node validation/validate-report-dashboard-v22856.mjs",
@@ -53,7 +53,6 @@
     "validate:budget-basis-income-ia": "node validation/validate-budget-basis-income-ia-v22881.mjs",
     "validate:tone-tokens-alert-window": "node validation/validate-tone-tokens-alert-window-v22882.mjs",
     "validate:tone-aware-heroes": "node validation/validate-tone-aware-heroes-v22883.mjs",
-    "validate:receipt-parse-accuracy": "node validation/validate-receipt-parse-accuracy-v22884.mjs",
     "validate:design-tokens": "node validation/validate-design-tokens-v22885.mjs",
     "validate:deferred-edit-forms": "node validation/validate-deferred-edit-forms-v22886.mjs",
     "validate:mobile-dock-tabs": "node validation/validate-mobile-dock-tabs-v22887.mjs",
@@ -66,7 +65,6 @@
     "validate:home-layout": "node validation/validate-home-layout-v22894.mjs",
     "validate:desktop-cursor": "node validation/validate-desktop-cursor-v22895.mjs",
     "validate:home-tab-stops": "node validation/validate-home-tab-stops-v22896.mjs",
-    "validate:receipt-original-values": "node validation/validate-receipt-original-values-v22898.mjs",
     "audit:screens": "node tools/screen-audit.mjs --shots"
   }
 }

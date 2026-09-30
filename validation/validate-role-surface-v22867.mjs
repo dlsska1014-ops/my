@@ -158,7 +158,6 @@ try {
     ["거래 내역", `/app?${q}&tab=transactions`],
     ["캘린더", `/app?${q}&view=calendar`],
     ["정기지출", `/reserve-plans?${q}`],
-    ["영수증", `/receipts?${q}`],
     ["자산·계좌", `/payment-methods?${q}`],
     ["통계", `/my/analysis?${q}`],
     ["종합 리포트", `/my/analysis?${q}&view=report`],

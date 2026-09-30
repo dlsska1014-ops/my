@@ -588,7 +588,6 @@ try {
   const blockedRequests = [
     ["/my/budget-bulk/save", form({ household_id: "house-home", month: "2026-07", income_name: "급여", income_amount: "1000000", budget_category: "식비", budget_amount: "500000" })],
     ["/my/settlement/save", form({ household_id: "house-home", month: "2026-07", mode: "equal", confirmed: "yes", note: "viewer-block" })],
-    ["/my/receipt/save", form({ household_id: "house-home", month: "2026-07", merchant: "viewer-block", transaction_date: "2026-07-28", amount: "1000", confirmed: "yes" })],
     ["/admin/payment-asset/create", form({ household_id: "house-home", month: "2026-07", name: "viewer-block", kind: "cash", balance: "1000" })],
     ["/admin/member/update", form({ household_id: "house-home", user_id: "user-bin", role: "viewer" })],
   ];

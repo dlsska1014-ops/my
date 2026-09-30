@@ -14,7 +14,7 @@ node .codex/scripts/verify-repository.mjs
 
 1. `BUNDLE_FILE_CHECKSUMS_V22_8_74.sha256`의 배포 파일
 2. `src/index.js` JavaScript 문법
-3. 영수증 56개
+3. 카드사 가져오기·로그인 대기·영수증 제거 110개
 4. 카카오 그룹 22개
 5. 카카오 수정·삭제·복구 V4 130개
 6. 가계부·운영 보안 89개
@@ -53,7 +53,7 @@ node .codex/scripts/verify-repository.mjs
 
 | 영역 | 명령 |
 |---|---|
-| 영수증 | `npm run validate:receipt` |
+| 카드사 가져오기·로그인 대기 | `npm run validate:card-import` |
 | 카카오 | `npm run validate:kakao-group` |
 | 카카오 수정·복구 | `npm run validate:kakao-edit` |
 | 계정·가계부 보안 | `npm run validate:household-security` |

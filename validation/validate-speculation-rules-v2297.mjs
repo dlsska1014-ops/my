@@ -36,7 +36,7 @@ try {
     return response.text();
   };
 
-  const SCREENS = ["/app", "/budgets", "/menu", "/my/analysis", "/receipts", "/goals", "/reports", "/my/members", "/payment-methods", "/settlement-summary"];
+  const SCREENS = ["/app", "/budgets", "/menu", "/my/analysis", "/goals", "/reports", "/my/members", "/payment-methods", "/settlement-summary"];
   let rules = null;
   for (const path of SCREENS) {
     const html = await get(path);
@@ -74,7 +74,7 @@ try {
     ok(blocked(path), `"${path}" 는 미리 열리지 않는다`);
   }
   // 반대로 평범한 화면은 막히면 안 된다 — 전부 막아 놓고 통과시키는 규칙이 되지 않도록.
-  for (const path of ["/app", "/budgets", "/my/analysis", "/receipts", "/menu"]) {
+  for (const path of ["/app", "/budgets", "/my/analysis", "/menu"]) {
     ok(!blocked(path), `"${path}" 는 정상적으로 미리 준비된다`);
   }
 

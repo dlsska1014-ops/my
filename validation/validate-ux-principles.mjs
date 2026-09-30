@@ -273,7 +273,6 @@ try {
   eq(deleteSubmit.button.textContent, "삭제", "cancelled destructive action keeps the original label");
 
   for (const path of [
-    "/receipts?month=2026-07&household_id=house-home",
     "/my/analysis?month=2026-07&household_id=house-home",
     "/my/analysis/app.js",
   ]) {

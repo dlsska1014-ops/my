@@ -134,20 +134,20 @@ try {
     const memberPlain = (memberHome.text.match(/<article class="v8-tx"[^>]*><div class="v8-tx-main">/g) || []).length;
     eq(memberSummaries + memberPlain, memberRows, "구성원 화면의 행은 편집 가능하면 접기, 아니면 본문만이다");
 
-    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v22918.css`), fixture.env, ctx).then((r) => r.text());
+    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v22919.css`), fixture.env, ctx).then((r) => r.text());
     ok(css.includes(".v8-tx summary.v8-tx-main,body.abV22812Shell .v8-tx summary.v8-tx-main{display:flex;"), "행 제목이 셸의 summary 규칙(파란 굵은 글자)보다 명시도가 높다");
     ok(css.includes(".v8-tx summary.v8-tx-main::-webkit-details-marker{display:none}"), "행 제목에 기본 삼각표가 붙지 않는다");
     ok(css.includes(".v8-tx details[open]>summary.v8-tx-main>strong::after{transform:rotate(90deg)}"), "펼침 상태가 금액 옆 표시로 보인다");
     ok(css.includes(".v8-tx summary.v8-tx-main:focus-visible{outline:3px solid #2563eb"), "행 제목에 키보드 초점 표시가 있다");
-    ok(home.text.includes('href="/assets/mobile-home-v22918.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
+    ok(home.text.includes('href="/assets/mobile-home-v22919.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
   }
 
   // -------------------------------------------------------------------------
   // 5. 대비 — 규칙이 도착하는지와, 그 색 쌍이 AA 를 넘는지
   // -------------------------------------------------------------------------
   {
-    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v22918.css`), fixture.env, ctx).then((r) => r.text());
-    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v22918.css`), fixture.env, ctx).then((r) => r.text());
+    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v22919.css`), fixture.env, ctx).then((r) => r.text());
+    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v22919.css`), fixture.env, ctx).then((r) => r.text());
     const D = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell';
 
     // 정기 화면 — 카드 전체에 거는 글자색이 수정 폼 안까지 들어가지 않는다
@@ -199,12 +199,12 @@ try {
   // 6. 불변 자산 — 내용이 바뀐 두 스타일시트는 새 주소로, 옛 주소는 쓰지 않는다
   // -------------------------------------------------------------------------
   {
-    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22918.css"'), "홈 스타일시트 주소가 v22918");
-    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22918.css"'), "셸 스타일시트 주소가 v22918");
+    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "홈 스타일시트 주소가 v22918");
+    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22919.css"'), "셸 스타일시트 주소가 v22918");
     eq(source.includes("mobile-home-v22914.css"), false, "옛 홈 스타일시트 주소가 남아 있지 않다");
     eq(source.includes("accountbook-shell-v22914.css"), false, "옛 셸 스타일시트 주소가 남아 있지 않다");
     const reserve = await get(`/reserve-plans?${H}`);
-    ok(reserve.text.includes('href="/assets/accountbook-shell-v22918.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
+    ok(reserve.text.includes('href="/assets/accountbook-shell-v22919.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
   }
 } finally {
   fixture.restore();

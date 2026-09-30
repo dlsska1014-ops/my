@@ -32,10 +32,10 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 const ORIGIN = "https://ttokttok-accountbook.com";
 
-// 개편 **전** 사이드바가 갖고 있던 21개 목적지. 이 목록은 되돌릴 수 없는 기준선이다 —
+// 개편 **전** 사이드바가 갖고 있던 목적지(영수증 기능을 없애면서 21개에서 20개가 됐다). 이 목록은 되돌릴 수 없는 기준선이다 —
 // 분류를 어떻게 바꾸든 여기 있는 키가 하나라도 빠지면 사용자는 갈 곳을 잃는다.
 const DESTINATIONS_BEFORE_REGROUPING = [
-  "app", "records", "calendar", "receipts", "import",
+  "app", "records", "calendar", "import",
   "payment-methods", "goals",
   "stats", "analysis", "reports", "annual", "budgets", "budget-alerts", "smart-tools",
   "members", "groups", "settlement",
@@ -124,7 +124,7 @@ try {
   ok(source.includes('key: "settings", label: "설정"'), "나머지는 설정으로 내려간다");
 
   // 주소는 하나도 바뀌지 않았다 — 되돌릴 수 있는 변경이라는 근거다.
-  for (const [key, href] of [["stats", "/my/analysis?"], ["budgets", "/budgets?"], ["members", "/my/members?"], ["categories", "/keyword-guide?"], ["receipts", "/receipts?"]]) {
+  for (const [key, href] of [["stats", "/my/analysis?"], ["budgets", "/budgets?"], ["members", "/my/members?"], ["categories", "/keyword-guide?"]]) {
     ok(hrefOf(key).startsWith(href), `"${key}" 주소가 그대로다 (${href}…)`);
   }
 } finally {

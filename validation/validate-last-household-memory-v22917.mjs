@@ -60,7 +60,7 @@ const hhCookie = (result) => result.setCookies.find((cookie) => cookie.startsWit
   eq(entry.status, 303, "/my 는 리다이렉트한다");
   ok(entry.location.includes("household_id=house-home"), `/my 가 기억한 가계부로 보낸다 (${entry.location})`);
 
-  for (const path of ["/my/settings", "/reserve-plans", "/menu", "/budgets", "/receipts"]) {
+  for (const path of ["/my/settings", "/reserve-plans", "/menu", "/budgets"]) {
     const page = await get(path, { extraCookie: "ab_hh=house-home" });
     eq(page.status, 200, `${path} 가 열린다`);
     ok(page.text.includes("우리집 생활비"), `${path} 가 기억한 가계부(우리집 생활비)를 그린다`);

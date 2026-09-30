@@ -1,7 +1,7 @@
 // V22.9.10 — "전체 메뉴"를 누르면 메뉴가 보인다.
 //
 // 브라우저로 열어 재 보니 /menu 의 첫 화면(390×844)에 **메뉴 링크가 0개**였다.
-// 22개 링크 중 첫 번째가 949px 지점에서 시작했다. 그 위를 채우고 있던 것:
+// 21개 링크 중 첫 번째가 949px 지점에서 시작했다. 그 위를 채우고 있던 것:
 //
 //   header.menuHeader        248px  (제목 + 설명문 + 가계부·월 고르기 + 기준 변경)
 //   nav.menuJourney           70px  (처음 사용 3단계)
@@ -60,24 +60,24 @@ try {
 
   // 3) 목적지가 하나도 사라지지 않았다
   const links = [...main.matchAll(/<a class="(?:menuRow|featuredCard)" href="([^"]+)"/g)].map((m) => m[1]);
-  eq(links.length, 22, `메뉴 목적지 22개가 그대로다 (${links.length}개)`);
+  eq(links.length, 21, `메뉴 목적지 21개가 그대로다 (${links.length}개)`);
   eq(new Set(links).size, links.length, "같은 목적지를 두 번 싣지 않는다");
 
   // 4) 아이콘이 글자가 아니라 그림이다
   //    유니코드 글리프(✎ ▤ ↔ ◴ ▣ …)를 아이콘으로 쓰면 폰트마다 굵기·크기·세로 정렬이
   //    달라 줄이 안 맞는다. 사이드바가 이미 쓰는 SVG 세트를 같이 쓴다.
   const iconSlots = [...main.matchAll(/class="(?:menuRowIcon|featuredIcon)"[^>]*/g)].map((m) => m[0]);
-  eq(iconSlots.length, 22, `아이콘 자리가 22개다 (${iconSlots.length}개)`);
-  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 22, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
+  eq(iconSlots.length, 21, `아이콘 자리가 21개다 (${iconSlots.length}개)`);
+  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 21, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
   for (const glyph of ["✎", "▤", "↔", "◴", "▣", "↻", "⇄", "⌁", "◇", "⇩"]) {
     ok(!main.includes(`aria-hidden="true">${glyph}<`), `글리프 아이콘 "${glyph}" 가 남아 있지 않다`);
   }
   // 이름이 실제로 그려질 수 있는 것들인지 — 내비 런타임이 아는 이름이어야 한다.
-  const runtime = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22893.js`), {}, {})).text();
+  const runtime = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22919.js`), {}, {})).text();
   const used = [...new Set([...main.matchAll(/data-ab-nav-icon="([^"]+)"/g)].map((m) => m[1]))];
   ok(used.length >= 15, `쓰는 아이콘 종류가 충분하다 (${used.length}종)`);
   for (const name of used) ok(new RegExp(`\\b${name}:\\s*'`).test(runtime), `내비 런타임이 "${name}" 아이콘을 그릴 줄 안다`);
-  ok(main.includes('data-ab-nav-icon') && html.includes("accountbook-nav-v22893.js"), "그 SVG 를 그리는 런타임이 이 화면에 실려 있다");
+  ok(main.includes('data-ab-nav-icon') && html.includes("accountbook-nav-v22919.js"), "그 SVG 를 그리는 런타임이 이 화면에 실려 있다");
 
   // 5) 기준 변경은 조용한 보조 버튼이다
   ok(source.includes('body.abV22812Shell.abPageMenu main.menuPage form.menuContext button[type="submit"]{grid-column:auto!important;background:var(--ab12-surface)!important'),
