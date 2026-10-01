@@ -14,9 +14,9 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime expos
 // ── 1. 예산 검사가 "이번 달"을 재야 한다 ────────────────────────────
 // 2026-07 을 고정으로 보면 그 달이 지난 뒤에는 오늘 표시가 빠져 더 작게 측정된다.
 // 그러면 검사가 통과해도 사용자가 흔히 보는 화면은 예산을 넘고 있을 수 있다.
-ok(perf.includes("const realisticMonth = new Date().toISOString().slice(0, 7);"), "the realistic budget check measures the current month");
+ok(perf.includes('const realisticMonth = "2026-07";') && perf.includes('globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-15T12:00:00+09:00");'), "the realistic budget check measures a fixed current month");
 ok(!perf.includes('/app?month=2026-07&household_id=house-home", { headers: { cookie: realisticFixture.cookie'), "the realistic budget check no longer pins a past month");
-ok(perf.includes("const REALISTIC_HOME_BUDGET = 46 * 1024;"), "the realistic budget was reset from measured evidence");
+ok(perf.includes("const REALISTIC_HOME_BUDGET = 44 * 1024;"), "the realistic budget enforces the protected 44 KiB limit");
 
 // ── 2. 선택되지 않은 option 에 잉여 공백이 남지 않는다 ────────────────
 // `value="x" ${cond ? "selected" : ""}` 는 선택되지 않으면 `value="x" >` 가 되어
@@ -30,14 +30,14 @@ ok(source.includes('? " selected" : ""'), "the space moved inside the selected b
 ok(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell :is\(\.empty,\.homeEmpty\)\{[^}]*background:var\(--ab12-surface-raised\)!important/.test(source), "empty-state boxes take a dark surface in dark mode");
 // 본문 바로가기는 다크의 전역 링크색에 밀려 파란 배경에 연한 파란 글자가 됐다(2.87:1).
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!important}'), "the skip link keeps white text in dark mode");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "the shell stylesheet moved to a new immutable address");
-ok(source.includes('"accountbook-shell-v22923-css"'), "the shell stylesheet ships a matching ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "the shell stylesheet moved to a new immutable address");
+ok(source.includes('"accountbook-shell-v22925-css"'), "the shell stylesheet ships a matching ETag");
 
 const ORIGIN = "https://malhaebook.com";
 const fixture = await createV2265QaFixture();
 try {
   // 규칙이 실제로 셸 자원에 실려 나가는지 확인한다. 소스에만 있고 서빙되지 않으면 소용없다.
-  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22923.css`), fixture.env, {});
+  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22925.css`), fixture.env, {});
   eq(shell.status, 200, "the new shell stylesheet is served");
   const css = await shell.text();
   ok(css.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!important}'), "the served shell carries the skip link dark fix");
@@ -55,9 +55,9 @@ try {
   const home = await app.fetch(new Request(`${ORIGIN}/app?month=${month}&household_id=house-home`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), fixture.env, {});
   eq(home.status, 200, "the current-month home renders under realistic load");
   const bytes = Buffer.byteLength(await home.text());
-  ok(bytes <= 46 * 1024, `the current-month home stays inside the 46 KiB budget (${bytes} bytes)`);
+  ok(bytes <= 44 * 1024, `the current-month home stays inside the 44 KiB budget (${bytes} bytes)`);
   // 예산이 의미를 가지려면 여유가 카드 한 장보다 커야 한다. 피드 카드는 약 1.7KB 다.
-  ok(46 * 1024 - bytes >= 1700, `the budget keeps at least one feed card of headroom (${46 * 1024 - bytes} bytes free)`);
+  ok(44 * 1024 - bytes >= 1700, `the budget keeps at least one feed card of headroom (${44 * 1024 - bytes} bytes free)`);
 } finally {
   fixture.restore();
 }

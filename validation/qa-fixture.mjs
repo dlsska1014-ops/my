@@ -183,6 +183,27 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
       const rpcName = rpcMatch[1];
+      // Opt-in model of schema_v22_7_0_auth_atomicity.sql for import round-trip tests.
+      if (rpcName === "accountbook_import_transactions_v227" && db.__import_rpc_available === true) {
+        const rows = data?.p_rows;
+        const householdId = String(data?.p_household_id || "");
+        const error = !Array.isArray(rows) ? "rows_must_be_array"
+          : rows.length < 1 || rows.length > 1000 ? "invalid_import_size"
+          : rows.find(item => String(item.household_id) !== householdId) ? "import_household_scope_mismatch"
+          : rows.find(item => !db.household_members.some(member => member.household_id === householdId && member.user_id === item.user_id && !["blocked", "pending"].includes(member.role))) ? "import_spender_not_member"
+          : rows.find(item => !(Number(item.amount) > 0)) ? "invalid_import_amount"
+          : rows.find(item => !["income", "expense"].includes(item.type)) ? "invalid_import_type" : "";
+        // Validate the complete batch before mutation, matching the SQL transaction.
+        if (error) return new Response(JSON.stringify({ code: "P0001", message: error }), { status: 400, headers: { "content-type": "application/json" } });
+        let inserted = 0;
+        let duplicates = 0;
+        for (const item of rows) {
+          if (db.transactions.some(row => row.id === item.id)) { duplicates++; continue; }
+          upsert(db, "transactions", { ...clone(item), source: "my_import" }, ["id"], sequence);
+          inserted++;
+        }
+        return new Response(JSON.stringify({ inserted, duplicates }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (rpcName === "accountbook_auth_attempt") {
         return new Response(JSON.stringify({ allowed: true, attempts: data?.p_success ? 0 : 1, blocked_until: null }), { status: 200, headers: { "content-type": "application/json" } });
       }

@@ -1,3 +1,9 @@
+## V22.9.25의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_25.sha256`을 사용하며 자동 검사 하한은 5,327개입니다.
+홈·거래 상세·가져오기 회귀 검사 42개를 추가했습니다. `npm run audit:uiux`는 설치된 Chrome 또는 Edge에서 독립 메모리 픽스처를 사용합니다.
+브라우저 감사와 `node monitoring/test-d1.mjs`는 별도로 실행합니다. 결과는 `VERIFICATION_V22_9_25.md`에 기록합니다.
+
 ## V22.9.24
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_24.sha256`을 사용하며 자동 검사 하한은 5,285개입니다.
