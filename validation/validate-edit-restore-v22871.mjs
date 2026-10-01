@@ -20,7 +20,7 @@ ok(source.includes("function kakaoEditUndoItemsV4("), "the undo buffer still rea
 ok(source.includes("function normalizeKakaoEditAmountValue("), "amount edits reuse the input path's amount extractor");
 ok(!source.includes("얼마로 바꿀까요? 숫자만 보내주세요"), "the digits-only amount prompt is gone");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const USER = "kakao_login:2265";
 
 async function say(fixture, utterance) {

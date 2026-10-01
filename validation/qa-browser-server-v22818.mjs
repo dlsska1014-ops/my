@@ -16,7 +16,7 @@ const server = createServer(async (incoming, outgoing) => {
     }
     headers.set("cookie", fixture.cookie);
     const method = incoming.method || "GET";
-    const request = new Request(`https://ttokttok-accountbook.com${incoming.url || "/"}`, {
+    const request = new Request(`https://malhaebook.com${incoming.url || "/"}`, {
       method,
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : Buffer.concat(chunks),

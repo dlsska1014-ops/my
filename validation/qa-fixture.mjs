@@ -358,8 +358,8 @@ export async function createV2265QaFixture() {
   };
 
   const env = {
-    APP_NAME: "똑똑한가계부",
-    PUBLIC_BASE_URL: "https://ttokttok-accountbook.com",
+    APP_NAME: "말해가계부",
+    PUBLIC_BASE_URL: "https://malhaebook.com",
     SUPABASE_URL: "https://mock.supabase.co",
     SUPABASE_SERVICE_ROLE_KEY: "qa-key",
     USER_SESSION_SECRET: "qa-user-session-v2265",

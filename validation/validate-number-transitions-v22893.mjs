@@ -21,7 +21,7 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // ---------------------------------------------------------------------------
 // 9.4 로드 방식 — 버전 주소로 배포하고, 초기 HTML 에는 넣지 않는다

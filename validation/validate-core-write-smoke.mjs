@@ -42,7 +42,7 @@ async function request(fixture, path, { cookie = fixture.cookie, method = "GET",
   const headers = {};
   if (cookie) headers.cookie = cookie;
   if (body !== undefined) headers["content-type"] = "application/x-www-form-urlencoded";
-  return app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+  return app.fetch(new Request(`https://malhaebook.com${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : body.toString(),
@@ -53,7 +53,7 @@ async function requestJson(fixture, path, { cookie = fixture.cookie, method = "G
   const headers = { accept: "application/json" };
   if (cookie) headers.cookie = cookie;
   if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

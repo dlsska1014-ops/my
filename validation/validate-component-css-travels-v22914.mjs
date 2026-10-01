@@ -26,9 +26,9 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22919.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22923.css`), {}, {})).text();
 
 // ---------------------------------------------------------------------------
 // 1) 월별 그래프의 CSS 가 공용 자산에 있다

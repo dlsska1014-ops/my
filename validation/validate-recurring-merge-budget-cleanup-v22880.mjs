@@ -68,7 +68,7 @@ ok(source.includes("accountbook_replace_budget_plan_v227"), "the bulk save RPC i
 // 실제 왕복
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const req = (path, init = {}) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const req = (path, init = {}) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   ...init, headers: { cookie: fixture.cookie, ...(init.headers || {}) },
 }), fixture.env, {});
 const form = (data) => ({ method: "POST", body: new URLSearchParams(data), headers: { "content-type": "application/x-www-form-urlencoded" } });

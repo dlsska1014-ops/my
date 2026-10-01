@@ -25,11 +25,20 @@ function eq(actual, expected, label) {
 
 // 서버는 KST 기준 달을 쓴다(currentMonthKst). UTC 로 재면 월말 15시 이후 아홉 시간 동안
 // 달이 어긋나 픽스처가 지난달에 실리고 "남은 일수"가 0이 된다.
-const currentMonth = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 7);
+// 모든 속도 시나리오를 10일 정오(KST)에 재현한다. 1일에는 같은 20만원도
+// 월말 예상이 600만원 이상이므로 '느린 속도'라는 전제가 성립하지 않는다.
+const pinned = new Date(Date.now() + 9 * 3600 * 1000);
+const currentMonth = pinned.toISOString().slice(0, 7);
+const previousFixedNow = globalThis.__AB_QA_FIXED_NOW_MS;
+const pinnedNow = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 10, 3, 0, 0);
+globalThis.__AB_QA_FIXED_NOW_MS = pinnedNow;
 const householdId = "house-home";
 
 async function renderHome(setup = () => {}, month = currentMonth) {
   const fixture = await createV2265QaFixture();
+  // 공통 픽스처의 2026-07 예산·거래가 7월 시나리오에 섞이지 않도록 분리한다.
+  fixture.db.accountbook_budgets = fixture.db.accountbook_budgets.filter((row) => row.household_id !== householdId || row.month !== currentMonth);
+  fixture.db.transactions = fixture.db.transactions.filter((row) => row.household_id !== householdId || !String(row.transaction_date).startsWith(currentMonth));
   setup(fixture);
   const realFetch = globalThis.fetch;
   const calls = [];
@@ -39,7 +48,7 @@ async function renderHome(setup = () => {}, month = currentMonth) {
     return realFetch(input, init);
   };
   try {
-    const response = await app.fetch(new Request(`https://ttokttok-accountbook.com/app?month=${month}&household_id=${householdId}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), fixture.env, {});
+    const response = await app.fetch(new Request(`https://malhaebook.com/app?month=${month}&household_id=${householdId}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), fixture.env, {});
     return { status: response.status, html: await response.text(), calls: calls.slice() };
   } finally {
     globalThis.fetch = realFetch;
@@ -107,8 +116,6 @@ ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니�
 // 월말(9/28)에는 하네스 전체가 실패했다.
 // V22.9.17: 서버의 검증 전용 고정 시계로 "이번 달 10일 정오(KST)"에 고정해 잰다. 어느 날에
 // 돌려도 같은 결과가 나오고, 마지막 날에 안내가 비는 갈래는 아래에서 따로 확인한다.
-const pinned = new Date(Date.now() + 9 * 3600 * 1000);
-globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 10, 3, 0, 0); // 10일 12:00 KST
 const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
 const fastPlan = planOf(fast.html);
 ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
@@ -117,7 +124,15 @@ globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUT
 const lastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
 ok(/남은 1일 동안/.test(lastDayPlan.text), `마지막 날에는 남은 하루를 말한다 (${lastDayPlan.text})`);
 ok(!/먼저 끝납니다/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
-delete globalThis.__AB_QA_FIXED_NOW_MS;
+// 월초에는 같은 금액도 빠른 속도로 판단하고, 월말에는 느린 속도로 판단한다.
+globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 1, 3, 0, 0);
+const firstDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
+ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
+globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
+const slowLastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
+ok(/남은 1일 동안/.test(slowLastDayPlan.text), "느린 속도도 마지막 날에는 남은 하루를 표시한다");
+ok(slowLastDayPlan.text.includes("남습니다"), "마지막 날에는 남을 금액을 표시한다");
+globalThis.__AB_QA_FIXED_NOW_MS = pinnedNow;
 
 const over = await renderHome((fixture) => { addTotalBudget(fixture, 500000); addExpense(fixture, 900000); });
 const overPlan = planOf(over.html);
@@ -131,7 +146,8 @@ for (const [name, plan] of [["예산 없음", noBudgetPlan], ["느린 속도", s
 }
 
 // 지난달을 보고 있으면 "남은 일수"가 성립하지 않으므로 하루 환산을 접는다.
-const pastMonth = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); }, "2026-07");
+const previousMonth = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+const pastMonth = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); }, previousMonth);
 eq(pastMonth.status, 200, "지난달 화면이 열린다");
 eq(pastMonth.html.includes('<div class="homeDailyPlan">'), false, "지난달에는 하루 환산을 보여 주지 않는다");
 eq(pastMonth.html.includes('class="homeBudgetToday"'), false, "지난달에는 오늘 쓴 돈 줄도 접는다");
@@ -148,5 +164,8 @@ ok(empty.html.indexOf("homeOnboarding") > empty.html.indexOf('id="v8Feed"'), "�
 eq(empty.html.includes('id="v8Search"'), false, "기록이 없을 때 목록 검색칸을 띄우지 않는다");
 // 통과 조건은 "증가 0건"이다. 기록이 없는 계정은 오히려 덜 묻는다(9회).
 ok(empty.calls.length <= baseline.calls.length, `빈 상태도 질의 수를 늘리지 않는다 (${empty.calls.length} ≤ ${baseline.calls.length})`);
+
+if (previousFixedNow === undefined) delete globalThis.__AB_QA_FIXED_NOW_MS;
+else globalThis.__AB_QA_FIXED_NOW_MS = previousFixedNow;
 
 console.log(`PASS: V22.8.88 home blocks and daily allowance (${checks} checks)`);

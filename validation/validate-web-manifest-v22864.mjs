@@ -21,7 +21,7 @@ ok(!source.includes('rel="icon"') && !source.includes('rel="apple-touch-icon"'),
 async function request(fixture, path, { method = "GET", cookie = "" } = {}) {
   const headers = { "user-agent": "Mozilla/5.0" };
   if (cookie) headers.cookie = cookie;
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { method, headers }), fixture.env, {});
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { method, headers }), fixture.env, {});
   return { response, bytes: new Uint8Array(await response.arrayBuffer()) };
 }
 
@@ -36,9 +36,9 @@ try {
   // 이 응답은 7일 캐시라 주소를 바꿀 필요는 없지만, 내용이 바뀌면 ETag 는 따라 올라가야
   // 이미 받아 간 브라우저가 새것을 가져온다. 지키려던 성질("ETag 가 내용과 함께 움직인다")
   // 은 그대로다.
-  eq(manifest.response.headers.get("etag"), '"ab-manifest-v22919"', "manifest has a stable ETag");
+  eq(manifest.response.headers.get("etag"), '"ab-manifest-v22920"', "manifest has a stable ETag");
   const parsed = JSON.parse(new TextDecoder().decode(manifest.bytes));
-  eq(parsed.name, "똑똑한 가계부", "manifest carries the product name");
+  eq(parsed.name, "말해 가계부", "manifest carries the product name");
   eq(parsed.short_name, "가계부", "manifest carries a short name for the home screen");
   eq(parsed.start_url, "/app", "install opens the personal home");
   eq(parsed.scope, "/", "manifest scope covers the whole app");
@@ -75,7 +75,7 @@ try {
   // 모든 사용자 화면이 매니페스트를 정확히 한 번만 참조해야 한다.
   const q = "month=2026-07&household_id=house-home";
   for (const [name, path] of [["홈", `/app?${q}`], ["전체 메뉴", `/menu?${q}`], ["통계", `/my/analysis?${q}`], ["예산", `/budgets?${q}`], ["월 마감", `/reports?${q}`]]) {
-    const page = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+    const page = await app.fetch(new Request(`https://malhaebook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
     const html = await page.text();
     eq(page.status, 200, `${name} 화면이 200으로 응답한다`);
     eq(html.split('<link rel="manifest" href="/manifest.json"/>').length - 1, 1, `${name} 화면이 매니페스트를 정확히 한 번 참조한다`);
@@ -83,7 +83,7 @@ try {
   }
 
   // 예산 회귀 방지.
-  const home = await app.fetch(new Request(`https://ttokttok-accountbook.com/app?${q}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+  const home = await app.fetch(new Request(`https://malhaebook.com/app?${q}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
   const homeHtml = await home.text();
   ok(Buffer.byteLength(homeHtml) < 35 * 1024, `home HTML stays under the 35 KiB budget (${Buffer.byteLength(homeHtml)} bytes)`);
 

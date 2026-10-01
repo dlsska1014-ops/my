@@ -8,7 +8,7 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { detectKakaoAmbiguity } from "../src/index.js";
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 let checks = 0;
 
 function ok(value, message) {

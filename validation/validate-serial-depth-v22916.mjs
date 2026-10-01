@@ -21,7 +21,7 @@ function ok(value, label) {
 const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
 const month = kstNow.toISOString().slice(0, 7);
 const householdId = "house-home";
-const base = "https://ttokttok-accountbook.com";
+const base = "https://malhaebook.com";
 const mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile Safari";
 const DELAY_MS = 12;
 

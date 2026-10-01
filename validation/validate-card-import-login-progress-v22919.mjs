@@ -24,7 +24,7 @@ function eq(actual, expected, label) {
   checks += 1;
 }
 
-const base = "https://ttokttok-accountbook.com";
+const base = "https://malhaebook.com";
 const fixture = await createV2265QaFixture();
 const ctx = { waitUntil() {}, passThroughOnException() {} };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");

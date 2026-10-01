@@ -28,7 +28,7 @@ for (const handler of ["handleMyCategoryKeywordsSave", "handleMyCategoryKeywords
 // 권한 안내 문구는 화면마다 같은 말을 써야 한다.
 ok(!source.includes("owner/admin만"), "role copy uses the same Korean wording everywhere");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 async function call(fixture, path, cookie, { method = "GET", body } = {}) {
   const headers = { "user-agent": "Mozilla/5.0", cookie, origin: ORIGIN };

@@ -30,7 +30,7 @@ const OUT = flag("out", join(tmpdir(), "ab-screen-audit"));
 const WIDTH = Number(flag("width", "390"));
 const SCHEMES = flag("schemes", "light,dark").split(",");
 const SHOTS = args.includes("--shots");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const H = "household_id=house-home";
 const ALL_PAGES = {
   home: `/app?${H}`,

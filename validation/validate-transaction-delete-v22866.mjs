@@ -22,7 +22,7 @@ eq(orphanFormAction.join(","), "", `every formaction button has an owning form (
 async function request(fixture, path, { method = "GET", body } = {}) {
   const headers = { "user-agent": "Mozilla/5.0", cookie: fixture.cookie };
   if (body) headers["content-type"] = "application/x-www-form-urlencoded";
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { method, headers, body }), fixture.env, {});
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { method, headers, body }), fixture.env, {});
   return { response, text: await response.text() };
 }
 

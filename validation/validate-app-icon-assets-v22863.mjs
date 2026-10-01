@@ -19,7 +19,7 @@ ok(source.includes("function abIconIndexedPixels(size, rounded = true)"), "icon 
 ok(source.includes("abIconIndexedPixels(size, false)"), "apple touch icon is full bleed so iOS can apply its own mask");
 
 async function request(fixture, path, { method = "GET" } = {}) {
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { method, headers: { "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { method, headers: { "user-agent": "Mozilla/5.0" } }), fixture.env, {});
   return { response, bytes: new Uint8Array(await response.arrayBuffer()) };
 }
 
@@ -63,11 +63,11 @@ try {
   eq(head.response.status, 200, "favicon supports HEAD");
   eq(head.bytes.length, 0, "favicon HEAD has no body");
 
-  const post = await app.fetch(new Request("https://ttokttok-accountbook.com/favicon.ico", { method: "POST" }), fixture.env, {});
+  const post = await app.fetch(new Request("https://malhaebook.com/favicon.ico", { method: "POST" }), fixture.env, {});
   ok(post.status !== 200 || post.headers.get("etag") !== '"ab-icon-v22864-ico-32"', "icon routes do not answer writes");
 
   // 예산 회귀 방지: 아이콘 대응이 홈 HTML을 늘리지 않아야 한다.
-  const home = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+  const home = await app.fetch(new Request("https://malhaebook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
   const homeHtml = await home.text();
   eq(home.status, 200, "home still renders");
   ok(!homeHtml.includes("favicon"), "home HTML carries no favicon markup");

@@ -18,7 +18,7 @@ ok(/const pattern = \/\(\?:\(\?:\\d\+\(\?:\\\.\\d\+\)\?\\s\*\(\?:억\|만\|천\|
 ok(source.includes('(에서|으로|에게|한테)(?=\\s|$)/g, "$1 ")'), "only multi-syllable particles are stripped");
 ok(!/\(에서\|으로\|에게\|한테\|로\|에\|을\|를\|은\|는\|이\|가\)\(\?=/.test(source), "single-syllable particle stripping is gone");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const USER = "kakao_login:2265";
 
 async function say(fixture, utterance) {

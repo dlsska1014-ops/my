@@ -86,7 +86,7 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime versi
 const fixture = await createV2265QaFixture();
 try {
   const context = "month=2026-07&household_id=house-home";
-  const request = (path) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
+  const request = (path) => app.fetch(new Request(`https://malhaebook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
   const statsResponse = await request(`/my/analysis?${context}`);
   eq(statsResponse.status, 200, "statistics route renders with the new UX");
   const statsHtml = await statsResponse.text();

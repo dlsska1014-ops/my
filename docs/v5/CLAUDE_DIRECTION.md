@@ -1,4 +1,4 @@
-# 똑똑한가계부 V5 — Claude 진행·개선 방향 (Direction & Improvement Plan)
+# 말해가계부 V5 — Claude 진행·개선 방향 (Direction & Improvement Plan)
 
 > 작성 주체: **Claude**. Codex의 `V22.8.24-UI-V5-SHELL-CORRECTNESS` 작업본을 **벤치마크(참조)**로만 사용하고,
 > 이후 진행방향·판단·개선은 이 문서 기준으로 진행한다. 디자인 기준은 `design_handoff_ttokttok_v5/`(V5 프로토타입·구현명세서).

@@ -23,7 +23,7 @@ globalThis.fetch = async (input, init = {}) => {
 
 function request(path, options = {}) {
   calls = [];
-  return app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+  return app.fetch(new Request(`https://malhaebook.com${path}`, {
     method: options.method || "GET",
     headers: {
       cookie: Object.prototype.hasOwnProperty.call(options, "cookie") ? options.cookie : options.public ? "" : fixture.cookie,
@@ -215,7 +215,7 @@ try {
       const day = String((index % 28) + 1).padStart(2, "0");
       realisticFixture.db.transactions.push({ id: `budget-${index}`, household_id: "house-home", user_id: "user-bin", transaction_date: `${realisticMonth}-${day}`, type: index % 9 === 0 ? "income" : "expense", amount: 1000 + (index * 137) % 90000, category: categories[index % categories.length], memo: `실사용 기록 ${index} 항목`, payment_method: payments[index % payments.length], source: "web", created_at: `${realisticMonth}-${day}T09:00:00.000Z` });
     }
-    const realisticHome = await app.fetch(new Request(`https://ttokttok-accountbook.com/app?month=${realisticMonth}&household_id=house-home`, { headers: { cookie: realisticFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), realisticFixture.env, {});
+    const realisticHome = await app.fetch(new Request(`https://malhaebook.com/app?month=${realisticMonth}&household_id=house-home`, { headers: { cookie: realisticFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), realisticFixture.env, {});
     const realisticHtml = await realisticHome.text();
     realisticHomeBytes = Buffer.byteLength(realisticHtml);
     realisticFeedCards = (realisticHtml.match(/class="v8-tx"/g) || []).length;
@@ -229,8 +229,8 @@ try {
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 46 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
   eq(countOf(homeHtml, 'href="/assets/mobile-home-v22919.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22919.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v2299.js") && externalScripts.includes("/assets/mobile-home-shell-v22915.js") && externalScripts.includes("/assets/accountbook-nav-v22919.js") && externalScripts.includes("/assets/accountbook-v5-v22890.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22923.css"'), 1, "home loads the current shell stylesheet once");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v2299.js") && externalScripts.includes("/assets/mobile-home-shell-v22915.js") && externalScripts.includes("/assets/accountbook-nav-v22919.js") && externalScripts.includes("/assets/accountbook-v5-v22923.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -270,7 +270,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22919.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22919.css"];
+  const cssPaths = ["/assets/mobile-home-v22919.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22923.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -384,7 +384,7 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22919.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22923.css");
   const shellCss = await shellCssResponse.text();
   const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
@@ -443,21 +443,21 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22919.css"'), 1, "accountbook management loads the shell once");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22923.css"'), 1, "accountbook management loads the shell once");
   ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('data-key="my-households" class="active"') && !householdsHtml.includes('data-key="members" class="active"') && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes its surfaces and selects the exact accountbook-management route");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22919.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22923.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22919.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22923.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
   ok(backupHtml.includes("abPageAccountSecurity") && backupHtml.includes('class="abLayoutNav ') && backupHtml.includes("abV5RemainingPage"), "account security receives the shared navigation and isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22919.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22923.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
   ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
@@ -487,7 +487,7 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
       && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
     const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
     const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22919.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v2299.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22923.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v2299.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");
@@ -542,14 +542,14 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   // 막대 너비만 100%에서 멈추고 숫자는 실제 사용률을 보여준다.
   const overspendFixture = await createV2265QaFixture();
   try {
-    const overspendPost = (path, values) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+    const overspendPost = (path, values) => app.fetch(new Request(`https://malhaebook.com${path}`, {
       method: "POST",
-      headers: { cookie: overspendFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      headers: { cookie: overspendFixture.cookie, origin: "https://malhaebook.com", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(values).toString(),
     }), overspendFixture.env, {});
     await overspendPost("/admin/transactions", { household_id: "house-home", month: "2026-08", type: "expense", amount: "400000", category: "식비", memo: "초과지출", transaction_date: "2026-08-05", user_id: "user-bin" });
     await overspendPost("/admin/budget/save", { household_id: "house-home", month: "2026-08", category: "식비", amount: "200000" });
-    const overspendHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
+    const overspendHome = await app.fetch(new Request("https://malhaebook.com/app?household_id=house-home&month=2026-08", { headers: { cookie: overspendFixture.cookie } }), overspendFixture.env, {});
     const overspendHtml = await overspendHome.text();
     // V22.8.93(9.3): 사용률 숫자가 <span data-ab-num> 로 감싸졌다. 서버가 보내는
     // **글자**는 그대로여야 하므로(스크립트가 없어도 200% 가 보여야 한다) 태그를
@@ -585,7 +585,7 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
       bulkFixture.db.transactions.push({ id: `perf-${index}`, household_id: "house-home", user_id: "user-bin", transaction_date: `2026-06-${day}`, type: "expense", amount, category: "식비", memo: `perf${index}`, payment_method: "현금", source: "web", created_at: `2026-06-${day}T09:00:00.000Z` });
     }
     bulkCalls = [];
-    const bulkHome = await app.fetch(new Request("https://ttokttok-accountbook.com/app?household_id=house-home&month=2026-06", { headers: { cookie: bulkFixture.cookie } }), bulkFixture.env, {});
+    const bulkHome = await app.fetch(new Request("https://malhaebook.com/app?household_id=house-home&month=2026-06", { headers: { cookie: bulkFixture.cookie } }), bulkFixture.env, {});
     const bulkHtml = await bulkHome.text();
     const transactionQueries = bulkCalls.filter((entry) => entry.startsWith("/rest/v1/transactions"));
     const pageSizes = [...new Set(transactionQueries.map((entry) => entry.match(/limit=(\d+)/)?.[1]))];

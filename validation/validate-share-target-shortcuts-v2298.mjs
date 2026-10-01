@@ -23,14 +23,14 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // ---------------------------------------------------------------------------
 // 1) 매니페스트가 공유 대상과 바로가기를 알린다
 // ---------------------------------------------------------------------------
 const manifestResponse = await app.fetch(new Request(`${ORIGIN}/manifest.json`), {}, {});
 eq(manifestResponse.status, 200, "매니페스트가 서빙된다");
-eq(manifestResponse.headers.get("etag"), '"ab-manifest-v22919"', "내용이 바뀌었으므로 ETag 도 올라갔다");
+eq(manifestResponse.headers.get("etag"), '"ab-manifest-v22920"', "내용이 바뀌었으므로 ETag 도 올라갔다");
 const manifest = JSON.parse(await manifestResponse.text());
 
 eq(manifest.share_target.method, "GET", "텍스트 공유는 GET 이다 — 서비스워커 없이 서버가 바로 받는다");

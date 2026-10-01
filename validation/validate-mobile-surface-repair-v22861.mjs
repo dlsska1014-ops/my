@@ -9,9 +9,9 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22919.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22919.js"'), "changed navigation uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "changed quick input runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22923.js"'), "changed quick input runtime uses a new immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
@@ -102,7 +102,7 @@ ok(!source.includes(".reportChallenge label{display:grid;grid-template-columns:7
 async function request(fixture, path, { method = "GET", cookie = fixture.cookie, headers = {} } = {}) {
   const mergedHeaders = { "user-agent": "Mozilla/5.0", ...headers };
   if (cookie) mergedHeaders.cookie = cookie;
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { method, headers: mergedHeaders }), fixture.env, {});
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { method, headers: mergedHeaders }), fixture.env, {});
   return { response, text: await response.text() };
 }
 
@@ -110,9 +110,9 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22919.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22923.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22919-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22923-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
   ok(shell.text.includes(".abNavDrawerActions"), "deployed shell styles the drawer action group that replaced the top-bar dock");
   ok(!shell.text.includes(".abNavMobileTopActions"), "deployed shell carries no styling for the retired top-bar dock");
@@ -128,16 +128,16 @@ try {
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
   ok(!nav.text.includes("dockMobileAction"), "deployed navigation runtime no longer docks a mobile action button");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22890.js", { cookie: "" });
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22923.js", { cookie: "" });
   eq(v5.response.status, 200, "new V5 runtime asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22890-js"', "new V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22923-js"', "new V5 runtime ETag is correct");
   ok(v5.text.includes("function lockScroll()") && v5.text.includes("window.scrollTo(0, lockedScrollY)"), "deployed quick input runtime carries the scroll lock");
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22919.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-shell-v22923.css"), "home loads the refreshed shell");
   ok(home.text.includes("/assets/accountbook-nav-v22919.js"), "home loads the refreshed navigation runtime");
-  ok(home.text.includes("/assets/accountbook-v5-v22890.js"), "home loads the refreshed V5 runtime");
+  ok(home.text.includes("/assets/accountbook-v5-v22923.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");
   ok(!home.text.includes('class="bottom"'), "home keeps the single unified bottom navigation");

@@ -28,7 +28,7 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const ASSET = "/assets/ab-uiux-v22919.css";
 
 // ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ try {
   // 오래 지켜 온 것이고(다크 모드 보호), 순서가 뒤집히면 어느 규칙이 이기는지 바뀐다.
   const budgets = await get("/budgets");
   const uiuxAt = budgets.indexOf(`href="${ASSET}"`);
-  const shellAt = budgets.indexOf("accountbook-shell-v22919.css");
+  const shellAt = budgets.indexOf("accountbook-shell-v22923.css");
   ok(uiuxAt > 0 && shellAt > 0, "두 스타일시트가 모두 링크돼 있다");
   ok(uiuxAt < shellAt, `공유 스타일시트가 셸보다 먼저 온다 (${uiuxAt} < ${shellAt})`);
 } finally {
@@ -157,7 +157,7 @@ try {
 // (여기서 한 번 틀렸다. 처음 쓴 측정 도구가 `:is()` 셀렉터를 콤마로 잘라 버려서
 //  .card 가 다섯 가지로 보였고, 이미 통일된 것을 다시 통일하려 했다. 도구가 틀리면
 //  진단도 틀린다 — 그래서 이 검사는 서빙된 CSS 문자열을 그대로 확인한다.)
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22919.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22923.css`), {}, {})).text();
 const PANEL_BASE = "body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:20px 22px!important;margin:var(--ab12-sp-3,12px) 0!important}";
 const PANEL_NARROW = "@media(max-width:760px){body.abV22812Shell :is(.card,.hero,.panel,.homeCard,.startPanel){padding:var(--ab12-sp-4,16px)!important}}";
 eq(shellCss.split(PANEL_BASE).length - 1, 1, "패널 패딩 정본이 셸에 정확히 하나 있다");

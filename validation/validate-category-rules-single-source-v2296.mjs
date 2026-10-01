@@ -26,7 +26,7 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // ---------------------------------------------------------------------------
 // 1) 정본이 하나 있고, 캐시되는 자산으로 전달된다

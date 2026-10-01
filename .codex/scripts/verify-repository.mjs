@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_100.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_24.sha256",
 );
 const validationScripts = [
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
@@ -89,6 +89,11 @@ const validationScripts = [
   ["마지막 가계부·카카오 문구·고정 시계", "validation/validate-last-household-memory-v22917.mjs"],
   ["화면 실측 결함·대비", "validation/validate-screen-audit-fixes-v22918.mjs"],
   ["카드사 가져오기 안내·로그인 대기·영수증 제거", "validation/validate-card-import-login-progress-v22919.mjs"],
+  ["서비스명·도메인 변경", "validation/validate-brand-rename-v22920.mjs"],
+  ["스킬 상태 장애·대량 입력", "validation/validate-skill-stability-v22921.mjs"],
+  ["종합 관제·수집 장애·인증", "validation/validate-monitoring-v22922.mjs"],
+  ["반응형 관제·금액 가림", "validation/validate-responsive-operations-v22923.mjs"],
+  ["가계부 설정 범위·취소·관제 SSO·부분 지표", "validation/validate-safety-fix-v22924.mjs"],
 ];
 
 function sha256(filePath) {
@@ -147,7 +152,8 @@ function run(command, args, label) {
 // 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
 // V22.9.19: 영수증 사진 등록을 없애며 그 전용 검사 3개(약 250개 확인)가 빠졌고, 새 검사 110개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 4890;
+// V22.9.20: 서비스명·도메인 변경 검사 48개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 5285;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

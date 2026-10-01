@@ -20,7 +20,7 @@ function eq(actual, expected, label) {
   checks += 1;
 }
 
-const base = "https://ttokttok-accountbook.com";
+const base = "https://malhaebook.com";
 const mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile Safari";
 const fixture = await createV2265QaFixture();
 const ctx = { waitUntil() {}, passThroughOnException() {} };

@@ -102,7 +102,7 @@ eq(source.includes("부부 정산"), false, "no couple-only settlement label rem
 // 실제 왕복
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const get = (path, init = {}) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const get = (path, init = {}) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   ...init,
   headers: { cookie: fixture.cookie, ...(init.headers || {}) },
 }), fixture.env, {});

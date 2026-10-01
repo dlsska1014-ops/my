@@ -28,7 +28,7 @@ try {
   const get = async (path, cookie = fixture.cookie) => {
     const headers = { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" };
     if (cookie) headers.cookie = cookie;
-    const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { headers }), fixture.env, {});
+    const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { headers }), fixture.env, {});
     return { response, text: await response.text() };
   };
 
@@ -102,7 +102,7 @@ const HOME_HTML_BUDGET = 41 * 1024 + 1024;
   eq(page.response.status, 200, "링크로 여는 수정 화면이 열린다");
   ok(page.text.includes('class="v8-edit"'), "그 화면에 수정 폼이 있다");
   ok(page.text.includes('data-nav-scope="user"'), "그 화면이 공통 내비를 쓴다");
-  ok(page.text.includes('href="/assets/accountbook-shell-v22919.css"'), "그 화면이 공통 셸을 받는다");
+  ok(page.text.includes('href="/assets/accountbook-shell-v22923.css"'), "그 화면이 공통 셸을 받는다");
 
   // 7. 권한. 새 GET 경로는 쓰기 경로와 같은 판정을 써야 한다 — 느슨하면 폼을 막는
   //    것이 아니라 남의 기록 내용을 보여 준다.

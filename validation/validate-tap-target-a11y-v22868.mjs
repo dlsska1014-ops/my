@@ -9,8 +9,8 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the tap target release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22919.css"'), "shell asset moved to a fresh immutable path");
-ok(source.includes('"accountbook-shell-v22919-css"'), "shell asset has a fresh immutable ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "shell asset moved to a fresh immutable path");
+ok(source.includes('"accountbook-shell-v22923-css"'), "shell asset has a fresh immutable ETag");
 
 // 조작 영역 규칙은 셸 스타일시트에만 넣는다. 사용자 화면 HTML 바이트가 늘면 홈 예산을 깎아먹는다.
 const TAP_RULES = [
@@ -23,7 +23,7 @@ for (const rule of TAP_RULES) ok(source.includes(rule), `shell stylesheet declar
 // 접기 헤더는 목록 표시를 잃으면 안 되므로 display 를 바꾸지 않는다.
 ok(!/body\.abV22812Shell details>summary\{[^}]*display:/.test(source), "summary rows keep their list-item display and marker");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 async function request(fixture, path, { cookie = fixture.cookie } = {}) {
   const response = await app.fetch(new Request(`${ORIGIN}${path}`, {
@@ -134,12 +134,12 @@ try {
 
     // 셸을 쓰는 화면은 새 스타일시트를 정확히 한 번 참조한다.
     if (page.text.includes("abV22812Shell")) {
-      eq((page.text.match(/href="\/assets\/accountbook-shell-v22919\.css"/g) || []).length, 1, `${name}: 새 셸 스타일시트를 한 번만 부른다`);
+      eq((page.text.match(/href="\/assets\/accountbook-shell-v22923\.css"/g) || []).length, 1, `${name}: 새 셸 스타일시트를 한 번만 부른다`);
     }
   }
 
   // 셸 자원 자체
-  const shell = await request(fixture, "/assets/accountbook-shell-v22919.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22923.css");
   eq(shell.status, 200, "새 셸 스타일시트가 제공된다");
   ok((shell.headers.get("content-type") || "").includes("text/css"), "셸 스타일시트 MIME 이 text/css");
   ok((shell.headers.get("cache-control") || "").includes("immutable"), "셸 스타일시트가 immutable 로 캐시된다");

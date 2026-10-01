@@ -40,7 +40,7 @@ async function renderHome(setup = () => {}, ua = "Mozilla/5.0 (Windows NT 10.0; 
     return realFetch(input, init);
   };
   try {
-    const response = await app.fetch(new Request(`https://ttokttok-accountbook.com/app?month=${month}&household_id=${householdId}`, { headers: { cookie: fixture.cookie, "user-agent": ua } }), fixture.env, {});
+    const response = await app.fetch(new Request(`https://malhaebook.com/app?month=${month}&household_id=${householdId}`, { headers: { cookie: fixture.cookie, "user-agent": ua } }), fixture.env, {});
     return { status: response.status, html: await response.text(), calls: calls.slice() };
   } finally {
     globalThis.fetch = realFetch;
@@ -111,7 +111,7 @@ ok(paceRead.length > 0, `쓰는 속도에 해석이 있다 (${paceRead})`);
 eq((home.html.match(/class="homeBudgetAmount"/g) || []).length, 1, "34px 대표 숫자는 여전히 화면에 하나다");
 const shellFixture = await createV2265QaFixture();
 try {
-  const shell = await app.fetch(new Request("https://ttokttok-accountbook.com/assets/accountbook-shell-v22919.css"), shellFixture.env, {});
+  const shell = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v22923.css"), shellFixture.env, {});
   const css = await shell.text();
   ok(css.includes("body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,22px)"), "리포트 숫자는 num-lg 를 쓴다");
   ok(css.includes("body.abV22812Shell .homeReportGrid{display:grid;grid-template-columns:1fr 1fr"), "데스크톱은 2×2 로 놓는다");
@@ -119,7 +119,8 @@ try {
   ok(css.includes("body.abV22812Shell .homeReport:nth-child(n+3){display:none}"), "모바일은 앞의 두 장만 보여 준다");
   // 4.4: 우측 열은 1180px 이하에서 사라진다.
   ok(css.includes("@media(min-width:1181px)"), "우측 열 기준점이 1180px 다");
-  eq(css.includes("@media(min-width:1320px)"), false, "옛 1320px 기준점이 남아 있지 않다");
+  const railOnly = css.slice(css.indexOf("@media(min-width:1320px)"), css.indexOf("body.abV22812Shell .abActivityHead"));
+  eq(railOnly.includes(".homeReport"), false, "1320px 사용 내역 기준점은 홈 리포트에 영향을 주지 않는다");
 } finally {
   shellFixture.restore();
 }

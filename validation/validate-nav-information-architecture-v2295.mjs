@@ -30,7 +30,7 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // 개편 **전** 사이드바가 갖고 있던 목적지(영수증 기능을 없애면서 21개에서 20개가 됐다). 이 목록은 되돌릴 수 없는 기준선이다 —
 // 분류를 어떻게 바꾸든 여기 있는 키가 하나라도 빠지면 사용자는 갈 곳을 잃는다.

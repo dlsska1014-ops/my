@@ -11,7 +11,7 @@ const purgeSql = readFileSync(new URL("../02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql"
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the merged release");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const USER = "kakao_login:2265";
 
 function skillRequest(headers = {}) {

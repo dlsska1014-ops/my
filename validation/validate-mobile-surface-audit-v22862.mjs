@@ -9,9 +9,9 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the audit fix release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22919.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22919.js"'), "navigation runtime uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js"'), "unchanged V5 runtime keeps its immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22923.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.
@@ -32,7 +32,7 @@ ok(source.includes("@media(min-width:900px){html{scroll-padding-top:20px}}"), "d
 async function request(fixture, path, { method = "GET", cookie = fixture.cookie, headers = {} } = {}) {
   const mergedHeaders = { "user-agent": "Mozilla/5.0", ...headers };
   if (cookie) mergedHeaders.cookie = cookie;
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { method, headers: mergedHeaders }), fixture.env, {});
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { method, headers: mergedHeaders }), fixture.env, {});
   return { response, text: await response.text() };
 }
 
@@ -40,9 +40,9 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22919.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22923.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22919-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22923-css"', "new shell ETag is correct");
   ok(shell.text.includes("width:auto!important"), "deployed shell pins the docked control width");
   ok(shell.text.includes(".mobileFilterForm{grid-template-columns:minmax(0,1fr)!important}"), "deployed shell ships the shrinkable filter grid");
   ok(shell.text.includes("scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))"), "deployed shell ships the anchor offset");
@@ -83,7 +83,7 @@ try {
   for (const [name, path] of tabs) {
     const page = await request(fixture, path);
     eq(page.response.status, 200, `${name} 탭이 200으로 응답한다`);
-    const shellRefs = page.text.split('href="/assets/accountbook-shell-v22919.css"').length - 1;
+    const shellRefs = page.text.split('href="/assets/accountbook-shell-v22923.css"').length - 1;
     eq(shellRefs, 1, `${name} 탭이 새 셸을 정확히 한 번 참조한다`);
     ok(!page.text.includes("accountbook-shell-v22861.css") && !page.text.includes("accountbook-nav-v22861.js"), `${name} 탭에 이전 버전 자산이 남아 있지 않다`);
     ok(page.text.includes('class="abNavMobileTop"'), `${name} 탭이 모바일 상단바를 렌더한다`);

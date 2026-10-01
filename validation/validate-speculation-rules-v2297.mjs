@@ -25,7 +25,7 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 const fixture = await createV2265QaFixture();
 try {
