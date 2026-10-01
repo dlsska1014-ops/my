@@ -192,7 +192,7 @@ eq(functionBlockHash("function renderMyAnalysisHtml("), "c4f0632fbb1d11844a88d6b
 
 const fixture = await createV2265QaFixture();
 try {
-  const publicResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my"), fixture.env, {});
+  const publicResponse = await app.fetch(new Request("https://malhaebook.com/my"), fixture.env, {});
   eq(publicResponse.status, 200, "public login page renders");
   const loginHtml = await publicResponse.text();
   ok(loginHtml.includes("기존 계정 로그인"), "existing-account login remains the primary visible path");
@@ -220,7 +220,7 @@ try {
     buttonId: "signupPasswordSubmit",
   });
 
-  const backupResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/backup-login?return_to=%2Fapp", {
+  const backupResponse = await app.fetch(new Request("https://malhaebook.com/my/backup-login?return_to=%2Fapp", {
     headers: { cookie: fixture.cookie },
   }), fixture.env, {});
   eq(backupResponse.status, 200, "personal backup-password page renders");
@@ -273,11 +273,10 @@ try {
   eq(deleteSubmit.button.textContent, "삭제", "cancelled destructive action keeps the original label");
 
   for (const path of [
-    "/receipts?month=2026-07&household_id=house-home",
     "/my/analysis?month=2026-07&household_id=house-home",
     "/my/analysis/app.js",
   ]) {
-    const response = await app.fetch(new Request("https://ttokttok-accountbook.com" + path, {
+    const response = await app.fetch(new Request("https://malhaebook.com" + path, {
       headers: { cookie: fixture.cookie },
     }), fixture.env, {});
     eq(response.status, 200, `${path} remains available`);

@@ -23,14 +23,14 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // ---------------------------------------------------------------------------
 // 1) 매니페스트가 공유 대상과 바로가기를 알린다
 // ---------------------------------------------------------------------------
 const manifestResponse = await app.fetch(new Request(`${ORIGIN}/manifest.json`), {}, {});
 eq(manifestResponse.status, 200, "매니페스트가 서빙된다");
-eq(manifestResponse.headers.get("etag"), '"ab-manifest-v2298"', "내용이 바뀌었으므로 ETag 도 올라갔다");
+eq(manifestResponse.headers.get("etag"), '"ab-manifest-v22920"', "내용이 바뀌었으므로 ETag 도 올라갔다");
 const manifest = JSON.parse(await manifestResponse.text());
 
 eq(manifest.share_target.method, "GET", "텍스트 공유는 GET 이다 — 서비스워커 없이 서버가 바로 받는다");
@@ -39,8 +39,8 @@ ok(manifest.share_target.params.text && manifest.share_target.params.title, "제
 ok(!manifest.share_target.enctype && !manifest.share_target.params.files,
   "파일 공유를 선언하지 않는다 — 서비스워커 없이 받을 수 없는 것을 받는 척하지 않는다");
 
-eq(manifest.shortcuts.length, 3, "홈 화면 바로가기가 셋이다");
-for (const [name, url] of [["빠른 입력", "/app#add"], ["이번 달 예산", "/budgets"], ["영수증 찍기", "/receipts"]]) {
+eq(manifest.shortcuts.length, 2, "홈 화면 바로가기가 둘이다");
+for (const [name, url] of [["빠른 입력", "/app#add"], ["이번 달 예산", "/budgets"]]) {
   const shortcut = manifest.shortcuts.find((entry) => entry.name === name);
   ok(shortcut && shortcut.url === url, `바로가기 "${name}" 이 ${url} 로 간다`);
   ok(shortcut.short_name && shortcut.short_name.length <= 4, `"${name}" 은 좁은 자리용 짧은 이름을 갖는다`);

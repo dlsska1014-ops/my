@@ -41,7 +41,7 @@ for (const rule of [
 // 2) 화면에서 실제로 그려지는 모서리가 한 가지다
 // ---------------------------------------------------------------------------
 // 소스가 아니라 렌더 결과를 본다. 소스에서 토큰을 써도 더 센 규칙이 이기면 소용없다.
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const { createV2265QaFixture } = await import("./qa-fixture.mjs");
 const fixture = await createV2265QaFixture();
 try {
@@ -51,7 +51,7 @@ try {
   //
   // 대신 **캐스케이드에서 이기는 층**만 본다. 셸 CSS 는 head 의 마지막 스타일시트라
   // 여기서 정한 값이 화면에 나온다. 그 층 안의 카드 규칙이 토큰을 쓰면 결과가 하나가 된다.
-  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22914.css`), {}, {})).text();
+  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22923.css`), {}, {})).text();
   const shellCardRules = [...shellCss.matchAll(/[^{}]{0,160}\{[^{}]*border-radius:[^{}]*\}/g)]
     .map((m) => m[0])
     .filter((rule) => /\.(card|panel|homeCard|abV5SectionCard|gaugeCard)\b/.test(rule.split("{")[0]));

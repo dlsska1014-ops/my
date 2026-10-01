@@ -193,13 +193,13 @@ try {
         utterance, lang: "ko",
         user: { id: userKey, type: "botUserKey", properties: { botUserKey: userKey } },
       },
-      bot: { id: "qa-bot", name: "똑똑한가계부" },
+      bot: { id: "qa-bot", name: "말해가계부" },
       action: { id: "qa-edit-action", name: "수정", params: {}, detailParams: {}, clientExtra: {} },
       contexts: [],
     };
   }
   async function say(utterance, userKey = "kakao_login:2265") {
-    const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
+    const response = await app.fetch(new Request("https://malhaebook.com/skill", {
       method: "POST",
       headers: { "content-type": "application/json; charset=utf-8" },
       body: JSON.stringify(skillPayload(utterance, userKey)),

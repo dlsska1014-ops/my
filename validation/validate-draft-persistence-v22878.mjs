@@ -8,7 +8,7 @@ import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 let checks = 0;
 
 function ok(value, message) {

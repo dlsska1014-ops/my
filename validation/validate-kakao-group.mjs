@@ -7,8 +7,8 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 
 const env = {
-  APP_NAME: "똑똑한가계부",
-  PUBLIC_BASE_URL: "https://ttokttok-accountbook.com",
+  APP_NAME: "말해가계부",
+  PUBLIC_BASE_URL: "https://malhaebook.com",
   INCOMPLETE_FEATURE_QA_ENABLED: "1",
   ADMIN_API_TOKEN: "qa-kakao-skill-token",
 };
@@ -33,7 +33,7 @@ function skillPayload({ userKey, groupKey = "" }) {
       },
       futureRequestField: { enabled: true },
     },
-    bot: { id: "test-bot", name: "똑똑한가계부" },
+    bot: { id: "test-bot", name: "말해가계부" },
     action: { id: "start-action", name: "시작", params: {}, detailParams: {}, clientExtra: {} },
     contexts: [],
     futureRootField: ["ignored"],
@@ -43,7 +43,7 @@ function skillPayload({ userKey, groupKey = "" }) {
 async function callSkill(payload, { authorized = true } = {}) {
   const headers = { "content-type": "application/json; charset=utf-8" };
   if (authorized) headers.authorization = `Bearer ${env.ADMIN_API_TOKEN}`;
-  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
+  const response = await app.fetch(new Request("https://malhaebook.com/skill", {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
@@ -55,9 +55,9 @@ const blockedPayload = await callSkill(skillPayload({ userKey: "qa-blocked-v2287
 eq(blockedPayload.response.status, 200, "unauthenticated QA-shaped skill request returns the Kakao-safe response envelope");
 ok(JSON.stringify(blockedPayload.data).includes("잠시 처리 흐름을 정리"), "unauthenticated QA-shaped skill request cannot execute the test conversation");
 
-const blockedFixture = await app.fetch(new Request("https://ttokttok-accountbook.com/kakao-skill-test-payload.json"), env, {});
+const blockedFixture = await app.fetch(new Request("https://malhaebook.com/kakao-skill-test-payload.json"), env, {});
 eq(blockedFixture.status, 404, "Kakao test fixture is hidden without authenticated QA access");
-const allowedFixture = await app.fetch(new Request("https://ttokttok-accountbook.com/kakao-skill-test-payload.json", {
+const allowedFixture = await app.fetch(new Request("https://malhaebook.com/kakao-skill-test-payload.json", {
   headers: { authorization: `Bearer ${env.ADMIN_API_TOKEN}` },
 }), env, {});
 eq(allowedFixture.status, 200, "authenticated QA mode can still retrieve the Kakao test fixture");

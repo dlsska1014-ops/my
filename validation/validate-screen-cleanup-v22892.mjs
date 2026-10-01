@@ -23,7 +23,7 @@ const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 async function call(fixture, path, cookie, { method = "GET", body } = {}) {
   const headers = { "user-agent": "Mozilla/5.0", cookie, origin: ORIGIN };
   if (body) headers["content-type"] = "application/x-www-form-urlencoded";

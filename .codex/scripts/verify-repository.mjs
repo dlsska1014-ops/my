@@ -10,10 +10,9 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_8_100.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_24.sha256",
 );
 const validationScripts = [
-  ["영수증 안정화", "validation/validate-receipt.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
@@ -60,7 +59,6 @@ const validationScripts = [
   ["예산 기준·수입 문구·설정 통합", "validation/validate-budget-basis-income-ia-v22881.mjs"],
   ["컬러톤 토큰·알림 창", "validation/validate-tone-tokens-alert-window-v22882.mjs"],
   ["히어로 컬러톤 연결", "validation/validate-tone-aware-heroes-v22883.mjs"],
-  ["영수증 파싱 정확도", "validation/validate-receipt-parse-accuracy-v22884.mjs"],
   ["디자인 토큰 도입", "validation/validate-design-tokens-v22885.mjs"],
   ["수정 폼 지연 로드", "validation/validate-deferred-edit-forms-v22886.mjs"],
   ["모바일 하단 독·탭 통합", "validation/validate-mobile-dock-tabs-v22887.mjs"],
@@ -73,7 +71,6 @@ const validationScripts = [
   ["홈 구성", "validation/validate-home-layout-v22894.mjs"],
   ["데스크톱 커서", "validation/validate-desktop-cursor-v22895.mjs"],
   ["홈 탭 정지점", "validation/validate-home-tab-stops-v22896.mjs"],
-  ["영수증 인식 원값·확인", "validation/validate-receipt-original-values-v22898.mjs"],
   ["만들었다 지우는 마크업", "validation/validate-emit-then-strip-v22900.mjs"],
   ["화면이 데이터와 같은 말을 하는가", "validation/validate-screen-truth-v2290.mjs"],
   ["공유 스타일시트", "validation/validate-shared-stylesheet-v2291.mjs"],
@@ -89,6 +86,14 @@ const validationScripts = [
   ["컴포넌트 CSS 전달", "validation/validate-component-css-travels-v22914.mjs"],
   ["판 번호 정본", "validation/validate-version-single-source-v22915.mjs"],
   ["DB 왕복·직렬 깊이", "validation/validate-serial-depth-v22916.mjs"],
+  ["마지막 가계부·카카오 문구·고정 시계", "validation/validate-last-household-memory-v22917.mjs"],
+  ["화면 실측 결함·대비", "validation/validate-screen-audit-fixes-v22918.mjs"],
+  ["카드사 가져오기 안내·로그인 대기·영수증 제거", "validation/validate-card-import-login-progress-v22919.mjs"],
+  ["서비스명·도메인 변경", "validation/validate-brand-rename-v22920.mjs"],
+  ["스킬 상태 장애·대량 입력", "validation/validate-skill-stability-v22921.mjs"],
+  ["종합 관제·수집 장애·인증", "validation/validate-monitoring-v22922.mjs"],
+  ["반응형 관제·금액 가림", "validation/validate-responsive-operations-v22923.mjs"],
+  ["가계부 설정 범위·취소·관제 SSO·부분 지표", "validation/validate-safety-fix-v22924.mjs"],
 ];
 
 function sha256(filePath) {
@@ -146,7 +151,9 @@ function run(command, args, label) {
 // 있지 않으니 검사가 사라져도 숫자는 그대로였고, "줄어들면 실패로 본다"는 규칙이
 // 강제되지 않았다. 이제 각 스크립트의 "(N checks)" 를 세어 합계를 만들고, 아래
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
-const EXPECTED_MINIMUM_CHECKS = 4829;
+// V22.9.19: 영수증 사진 등록을 없애며 그 전용 검사 3개(약 250개 확인)가 빠졌고, 새 검사 110개가 들어왔다.
+// V22.9.20: 서비스명·도메인 변경 검사 48개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 5285;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

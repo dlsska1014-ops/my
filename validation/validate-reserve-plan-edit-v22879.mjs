@@ -57,7 +57,7 @@ ok(source.includes("<h1>정기 수입·지출</h1>"), "the page heading is renam
 // 실제 왕복
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const req = (path, init = {}) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const req = (path, init = {}) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   ...init,
   headers: { cookie: fixture.cookie, ...(init.headers || {}) },
 }), fixture.env, {});
@@ -92,7 +92,7 @@ eq(html.includes("1,200,000원"), false, "the old amount is gone");
 
 // 권한 없는 사용자는 수정하지 못한다(구성원 role=member).
 const memberCookie = await fixture.cookieFor("user-wifi");
-const denied = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/reserve-plan/update", {
+const denied = await app.fetch(new Request("https://malhaebook.com/admin/reserve-plan/update", {
   ...form({ household_id: "house-home", month: "2026-08", id: planId, name: "몰래수정", amount: "1", type: "expense", recurrence: "annual" }),
   headers: { cookie: memberCookie, "content-type": "application/x-www-form-urlencoded" },
 }), fixture.env, {});

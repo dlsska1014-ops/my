@@ -25,7 +25,7 @@ const guardStart = source.indexOf("function checkKakaoRepeatGuard(");
 const guardBody = source.slice(guardStart, source.indexOf("\n}\n", guardStart));
 ok(!guardBody.includes("AB_KAKAO_REPEAT_GUARD.set("), "the check step no longer locks the utterance by itself");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 async function say(fixture, utterance, userKey = "kakao_login:2265") {
   const payload = {

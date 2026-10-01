@@ -66,7 +66,7 @@ function redactNluOpsSample(text = "") {
     .replace(/\b\d{2,4}[ -]?\d{3,4}[ -]?\d{4}\b/g, "[전화번호]")
     .replace(/\b[A-Z0-9]{6,16}\b/g, "[코드]")
     .replace(/\b\d{8,}\b/g, "[긴숫자]")
-    .replace(/@?똑똑한가계부/gi, "")
+    .replace(/@?(?:말해가계부|똑똑한가계부)/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 180);
@@ -752,10 +752,216 @@ const CORS_HEADERS = {
   "access-control-allow-headers": "content-type,authorization,x-api-key,x-kakao-skill-secret",
 };
 
-export default {
+// V22.9.17: 마지막에 쓰던 가계부를 기억한다.
+//
+// 가계부가 둘 이상이면 `household_id` 없는 진입(로그인 직후 /my, 북마크, 주소 직접 입력)이
+// "가장 최근에 만든/참여한 가계부"로 열렸다. 여행용 가계부를 하나 만들면 그 뒤로 생활비
+// 가계부 대신 여행 가계부가 먼저 떴다. 카카오는 선택 가계부를 설정으로 기억하지만 웹에는
+// 그런 자리가 없었다.
+//
+// 방식: 사용자 화면이 `household_id` 를 달고 정상(200)으로 그려지면 그 값을 브라우저 쿠키
+// `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
+// 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 첫 가계부로
+// 대체하지 않고 가계부 고르기 화면을 낸다 — 기준선 규칙 그대로). 그 화면이 나왔다는 것은
+// 쿠키가 낡았다는 뜻이므로 지운다. DB 왕복은 늘지 않는다. 로그아웃하면 함께 지운다.
+const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
+const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
+const AB_HOUSEHOLD_MEMORY_PATHS = new Set([
+  "/my", "/app", "/m", "/menu", "/budgets", "/reports", "/my/analysis", "/my/settings", "/reserve-plans",
+  "/payment-methods", "/goals", "/savings-goals", "/annual", "/annual-report",
+  "/settlement-summary", "/split-summary", "/meeting-settlement", "/budget-alerts", "/today-budget",
+  "/monthly-forecast", "/smart-tools", "/my/premium", "/keyword-guide", "/my/members", "/my/backup",
+  "/my/groups", "/my/households",
+]);
+
+function isRememberableHouseholdId(value = "") {
+  return /^[A-Za-z0-9_-]{1,80}$/.test(String(value || ""));
+}
+
+function rememberedHouseholdRequest(request) {
+  const none = { request, eligible: false, injected: false, remembered: "" };
+  try {
+    if (String(request?.method || "GET").toUpperCase() !== "GET") return none;
+    const url = new URL(request.url);
+    if (!AB_HOUSEHOLD_MEMORY_PATHS.has(url.pathname)) return none;
+    const remembered = String(getCookie(request, AB_HOUSEHOLD_MEMORY_COOKIE) || "").trim();
+    const requested = String(url.searchParams.get("household_id") || "").trim();
+    if (requested || !isRememberableHouseholdId(remembered)) return { request, eligible: true, injected: false, remembered };
+    url.searchParams.set("household_id", remembered);
+    return { request: new Request(url.toString(), request), eligible: true, injected: true, remembered };
+  } catch (_) {
+    return none;
+  }
+}
+
+function withSetCookie(response, cookie) {
+  const out = new Response(response.body, response);
+  out.headers.append("set-cookie", cookie);
+  return out;
+}
+
+async function withRememberedHouseholdCookie(routed, response) {
+  try {
+    const request = routed.request;
+    const url = new URL(request.url);
+    if (url.pathname === "/my/logout") {
+      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
+    if (!routed.eligible || response.status !== 200) return response;
+    if (!String(response.headers.get("content-type") || "").includes("text/html")) return response;
+    const requested = String(url.searchParams.get("household_id") || "").trim();
+    if (!isRememberableHouseholdId(requested)) return response;
+    if (routed.injected) {
+      // 정상 화면은 링크마다 그 가계부 ID 를 단다. 하나도 없으면 가계부 고르기 화면이다 — 쿠키가 낡았다.
+      const html = await response.clone().text();
+      if (html.includes(`household_id=${requested}`)) return response;
+      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+    }
+    if (requested === routed.remembered) return response;
+    return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=${requested}; ${AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS}`);
+  } catch (_) {
+    return response;
+  }
+}
+
+const AB_MONITOR_SEND_BUDGET = { minute: 0, count: 0 };
+
+function abMonitorRequestContext(request, env = {}) {
+  if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return null;
+  const path = new URL(request.url).pathname;
+  if (/^\/(?:health|ready|internal|ops-|assets|icon-|favicon|apple-touch|manifest|ads\.txt|robots|sitemap)/.test(path)) return null;
+  if (!["/skill", "/app", "/my", "/api", "/admin", "/auth", "/u/api", "/login"].some(prefix => path === prefix || path.startsWith(prefix + "/"))) return null;
+  const route = path === "/skill" ? "skill" : /login|signup|auth/.test(path) ? "auth" : /import/.test(path) ? "import" : /^\/(?:u\/api|api|admin)\//.test(path) ? "api" : "web";
+  return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, outcome: "unknown" };
+}
+
+function abMonitorOutcome(env, outcome) {
+  if (env.__AB_MONITOR_REQUEST) env.__AB_MONITOR_REQUEST.outcome = outcome;
+}
+
+function abMonitorCompleted(env, ctx, response) {
+  try {
+  const record = env.__AB_MONITOR_REQUEST;
+  if (!record || !ctx || typeof ctx.waitUntil !== "function") return;
+  const duration = Math.max(0, Date.now() - record.started_at);
+  const status = response ? response.status : 500;
+  const outcome = response?.headers.get("x-accountbook-nlu-result") || record.outcome;
+  const randomSample = Math.random() < 0.02;
+  const incident = status >= 500 || status === 403 || record.db_failures > 0 || outcome === "error" || duration >= 3500;
+  if (!randomSample && !incident) return;
+  const minute = Math.floor(Date.now() / 60000);
+  if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
+  if (AB_MONITOR_SEND_BUDGET.count >= 100) return;
+  AB_MONITOR_SEND_BUDGET.count += 1;
+  const event = { id: crypto.randomUUID(), at: Date.now(), route: record.route, method: record.method, status, duration_ms: duration, db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, outcome: outcome === "unknown" && status < 400 ? "ok" : outcome, sample_kind: randomSample ? "random" : "incident" };
+  // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
+  const persistence = (async () => {
+    try {
+      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
+      if (result.body) await result.body.cancel();
+    } catch (_) { /* Monitoring failure never changes the user's response or retries a write. */ }
+  })();
+  try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ }
+  } catch (_) { /* Telemetry must never interrupt application handling. */ }
+}
+
+async function abMonitorReadBounded(response, limit = 1048576) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const parts = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > limit) throw new Error("monitor_payload_too_large");
+      parts.push(part.value);
+    }
+  } catch (error) { await reader.cancel().catch(() => {}); throw error; }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) { bytes.set(part, offset); offset += part.length; }
+  return new TextDecoder().decode(bytes);
+}
+
+function abMonitorParseDatabaseMetrics(text) {
+  const metrics = {};
+  let cpuTotal = 0;
+  let cpuIdle = 0;
+  let cpuSeen = false;
+  for (const line of text.split("\n")) {
+    if (!/^(?:pg_database_size_mb|pg_stat_database_num_backends|pg_stat_database_numbackends|max_connections_connection_count|pg_settings_max_connections|node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_cpu_seconds_total)(?:\{|\s)/.test(line)) continue;
+    const match = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\{([^}]*)\})?\s+([-+\deE.]+)(?:\s|$)/);
+    if (!match) continue;
+    const value = Number(match[3]);
+    if (!Number.isFinite(value) || value < 0) continue;
+    if (match[1] === "node_cpu_seconds_total") { cpuSeen = true; cpuTotal += value; if (/mode="idle"/.test(match[2] || "")) cpuIdle += value; }
+    else if (match[1] === "pg_database_size_mb" && (!/datname=/.test(match[2] || "") || /datname="postgres"/.test(match[2] || ""))) metrics.database_bytes = value * 1024 * 1024;
+    else if (match[1] === "pg_stat_database_num_backends" || match[1] === "pg_stat_database_numbackends") metrics.connections = (metrics.connections || 0) + value;
+    else if (match[1] === "max_connections_connection_count" || match[1] === "pg_settings_max_connections") metrics.max_connections = value;
+    else if (match[1] === "node_memory_MemTotal_bytes") metrics.memory_total_bytes = value;
+    else if (match[1] === "node_memory_MemAvailable_bytes") metrics.memory_available_bytes = value;
+  }
+  metrics.cpu_counter = cpuSeen ? { total: cpuTotal, idle: cpuIdle } : null;
+  return metrics;
+}
+
+async function abMonitorDatabaseProbe(request, env) {
+  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return jsonResponse({ ok: false, error_code: "unauthorized" }, 401);
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return jsonResponse({ ok: false, error_code: "not_connected" }, 503);
+  try {
+    const base = new URL(env.SUPABASE_URL);
+    if (base.protocol !== "https:" || !base.hostname.endsWith(".supabase.co")) return jsonResponse({ ok: false, error_code: "invalid_origin" }, 503);
+    const response = await fetch(`${base.origin}/customer/v1/privileged/metrics`, { headers: { authorization: `Basic ${btoa(`service_role:${env.SUPABASE_SERVICE_ROLE_KEY}`)}` }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) { if (response.body) await response.body.cancel(); return jsonResponse({ ok: false, error_code: `http_${response.status}` }, 503); }
+    const metrics = abMonitorParseDatabaseMetrics(await abMonitorReadBounded(response));
+    if (metrics.database_bytes === undefined && metrics.cpu_counter === null) return jsonResponse({ ok: false, error_code: "unsupported_metrics" }, 503);
+    return jsonResponse({ ok: true, metrics });
+  } catch (_) { return jsonResponse({ ok: false, error_code: "metrics_unavailable" }, 503); }
+}
+
+async function handleComprehensiveMonitor(request, env, url) {
+  if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse("/admin-view") : jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>종합 관제 연결 준비</title><h1>종합 관제 연결이 필요합니다.</h1><p>별도 관제 Worker와 저장소를 연결하면 사용량과 오류 이력을 확인할 수 있습니다.</p><a href="/ops-dashboard">기존 운영 화면 열기</a></html>', 503);
+  const paths = { "/ops-monitor": "/dashboard?base=/ops-monitor", "/ops-monitor/api/summary": "/api/summary", "/ops-monitor/api/manual": "/api/manual", "/ops-monitor/api/plans": "/api/plans", "/ops-monitor/open": "/internal/ticket" };
+  const target = paths[url.pathname];
+  if (!target || !((url.pathname.endsWith("/manual") || url.pathname.endsWith("/plans")) ? request.method === "POST" : request.method === "GET")) return jsonResponse({ ok: false, error: "not_found" }, 404);
+  try {
+    const body = request.method === "POST" ? await abMonitorReadBounded(request, 16384) : undefined;
+    const response = await env.OPS_MONITOR.fetch(`https://monitor.internal${target}`, { method: url.pathname === "/ops-monitor/open" ? "POST" : request.method, headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body, signal: AbortSignal.timeout(10000) });
+    if (url.pathname !== "/ops-monitor/open") return response;
+    if (!response.ok) return jsonResponse({ ok: false, error: "monitor_unavailable" }, 503);
+    const result = JSON.parse(await abMonitorReadBounded(response, 4096));
+    const origin = new URL(env.OPS_MONITOR_PUBLIC_ORIGIN || "");
+    if (origin.protocol !== "https:" || !origin.hostname.endsWith(".workers.dev") || !/^[a-f0-9-]{36}$/.test(result.ticket || "")) return jsonResponse({ ok: false, error: "monitor_origin_required" }, 503);
+    return htmlResponse(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>별도 관제 열기</title><body><p>관리자 인증을 확인했습니다. 별도 관제를 열고 있습니다.</p><form method="post" action="${escapeHtml(origin.origin)}/session" id="monitorLogin"><input type="hidden" name="ticket" value="${escapeHtml(result.ticket)}"><button type="submit">관제 열기</button></form><script>document.getElementById('monitorLogin').submit()</script></body></html>`, 200, {
+      "content-security-policy": HTML_HEADERS["content-security-policy"].replace("form-action 'self'", `form-action 'self' ${origin.origin}`),
+    });
+  } catch (_) { return jsonResponse({ ok: false, error: "monitor_unavailable" }, 503); }
+}
+
+const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
+    const monitoring = abMonitorRequestContext(request, env);
+    const requestEnv = monitoring ? { ...env, __AB_MONITOR_REQUEST: monitoring } : env;
+    const routed = rememberedHouseholdRequest(request);
+    try {
+      const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      abMonitorCompleted(requestEnv, ctx, response);
+      return withRememberedHouseholdCookie(routed, response);
+    } catch (error) {
+      abMonitorCompleted(requestEnv, ctx, null);
+      throw error;
+    }
+  },
+  async route(request, env, ctx) {
     try {
       const url = new URL(request.url);
+
+      if (url.pathname === "/internal/ops-metrics" && request.method === "GET") {
+        return abMonitorDatabaseProbe(request, env);
+      }
 
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -903,12 +1109,11 @@ export default {
         return safeHtmlRoute(request, url, () => handleMyPremiumPage(request, env, url), "무료 스마트 도구");
       }
 
+      // 영수증 사진 등록은 인식률 문제로 없앴다. 예전 북마크·홈 화면 바로가기는 홈으로 보낸다.
       if (url.pathname === "/receipts" && request.method === "GET") {
-        return safeHtmlRoute(request, url, () => handleReceiptCapturePage(request, env, url), "영수증 스마트 기록");
-      }
-
-      if (url.pathname === "/my/receipt/save" && request.method === "POST") {
-        return handleReceiptConfirmedSave(request, env);
+        const keep = new URLSearchParams();
+        for (const key of ["month", "household_id"]) if (url.searchParams.get(key)) keep.set(key, url.searchParams.get(key));
+        return redirectResponse(keep.toString() ? `/app?${keep.toString()}` : "/app");
       }
 
       if (url.pathname === "/reports" && request.method === "GET") {
@@ -1758,6 +1963,10 @@ export default {
         return handleOpsDashboardPage(request, env, url);
       }
 
+      if (url.pathname === "/ops-monitor" || url.pathname.startsWith("/ops-monitor/")) {
+        return handleComprehensiveMonitor(request, env, url);
+      }
+
       if (url.pathname === "/ops-snapshot.json" && request.method === "GET") {
         return handleOpsSnapshotJson(request, env, url);
       }
@@ -1927,7 +2136,11 @@ export default {
   },
 };
 
-const APP_VERSION = "V22.9.16-SERIAL-DEPTH";
+export default ACCOUNTBOOK_WORKER;
+
+// V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
+// (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
+const APP_VERSION = "V22.9.24-SAFETY-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -1994,7 +2207,7 @@ function normalizeBaseUrl(value = "") {
   return v;
 }
 
-const DEFAULT_PUBLIC_BASE_URL = "https://ttokttok-accountbook.com";
+const DEFAULT_PUBLIC_BASE_URL = "https://malhaebook.com";
 
 function publicBaseUrl(env = {}, url = null) {
   return normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || DEFAULT_PUBLIC_BASE_URL || url?.origin || "");
@@ -2068,11 +2281,11 @@ function canonicalRedirectResponse(request, env = {}, url = null) {
 }
 
 function appName(env) {
-  return env.APP_NAME || env.BRAND_NAME || "똑똑한가계부";
+  return env.APP_NAME || env.BRAND_NAME || "말해가계부";
 }
 
 const BUSINESS_FOOTER_INFO = Object.freeze({
-  service: "똑똑한가계부",
+  service: "말해가계부",
   company: "도담 네트워크",
   businessNumber: "729-24-02288",
   address: "경기도 평택시 신촌3로 12",
@@ -2109,7 +2322,7 @@ function publicSupportEmail(env = {}) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : "";
 }
 
-const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-8422696710972974";
+const DEFAULT_ADSENSE_PUBLISHER_ID = "ca-pub-3546469870344416";
 
 function adsensePublisherId(_env = {}) {
   // The review owner is intentionally pinned. Existing production variables may
@@ -2147,11 +2360,11 @@ function publicSiteNav(active = "home") {
     ["faq", "FAQ", "/faq"],
   ];
   const linkHtml = links.map(([key,label,href]) => `<a class="${active === key ? "active" : ""}" ${active === key ? `aria-current="page"` : ""} href="${href}">${escapeHtml(label)}</a>`).join("");
-  return `<header class="pubHeader"><div class="pubHeaderInner"><a class="pubBrand" href="/"><span>₩</span><b>똑똑한가계부</b></a><nav class="pubDesktopNav" aria-label="공개 페이지">${linkHtml}</nav><a class="pubStart" href="/my">가계부 시작하기</a><details class="pubMobileMenu"><summary aria-label="공개 페이지 메뉴 열기">메뉴</summary><nav aria-label="모바일 공개 페이지"><a href="/my">가계부 시작하기</a>${linkHtml}</nav></details></div></header>`;
+  return `<header class="pubHeader"><div class="pubHeaderInner"><a class="pubBrand" href="/"><span>₩</span><b>말해가계부</b></a><nav class="pubDesktopNav" aria-label="공개 페이지">${linkHtml}</nav><a class="pubStart" href="/my">가계부 시작하기</a><details class="pubMobileMenu"><summary aria-label="공개 페이지 메뉴 열기">메뉴</summary><nav aria-label="모바일 공개 페이지"><a href="/my">가계부 시작하기</a>${linkHtml}</nav></details></div></header>`;
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>똑똑한가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a></div></footer>`;
 }
 
 function publicPageCatalog(env = {}, url = null) {
@@ -2162,9 +2375,9 @@ function publicPageCatalog(env = {}, url = null) {
   return {
     home: {
       title: "카카오톡으로 함께 쓰는 생활 가계부",
-      description: "가족·부부·모임이 카카오톡에서 지출을 기록하고 웹에서 예산과 소비 흐름을 확인하는 똑똑한가계부 서비스입니다.",
+      description: "가족·부부·모임이 카카오톡에서 지출을 기록하고 웹에서 예산과 소비 흐름을 확인하는 말해가계부 서비스입니다.",
       eyebrow: "기록은 간단하게, 관리는 한눈에",
-      intro: "똑똑한가계부는 복잡한 입력 화면 대신 일상 문장으로 돈의 흐름을 기록하고, 필요한 순간에 예산·날짜·구성원 기준으로 정리해 보여줍니다. 혼자 사용하는 개인 가계부부터 가족 생활비, 부부 공동지출, 모임 회비, 여행 경비까지 가계부를 분리해 운영할 수 있습니다.",
+      intro: "말해가계부는 복잡한 입력 화면 대신 일상 문장으로 돈의 흐름을 기록하고, 필요한 순간에 예산·날짜·구성원 기준으로 정리해 보여줍니다. 혼자 사용하는 개인 가계부부터 가족 생활비, 부부 공동지출, 모임 회비, 여행 경비까지 가계부를 분리해 운영할 수 있습니다.",
       cards: [
         ["한 문장 기록", "‘점심 12000원 국민카드’처럼 말하면 날짜, 금액, 결제수단과 분류를 정리합니다."],
         ["함께 쓰는 가계부", "초대코드로 구성원이 참여하고, 가계부별 권한과 표시 이름을 관리합니다."],
@@ -2174,15 +2387,15 @@ function publicPageCatalog(env = {}, url = null) {
       sections: [
         { title: "누구나 바로 시작할 수 있는 흐름", paragraphs: ["처음 사용자는 새 가계부를 만들거나 받은 초대코드로 참여합니다. 구성원을 초대하고 필요하면 단톡방을 연결한 뒤 기록 예시를 보고 첫 거래를 남기면 기본 준비가 끝납니다.", "단톡방에서 사용할 때는 봇을 추가한 뒤 관리자 한 명이 초대코드로 해당 방을 가계부와 한 번 연결합니다. 이후 구성원은 봇을 호출해 같은 가계부에 기록할 수 있습니다."], bullets: ["가계부 만들기 또는 초대코드 참여", "구성원 초대와 승인", "단톡방 연결", "기록 예시 확인과 첫 기록", "예산·분류는 필요할 때 추가"] },
         { title: "카카오톡과 웹의 역할을 나눴습니다", paragraphs: ["카카오톡은 빠른 기록과 조회에 집중합니다. 기록할 때마다 홈페이지 주소를 반복하지 않고, 초대 관리·상세 분석·백업처럼 웹 화면이 더 유용한 순간에만 관련 링크를 제공합니다.", "웹에서는 기간, 분류, 결제수단, 구성원, 금액, 검색어를 조합해 거래를 분석하고 필요한 자료를 CSV로 내려받을 수 있습니다."], note: "대화에서는 필요한 답만 간결하게 제공하고, 자세한 관리가 필요할 때 웹 기능으로 자연스럽게 이어집니다." },
-        { title: "생활비 기록을 위한 서비스", paragraphs: ["똑똑한가계부는 금융상품을 추천하거나 투자·세무 판단을 대신하지 않습니다. 사용자가 직접 입력한 생활 수입과 지출을 정리하고 함께 확인하도록 돕는 기록 도구입니다.", "입력한 금액과 날짜는 사용자가 최종 확인해야 하며, 수정·삭제·백업 기능을 통해 기록을 직접 관리할 수 있습니다."] },
+        { title: "생활비 기록을 위한 서비스", paragraphs: ["말해가계부는 금융상품을 추천하거나 투자·세무 판단을 대신하지 않습니다. 사용자가 직접 입력한 생활 수입과 지출을 정리하고 함께 확인하도록 돕는 기록 도구입니다.", "입력한 금액과 날짜는 사용자가 최종 확인해야 하며, 수정·삭제·백업 기능을 통해 기록을 직접 관리할 수 있습니다."] },
       ],
       faqs: [["무료로 시작할 수 있나요?", "서비스의 제공 범위와 요금 정책은 운영 화면의 최신 안내를 따릅니다."], ["카카오톡 대화를 모두 읽나요?", "아닙니다. 봇에게 전달된 명령과 기록 요청만 처리하며 단톡방 전체 대화를 임의로 읽는 구조가 아닙니다."], ["여러 가계부를 만들 수 있나요?", "가족 생활비, 모임, 여행처럼 목적에 따라 여러 가계부를 만들고 선택해 사용할 수 있습니다."]],
     },
     "service-guide": {
-      title: "똑똑한가계부 기능 안내",
-      description: "거래 기록, 예산 관리, 날짜별 요약, 참여자 관리, 분석과 백업까지 똑똑한가계부의 핵심 기능을 설명합니다.",
+      title: "말해가계부 기능 안내",
+      description: "거래 기록, 예산 관리, 날짜별 요약, 참여자 관리, 분석과 백업까지 말해가계부의 핵심 기능을 설명합니다.",
       eyebrow: "필요한 기능만 순서대로",
-      intro: "가계부는 꾸준히 기록할 수 있어야 의미가 있습니다. 똑똑한가계부는 입력 과정을 줄이고, 공동 가계부에서 누가 기록했는지와 예산이 얼마나 남았는지를 쉽게 확인하도록 설계했습니다.",
+      intro: "가계부는 꾸준히 기록할 수 있어야 의미가 있습니다. 말해가계부는 입력 과정을 줄이고, 공동 가계부에서 누가 기록했는지와 예산이 얼마나 남았는지를 쉽게 확인하도록 설계했습니다.",
       cards: [["거래", "자연어 지출·수입 기록과 번호 기반 수정·삭제"], ["예산", "전체·카테고리 예산과 사용률·잔여액"], ["요약", "오늘·어제·이번 주·이번 달·특정 날짜"], ["공유", "초대코드, 권한, 단톡방 연결과 표시 이름"]],
       sections: [
         { title: "수입·지출 기록", paragraphs: ["금액과 내용을 한 문장으로 입력하면 지출 또는 수입으로 저장합니다. 날짜나 결제수단을 함께 적으면 해당 값도 반영합니다.", "저장된 거래는 오늘 기록에서 번호를 확인한 뒤 금액, 분류, 결제수단, 내용, 날짜를 수정하거나 삭제할 수 있습니다."], bullets: ["점심 12000원 국민카드", "어제 병원 15000원", "월급 250만원", "수정 01번 금액 13000원"] },
@@ -2193,7 +2406,7 @@ function publicPageCatalog(env = {}, url = null) {
     },
     "how-it-works": {
       title: "처음부터 첫 기록까지",
-      description: "똑똑한가계부를 처음 사용하는 사람이 가계부 생성, 초대·참여, 단톡방 연결, 기록 연습과 첫 기록을 완료하는 순서를 안내합니다.",
+      description: "말해가계부를 처음 사용하는 사람이 가계부 생성, 초대·참여, 단톡방 연결, 기록 연습과 첫 기록을 완료하는 순서를 안내합니다.",
       eyebrow: "약 1분 시작 가이드",
       intro: "한 화면에서 한 가지만 결정하면 됩니다. 가계부를 만들거나 참여한 뒤 단톡방을 연결하고, 짧은 기록 연습을 거쳐 첫 기록을 저장합니다.",
       cards: [["1. 가계부 만들기", "용도와 이름을 정해 새 가계부 생성"], ["2. 초대·참여", "초대코드로 가족이나 모임원이 함께 참여"], ["3. 단톡방 연결", "관리자가 단톡방과 사용할 가계부를 한 번 연결"], ["4. 기록 튜토리얼", "한 줄 기록 예시를 보고 저장 전 값 확인"], ["5. 첫 기록", "일상 문장으로 첫 지출 또는 수입 저장"]],
@@ -2206,13 +2419,13 @@ function publicPageCatalog(env = {}, url = null) {
     },
     "kakao-guide": {
       title: "카카오톡 가계부 사용 가이드",
-      description: "카카오톡 1:1 채팅과 단톡방에서 똑똑한가계부를 호출하고 기록·예산·요약 기능을 사용하는 방법입니다.",
+      description: "카카오톡 1:1 채팅과 단톡방에서 말해가계부를 호출하고 기록·예산·요약 기능을 사용하는 방법입니다.",
       eyebrow: "말하듯 입력하는 가계부",
       intro: "카카오톡에서는 명령어를 길게 외우기보다 내용과 금액을 자연스럽게 입력하는 방식이 기본입니다. 명확한 설정 작업은 단계형 선택지를 사용하고, 모호한 금전 문장은 저장 전에 한 번 확인합니다.",
       cards: [["기록", "점심 12000원 국민카드"], ["조회", "오늘 요약 · 남은예산"], ["관리", "내 이름 설정 · 초대코드"], ["정산", "정산 · 내가 보낼 돈"]],
       sections: [
         { title: "1:1 채팅에서 사용하기", paragraphs: ["봇과의 1:1 채팅에서는 봇 이름을 매번 붙이지 않고 바로 입력할 수 있습니다. 거래 기록, 예산 조회, 가계부 생성과 참여 안내를 이용할 수 있습니다.", "‘/기록’은 선택 가능한 보조 명령이며 필수는 아닙니다. 자연어 거래가 기본 입력 방식입니다."] },
-        { title: "단톡방에서 사용하기", paragraphs: ["그룹방에서는 봇을 선택하거나 멘션한 뒤 요청을 입력합니다. 방이 가계부와 연결되어 있어야 공동 기록이 같은 가계부에 저장됩니다.", "단톡방 전체 대화를 수집하는 방식이 아니라 봇에게 전달된 요청만 처리합니다."], bullets: ["@똑똑한가계부 점심 15000원 현대카드", "@똑똑한가계부 오늘 요약", "@똑똑한가계부 남은예산"] },
+        { title: "단톡방에서 사용하기", paragraphs: ["그룹방에서는 봇을 선택하거나 멘션한 뒤 요청을 입력합니다. 방이 가계부와 연결되어 있어야 공동 기록이 같은 가계부에 저장됩니다.", "단톡방 전체 대화를 수집하는 방식이 아니라 봇에게 전달된 요청만 처리합니다."], bullets: ["@말해가계부 점심 15000원 현대카드", "@말해가계부 오늘 요약", "@말해가계부 남은예산"] },
         { title: "모호한 문장은 확인 후 처리", paragraphs: ["‘식비 50만원’은 지출인지 예산인지 의미가 두 가지일 수 있습니다. 이런 문장은 임의로 저장하지 않고 지출 기록과 예산 설정 중 하나를 선택하도록 안내합니다.", "삭제·수정·정산처럼 금전에 영향을 주는 요청은 명시적 표현과 대상 번호를 기준으로 처리합니다."] },
         { title: "응답이 없거나 오류가 날 때", paragraphs: ["같은 요청을 반복 전송하기 전에 잠시 기다린 뒤 다시 시도합니다. 저장 여부는 ‘오늘 기록 보기’에서 확인해 중복 입력을 피할 수 있습니다.", "오류가 반복되면 도움말과 서비스 상태 안내를 확인하고, 거래 수정은 웹 기록 관리에서도 진행할 수 있습니다."] },
       ],
@@ -2245,9 +2458,9 @@ function publicPageCatalog(env = {}, url = null) {
     },
     security: {
       title: "데이터 보호와 안전한 사용",
-      description: "똑똑한가계부가 처리하는 데이터, 권한, 중복 방지, 백업, 자연어 운영 로그의 원칙을 안내합니다.",
+      description: "말해가계부가 처리하는 데이터, 권한, 중복 방지, 백업, 자연어 운영 로그의 원칙을 안내합니다.",
       eyebrow: "필요한 데이터만, 목적에 맞게",
-      intro: "가계부에는 생활 패턴이 포함될 수 있으므로 기록 편의성만큼 접근 권한과 데이터 관리가 중요합니다. 똑똑한가계부는 가계부별 권한, 명시적 수정·삭제, 중복 저장 방어와 백업 기능을 중심으로 운영합니다.",
+      intro: "가계부에는 생활 패턴이 포함될 수 있으므로 기록 편의성만큼 접근 권한과 데이터 관리가 중요합니다. 말해가계부는 가계부별 권한, 명시적 수정·삭제, 중복 저장 방어와 백업 기능을 중심으로 운영합니다.",
       cards: [["권한", "가계부 소유자·관리자·구성원 역할 분리"], ["중복 방지", "같은 요청이 반복될 때 중복 저장 차단"], ["백업", "CSV 내보내기와 복구 전 확인 절차"], ["자연어 로그", "원문 모델 학습 금지와 제한적 비식별 운영"]],
       sections: [
         { title: "처리 범위", paragraphs: ["사용자가 봇에게 직접 전달한 기록 요청과 웹에서 입력한 가계부 데이터만 처리합니다. 그룹방 전체 대화를 임의로 읽거나 광고주에게 가계부 기록을 제공하지 않습니다.", "가계부 참여자와 권한, 예산, 거래, 표시 이름, 단톡방 연결 상태는 서비스를 제공하는 데 필요한 범위에서 저장됩니다."] },
@@ -2258,7 +2471,7 @@ function publicPageCatalog(env = {}, url = null) {
     },
     faq: {
       title: "자주 묻는 질문",
-      description: "똑똑한가계부의 시작, 기록, 공동 가계부, 예산, 카카오톡, 개인정보와 광고에 관한 질문과 답변입니다.",
+      description: "말해가계부의 시작, 기록, 공동 가계부, 예산, 카카오톡, 개인정보와 광고에 관한 질문과 답변입니다.",
       eyebrow: "처음 막히는 부분을 빠르게 해결",
       intro: "아래 답변은 서비스의 기본 동작을 설명합니다. 실제 화면과 기능은 배포된 최신 버전을 기준으로 하며, 중요한 거래는 저장 후 오늘 기록에서 다시 확인하는 것이 좋습니다.",
       sections: [],
@@ -2276,20 +2489,20 @@ function publicPageCatalog(env = {}, url = null) {
       ],
     },
     about: {
-      title: "똑똑한가계부 소개",
-      description: "똑똑한가계부가 해결하려는 문제, 서비스 운영 원칙과 사업자 정보를 안내합니다.",
+      title: "말해가계부 소개",
+      description: "말해가계부가 해결하려는 문제, 서비스 운영 원칙과 사업자 정보를 안내합니다.",
       eyebrow: "생활 속 기록을 덜 번거롭게",
-      intro: "똑똑한가계부는 가계부를 쓰고 싶지만 복잡한 화면과 반복 입력 때문에 중단하는 사람을 위해 시작했습니다. 카카오톡의 익숙한 대화 흐름과 웹의 분석 기능을 나누어 기록 부담을 줄이는 것이 목표입니다.",
+      intro: "말해가계부는 가계부를 쓰고 싶지만 복잡한 화면과 반복 입력 때문에 중단하는 사람을 위해 시작했습니다. 카카오톡의 익숙한 대화 흐름과 웹의 분석 기능을 나누어 기록 부담을 줄이는 것이 목표입니다.",
       cards: [["말하듯 기록", "복잡한 입력 화면 대신 일상 문장으로 수입과 지출을 기록"], ["혼자 또는 함께", "개인·가족·부부·모임·여행 목적에 따라 가계부를 분리"], ["예산과 요약", "남은 예산과 날짜·구성원별 지출을 한눈에 확인"], ["지속 가능한 습관", "누구나 부담 없이 가계부를 계속 쓰도록 입력 단계를 단순화"]],
       sections: [
-        { title: "누구나 꾸준히 쓸 수 있는 가계부", paragraphs: ["가계부는 일부 사람만 사용하는 복잡한 관리 도구가 아니라 누구나 생활 속에서 자연스럽게 이어갈 수 있어야 합니다. 똑똑한가계부는 입력 시간을 줄이고 기록을 포기하게 만드는 장벽을 낮추는 데 집중합니다.", "혼자 쓰는 생활비부터 가족·부부 공동지출, 모임 회비와 여행 경비까지 목적에 맞는 가계부를 쉽게 만들고 함께 관리할 수 있도록 설계합니다."], bullets: ["말하듯 쉬운 수입·지출 기록", "개인과 공동 가계부의 자연스러운 전환", "구성원별 지출과 예산의 투명한 확인", "모바일과 카카오톡 중심의 낮은 진입 장벽", "기록 습관의 일상화와 보편화"] },
+        { title: "누구나 꾸준히 쓸 수 있는 가계부", paragraphs: ["가계부는 일부 사람만 사용하는 복잡한 관리 도구가 아니라 누구나 생활 속에서 자연스럽게 이어갈 수 있어야 합니다. 말해가계부는 입력 시간을 줄이고 기록을 포기하게 만드는 장벽을 낮추는 데 집중합니다.", "혼자 쓰는 생활비부터 가족·부부 공동지출, 모임 회비와 여행 경비까지 목적에 맞는 가계부를 쉽게 만들고 함께 관리할 수 있도록 설계합니다."], bullets: ["말하듯 쉬운 수입·지출 기록", "개인과 공동 가계부의 자연스러운 전환", "구성원별 지출과 예산의 투명한 확인", "모바일과 카카오톡 중심의 낮은 진입 장벽", "기록 습관의 일상화와 보편화"] },
         { title: "혼자도 함께도 편한 구조", paragraphs: ["개인 가계부는 불필요한 참여 절차 없이 사용할 수 있고, 함께 쓰는 가계부는 초대코드와 권한으로 구성원을 구분합니다. 각 가계부의 거래와 설정은 서로 섞이지 않도록 분리됩니다.", "카카오톡에서는 빠르게 기록하고 조회하며, 웹에서는 기간·분류·결제수단·구성원별 분석과 백업을 이용합니다."] },
-        { title: "안전하고 정직한 운영", paragraphs: ["모호한 금전 요청은 임의로 처리하지 않고 필요한 경우 한 번 확인합니다. 사용자가 직접 저장 결과를 확인하고 수정·삭제·백업할 수 있도록 관리 권한을 제공합니다.", "똑똑한가계부는 카카오톡과 연동해 사용할 수 있는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다."] },
+        { title: "안전하고 정직한 운영", paragraphs: ["모호한 금전 요청은 임의로 처리하지 않고 필요한 경우 한 번 확인합니다. 사용자가 직접 저장 결과를 확인하고 수정·삭제·백업할 수 있도록 관리 권한을 제공합니다.", "말해가계부는 카카오톡과 연동해 사용할 수 있는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다."] },
       ],
     },
     contact: {
       title: "문의 안내",
-      description: "똑똑한가계부의 사용 방법, 데이터 수정·삭제, 개인정보와 사업자 문의 경로를 안내합니다.",
+      description: "말해가계부의 사용 방법, 데이터 수정·삭제, 개인정보와 사업자 문의 경로를 안내합니다.",
       eyebrow: "문의 전 빠른 확인",
       intro: supportLine,
       cards: [["사용 방법", "카카오톡에서 ‘도움말’ 또는 ‘시작’을 입력해 단계별 안내 확인"], ["거래 수정", "오늘 기록의 번호 또는 웹 기록 관리 화면 이용"], ["데이터 요청", "개인정보처리방침의 열람·수정·삭제 기준 확인"], ["서면 문의", `${BUSINESS_FOOTER_INFO.address} · ${BUSINESS_FOOTER_INFO.company}`]],
@@ -2301,25 +2514,25 @@ function publicPageCatalog(env = {}, url = null) {
     },
     privacy: {
       title: "개인정보처리방침",
-      description: "똑똑한가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 광고 쿠키와 이용자 권리를 안내합니다.",
+      description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 광고 쿠키와 이용자 권리를 안내합니다.",
       eyebrow: "시행일 2026년 7월 13일",
-      intro: "똑똑한가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
+      intro: "말해가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
       sections: [
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 단톡방 연결키는 사용자가 명시적으로 연결한 그룹방과 가계부를 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간, 배포 버전 같은 문장 없는 집계를 우선합니다. 이해 실패 문장을 제한적으로 보관하는 기능을 활성화할 경우 URL, 이메일, 전화번호, 초대코드와 긴 숫자를 마스킹하고 도움말에 저장 사실과 기간을 안내합니다. 기본 보관기간은 최대 14일이며 운영 설정에 따라 더 짧게 적용할 수 있습니다."] },
         { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 삭제, 탈퇴 또는 적법한 삭제 요청이 확인되면 필요한 범위를 제외하고 삭제합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
-        { title: "4. 제3자 광고와 쿠키", paragraphs: ["광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 똑똑한가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        { title: "4. 제3자 광고와 쿠키", paragraphs: ["광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
         { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
         { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
     terms: {
       title: "서비스 이용약관",
-      description: "똑똑한가계부의 서비스 목적, 사용자 책임, 공동 가계부 권한, 데이터 관리, 광고와 서비스 변경 기준을 안내합니다.",
+      description: "말해가계부의 서비스 목적, 사용자 책임, 공동 가계부 권한, 데이터 관리, 광고와 서비스 변경 기준을 안내합니다.",
       eyebrow: "시행일 2026년 7월 13일",
-      intro: "본 약관은 똑똑한가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
+      intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
-        { title: "1. 서비스 목적", paragraphs: ["똑똑한가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
+        { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
         { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "단톡방 연결은 해당 방의 관리자 또는 가계부 관리 권한을 가진 사용자가 수행해야 하며 잘못된 가계부 연결로 인한 기록 혼선을 예방할 책임이 있습니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
@@ -2330,7 +2543,7 @@ function publicPageCatalog(env = {}, url = null) {
     },
     "site-map": {
       title: "사이트맵",
-      description: "똑똑한가계부의 공개 서비스 안내, 사용 가이드, 정책과 문의 페이지를 한곳에서 확인합니다.",
+      description: "말해가계부의 공개 서비스 안내, 사용 가이드, 정책과 문의 페이지를 한곳에서 확인합니다.",
       eyebrow: "원하는 정보를 빠르게 찾기",
       intro: "서비스 소개와 사용 방법, 예산·공동 가계부 가이드, 데이터 보호 및 정책 문서를 주제별로 정리했습니다. 검색엔진용 XML 사이트맵은 별도로 제공됩니다.",
       cards: [["서비스 이해", "서비스 소개와 핵심 기능"], ["사용 시작", "처음부터 첫 기록까지"], ["함께 관리", "가족·부부·모임 가계부"], ["정책과 문의", "개인정보·약관·쿠키·문의"]],
@@ -2342,9 +2555,9 @@ function publicPageCatalog(env = {}, url = null) {
     },
     cookies: {
       title: "쿠키 및 광고 기술 안내",
-      description: "똑똑한가계부의 필수 쿠키, 광고 쿠키, 브라우저 설정과 광고 개인화와 쿠키 관리 방법을 안내합니다.",
+      description: "말해가계부의 필수 쿠키, 광고 쿠키, 브라우저 설정과 광고 개인화와 쿠키 관리 방법을 안내합니다.",
       eyebrow: "서비스 이용과 광고를 구분",
-      intro: "쿠키는 웹사이트가 브라우저에 저장하는 작은 정보입니다. 똑똑한가계부는 로그인과 보안에 필요한 쿠키를 사용할 수 있으며, 광고 기능을 활성화한 경우 제3자 광고 쿠키가 사용될 수 있습니다.",
+      intro: "쿠키는 웹사이트가 브라우저에 저장하는 작은 정보입니다. 말해가계부는 로그인과 보안에 필요한 쿠키를 사용할 수 있으며, 광고 기능을 활성화한 경우 제3자 광고 쿠키가 사용될 수 있습니다.",
       sections: [
         { title: "필수 쿠키", paragraphs: ["로그인 세션 유지, 요청 위조 방지, 사용자 화면 설정과 보안 기능에 필요한 쿠키입니다. 필수 쿠키를 차단하면 로그인이나 가계부 기능이 정상 작동하지 않을 수 있습니다."] },
         { title: "광고 및 측정 기술", paragraphs: ["Google과 제3자 광고 사업자는 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
@@ -2378,7 +2591,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home") {
   }).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#312e81"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="website"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f7f9fc;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.pubHeader{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4}.pubHeaderInner{max-width:1180px;margin:0 auto;min-height:66px;padding:10px 18px;display:flex;align-items:center;gap:18px}.pubBrand{display:flex;align-items:center;gap:9px;text-decoration:none;color:#111827;white-space:nowrap}.pubBrand span{width:36px;height:36px;border-radius:13px;background:#FEE500;display:flex;align-items:center;justify-content:center;font-weight:1000}.pubBrand b{font-size:18px}.pubDesktopNav{display:flex;align-items:center;gap:4px;flex:1;overflow:auto}.pubHeader nav a{color:#596579;text-decoration:none;font-size:13px;font-weight:900;padding:9px 10px;border-radius:12px;white-space:nowrap}.pubHeader nav a:hover,.pubHeader nav a.active{background:#eef2ff;color:#312e81}.pubStart{display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:#111827;color:#fff;text-decoration:none;border-radius:13px;padding:0 14px;font-weight:1000;white-space:nowrap}.pubMobileMenu{display:none;position:relative}.pubMobileMenu summary{display:flex;align-items:center;justify-content:center;min-height:44px;list-style:none;border-radius:13px;background:#eef2f7;color:#111827;padding:0 12px;font-weight:900;cursor:pointer}.pubMobileMenu summary::-webkit-details-marker{display:none}.pubMobileMenu nav{position:absolute;right:0;top:50px;width:min(86vw,320px);display:grid;background:#fff;border:1px solid #e4eaf2;border-radius:18px;padding:8px;box-shadow:0 18px 44px rgba(15,23,42,.16)}.pubWrap{max-width:1080px;margin:0 auto;padding:24px 18px 56px}.pubHero{background:linear-gradient(135deg,#111827 0%,#312e81 58%,#6d28d9 100%);color:#fff;border-radius:32px;padding:42px;margin:14px 0 22px;box-shadow:0 24px 60px rgba(49,46,129,.22)}.pubEyebrow{display:inline-flex;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.pubHero h1{font-size:42px;line-height:1.12;letter-spacing:-.06em;margin:18px 0 14px;max-width:760px}.pubHero p{max-width:800px;color:#e5e7eb;line-height:1.82;font-size:17px}.pubHeroActions{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.pubBtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#FEE500;color:#191919;text-decoration:none;font-weight:1000;padding:0 16px}.pubBtn.secondary{background:#fff;color:#111827}.pubGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0 24px}.pubFeature,.pubSection{background:#fff;border:1px solid #e4eaf2;border-radius:24px;padding:20px;box-shadow:0 12px 32px rgba(15,23,42,.055)}.pubFeature h2,.pubSection h2{margin-top:0}.pubFeature h2{font-size:18px}.pubFeature p,.pubSection p,.pubSection li{color:#526075;line-height:1.78}.pubSection{margin:14px 0;padding:26px}.pubSection h2{font-size:26px;letter-spacing:-.045em}.pubSection ul{padding-left:22px}.pubLinks{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}.pubLinks a{display:inline-flex;align-items:center;min-height:38px;border-radius:12px;background:#eef2ff;color:#3730a3;text-decoration:none;padding:0 12px;font-size:13px;font-weight:1000}.pubNote{background:#eefbf5;border:1px solid #b7ecd3;color:#116149;border-radius:17px;padding:14px;line-height:1.65;font-weight:800}.pubFaq{display:grid;gap:9px}.pubFaq details{border:1px solid #e4eaf2;border-radius:17px;padding:0 15px;background:#fbfcfe}.pubFaq summary{cursor:pointer;padding:15px 0;font-weight:1000}.pubFaq p{margin-top:0;padding-bottom:4px}.pubFooter{display:grid;grid-template-columns:1fr auto;gap:20px;margin-top:30px;padding:26px 4px;border-top:1px solid #dfe6ef;color:#596579}.pubFooter b{color:#263247}.pubFooter p{max-width:650px;line-height:1.65}.pubFooterLinks{display:flex;flex-wrap:wrap;align-content:flex-start;gap:10px}.pubFooterLinks a{color:#475569;text-decoration:none;font-size:13px;font-weight:900}@media(max-width:900px){.pubGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.pubDesktopNav{display:none}.pubMobileMenu{display:block}.pubHeaderInner{justify-content:space-between}.pubHero{padding:32px 25px}.pubHero h1{font-size:34px}.pubFooter{grid-template-columns:1fr}}@media(max-width:560px){.pubWrap{padding:12px 12px 42px}.pubHeaderInner{padding:8px 12px}.pubBrand b{font-size:16px}.pubStart{display:none}.pubHero{border-radius:24px;padding:27px 20px}.pubHero h1{font-size:29px}.pubHero p{font-size:15px}.pubGrid{grid-template-columns:1fr}.pubSection{padding:20px;border-radius:20px}.pubSection h2{font-size:22px}}
-</style></head><body>${publicSiteNav(key)}<main class="pubWrap"><section class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "똑똑한가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p><div class="pubHeroActions"><a class="pubBtn" href="/my">가계부 시작하기</a><a class="pubBtn secondary" href="/how-it-works">사용 방법 보기</a></div></section>${cards ? `<section class="pubGrid">${cards}</section>` : ""}${sections}${faqs}${publicSiteFooter()}</main></body></html>`;
+</style></head><body>${publicSiteNav(key)}<main class="pubWrap"><section class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p><div class="pubHeroActions"><a class="pubBtn" href="/my">가계부 시작하기</a><a class="pubBtn secondary" href="/how-it-works">사용 방법 보기</a></div></section>${cards ? `<section class="pubGrid">${cards}</section>` : ""}${sections}${faqs}${publicSiteFooter()}</main></body></html>`;
 }
 
 async function handlePublicContentPage(request, env, url, key = "home") {
@@ -2429,7 +2642,7 @@ function handlePublicSitemapStylesheet(env = {}, url = null) {
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:s="http://www.sitemaps.org/schemas/sitemap/0.9">
 <xsl:output method="html" encoding="UTF-8" omit-xml-declaration="yes"/>
 <xsl:template match="/">
-<html lang="ko"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,follow"/><title>똑똑한가계부 XML 사이트맵</title><style>body{margin:0;background:#f7f9fc;color:#172033;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:28px 18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#312e81));color:#fff;border-radius:26px;padding:28px;margin-bottom:16px}.hero p{color:#e5e7eb;line-height:1.65}.card{background:#fff;border:1px solid #e4eaf2;border-radius:22px;overflow:auto;box-shadow:0 12px 32px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse;min-width:680px}th,td{padding:13px;text-align:left;border-bottom:1px solid #e8edf4}th{background:#f1f5f9}a{color:#3730a3}.note{color:#64748b;font-size:13px;margin-top:14px}</style></head><body><main class="wrap"><section class="hero"><h1>XML 사이트맵</h1><p>검색엔진이 공개 페이지를 찾도록 제공하는 표준 XML 문서입니다. 일반 사용자는 <a style="color:#FEE500" href="${escapeHtml(origin)}/site-map">웹 사이트맵</a>을 이용할 수 있습니다.</p></section><section class="card"><table><thead><tr><th>주소</th><th>최근 수정</th><th>갱신 주기</th></tr></thead><tbody><xsl:for-each select="s:urlset/s:url"><tr><td><a href="{s:loc}"><xsl:value-of select="s:loc"/></a></td><td><xsl:value-of select="s:lastmod"/></td><td><xsl:value-of select="s:changefreq"/></td></tr></xsl:for-each></tbody></table></section><p class="note">브라우저에서 표로 보이도록 스타일을 적용했으며 XML 구조 자체는 검색엔진용 표준 형식을 유지합니다.</p></main></body></html>
+<html lang="ko"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,follow"/><title>말해가계부 XML 사이트맵</title><style>body{margin:0;background:#f7f9fc;color:#172033;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:28px 18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#312e81));color:#fff;border-radius:26px;padding:28px;margin-bottom:16px}.hero p{color:#e5e7eb;line-height:1.65}.card{background:#fff;border:1px solid #e4eaf2;border-radius:22px;overflow:auto;box-shadow:0 12px 32px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse;min-width:680px}th,td{padding:13px;text-align:left;border-bottom:1px solid #e8edf4}th{background:#f1f5f9}a{color:#3730a3}.note{color:#64748b;font-size:13px;margin-top:14px}</style></head><body><main class="wrap"><section class="hero"><h1>XML 사이트맵</h1><p>검색엔진이 공개 페이지를 찾도록 제공하는 표준 XML 문서입니다. 일반 사용자는 <a style="color:#FEE500" href="${escapeHtml(origin)}/site-map">웹 사이트맵</a>을 이용할 수 있습니다.</p></section><section class="card"><table><thead><tr><th>주소</th><th>최근 수정</th><th>갱신 주기</th></tr></thead><tbody><xsl:for-each select="s:urlset/s:url"><tr><td><a href="{s:loc}"><xsl:value-of select="s:loc"/></a></td><td><xsl:value-of select="s:lastmod"/></td><td><xsl:value-of select="s:changefreq"/></td></tr></xsl:for-each></tbody></table></section><p class="note">브라우저에서 표로 보이도록 스타일을 적용했으며 XML 구조 자체는 검색엔진용 표준 형식을 유지합니다.</p></main></body></html>
 </xsl:template></xsl:stylesheet>`;
   return new Response(xsl, { status: 200, headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
 }
@@ -2877,9 +3090,6 @@ body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important}
 .abMobileAppSurface .homeNotice{margin:12px 0!important;padding:14px 16px!important;background:#eef8f5!important;color:#174b3c!important;border:1px solid #bfe2d7!important;border-radius:14px!important;box-shadow:none!important}.abMobileAppSurface .homeNotice:after{display:none!important}.abMobileAppSurface .homeNotice b{color:#087a55!important;font-size:11px!important;margin-bottom:4px!important}.abMobileAppSurface .homeNotice p{color:#174b3c!important;font-size:13px!important;font-weight:600!important}
 .abMobileAppSurface .smartLine{grid-template-columns:minmax(0,1fr)!important}.abMobileAppSurface .chipRow{display:flex!important;flex-wrap:wrap!important;gap:7px!important}.abMobileAppSurface .chipRow button,.abMobileAppSurface .dateChip{width:auto!important;min-height:38px!important;border:1px solid #d7dee8!important;border-radius:999px!important;background:#fff!important;color:#344054!important;padding:0 12px!important;font-size:13px!important;font-weight:650!important;box-shadow:none!important;transform:none!important}.abMobileAppSurface .chipRow button:hover,.abMobileAppSurface .dateChip:hover,.abMobileAppSurface .dateChip.on{background:var(--ab-primary-soft)!important;color:#1d4ed8!important;border-color:#9eb7ef!important}.abMobileAppSurface .seg span{background:#f1f4f8!important;color:#475467!important;border:1px solid transparent!important}.abMobileAppSurface .seg input:checked+span{background:#172033!important;color:#fff!important;border-color:#172033!important}.abMobileAppSurface #add.panel .form>button[type="submit"]{background:var(--ab12-action,#2457d6)!important;color:#fff!important;border-color:var(--ab12-action,#2457d6)!important;border-radius:11px!important}
 
-/* 영수증: 보라색 장식 대신 단계와 상태를 명확히 합니다. */
-.abPageReceipts .hero{background:#fff!important;color:#172033!important;border:1px solid var(--ab-line)!important;box-shadow:var(--ab-shadow-soft)!important}.abPageReceipts .hero p{color:#5f6b7a!important}.abPageReceipts .hero .light{background:#f2f4f7!important;color:#344054!important;border:1px solid #d8dee8!important}
-.abPageReceipts .drop{background:#f8fafc!important;border:1px dashed #9eabbc!important;border-radius:13px!important;padding:16px!important}.abPageReceipts .filePick{background:#172033!important;color:#fff!important;border-radius:10px!important;font-weight:650!important}.abPageReceipts .fileRow span{color:#5f6b7a!important}.abPageReceipts .status,.abPageReceipts .note{background:#f1f6ff!important;color:#27456f!important;border-color:#c8d8ef!important}.abPageReceipts textarea{min-height:150px!important}.abPageReceipts .confirm{background:#fff9eb!important;color:#754d00!important;border-color:#ecd59c!important}.abPageReceipts .card h2{margin-top:0!important}
 
 /* 키워드 편집기: 4열 카드와 파란 삭제 버튼을 접이식 2열 목록으로 교체합니다. */
 .abPageKeywords .kwShell .keywordToolbar>button{background:var(--ab12-action,#2457d6)!important;color:#fff!important;border-color:var(--ab12-action,#2457d6)!important}.abPageKeywords .kwBox{background:#fff!important}.abPageKeywords .kwHead{color:#172033!important}.abPageKeywords .kwRemove{background:transparent!important;color:#b42318!important;border:0!important}.abPageKeywords .kwRemove:hover{background:#fee4e2!important}.abPageKeywords .kwAdd{background:#edf3ff!important;color:#1d4ed8!important;border:1px solid #bfd0f6!important}.abPageKeywords .kwChip{background:#f8fafc!important;color:#344054!important}.abPageKeywords .kwHint{color:#5f6b7a!important}.abPageKeywords .kwNewInput{background:#fff!important}.abPageKeywords .kwNoResult{border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc}
@@ -2888,7 +3098,7 @@ body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important}
 .abPageBackup .hero{background:#fff!important;color:#172033!important;border:1px solid var(--ab-line)!important}.abPageBackup .hero p{color:#5f6b7a!important}.abPageBackup .fileStatus{background:#f4f7fb!important;color:#475467!important;border-color:#dbe3ee!important}
 
 @media(max-width:900px){.abMobileAppSurface .homeGrid{grid-template-columns:1fr}.abPageKeywords .kwEditorGrid{grid-template-columns:1fr!important}}
-@media(max-width:760px){.abAppSurface .hero{padding:17px!important}.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{padding:16px!important}.abMobileAppSurface .homeQuick{grid-template-columns:repeat(3,minmax(0,1fr))!important}.abMobileAppSurface .homeCard{padding:14px!important}.abMobileAppSurface button.homeTx{min-height:58px!important}.abMobileAppSurface .homeIcon{flex-basis:36px;width:36px;height:36px}.abMobileAppSurface .smartLine{grid-template-columns:1fr!important}.abPageReceipts .drop{padding:13px!important}}
+@media(max-width:760px){.abAppSurface .hero{padding:17px!important}.abAppSurface .card,.abAppSurface .panel,.abAppSurface .group{padding:16px!important}.abMobileAppSurface .homeQuick{grid-template-columns:repeat(3,minmax(0,1fr))!important}.abMobileAppSurface .homeCard{padding:14px!important}.abMobileAppSurface button.homeTx{min-height:58px!important}.abMobileAppSurface .homeIcon{flex-basis:36px;width:36px;height:36px}.abMobileAppSurface .smartLine{grid-template-columns:1fr!important}}
 @media(max-width:380px){.abMobileAppSurface .homeQuick{grid-template-columns:repeat(2,minmax(0,1fr))!important}.abMobileAppSurface .homeMetrics{grid-template-columns:1fr!important}.abMobileAppSurface .homeTxAmt{font-size:13px!important}}
 </style>`;
 
@@ -2900,8 +3110,7 @@ function v2284UiStyleFor(html = "") {
     const to = style.indexOf(end, from + start.length);
     if (from >= 0 && to > from) style = style.slice(0, from) + style.slice(to);
   };
-  if (!source.includes("abMobileAppSurface")) stripSection("/* 모바일 홈", "/* 영수증");
-  if (!source.includes("abPageReceipts")) stripSection("/* 영수증", "/* 키워드");
+  if (!source.includes("abMobileAppSurface")) stripSection("/* 모바일 홈", "/* 키워드");
   if (!source.includes("abPageKeywords")) stripSection("/* 키워드", "/* 파일 가져오기");
   if (!source.includes("abPageBackup")) stripSection("/* 파일 가져오기", "@media(max-width:900px)");
   return style;
@@ -3355,6 +3564,65 @@ function inlineActionResultClientMain() {
 
 const V22818_INLINE_RESULT_STYLE = '<style id="v22818InlineResultStyle">.abActionResult{margin-top:10px}.abActionResult .abInlineResult{margin:10px 0!important}.abResultFaded{opacity:.55;transition:opacity var(--ab12-dur-slow,320ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}@media (prefers-reduced-motion:reduce){.abResultFaded{transition:none}html{scroll-behavior:auto}}</style>';
 
+const KAKAO_LOGIN_PROGRESS_TIPS = [
+  "“점심 12000원”처럼 짧게 적으면 금액과 분류를 알아서 나눠 저장해요.",
+  "카드 사용내역은 가져오기 메뉴에서 카드사별 엑셀 파일로 한 번에 등록할 수 있어요.",
+  "분류별 예산을 정해 두면 이번 달 남은 금액을 한눈에 볼 수 있어요.",
+  "통신비·보험처럼 매달 나가는 돈은 정기지출로 등록하면 잊지 않아요.",
+  "가족이나 모임은 초대코드로 함께 쓰는 가계부를 만들 수 있어요.",
+  "하루 한 번, 저녁에 몰아서 적어도 월말 정산이 훨씬 쉬워져요.",
+  "카카오톡 챗봇에 “커피 4500원”이라고 보내도 바로 기록돼요.",
+];
+
+function kakaoLoginProgressClientMain(config) {
+  var link = document.querySelector('a.kakaoBtn[href^="/auth/kakao/start"]');
+  var overlay = document.getElementById(config.overlayId);
+  var tipEl = document.getElementById(config.tipId);
+  var slowEl = document.getElementById(config.slowId);
+  var cancel = document.getElementById(config.cancelId);
+  var tips = config.tips || [];
+  if (!link || !overlay || !tipEl) return;
+  var tipTimer = 0;
+  var slowTimer = 0;
+  var index = 0;
+
+  function showTip() {
+    tipEl.textContent = tips[index % tips.length] || "";
+    index += 1;
+  }
+
+  function hide() {
+    overlay.hidden = true;
+    document.documentElement.classList.remove("kakaoProgressOpen");
+    if (slowEl) slowEl.hidden = true;
+    clearInterval(tipTimer);
+    clearTimeout(slowTimer);
+    link.removeAttribute("aria-busy");
+  }
+
+  link.addEventListener("click", function () {
+    index = Math.floor(Math.random() * Math.max(tips.length, 1));
+    showTip();
+    overlay.hidden = false;
+    document.documentElement.classList.add("kakaoProgressOpen");
+    link.setAttribute("aria-busy", "true");
+    clearInterval(tipTimer);
+    tipTimer = setInterval(showTip, 3600);
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(function () { if (slowEl) slowEl.hidden = false; }, 9000);
+  });
+
+  if (cancel) {
+    cancel.addEventListener("click", function () {
+      try { window.stop(); } catch (err) { /* 일부 브라우저는 stop을 지원하지 않는다 */ }
+      hide();
+    });
+  }
+
+  // 뒤로 가기로 돌아왔을 때 오버레이가 남아 화면을 가리지 않게 한다.
+  window.addEventListener("pageshow", function (event) { if (event.persisted) hide(); });
+}
+
 function passwordMatchFeedbackClientMain(config) {
   var password = document.getElementById(config.passwordId);
   var confirmation = document.getElementById(config.confirmationId);
@@ -3438,636 +3706,6 @@ function approximateWonLabel(raw = "") {
   if (value >= 1000000) return "약 " + Math.round(value / 10000) + "만원";
   if (value >= 10000) return "약 " + (Math.round(value / 1000) / 10) + "만원";
   return "약 " + new Intl.NumberFormat("ko-KR").format(Math.round(value / 1000) * 1000) + "원";
-}
-
-// Keep complex browser runtimes as real functions and serialize them with
-// Function#toString. Writing these directly inside a server template literal
-// consumes regular-expression backslashes before the browser sees them.
-function receiptCaptureClientMain() {
-  // V22.8.84: 영수증에는 금액보다 큰 숫자가 늘 있다 — 사업자등록번호, 카드번호,
-  //   승인번호, 전화번호. 이 줄들을 먼저 걷어내지 않으면 날짜도 금액도 그 숫자에
-  //   걸려 넘어진다. 아래 두 파서는 같은 기준으로 그것들을 버리고 시작한다.
-  //   이 세 값은 아래 `if (!text || !status) return;` 보다 **위**에 있어야 한다.
-  //   파서는 QA 에서 DOM 없이 단독으로 돌려 보는데, 아래에 두면 var 호이스팅으로
-  //   이름만 남고 값이 undefined 가 되어 그때만 터진다(실제로 그렇게 터뜨려 봤다).
-  var RECEIPT_ID_LINE = /(사업자|등록번호|대표자|전화|tel|phone|카드번호|승인\s*번호|가맹점\s*번호|단말기|pos|일련\s*번호|주소|사업장)/i;
-  var RECEIPT_ID_TOKEN = /\d{3}-\d{2}-\d{5}|\d{2,4}-\d{3,4}-\d{4}|(?:\d{4}[-\s]){3}\d{4}|\*{2,}\d+/g;
-  // OCR 이 흘리는 글자까지 받아 준다. 합계→합게·한계·함계, 총액→총맥·좋액.
-  // 인식률이 나쁠수록 이 줄이 깨지는데, 예전에는 깨지는 순간 "가장 큰 숫자" 로
-  // 폴백해서 승인번호가 금액 칸에 들어갔다.
-  var RECEIPT_TOTAL_LINE = /(합\s*[계게걔]|[총좋충]\s*[액맥애]|결제\s*금액|승인\s*금액|받을\s*금액|판매\s*금액|total|amount)/i;
-  // 현금 영수증의 "받은금액"(낸 돈)·"거스름돈"은 지출이 아니다. 받을금액과 한 글자
-  // 차이라 총액으로 오해하기 쉽고, 그러면 낸 돈이 지출로 기록된다. 총액 후보에서
-  // 빼는 정도로는 부족하다 — 합계 줄이 OCR 로 통째로 깨진 달에는 이 줄이 "가장 큰
-  // 금액" 이 되어 그대로 뽑히기 때문에, 아예 후보에서 제외한다.
-  // 포인트 잔액·적립·한도도 같은 이유로 뺀다. 산 물건 값이 아니다.
-  var RECEIPT_NOT_TOTAL_LINE = /(받은\s*금액|거스름|잔\s*돈|현금\s*받음|포인트|마일리지|적립|잔\s*액|한도|change|point)/i;
-  var albumFile = document.getElementById("receiptImage");
-  var cameraFile = document.getElementById("receiptCamera");
-  var sourceInputs = [albumFile, cameraFile].filter(Boolean);
-  var text = document.getElementById("receiptText");
-  var status = document.getElementById("ocrStatus");
-  var analyze = document.getElementById("analyzeReceipt");
-  var readImage = document.getElementById("readReceiptImage");
-  var clearImage = document.getElementById("clearReceiptImage");
-  var fileName = document.getElementById("receiptFileName");
-  var previewWrap = document.getElementById("receiptPreview");
-  var preview = document.getElementById("receiptPreviewImage");
-  var detected = document.getElementById("receiptDetectedSummary");
-  var resultSection = document.getElementById("receiptResults");
-  var tesseractPromise = null;
-  var ocrWorkerPromise = null;
-  var ocrWorker = null;
-  var ocrWorkerIdleTimer = 0;
-  var ocrWorkerGeneration = 0;
-  var cancelOcrButton = document.getElementById("ocrCancel");
-  var dropPanel = document.getElementById("receiptSourcePanel");
-  var selectedImage = null;
-  var previewUrl = "";
-  var ocrBusy = false;
-  var ocrRunId = 0;
-  var dragDepth = 0;
-  // 직렬화된 브라우저 런타임의 파서가 실제 정규식을 유지하는지 QA에서 검증합니다.
-  try {
-    var receiptParsers = {
-      date: parseDate,
-      amount: parseAmount,
-      merchant: parseMerchant,
-      payment: parsePayment,
-      category: parseCategory,
-      downscaleForOcr: optimizeImageForOcr
-    };
-    if (Object.freeze) Object.freeze(receiptParsers);
-    Object.defineProperty(window, "__receiptParsers", { value: receiptParsers, configurable: true });
-  } catch (error) {}
-  if (!text || !status) return;
-
-  function clean(value) {
-    return String(value || "").replace(/\r/g, "").trim();
-  }
-
-  function setStatus(message, state) {
-    status.textContent = message;
-    status.setAttribute("data-state", state || "");
-    status.setAttribute("aria-live", "polite");
-  }
-
-  function formatBytes(value) {
-    var bytes = Math.max(0, Number(value || 0));
-    if (bytes >= 1024 * 1024) return (Math.round(bytes / 1024 / 1024 * 10) / 10) + "MB";
-    if (bytes >= 1024) return Math.round(bytes / 1024) + "KB";
-    return bytes + "B";
-  }
-
-  function releasePreview() {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-      previewUrl = "";
-    }
-  }
-
-  function syncActionState() {
-    var readOnly = sourceInputs.length > 0 && sourceInputs.every(function(input) {
-      return input.dataset.readOnlyDisabled === "1";
-    });
-    if (readImage) readImage.disabled = readOnly || ocrBusy || !selectedImage;
-    if (analyze) analyze.disabled = readOnly || ocrBusy || !clean(text.value);
-    if (clearImage) clearImage.disabled = readOnly || ocrBusy || !selectedImage;
-    sourceInputs.forEach(function(input) {
-      if (input.dataset.readOnlyDisabled !== "1") input.disabled = ocrBusy;
-    });
-    var albumLabel = document.querySelector('label[for="receiptImage"]');
-    var cameraLabel = document.querySelector('label[for="receiptCamera"]');
-    [albumLabel, cameraLabel].filter(Boolean).forEach(function(label) {
-      label.classList.toggle("busy", ocrBusy);
-      label.setAttribute("aria-disabled", ocrBusy ? "true" : "false");
-    });
-    if (readImage) readImage.textContent = ocrBusy ? "사진 읽는 중…" : "선택한 사진 읽기";
-    if (cancelOcrButton) cancelOcrButton.hidden = !ocrBusy;
-  }
-
-  function setBusy(value) {
-    ocrBusy = !!value;
-    syncActionState();
-  }
-
-  function adoptImage(image, sourceLabel) {
-    if (!image || ocrBusy) return false;
-    var readOnly = sourceInputs.length > 0 && sourceInputs.every(function(input) {
-      return input.dataset.readOnlyDisabled === "1";
-    });
-    if (readOnly) {
-      setStatus("현재 가계부는 조회 전용이라 영수증을 등록할 수 없습니다.", "error");
-      return false;
-    }
-    var supported = /^image\//i.test(String(image.type || "")) || /\.(?:jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(String(image.name || ""));
-    if (!supported) {
-      setStatus("이미지 파일만 선택할 수 있습니다. JPG·PNG·HEIC 사진을 선택해 주세요.", "error");
-      return false;
-    }
-    if (image.size > 25 * 1024 * 1024) {
-      setStatus("사진 용량이 25MB를 넘습니다. 사진 크기를 줄이거나 화면을 캡처한 뒤 다시 선택해 주세요.", "error");
-      return false;
-    }
-    sourceInputs.forEach(function(input) { input.value = ""; });
-    selectedImage = image;
-    releasePreview();
-    if (preview && previewWrap) {
-      try {
-        previewUrl = URL.createObjectURL(image);
-        preview.src = previewUrl;
-        preview.alt = (image.name || "선택한 영수증") + " 미리보기";
-        previewWrap.hidden = false;
-      } catch (error) {
-        previewWrap.hidden = true;
-      }
-    }
-    if (fileName) fileName.textContent = sourceLabel + " · " + (image.name || "영수증 사진") + " · " + formatBytes(image.size);
-    setStatus("사진을 준비했습니다. 미리보기를 확인한 뒤 ‘선택한 사진 읽기’를 눌러주세요.", "ready");
-    syncActionState();
-    return true;
-  }
-
-  function selectImage(input, sourceLabel) {
-    var image = input && input.files && input.files[0];
-    if (!image) return;
-    if (!adoptImage(image, sourceLabel)) input.value = "";
-  }
-
-  function clearSelectedImage() {
-    if (ocrBusy) return;
-    selectedImage = null;
-    sourceInputs.forEach(function(input) { input.value = ""; });
-    releasePreview();
-    if (preview) preview.removeAttribute("src");
-    if (previewWrap) previewWrap.hidden = true;
-    if (fileName) fileName.textContent = "선택된 사진 없음";
-    setStatus("앨범이나 카메라에서 영수증 사진을 선택해 주세요.", "");
-    syncActionState();
-  }
-
-  function loadTesseract() {
-    if (window.Tesseract) return Promise.resolve(window.Tesseract);
-    if (tesseractPromise) return tesseractPromise;
-    tesseractPromise = new Promise(function(resolve, reject) {
-      var script = document.createElement("script");
-      // Keep the OCR runtime deterministic. A floating major-version URL can
-      // change underneath a deployed page and produce difficult mobile-only
-      // regressions.
-      script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
-      script.async = true;
-      script.referrerPolicy = "no-referrer";
-      script.onload = function() {
-        if (window.Tesseract) resolve(window.Tesseract);
-        else {
-          tesseractPromise = null;
-          reject(new Error("문자 인식 모듈 초기화에 실패했습니다."));
-        }
-      };
-      script.onerror = function() {
-        tesseractPromise = null;
-        script.remove();
-        reject(new Error("문자 인식 모듈을 불러오지 못했습니다."));
-      };
-      document.head.appendChild(script);
-    });
-    return tesseractPromise;
-  }
-
-  function reportOcrProgress(progress) {
-    if (!progress) return;
-    if (progress.status === "recognizing text") {
-      setStatus("문자 인식 " + Math.round((progress.progress || 0) * 100) + "%", "busy");
-      return;
-    }
-    if (/language|traineddata/i.test(String(progress.status || ""))) {
-      setStatus("한국어 인식 데이터를 준비하고 있습니다. 첫 실행만 조금 더 걸립니다…", "busy");
-    }
-  }
-
-  function releaseOcrWorker() {
-    if (ocrWorkerIdleTimer) {
-      clearTimeout(ocrWorkerIdleTimer);
-      ocrWorkerIdleTimer = 0;
-    }
-    ocrWorkerGeneration += 1;
-    var worker = ocrWorker;
-    var pendingWorker = ocrWorkerPromise;
-    ocrWorker = null;
-    ocrWorkerPromise = null;
-    if (worker && typeof worker.terminate === "function") {
-      Promise.resolve(worker.terminate()).catch(function() {});
-    }
-    // 취소 시 아직 생성 중이던 워커도 완료되는 즉시 해제해 메모리에 남지 않게 합니다.
-    if (pendingWorker) {
-      Promise.resolve(pendingWorker).then(function(candidate) {
-        if (candidate && candidate !== worker && typeof candidate.terminate === "function") {
-          return candidate.terminate();
-        }
-      }).catch(function() {});
-    }
-  }
-
-  function scheduleOcrWorkerRelease() {
-    if (ocrWorkerIdleTimer) clearTimeout(ocrWorkerIdleTimer);
-    // Reuse the initialized worker when several receipts are entered in a row,
-    // then release its sizeable WebAssembly memory on an idle mobile tab.
-    ocrWorkerIdleTimer = setTimeout(releaseOcrWorker, 120000);
-  }
-
-  function getOcrWorker() {
-    if (ocrWorkerPromise) return ocrWorkerPromise;
-    var generation = ocrWorkerGeneration;
-    var pending = loadTesseract().then(function(engine) {
-      if (generation !== ocrWorkerGeneration) throw new Error("사진 분석이 취소되었습니다.");
-      return engine.createWorker(["kor", "eng"], 1, { logger: reportOcrProgress });
-    }).then(function(worker) {
-      if (generation !== ocrWorkerGeneration) {
-        if (worker && typeof worker.terminate === "function") {
-          Promise.resolve(worker.terminate()).catch(function() {});
-        }
-        throw new Error("사진 분석이 취소되었습니다.");
-      }
-      ocrWorker = worker;
-      return worker;
-    });
-    ocrWorkerPromise = pending;
-    pending.catch(function() {
-      if (ocrWorkerPromise === pending) {
-        ocrWorker = null;
-        ocrWorkerPromise = null;
-      }
-    });
-    return pending;
-  }
-
-  function decodeImage(image) {
-    if (window.createImageBitmap) {
-      return window.createImageBitmap(image, { imageOrientation: "from-image" })
-        .catch(function() { return window.createImageBitmap(image); })
-        .then(function(bitmap) {
-          return {
-            source: bitmap,
-            width: bitmap.width,
-            height: bitmap.height,
-            close: function() { if (bitmap && bitmap.close) bitmap.close(); }
-          };
-        });
-    }
-    return new Promise(function(resolve, reject) {
-      var url = URL.createObjectURL(image);
-      var element = new Image();
-      element.onload = function() {
-        resolve({
-          source: element,
-          width: element.naturalWidth || element.width,
-          height: element.naturalHeight || element.height,
-          close: function() { URL.revokeObjectURL(url); }
-        });
-      };
-      element.onerror = function() {
-        URL.revokeObjectURL(url);
-        reject(new Error("사진 미리보기를 만들 수 없습니다."));
-      };
-      element.src = url;
-    });
-  }
-
-  async function optimizeImageForOcr(image) {
-    var decoded;
-    try {
-      decoded = await decodeImage(image);
-    } catch (error) {
-      return image;
-    }
-    try {
-      var width = Math.max(1, Number(decoded.width || 0));
-      var height = Math.max(1, Number(decoded.height || 0));
-      var lowMemoryDevice = Number(navigator.deviceMemory || 0) > 0 && Number(navigator.deviceMemory) <= 4;
-      var lowCoreDevice = Number(navigator.hardwareConcurrency || 0) > 0 && Number(navigator.hardwareConcurrency) <= 4;
-      var maxDimension = lowMemoryDevice || lowCoreDevice ? 1400 : 1800;
-      var scale = Math.min(1, maxDimension / Math.max(width, height));
-      if (scale === 1 && image.size <= 4 * 1024 * 1024) return image;
-      var canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width * scale));
-      canvas.height = Math.max(1, Math.round(height * scale));
-      var context = canvas.getContext("2d", { alpha: false });
-      if (!context) return image;
-      context.fillStyle = "#fff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.imageSmoothingEnabled = true;
-      context.imageSmoothingQuality = "high";
-      context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
-      var blob = await new Promise(function(resolve) {
-        canvas.toBlob(function(value) { resolve(value || image); }, "image/jpeg", 0.9);
-      });
-      canvas.width = 1;
-      canvas.height = 1;
-      return blob || image;
-    } finally {
-      if (decoded && decoded.close) decoded.close();
-    }
-  }
-
-  function nextPaint() {
-    return new Promise(function(resolve) {
-      if (window.requestAnimationFrame) requestAnimationFrame(function() { requestAnimationFrame(resolve); });
-      else setTimeout(resolve, 0);
-    });
-  }
-
-  function receiptScanLines(raw) {
-    return String(raw || "").split(/\n/).map(function(line) {
-      return RECEIPT_ID_LINE.test(line) ? "" : line.replace(RECEIPT_ID_TOKEN, " ");
-    });
-  }
-
-  function parseDate(raw) {
-    var text = receiptScanLines(raw).join("\n");
-    var patterns = [
-      /(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/g,
-      /(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/g,
-    ];
-    for (var index = 0; index < patterns.length; index += 1) {
-      var match;
-      // 첫 매치가 날짜가 아닐 수 있다. 예전에는 거기서 포기해 뒤의 진짜 날짜를 놓쳤다.
-      while ((match = patterns[index].exec(text)) !== null) {
-        var year = Number(match[1]);
-        if (year < 100) year += 2000;
-        var month = Number(match[2]);
-        var day = Number(match[3]);
-        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-          return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
-        }
-      }
-    }
-    return "";
-  }
-
-  function parseAmount(raw) {
-    var moneyShaped = [];
-    var bare = [];
-    receiptScanLines(raw).forEach(function(line, index) {
-      if (!line || RECEIPT_NOT_TOTAL_LINE.test(line)) return;
-      var isTotal = RECEIPT_TOTAL_LINE.test(line);
-      // 돈처럼 생긴 것: 천단위 쉼표가 있거나 "원" 이 붙은 것.
-      (line.match(/\d{1,3}(?:,\d{3})+|\d{3,9}\s*원/g) || []).forEach(function(token) {
-        var value = Number(token.replace(/[^0-9]/g, ""));
-        if (value >= 100 && value <= 2000000000) moneyShaped.push({ value: value, isTotal: isTotal, index: index });
-      });
-      // 쉼표도 원도 없는 맨숫자는 마지막 수단으로만 쓴다. 예전 정규식은 문자군에
-      // 공백을 넣어 두어 "2026 08 10" 같은 것도 한 덩어리 숫자로 삼켰다.
-      (line.match(/(?<![\d,.\-])\d{3,7}(?![\d,.\-])/g) || []).forEach(function(token) {
-        var value = Number(token);
-        if (value >= 100 && value <= 2000000000) bare.push({ value: value, isTotal: isTotal, index: index });
-      });
-    });
-    function pick(list) {
-      if (!list.length) return 0;
-      var totals = list.filter(function(item) { return item.isTotal; });
-      // 영수증의 합계는 아래쪽에 있다. 할인 뒤 결제금액을 집으려면 더 아래를 믿어야 한다.
-      if (totals.length) {
-        return totals.sort(function(a, b) { return b.index - a.index || b.value - a.value; })[0].value;
-      }
-      return list.sort(function(a, b) { return b.value - a.value; })[0].value;
-    }
-    return pick(moneyShaped) || pick(bare);
-  }
-
-  function parseMerchant(raw) {
-    var excluded = /(영\s*수\s*증|사업자|대표자|전화|tel|주소|카드|승인|합계|총액|부가세|공급가|일시|날짜|매출)/i;
-    var lines = raw.split(/\n/).map(clean).filter(Boolean);
-    for (var index = 0; index < lines.length; index += 1) {
-      var value = lines[index].replace(/^[^가-힣A-Za-z0-9]+|[^가-힣A-Za-z0-9)]+$/g, "");
-      if (value.length >= 2 && value.length <= 60 && !excluded.test(value) && !/^\d[\d\s.,-]+$/.test(value)) return value;
-    }
-    return "";
-  }
-
-  function parsePayment(raw) {
-    var brands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-    for (var index = 0; index < brands.length; index += 1) {
-      if (new RegExp(brands[index] + "\\s*(?:카드)?", "i").test(raw)) return brands[index] + "카드";
-    }
-    if (/현금/.test(raw)) return "현금";
-    if (/계좌|이체/.test(raw)) return "계좌이체";
-    return "";
-  }
-
-  function parseCategory(raw) {
-    var rules = [
-      ["장보기", /마트|슈퍼|시장|식료품|농협/],
-      ["식비", /식당|음식|점심|저녁|치킨|배달|김밥/],
-      ["카페\/간식", /카페|커피|베이커리|디저트/],
-      ["의료\/건강", /병원|약국|치과|진료/],
-      ["교통\/차량", /주유|택시|주차|교통/],
-      ["생활용품", /다이소|생활|세제|휴지/],
-      ["쇼핑", /백화점|쇼핑|의류|신발|화장품/]
-    ];
-    for (var index = 0; index < rules.length; index += 1) {
-      if (rules[index][1].test(raw)) return rules[index][0];
-    }
-    return "기타지출";
-  }
-
-  function rememberOcr(field, value) {
-    if (!field) return;
-    if (value) field.setAttribute("data-ab-ocr", String(value));
-    else field.removeAttribute("data-ab-ocr");
-  }
-  // 고친 값과 인식 원값을 나란히. 같은 값이면 아무것도 말하지 않는다 — 바뀌지 않은
-  // 칸까지 원값을 달면 어디를 고쳤는지가 다시 묻힌다.
-  function syncOcrNotes() {
-    var notes = document.querySelectorAll("[data-ab-ocr-note]");
-    for (var i = 0; i < notes.length; i += 1) {
-      var note = notes[i];
-      var field = document.getElementById(note.getAttribute("data-ab-ocr-note"));
-      var original = field ? field.getAttribute("data-ab-ocr") : "";
-      if (!field || !original || String(field.value || "").trim() === String(original).trim()) {
-        note.hidden = true;
-        note.textContent = "";
-        continue;
-      }
-      note.hidden = false;
-      note.textContent = "인식 원값 " + original;
-    }
-  }
-
-  function applyReceiptText(shouldScroll) {
-    var raw = clean(text.value);
-    if (!raw) {
-      setStatus("분석할 문자가 없습니다. 사진을 읽거나 영수증 문자를 붙여넣어 주세요.", "error");
-      return;
-    }
-    var rawField = document.getElementById("receiptRaw");
-    var dateField = document.getElementById("receiptDate");
-    var amountField = document.getElementById("receiptAmount");
-    var merchantField = document.getElementById("merchant");
-    var paymentField = document.getElementById("receiptPayment");
-    var categoryField = document.getElementById("receiptCategory");
-    var date = parseDate(raw);
-    var amount = parseAmount(raw);
-    var merchant = parseMerchant(raw);
-    var payment = parsePayment(raw);
-    if (rawField) rawField.value = raw.slice(0, 500);
-    if (date && dateField) dateField.value = date;
-    if (amount && amountField) amountField.value = new Intl.NumberFormat("ko-KR").format(amount);
-    if (merchant && merchantField) merchantField.value = merchant;
-    if (payment && paymentField) paymentField.value = payment;
-    if (categoryField) categoryField.value = parseCategory(raw);
-    if (detected) {
-      var summary = [];
-      if (merchant) summary.push(merchant);
-      if (date) summary.push(date);
-      if (amount) summary.push(new Intl.NumberFormat("ko-KR").format(amount) + "원");
-      detected.textContent = summary.length ? summary.join(" · ") : "자동으로 찾지 못한 값은 아래에서 직접 입력할 수 있습니다.";
-    }
-    // V22.8.98 (7.6): 인식한 값을 그 칸에 기억해 둔다. 사용자가 고치면 원값을 옆에
-    // 나란히 보여 준다 — 무엇을 고쳤는지 저장 전에 눈으로 볼 수 있어야 한다.
-    // 지금까지는 고치는 순간 인식 원값이 사라져서, 잘못 인식한 것을 고쳤는지
-    // 맞게 인식한 것을 잘못 고쳤는지 구분할 방법이 없었다.
-    rememberOcr(merchantField, merchant);
-    rememberOcr(dateField, date);
-    rememberOcr(amountField, amount ? new Intl.NumberFormat("ko-KR").format(amount) : "");
-    rememberOcr(paymentField, payment);
-    syncOcrNotes();
-    setStatus("인식 결과를 채웠습니다. 사진 원본과 상호·날짜·총액을 비교해 주세요.", "success");
-    if (shouldScroll && resultSection && typeof resultSection.scrollIntoView === "function") {
-      resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-
-  sourceInputs.forEach(function(input) {
-    input.dataset.readOnlyDisabled = input.disabled ? "1" : "0";
-  });
-  if (albumFile) albumFile.addEventListener("change", function() { selectImage(albumFile, "앨범"); });
-  if (cameraFile) cameraFile.addEventListener("change", function() { selectImage(cameraFile, "카메라"); });
-  if (clearImage) clearImage.addEventListener("click", clearSelectedImage);
-  if (analyze) analyze.addEventListener("click", function() { applyReceiptText(true); });
-  // 고칠 때마다 원값 표시를 다시 맞춘다. 되돌려 놓으면 표시도 사라진다.
-  ["merchant", "receiptDate", "receiptAmount", "receiptPayment"].forEach(function(id) {
-    var field = document.getElementById(id);
-    if (!field) return;
-    field.addEventListener("input", syncOcrNotes);
-    field.addEventListener("change", syncOcrNotes);
-  });
-  text.addEventListener("input", syncActionState);
-  if (readImage) readImage.addEventListener("click", async function() {
-    if (!selectedImage || ocrBusy) return;
-    var runId = ++ocrRunId;
-    var current = function() { return runId === ocrRunId; };
-    var timeoutId = setTimeout(function() {
-      if (!current()) return;
-      ocrRunId += 1;
-      releaseOcrWorker();
-      setBusy(false);
-      setStatus("인식이 90초를 넘겨 중단했습니다. 사진을 더 작게 찍거나 화면을 캡처해 다시 시도해 주세요.", "error");
-    }, 90000);
-    setBusy(true);
-    setStatus("휴대폰이 버벅이지 않도록 사진 크기를 줄이고 있습니다…", "busy");
-    try {
-      var preparedImage = await optimizeImageForOcr(selectedImage);
-      if (!current()) return;
-      await nextPaint();
-      setStatus("문자 인식 기능을 준비하고 있습니다. 첫 실행은 조금 더 걸릴 수 있어요.", "busy");
-      var worker = await getOcrWorker();
-      if (!current()) return;
-      setStatus("사진에서 문자를 읽는 중입니다. 다른 버튼을 여러 번 누르지 말고 잠시 기다려 주세요.", "busy");
-      var result = await worker.recognize(preparedImage);
-      if (!current()) return;
-      scheduleOcrWorkerRelease();
-      text.value = clean(result && result.data && result.data.text);
-      if (!text.value) {
-        setStatus("글자를 찾지 못했습니다. 영수증이 화면을 가득 채우도록 다시 찍거나 문자를 직접 입력해 주세요.", "error");
-      } else {
-        syncActionState();
-        applyReceiptText(true);
-      }
-    } catch (error) {
-      if (!current()) return;
-      releaseOcrWorker();
-      var offline = navigator.onLine === false ? "인터넷 연결을 확인한 뒤 다시 시도해 주세요. " : "";
-      setStatus(offline + (error && error.message ? error.message + " " : "") + "JPG·PNG 사진이나 화면 캡처를 사용하면 더 안정적입니다.", "error");
-    } finally {
-      clearTimeout(timeoutId);
-      if (current()) setBusy(false);
-    }
-  });
-  if (cancelOcrButton) cancelOcrButton.addEventListener("click", function() {
-    if (!ocrBusy) return;
-    ocrRunId += 1;
-    releaseOcrWorker();
-    setBusy(false);
-    setStatus("사진 분석을 취소했습니다. 다시 시도하거나 영수증 문자를 직접 붙여넣어 주세요.", "");
-  });
-  if (dropPanel) {
-    dropPanel.addEventListener("dragenter", function(event) {
-      event.preventDefault();
-      dragDepth += 1;
-      dropPanel.classList.add("dragOver");
-    });
-    dropPanel.addEventListener("dragover", function(event) {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-      dropPanel.classList.add("dragOver");
-    });
-    dropPanel.addEventListener("dragleave", function(event) {
-      event.preventDefault();
-      dragDepth = Math.max(0, dragDepth - 1);
-      if (!dragDepth) dropPanel.classList.remove("dragOver");
-    });
-    dropPanel.addEventListener("drop", function(event) {
-      event.preventDefault();
-      dragDepth = 0;
-      dropPanel.classList.remove("dragOver");
-      var files = event.dataTransfer && event.dataTransfer.files ? Array.from(event.dataTransfer.files) : [];
-      var image = files.find(function(file) {
-        return /^image\//i.test(String(file.type || "")) || /\.(?:jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(String(file.name || ""));
-      });
-      if (image) adoptImage(image, "가져온 사진");
-      else setStatus("끌어놓은 파일에서 영수증 이미지를 찾지 못했습니다.", "error");
-    });
-  }
-  document.addEventListener("paste", function(event) {
-    var files = event.clipboardData && event.clipboardData.files ? Array.from(event.clipboardData.files) : [];
-    var image = files.find(function(file) { return /^image\//i.test(String(file.type || "")); });
-    if (image && adoptImage(image, "붙여넣은 사진")) event.preventDefault();
-  });
-  var amountManual = document.getElementById("receiptAmount");
-  if (amountManual) amountManual.addEventListener("input", function() {
-    var original = amountManual.value;
-    var selectionStart = Number(amountManual.selectionStart == null ? original.length : amountManual.selectionStart);
-    var digitsBeforeCaret = original.slice(0, selectionStart).replace(/[^0-9]/g, "").length;
-    var digits = original.replace(/[^0-9]/g, "");
-    var formatted = digits ? Number(digits).toLocaleString("ko-KR") : "";
-    if (formatted === original) return;
-    amountManual.value = formatted;
-    var position = 0;
-    var seen = 0;
-    while (position < formatted.length && seen < digitsBeforeCaret) {
-      if (/\d/.test(formatted.charAt(position))) seen += 1;
-      position += 1;
-    }
-    try { amountManual.setSelectionRange(position, position); } catch (error) {}
-  });
-  ["receiptHousehold", "receiptMonth"].forEach(function(id) {
-    var field = document.getElementById(id);
-    if (!field) return;
-    field.addEventListener("change", function() {
-      if (!field.form) return;
-      if (typeof field.form.requestSubmit === "function") field.form.requestSubmit();
-      else field.form.submit();
-    });
-  });
-  window.addEventListener("blur", function() {
-    dragDepth = 0;
-    if (dropPanel) dropPanel.classList.remove("dragOver");
-  });
-  window.addEventListener("pagehide", function() {
-    releasePreview();
-    releaseOcrWorker();
-  }, { once: true });
-  syncActionState();
 }
 
 function myBackupImportClientMain() {
@@ -4162,17 +3800,7 @@ function myBackupImportClientMain() {
 
 function deferHeavyBrowserTools(html = "") {
   let source = String(html || "");
-  const tesseractUrl = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
   const sheetJsUrl = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
-
-  if (source.includes('id="receiptImage"') && source.includes(tesseractUrl)) {
-    const marker = `<script src="${tesseractUrl}"></script><script>(function(){var file=document.getElementById('receiptImage')`;
-    const start = source.indexOf(marker);
-    const end = start < 0 ? -1 : source.indexOf("</script>", start + marker.length);
-    if (start >= 0 && end >= 0) {
-      source = source.slice(0, start) + `<script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script>` + source.slice(end + 9);
-    }
-  }
 
   if (source.includes('id="myImportForm"') && source.includes(sheetJsUrl)) {
     const marker = `<script src="${sheetJsUrl}"></script><script>(function(){var input=document.getElementById('myImportFile')`;
@@ -4384,7 +4012,6 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes(" · 시작</title>") && source.includes('action="/my/local-login"')) bodyClasses.push("abPageLogin");
   if (source.includes(" · 내 계정·보안</title>") && source.includes('action="/my/backup-login"')) bodyClasses.push("abPageAccountSecurity");
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
-  if (source.includes("영수증 스마트 기록</title>")) bodyClasses.push("abPageReceipts");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
   if (source.includes(" · 무료 리포트</title>")) bodyClasses.push("abPageReports");
@@ -4476,7 +4103,8 @@ function promoteLegacyUserLayoutToV5(html = "") {
   const queryMatch = source.match(/href="\/app\?household_id=([^"&]+)&(?:amp;)?month=([^"&#]+)/i);
   const householdId = decodeUiV5QueryPart(queryMatch?.[1] || "");
   const month = validMonth(decodeUiV5QueryPart(queryMatch?.[2] || "")) || currentMonthKst();
-  const householdName = decodeUiV5HtmlText(source.match(/<option\b[^>]*\bselected\b[^>]*>([^<]+)<\/option>/i)?.[1] || "");
+  const selectedHouseholdOption = source.match(/<option\b([^>]*\bselected\b[^>]*)>([^<]+)<\/option>/i);
+  const householdName = decodeUiV5HtmlText(selectedHouseholdOption?.[1]?.match(/\bdata-household-name="([^"]*)"/i)?.[1] || selectedHouseholdOption?.[2] || "");
   const active = legacyUiV5ActiveKey(source);
   const nav = renderUnifiedNav(active, { month, householdId, householdName });
   source = source.slice(0, layoutStart) + pageMarker + source.slice(pageStart + pageMarker.length);
@@ -4748,7 +4376,7 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
   const rawError = safeError(err);
   const msg = /timeout|timed out|abort/i.test(rawError) ? "저장소 응답이 지연되고 있습니다." : "요청을 완료하지 못해 원래 데이터는 변경하지 않았습니다.";
   const origin = url?.origin || "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>똑똑한가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">다시 시도</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>말해가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">다시 시도</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
 }
 
 async function safeHtmlRoute(request, url, handler, label = "화면") {
@@ -6795,10 +6423,10 @@ async function handleReservePlansPage(request, env, url) {
   const monthDueIncome = monthDue.filter((st) => String(st.plan?.type || "expense") === "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueTotal = monthDueExpense;
   const monthDueNet = monthDueIncome - monthDueExpense;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span,.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0}.reserveTypeSeg input{position:absolute;opacity:0;width:0;height:0}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -6956,7 +6584,7 @@ async function handleKeywordGuidePage(request, env, url) {
     customCategories = await fetchCustomCategories(env, selected.id);
   }
   const householdId = selected?.id || "";
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const keywordWritable = canManageMyHousehold(selected?.role || "");
   const keywordEditor = selected ? renderKeywordBulkEditor({ selected, month, keywordMap, customCategories, writable: keywordWritable, returnTo: "guide" }) : "";
   const keywordMsg = String(url.searchParams.get("msg") || "");
@@ -7089,7 +6717,7 @@ function renderCategoryAdminHtml({ env, households, selected, householdId, custo
     const deleteForm = isCustom ? `<form method="post" action="/admin/category/delete"><input type="hidden" name="household_id" value="${escapeHtml(c.household_id || householdId)}"/><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><button class="danger" type="submit">삭제</button></form>` : `<span class="baseBadge">기본</span>`;
     return `<div class="catCard"><div class="catHead"><div><b>${escapeHtml(c.name)}</b><span>${c.type === "income" ? "수입" : "지출"}</span></div>${deleteForm}</div><div class="kwBox">${keywordChips}</div><div class="suggestBox"><strong>추천 키워드</strong>${keywordGuideChips(c.name, c.type, keywords)}</div><form class="kwForm" method="post" action="/admin/category-keywords/save"><input type="hidden" name="household_id" value="${escapeHtml(c.household_id || householdId)}"/><input type="hidden" name="type" value="${escapeHtml(c.type || "expense")}"/><input type="hidden" name="name" value="${escapeHtml(c.name)}"/><input name="keywords" value="${escapeHtml(keywordText)}" placeholder="예: 스타벅스, 커피, 투썸"/><button class="primary" type="submit">키워드 저장</button></form></div>`;
   }).join("") : `<p class="muted">분류를 선택하거나 내 분류를 추가하면 키워드를 관리할 수 있습니다.</p>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분류 설정</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.filters,.formGrid,.kwForm{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}.filters select,.filters button,.formGrid input,.formGrid select,.formGrid button,.kwForm input,.kwForm button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button,.kwForm button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.catCard{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px}.catHead{display:flex;align-items:center;justify-content:space-between;gap:10px}.catHead b{display:block;font-size:17px}.catHead span,.muted{color:#64748b;font-size:13px;line-height:1.45}.pill,.kw,.emptyKw,.baseBadge,.kwSuggest{display:inline-flex;border-radius:999px;padding:6px 10px;margin:3px;font-size:12px;font-weight:900}.pill{background:#f1f5f9;border:1px solid #e2e8f0}.kw{background:#e0f2fe;color:#075985}.kwSuggest{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer}.emptyKw{background:#f1f5f9;color:#64748b}.baseBadge{background:#ecfdf5;color:#065f46}.danger{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 10px}.ok{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.error{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.filters,.formGrid,.kwForm{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("categories", { householdId })}<main class="wrap"><section class="hero"><h1>분류·키워드 설정</h1><p>같은 단어라도 집마다 분류 기준이 다를 수 있습니다. 예를 들어 “커피”를 식비로 볼 수도 있고, 용돈으로 볼 수도 있습니다. 우리집 기준에 맞게 키워드를 연결하세요.</p><form class="filters" method="get" action="/categories"><select name="household_id"><option value="">가계부 선택</option>${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><button type="submit">조회</button></form></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}<section class="card"><h2>내 분류 추가</h2><div class="guideLine">키워드는 순서와 상관없이 동작합니다. 대신 “가족이 실제로 입력할 말”을 넣어야 자동분류가 잘 됩니다. 예: 커피, 스벅, 스타벅스, 점심, 주유, 자동차보험 <a href="/keyword-guide" style="font-weight:1000;color:#1d4ed8">키워드 안내 보기</a></div><form class="formGrid" method="post" action="/admin/category/create"><input type="hidden" name="household_id" value="${escapeHtml(householdId || selected?.id || "")}"/><input name="name" placeholder="예: 용돈, 아이간식, 렌즈소모품"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="keywords" placeholder="키워드 예: 커피, 스벅, 편의점"/><button type="submit">추가</button></form><p class="tip">키워드는 쉼표로 여러 개 입력할 수 있습니다. 챗봇 입력과 카드/문자 내역 분류에 우선 반영됩니다.</p></section><section class="card"><h2>기본 분류</h2><p class="muted">기본 분류도 키워드를 연결할 수 있습니다.</p><div>${presets}</div></section><section class="card"><h2>키워드 관리</h2><div class="grid">${categoryCards}</div></section><script>function addKeywordToInput(btn){var form=btn.closest(".catCard")?.querySelector(".kwForm");if(!form)return;var input=form.querySelector('input[name="keywords"]');if(!input)return;var kw=btn.getAttribute("data-kw")||btn.textContent.trim();var parts=input.value.split(/[,\n|/]+/).map(function(x){return x.trim()}).filter(Boolean);if(!parts.some(function(x){return x.toLowerCase()===kw.toLowerCase()})){parts.push(kw)}input.value=parts.join(", ");input.focus()}</script></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분류 설정</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.filters,.formGrid,.kwForm{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}.filters select,.filters button,.formGrid input,.formGrid select,.formGrid button,.kwForm input,.kwForm button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button,.kwForm button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.catCard{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px}.catHead{display:flex;align-items:center;justify-content:space-between;gap:10px}.catHead b{display:block;font-size:17px}.catHead span,.muted{color:#64748b;font-size:13px;line-height:1.45}.pill,.kw,.emptyKw,.baseBadge,.kwSuggest{display:inline-flex;border-radius:999px;padding:6px 10px;margin:3px;font-size:12px;font-weight:900}.pill{background:#f1f5f9;border:1px solid #e2e8f0}.kw{background:#e0f2fe;color:#075985}.kwSuggest{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer}.emptyKw{background:#f1f5f9;color:#64748b}.baseBadge{background:#ecfdf5;color:#065f46}.danger{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 10px}.ok{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.error{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.filters,.formGrid,.kwForm{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("categories", { householdId })}<main class="wrap"><section class="hero"><h1>분류·키워드 설정</h1><p>같은 단어라도 집마다 분류 기준이 다를 수 있습니다. 예를 들어 “커피”를 식비로 볼 수도 있고, 용돈으로 볼 수도 있습니다. 우리집 기준에 맞게 키워드를 연결하세요.</p><form class="filters" method="get" action="/categories"><select name="household_id"><option value="">가계부 선택</option>${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><button type="submit">조회</button></form></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}<section class="card"><h2>내 분류 추가</h2><div class="guideLine">키워드는 순서와 상관없이 동작합니다. 대신 “가족이 실제로 입력할 말”을 넣어야 자동분류가 잘 됩니다. 예: 커피, 스벅, 스타벅스, 점심, 주유, 자동차보험 <a href="/keyword-guide" style="font-weight:1000;color:#1d4ed8">키워드 안내 보기</a></div><form class="formGrid" method="post" action="/admin/category/create"><input type="hidden" name="household_id" value="${escapeHtml(householdId || selected?.id || "")}"/><input name="name" placeholder="예: 용돈, 아이간식, 렌즈소모품"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="keywords" placeholder="키워드 예: 커피, 스벅, 편의점"/><button type="submit">추가</button></form><p class="tip">키워드는 쉼표로 여러 개 입력할 수 있습니다. 챗봇 입력과 카드/문자 내역 분류에 우선 반영됩니다.</p></section><section class="card"><h2>기본 분류</h2><p class="muted">기본 분류도 키워드를 연결할 수 있습니다.</p><div>${presets}</div></section><section class="card"><h2>키워드 관리</h2><div class="grid">${categoryCards}</div></section><script>function addKeywordToInput(btn){var form=btn.closest(".catCard")?.querySelector(".kwForm");if(!form)return;var input=form.querySelector('input[name="keywords"]');if(!input)return;var kw=btn.getAttribute("data-kw")||btn.textContent.trim();var parts=input.value.split(/[,\n|/]+/).map(function(x){return x.trim()}).filter(Boolean);if(!parts.some(function(x){return x.toLowerCase()===kw.toLowerCase()})){parts.push(kw)}input.value=parts.join(", ");input.focus()}</script></main></body></html>`;
 }
 
 async function handleAdminBulkUpdate(request, env) {
@@ -7970,7 +7598,18 @@ async function supabaseExactCount(env, path) {
     prefer: "count=exact",
     "range-unit": "items",
   });
-  const response = await fetch(`${base}${parsed.pathname}${parsed.search}`, { method: "HEAD", headers });
+  const monitor = env.__AB_MONITOR_REQUEST;
+  const startedAt = monitor ? Date.now() : 0;
+  let response;
+  try {
+    response = await fetch(`${base}${parsed.pathname}${parsed.search}`, { method: "HEAD", headers });
+    if (monitor && !response.ok && ![405, 501].includes(response.status)) monitor.db_failures += 1;
+  } catch (error) {
+    if (monitor) monitor.db_failures += 1;
+    throw error;
+  } finally {
+    if (monitor) { monitor.db_count += 1; monitor.db_ms += Math.max(0, Date.now() - startedAt); }
+  }
   if (response.ok) {
     const range = String(response.headers.get("content-range") || "");
     const match = range.match(/\/(\d+)$/);
@@ -8406,7 +8045,7 @@ async function renderServerDashboardHtml(env, url) {
 </head><body class="desktopLedger tab-${escapeHtml(tab)}">${renderUnifiedNav(tab === "transactions" ? "records" : tab === "overview" ? "home" : tab, { month, householdId: householdValue })}${renderPcSidebar(tab, month, householdValue, selectedHousehold?.name || title)}<main class="wrap">
 <section class="hero"><div class="brand"><div class="logo">💸</div><div><h1>${tab === "transactions" ? "기록 관리" : title}</h1><div class="subtitle">통합 가계부 · ${escapeHtml(selectedHousehold?.name || "전체 가계부")} · 페이지 버전: V19.3-REPORT</div></div></div><div class="topMiniActions"><a class="btn ghost" href="/menu?month=${escapeHtml(month)}${householdValue ? `&household_id=${encodeURIComponent(householdValue)}` : ""}">통합메뉴</a><a class="btn ghost" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="btn ghost" href="/households${householdValue ? `?household_id=${encodeURIComponent(householdValue)}` : ""}">가계부·참여자</a><a class="btn ghost" href="/categories${householdValue ? `?household_id=${encodeURIComponent(householdValue)}` : ""}">분류 설정</a><a class="btn ghost" href="/settings">설정</a><a class="btn ghost" href="/app?month=${escapeHtml(month)}&household_id=${escapeHtml(householdValue)}">모바일 입력</a><form method="post" action="/logout"><button class="secondary" type="submit">로그아웃</button></form></div></section>
 ${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}
-<section class="card filterCard"><form method="get" action="/" class="calmFilters"><input type="hidden" name="tab" value="${escapeHtml(tab)}"/><div class="filterTop"><div class="field"><label>가계부</label><select name="household_id"><option value=""${!selectedHousehold ? " selected" : ""}>전체 가계부</option>${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select></div><div class="field"><label>월 선택</label><input type="month" name="month" value="${escapeHtml(month)}"/></div><div class="field"><label>구분</label><select name="type"><option value="all"${type === "all" ? " selected" : ""}>전체</option><option value="expense"${type === "expense" ? " selected" : ""}>지출</option><option value="income"${type === "income" ? " selected" : ""}>수입</option></select></div><div class="field"><label>검색</label><input name="q" value="${escapeHtml(q)}" placeholder="예: 커피, 병원, 카드"/></div><div class="filterActions"><button type="submit">조회</button><a class="btn ghost" href="/?legacy=1">초기화</a></div></div><div class="quickFilters"><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "all", group_by: groupBy }))}">전체 보기</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "expense", group_by: groupBy }))}">지출만</a><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "income", group_by: groupBy }))}">수입만</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, quality: "missing_any", group_by: groupBy }))}">정리 필요</a><a class="chip" href="${escapeHtml(csvHref)}">CSV 다운로드</a></div><details class="filterDetails"><summary>상세 조건 열기</summary><div class="filterMore"><div class="field"><label>날짜</label><input type="date" name="date" value="${escapeHtml(date)}"/></div><div class="field"><label>분류</label><select name="category"><option value="">분류 전체</option><option value="__missing"${categoryFilter === "__missing" ? " selected" : ""}>미분류만</option>${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"${categoryFilter === c ? " selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></div><div class="field"><label>결제수단</label><select name="payment_method"><option value="">수단 전체</option><option value="__missing"${paymentFilter === "__missing" ? " selected" : ""}>수단 미입력만</option>${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"${paymentFilter === p ? " selected" : ""}>${escapeHtml(p)}</option>`).join("")}</select></div><div class="field"><label>정리 상태</label><select name="quality">${renderQualityOptions(quality)}</select></div><div class="field"><label>묶어 보기</label><select name="group_by">${renderGroupOptions(groupBy)}</select></div><div class="filterActions"><button type="submit">적용</button></div></div></details></form>${selectedHousehold ? `<div class="quick"><a class="chip blue" href="/households?household_id=${escapeHtml(selectedHousehold.id)}">가계부·참여자 관리</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "analysis", type: "expense", group_by: "category" }))}">분석 확장</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "calendar", group_by: groupBy }))}">캘린더</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "partners", group_by: groupBy }))}">생활비 팁</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "premium", group_by: groupBy }))}">고급 분석</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">초대코드는 보안상 이 화면에 표시하지 않습니다. <b>가계부·참여자 관리</b>에서 필요한 때만 확인하세요.</p>` : `<div class="quick"><span class="chip blue">전체 가계부 보기</span><a class="chip hot" href="${escapeHtml(dashboardQuery(month, "", { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, "", { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="/ledger?all=1">기록 전체</a><a class="chip" href="/households">가계부·참여자</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">현재 모든 가계부의 기록을 합쳐 보고 있습니다. 새 입력은 기본 가계부에 저장됩니다.</p>`}</section>
+<section class="card filterCard"><form method="get" action="/" class="calmFilters"><input type="hidden" name="tab" value="${escapeHtml(tab)}"/><div class="filterTop"><div class="field"><label>가계부</label><select name="household_id"><option value=""${!selectedHousehold ? " selected" : ""}>전체 가계부</option>${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select></div><div class="field"><label>월 선택</label><input type="month" name="month" value="${escapeHtml(month)}"/></div><div class="field"><label>구분</label><select name="type"><option value="all"${type === "all" ? " selected" : ""}>전체</option><option value="expense"${type === "expense" ? " selected" : ""}>지출</option><option value="income"${type === "income" ? " selected" : ""}>수입</option></select></div><div class="field"><label>검색</label><input name="q" value="${escapeHtml(q)}" placeholder="예: 커피, 병원, 카드"/></div><div class="filterActions"><button type="submit">조회</button><a class="btn ghost" href="/?legacy=1">초기화</a></div></div><div class="quickFilters"><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "all", group_by: groupBy }))}">전체 보기</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "expense", group_by: groupBy }))}">지출만</a><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "income", group_by: groupBy }))}">수입만</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, quality: "missing_any", group_by: groupBy }))}">정리 필요</a><a class="chip" href="${escapeHtml(csvHref)}">CSV 다운로드</a></div><details class="filterDetails"><summary>상세 조건 열기</summary><div class="filterMore"><div class="field"><label>날짜</label><input type="date" name="date" value="${escapeHtml(date)}"/></div><div class="field"><label>분류</label><select name="category"><option value="">분류 전체</option><option value="__missing"${categoryFilter === "__missing" ? " selected" : ""}>미분류만</option>${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"${categoryFilter === c ? " selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></div><div class="field"><label>결제수단</label><select name="payment_method"><option value="">수단 전체</option><option value="__missing"${paymentFilter === "__missing" ? " selected" : ""}>수단 미입력만</option>${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"${paymentFilter === p ? " selected" : ""}>${escapeHtml(p)}</option>`).join("")}</select></div><div class="field"><label>정리 상태</label><select name="quality">${renderQualityOptions(quality)}</select></div><div class="field"><label>묶어 보기</label><select name="group_by">${renderGroupOptions(groupBy)}</select></div><div class="filterActions"><button type="submit">적용</button></div></div></details></form>${selectedHousehold ? `<div class="quick"><a class="chip blue" href="/households?household_id=${escapeHtml(selectedHousehold.id)}">가계부·참여자 관리</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "analysis", type: "expense", group_by: "category" }))}">분석 확장</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "calendar", group_by: groupBy }))}">캘린더</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "partners", group_by: groupBy }))}">생활비 팁</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "premium", group_by: groupBy }))}">고급 분석</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">초대코드는 보안상 이 화면에 표시하지 않습니다. <b>가계부·참여자 관리</b>에서 필요한 때만 확인하세요.</p>` : `<div class="quick"><span class="chip blue">전체 가계부 보기</span><a class="chip hot" href="${escapeHtml(dashboardQuery(month, "", { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, "", { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="/ledger?all=1">기록 전체</a><a class="chip" href="/households">가계부·참여자</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">현재 모든 가계부의 기록을 합쳐 보고 있습니다. 새 입력은 기본 가계부에 저장됩니다.</p>`}</section>
 <section class="portalQuick">
   <a class="portalAction primary" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}"><b>기록 관리</b><span>입력, 수정, 삭제, 일괄정리</span></a>
   <a class="portalAction" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "calendar", group_by: groupBy }))}"><b>달력 보기</b><span>날짜별 소비 확인</span></a>
@@ -8543,8 +8182,7 @@ function canonicalRouteRows(month = currentMonthKst(), householdId = "") {
     ["가계부·참여자", "/households", "가족/모임 공동 사용"],
     ["분류 설정", hid ? `/categories?household_id=${encodeURIComponent(hid)}` : "/categories", "카테고리"],
     ["예산 관리", `/budgets?month=${encodeURIComponent(month)}${hh}`, "월 수입 대비 예산"],
-    ["무료 스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "예측·반복지출·영수증·리포트"],
-    ["영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "사진·문자 확인 후 저장"],
+    ["무료 스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "예측·반복지출·리포트"],
     ["자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "주간·월간 생성·공유"],
     ["결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "카드/계좌/간편결제"],
     ["정기지출 준비", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "세금/보험 미리 준비"],
@@ -8564,7 +8202,7 @@ async function handleRouteAuditPage(request, env, url) {
   const selectedHousehold = households.find((h) => h.id === householdId) || households[0] || null;
   const rows = canonicalRouteRows(month, selectedHousehold?.id || "");
   const body = rows.map(([label, href, purpose]) => `<tr><td><b>${escapeHtml(label)}</b></td><td><a href="${escapeHtml(href)}">${escapeHtml(href)}</a></td><td>${escapeHtml(purpose)}</td><td><span class="ok">표준</span></td></tr>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>경로 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:14px 0}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}a{color:#2563eb;font-weight:900}.ok{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 9px;font-size:12px;font-weight:1000}.note{color:#64748b;line-height:1.6}</style></head><body>${renderUnifiedNav("route-audit", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><section class="hero"><h1>경로 점검</h1><p class="note">화면마다 메뉴명이 달라지지 않도록 표준 메뉴명과 진입 경로를 한 곳에서 확인합니다.</p><form class="filters" method="get" action="/route-audit"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">기준 변경</button></form></section><table><thead><tr><th>표준 메뉴명</th><th>표준 경로</th><th>용도</th><th>상태</th></tr></thead><tbody>${body}</tbody></table></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>경로 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:14px 0}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}a{color:#2563eb;font-weight:900}.ok{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 9px;font-size:12px;font-weight:1000}.note{color:#64748b;line-height:1.6}</style></head><body>${renderUnifiedNav("route-audit", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><section class="hero"><h1>경로 점검</h1><p class="note">화면마다 메뉴명이 달라지지 않도록 표준 메뉴명과 진입 경로를 한 곳에서 확인합니다.</p><form class="filters" method="get" action="/route-audit"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">기준 변경</button></form></section><table><thead><tr><th>표준 메뉴명</th><th>표준 경로</th><th>용도</th><th>상태</th></tr></thead><tbody>${body}</tbody></table></main></body></html>`);
 }
 
 async function handleTopTabAuditPage(request, env, url) {
@@ -8687,7 +8325,7 @@ async function handleBackupCenterPage(request, env, url) {
     ["고정항목", `${numberWithCommas(recurring.length)}개`, "반복 기록 설정"],
     ["사용자 분류", `${numberWithCommas(categories.length)}개`, "직접 추가한 분류"],
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(qs)}">1. 현재 가계부 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">전체 가계부 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(qs)}">1. 현재 가계부 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">전체 가계부 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
 }
 
 function safeArray(value) {
@@ -8933,7 +8571,7 @@ function renderBackupCompareHtml({ payload = null, validation = null, summary = 
     ["신규 후보", compare.counts.new_candidates],
     ["현재만 있음", compare.counts.current_only],
   ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${numberWithCommas(value || 0)}</b></div>`).join("") : "";
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>비교 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>백업 파일 구조: ${validation.ok ? "정상" : "확인 필요"}</h2>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const resultHtml = hasResult ? `<section class="card ${compare.risk}"><h2>비교 결과: ${escapeHtml(riskLabel)}</h2><p>${escapeHtml(riskText)}</p></section><section class="grid">${cards}</section><section class="card"><h2>충돌 항목</h2><p class="note">같은 ID인데 백업과 현재 데이터 내용이 다른 항목입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID/차이</th></tr></thead><tbody>${renderBackupCompareRows(compare.conflicts, "conflict")}</tbody></table></section><section class="card"><h2>신규 후보</h2><p class="note">현재 데이터에 없어 보이는 백업 거래입니다. 아직 DB에 저장하지 않습니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows(compare.newCandidates, "new")}</tbody></table></section><section class="card"><h2>중복 가능 항목</h2><p class="note">ID 또는 내용 기준으로 이미 존재하는 거래입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows([...compare.sameId.slice(0, 15), ...compare.contentDuplicates.slice(0, 15)], "dup")}</tbody></table></section>` : "";
@@ -8999,7 +8637,7 @@ function renderBackupCandidateSelectHtml({ payload = null, validation = null, co
   const candidates = safeArray(compare?.newCandidates);
   const conflictCount = Number(compare?.counts?.conflicts || 0);
   const duplicateCount = Number(compare?.counts?.same_id || 0) + Number(compare?.counts?.same_content || 0);
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>후보 분석 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>백업 구조: ${validation.ok ? "정상" : "확인 필요"}</h2>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const summary = compare ? `<section class="grid"><div class="metric"><span>신규 후보</span><b>${numberWithCommas(candidates.length)}</b></div><div class="metric"><span>충돌</span><b>${numberWithCommas(conflictCount)}</b></div><div class="metric"><span>중복 가능</span><b>${numberWithCommas(duplicateCount)}</b></div><div class="metric"><span>현재만 있음</span><b>${numberWithCommas(compare.counts.current_only || 0)}</b></div></section>` : "";
@@ -9103,7 +8741,7 @@ function renderFinalCheckRows(rows = []) {
 }
 
 function renderImportFinalCheckHtml({ households = [], householdId = "", month = "", validation = null, finalCheck = null, passwordOk = false, error = "" } = {}) {
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>최종 확인 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>선택 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입 합계</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출 합계</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const finalHtml = finalCheck ? `<section class="card ${finalCheck.risk === "good" ? "good" : "warn"}"><h2>${finalCheck.risk === "good" ? "최종 확인 통과" : "중복 재확인 필요"}</h2><p>${finalCheck.risk === "good" ? "계획 파일의 모든 후보가 현재 DB에 아직 없어 보입니다. 그래도 이 화면은 DB에 저장하지 않습니다." : "계획 생성 이후 현재 DB에 이미 들어간 항목이 있어 보입니다. 실제 가져오기 전 후보 계획을 다시 만드는 것이 안전합니다."}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>현재 거래</span><b>${numberWithCommas(finalCheck.counts.current)}</b></div><div class="metric"><span>아직 신규</span><b>${numberWithCommas(finalCheck.counts.still_new)}</b></div><div class="metric"><span>현재 중복</span><b>${numberWithCommas(finalCheck.counts.now_duplicate)}</b></div></div></section><section class="card"><h2>아직 신규 후보</h2><p class="note">다음 실제 가져오기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 저장하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.stillNew)}</tbody></table></div></section><section class="card"><h2>현재 중복 후보</h2><p class="note">계획 생성 이후 이미 현재 데이터에 있는 것으로 보이는 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.nowDuplicate)}</tbody></table></div></section>` : "";
@@ -9166,7 +8804,7 @@ function renderImportApplyRows(rows = [], status = "") {
 }
 
 function renderImportApplyHtml({ households = [], householdId = "", month = "", validation = null, finalCheck = null, result = null, error = "" } = {}) {
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>가져오기 적용 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const finalBox = finalCheck ? `<section class="card ${finalCheck.counts.now_duplicate ? "warn" : "good"}"><h2>적용 직전 중복 재검사</h2><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>아직 신규</span><b>${numberWithCommas(finalCheck.counts.still_new)}</b></div><div class="metric"><span>현재 중복</span><b>${numberWithCommas(finalCheck.counts.now_duplicate)}</b></div><div class="metric"><span>1회 적용 제한</span><b>${numberWithCommas(IMPORT_APPLY_LIMIT)}건</b></div></div><p class="note">${finalCheck.counts.now_duplicate ? "현재 DB에 이미 들어간 항목은 자동으로 제외합니다." : "중복 항목 없이 신규 후보만 적용 대상입니다."}</p></section>` : "";
@@ -9329,7 +8967,7 @@ async function handleImportHistoryPage(request, env, url) {
   const qs = new URLSearchParams();
   qs.set("month", month);
   if (hid) qs.set("household_id", hid);
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 이력</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1e3a8a));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:980px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>가져오기 이력/감사 로그</h1><p>백업 가져오기로 실제 저장된 거래를 확인합니다. 현재는 source 값이 backup_import_* 인 거래를 기준으로 집계합니다.</p><form class="filters" method="get" action="/backup/import-history"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>가져오기 건수</span><b>${numberWithCommas(summary.total)}건</b></div><div class="metric"><span>수입 합계</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 합계</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>내보내기</h2><p class="warnBox">가져오기 이력은 실제 저장된 거래 기준입니다. 필요하면 CSV로 내려받아 보관하세요.</p><p><a class="btn light" href="/backup/import-history.csv?${escapeHtml(qs.toString())}">이력 CSV 다운로드</a> <a class="btn" href="/backup/apply?${escapeHtml(qs.toString())}">가져오기 실제 적용</a></p></section><section class="card"><h2>시간대별 요약</h2><div class="tableWrap"><table><thead><tr><th>배치 추정</th><th>건수</th><th>수입</th><th>지출</th><th>시작</th><th>마지막</th></tr></thead><tbody>${renderImportHistoryBatchRows(summary.batches)}</tbody></table></div></section><section class="card"><h2>상세 이력</h2><p class="note">최근 300건까지만 화면에 표시합니다. 전체는 CSV로 확인하세요.</p><div class="tableWrap"><table><thead><tr><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderImportHistoryRows(rows)}</tbody></table></div></section></main></body></html>`);
 }
 
@@ -9411,7 +9049,7 @@ async function handleRollbackCandidatePage(request, env, url) {
   if (hid) qs.set("household_id", hid);
   const allSources = summarizeRollbackCandidates(await fetchImportHistoryRows(env, { month, householdId: hid })).bySource;
   const sourceOptions = Object.keys(allSources).sort().map((src) => `<option value="${escapeHtml(src)}"${src === sourceFilter ? " selected" : ""}>${escapeHtml(src)}</option>`).join("");
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>되돌리기 후보</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1200px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#fff7ed;color:#9a3412;font-weight:1000}.actions{display:flex;gap:8px;flex-wrap:wrap}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:1080px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.rollbackCheck{width:20px;height:20px}code{background:#f1f5f9;border-radius:8px;padding:3px 6px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>되돌리기 후보 화면</h1><p>가져오기 이력 중 되돌릴 후보만 선택해 계획 JSON을 만듭니다. 이 화면은 DB에서 삭제하지 않습니다.</p><form class="filters" method="get" action="/backup/rollback-candidates"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="source"><option value="">source 전체</option>${sourceOptions}</select><button type="submit">후보 조회</button></form></section><section class="grid"><div class="metric"><span>되돌리기 후보</span><b>${numberWithCommas(summary.count)}건</b></div><div class="metric"><span>수입 후보</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 후보</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>주의</h2><p class="warnBox">되돌리기 후보 화면은 계획 파일만 만듭니다. 실제 삭제는 다음 단계에서 관리자 비밀번호 재확인, 확인 문구, 중복/존재 재검사 후 제한적으로 처리하는 방식이 안전합니다.</p><div class="actions"><a class="btn light" href="/backup/import-history?${escapeHtml(qs.toString())}">가져오기 이력으로 돌아가기</a><button type="button" class="btn light" onclick="setRollbackChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setRollbackChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadRollbackPlan()">선택 계획 JSON 저장</button></div><div class="selectedBar"><b id="rollbackSelectedCount">0건 선택</b><span id="rollbackSelectedAmount">0원</span></div></section><section class="card"><h2>source별 후보</h2><div class="tableWrap"><table><thead><tr><th>source</th><th>건수</th></tr></thead><tbody>${renderRollbackSourceRows(summary.bySource)}</tbody></table></div></section><section class="card"><h2>되돌리기 후보 상세</h2><p class="note">최근 500건까지만 화면에 표시합니다. 선택 계획은 거래 ID와 거래 요약을 포함합니다.</p><div class="tableWrap"><table><thead><tr><th>선택</th><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderRollbackCandidateRows(rows)}</tbody></table></div></section></main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setRollbackChecks=function(v){document.querySelectorAll('.rollbackCheck').forEach(function(x){x.checked=!!v});updateRollbackSelection()};function selectedRows(){var out=[];document.querySelectorAll('.rollbackCheck').forEach(function(x){if(!x.checked)return;var tr=x.closest('tr');var payload=tr?tr.querySelector('.rollbackPayload'):null;try{if(payload)out.push(JSON.parse(payload.value||'{}'))}catch(e){}});return out}function updateRollbackSelection(){var rows=selectedRows();var amount=0;rows.forEach(function(r){if((r.type||'expense')==='income')amount-=Number(r.amount||0);else amount+=Number(r.amount||0)});var c=document.getElementById('rollbackSelectedCount');var a=document.getElementById('rollbackSelectedAmount');if(c)c.textContent=rows.length+'건 선택';if(a)a.textContent='되돌리기 순지출 영향 '+money(amount)}document.querySelectorAll('.rollbackCheck').forEach(function(x){x.addEventListener('change',updateRollbackSelection)});window.downloadRollbackPlan=function(){var selected=selectedRows();var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'rollback_candidate_plan_only_no_db_write',month:${JSON.stringify(month)},household_id:${JSON.stringify(hid)},selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_rollback_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateRollbackSelection();})();</script></body></html>`);
 }
 
@@ -9527,7 +9165,7 @@ function renderRollbackFinalRows(items = [], mode = "plan") {
 }
 
 function renderRollbackFinalCheckHtml({ households = [], householdId = "", month = "", validation = null, finalCheck = null, error = "" } = {}) {
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>최종 확인 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>선택 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입 후보</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출 후보</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const finalHtml = finalCheck ? `<section class="card ${finalCheck.ok ? "good" : "warn"}"><h2>${finalCheck.ok ? "삭제 전 최종 확인 통과" : "삭제 전 확인 필요"}</h2><p>${finalCheck.ok ? "계획 파일의 후보가 현재 DB에도 동일하게 존재합니다. 그래도 이 화면은 DB에서 삭제하지 않습니다." : "일부 후보가 현재 DB와 다르거나 삭제 대상이 아닙니다. 실제 삭제 전 계획을 다시 만드는 것이 안전합니다."}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>삭제 가능 후보</span><b>${numberWithCommas(finalCheck.counts.deletable)}</b></div><div class="metric"><span>현재 없음</span><b>${numberWithCommas(finalCheck.counts.missing)}</b></div><div class="metric"><span>내용 차이</span><b>${numberWithCommas(finalCheck.counts.mismatch)}</b></div><div class="metric"><span>차단</span><b>${numberWithCommas(finalCheck.counts.blocked)}</b></div><div class="metric"><span>지출 되돌림 영향</span><b>${numberWithCommas(finalCheck.counts.expense)}원</b></div></div></section><section class="card"><h2>삭제 가능 후보</h2><p class="note">다음 실제 되돌리기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 삭제하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>상태</th></tr></thead><tbody>${renderRollbackFinalRows(finalCheck.deletable)}</tbody></table></div></section><section class="card"><h2>삭제 제외/확인 필요</h2><p class="note">현재 없거나, source가 다르거나, 내용이 달라진 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>사유</th></tr></thead><tbody>${renderRollbackFinalRows([...finalCheck.missing, ...finalCheck.mismatch, ...finalCheck.blocked])}</tbody></table></div></section>` : "";
@@ -9736,7 +9374,6 @@ const FINAL_FEATURE_MATRIX = [
   { group: "숨김 기능", name: "카드 실적·예상 혜택", status: "미완성숨김", route: "-", detail: "조건 데이터와 계산 정확도 검증 완료 전 메뉴·직접 URL 숨김" },
   { group: "카드혜택", name: "결제수단 연결 안내", status: "신규포함", route: "/payment-methods", detail: "기존 payment_method 기준 카드/계좌/간편결제 흐름 확인" },
   { group: "스마트 도구", name: "예측·반복지출·이상지출", status: "운영포함", route: "/smart-tools", detail: "월말 예측·반복지출·이상지출·절약 후보를 무료 제공" },
-  { group: "스마트 도구", name: "영수증 스마트 기록", status: "운영포함", route: "/receipts", detail: "브라우저 OCR 후 사용자가 확인한 거래만 저장" },
   { group: "요약/리포트", name: "주간·월간 자동 리포트", status: "운영포함", route: "/reports", detail: "자동 생성 설정과 복사·공유·인쇄/PDF 저장" },
   { group: "백업/복구", name: "백업센터", status: "운영포함", route: "/backup", detail: "JSON/CSV 백업" },
   { group: "백업/복구", name: "백업 미리보기", status: "운영포함", route: "/backup/preview", detail: "DB 저장 없는 구조 검증" },
@@ -9795,7 +9432,6 @@ function finalReleaseRoutes() {
     "/households",
     "/categories",
     "/smart-tools",
-    "/receipts",
     "/reports",
     "/settlement-summary",
     "/payment-methods",
@@ -9837,7 +9473,7 @@ async function buildFinalReleaseAudit(env) {
     ["DB 주요 테이블", !!ops.ok, "Supabase 주요 테이블 접근"],
     ["통합메뉴", true, "/menu 기준 전체 진입"],
     ["모바일 입력", true, "/app 기준 운영"],
-    ["공개 무료 기능", premiumBetaEnabled(env), "영수증·반복 거래·고급 정산·자동 리포트·스마트 분석 무료 제공"],
+    ["공개 무료 기능", premiumBetaEnabled(env), "반복 거래·고급 정산·자동 리포트·스마트 분석 무료 제공"],
     ["미완성 기능 숨김", !memeCardsEnabled(env) && !cardPerformanceEnabled(env), "소비 카드/밈·카드 실적/혜택 메뉴와 직접 URL 비노출"],
     ["백업/복구 안전흐름", true, "/backup 전체 단계"],
     ["되돌리기 안전흐름", true, "후보/최종확인까지 제공, 실제 삭제는 보류"],
@@ -9894,7 +9530,7 @@ async function handleFeatureMapPage(request, env, url) {
 
 async function handleDeployRunbookPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>배포 런북</title><style>${finalReleaseBaseStyle()}</style></head><body>${renderUnifiedNav("deploy-runbook")}<main class="wrap"><section class="hero"><h1>실제 배포 런북</h1><p>운영 서버에 최종본을 적용하고 운영 확인까지 진행하는 순서입니다.</p><p>버전: <b>${FINAL_RELEASE_VERSION}</b></p></section><section class="card"><h2>1. 배포 전</h2><ol><li>현재 Worker 코드와 Supabase 데이터를 각각 백업합니다.</li><li><code>schema_v22_6_8_operations_integrity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_7_0_auth_atomicity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_8_0_asset_dashboard_complete.sql</code>을 Worker보다 먼저 적용합니다.</li><li>SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ADMIN_SESSION_SECRET, USER_SESSION_SECRET, ADMIN_API_TOKEN, MY_IMPORT_TOKEN_SECRET를 설정합니다.</li><li>DB 관리자 비밀번호가 아직 없을 때만 ADMIN_PASSWORD를 초기 설정용으로 유지합니다.</li></ol></section><section class="card"><h2>2. 배포</h2><ol><li>ZIP 압축 해제</li><li>V22.8.0 자산 마이그레이션 적용 결과 확인</li><li><code>src/index.js</code>를 Worker에 반영</li><li>저장 후 배포</li></ol></section><section class="card"><h2>3. 배포 후 확인</h2><div class="routeGrid">${renderFinalRouteLinks(["/health","/ready","/final-release","/ops-audit","/diagnostics","/menu","/app","/?legacy=1&tab=transactions","/smart-tools","/receipts","/reports","/settlement-summary","/payment-methods","/backup"])}</div></section><section class="card"><h2>4. 운영 원칙</h2><p class="warnBox">백업/가져오기/되돌리기 기능은 실제 데이터에 영향을 줄 수 있으므로 항상 JSON 백업 후 진행하세요. 자산에는 계좌·카드 번호 전체, 비밀번호, 인증번호를 입력하지 말고 별칭만 사용하세요. 소비 카드/밈과 카드 실적/혜택은 완성도 검증 전까지 메뉴와 직접 URL에서 숨긴 상태를 유지하세요.</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>배포 런북</title><style>${finalReleaseBaseStyle()}</style></head><body>${renderUnifiedNav("deploy-runbook")}<main class="wrap"><section class="hero"><h1>실제 배포 런북</h1><p>운영 서버에 최종본을 적용하고 운영 확인까지 진행하는 순서입니다.</p><p>버전: <b>${FINAL_RELEASE_VERSION}</b></p></section><section class="card"><h2>1. 배포 전</h2><ol><li>현재 Worker 코드와 Supabase 데이터를 각각 백업합니다.</li><li><code>schema_v22_6_8_operations_integrity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_7_0_auth_atomicity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_8_0_asset_dashboard_complete.sql</code>을 Worker보다 먼저 적용합니다.</li><li>SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ADMIN_SESSION_SECRET, USER_SESSION_SECRET, ADMIN_API_TOKEN, MY_IMPORT_TOKEN_SECRET를 설정합니다.</li><li>DB 관리자 비밀번호가 아직 없을 때만 ADMIN_PASSWORD를 초기 설정용으로 유지합니다.</li></ol></section><section class="card"><h2>2. 배포</h2><ol><li>ZIP 압축 해제</li><li>V22.8.0 자산 마이그레이션 적용 결과 확인</li><li><code>src/index.js</code>를 Worker에 반영</li><li>저장 후 배포</li></ol></section><section class="card"><h2>3. 배포 후 확인</h2><div class="routeGrid">${renderFinalRouteLinks(["/health","/ready","/final-release","/ops-audit","/diagnostics","/menu","/app","/?legacy=1&tab=transactions","/smart-tools","/reports","/settlement-summary","/payment-methods","/backup"])}</div></section><section class="card"><h2>4. 운영 원칙</h2><p class="warnBox">백업/가져오기/되돌리기 기능은 실제 데이터에 영향을 줄 수 있으므로 항상 JSON 백업 후 진행하세요. 자산에는 계좌·카드 번호 전체, 비밀번호, 인증번호를 입력하지 말고 별칭만 사용하세요. 소비 카드/밈과 카드 실적/혜택은 완성도 검증 전까지 메뉴와 직접 URL에서 숨긴 상태를 유지하세요.</p></section></main></body></html>`);
 }
 
 const NAVER_CARD_SOURCE_NOTE = "네이버페이 카드 페이지 기준 요약(카드사/혜택 카테고리/노출 카드). 실제 혜택·한도·프로모션은 카드사 상품설명서와 약관 확인 필요.";
@@ -10179,7 +9815,7 @@ async function buildCardBenefitsPayload(env, url, householdsArg = null) {
   const calc = calculateCardBenefitUsage(card, rows);
   return { month, households, householdId, issuer, card, calc, catalog: CARD_BENEFIT_CATALOG };
 }
-async function handleCardBenefitsPage(request,env,url){const scoped=await getScopedHouseholdsForPage(request,env);if(scoped.scope==="none")return redirectResponse("/my");const {month,households,householdId,issuer,card,calc}=await buildCardBenefitsPayload(env,url,scoped.households);const householdOptions=households.map(h=>`<option value="${escapeHtml(h.id)}" ${h.id===householdId?"selected":""}>${escapeHtml(h.name)}</option>`).join("");const qs=new URLSearchParams();qs.set("month",month);if(householdId)qs.set("household_id",householdId);qs.set("card_id",card.id);return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>카드 혜택 자동조회</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#5b21b6));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.92}.filters{display:grid;grid-template-columns:1.1fr .9fr 1.5fr 150px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.progress{height:14px;border-radius:999px;background:#e5e7eb;overflow:hidden}.bar{height:100%;background:#3182F6;border-radius:999px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;background:#fff;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.small{font-size:12px;color:#64748b;margin-top:3px}.pill{display:inline-flex;border-radius:999px;background:#ede9fe;color:#5b21b6;padding:5px 9px;font-weight:1000;font-size:12px;margin:2px}@media(max-width:820px){.wrap{padding:12px}.hero h1{font-size:24px}.filters{grid-template-columns:1fr}.card{padding:14px}}</style></head><body>${renderUnifiedNav("card-benefits",{month,householdId,householdName:(households.find((h)=>h.id===householdId)||{}).name})}<main class="wrap"><section class="hero"><h1>카드 혜택 자동조회</h1><p>네이버페이 카드 페이지 기준으로 정리한 카드사/혜택 요약을 드롭다운으로 선택하고, 이번 달 거래와 매칭해 실적/혜택 한도를 계산합니다.</p><form class="filters" method="get" action="/card-benefits"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="issuer" onchange="this.form.submit()">${renderIssuerOptions(issuer)}</select><select name="card_id">${renderCardOptions(card.id,issuer)}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(card.name)}</h2><p><span class="pill">${escapeHtml(card.issuer)}</span><span class="pill">${escapeHtml(card.performance?.label||"")}</span><span class="pill">통합 한도 ${numberWithCommas(card.total_monthly_limit||0)}원</span></p><p class="warnBox">${escapeHtml(card.notes||"카드 혜택 문서 기준정보는 운영 전 검수가 필요합니다.")}</p><div class="grid"><div class="metric"><span>이번 달 추정 사용액</span><b>${numberWithCommas(calc.usage_amount)}원</b></div><div class="metric"><span>실적 기준</span><b>${numberWithCommas(calc.required_performance)}원</b></div><div class="metric"><span>실적까지 남은 금액</span><b>${numberWithCommas(calc.remaining_performance)}원</b></div><div class="metric"><span>예상 혜택</span><b>${numberWithCommas(calc.estimated_total)}원</b></div><div class="metric"><span>남은 통합 한도</span><b>${formatBenefitValue(calc.remaining_total_limit)}</b></div><div class="metric"><span>매칭 거래</span><b>${numberWithCommas(calc.matched_count)}건</b></div></div><p class="note">실적 달성률 ${calc.performance_rate}%</p><div class="progress"><div class="bar" style="width:${Math.min(100,calc.performance_rate)}%"></div></div><p><a class="btn light" href="/payment-methods?${escapeHtml(qs.toString())}">결제수단 연결 안내</a></p><p class="note">${escapeHtml(NAVER_CARD_SOURCE_NOTE)}</p></section><section class="card"><h2>혜택 카테고리별 현황</h2><div class="tableWrap"><table><thead><tr><th>혜택</th><th>율</th><th>월 한도</th><th>매칭 지출</th><th>예상 혜택</th><th>남은 한도</th></tr></thead><tbody>${renderBenefitRows(calc)}</tbody></table></div></section><section class="card"><h2>카드 매칭 거래</h2><p class="note">거래의 결제수단/메모에 카드명 또는 별칭이 포함된 경우 매칭합니다. 다음 단계에서 결제수단 등록과 연결하면 더 정확해집니다.</p><div class="tableWrap"><table><thead><tr><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>결제수단</th><th>ID</th></tr></thead><tbody>${renderMatchedCardRows(calc.matchedRows)}</tbody></table></div></section></main></body></html>`);}
+async function handleCardBenefitsPage(request,env,url){const scoped=await getScopedHouseholdsForPage(request,env);if(scoped.scope==="none")return redirectResponse("/my");const {month,households,householdId,issuer,card,calc}=await buildCardBenefitsPayload(env,url,scoped.households);const householdOptions=households.map(h=>`<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}" ${h.id===householdId?"selected":""}>${escapeHtml(h.name)}</option>`).join("");const qs=new URLSearchParams();qs.set("month",month);if(householdId)qs.set("household_id",householdId);qs.set("card_id",card.id);return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>카드 혜택 자동조회</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#5b21b6));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.92}.filters{display:grid;grid-template-columns:1.1fr .9fr 1.5fr 150px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);overflow:hidden}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.progress{height:14px;border-radius:999px;background:#e5e7eb;overflow:hidden}.bar{height:100%;background:#3182F6;border-radius:999px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{width:100%;border-collapse:collapse;background:#fff;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.small{font-size:12px;color:#64748b;margin-top:3px}.pill{display:inline-flex;border-radius:999px;background:#ede9fe;color:#5b21b6;padding:5px 9px;font-weight:1000;font-size:12px;margin:2px}@media(max-width:820px){.wrap{padding:12px}.hero h1{font-size:24px}.filters{grid-template-columns:1fr}.card{padding:14px}}</style></head><body>${renderUnifiedNav("card-benefits",{month,householdId,householdName:(households.find((h)=>h.id===householdId)||{}).name})}<main class="wrap"><section class="hero"><h1>카드 혜택 자동조회</h1><p>네이버페이 카드 페이지 기준으로 정리한 카드사/혜택 요약을 드롭다운으로 선택하고, 이번 달 거래와 매칭해 실적/혜택 한도를 계산합니다.</p><form class="filters" method="get" action="/card-benefits"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="issuer" onchange="this.form.submit()">${renderIssuerOptions(issuer)}</select><select name="card_id">${renderCardOptions(card.id,issuer)}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(card.name)}</h2><p><span class="pill">${escapeHtml(card.issuer)}</span><span class="pill">${escapeHtml(card.performance?.label||"")}</span><span class="pill">통합 한도 ${numberWithCommas(card.total_monthly_limit||0)}원</span></p><p class="warnBox">${escapeHtml(card.notes||"카드 혜택 문서 기준정보는 운영 전 검수가 필요합니다.")}</p><div class="grid"><div class="metric"><span>이번 달 추정 사용액</span><b>${numberWithCommas(calc.usage_amount)}원</b></div><div class="metric"><span>실적 기준</span><b>${numberWithCommas(calc.required_performance)}원</b></div><div class="metric"><span>실적까지 남은 금액</span><b>${numberWithCommas(calc.remaining_performance)}원</b></div><div class="metric"><span>예상 혜택</span><b>${numberWithCommas(calc.estimated_total)}원</b></div><div class="metric"><span>남은 통합 한도</span><b>${formatBenefitValue(calc.remaining_total_limit)}</b></div><div class="metric"><span>매칭 거래</span><b>${numberWithCommas(calc.matched_count)}건</b></div></div><p class="note">실적 달성률 ${calc.performance_rate}%</p><div class="progress"><div class="bar" style="width:${Math.min(100,calc.performance_rate)}%"></div></div><p><a class="btn light" href="/payment-methods?${escapeHtml(qs.toString())}">결제수단 연결 안내</a></p><p class="note">${escapeHtml(NAVER_CARD_SOURCE_NOTE)}</p></section><section class="card"><h2>혜택 카테고리별 현황</h2><div class="tableWrap"><table><thead><tr><th>혜택</th><th>율</th><th>월 한도</th><th>매칭 지출</th><th>예상 혜택</th><th>남은 한도</th></tr></thead><tbody>${renderBenefitRows(calc)}</tbody></table></div></section><section class="card"><h2>카드 매칭 거래</h2><p class="note">거래의 결제수단/메모에 카드명 또는 별칭이 포함된 경우 매칭합니다. 다음 단계에서 결제수단 등록과 연결하면 더 정확해집니다.</p><div class="tableWrap"><table><thead><tr><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>결제수단</th><th>ID</th></tr></thead><tbody>${renderMatchedCardRows(calc.matchedRows)}</tbody></table></div></section></main></body></html>`);}
 
 function shiftMonthKey(month = "", delta = 0) {
   const m = validMonth(month) || currentMonthKst();
@@ -10415,7 +10051,7 @@ async function handlePaymentMethodsPage(request, env, url) {
     kind: String(url.searchParams.get("add_kind") || ""),
     issuer: String(url.searchParams.get("add_issuer") || "").slice(0, 80),
   };
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
   const assets = await fetchPaymentAssets(env, householdId);
   const history = await fetchAssetHistory(env, householdId);
@@ -10516,7 +10152,7 @@ async function buildProductionOpsAudit(env) {
   const userSessionOk = !!(envStatus.USER_SESSION_SECRET && envStatus.ADMIN_SESSION_SECRET);
   const dbOk = Object.values(tablePairs).every((pair) => !!pair[0]);
   const backupRoutes = ["/backup", "/backup/preview", "/backup/compare", "/backup/select", "/backup/final-check", "/backup/apply", "/backup/import-history", "/backup/rollback-candidates", "/backup/rollback-final-check"];
-  const uiRoutes = ["/menu", "/app", "/?legacy=1", "/?legacy=1&tab=transactions", "/households", "/categories", "/smart-tools", "/receipts", "/reports", "/settlement-summary", "/payment-methods", "/settings", "/diagnostics", "/ui-audit", "/route-audit", "/nav-audit", "/operation-center", "/ops-audit", "/final-release", "/feature-map", "/deploy-runbook"];
+  const uiRoutes = ["/menu", "/app", "/?legacy=1", "/?legacy=1&tab=transactions", "/households", "/categories", "/smart-tools", "/reports", "/settlement-summary", "/payment-methods", "/settings", "/diagnostics", "/ui-audit", "/route-audit", "/nav-audit", "/operation-center", "/ops-audit", "/final-release", "/feature-map", "/deploy-runbook"];
   return {
     version: APP_VERSION,
     generated_at: new Date().toISOString(),
@@ -10536,7 +10172,7 @@ async function buildProductionOpsAudit(env) {
       ["백업/복구 안전장치", true, "백업→미리보기→비교→후보→최종확인→적용→이력"],
       ["되돌리기 안전장치", true, "후보→최종확인까지 제공, 실제 삭제는 별도 안전 단계 권장"],
       ["운영 헤더", true, "nosniff / same-origin referrer / frame deny 적용"],
-      ["공개 무료 기능", premiumBetaEnabled(env), "영수증·반복 거래·정산·리포트·스마트 분석 무료 제공"],
+      ["공개 무료 기능", premiumBetaEnabled(env), "반복 거래·정산·리포트·스마트 분석 무료 제공"],
       ["미완성 기능 숨김", !memeCardsEnabled(env) && !cardPerformanceEnabled(env), "소비 카드/밈·카드 실적/혜택 기본 비노출"],
       ["최종 배포판", true, "/final-release, /feature-map, /deploy-runbook"],
     ],
@@ -10747,7 +10383,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   // 5/2/7/3/4 → 5/5/4/7. 가장 큰 그룹이 "설정"이 되는데, 설정은 훑어보는 곳이 아니라
   // 찾아가는 곳이라 그 자리가 낫다.
   let groups = [
-    { key: "record", label: "적는다", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["receipts", "영수증 기록", `/receipts?month=${encodeURIComponent(month)}${hh}`, "receipt"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
+    { key: "record", label: "적는다", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
     { key: "review", label: "본다", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
     { key: "plan", label: "계획한다", icon: "budget", items: [["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
     { key: "settings", label: "설정", icon: "tools", items: [["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
@@ -10942,7 +10578,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText">${escapeHtml(householdName)}<small>똑똑한가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" aria-label="가계부 홈" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText" title="${escapeHtml(householdName)}">${escapeHtml(householdName)}<small>말해가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 async function handleUiPolishCheckPage(request, env, url) {
@@ -11004,7 +10640,7 @@ async function handleDeploymentCheckPage(request, env, url) {
 async function handleTermsPage(request, env, url) {
   const title = escapeHtml(appName(env));
   const terms = [
-    ["서비스 목적", "똑똑한가계부는 사용자가 직접 입력한 수입·지출 기록을 가족/모임 가계부 단위로 정리해 주는 생활비 기록 도우미입니다."],
+    ["서비스 목적", "말해가계부는 사용자가 직접 입력한 수입·지출 기록을 가족/모임 가계부 단위로 정리해 주는 생활비 기록 도우미입니다."],
     ["사용자 책임", "입력한 금액, 날짜, 메모, 결제수단의 정확성은 사용자가 확인해야 합니다. 금융·세무·투자 판단을 대신하지 않습니다."],
     ["공동 가계부", "초대코드로 참여한 사용자는 부여된 권한 범위 안에서 조회·입력·수정할 수 있습니다. owner/admin은 참여자 권한을 관리할 수 있습니다."],
     ["데이터 관리", "사용자는 웹 화면에서 기록을 수정·삭제하고 백업 파일을 내려받을 수 있습니다. 삭제·가져오기 같은 위험 작업은 확인 절차를 거칩니다."],
@@ -11087,7 +10723,7 @@ async function handleHouseholdFlowGuidePage(request, env, url) {
   const title = escapeHtml(appName(env));
   const userId = await verifyUserSession(request, env);
   const households = userId ? (await fetchUserHouseholds(env, userId)).filter((h) => canReadMyHousehold(h.role)) : [];
-  const items = households.map((h) => `<tr><td><b>${escapeHtml(h.name || "가계부")}</b></td><td>${escapeHtml(h.role || "member")}</td><td><a href="/app?household_id=${encodeURIComponent(h.id)}">열기</a></td></tr>`).join("") || `<tr><td colspan="3">로그인 후 내가 참여한 가계부만 표시됩니다.</td></tr>`;
+  const items = households.map((h) => `<tr><td><b>${escapeHtml(h.name || "가계부")}</b></td><td>${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</td><td><a href="/app?household_id=${encodeURIComponent(h.id)}">열기</a></td></tr>`).join("") || `<tr><td colspan="3">로그인 후 내가 참여한 가계부만 표시됩니다.</td></tr>`;
   const cards = [
     ["내 집 가계부", "가족/부부가 매달 계속 쓰는 기본 장부입니다."],
     ["모임 가계부", "회식, 친구 모임, 공동 구매처럼 기간이 있는 장부입니다."],
@@ -11132,7 +10768,7 @@ async function handleKakaoGroupFlowPage(request, env, url) {
   const householdRows = households.map((h) => {
     const invite = h.invite_code || "";
     const cmd = invite ? `단톡방 연결 ${invite}` : "초대코드 확인 필요";
-    return `<tr><td><b>${escapeHtml(h.name || "가계부")}</b><br/><span class="muted">${escapeHtml(h.role || "member")}</span></td><td><code>${escapeHtml(invite || "-")}</code></td><td><div class="copyBox">${escapeHtml(cmd)}</div></td><td><a href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">열기</a></td></tr>`;
+    return `<tr><td><b>${escapeHtml(h.name || "가계부")}</b><br/><span class="muted">${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</span></td><td><code>${escapeHtml(invite || "-")}</code></td><td><div class="copyBox">${escapeHtml(cmd)}</div></td><td><a href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">열기</a></td></tr>`;
   }).join("") || `<tr><td colspan="4">로그인 후 내가 참여한 가계부와 초대코드가 표시됩니다. 비로그인 상태에서는 운영 흐름만 확인할 수 있습니다.</td></tr>`;
   const cards = [
     ["1", "챗봇을 단톡방에 초대", "카카오 채널/챗봇이 없는 방에서는 그룹 연결을 할 수 없습니다. 먼저 챗봇이 방 안에 있어야 합니다.", "/kakao-commands", "명령어"],
@@ -11645,7 +11281,7 @@ async function handleAnnualReportPage(request, env, url) {
 function renderAnnualReportHtml({ env, households, selected, model, nowYear, nowMonthIdx }) {
   const title = escapeHtml(appName(env));
   const hh = `&household_id=${encodeURIComponent(selected.id)}`;
-  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
   const curMonthHighlight = model.year === nowYear ? nowMonthIdx : -1;
   const barsHtml = model.monthsExp.map((v, i) => {
     const h = Math.max(2, Math.round((v / model.maxMonth) * 100));
@@ -11685,7 +11321,7 @@ async function handleGoalsPage(request, env, url) {
 }
 function renderGoalsHtml({ env, households, selected, month, canWrite = false }) {
   const title = escapeHtml(appName(env));
-  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
   const skel = `<div class="goalCard goalSkel"><div class="skLine skWide"></div><div class="skBar"></div><div class="skLine"></div></div>`.repeat(3);
   const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.overall{margin-top:14px}.overall .obar{height:12px;background:rgba(255,255,255,.22);border-radius:999px;overflow:hidden;margin-top:8px}.overall .obar span{display:block;height:100%;background:#5eead4;border-radius:999px;transition:width var(--ab12-dur-gauge,620ms) var(--ab12-ease-gauge,cubic-bezier(.2,.8,.2,1))}.overall b{font-size:22px}.filters{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:14px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.goalForm{display:grid;grid-template-columns:1.4fr .6fr 1fr 1fr 1fr auto;gap:8px}.goalForm input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 12px;font:inherit;min-width:0}.goalForm button{height:44px;border:0;border-radius:12px;background:#0f766e;color:#fff;font-weight:1000;padding:0 16px;cursor:pointer}.goalCard{background:var(--card,#fff);color:var(--text,#111827);border:1px solid var(--line,#e8edf4);border-radius:20px;padding:16px;margin:10px 0}.goalHead{display:flex;align-items:center;gap:10px}.goalEmoji{font-size:22px}.goalHead b{font-size:16px}.goalHead small{display:block;color:var(--sub,#64748b);font-size:12px;margin-top:2px}.goalStatus{margin-left:auto;flex:none;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:900}.st-done{background:#dcfce7;color:#166534}.st-onTrack{background:#e0f2fe;color:#075985}.st-behind{background:#fef3c7;color:#92400e}.goalBar{height:12px;background:var(--card-2,#eef2f7);border-radius:999px;overflow:hidden;margin:12px 0 8px}.goalBar span{display:block;height:100%;background:var(--accent,#0f766e);border-radius:999px;transition:width var(--ab12-dur-gauge,620ms) var(--ab12-ease-gauge,cubic-bezier(.2,.8,.2,1))}.goalMeta{display:flex;justify-content:space-between;gap:10px;color:var(--sub,#64748b);font-size:13px;flex-wrap:wrap}.goalMeta b{color:var(--text,#111827)}.goalActions{display:flex;gap:8px;margin-top:12px}.goalActions button{height:40px;border-radius:11px;font-weight:900;padding:0 14px;cursor:pointer;font:inherit;border:1px solid var(--line,#e8edf4)}.goalActions .fund{background:var(--accent,#0f766e);color:#fff;border:0}.goalActions .del{background:transparent;color:var(--sub,#64748b)}.goalEmpty{padding:26px;text-align:center;color:var(--sub,#64748b)}.skLine{height:12px;border-radius:6px;background:#eef2f7;margin:8px 0}.skWide{width:60%}.skBar{height:12px;border-radius:999px;background:#eef2f7;margin:14px 0}.goalSkel{position:relative;overflow:hidden}.goalSkel:after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);animation:goalShimmer 1.2s infinite}@keyframes goalShimmer{100%{transform:translateX(100%)}}.goalToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:2600;display:flex;align-items:center;gap:14px;background:#111827;color:#fff;border-radius:14px;padding:12px 16px;box-shadow:0 14px 34px rgba(15,23,42,.3);font-weight:700}.goalToast[hidden]{display:none}.goalToast button{background:transparent;border:0;color:#5eead4;font-weight:900;cursor:pointer;font:inherit}@media(min-width:900px){.goalToast{bottom:24px}}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero h1{font-size:24px}.goalForm{grid-template-columns:1fr 1fr}.goalForm input,.goalForm button{font-size:16px}}@media(prefers-reduced-motion:reduce){.goalSkel:after{animation:none}}`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 저축·목표</title><style>${style}</style></head><body>${renderUnifiedNav("goals", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>저축·목표</h1><p>목표를 정하고 매월 조금씩 모아보세요. 원터치로 납입하고, 실수하면 바로 실행취소할 수 있어요.</p><div class="overall"><span>전체 진행률 <b id="goalsOverallPct">–</b></span><div class="obar"><span id="goalsOverallBar" style="width:0%"></span></div><small id="goalsOverallSub" style="color:#ccfbf1"></small></div><form class="filters" method="get" action="/goals"><select name="household_id">${opts}</select><button type="submit">조회</button></form></section><section class="card"><h2>목표 추가</h2><form id="goalAddForm" class="goalForm" autocomplete="off"><input name="name" placeholder="목표 이름 (예: 여행자금)" aria-label="목표 이름"/><input name="emoji" value="🎯" maxlength="4" aria-label="이모지"/><input name="target" inputmode="numeric" placeholder="목표 금액" aria-label="목표 금액"/><input name="monthly" inputmode="numeric" placeholder="월 납입액" aria-label="월 납입액"/><input name="deadline" type="month" aria-label="마감월"/><button type="submit">추가</button></form></section><div id="goalsRoot">${skel}</div><div id="goalToast" class="goalToast" role="status" hidden><span id="goalToastMsg"></span><button type="button" id="goalToastUndo">실행취소</button></div></main><script src="${ACCOUNTBOOK_GOALS_JS_ASSET_PATH}" defer></script></body></html>`;
@@ -12435,6 +12071,7 @@ function accountbookActivityRailClientMain() {
     var wide = !desktop || desktop.matches;
     var node = ensure();
     node.hidden = !wide;
+    document.body.classList.toggle("abHasActivityRail", wide);
     if (wide) load();
   }
   if (desktop) {
@@ -12811,7 +12448,7 @@ async function handleBudgetAlertPolishPage(request, env, url) {
 
 function renderBudgetAlertPolishHtml({ env, month, households, selectedHousehold, model }) {
   const title = escapeHtml(appName(env));
-  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}"${String(h.id) === String(selectedHousehold?.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selectedHousehold?.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
   const appHref = `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
   const budgetHref = `/budgets?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
   const recurringHref = `/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`;
@@ -12943,7 +12580,7 @@ async function handleMeetingHouseholdTemplatePage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = userId ? (await fetchUserHouseholds(env, userId)).filter((h) => canReadMyHousehold(h.role)) : [];
-  const hhRows = households.length ? households.map((h) => `<tr><td>${escapeHtml(h.name || "가계부")}</td><td>${escapeHtml(h.role || "member")}</td><td><a class="mini" href="/settlement-summary?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">정산</a> <a class="mini light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">기록</a></td></tr>`).join("") : `<tr><td colspan="3">로그인 후 내가 참여한 가계부가 표시됩니다.</td></tr>`;
+  const hhRows = households.length ? households.map((h) => `<tr><td>${escapeHtml(h.name || "가계부")}</td><td>${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</td><td><a class="mini" href="/settlement-summary?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">정산</a> <a class="mini light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}">기록</a></td></tr>`).join("") : `<tr><td colspan="3">로그인 후 내가 참여한 가계부가 표시됩니다.</td></tr>`;
   const templates = [
     ["여행 가계부", "숙소·식비·교통비를 참여자별로 기록하고 마지막에 1/N 정산합니다.", "우리 여행 경비", "✈️", "travel"],
     ["모임비 가계부", "정기 모임 회비, 식사, 장소 대관비를 따로 관리합니다.", "우리 모임 회비", "🍻", "meeting"],
@@ -12982,7 +12619,7 @@ async function handleSettlementSummaryPageLegacyV2265(request, env, url) {
   const members = await fetchHouseholdMembers(env, selected.id);
   const rows = await fetchAdminRows(env, { month, householdId: selected.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" ${String(h.id)===String(selected.id)?"selected":""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(h.role || "member")}</option>`).join("");
+  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}" ${String(h.id)===String(selected.id)?"selected":""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const shareText = model.totalExpense ? `${numberWithCommas(model.share)}원` : "-";
   const inviteText = canManageMyHousehold(selected.role) && selected.invite_code ? `가계부 참여 ${selected.invite_code}` : "초대코드는 소유자·관리자만 확인할 수 있습니다.";
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 정산 요약</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.65}.filters{display:grid;grid-template-columns:1fr 160px 100px;gap:8px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:720px;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:middle}.plus{color:#166534;font-weight:1000}.minus{color:#b91c1c;font-weight:1000}.zero{color:#64748b;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.copy{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;line-height:1.6}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.filters{grid-template-columns:1fr}.metric b{font-size:21px}}</style></head><body>${renderUnifiedNav("settlement", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>정산 요약</h1><p>${escapeHtml(selected.name || "가계부")}의 ${escapeHtml(month)} 지출을 참여자별로 1/N 기준 정리합니다. 실제 송금 전에는 참여자와 금액을 반드시 확인하세요.</p><form class="filters" method="get" action="/settlement-summary"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>총 지출</span><b>${numberWithCommas(model.totalExpense)}원</b></div><div class="metric"><span>참여자</span><b>${numberWithCommas(model.participantCount)}명</b></div><div class="metric"><span>1인 부담 기준</span><b>${shareText}</b></div><div class="metric"><span>지출 건수</span><b>${numberWithCommas(rows.length)}건</b></div></section><section class="card"><h2>참여자별 정산</h2><div class="tableWrap"><table><thead><tr><th>참여자</th><th>낸 금액</th><th>1/N 기준</th><th>정산 상태</th></tr></thead><tbody>${renderSettlementRows(model)}</tbody></table></div></section><section class="card"><h2>송금 제안</h2><div class="tableWrap"><table><thead><tr><th>보낼 사람</th><th>받을 사람</th><th>금액</th></tr></thead><tbody>${renderTransferRows(model.transfers)}</tbody></table></div><p class="muted">계산 방식은 단순 1/N입니다. 회비, 제외 인원, 개인별 부담 비율은 실제 모임 규칙에 맞게 확인하세요.</p></section><section class="card"><h2>공유 문구</h2><div class="copy">${escapeHtml(selected.name || "가계부")} 정산 요약<br/>총 지출: ${numberWithCommas(model.totalExpense)}원<br/>참여자: ${numberWithCommas(model.participantCount)}명<br/>1인 기준: ${shareText}<br/>초대/참여 문구: ${escapeHtml(inviteText)}</div><p><a class="btn" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}#quick">기록 추가</a><a class="btn light" href="/meeting-households?month=${encodeURIComponent(month)}">템플릿</a><a class="btn light" href="/meeting-archive">보관 가이드</a></p></section></main></body></html>`);
@@ -13080,7 +12717,7 @@ async function handleSettlementSummaryPage(request, env, url) {
   for (const row of safeArray(rows).slice(0, 40)) itemParticipants[row.id] = url.searchParams.getAll(`item_${row.id}`).map(String);
   const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants });
   const history = parseJsonSetting(historyValue, []);
-  const opts = access.households.map((h) => `<option value="${escapeHtml(h.id)}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(h.role || "member")}</option>`).join("");
+  const opts = access.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const modeOptions = [["equal", "동일 분배"], ["ratio", "비율 분배"], ["headcount", "인원수 분배"], ["item", "품목별 참여자"]].map(([value, label]) => `<option value="${value}"${mode === value ? " selected" : ""}>${label}</option>`).join("");
   const modeLabel = { equal: "동일 분배", ratio: "비율 분배", headcount: "인원수 분배", item: "품목별 분배" }[mode];
   const transferText = model.transfers.map((t) => `${t.from} → ${t.to} ${numberWithCommas(t.amount)}원`).join("\n") || "송금 제안 없음";
@@ -13128,7 +12765,7 @@ async function handleOpsDashboardPage(request, env, url) {
   const trafficRows = (traffic.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
   const statusClass = errCount ? "bad" : warnCount ? "warn" : "ok";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 장기 저장은 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>운영 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 장기 저장은 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleTrafficOpsPage(request, env, url) {
@@ -13146,7 +12783,7 @@ async function handleBrandKitPage(request, env, url) {
   const title = escapeHtml(appName(env));
   const slogan = "말하면 알아서 정리되는 우리집 가계부";
   const review = [
-    "똑똑한가계부는 카카오톡에서 지출·수입을 간단히 기록하고, 가족/모임 가계부를 함께 확인할 수 있는 생활비 기록 도우미입니다.",
+    "말해가계부는 카카오톡에서 지출·수입을 간단히 기록하고, 가족/모임 가계부를 함께 확인할 수 있는 생활비 기록 도우미입니다.",
     "사용자가 봇에게 직접 보낸 명령어와 가계부 기록에 필요한 데이터만 처리합니다.",
     "정기지출, 예산, 최근 기록, 월별 요약은 사용자 웹 화면에서 직접 확인하고 관리할 수 있습니다.",
   ];
@@ -13318,7 +12955,7 @@ async function handleWelcomeLinkGuidePage(request, env, url) {
   const origin = publicBaseUrl(env, url);
   const welcomeText = [
     "안녕하세요 😊",
-    "똑똑한가계부예요.",
+    "말해가계부예요.",
     "",
     "처음이라면 먼저 가계부를 새로 만들지,",
     "초대코드로 참여할지 선택해주세요.",
@@ -13474,7 +13111,7 @@ async function handleBeginnerGuidePage(request, env, url) {
   ];
   const doneCount = steps.filter((s) => s.done).length;
   const percent = Math.round((doneCount / steps.length) * 100);
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const cards = steps.map((step) => `<div class="stepCard ${step.done ? "done" : ""}"><div class="stepNo">${step.done ? "✓" : step.no}</div><div class="stepBody"><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.body)}</p><a href="${escapeHtml(step.href)}">${escapeHtml(step.action)}</a></div></div>`).join("");
   const examples = [["지출 입력", "점심 12000원 국민카드"], ["수입 입력", "월급 250만원"], ["키워드 분류", "스타벅스 커피 5000원"], ["정기지출", "자동차보험 120만원 8월"], ["요약 확인", "요약"]].map(([a,b]) => `<div class="ex"><span>${escapeHtml(a)}</span><b>${escapeHtml(b)}</b></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>시작가이드</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#10b981));color:#fff;border-radius:30px;padding:26px;margin:12px 0;box-shadow:0 18px 46px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:31px;letter-spacing:-.04em}.hero p{line-height:1.6;opacity:.94}.filters{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid rgba(255,255,255,.35);border-radius:14px;padding:0 12px;font:inherit}.filters button{background:#FEE500;color:#111827;font-weight:1000;border:0}.progress{background:rgba(255,255,255,.16);height:12px;border-radius:999px;overflow:hidden;margin-top:14px}.progress i{display:block;height:100%;background:#FEE500;border-radius:999px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.stepCard{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:16px;display:flex;gap:13px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.stepCard.done{border-color:#a7f3d0;background:#f0fdf4}.stepNo{width:38px;height:38px;border-radius:15px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:1000;flex:0 0 38px}.stepCard.done .stepNo{background:#10b981}.stepBody h3{margin:0;font-size:17px}.stepBody p{margin:6px 0 12px;color:#64748b;font-size:13px;line-height:1.5}.stepBody a{display:inline-flex;min-height:34px;align-items:center;text-decoration:none;background:#111827;color:#fff;border-radius:12px;padding:0 11px;font-weight:1000;font-size:13px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.ex{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #f1f5f9;padding:11px 0}.ex:last-child{border-bottom:0}.ex span{color:#64748b;font-size:13px;font-weight:800}.ex b{font-size:14px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.filters{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("start-guide", { month, householdId })}<main class="wrap"><section class="hero"><h1>처음이라면 이 순서대로 시작하세요</h1><p>가계부 앱들이 공통으로 잘하는 장점은 복잡한 기능보다 “처음 설정 순서”를 쉽게 보여주는 것입니다. 아래 순서대로 설정하면 카톡 입력, 예산, 정기지출, 분석이 자연스럽게 연결됩니다.</p><form class="filters" method="get" action="/start-guide"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><div class="progress"><i style="width:${percent}%"></i></div><p><b>${doneCount}/${steps.length}단계 완료</b> · 완료한 항목은 초록색으로 표시됩니다.</p></section><section class="grid">${cards}</section><section class="card"><h2>카톡 입력 예시</h2>${examples}</section></main></body></html>`);
@@ -13508,7 +13145,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   const hh = hid ? `&household_id=${encodeURIComponent(hid)}` : "";
   const monthQs = `month=${encodeURIComponent(month)}${hh}`;
   const householdOptions = households.length
-    ? households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
+    ? households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
   const featured = [
     ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "plus"],
@@ -13530,7 +13167,6 @@ async function handleUnifiedMenuPage(request, env, url) {
       ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "backup"],
     ]],
     ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
-      ["영수증 기록", `/receipts?${monthQs}`, "사진·문자에서 거래 초안", "receipt"],
       ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "report"],
       ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
       ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "bell"],
@@ -13618,7 +13254,7 @@ function renderGuideTab({ month, household, origin = "", skillUrl = "" }) {
 function renderImportTab({ month, households = [], household, defaultHouseholdId = "", members = [] }) {
   const effectiveHouseholdId = household?.id || defaultHouseholdId || households[0]?.id || "";
   const selectedHousehold = households.find((h) => h.id === effectiveHouseholdId) || household || households[0] || null;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === effectiveHouseholdId ? " selected" : ""}>${escapeHtml(h.name || "이름 없는 가계부")}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === effectiveHouseholdId ? " selected" : ""}>${escapeHtml(h.name || "이름 없는 가계부")}</option>`).join("");
   const importSpenderOptions = renderSpenderOptions(members, "", "업로드 기본 지출자 선택");
   if (!households.length) {
     return `<section class="onboardHero"><h3>📥 엑셀/CSV 가져오기</h3><p class="muted">업로드하려면 먼저 가계부가 필요합니다.</p><div class="onboardActions"><a href="/households">가계부 만들기</a></div></section>`;
@@ -14792,7 +14428,7 @@ function renderMyMembersHtml({ env, month, households, selected, members = [], m
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const returnTo = `/my/members?${hh}`;
-  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
+  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const cards = safeArray(members).map((m) => {
     const role = String(m.role || "member");
     const owner = role === "owner";
@@ -14806,9 +14442,194 @@ function renderMyMembersHtml({ env, month, households, selected, members = [], m
 function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, members = [], msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
-  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(h.role)}</option>`).join("");
+  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const rows = safeArray(members).map((m) => `<tr><td>${escapeHtml(m.nickname || "구성원")}</td><td>${escapeHtml(m.role || "member")}</td><td>${escapeHtml(String(m.created_at || "").slice(0,10))}</td></tr>`).join("") || `<tr><td colspan="3">참여자가 없습니다.</td></tr>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자/초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.muted{color:#667085;line-height:1.6}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.code{font-size:24px;font-weight:1000;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:14px;display:inline-block}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자/초대 관리</h1><p>가족이나 모임 구성원에게 초대코드를 공유하고, 참여자를 확인합니다.</p></section><section class="card"><form method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="code">${escapeHtml(selected.invite_code || "")}</div><p class="muted">구성원은 /my에서 이름과 개인 접속코드를 입력한 뒤 이 초대코드로 참여할 수 있습니다. 승인/권한 세부 변경이 필요하면 관리자 화면에서 처리하세요.</p></section><section class="card"><h2>참여자 목록</h2><table><thead><tr><th>이름</th><th>권한</th><th>참여일</th></tr></thead><tbody>${rows}</tbody></table></section></div></div></main></body></html>`;
+}
+
+// 카드사별 사용내역 가져오기 안내. 그림은 실제 화면 캡처가 아니라 클릭 위치를 설명하는 도식이다.
+// 카드사 개편으로 메뉴 이름이 바뀔 수 있어 화면에도 그 점을 밝혀 둔다.
+const CARD_IMPORT_GUIDES = [
+  { id: "hyundai", name: "현대카드", color: "#1f2937", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구서 조회", "결제일 안내"], excel: "엑셀 저장" },
+  { id: "samsung", name: "삼성카드", color: "#1d4ed8", nav: ["카드", "마이페이지", "이벤트", "고객센터"], hit: 1, sub: ["이용내역", "청구내역", "한도 조회"], excel: "엑셀 다운로드" },
+  { id: "lotte", name: "롯데카드", color: "#dc2626", nav: ["카드", "마이페이지", "이벤트", "고객센터"], hit: 1, sub: ["이용내역 조회", "이용대금명세서", "한도 조회"], excel: "엑셀 저장" },
+  { id: "shinhan", name: "신한카드", color: "#2563eb", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구내역", "결제계좌"], excel: "엑셀 다운로드" },
+  { id: "kb", name: "KB국민카드", color: "#b45309", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["카드 이용내역", "결제예정금액", "이용한도"], excel: "엑셀 저장" },
+  { id: "nh", name: "NH농협카드", color: "#15803d", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구내역", "한도 조회"], excel: "엑셀 저장" },
+  { id: "hana", name: "하나카드", color: "#0f766e", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구서", "한도 조회"], excel: "엑셀 다운로드" },
+  { id: "woori", name: "우리카드", color: "#0369a1", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구내역", "한도 조회"], excel: "엑셀 저장" },
+  { id: "bc", name: "BC카드", color: "#e11d48", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구내역", "한도 조회"], excel: "엑셀 저장" },
+  { id: "etc", name: "기타 카드사", color: "#475569", nav: ["카드", "이용내역", "혜택", "고객센터"], hit: 1, sub: ["이용내역 조회", "청구내역", "한도 조회"], excel: "엑셀 저장" },
+];
+
+function cardGuideFigure(kind, guide) {
+  const c = escapeHtml(guide.color);
+  const red = "#ef4444";
+  const t = (x, y, text, size = 11, fill = "#334155", weight = 500, anchor = "start") => `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" font-weight="${weight}" text-anchor="${anchor}">${escapeHtml(text)}</text>`;
+  const pill = (x, y, text = "여기 클릭") => `<rect x="${x}" y="${y}" width="58" height="18" rx="9" fill="${red}"/>${t(x + 29, y + 13, text, 10, "#fff", 700, "middle")}`;
+  const frame = (inner, label) => `<svg class="cgFig" viewBox="0 0 320 170" role="img" aria-label="${escapeHtml(label)}"><rect x="1" y="1" width="318" height="168" rx="10" fill="#fff" stroke="#cbd5e1"/><rect x="1" y="1" width="318" height="20" rx="10" fill="#e2e8f0"/><circle cx="14" cy="11" r="3" fill="#f87171"/><circle cx="25" cy="11" r="3" fill="#fbbf24"/><circle cx="36" cy="11" r="3" fill="#4ade80"/><rect x="50" y="5" width="200" height="12" rx="6" fill="#fff"/>${t(58, 14, `${guide.name} 공식 홈페이지`, 8, "#64748b")}<rect x="2" y="21" width="316" height="28" fill="${c}"/>${inner}</svg>`;
+  if (kind === "login") {
+    return frame(`${t(14, 39, guide.name, 12, "#fff", 800)}${t(110, 88, "아이디", 11)}<rect x="150" y="76" width="110" height="18" rx="4" fill="#fff" stroke="#cbd5e1"/>${t(110, 114, "비밀번호", 11)}<rect x="150" y="102" width="110" height="18" rx="4" fill="#fff" stroke="#cbd5e1"/><rect x="90" y="130" width="140" height="24" rx="6" fill="${red}" fill-opacity=".16" stroke="${red}" stroke-width="2"/>${t(160, 146, "로그인", 12, "#111827", 700, "middle")}${pill(236, 133)}`, `${guide.name} 로그인 화면 예시`);
+  }
+  if (kind === "menu") {
+    const nav = guide.nav.map((label, i) => t(16 + i * 74, 39, label, 11, "#fff", i === guide.hit ? 800 : 500)).join("");
+    const hx = 10 + guide.hit * 74;
+    const subs = guide.sub.map((label, i) => `${i === 0 ? `<rect x="${hx + 4}" y="${52 + i * 24}" width="120" height="22" rx="5" fill="${red}" fill-opacity=".16" stroke="${red}" stroke-width="2"/>` : ""}${t(hx + 12, 67 + i * 24, label, 11, "#111827", i === 0 ? 800 : 500)}`).join("");
+    return frame(`${nav}<rect x="${hx}" y="25" width="68" height="22" rx="6" fill="none" stroke="${red}" stroke-width="2.5"/><rect x="${hx}" y="49" width="128" height="80" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>${subs}${pill(hx + 132, 55)}${t(16, 156, "① 위 메뉴에 마우스를 올리거나 클릭  ② 아래 항목 클릭", 9, "#64748b")}`, `${guide.name} 메뉴 클릭 위치 예시`);
+  }
+  if (kind === "period") {
+    return frame(`${t(14, 39, guide.sub[0], 12, "#fff", 800)}${t(16, 88, "조회기간", 11, "#334155", 700)}<rect x="70" y="74" width="80" height="20" rx="4" fill="#fff" stroke="#cbd5e1"/>${t(110, 88, "시작일", 10, "#94a3b8", 500, "middle")}${t(158, 88, "~", 12)}<rect x="168" y="74" width="80" height="20" rx="4" fill="#fff" stroke="#cbd5e1"/>${t(208, 88, "종료일", 10, "#94a3b8", 500, "middle")}<rect x="256" y="72" width="52" height="24" rx="6" fill="${red}" fill-opacity=".16" stroke="${red}" stroke-width="2.5"/>${t(282, 88, "조회", 12, "#111827", 800, "middle")}${pill(250, 102)}${t(16, 128, "가져올 기간을 정하고 [조회]를 눌러 목록이 나오면 다음 단계로", 9, "#64748b")}`, `${guide.name} 조회 기간 설정 예시`);
+  }
+  const rows = [82, 100, 118, 136].map((y, i) => `<rect x="14" y="${y}" width="292" height="12" rx="3" fill="${i === 0 ? "#e2e8f0" : "#f1f5f9"}"/>`).join("");
+  return frame(`${t(14, 39, guide.sub[0], 12, "#fff", 800)}<rect x="206" y="54" width="100" height="22" rx="6" fill="${red}" fill-opacity=".16" stroke="${red}" stroke-width="2.5"/>${t(256, 69, guide.excel, 11, "#111827", 800, "middle")}${pill(142, 56)}${rows}`, `${guide.name} 엑셀 저장 버튼 위치 예시`);
+}
+
+function renderCardGuideSteps(guide) {
+  const steps = [
+    ["login", "카드사 홈페이지(PC)에 로그인", `PC 인터넷 브라우저에서 ${guide.name} 공식 홈페이지에 접속해 로그인하세요. 앱보다 PC에서 받은 엑셀 파일이 가져오기에 더 잘 맞습니다.`],
+    ["menu", `‘${guide.nav[guide.hit]}’ → ‘${guide.sub[0]}’ 클릭`, `상단 메뉴의 ‘${guide.nav[guide.hit]}’에서 ‘${guide.sub[0]}’ 화면으로 들어갑니다.`],
+    ["period", "기간을 정하고 조회", "가져올 기간(예: 이번 달 1일부터 오늘까지)을 고른 뒤 [조회]를 누르세요. 기간이 길면 파일이 커질 수 있어요."],
+    ["excel", `[${guide.excel}] 버튼으로 파일 받기`, `목록 위쪽의 [${guide.excel}] 버튼을 눌러 파일을 내려받습니다. 받은 파일은 내 PC의 다운로드 폴더에 저장돼요.`],
+  ];
+  return steps.map(([kind, title, desc], i) => `<li class="cgStep"><span class="cgNum">${i + 1}</span><div><b>${escapeHtml(title)}</b><p>${escapeHtml(desc)}</p>${cardGuideFigure(kind, guide)}</div></li>`).join("");
+}
+
+function renderCardImportSection({ canImport = true } = {}) {
+  const buttons = CARD_IMPORT_GUIDES.map((g) => `<button type="button" class="cgOpen" data-card="${escapeHtml(g.id)}" style="--cg:${escapeHtml(g.color)}"${canImport ? "" : " disabled"}><span class="cgDot" aria-hidden="true">${escapeHtml(g.name.slice(0, 1))}</span><b>${escapeHtml(g.name)}</b><small>등록하기</small></button>`).join("");
+  const templates = CARD_IMPORT_GUIDES.map((g) => `<template id="cgTpl-${escapeHtml(g.id)}" data-name="${escapeHtml(g.name)}"><ol class="cgSteps">${renderCardGuideSteps(g)}</ol></template>`).join("");
+  return `<section class="card" id="cardImport"><h2>카드사별 사용내역 가져오기</h2><p class="muted">카드사를 고르면 엑셀 파일을 받는 방법을 그림으로 보여주고, 받은 파일을 바로 올릴 수 있습니다.</p>${canImport ? "" : `<div class="warn">조회 전용 권한에서는 가져오기를 사용할 수 없습니다.</div>`}<div class="cgGrid">${buttons}</div>${templates}</section><div id="cgModal" class="cgModal" role="dialog" aria-modal="true" aria-labelledby="cgTitle" hidden><div class="cgSheet"><header class="cgHead"><h2 id="cgTitle">카드사 사용내역 등록</h2><button type="button" id="cgClose" class="cgX" aria-label="닫기">✕</button></header><div class="cgBody"><p class="cgNote">그림은 클릭할 위치를 알려주는 예시입니다. 카드사 화면 개편에 따라 메뉴 이름과 위치가 조금 다를 수 있어요.</p><div id="cgSteps"></div><section class="cgUpload"><span class="cgNum">5</span><div><b>받은 파일을 올려주세요</b><p>엑셀(.xls/.xlsx)이나 CSV 파일을 그대로 선택하면 됩니다. 올리면 바로 저장되지 않고, 다음 화면에서 인식 결과를 확인한 뒤 저장할 행을 고릅니다.</p><input id="cgFile" type="file" accept=".csv,.tsv,.txt,.xls,.xlsx"/><div id="cgStatus" class="fileStatus" role="status" aria-live="polite">파일을 선택해 주세요.</div><ul class="cgTips"><li>파일에 암호(생년월일 등)가 걸려 있으면 엑셀에서 암호를 입력해 연 뒤 ‘다른 이름으로 저장 → CSV’로 저장해서 올려주세요.</li><li>취소·환불 내역이 섞여 있으면 미리보기에서 해당 행의 체크를 해제하세요.</li></ul><button type="button" id="cgGo" disabled>미리보기 분석하기</button></div></section></div></div></div>`;
+}
+
+function cardImportClientMain(config) {
+  var modal = document.getElementById("cgModal");
+  var stepsBox = document.getElementById("cgSteps");
+  var title = document.getElementById("cgTitle");
+  var closeBtn = document.getElementById("cgClose");
+  var fileInput = document.getElementById("cgFile");
+  var status = document.getElementById("cgStatus");
+  var go = document.getElementById("cgGo");
+  var mainForm = document.getElementById(config.formId);
+  var mainFile = document.getElementById(config.fileId);
+  var mainText = document.getElementById(config.textId);
+  var opener = null;
+  var xlsxPromise = null;
+  if (!modal || !stepsBox || !fileInput || !go || !mainForm || !mainFile || !mainText) return;
+
+  function setStatus(text, bad) {
+    status.textContent = text;
+    status.style.background = bad ? "#fff7ed" : "#eff6ff";
+    status.style.borderColor = bad ? "#fed7aa" : "#bfdbfe";
+    status.style.color = bad ? "#9a3412" : "#1e3a8a";
+  }
+
+  // 엑셀 변환기는 무거워서 파일을 고를 때에야 불러온다(가져오기 화면과 같은 방식).
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (xlsxPromise) return xlsxPromise;
+    xlsxPromise = new Promise(function (resolve, reject) {
+      var script = document.createElement("script");
+      script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+      script.async = true;
+      script.onload = function () { if (window.XLSX) resolve(window.XLSX); else { xlsxPromise = null; reject(new Error("엑셀 변환 모듈 초기화에 실패했습니다. 파일을 CSV로 저장해서 올려주세요.")); } };
+      script.onerror = function () { xlsxPromise = null; reject(new Error("엑셀 변환 모듈을 불러오지 못했습니다. 파일을 CSV로 저장해서 올려주세요.")); };
+      document.head.appendChild(script);
+    });
+    return xlsxPromise;
+  }
+
+  function open(id, from) {
+    var tpl = document.getElementById("cgTpl-" + id);
+    if (!tpl) return;
+    opener = from || null;
+    stepsBox.innerHTML = "";
+    stepsBox.appendChild(tpl.content.cloneNode(true));
+    title.textContent = (tpl.getAttribute("data-name") || "카드사") + " 사용내역 등록";
+    fileInput.value = "";
+    go.disabled = true;
+    setStatus("파일을 선택해 주세요.", false);
+    modal.hidden = false;
+    document.documentElement.classList.add("cgOpenLock");
+    modal.querySelector(".cgBody").scrollTop = 0;
+    closeBtn.focus();
+  }
+
+  function close() {
+    modal.hidden = true;
+    document.documentElement.classList.remove("cgOpenLock");
+    if (opener && opener.focus) opener.focus();
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".cgOpen"), function (btn) {
+    btn.addEventListener("click", function () { open(btn.getAttribute("data-card"), btn); });
+  });
+  closeBtn.addEventListener("click", close);
+  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+  document.addEventListener("keydown", function (event) {
+    if (modal.hidden) return;
+    if (event.key === "Escape") { close(); return; }
+    if (event.key !== "Tab") return;
+    var items = modal.querySelectorAll("button:not([disabled]),input");
+    if (!items.length) return;
+    var first = items[0];
+    var last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+
+  fileInput.addEventListener("change", function () {
+    var file = fileInput.files && fileInput.files[0];
+    go.disabled = true;
+    if (!file) { setStatus("파일을 선택해 주세요.", false); return; }
+    var name = String(file.name || "").toLowerCase();
+    if (/\.xlsx?$/.test(name)) {
+      setStatus("엑셀 변환 모듈을 준비하고 있습니다…", false);
+      loadXlsx().then(function () {
+        setStatus("엑셀 파일을 읽는 중입니다…", false);
+        var reader = new FileReader();
+        reader.onload = function (event) {
+          try {
+            var workbook = window.XLSX.read(new Uint8Array(event.target.result), { type: "array", cellDates: false });
+            var chunks = [];
+            workbook.SheetNames.forEach(function (sheetName) {
+              var tsv = window.XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: "\t", RS: "\n", rawNumbers: false });
+              if (String(tsv || "").trim()) chunks.push("# 시트: " + sheetName + "\n" + String(tsv).trim());
+            });
+            if (!chunks.length) throw new Error("값이 있는 시트를 찾지 못했습니다. 암호가 걸린 파일이면 엑셀에서 열어 CSV로 저장해 주세요.");
+            mainText.value = chunks.join("\n");
+            mainFile.value = "";
+            setStatus(file.name + " · 시트 " + workbook.SheetNames.length + "개를 읽었습니다. 아래 버튼으로 미리보기를 확인하세요.", false);
+            go.disabled = false;
+          } catch (error) {
+            setStatus(error.message || String(error), true);
+          }
+        };
+        reader.onerror = function () { setStatus("파일을 읽지 못했습니다. CSV로 저장해서 다시 올려주세요.", true); };
+        reader.readAsArrayBuffer(file);
+      }).catch(function (error) { setStatus(error.message || String(error), true); });
+      return;
+    }
+    try {
+      var transfer = new DataTransfer();
+      transfer.items.add(file);
+      mainFile.files = transfer.files;
+      mainText.value = "";
+      setStatus(file.name + " 파일을 선택했습니다. 아래 버튼으로 미리보기를 확인하세요.", false);
+      go.disabled = false;
+    } catch (error) {
+      setStatus("이 브라우저에서는 파일을 바로 넘길 수 없습니다. 창을 닫고 ‘파일·붙여넣기 가져오기’에서 직접 선택해 주세요.", true);
+    }
+  });
+
+  go.addEventListener("click", function () {
+    if (go.disabled) return;
+    close();
+    if (typeof mainForm.requestSubmit === "function") mainForm.requestSubmit();
+    else mainForm.submit();
+  });
+}
+
+function cardImportCss() {
+  return `.cgGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px;margin-top:12px}.cgOpen{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;text-align:left;background:#fff!important;color:#101828!important;border:1px solid #e2e8f0;border-radius:16px;padding:12px;min-height:60px}.cgOpen:hover:not(:disabled){border-color:var(--cg);box-shadow:0 4px 14px rgba(15,23,42,.1)}.cgDot{grid-row:1/3;width:34px;height:34px;border-radius:12px;background:var(--cg);color:#fff;display:grid;place-items:center;font-weight:1000}.cgOpen b{font-size:14px}.cgOpen small{color:#2563eb;font-weight:800;font-size:12px}.cgModal{position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.6);display:grid;place-items:center;padding:16px}.cgModal[hidden]{display:none}.cgSheet{width:min(100%,640px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);background:#fff;color:#101828;border-radius:22px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(15,23,42,.35)}.cgHead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px;border-bottom:1px solid #e8edf4}.cgHead h2{margin:0;font-size:18px}.cgX{width:40px;height:40px;padding:0;background:#f1f5f9!important;color:#111827!important;border-radius:12px}.cgBody{overflow-y:auto;padding:16px 18px 22px}.cgNote{margin:0 0 12px;background:#fffbea;border:1px solid #fde68a;border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.5;color:#92400e}.cgSteps{list-style:none;margin:0;padding:0;display:grid;gap:18px}.cgStep,.cgUpload{display:grid;grid-template-columns:30px 1fr;gap:10px}.cgUpload{margin-top:18px;padding-top:18px;border-top:1px dashed #cbd5e1}.cgNum{width:28px;height:28px;border-radius:50%;background:#111827;color:#fff;display:grid;place-items:center;font-weight:1000;font-size:14px}.cgStep b,.cgUpload b{font-size:15px}.cgStep p,.cgUpload p{margin:4px 0 10px;color:#475467;font-size:13px;line-height:1.55}.cgFig{display:block;width:100%;height:auto;border-radius:10px}.cgTips{margin:10px 0;padding-left:18px;color:#667085;font-size:12px;line-height:1.55}#cgGo{width:100%;min-height:48px}html.cgOpenLock body{overflow:hidden}@media(max-width:560px){.cgModal{padding:0;place-items:end stretch}.cgSheet{max-height:94vh;max-height:94dvh;border-radius:22px 22px 0 0}}`;
 }
 
 async function handleMyBackupPage(request, env, url) {
@@ -14823,10 +14644,10 @@ async function handleMyBackupPage(request, env, url) {
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const sample = ["날짜,구분,금액,분류,내용,결제수단", `${formatDate(nowKstDate())},지출,12000,식비,점심,국민카드`, `${formatDate(nowKstDate())},수입,2500000,급여,월급,통장`].join("\n");
-  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(h.role)}</option>`).join("");
+  const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const canImport = canWriteMyHousehold(selected.role);
   const disabled = canImport ? "" : " disabled";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 UTF-8 CSV로 받습니다. 엑셀에서 바로 열 수 있습니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a></p><p class="muted">컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section><section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}${cardImportCss()}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 UTF-8 CSV로 받습니다. 엑셀에서 바로 열 수 있습니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a></p><p class="muted">컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section>${renderCardImportSection({ canImport })}<section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script><script id="cardImportRuntime">(${cardImportClientMain.toString()})({formId:"myImportForm",fileId:"myImportFile",textId:"myImportText"});</script></body></html>`);
 }
 
 async function handleMyBackupCsv(request, env, url) {
@@ -15752,7 +15573,7 @@ function reportUxCss() {
   return `
 .reportChallenge select{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallenge [hidden]{display:none!important}
 .reportMonthNav{position:sticky;top:8px;z-index:45;display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:10px;background:color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent);color:var(--ab12-text,#191f28);backdrop-filter:blur(14px);border:1px solid var(--ab12-line,#e5e9f0);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
-.reportMonthNav a,.reportMonthNav button{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
+.reportMonthNav a,.reportMonthNav button,.reportMonthNav .reportMonthCurrent{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
 .reportCockpit{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);border:1px solid var(--ab12-line,#e5e9f0);border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 10px 30px rgba(15,23,42,.06)}.reportCockpitHead,.reportSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:12px}.reportCockpitHead span{display:block;color:var(--ab12-accent,#2457d6);font-size:11px;font-weight:900;letter-spacing:.08em}.reportCockpitHead h2{margin:4px 0 0;font-size:21px}.reportCockpitHead a,.reportSectionTitle a{color:var(--ab12-accent,#2457d6);text-decoration:none;font-size:12px;font-weight:850}.reportCockpitGrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin-top:18px}.reportPace{display:grid;justify-items:center;align-content:center;border-right:1px solid var(--ab12-line,#edf0f4)}.reportGauge{--report-rate:0%;width:148px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ab12-brand,#6d5dfc) var(--report-rate),var(--ab12-surface-raised,#edf0f5) 0);position:relative}.reportGauge:before{content:"";position:absolute;inset:15px;background:var(--ab12-surface,#fff);border-radius:50%}.reportGauge div{position:relative;text-align:center}.reportGauge b{display:block;font-size:27px;letter-spacing:-.04em}.reportGauge span,.reportPace p{color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportPace p{margin:9px 0 0}.reportKpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reportKpis>div{background:var(--ab12-surface-raised,#f7f8fb);border:1px solid var(--ab12-line,#edf0f4);border-radius:16px;padding:14px}.reportKpis span{display:block;color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportKpis b{display:block;margin-top:6px;font-size:clamp(18px,2.1vw,25px);overflow-wrap:anywhere;line-height:1.2}.reportInsight{display:flex;gap:10px;align-items:center;margin-top:14px;padding:13px 15px;border:1px solid color-mix(in srgb,var(--ab12-accent,#d97706) 42%,transparent);border-radius:15px;background:var(--ab12-accent-soft,#fffbeb);color:var(--ab12-text,#713f12)}.reportInsight>span{font-size:20px;color:var(--ab12-accent,#d97706)}.reportInsight p{margin:0;line-height:1.5;font-size:13px;font-weight:750}.reportCategoryBudget{margin-top:16px}.reportCategoryBudget ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:9px}.reportCategoryBudget li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;border:1px solid var(--ab12-line,#edf0f4);border-radius:14px;padding:11px}.reportCategoryBudget li div b,.reportCategoryBudget li div span{display:block}.reportCategoryBudget li div span{color:var(--ab12-muted,#7b8493);font-size:11px;margin-top:2px}.reportCategoryBudget li strong{font-size:12px}.reportCategoryBudget li i{grid-column:1/-1;height:7px;border-radius:999px;background:var(--ab12-surface-raised,#edf0f4);overflow:hidden}.reportCategoryBudget li em{display:block;height:100%;border-radius:inherit;background:var(--ab12-brand,#6d5dfc)}
 .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;background:linear-gradient(135deg,#171a2b,#222741);color:#fff;border:1px solid #343b5f;border-radius:22px;padding:18px;margin:14px 0}.reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--ab12-action,#6d5dfc);color:#fff;font-size:11px;font-weight:900}.reportChallenge h2{margin:9px 0 5px;color:#fff!important}.reportChallenge p{margin:0;color:#c7cce0;font-size:13px;line-height:1.5}.reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}.reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit}.reportChallengeMain>strong{font-size:12px;color:#ffd45b}.reportChallenge details{align-self:center;border:1px solid #3d4569;border-radius:14px;padding:9px}.reportChallenge summary{cursor:pointer;font-weight:850;min-height:36px;display:flex;align-items:center}.reportChallenge form{display:grid;gap:8px;margin-top:8px}.reportChallenge label{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;color:#d7dbee;font-size:12px;font-weight:750}.reportChallenge label>span{min-width:0;overflow-wrap:anywhere}.reportChallenge input{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallengeToggle{grid-template-columns:auto 1fr!important;justify-content:start}.reportChallengeToggle input{width:18px;min-height:18px}.reportChallenge button{min-height:42px;border:0;border-radius:11px;background:var(--ab12-action,#6d5dfc);color:#fff;font-weight:850}.reportChallengeReadOnly{align-self:center}
 .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}.reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}.reportChallengeDays li>span{font-size:10px;color:#aeb6d3}.reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff}.reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}.reportChallengeDays .is-success{border-color:#387966;background:#17372f}.reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}.reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218}.reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.reportChallengeDays .is-today>i{background:#ffd45b;color:#332600}.reportChallengeDays .is-future>i{border:1px solid #59617d}.reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0;font-size:10px;font-weight:750}.reportChallengeLegend .is-success{color:#7ce6c3}.reportChallengeLegend .is-spent{color:#ff9ba4}.reportChallengeLegend .is-today{color:#ffd45b}.reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}.reportChallengePercent>b{font-size:22px;color:#ffd45b}.reportChallengePercent .reportChallengeTrack{margin:0}.reportChallengePercent>span{font-size:11px;color:#c7cce0;white-space:nowrap}
@@ -15760,7 +15581,7 @@ function reportUxCss() {
 .reportMonthNav :is(a,button,input):focus-visible,.reportChallenge :is(summary,input,button):focus-visible,.reportCockpit a:focus-visible{outline:3px solid var(--ab12-accent,#2563eb)!important;outline-offset:2px}
 .reportFlash{border-radius:14px;padding:12px 14px;margin:10px 0;font-size:13px;font-weight:750;line-height:1.5}.reportFlash.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.reportFlash.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
 .reportChallenge button{min-height:44px}.reportChallengeActions{align-self:center;min-width:0}.reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966;border-radius:10px;background:#17372f;color:#9af0d3!important;font-size:11px!important;font-weight:750}.reportChallengeFormStatus.isError{border-color:#86515a;background:#3a2229;color:#ffabb3!important}
-@media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:1fr 1fr}.reportMonthNav>form{grid-column:1/-1;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:2}.reportMonthNav>form+.reportMonthArrow{grid-column:2;grid-row:2}.reportMonthNav>.reportMonthCurrent{grid-column:1/-1;grid-row:3}.reportMonthArrow span{display:none}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}}
+@media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:auto minmax(0,1fr) auto}.reportMonthNav>form{grid-column:2;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:1}.reportMonthNav>form+.reportMonthArrow{grid-column:3;grid-row:1}.reportMonthNav>a.reportMonthCurrent{grid-column:1/-1;grid-row:2;min-height:36px}.reportMonthNav>span.reportMonthCurrent{display:none}.reportMonthArrow span{display:none}.reportMonthArrow{min-width:44px}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}}
 @media(min-width:900px){html body.abV22812Shell main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage main.wrap{width:calc(100vw - var(--abNavW,238px) - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}html body.abV22812Shell.abNavCollapsed main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage.abNavCollapsed main.wrap{width:calc(100vw - var(--abNavCollapsed,72px) - 32px)!important}}
 @media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav form{grid-template-columns:minmax(0,1fr) auto}.reportMonthNav label span{display:none}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
 @media(max-width:360px){.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr}.reportChallenge label{grid-template-columns:minmax(0,1fr)}.reportChallengeToggle{grid-template-columns:auto minmax(0,1fr)!important}}
@@ -16029,142 +15850,7 @@ function renderFreeReportsHtml({ env, month, selected, live = {}, preference = {
   const canManage = canManageMyHousehold(selected.role);
   const share = freeReportShareText(live);
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#fff}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:6px}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:520px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.settings{display:grid;gap:10px}.settings label{border:1px solid #e5e7eb;border-radius:15px;padding:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.share{width:100%;min-height:220px;border:1px solid #cbd5e1;border-radius:15px;padding:13px;font:inherit;line-height:1.6}.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}@media(max-width:760px){.wrap{padding:12px}.btn,button{width:100%;margin:4px 0}}@media print{.abLayoutNav,.abNavMobileTop,.abNavMobileDrawer,.abNavBottom,.noPrint,.reportMonthNav{display:none!important}body{padding:0!important;background:#fff}.wrap{max-width:none}.hero{background:#fff!important;color:#111827!important}.hero p{color:#475569!important}}${reportUxCss()}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${msg === "preference_saved" ? `<div class="ok">자동 리포트 설정을 저장했습니다.</div>` : ""}${err ? `<div class="error">설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요.</div>` : ""}<section class="hero"><h1>주간·월간 무료 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 현재 기록을 즉시 요약하고, 설정 시 매주 일요일과 매월 말에 중복 없이 스냅샷을 생성합니다.</p><p class="noPrint"><a class="btn light" href="/smart-tools?${qs}">스마트 도구</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id })}<section class="grid"><div class="metric"><span>수입</span><b>${numberWithCommas(live.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(live.expense)}원</b></div><div class="metric"><span>잔액</span><b>${numberWithCommas(live.balance)}원</b></div><div class="metric"><span>기록</span><b>${numberWithCommas(live.transaction_count)}건</b></div><div class="metric"><span>지출한 날</span><b>${numberWithCommas(live.spend_days)}일</b></div></section><section class="card"><h2>지출 상위 분류</h2><div class="tableWrap"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows(live)}</tbody></table></div></section><section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
-}
-
-async function fetchReceiptCategoryNames(env, householdId = "") {
-  try {
-    const params = new URLSearchParams();
-    params.set("select", "name,type");
-    if (householdId) params.set("household_id", `eq.${householdId}`);
-    params.set("order", "sort_order.asc,created_at.asc");
-    params.set("limit", "120");
-    const rows = await supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" });
-    return safeArray(rows).filter((row) => row.type !== "income").map((row) => String(row.name || "").trim()).filter(Boolean);
-  } catch (error) {
-    const rows = await fetchSettingsCategories(env, householdId);
-    return safeArray(rows).filter((row) => row.type !== "income").map((row) => String(row.name || "").trim()).filter(Boolean);
-  }
-}
-
-async function handleReceiptCapturePage(request, env, url) {
-  const userId = await verifyUserSession(request, env);
-  if (!userId) return redirectResponse("/my");
-  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
-  if (access.restricted) {
-    const user = await fetchUserById(env, userId);
-    return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
-  }
-  if (!access.selected) return redirectResponse("/my/households?err=no_household#create");
-  const categoryNames = await fetchReceiptCategoryNames(env, access.selected.id);
-  return htmlResponse(renderReceiptCaptureHtml({
-    env,
-    month,
-    households: access.households,
-    selected: access.selected,
-    categoryNames,
-    msg: url.searchParams.get("msg") || "",
-    err: url.searchParams.get("err") || "",
-  }));
-}
-
-async function findHouseholdReceiptDuplicate(env, row = {}) {
-  if (!row.household_id || !row.transaction_date || !row.amount) return null;
-  const params = new URLSearchParams();
-  params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
-  params.set("household_id", `eq.${row.household_id}`);
-  params.set("transaction_date", `eq.${row.transaction_date}`);
-  params.set("type", "eq.expense");
-  params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
-  params.set("limit", "50");
-  const candidates = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  const norm = (value) => normalizeText(value || "");
-  const targetRaw = norm(row.raw_text);
-  const targetMemo = norm(row.memo);
-  return safeArray(candidates).find((candidate) => {
-    const candidateRaw = norm(candidate.raw_text);
-    const sameReceiptText = targetRaw && candidateRaw === targetRaw;
-    // 원문이 없는 직접 확인 영수증만 상호명으로 보조 비교합니다.
-    // 원문이 서로 다른 두 실제 영수증을 같은 상호·금액이라는 이유만으로 지우지 않습니다.
-    const sameMerchant = !targetRaw && !candidateRaw && targetMemo && norm(candidate.memo) === targetMemo;
-    const receiptSource = ["receipt_confirmed", "receipt"].includes(String(candidate.source || ""));
-    return sameReceiptText || (sameMerchant && receiptSource);
-  }) || null;
-}
-
-async function handleReceiptConfirmedSave(request, env) {
-  const userId = await verifyUserSession(request, env);
-  if (!userId) return redirectResponse("/my");
-  const form = await request.formData();
-  const householdId = String(form.get("household_id") || "").trim();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const returnTo = `/receipts?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
-  const { selected } = await getMySelectedHousehold(env, userId, householdId);
-  if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
-  if (!canWriteMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=write_not_allowed`);
-  if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
-  const amount = Math.max(0, Math.min(2_000_000_000, parseMyAmount(form)));
-  const transactionDate = String(form.get("transaction_date") || "").trim();
-  const merchant = String(form.get("merchant") || form.get("memo") || "영수증").trim().slice(0, 160) || "영수증";
-  if (!amount || !isValidTransactionDateString(transactionDate)) return redirectResponse(`${returnTo}&err=invalid_receipt`);
-  const rawText = String(form.get("receipt_text") || "").trim().slice(0, 500);
-  const manualClass = await resolveManualInputClassification(env, selected.id, "expense", { raw_text: rawText, memo: merchant, category: String(form.get("category") || "").trim(), payment_method: String(form.get("payment_method") || "").trim() });
-  const row = { household_id: selected.id, user_id: userId, type: "expense", amount, transaction_date: transactionDate, memo: merchant, category: manualClass.category, payment_method: manualClass.payment_method, source: "receipt_confirmed", raw_text: rawText };
-  try {
-    const receiptIdentity = normalizeText(rawText || merchant).toLowerCase();
-    const receiptKey = `receipt:${selected.id}:${transactionDate}:${amount}:${await sha256Hex(receiptIdentity)}`;
-    return await withOperationMutex(receiptKey, async () => {
-      // 같은 Worker 인스턴스에서는 직렬화하고, 다른 인스턴스와의 경쟁은
-      // V22.6.8 영수증 고유 인덱스가 최종적으로 차단합니다.
-      const duplicate = await findHouseholdReceiptDuplicate(env, row);
-      if (duplicate) return redirectResponse(`${returnTo}&msg=duplicate_receipt`);
-      try {
-        const created = await createManualTransaction(env, row);
-        if (created?.__duplicate_skipped) return redirectResponse(`${returnTo}&msg=duplicate_receipt`);
-      } catch (err) {
-        if (isUniqueConstraintError(err)) {
-          rememberDuplicateEvent({ kind: "receipt_unique_conflict", source: row.source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
-          return redirectResponse(`${returnTo}&msg=duplicate_receipt`);
-        }
-        throw err;
-      }
-      return redirectResponse(`/receipts?month=${encodeURIComponent(transactionDate.slice(0, 7))}&household_id=${encodeURIComponent(selected.id)}&msg=receipt_saved`);
-    });
-  } catch (err) {
-    rememberOpsEvent({ kind: "receipt_confirmed_save_failed", severity: "warn", path: "/my/receipt/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=save_failed`);
-  }
-}
-
-function renderReceiptCaptureHtml({ env, month, households = [], selected, categoryNames = [], msg = "", err = "" }) {
-  const writable = canWriteMyHousehold(selected.role);
-  const householdOptions = safeArray(households).map((household) => `<option value="${escapeHtml(household.id)}"${String(household.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(household.name || "가계부")}</option>`).join("");
-  const categories = [...new Set([
-    ...DEFAULT_CATEGORIES,
-    ...safeArray(categoryNames),
-    ...CATEGORY_RULES.filter((rule) => rule.type === "expense").map((rule) => rule.name),
-    "기타지출",
-  ].map((name) => String(name || "").trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, "ko"));
-  const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
-  const today = formatDate(nowKstDate());
-  const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}`;
-  const errorMessages = {
-    write_not_allowed: "현재 가계부는 조회 전용이라 저장할 수 없습니다. 관리자에게 기록 권한을 요청해 주세요.",
-    confirmation_required: "사진 원본과 인식 결과를 확인했다는 체크가 필요합니다.",
-    invalid_receipt: "날짜와 0원보다 큰 총액을 다시 확인해 주세요.",
-    save_failed: "저장을 완료하지 못했습니다. 입력 내용은 유지되지 않았으므로 연결 상태를 확인한 뒤 한 번만 다시 시도해 주세요.",
-  };
-  const successMessage = msg === "receipt_saved"
-    ? `<div class="receiptBanner success" role="status"><b>영수증을 지출 기록으로 저장했습니다.</b><a href="/app?${qs}&tab=transactions">저장한 기록 확인</a></div>`
-    : msg === "duplicate_receipt"
-      ? `<div class="receiptBanner success" role="status"><b>같은 영수증 기록이 이미 있어 중복 저장하지 않았습니다.</b><a href="/app?${qs}&tab=transactions">기존 기록 확인</a></div>`
-      : "";
-  const errorMessage = err ? `<div class="receiptBanner error" role="alert">${escapeHtml(errorMessages[err] || "영수증을 저장하지 못했습니다. 입력값과 가계부 권한을 확인해 주세요.")}</div>` : "";
-  const disabled = writable ? "" : "disabled";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#f5f7fb"/><title>${escapeHtml(appName(env))} · 영수증 스마트 기록</title><style>
-*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:#f5f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.receiptWrap{width:min(100%,1120px);margin:0 auto;padding:28px 24px 120px}.receiptHeader{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:0 0 18px}.receiptHeader h1{margin:4px 0 6px;font-size:clamp(26px,3vw,36px);letter-spacing:-.04em}.receiptHeader p{margin:0;color:#667085;line-height:1.6}.receiptEyebrow{display:block;color:#1d4ed8;font-size:13px;font-weight:750}.receiptBack{display:inline-flex;align-items:center;min-height:42px;padding:0 13px;border:1px solid #d9e1ec;border-radius:11px;background:#fff;color:#344054;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap}.receiptContext{display:grid;grid-template-columns:minmax(180px,1fr) minmax(160px,.8fr) auto;gap:10px;align-items:end;background:#fff;border:1px solid #e1e7ef;border-radius:16px;padding:14px 16px;margin-bottom:16px;box-shadow:0 4px 14px rgba(23,32,51,.035)}.receiptField{display:grid;gap:6px;min-width:0}.receiptOcrNote{display:block;margin-top:5px;padding:5px 8px;border-radius:8px;background:var(--ab12-warn-bg,#fff7ed);color:var(--ab12-warn-text,#9a3412);font-size:12px;font-weight:900;line-height:1.5}.receiptField>label,.receiptTextLabel{color:#475467;font-size:13px;font-weight:650}.receiptField input,.receiptField select,.receiptTextArea{width:100%;min-height:46px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.receiptTextArea{min-height:190px;padding:12px;line-height:1.55;resize:vertical}.receiptContext button,.receiptPrimary,.receiptSecondary,.receiptSave{display:inline-flex;align-items:center;justify-content:center;min-height:46px;border:1px solid transparent;border-radius:11px;padding:0 15px;font:inherit;font-weight:700;cursor:pointer}.receiptContext button,.receiptPrimary,.receiptSave{background:var(--ab12-action,#2457d6);color:#fff}.receiptSecondary{background:#f4f6f9;color:#344054;border-color:#d8e0eb}.receiptGrid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(360px,.92fr);gap:16px;align-items:start}.receiptPanel{min-width:0;background:#fff;border:1px solid #e1e7ef;border-radius:18px;padding:20px;box-shadow:0 6px 20px rgba(23,32,51,.045)}.receiptPanel.dragOver{border-color:var(--ab12-action,#2457d6);background:#f3f7ff;box-shadow:0 0 0 3px rgba(36,87,214,.12)}.receiptPanelHead{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}.receiptStep{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ff;color:#1d4ed8;font-weight:800}.receiptPanelHead h2{margin:1px 0 3px;font-size:19px}.receiptPanelHead p{margin:0;color:#667085;font-size:13px;line-height:1.55}.receiptSourceActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.receiptSourcePick{display:flex;align-items:center;gap:12px;min-height:72px;border:1px solid #d7e0ec;border-radius:14px;padding:12px 14px;background:#f9fbfd;cursor:pointer;transition:border-color var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),background var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),transform var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}.receiptSourcePick:hover{border-color:#9eb9ef;background:#f3f7ff;transform:translateY(-1px)}.receiptSourcePick.busy{opacity:.65;cursor:wait;transform:none}.receiptSourceIcon{display:grid;place-items:center;flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:#eaf2ff;color:#1d4ed8;font-size:18px;font-weight:800}.receiptSourcePick b,.receiptSourcePick small{display:block}.receiptSourcePick b{font-size:14px}.receiptSourcePick small{margin-top:2px;color:#667085;font-size:12px}.receiptFile{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.receiptPrivacy{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;color:#667085;font-size:12.5px;line-height:1.55}.receiptPreview{margin-top:14px;border:1px solid #e0e6ee;border-radius:14px;overflow:hidden;background:#f3f5f8}.receiptPreview img{display:block;width:100%;height:260px;object-fit:contain;background:#eef1f5}.receiptPreviewMeta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fff}.receiptPreviewMeta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475467;font-size:12px}.receiptPreviewMeta button{flex:0 0 auto;min-height:34px!important;padding:0 10px!important}.receiptStatus{position:relative;margin:14px 0 0;border:1px solid #d8e3f4;border-radius:12px;padding:12px 13px;background:#f4f8ff;color:#27456f;font-size:13px;line-height:1.55}.receiptStatus[data-state="busy"]{padding-left:40px;background:#eef4ff;color:#1d4ed8}.receiptStatus[data-state="busy"]:before{content:"";position:absolute;left:15px;top:15px;width:14px;height:14px;border:2px solid #b8caf0;border-top-color:var(--ab12-action,#2457d6);border-radius:50%;animation:receiptSpin .7s linear infinite}.receiptStatus[data-state="success"]{background:#edf8f1;border-color:#c6e5d1;color:#17633a}.receiptStatus[data-state="error"]{background:#fff3f1;border-color:#f1cbc5;color:#9d3328}.receiptActions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.receiptActions>*{flex:1 1 170px}.receiptDivider{height:1px;background:#edf0f4;margin:18px 0}.receiptTextHelp{margin:6px 0 10px;color:#667085;font-size:12.5px;line-height:1.55}.receiptDetected{min-height:43px;margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#f7f9fc;color:#475467;font-size:13px;line-height:1.55}.receiptResultGrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.receiptFull{grid-column:1/-1}.receiptConfirm{display:flex;gap:9px;align-items:flex-start;margin:15px 0;padding:12px 13px;border:1px solid #ead8a4;border-radius:12px;background:#fffaf0;color:#6d5011;font-size:13px;line-height:1.55}.receiptConfirm input{flex:0 0 auto;width:19px;height:19px;margin-top:1px}.receiptSave{width:100%}.receiptBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:13px;padding:12px 14px;margin:0 0 12px;line-height:1.5}.receiptBanner.success{background:#edf8f1;border:1px solid #c6e5d1;color:#17633a}.receiptBanner.error{background:#fff2ef;border:1px solid #f1cbc5;color:#9d3328}.receiptBanner a{color:inherit;font-weight:750}.receiptHelp{margin-top:16px;border-top:1px solid #e6eaf0;padding:15px 2px 0;color:#475467}.receiptHelp summary{cursor:pointer;font-weight:700}.receiptHelp ul{margin:10px 0 0;padding-left:20px;color:#667085;font-size:13px;line-height:1.7}.receiptReadOnly{margin:0 0 14px;padding:11px 12px;border-radius:11px;background:#fff7ed;color:#9a3412;font-size:13px}.receiptPrimary:disabled,.receiptSecondary:disabled,.receiptSave:disabled,.receiptContext button:disabled{opacity:.55;cursor:not-allowed;transform:none!important}@keyframes receiptSpin{to{transform:rotate(360deg)}}@media(max-width:900px){.receiptGrid{grid-template-columns:1fr}.receiptPanel{padding:18px}}@media(max-width:700px){.receiptWrap{padding:18px 12px 100px}.receiptHeader{display:block}.receiptBack{margin-top:13px}.receiptContext{grid-template-columns:1fr;padding:14px}.receiptContext input,.receiptContext select,.receiptContext button,.receiptTextArea,.receiptResultGrid input{font-size:16px}.receiptSourceActions{grid-template-columns:1fr}.receiptSourcePick{min-height:68px}.receiptPreview img{height:220px}.receiptResultGrid{grid-template-columns:1fr}.receiptFull{grid-column:auto}.receiptPanel{border-radius:16px;padding:16px}.receiptActions{display:grid;grid-template-columns:1fr}.receiptActions>*{width:100%}.receiptBanner{align-items:flex-start;flex-direction:column}.receiptHeader h1{font-size:28px}}@media(prefers-reduced-motion:reduce){.receiptSourcePick{transition:none}.receiptStatus[data-state="busy"]:before{animation-duration:1.4s}}
-</style></head><body>${renderUnifiedNav("receipts", { month, householdId: selected.id, householdName: selected.name })}<main class="receiptWrap">${successMessage}${errorMessage}<header class="receiptHeader"><div><span class="receiptEyebrow">스마트 기록</span><h1>영수증 등록</h1><p>앨범 사진이나 지금 촬영한 사진에서 글자를 읽고, 확인한 내용만 가계부에 저장합니다.</p></div><a class="receiptBack" href="/smart-tools?${qs}">스마트 도구로 돌아가기</a></header><form class="receiptContext" method="get" action="/receipts"><div class="receiptField"><label for="receiptHousehold">가계부</label><select id="receiptHousehold" name="household_id">${householdOptions}</select></div><div class="receiptField"><label for="receiptMonth">기록 월</label><input id="receiptMonth" type="month" name="month" value="${escapeHtml(month)}"/></div><button type="submit">선택 적용</button></form><div class="receiptGrid"><section class="receiptPanel" id="receiptSourcePanel" aria-labelledby="receiptSourceTitle"><div class="receiptPanelHead"><span class="receiptStep">1</span><div><h2 id="receiptSourceTitle">영수증 가져오기</h2><p>앨범과 카메라 중 편한 방법을 선택하세요. 사진을 고르는 것만으로 분석이 시작되지는 않습니다.</p></div></div><div class="receiptSourceActions"><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptImage"><span class="receiptSourceIcon" aria-hidden="true">▧</span><span><b>앨범에서 선택</b><small>저장된 영수증 사진</small></span></label><label class="receiptSourcePick ${writable ? "" : "busy"}" for="receiptCamera"><span class="receiptSourceIcon" aria-hidden="true">◎</span><span><b>카메라로 촬영</b><small>지금 영수증 찍기</small></span></label><input class="receiptFile" id="receiptImage" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*" ${disabled}/><input class="receiptFile" id="receiptCamera" type="file" accept="image/*" capture="environment" ${disabled}/></div><p class="receiptPrivacy"><span aria-hidden="true">✓</span><span>사진은 서버에 업로드하지 않고 현재 브라우저에서만 문자 인식에 사용합니다. 앨범·카메라 접근은 해당 버튼을 눌렀을 때만 요청됩니다. PC에서는 사진을 이 카드에 끌어다 놓거나 붙여넣기(Ctrl+V)해도 됩니다.</span></p><div class="receiptPreview" id="receiptPreview" hidden><img id="receiptPreviewImage" alt=""/><div class="receiptPreviewMeta"><span id="receiptFileName">선택된 사진 없음</span><button class="receiptSecondary" id="clearReceiptImage" type="button">선택 취소</button></div></div><div class="receiptStatus" id="ocrStatus" role="status" aria-live="polite">앨범이나 카메라에서 영수증 사진을 선택해 주세요.</div><div class="receiptActions"><button class="receiptPrimary" type="button" id="readReceiptImage" disabled>선택한 사진 읽기</button><button class="receiptSecondary" type="button" id="ocrCancel" hidden>분석 취소</button></div><div class="receiptDivider"></div><label class="receiptTextLabel" for="receiptText">문자가 있다면 직접 붙여넣기</label><p class="receiptTextHelp">카카오톡이나 문자로 받은 전자영수증은 내용을 복사해 아래에 붙여넣는 편이 더 빠릅니다.</p><textarea class="receiptTextArea" id="receiptText" placeholder="예: 스타마트&#10;2026-07-15&#10;합계 35,400원&#10;신한카드" ${disabled}></textarea><div class="receiptActions"><button class="receiptSecondary" type="button" id="analyzeReceipt" disabled>붙여넣은 문자 분석</button></div></section><section class="receiptPanel" id="receiptResults" aria-labelledby="receiptResultTitle"><div class="receiptPanelHead"><span class="receiptStep">2</span><div><h2 id="receiptResultTitle">인식 결과 확인</h2><p>자동 인식은 틀릴 수 있습니다. 상호·날짜·총액 세 항목을 원본과 꼭 비교하세요.</p></div></div>${writable ? "" : `<div class="receiptReadOnly">조회 전용 권한에서는 인식 결과를 저장할 수 없습니다.</div>`}<div class="receiptDetected" id="receiptDetectedSummary">사진이나 문자를 분석하면 찾은 값이 여기에 표시됩니다.</div><form method="post" action="/my/receipt/save" id="receiptForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><textarea name="receipt_text" id="receiptRaw" hidden></textarea><div class="receiptResultGrid"><div class="receiptField receiptFull"><label for="merchant">상호·내용</label><input id="merchant" name="merchant" maxlength="160" autocomplete="off" placeholder="예: 스타마트" required ${disabled}/><small class="receiptOcrNote" data-ab-ocr-note="merchant" hidden></small></div><div class="receiptField"><label for="receiptDate">날짜</label><input id="receiptDate" type="date" name="transaction_date" value="${escapeHtml(today)}" required ${disabled}/><small class="receiptOcrNote" data-ab-ocr-note="receiptDate" hidden></small></div><div class="receiptField"><label for="receiptAmount">총액</label><input id="receiptAmount" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 35,400" required ${disabled}/><small class="receiptOcrNote" data-ab-ocr-note="receiptAmount" hidden></small></div><div class="receiptField"><label for="receiptCategory">분류</label><input id="receiptCategory" name="category" list="receiptCategories" placeholder="자동 추천 또는 직접 입력" ${disabled}/><datalist id="receiptCategories">${categoryOptions}</datalist></div><div class="receiptField"><label for="receiptPayment">결제수단</label><input id="receiptPayment" name="payment_method" autocomplete="off" placeholder="예: 신한카드, 현금" ${disabled}/><small class="receiptOcrNote" data-ab-ocr-note="receiptPayment" hidden></small></div></div><label class="receiptConfirm"><input type="checkbox" name="confirmed" value="yes" required ${disabled}/><span>사진 원본과 상호·날짜·총액을 비교했고, 이 내용으로 저장하는 데 동의합니다.</span></label><button class="receiptSave" type="submit" ${disabled}>확인한 지출 저장</button></form><details class="receiptHelp"><summary>사진이 잘 읽히지 않을 때</summary><ul><li>영수증이 화면을 세로로 가득 채우도록 촬영하세요.</li><li>그림자와 구김을 줄이고 영수증을 수평으로 놓아주세요.</li><li>HEIC에서 오류가 나면 사진을 화면 캡처해 JPG·PNG로 다시 선택하세요.</li><li>자동값이 비어도 오른쪽 입력란에서 직접 적어 저장할 수 있습니다.</li></ul></details></section></div></main><script id="receiptCaptureRuntime">(${receiptCaptureClientMain.toString()})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#fff}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:6px}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse}.abV2281 .tableWrap.tableFit:before,.tableWrap.tableFit:before{content:none;display:none}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.settings{display:grid;gap:10px}.settings label{border:1px solid #e5e7eb;border-radius:15px;padding:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.share{width:100%;min-height:220px;border:1px solid #cbd5e1;border-radius:15px;padding:13px;font:inherit;line-height:1.6}.ok,.error,.note{border-radius:15px;padding:12px;line-height:1.6}.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.note{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}@media(max-width:760px){.wrap{padding:12px}.btn,button{width:100%;margin:4px 0}}@media print{.abLayoutNav,.abNavMobileTop,.abNavMobileDrawer,.abNavBottom,.noPrint,.reportMonthNav{display:none!important}body{padding:0!important;background:#fff}.wrap{max-width:none}.hero{background:#fff!important;color:#111827!important}.hero p{color:#475569!important}}${reportUxCss()}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${msg === "preference_saved" ? `<div class="ok">자동 리포트 설정을 저장했습니다.</div>` : ""}${err ? `<div class="error">설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요.</div>` : ""}<section class="hero"><h1>주간·월간 무료 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 현재 기록을 즉시 요약하고, 설정 시 매주 일요일과 매월 말에 중복 없이 스냅샷을 생성합니다.</p><p class="noPrint"><a class="btn light" href="/smart-tools?${qs}">스마트 도구</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id })}<section class="grid"><div class="metric"><span>수입</span><b>${numberWithCommas(live.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(live.expense)}원</b></div><div class="metric"><span>잔액</span><b>${numberWithCommas(live.balance)}원</b></div><div class="metric"><span>기록</span><b>${numberWithCommas(live.transaction_count)}건</b></div><div class="metric"><span>지출한 날</span><b>${numberWithCommas(live.spend_days)}일</b></div></section><section class="card"><h2>지출 상위 분류</h2><div class="tableWrap tableFit"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows(live)}</tbody></table></div></section><section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
 }
 
 function renderMiniCategoryRows(stats = {}) {
@@ -16212,7 +15898,7 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style></head><body>${renderUnifiedNav("smart-tools", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/receipts?${qs}">영수증 기록</a><a class="btn light" href="/reports?${qs}">자동 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${numberWithCommas(premium.savingPotential || 0)}원</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>영수증 스마트 기록</b><span>사진 또는 영수증 문자를 브라우저에서 읽고, 상호·날짜·총액을 직접 확인한 뒤 저장합니다.</span></div><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section><p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style></head><body>${renderUnifiedNav("smart-tools", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">자동 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${numberWithCommas(premium.savingPotential || 0)}원</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section><p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
 async function handleMyAnalysisPage(request, env, url) {
@@ -17962,7 +17648,7 @@ async function handleRecurringCandidateConfirm(request, env) {
 function renderMySettingsHtml({ env, url, user, month, households, selected, rows = [], budgets, budget, customCategories, recurring, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(h.role)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const incomeRows = incomeBudgetRows(budgets).filter((r) => Number(r.amount || 0) > 0);
   while (incomeRows.length < 2) incomeRows.push({ name: defaultIncomeBudgetNames()[incomeRows.length] || "기타수입", amount: 0 });
   const expenseAllRows = expenseBudgetRows(budgets, customCategories);
@@ -19292,7 +18978,11 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     const cls = t.type === "income" ? "income" : "expense";
     const spenderLabel = t.type === "income" ? "수입자" : "지출자";
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
-    return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}"><div class="v8-tx-main"><div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong></div>${(!canEditRow || canEditRow(t)) ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary>수정/삭제</summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : ""}</article>`;
+    // V22.9.18: 행마다 따로 붙던 "수정/삭제" 접기 줄을 없애고 행 본문을 그 접기의 summary 로 쓴다.
+    // 행 어디를 눌러도 같은 편집 칸이 열리고(지연 로드 계약은 그대로), 행 높이가 한 줄 준다.
+    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong>`;
+    const editable = !canEditRow || canEditRow(t);
+    return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}">${editable ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary class="v8-tx-main">${body}<i class="srOnly">수정·삭제</i></summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : `<div class="v8-tx-main">${body}</div>`}</article>`;
   }).join("");
 }
 
@@ -19732,7 +19422,7 @@ async function handleMemeRankPage(request, env, url) {
   const currentPath = `/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}`;
   const top = cards[0];
   const rows = cards.length ? cards.slice(0, 30).map((c, idx) => `<article class="rankCard"><div class="rankNo">#${idx + 1}</div><div class="emoji">${escapeHtml(c.emoji || "😶")}</div><div><h2>${escapeHtml(c.title || "소비몬")}</h2><p>${escapeHtml(c.line || "")}</p><small>${escapeHtml(c.rarity || "R")} · ${escapeHtml(c.level || "밈")} · 👍 ${numberWithCommas(c.like_count || 0)} · 공유 ${numberWithCommas(c.share_count || 0)}</small></div><div class="actions"><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="like"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">👍</button></form><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="share"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">공유+1</button></form><a href="/meme?month=${encodeURIComponent(c.month || month)}&card=${encodeURIComponent(c.card_id || "main")}${c.household_id ? `&household_id=${encodeURIComponent(c.household_id)}` : ""}">열기</a></div></article>`).join("") : `<section class="empty"><h2>랭킹을 만들 저장 카드가 없습니다.</h2><p>먼저 /meme에서 도감 저장을 해주세요.</p></section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>밈카드 랭킹</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1000px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.top button{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.hero{background:linear-gradient(135deg,#4c1d95,#db2777,#f59e0b);border-radius:28px;padding:20px;margin:16px 0;box-shadow:0 18px 40px rgba(0,0,0,.24);color:#fff}.hero h1{font-size:34px;margin:0}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff;color:#111827}.rankList{display:grid;gap:12px}.rankCard{display:grid;grid-template-columns:52px 58px 1fr auto;gap:12px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:14px;color:#111827;box-shadow:0 10px 24px rgba(15,23,42,.05)}.rankNo{font-size:22px;font-weight:1000}.emoji{font-size:42px}.rankCard h2{margin:0}.rankCard p{margin:5px 0;line-height:1.45}.rankCard small{color:#64748b;font-weight:900}.actions{display:grid;grid-template-columns:1fr;gap:7px;min-width:82px}.actions a,.actions button{height:34px;border:0;border-radius:12px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center;width:100%}.actions form{margin:0}.empty{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;color:#111827}@media(max-width:680px){.rankCard{grid-template-columns:44px 48px 1fr}.actions{grid-column:1/-1;grid-template-columns:1fr 1fr 1fr}}</style></head><body>${renderUnifiedNav("meme-rank", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>밈카드 랭킹</h1><p>좋아요와 공유 횟수로 이번 달 인기 소비몬을 정렬합니다.</p></div><nav><a href="/meme-archive?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">도감</a> <a href="/meme-lab?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">카드 만들기</a> <a href="/meme-stats?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">통계</a> <a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a></nav></div><section class="hero"><h1>${top ? `${escapeHtml(top.emoji || "🏆")} 1위 ${escapeHtml(top.title || "소비몬")}` : "🏆 아직 랭킹 없음"}</h1><p>${top ? escapeHtml(top.line || "") : "저장한 밈카드에 좋아요와 공유를 누르면 랭킹이 생성됩니다."}</p></section><form class="filters" method="get" action="/meme-rank"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><section class="rankList" style="margin-top:16px">${rows}</section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>밈카드 랭킹</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1000px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.top button{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.hero{background:linear-gradient(135deg,#4c1d95,#db2777,#f59e0b);border-radius:28px;padding:20px;margin:16px 0;box-shadow:0 18px 40px rgba(0,0,0,.24);color:#fff}.hero h1{font-size:34px;margin:0}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff;color:#111827}.rankList{display:grid;gap:12px}.rankCard{display:grid;grid-template-columns:52px 58px 1fr auto;gap:12px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:14px;color:#111827;box-shadow:0 10px 24px rgba(15,23,42,.05)}.rankNo{font-size:22px;font-weight:1000}.emoji{font-size:42px}.rankCard h2{margin:0}.rankCard p{margin:5px 0;line-height:1.45}.rankCard small{color:#64748b;font-weight:900}.actions{display:grid;grid-template-columns:1fr;gap:7px;min-width:82px}.actions a,.actions button{height:34px;border:0;border-radius:12px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center;width:100%}.actions form{margin:0}.empty{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;color:#111827}@media(max-width:680px){.rankCard{grid-template-columns:44px 48px 1fr}.actions{grid-column:1/-1;grid-template-columns:1fr 1fr 1fr}}</style></head><body>${renderUnifiedNav("meme-rank", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>밈카드 랭킹</h1><p>좋아요와 공유 횟수로 이번 달 인기 소비몬을 정렬합니다.</p></div><nav><a href="/meme-archive?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">도감</a> <a href="/meme-lab?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">카드 만들기</a> <a href="/meme-stats?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">통계</a> <a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a></nav></div><section class="hero"><h1>${top ? `${escapeHtml(top.emoji || "🏆")} 1위 ${escapeHtml(top.title || "소비몬")}` : "🏆 아직 랭킹 없음"}</h1><p>${top ? escapeHtml(top.line || "") : "저장한 밈카드에 좋아요와 공유를 누르면 랭킹이 생성됩니다."}</p></section><form class="filters" method="get" action="/meme-rank"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><section class="rankList" style="margin-top:16px">${rows}</section></main></body></html>`);
 }
 
 async function handleMemeArchivePage(request, env, url) {
@@ -19744,7 +19434,7 @@ async function handleMemeArchivePage(request, env, url) {
   const err = url.searchParams.get("err") || "";
   const currentPath = `/meme-archive?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}`;
   const cardHtml = cards.length ? cards.map((c) => `<article class="savedCard theme-${escapeHtml(c.theme || "chaos")}"><div class="badgeRow"><span>${escapeHtml(c.rarity || "R")}</span><span>${escapeHtml(c.level || "밈")}</span></div><div class="emoji">${escapeHtml(c.emoji || "😶")}</div><h2>${escapeHtml(c.title || "소비몬")}</h2><p>${escapeHtml(c.line || "")}</p><small>${escapeHtml(c.subtitle || "")}</small><div class="metrics"><span>👍 ${numberWithCommas(c.like_count || 0)}</span><span>공유 ${numberWithCommas(c.share_count || 0)}</span></div><div class="actions"><button type="button" data-share="${escapeHtml(c.share_text || "")}" onclick="copyArchive(this)">복사</button><button type="button" data-public="/share/meme?id=${encodeURIComponent(c.id)}" onclick="copyPublicLink(this)">공개링크</button><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="like"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">좋아요</button></form><form method="post" action="/admin/meme/react"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="type" value="share"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">공유+1</button></form><a href="/share/meme?id=${encodeURIComponent(c.id)}">공개보기</a><a href="/meme?month=${encodeURIComponent(c.month || month)}&card=${encodeURIComponent(c.card_id || "main")}${c.household_id ? `&household_id=${encodeURIComponent(c.household_id)}` : ""}">공유 카드</a><form method="post" action="/admin/meme/delete" onsubmit="return confirm('저장한 소비 카드를 삭제할까요?')"><input type="hidden" name="id" value="${escapeHtml(c.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><button type="submit">삭제</button></form></div></article>`).join("") : `<section class="empty"><h2>아직 저장한 소비 카드가 없습니다.</h2><p>소비 카드 만들기에서 마음에 드는 카드를 연 뒤 “보관함에 저장”을 눌러보세요.</p><p>저장이 계속 실패하면 가계부 관리자에게 저장 구조 확인을 요청해 주세요.</p></section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>소비 카드 보관함</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.top button{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff;color:#111827}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:16px}.savedCard{border-radius:24px;padding:16px;min-height:330px;background:linear-gradient(135deg,#111827,#7c3aed,#ec4899);color:#fff;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}.savedCard:after{content:"";position:absolute;right:-36px;top:-36px;width:130px;height:130px;border-radius:999px;background:rgba(255,255,255,.16)}.badgeRow{display:flex;gap:8px;position:relative;z-index:1}.badgeRow span,.metrics span{font-size:12px;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 9px;font-weight:1000}.emoji{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif!important;font-size:44px;position:relative;z-index:1}.wrap .savedCard h2{margin:0;font-size:22px;line-height:1.1;position:relative;z-index:1;color:#fff!important}.savedCard p{line-height:1.45;font-weight:800;position:relative;z-index:1}.savedCard small{opacity:.82;font-weight:900;position:relative;z-index:1}.metrics{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;position:relative;z-index:1}.actions a,.actions button{height:38px;border:0;border-radius:13px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center;width:100%;font-size:12px}.actions form{margin:0}.grid>.empty{grid-column:1/-1;width:100%;background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin-top:0;color:#111827}.empty h2{font-size:22px;line-height:1.35;word-break:keep-all}.empty p{line-height:1.6;word-break:keep-all}.notice{border-radius:14px;padding:12px;margin-top:12px;font-weight:900}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}@media(max-width:420px){.wrap{padding:12px}.grid{grid-template-columns:minmax(0,1fr)}.top h1{font-size:26px}}</style></head><body>${renderUnifiedNav("meme-archive", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>소비 카드 보관함</h1><p>저장한 소비 카드를 다시 보고 공유할 수 있습니다.</p></div><nav><a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a> <a href="/meme-lab?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">카드 만들기</a> <a href="/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">랭킹</a> <a href="/meme-stats?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">통계</a></nav></div>${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice err">${escapeHtml(err)}</div>` : ""}<form class="filters" method="get" action="/meme-archive"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><section class="grid">${cardHtml}</section></main><script>function copyArchive(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{prompt('복사하세요',text);}}function copyPublicLink(btn){var path=btn.getAttribute('data-public')||'';var link=location.origin+path;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(link).then(function(){btn.textContent='링크복사됨';});}else{prompt('공개 링크',link);}}</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>소비 카드 보관함</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.top button{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff;color:#111827}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:16px}.savedCard{border-radius:24px;padding:16px;min-height:330px;background:linear-gradient(135deg,#111827,#7c3aed,#ec4899);color:#fff;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}.savedCard:after{content:"";position:absolute;right:-36px;top:-36px;width:130px;height:130px;border-radius:999px;background:rgba(255,255,255,.16)}.badgeRow{display:flex;gap:8px;position:relative;z-index:1}.badgeRow span,.metrics span{font-size:12px;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 9px;font-weight:1000}.emoji{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif!important;font-size:44px;position:relative;z-index:1}.wrap .savedCard h2{margin:0;font-size:22px;line-height:1.1;position:relative;z-index:1;color:#fff!important}.savedCard p{line-height:1.45;font-weight:800;position:relative;z-index:1}.savedCard small{opacity:.82;font-weight:900;position:relative;z-index:1}.metrics{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;position:relative;z-index:1}.actions a,.actions button{height:38px;border:0;border-radius:13px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center;width:100%;font-size:12px}.actions form{margin:0}.grid>.empty{grid-column:1/-1;width:100%;background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin-top:0;color:#111827}.empty h2{font-size:22px;line-height:1.35;word-break:keep-all}.empty p{line-height:1.6;word-break:keep-all}.notice{border-radius:14px;padding:12px;margin-top:12px;font-weight:900}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}@media(max-width:420px){.wrap{padding:12px}.grid{grid-template-columns:minmax(0,1fr)}.top h1{font-size:26px}}</style></head><body>${renderUnifiedNav("meme-archive", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>소비 카드 보관함</h1><p>저장한 소비 카드를 다시 보고 공유할 수 있습니다.</p></div><nav><a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a> <a href="/meme-lab?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">카드 만들기</a> <a href="/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">랭킹</a> <a href="/meme-stats?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">통계</a></nav></div>${msg ? `<div class="notice ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="notice err">${escapeHtml(err)}</div>` : ""}<form class="filters" method="get" action="/meme-archive"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><section class="grid">${cardHtml}</section></main><script>function copyArchive(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{prompt('복사하세요',text);}}function copyPublicLink(btn){var path=btn.getAttribute('data-public')||'';var link=location.origin+path;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(link).then(function(){btn.textContent='링크복사됨';});}else{prompt('공개 링크',link);}}</script></body></html>`);
 }
 
 async function loadSavedMemeCardById(env, id) {
@@ -19883,7 +19573,7 @@ async function handleMemePublicStatsPage(request, env, url) {
     return `<div class="barRow"><div class="barLabel">#${i + 1} ${escapeHtml(c.emoji || "")} ${escapeHtml(c.title || "")}</div><div class="barTrack"><i style="--w:${w}%"></i></div><b>${numberWithCommas(score)}</b></div>`;
   }).join("") : `<p class="note">아직 차트로 볼 데이터가 없습니다.</p>`;
   const rows = ranked.length ? ranked.slice(0, 50).map((c, i) => `<tr><td>#${i + 1}</td><td>${escapeHtml(c.emoji || "")} ${escapeHtml(c.title || "")}</td><td>${escapeHtml(c.rarity || "R")}</td><td>${numberWithCommas(c.view_count || 0)}</td><td>${numberWithCommas(c.public_like_count || 0)}</td><td>${numberWithCommas(c.share_count || 0)}</td><td><a href="/share/meme?id=${encodeURIComponent(c.id)}">공개</a></td></tr>`).join("") : `<tr><td colspan="7">아직 공개 유입 데이터가 없습니다. /meme-archive에서 공개링크를 공유해보세요.</td></tr>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>공개 공유 통계</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.btn{display:inline-flex;align-items:center;justify-content:center;height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900;padding:0 12px;border:0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}.kpi,.chart{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.055)}.kpi span{display:block;color:#64748b;font-weight:900;font-size:12px}.kpi b{font-size:24px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;font:inherit;background:#fff}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden;margin-top:14px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}a{color:#2563eb;font-weight:900}.note{color:#64748b;line-height:1.6}.barRow{display:grid;grid-template-columns:220px 1fr 70px;gap:10px;align-items:center;margin:10px 0}.barLabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:900}.barTrack{height:16px;background:#e5e7eb;border-radius:999px;overflow:hidden}.barTrack i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,#7c3aed,#ec4899,#f59e0b);border-radius:999px}.barRow b{text-align:right}@media(max-width:640px){.barRow{grid-template-columns:1fr}.barRow b{text-align:left}}</style></head><body>${renderUnifiedNav("meme-stats", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>공개 공유 통계</h1><p class="note">공개 링크 조회, 공개 좋아요, 공유 횟수를 한 화면에서 봅니다.</p></div><nav><a href="/meme-archive?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">도감</a> <a href="/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">랭킹</a> <a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a></nav></div><form class="filters" method="get" action="/meme-stats"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button class="btn" type="submit">조회</button></form><section class="cards"><div class="kpi"><span>공개 조회</span><b>${numberWithCommas(totals.views)}</b></div><div class="kpi"><span>공개 좋아요</span><b>${numberWithCommas(totals.publicLikes)}</b></div><div class="kpi"><span>관리자 좋아요 포함</span><b>${numberWithCommas(totals.likes)}</b></div><div class="kpi"><span>공유 횟수</span><b>${numberWithCommas(totals.shares)}</b></div></section><section class="chart"><h2>인기 카드 차트</h2><p class="note">점수 = 조회 1점 + 공개 좋아요 3점 + 공유 2점</p>${chartRows}</section><table><thead><tr><th>순위</th><th>카드</th><th>희귀도</th><th>조회</th><th>공개 좋아요</th><th>공유</th><th>링크</th></tr></thead><tbody>${rows}</tbody></table><p class="note">좋아요 중복 방지는 브라우저 쿠키 기준입니다. 조회 수는 같은 브라우저에서 6시간 중복 방지됩니다.</p></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>공개 공유 통계</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a,.btn{display:inline-flex;align-items:center;justify-content:center;height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900;padding:0 12px;border:0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}.kpi,.chart{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 8px 24px rgba(15,23,42,.055)}.kpi span{display:block;color:#64748b;font-weight:900;font-size:12px}.kpi b{font-size:24px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.filters select,.filters input{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;font:inherit;background:#fff}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden;margin-top:14px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}a{color:#2563eb;font-weight:900}.note{color:#64748b;line-height:1.6}.barRow{display:grid;grid-template-columns:220px 1fr 70px;gap:10px;align-items:center;margin:10px 0}.barLabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:900}.barTrack{height:16px;background:#e5e7eb;border-radius:999px;overflow:hidden}.barTrack i{display:block;height:100%;width:var(--w);background:linear-gradient(90deg,#7c3aed,#ec4899,#f59e0b);border-radius:999px}.barRow b{text-align:right}@media(max-width:640px){.barRow{grid-template-columns:1fr}.barRow b{text-align:left}}</style></head><body>${renderUnifiedNav("meme-stats", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>공개 공유 통계</h1><p class="note">공개 링크 조회, 공개 좋아요, 공유 횟수를 한 화면에서 봅니다.</p></div><nav><a href="/meme-archive?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">도감</a> <a href="/meme-rank?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}">랭킹</a> <a href="/app?month=${encodeURIComponent(month)}${selectedHousehold?.id ? `&household_id=${encodeURIComponent(selectedHousehold.id)}` : ""}#meme">앱</a></nav></div><form class="filters" method="get" action="/meme-stats"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button class="btn" type="submit">조회</button></form><section class="cards"><div class="kpi"><span>공개 조회</span><b>${numberWithCommas(totals.views)}</b></div><div class="kpi"><span>공개 좋아요</span><b>${numberWithCommas(totals.publicLikes)}</b></div><div class="kpi"><span>관리자 좋아요 포함</span><b>${numberWithCommas(totals.likes)}</b></div><div class="kpi"><span>공유 횟수</span><b>${numberWithCommas(totals.shares)}</b></div></section><section class="chart"><h2>인기 카드 차트</h2><p class="note">점수 = 조회 1점 + 공개 좋아요 3점 + 공유 2점</p>${chartRows}</section><table><thead><tr><th>순위</th><th>카드</th><th>희귀도</th><th>조회</th><th>공개 좋아요</th><th>공유</th><th>링크</th></tr></thead><tbody>${rows}</tbody></table><p class="note">좋아요 중복 방지는 브라우저 쿠키 기준입니다. 조회 수는 같은 브라우저에서 6시간 중복 방지됩니다.</p></main></body></html>`);
 }
 
 async function handleMemeSharePage(request, env, url) {
@@ -20004,7 +19694,7 @@ function quickChipIconCss() {
 }
 
 const MOBILE_V81_CSS = `
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f6f7fb;color:#121826;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.03em;padding-bottom:96px}.appTop{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4;padding:12px 14px}.topLine{display:flex;align-items:center;justify-content:space-between;gap:10px}.topLine b{font-size:19px}.topLine a{color:#2563eb;text-decoration:none;font-weight:950}.selectLine{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:10px}.selectLine select,.selectLine input{height:42px;border:1px solid #d6deea;border-radius:15px;background:#fff;padding:0 11px;font:inherit;font-weight:850}.homeUsage{grid-column:1/-1;background:#fff;border:1px solid #e8edf4;border-radius:18px;padding:13px 14px}.homeUsage>span{display:flex;align-items:center;justify-content:space-between;gap:8px}.homeUsage>span b{font-size:13px;font-weight:1000}.homeUsage>span em{font-style:normal;font-size:16px;font-weight:1000;color:#2563eb}.homeUsage.isWarn>span em{color:#b45309}.homeUsage.isOver>span em{color:#b91c1c}.homeUsage small{display:block;color:#687385;font-size:12px;font-weight:900}.homeUsage small b{color:#111827;font-size:12px}.homeUsage .abNavBudgetTrack{height:8px;margin:9px 0 7px;overflow:hidden;border-radius:999px;background:#eef2f7}.homeUsage .abNavBudgetTrack i{display:block;height:100%;border-radius:inherit;background:#2563eb}.homeUsage.isWarn .abNavBudgetTrack i{background:#f59e0b}.homeUsage.isOver .abNavBudgetTrack i{background:#f04452}.homeTrendSeg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}.homeTrendHint{margin:0;color:#687385;font-size:12px;font-weight:900;line-height:1.5}.homeTrendSeg a,.homeTrendSeg .homeTrendOn{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px solid #e8edf4;border-radius:13px;background:#f8fafc;color:#475467;font-weight:1000;font-size:13px;text-decoration:none}.homeTrendSeg .homeTrendOn{background:#111827;color:#fff;border-color:#111827}.homeReserveCard{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);text-decoration:none;color:inherit;min-height:64px}.homeReserveCopy{display:grid;gap:3px;min-width:0}.homeReserveEyebrow{color:#687385;font-size:11px;font-weight:1000}.homeReserveCard b{font-size:15px;font-weight:1000;overflow-wrap:anywhere}.homeReserveCard small{color:#687385;font-size:12px;font-weight:900;line-height:1.45}.homeReserveGo{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;padding:0 12px;font-size:12px;font-weight:1000}.txTabHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.txTabHead h2{margin:0 0 4px;font-size:20px}.txTabHead p{margin:0;color:#687385;font-size:12px;font-weight:900;line-height:1.5}.txTabHome{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}.txTabFilter{background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.txTabFilter #v8Search{width:100%;height:43px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;margin-top:8px;font:inherit}.txFilterMore>summary{display:flex;align-items:center;min-height:44px;color:#1e3a8a;font-size:13px;font-weight:1000;cursor:pointer}.homeMomLine{display:block;margin-top:4px;font-size:11px;font-weight:1000;line-height:1.45}.homeMomLine.spendUp{color:var(--ab12-up,#c2410c)}.homeMomLine.spendDown{color:var(--ab12-down,#0f766e)}.homeMomLine.spendFlat{color:var(--ab12-muted,#8b95a1)}.homeBudgetEmpty{margin-top:10px;padding-top:10px;border-top:1px solid var(--ab12-line,#f0f0f0);color:var(--ab12-muted,#8b95a1);font-size:13px;font-weight:900}.homeWeek{list-style:none;margin:12px 0;padding:0;display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.homeWeek li{display:grid;justify-items:center;align-content:end;gap:5px;padding:8px 0;border-radius:var(--ab12-r-sm,8px);min-height:64px}.homeWeek li.isToday{background:var(--ab12-accent-soft,#eef2ff)}.homeWeek b{font-size:11px;font-weight:900;color:var(--ab12-muted,#687385)}.homeWeek i{display:block;width:3px;height:28px;border-radius:999px;background:var(--ab12-surface-raised,#eef2f7);position:relative;overflow:hidden}.homeWeek i:after{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--v,0%);background:var(--ab12-brand,#3182f6);border-radius:inherit}.homeWeek em{font-style:normal;font-size:12px;font-weight:1000;font-variant-numeric:tabular-nums;color:var(--ab12-text,#121826)}.homeWeek li.isToday em{color:var(--ab12-action,#1d4ed8)}.homeQuickFold,.homeFeedFilter{margin:12px 0}.homeQuickFold>summary,.homeFeedFilter>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;padding:0 14px;border:1px solid var(--ab12-line,#e8edf4);border-radius:var(--ab12-r-md,12px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#121826);font-size:14px;font-weight:1000;cursor:pointer}.homeQuickFold>summary span,.homeFeedFilter>summary span{color:var(--ab12-muted,#687385);font-size:12px;font-weight:900}.homeQuickFold[open]>summary,.homeFeedFilter[open]>summary{margin-bottom:8px}.homeFeedFilter>summary{margin-top:0}.txChipBar{display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:12px 0;padding-bottom:2px;scrollbar-width:none}.txChipBar::-webkit-scrollbar{display:none}.txChip{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 var(--ab12-sp-3,12px);border:1px solid var(--ab12-line,#e8edf4);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#334155);text-decoration:none;font-size:13px;font-weight:1000;white-space:nowrap}.txChip.isOn{background:var(--ab12-accent-soft,#eef2ff);border-color:var(--ab12-action,#1d4ed8);color:var(--ab12-action,#1d4ed8)}.txDayGroup{margin:0 0 var(--ab12-sp-4,16px)}.txDayHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0;padding:10px 4px 7px;border-bottom:1px solid var(--ab12-line,#e8edf4);font-size:13px;font-weight:1000;color:var(--ab12-muted,#687385)}.txDayHead b{font-size:13px;font-weight:1000;font-variant-numeric:tabular-nums;color:var(--ab12-text,#111827)}.txDayGroup .v8-tx{min-height:56px;margin:0;padding:13px 4px;border:0;border-bottom:1px solid var(--ab12-line,#e8edf4);border-radius:0;background:transparent;box-shadow:none}.txPickLabel{display:grid;gap:5px;margin:8px 0}.txPickLabel>span{color:#475467;font-size:11px;font-weight:1000}.txPickLabel select{width:100%;height:44px;border:1px solid #d6deea;border-radius:15px;background:#fff;padding:0 11px;font:inherit;font-weight:850}.txTabList{margin:12px 0}.txPager{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px}.txPager a,.txPager span,.txPager b{min-height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:13px;padding:0 13px;font-size:13px;font-weight:1000}.txPager a{background:#111827;color:#fff;text-decoration:none}.txPager span{background:#f1f5f9;color:#98a2b3}.txPager b{background:#fff;border:1px solid #e8edf4;color:#475467}.appMonthAway{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:8px}.appMonthAwayBadge{display:inline-flex;align-items:center;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:5px 10px;font-size:12px;font-weight:1000}.appMonthAwayGo{display:inline-flex;align-items:center;min-height:34px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 11px;font-size:12px;font-weight:1000}.wrap{max-width:1180px;margin:0 auto;padding:16px}.heroCard{background:linear-gradient(135deg,#101827,#1d4ed8 58%,#7c3aed);color:#fff;border-radius:30px;padding:22px;box-shadow:0 22px 54px rgba(30,64,175,.26);position:relative;overflow:hidden}.heroCard:after{content:"";position:absolute;right:-46px;top:-46px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.13)}.heroCard small{opacity:.82;font-weight:800}.heroCard h1{font-size:27px;line-height:1.12;margin:9px 0}.heroCard p{opacity:.9;line-height:1.45;margin:0}.statGrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}.stat{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:13px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.stat span{display:block;color:#687385;font-size:11px;font-weight:950}.stat b{font-size:16px}.expense{color:#dc2626}.income{color:#059669}.appAlert{border-radius:20px;padding:13px;margin:12px 0;background:#eef2ff;color:#1e3a8a;font-weight:950}.appAlert.good{background:#dcfce7;color:#166534}.appAlert.danger{background:#fee2e2;color:#991b1b}.quickMenu{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.quickMenu a{min-height:64px;background:#fff;border:1px solid #e8edf4;border-radius:20px;color:#121826;text-decoration:none;font-weight:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 22px rgba(15,23,42,.055);font-size:13px}.quickMenu small{color:#7b8494;font-size:10px}.panel{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.panel h2{margin:0 0 10px;font-size:20px}.form{display:grid;gap:9px}.form input,.form select{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff}.form button,.btn{height:46px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;padding:0 12px}.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg input{display:none}.seg span{height:43px;border-radius:15px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-weight:1000}.seg input:checked+span{background:#111827;color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.chipRow{display:flex;gap:7px;overflow:auto;padding-bottom:2px}.chipRow button{border:0;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-weight:950;padding:9px 11px;white-space:nowrap}.chipRow{flex-wrap:wrap}.chipRow button em{font-style:normal;font-size:10px;font-weight:1000;background:rgba(30,58,138,.12);border-radius:999px;padding:1px 5px;margin-left:5px}.chipRowLabel{align-self:center;color:#687385;font-size:11px;font-weight:1000;white-space:nowrap}.payChips button{background:#f1f5f9;color:#334155}.dateRow{display:grid;grid-template-columns:1fr auto auto;gap:8px}.dateRow input{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff;min-width:0}.dateChip{border:1px solid #d6deea;border-radius:15px;background:#fff;color:#334155;font-weight:1000;padding:0 13px}.dateChip.on{background:#111827;color:#fff;border-color:#111827}.smartLine{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:4px}.smartLine input{height:48px;border:2px solid #111827;border-radius:16px;padding:0 13px;font:inherit;font-weight:900;background:#fffdf0}.smartLine button{border:0;border-radius:16px;background:#FEE500;color:#191919;font-weight:1000;padding:0 16px}.smartHint{margin:0 0 6px;color:#687385;font-size:12px;line-height:1.5}.memeMain{background:radial-gradient(circle at 15% 0,#fde68a,#f97316 38%,#7c2d12 100%);color:#fff;border:0;min-height:220px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}.memeMain .emoji{font-size:58px}.memeMain h2{font-size:26px}.memeMain p{font-weight:850;line-height:1.45}.memeCollection{display:grid;grid-template-columns:1fr;gap:10px}.memeMini{background:linear-gradient(135deg,#111827,#334155);color:#fff;border-radius:23px;padding:15px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}.memeMini span{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.14);padding:5px 8px;font-size:11px;font-weight:950}.memeMini b{display:block;font-size:38px;margin-top:8px}.memeMini h3{margin:4px 0;font-size:18px}.memeMini p{margin:0;line-height:1.4;font-size:13px}.memeMiniActions{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-self:end}.memeMini button,.memeMini a,.mainMemeActions button,.mainMemeActions a{border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:950;padding:9px;text-decoration:none;display:flex;align-items:center;justify-content:center}.mainMemeActions{margin-top:12px;position:relative;z-index:2}.v8-collection,.memeCollection{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.v8-meme-mini{border-radius:22px;padding:14px;min-height:235px;display:flex;flex-direction:column;gap:8px;color:#fff;background:linear-gradient(135deg,#111827,#334155);box-shadow:0 14px 30px rgba(15,23,42,.16);position:relative;overflow:hidden}.v8-meme-mini:after{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:999px;background:rgba(255,255,255,.14)}.v8-meme-mini-top{display:flex;gap:7px;flex-wrap:wrap;position:relative;z-index:1}.v8-meme-mini .rarity,.v8-meme-mini .level{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.18);padding:5px 9px;font-size:11px;font-weight:1000;color:#fff}.v8-meme-mini .emoji{font-size:38px;position:relative;z-index:1}.v8-meme-mini h3{margin:0;font-size:18px;line-height:1.22;position:relative;z-index:1}.v8-meme-mini p{margin:0;line-height:1.42;font-size:13px;position:relative;z-index:1;flex:1}.v8-meme-mini small{font-size:11px;font-weight:900;opacity:.84;position:relative;z-index:1}.v8-meme-mini-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;position:relative;z-index:1}.v8-meme-mini-actions button,.v8-meme-mini-actions a{height:38px;border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;font-size:12px}.theme-doom,.theme-fire,.theme-boss{background:linear-gradient(135deg,#111827,#7c2d12,#ef4444)}.theme-warning,.theme-spicy{background:linear-gradient(135deg,#7c2d12,#f97316,#fde68a)}.theme-zen,.theme-green,.theme-shield{background:linear-gradient(135deg,#064e3b,#16a34a,#bbf7d0)}.theme-gold,.theme-trophy{background:linear-gradient(135deg,#78350f,#f59e0b,#fef3c7)}.theme-coffee{background:linear-gradient(135deg,#3f2412,#92400e,#fbbf24)}.theme-parcel,.theme-mart{background:linear-gradient(135deg,#1e3a8a,#2563eb,#93c5fd)}.theme-food,.theme-night{background:linear-gradient(135deg,#581c87,#db2777,#f9a8d4)}.theme-taxi{background:linear-gradient(135deg,#111827,#eab308)}.theme-medical{background:linear-gradient(135deg,#075985,#06b6d4,#cffafe)}.theme-stream,.theme-neon{background:linear-gradient(135deg,#020617,#7c3aed,#22d3ee)}.theme-kids{background:linear-gradient(135deg,#be123c,#f472b6,#fde68a)}.theme-beauty{background:linear-gradient(135deg,#831843,#ec4899,#fbcfe8)}.theme-cool{background:linear-gradient(135deg,#0f172a,#0ea5e9,#a7f3d0)}.theme-melt{background:linear-gradient(135deg,#020617,#475569,#94a3b8)}@media(max-width:420px){.v8-collection,.memeCollection{grid-template-columns:1fr}}.tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.txMain{display:flex;justify-content:space-between;gap:12px}.txMain b{display:block}.txMain span{display:block;color:#687385;font-size:12px;margin-top:4px}.tx details{margin-top:10px}.tx summary{font-weight:950;color:#2563eb}.v8-tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.v8-tx-main{display:flex;justify-content:space-between;gap:12px}.v8-tx-main b{display:block}.v8-tx-main span{display:block;color:#687385;font-size:12px;margin-top:4px}.v8-tx details{margin-top:10px}.v8-tx summary{font-weight:950;color:#2563eb}.v8-edit{display:grid;gap:7px;margin-top:8px}.v8-edit input,.v8-edit select{height:39px;border:1px solid #d6deea;border-radius:13px;padding:0 10px}.v8-edit button,.v8-tx button{height:41px;border:0;border-radius:13px;background:#111827;color:#fff;font-weight:1000}.danger{background:#fee2e2!important;color:#991b1b!important}.empty{padding:20px;text-align:center;color:#687385}.notice{border-radius:15px;padding:10px;margin:10px 0;font-weight:950}.notice.ok{background:#dcfce7;color:#166534}.notice.error{background:#fee2e2;color:#991b1b}.notice.budgetWarn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.notice.budgetOver{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:1000}.bottom{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid #e8edf4;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.bottom a{text-decoration:none;color:#5b6472;font-size:11px;font-weight:900;text-align:center;padding:6px 0;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:2px}.bottom a i{font-style:normal;font-size:19px;line-height:1}.bottom a.active{color:#111827}.bottom a.tabAdd{position:relative}.bottom a.tabAdd i{width:38px;height:38px;margin-top:-16px;border-radius:50%;background:#111827;color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 6px 16px rgba(17,24,39,.28)}.bottom a.tabAdd span{color:#111827}@media(max-width:360px){.quickMenu{grid-template-columns:repeat(2,1fr)}.statGrid{grid-template-columns:1fr}.memeMini{grid-template-columns:1fr}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f6f7fb;color:#121826;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.03em;padding-bottom:96px}.appTop{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);backdrop-filter:blur(16px);border-bottom:1px solid #e8edf4;padding:12px 14px}.topLine{display:flex;align-items:center;justify-content:space-between;gap:10px}.topLine b{font-size:19px}.topLine a{color:#2563eb;text-decoration:none;font-weight:950}.selectLine{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:10px}.selectLine select,.selectLine input{height:42px;border:1px solid #d6deea;border-radius:15px;background:#fff;padding:0 11px;font:inherit;font-weight:850}.homeUsage{grid-column:1/-1;background:#fff;border:1px solid #e8edf4;border-radius:18px;padding:13px 14px}.homeUsage>span{display:flex;align-items:center;justify-content:space-between;gap:8px}.homeUsage>span b{font-size:13px;font-weight:1000}.homeUsage>span em{font-style:normal;font-size:16px;font-weight:1000;color:#2563eb}.homeUsage.isWarn>span em{color:#b45309}.homeUsage.isOver>span em{color:#b91c1c}.homeUsage small{display:block;color:#687385;font-size:12px;font-weight:900}.homeUsage small b{color:#111827;font-size:12px}.homeUsage .abNavBudgetTrack{height:8px;margin:9px 0 7px;overflow:hidden;border-radius:999px;background:#eef2f7}.homeUsage .abNavBudgetTrack i{display:block;height:100%;border-radius:inherit;background:#2563eb}.homeUsage.isWarn .abNavBudgetTrack i{background:#f59e0b}.homeUsage.isOver .abNavBudgetTrack i{background:#f04452}.homeTrendSeg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}.homeTrendHint{margin:0;color:#687385;font-size:12px;font-weight:900;line-height:1.5}.homeTrendSeg a,.homeTrendSeg .homeTrendOn{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px solid #e8edf4;border-radius:13px;background:#f8fafc;color:#475467;font-weight:1000;font-size:13px;text-decoration:none}.homeTrendSeg .homeTrendOn{background:#111827;color:#fff;border-color:#111827}.homeReserveCard{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055);text-decoration:none;color:inherit;min-height:64px}.homeReserveCopy{display:grid;gap:3px;min-width:0}.homeReserveEyebrow{color:#687385;font-size:11px;font-weight:1000}.homeReserveCard b{font-size:15px;font-weight:1000;overflow-wrap:anywhere}.homeReserveCard small{color:#687385;font-size:12px;font-weight:900;line-height:1.45}.homeReserveGo{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;padding:0 12px;font-size:12px;font-weight:1000}.txTabHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.txTabHead h2{margin:0 0 4px;font-size:20px}.txTabHead p{margin:0;color:#687385;font-size:12px;font-weight:900;line-height:1.5}.txTabHome{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}.txTabFilter{background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.txTabFilter #v8Search{width:100%;height:43px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;margin-top:8px;font:inherit}.txFilterMore>summary{display:flex;align-items:center;min-height:44px;color:#1e3a8a;font-size:13px;font-weight:1000;cursor:pointer}.homeMomLine{display:block;margin-top:4px;font-size:11px;font-weight:1000;line-height:1.45}.homeMomLine.spendUp{color:var(--ab12-up,#c2410c)}.homeMomLine.spendDown{color:var(--ab12-down,#0f766e)}.homeMomLine.spendFlat{color:var(--ab12-muted,#8b95a1)}.homeBudgetEmpty{margin-top:10px;padding-top:10px;border-top:1px solid var(--ab12-line,#f0f0f0);color:var(--ab12-muted,#8b95a1);font-size:13px;font-weight:900}.homeWeek{list-style:none;margin:12px 0;padding:0;display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.homeWeek li{display:grid;justify-items:center;align-content:end;gap:5px;padding:8px 0;border-radius:var(--ab12-r-sm,8px);min-height:64px}.homeWeek li.isToday{background:var(--ab12-accent-soft,#eef2ff)}.homeWeek b{font-size:11px;font-weight:900;color:var(--ab12-muted,#687385)}.homeWeek i{display:block;width:3px;height:28px;border-radius:999px;background:var(--ab12-surface-raised,#eef2f7);position:relative;overflow:hidden}.homeWeek i:after{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--v,0%);background:var(--ab12-brand,#3182f6);border-radius:inherit}.homeWeek em{font-style:normal;font-size:12px;font-weight:1000;font-variant-numeric:tabular-nums;color:var(--ab12-text,#121826)}.homeWeek li.isToday em{color:var(--ab12-action,#1d4ed8)}html[data-ab-resolved-theme="dark"] .homeWeek li.isToday em,html[data-ab-resolved-theme="dark"] .homeUsage>span em{color:var(--ab12-accent,#93c5fd)}html[data-ab-resolved-theme="dark"] .homeUsage.isWarn>span em{color:#fcd34d}html[data-ab-resolved-theme="dark"] .homeUsage.isOver>span em{color:#fca5a5}.homeQuickFold,.homeFeedFilter{margin:12px 0}.homeQuickFold>summary,.homeFeedFilter>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;padding:0 14px;border:1px solid var(--ab12-line,#e8edf4);border-radius:var(--ab12-r-md,12px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#121826);font-size:14px;font-weight:1000;cursor:pointer}.homeQuickFold>summary span,.homeFeedFilter>summary span{color:var(--ab12-muted,#687385);font-size:12px;font-weight:900}.homeQuickFold[open]>summary,.homeFeedFilter[open]>summary{margin-bottom:8px}.homeFeedFilter>summary{margin-top:0}.txChipBar{display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:12px 0;padding-bottom:2px;scrollbar-width:none}.txChipBar::-webkit-scrollbar{display:none}.txChip{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 var(--ab12-sp-3,12px);border:1px solid var(--ab12-line,#e8edf4);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#334155);text-decoration:none;font-size:13px;font-weight:1000;white-space:nowrap}.txChip.isOn{background:var(--ab12-accent-soft,#eef2ff);border-color:var(--ab12-action,#1d4ed8);color:var(--ab12-action,#1d4ed8)}.txDayGroup{margin:0 0 var(--ab12-sp-4,16px)}.txDayHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0;padding:10px 4px 7px;border-bottom:1px solid var(--ab12-line,#e8edf4);font-size:13px;font-weight:1000;color:var(--ab12-muted,#687385)}.txDayHead b{font-size:13px;font-weight:1000;font-variant-numeric:tabular-nums;color:var(--ab12-text,#111827)}.txDayGroup .v8-tx{min-height:56px;margin:0;padding:13px 4px;border:0;border-bottom:1px solid var(--ab12-line,#e8edf4);border-radius:0;background:transparent;box-shadow:none}html:not([data-ab-resolved-theme="dark"]) .txDayGroup .v8-tx-main span{color:#566175}html:not([data-ab-resolved-theme="dark"]) .txDayGroup .v8-tx-main strong.expense{color:#c81e1e}html:not([data-ab-resolved-theme="dark"]) .txDayGroup .v8-tx-main strong.income{color:#047857}.txPickLabel{display:grid;gap:5px;margin:8px 0}.txPickLabel>span{color:#475467;font-size:11px;font-weight:1000}.txPickLabel select{width:100%;height:44px;border:1px solid #d6deea;border-radius:15px;background:#fff;padding:0 11px;font:inherit;font-weight:850}.txTabList{margin:12px 0}.txPager{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px}.txPager a,.txPager span,.txPager b{min-height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:13px;padding:0 13px;font-size:13px;font-weight:1000}.txPager a{background:#111827;color:#fff;text-decoration:none}.txPager span{background:#f1f5f9;color:#98a2b3}.txPager b{background:#fff;border:1px solid #e8edf4;color:#475467}.appMonthAway{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:8px}.appMonthAwayBadge{display:inline-flex;align-items:center;border-radius:999px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:5px 10px;font-size:12px;font-weight:1000}.appMonthAwayGo{display:inline-flex;align-items:center;min-height:34px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 11px;font-size:12px;font-weight:1000}.wrap{max-width:1180px;margin:0 auto;padding:16px}.heroCard{background:linear-gradient(135deg,#101827,#1d4ed8 58%,#7c3aed);color:#fff;border-radius:30px;padding:22px;box-shadow:0 22px 54px rgba(30,64,175,.26);position:relative;overflow:hidden}.heroCard:after{content:"";position:absolute;right:-46px;top:-46px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.13)}.heroCard small{opacity:.82;font-weight:800}.heroCard h1{font-size:27px;line-height:1.12;margin:9px 0}.heroCard p{opacity:.9;line-height:1.45;margin:0}.statGrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}.stat{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:13px;box-shadow:0 8px 22px rgba(15,23,42,.055)}.stat span{display:block;color:#687385;font-size:11px;font-weight:950}.stat b{font-size:16px}.expense{color:#dc2626}.income{color:#059669}.appAlert{border-radius:20px;padding:13px;margin:12px 0;background:#eef2ff;color:#1e3a8a;font-weight:950}.appAlert.good{background:#dcfce7;color:#166534}.appAlert.danger{background:#fee2e2;color:#991b1b}.quickMenu{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.quickMenu a{min-height:64px;background:#fff;border:1px solid #e8edf4;border-radius:20px;color:#121826;text-decoration:none;font-weight:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 8px 22px rgba(15,23,42,.055);font-size:13px}.quickMenu small{color:#7b8494;font-size:10px}.panel{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:16px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.panel h2{margin:0 0 10px;font-size:20px}.form{display:grid;gap:9px}.form input,.form select{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff}.form button,.btn{height:46px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;padding:0 12px}.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg input{display:none}.seg span{height:43px;border-radius:15px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-weight:1000}.seg input:checked+span{background:#111827;color:#fff}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.chipRow{display:flex;gap:7px;overflow:auto;padding-bottom:2px}.chipRow button{border:0;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-weight:950;padding:9px 11px;white-space:nowrap}.chipRow{flex-wrap:wrap}.chipRow button em{font-style:normal;font-size:10px;font-weight:1000;background:rgba(30,58,138,.12);border-radius:999px;padding:1px 5px;margin-left:5px}.chipRowLabel{align-self:center;color:#687385;font-size:11px;font-weight:1000;white-space:nowrap}.payChips button{background:#f1f5f9;color:#334155}.dateRow{display:grid;grid-template-columns:1fr auto auto;gap:8px}.dateRow input{height:45px;border:1px solid #d6deea;border-radius:15px;padding:0 12px;font:inherit;background:#fff;min-width:0}.dateChip{border:1px solid #d6deea;border-radius:15px;background:#fff;color:#334155;font-weight:1000;padding:0 13px}.dateChip.on{background:#111827;color:#fff;border-color:#111827}.smartLine{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:4px}.smartLine input{height:48px;border:2px solid #111827;border-radius:16px;padding:0 13px;font:inherit;font-weight:900;background:#fffdf0}.smartLine button{border:0;border-radius:16px;background:#FEE500;color:#191919;font-weight:1000;padding:0 16px}.smartHint{margin:0 0 6px;color:#687385;font-size:12px;line-height:1.5}.memeMain{background:radial-gradient(circle at 15% 0,#fde68a,#f97316 38%,#7c2d12 100%);color:#fff;border:0;min-height:220px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}.memeMain .emoji{font-size:58px}.memeMain h2{font-size:26px}.memeMain p{font-weight:850;line-height:1.45}.memeCollection{display:grid;grid-template-columns:1fr;gap:10px}.memeMini{background:linear-gradient(135deg,#111827,#334155);color:#fff;border-radius:23px;padding:15px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}.memeMini span{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.14);padding:5px 8px;font-size:11px;font-weight:950}.memeMini b{display:block;font-size:38px;margin-top:8px}.memeMini h3{margin:4px 0;font-size:18px}.memeMini p{margin:0;line-height:1.4;font-size:13px}.memeMiniActions{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-self:end}.memeMini button,.memeMini a,.mainMemeActions button,.mainMemeActions a{border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:950;padding:9px;text-decoration:none;display:flex;align-items:center;justify-content:center}.mainMemeActions{margin-top:12px;position:relative;z-index:2}.v8-collection,.memeCollection{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.v8-meme-mini{border-radius:22px;padding:14px;min-height:235px;display:flex;flex-direction:column;gap:8px;color:#fff;background:linear-gradient(135deg,#111827,#334155);box-shadow:0 14px 30px rgba(15,23,42,.16);position:relative;overflow:hidden}.v8-meme-mini:after{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:999px;background:rgba(255,255,255,.14)}.v8-meme-mini-top{display:flex;gap:7px;flex-wrap:wrap;position:relative;z-index:1}.v8-meme-mini .rarity,.v8-meme-mini .level{display:inline-flex;border-radius:999px;background:rgba(255,255,255,.18);padding:5px 9px;font-size:11px;font-weight:1000;color:#fff}.v8-meme-mini .emoji{font-size:38px;position:relative;z-index:1}.v8-meme-mini h3{margin:0;font-size:18px;line-height:1.22;position:relative;z-index:1}.v8-meme-mini p{margin:0;line-height:1.42;font-size:13px;position:relative;z-index:1;flex:1}.v8-meme-mini small{font-size:11px;font-weight:900;opacity:.84;position:relative;z-index:1}.v8-meme-mini-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;position:relative;z-index:1}.v8-meme-mini-actions button,.v8-meme-mini-actions a{height:38px;border:0;border-radius:13px;background:#fff;color:#111827!important;font-weight:1000;text-decoration:none;display:flex;align-items:center;justify-content:center;font-size:12px}.theme-doom,.theme-fire,.theme-boss{background:linear-gradient(135deg,#111827,#7c2d12,#ef4444)}.theme-warning,.theme-spicy{background:linear-gradient(135deg,#7c2d12,#f97316,#fde68a)}.theme-zen,.theme-green,.theme-shield{background:linear-gradient(135deg,#064e3b,#16a34a,#bbf7d0)}.theme-gold,.theme-trophy{background:linear-gradient(135deg,#78350f,#f59e0b,#fef3c7)}.theme-coffee{background:linear-gradient(135deg,#3f2412,#92400e,#fbbf24)}.theme-parcel,.theme-mart{background:linear-gradient(135deg,#1e3a8a,#2563eb,#93c5fd)}.theme-food,.theme-night{background:linear-gradient(135deg,#581c87,#db2777,#f9a8d4)}.theme-taxi{background:linear-gradient(135deg,#111827,#eab308)}.theme-medical{background:linear-gradient(135deg,#075985,#06b6d4,#cffafe)}.theme-stream,.theme-neon{background:linear-gradient(135deg,#020617,#7c3aed,#22d3ee)}.theme-kids{background:linear-gradient(135deg,#be123c,#f472b6,#fde68a)}.theme-beauty{background:linear-gradient(135deg,#831843,#ec4899,#fbcfe8)}.theme-cool{background:linear-gradient(135deg,#0f172a,#0ea5e9,#a7f3d0)}.theme-melt{background:linear-gradient(135deg,#020617,#475569,#94a3b8)}@media(max-width:420px){.v8-collection,.memeCollection{grid-template-columns:1fr}}.tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.txMain{display:flex;justify-content:space-between;gap:12px}.txMain b{display:block}.txMain span{display:block;color:#687385;font-size:12px;margin-top:4px}.tx details{margin-top:10px}.tx summary{font-weight:950;color:#2563eb}.v8-tx{background:#fff;border:1px solid #e8edf4;border-radius:21px;padding:13px;margin:9px 0;box-shadow:0 8px 20px rgba(15,23,42,.04)}.v8-tx-main{display:flex;justify-content:space-between;gap:12px}.v8-tx-main b{display:block}.v8-tx-main span{display:block;color:#687385;font-size:12px;margin-top:4px}.v8-tx details{margin-top:10px}.v8-tx summary{font-weight:950;color:#2563eb}.v8-edit{display:grid;gap:7px;margin-top:8px}.v8-edit input,.v8-edit select{height:39px;border:1px solid #d6deea;border-radius:13px;padding:0 10px}.v8-edit button,.v8-tx button{height:41px;border:0;border-radius:13px;background:#111827;color:#fff;font-weight:1000}.danger{background:#fee2e2!important;color:#991b1b!important}.empty{padding:20px;text-align:center;color:#687385}.notice{border-radius:15px;padding:10px;margin:10px 0;font-weight:950}.notice.ok{background:#dcfce7;color:#166534}.notice.error{background:#fee2e2;color:#991b1b}.notice.budgetWarn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.notice.budgetOver{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:1000}.bottom{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid #e8edf4;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.bottom a{text-decoration:none;color:#5b6472;font-size:11px;font-weight:900;text-align:center;padding:6px 0;border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:2px}.bottom a i{font-style:normal;font-size:19px;line-height:1}.bottom a.active{color:#111827}.bottom a.tabAdd{position:relative}.bottom a.tabAdd i{width:38px;height:38px;margin-top:-16px;border-radius:50%;background:#111827;color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 6px 16px rgba(17,24,39,.28)}.bottom a.tabAdd span{color:#111827}@media(max-width:360px){.quickMenu{grid-template-columns:repeat(2,1fr)}.statGrid{grid-template-columns:1fr}.memeMini{grid-template-columns:1fr}}
 
 /* v22.6.9 spender visibility and edit controls */
 .v8-spender{color:#475569!important;font-weight:900}.v8-edit-field{display:grid;gap:5px}.v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385;font-weight:1000}.v8-spender-readonly{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:39px;border:1px solid #e5e7eb;border-radius:13px;padding:0 10px;background:#f8fafc}.v8-spender-readonly b{font-size:13px}
@@ -20018,6 +19708,13 @@ const MOBILE_V81_CSS = `
 #add h2{margin-bottom:10px}
 .grid2{align-items:center}
 .v8-tx-main strong{white-space:nowrap}
+.v8-tx details.v8-editWrap{margin-top:0}
+.v8-tx summary.v8-tx-main,body.abV22812Shell .v8-tx summary.v8-tx-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;min-height:44px;padding:0;color:inherit;font-weight:inherit;list-style:none;cursor:pointer}
+.v8-tx summary.v8-tx-main::-webkit-details-marker{display:none}
+.v8-tx summary.v8-tx-main>strong::after{content:"›";display:inline-block;margin-left:6px;color:#94a3b8;font-weight:700;transition:transform var(--ab12-dur-fast,120ms) var(--ab12-ease,ease)}
+.v8-tx details[open]>summary.v8-tx-main>strong::after{transform:rotate(90deg)}
+.v8-tx details[open]>.v8-editSlot{margin-top:10px}
+.v8-tx summary.v8-tx-main:focus-visible{outline:3px solid #2563eb;outline-offset:4px;border-radius:12px}
 .memeMini,.v8-meme-mini{min-width:0}
 .memeMiniActions,.v8-meme-mini-actions{align-self:stretch}
 @media(max-width:420px){.bottom{grid-template-columns:repeat(5,1fr)}.bottom a{font-size:10px;padding:6px 0}.bottom a i{font-size:17px}.memeCollection,.v8-collection{grid-template-columns:1fr!important}.memeMini,.v8-meme-mini{min-height:auto}}
@@ -20119,6 +19816,8 @@ body{padding-bottom:calc(126px + env(safe-area-inset-bottom,0px))}
 .filterQuick button,.filterQuick a{min-height:44px!important}
 .filterAdvanced{border:1px solid #e2e8f0;border-radius:14px;background:#f8fafc;padding:4px 10px}
 .filterAdvanced summary{cursor:pointer;min-height:42px;display:flex;align-items:center;font-size:13px;font-weight:1000;color:#475569}
+html[data-ab-resolved-theme="dark"] .txFilterMore>summary{color:var(--ab12-accent,#93c5fd)}
+html[data-ab-resolved-theme="dark"] .filterAdvanced summary{color:var(--ab12-muted,#cbd5e1)}
 .filterAdvancedGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:4px 0 9px}
 .filterAdvancedGrid>*{min-width:0;width:100%}
 .bottom{min-height:72px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
@@ -20793,19 +20492,19 @@ return {
 export default __nf.index.default;
 export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit } = __nf.index;
 `;
-const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22914.css";
-const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22914.css";
+const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css";
+const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22915.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css";
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22915.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22893.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22919.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22890.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22923.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -20920,7 +20619,7 @@ body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard bu
 .abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
 .abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
-html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small){color:var(--ab12-accent)!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small):not(.reserveEdit *){color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{background:var(--ab12-bg)!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),html[data-ab-resolved-theme="dark"] body.abV22812Shell.abV2281 :is(select,textarea){background:var(--ab12-input-bg)!important;background-color:var(--ab12-input-bg)!important;color:var(--ab12-text)!important;-webkit-text-fill-color:var(--ab12-text)!important;border-color:var(--ab12-line)!important;color-scheme:dark}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeBudget,.homeMetric,.homeCard,.homeOnboarding,.homeQuick a,.homeTx,.panel,.stat,.v8-stat,.v8-tx,.tx,.card,.record,.startPanel,.kpi,.iChip,.tchip,.metric,.summaryBox,.usageCard,.moneyList li,.stepCard,.tabPanel,.kwBox,.featuredCard,.menuRow,.menuStep,.appMenu,.abLayoutNav,.homeDesktopNav,.bottom,.abUxBottom,.abNavBottom,.appTop,.tableWrap,.scroll,table,.accountSecurity,.hhCard,.inviteStage,.settingsForm,.readOnlyNote,.empty){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
@@ -20929,7 +20628,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeUsage small,.hom
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeUsage small b{color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeUsage .abNavBudgetTrack{background:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeTrendSeg a{background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeTrendSeg .homeTrendOn{background:var(--ab12-accent)!important;color:#fff!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeTrendSeg .homeTrendOn{background:var(--ab12-accent)!important;color:#0b1220!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.txTabHead,.txTabFilter,.homeReserveCard){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeReserveEyebrow,.homeReserveCard small){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeReserveGo,.budgetTableSet){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
@@ -20965,7 +20664,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.error,.notice.error)
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.tip,.budgetOk,.status.ok,.modeTag.auto,.okmsg,.reauthOk){background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.budgetWarn,.status.warn,.warn,.foot,.guideLine,.inviteFold code,.inviteCode){background:var(--ab12-warn-bg)!important;color:var(--ab12-warn-text)!important;border-color:var(--ab12-warn-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.status.bad,.errmsg,.dangerZone){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.guide,.guideLine,.legacy,.sectionNote,.ok,.notice.ok,.error,.notice.error,.tip,.budgetOk,.status.ok,.modeTag.auto,.okmsg,.reauthOk,.budgetWarn,.status.warn,.warn,.foot,.privacyNote,.unregBox,.inviteFold code,.inviteCode,.status.bad,.errmsg,.dangerZone,.receiptConfirm,.receiptReadOnly) :is(b,strong,p,span,small,label){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.guide,.guideLine,.legacy,.sectionNote,.ok,.notice.ok,.error,.notice.error,.tip,.budgetOk,.status.ok,.modeTag.auto,.okmsg,.reauthOk,.budgetWarn,.status.warn,.warn,.foot,.privacyNote,.unregBox,.inviteFold code,.inviteCode,.status.bad,.errmsg,.dangerZone) :is(b,strong,p,span,small,label){color:inherit!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .modeTag.manual{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu :is(.menuEyebrow,.menuHeader p,.journeyCopy span,.menuSectionHead span,.featuredCopy span,.menuRowDesc,.advancedGroup>summary span){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMenu .advancedGroup>summary b{color:var(--ab12-text)!important}
@@ -20977,16 +20676,17 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.assetKi
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets .badge.okb{background:#123c33!important;color:#d1fae5!important;border-color:#2f6f5e!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAssets :is(.privacyNote,.unregBox,.preset.warn,.regLink){background:var(--ab12-warn-bg)!important;color:var(--ab12-warn-text)!important;border-color:var(--ab12-warn-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard :is(b,strong,span,small){color:inherit!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard:not(.alert) :is(span,small){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard :is(b,strong,span,small):not(.reserveEdit *){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard:not(.alert) :is(span,small):not(.reserveEdit *){color:var(--ab12-muted)!important}
+/* V22.9.18: 정기 화면의 배지·수정 단추·수입/지출 세그먼트는 페이지 인라인 CSS 가 밝은 바탕만 알았다. 다크에서 글자가 1.05~1.65:1 로 사라져 여기서 다크 짝을 준다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveKind.kindExpense{background:rgba(248,113,113,.18);color:#fca5a5!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveKind.kindIncome{background:rgba(52,211,153,.18);color:#6ee7b7!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveKind.kindRepeat{background:rgba(129,140,248,.22);color:#c7d2fe!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveEdit summary{background:rgba(147,197,253,.16);color:#bfdbfe}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveEdit[open]{background:var(--ab12-surface,#1e2026);border-color:var(--ab12-line,#3b475a)}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveTypeSeg span{background:var(--ab12-surface-raised,#262a33);color:var(--ab12-text,#edeff3)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveTypeSeg input:checked+span{background:#1d4ed8;color:#fff!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard.alert{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptContext,.receiptPanel,.receiptPreviewMeta){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptBack,.receiptSourcePick,.receiptPreview,.receiptDetected,.receiptSecondary){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptContext,.receiptPanel,.receiptSourcePick,.receiptPreview,.receiptPreviewMeta,.receiptDetected) :is(h2,b,strong,label,p,span,small){color:inherit!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptHeader p,.receiptPanelHead p,.receiptSourcePick small,.receiptPrivacy,.receiptTextHelp,.receiptPreviewMeta span,.receiptHelp,.receiptHelp ul){color:var(--ab12-muted)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptEyebrow,.receiptStep,.receiptSourceIcon,.receiptBack){color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptStep,.receiptSourceIcon,.receiptStatus){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptConfirm,.receiptReadOnly){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds .hhCard.active{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageHouseholds :is(.flow span,.stepBadge,.hhMain em){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}
@@ -21777,7 +21477,8 @@ body.abV22812Shell.abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)}
   body.abV22812Shell .abNavTop,body.abV22812Shell.abNavCollapsed .abNavTop{position:relative!important;display:flex!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;min-height:76px;padding:16px 30px 16px 16px!important;overflow:visible!important}
   body.abV22812Shell .abNavBrand{flex:1 1 auto!important;min-width:0!important;max-width:100%!important;gap:10px!important}
   body.abV22812Shell .abNavBrandText{display:flex!important;max-width:158px!important;min-width:0!important;overflow:hidden!important}
-  body.abV22812Shell .abNavBrandText,body.abV22812Shell .abNavBrandText small{white-space:nowrap!important;text-overflow:ellipsis!important;overflow:hidden!important}
+  body.abV22812Shell .abNavBrandText{white-space:normal!important;overflow-wrap:anywhere;text-overflow:clip!important;overflow:visible!important}
+  body.abV22812Shell .abNavBrandText small{white-space:nowrap!important;overflow:hidden!important}
   body.abV22812Shell.abNavCollapsed .abNavBrandText{display:none!important}
   body.abV22812Shell .abNavToggle,body.abV22812Shell.abNavCollapsed .abNavToggle{position:absolute!important;right:-15px!important;top:20px!important;z-index:6!important;width:32px!important;height:36px!important;display:grid!important;place-items:center!important;padding:0!important;border:1px solid var(--line)!important;border-radius:11px!important;background:var(--card)!important;color:var(--sub)!important;box-shadow:0 6px 16px rgba(15,23,42,.1)!important;transform:none!important}
   body.abV22812Shell .abNavToggle:hover{background:var(--accent-soft)!important;color:var(--accent)!important}
@@ -21787,14 +21488,17 @@ body.abV22812Shell.abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)}
   body.abV22812Shell.abMobileAppSurface main.wrap{padding:22px 24px 120px!important}
 }
 body.abV22812Shell .abActivityRail{display:none}
-@media(min-width:1181px){
+@media(min-width:901px) and (max-width:1180px){
+  body.abV22812Shell.abPageSettings .rowform{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(min-width:1320px){
   :root{--abActivityRailW:340px}
-  body.abV22812Shell.abMobileAppSurface{padding-right:var(--abActivityRailW)!important}
-  body.abV22812Shell.abMobileAppSurface .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))}
-  body.abV22812Shell.abMobileAppSurface.abNavCollapsed .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2))}
-  body.abV22812Shell.abMobileAppSurface .abSaveFeedback{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavWidth,238px) - var(--abActivityRailW) - 40px))}
-  body.abV22812Shell.abMobileAppSurface.abNavCollapsed .abSaveFeedback{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavCollapsed,72px) - var(--abActivityRailW) - 40px))}
-  body.abV22812Shell.abMobileAppSurface .abDayDetailOverlay,body.abV22812Shell.abMobileAppSurface .abQuickInputOverlay{padding-right:calc(var(--abActivityRailW) + 28px)}
+  body.abV22812Shell.abHasActivityRail{padding-right:var(--abActivityRailW)!important}
+  body.abV22812Shell.abHasActivityRail .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))}
+  body.abV22812Shell.abHasActivityRail.abNavCollapsed .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2))}
+  body.abV22812Shell.abHasActivityRail .abSaveFeedback{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavWidth,238px) - var(--abActivityRailW) - 40px))}
+  body.abV22812Shell.abHasActivityRail.abNavCollapsed .abSaveFeedback{left:calc(50% + (var(--abNavCollapsed,72px) / 2) - (var(--abActivityRailW) / 2));width:min(520px,calc(100vw - var(--abNavCollapsed,72px) - var(--abActivityRailW) - 40px))}
+  body.abV22812Shell.abHasActivityRail .abDayDetailOverlay,body.abV22812Shell.abHasActivityRail .abQuickInputOverlay{padding-right:calc(var(--abActivityRailW) + 28px)}
   body.abV22812Shell .abActivityRail{position:fixed;right:0;top:0;bottom:0;z-index:2080;width:var(--abActivityRailW);display:flex;flex-direction:column;min-width:0;background:var(--card)!important;color:var(--text)!important;border-left:1px solid var(--line)!important;box-shadow:-10px 0 30px rgba(15,23,42,.07)}
   body.abV22812Shell .abActivityRail[hidden]{display:none!important}
 }
@@ -22043,7 +21747,7 @@ body.abV22812Shell.abPageMenu .featuredIcon{display:inline-flex;align-items:cent
 
    :has() 를 모르는 브라우저는 지금과 똑같이 340px 을 비운다(퇴보 없음). */
 @media(min-width:1181px){
-  body.abV22812Shell.abMobileAppSurface:has(.abActivityRail[hidden]){--abActivityRailW:0px}
+  body.abV22812Shell:not(.abHasActivityRail){--abActivityRailW:0px}
 }
 /* V22.9.12 (개편 8단계): 움직임을 설계한다.
 
@@ -22296,7 +22000,7 @@ function unwrapStyleElement(style = "") {
 // 조각 넷은 원래 페이지 내용을 보고 골라 넣던 것이다(v2284 는 구역을 잘라내고,
 // v2285 는 메뉴·로그인 블록을 더한다). 여기서는 **합집합**을 담는다. 안전한 이유는
 // 그 조각들의 셀렉터가 전부 페이지 클래스로 가드돼 있기 때문이다 — abMobileAppSurface,
-// abPageReceipts, abPageKeywords, abPageBackup, abPageMenu, abPageLogin. 해당 클래스가
+// abPageKeywords, abPageBackup, abPageMenu, abPageLogin. 해당 클래스가
 // 없는 화면에서는 규칙이 아예 매치되지 않으므로 실려 있어도 아무 일도 하지 않는다.
 // (그 가드를 실제로 세어서 확인했고, 검사로 고정해 뒀다.)
 //
@@ -22505,7 +22209,6 @@ function accountbookStage4NavClientMain() {
     if (path === "/my/backup") return params.get("mode") === "import" || location.hash === "#myImportForm" ? "import" : "backup";
     if (path === "/payment-methods") return "payment-methods";
     if (path === "/reserve-plans") return "reserve-plans";
-    if (path === "/receipts") return "receipts";
     if (path === "/reports") return "reports";
     if (path === "/annual" || path === "/annual-report") return "annual";
     if (path === "/goals" || path === "/savings-goals") return "goals";
@@ -23495,7 +23198,7 @@ async function abIconPng(size = 180) {
 // 홈 화면에 추가했을 때 앱처럼 열리도록 하는 최소 매니페스트.
 // display를 "browser"로 바꾸면 기존처럼 브라우저 UI를 유지한 채 열린다.
 const AB_WEB_MANIFEST = {
-  name: "똑똑한 가계부",
+  name: "말해 가계부",
   short_name: "가계부",
   description: "카카오톡으로 기록하고 웹에서 정리하는 우리집 가계부",
   lang: "ko",
@@ -23512,11 +23215,10 @@ const AB_WEB_MANIFEST = {
     { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
   ],
   // V22.9.8: 홈 화면 아이콘을 길게 누르면 바로 갈 수 있는 자리 셋.
-  // 가장 자주 하는 일 순서다 — 적는다 · 얼마 남았나 본다 · 영수증을 찍는다.
+  // 가장 자주 하는 일 순서다 — 적는다 · 얼마 남았나 본다.
   shortcuts: [
     { name: "빠른 입력", short_name: "입력", url: "/app#add" },
     { name: "이번 달 예산", short_name: "예산", url: "/budgets" },
-    { name: "영수증 찍기", short_name: "영수증", url: "/receipts" },
   ],
   // 카드 결제 알림이나 문자를 공유 시트에서 가계부로 넘기면 빠른 입력이 채워진 채 열린다.
   //
@@ -23567,7 +23269,7 @@ async function appIconAssetResponse(request, url) {
       "cache-control": "public, max-age=604800",
       "x-content-type-options": "nosniff",
       "cross-origin-resource-policy": "same-origin",
-      etag: route.kind === "manifest" ? '"ab-manifest-v2298"' : `"ab-icon-v22864-${route.kind}-${route.size}"`,
+      etag: route.kind === "manifest" ? '"ab-manifest-v22920"' : `"ab-icon-v22864-${route.kind}-${route.size}"`,
     },
   });
 }
@@ -23621,19 +23323,19 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === NUMBER_FLOW_ASSET_PATH
       ? '"number-flow-v22893-mjs"'
       : path === AB_UIUX_CSS_ASSET_PATH
-      ? '"ab-uiux-v22914-css"'
+      ? '"ab-uiux-v22919-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v22914-css"'
+      ? '"mobile-home-v22919-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22914-css"'
+        ? '"accountbook-shell-v22923-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22915-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22893-js"'
+          ? '"accountbook-nav-v22919-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22836-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -23643,7 +23345,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22890-js"'
+          ? '"accountbook-v5-v22923-js"'
           : '"mobile-home-v22915-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -24071,7 +23773,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}">
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}">
     <div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div>
     <div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div>
     <div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>
@@ -24307,7 +24009,7 @@ async function pcScopedContext(request, env, url) {
 }
 
 function pcHouseholdMonthFilters(action, households = [], selected = null, month = currentMonthKst()) {
-  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const opts = safeArray(households).map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   return `<form class="filters" method="get" action="${escapeHtml(action)}"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form>`;
 }
 
@@ -24575,7 +24277,7 @@ function renderPcCalendarHtml({ month, households, selectedHousehold, rows, stat
   const activeDayCards = activeDays.map((d) => dayCard(d, true)).join("") || `<p class="muted">이번 달 기록이 있는 날짜가 없습니다.</p>`;
   const days = calendar.map((d) => dayCard(d)).join("");
   const detail = Object.entries(daily).filter(([,v])=>v.count).sort(([a],[b])=>a.localeCompare(b)).map(([date, v]) => `<section class="card dayDetail" id="day-${escapeHtml(date)}"><h2>${escapeHtml(date)} · ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건</h2>${v.rows.map((r)=>`<div class="record"><div><b>${escapeHtml(r.memo || r.raw_text || r.category || "기록")}</b><span>${escapeHtml(r.spender_name || "미지정")} · ${escapeHtml(r.category || "미분류")} · ${escapeHtml(r.payment_method || "")}</span></div><strong class="${r.type === "income" ? "income" : "expense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>`).join("")}</section>`).join("") || `<section class="card">기록이 있는 날짜가 없습니다.</section>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(selected.name || "가계부")} · 캘린더</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:0;font-size:30px}.filters{display:grid;grid-template-columns:1fr 200px 120px 120px 120px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button,.filters a{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit;display:flex;align-items:center;justify-content:center;text-decoration:none;color:#111827}.filters button,.filters a.dark{background:#111827;color:#fff;font-weight:1000}.activeDayGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.fullCalendar summary{cursor:pointer;font-weight:1000;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px;margin-bottom:10px}.calendarGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.day{display:grid;grid-template-columns:auto auto;align-content:start;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;min-height:96px;box-shadow:0 8px 18px rgba(15,23,42,.035)}.day.hasSpend{border-color:#99f6e4;background:#f0fdfa}.day.heat1{background:#f0fdfa;border-color:#ccfbf1}.day.heat2{background:#ccfbf1;border-color:#99f6e4}.day.heat3{background:#99f6e4;border-color:#5eead4}.day.heat4{background:#5eead4;border-color:#2dd4bf}.day.heat5{background:#2dd4bf;border-color:#14b8a6}.day.heat4 span,.day.heat5 span{color:#134e4a}.heatLegend{display:flex;align-items:center;gap:5px;color:#64748b;font-size:12px;font-weight:900;margin:8px 0}.heatLegend i{display:inline-block;width:20px;height:12px;border-radius:4px;border:1px solid #e5e7eb}.heatLegend i.h1{background:#f0fdfa}.heatLegend i.h2{background:#ccfbf1}.heatLegend i.h3{background:#99f6e4}.heatLegend i.h4{background:#5eead4}.heatLegend i.h5{background:#2dd4bf}.day.emptyDay{opacity:.58}.day b{font-size:22px;line-height:1}.day em{font-style:normal;justify-self:end;color:#64748b;font-size:12px;font-weight:900}.day span{grid-column:1/-1;display:block;color:#0f766e;font-weight:1000;margin-top:8px}.day small{grid-column:1/-1;display:block;color:#64748b;margin-top:2px}.record{display:flex;justify-content:space-between;gap:10px;border:1px solid #e5e7eb;border-radius:16px;padding:12px;margin:8px 0}.record span{display:block;color:#64748b;font-size:13px}.income{color:#059669}.expense{color:#dc2626}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.filters{grid-template-columns:1fr 1fr}.filters select{grid-column:1/-1}.filters select,.filters input,.filters button,.filters a{width:100%;font-size:15px}.calendarGrid{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.day{min-height:58px;padding:7px 3px;grid-template-columns:1fr;align-content:start;justify-items:center;border-radius:11px;box-shadow:none}.day b{font-size:13px;line-height:1}.day em{display:none}.day span{grid-column:1/-1;margin-top:5px;font-size:10px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}.day small{display:none}.record{display:block}.record strong{display:block;margin-top:6px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.card{border-radius:20px;padding:16px}}</style></head><body>${renderUnifiedNav("calendar", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><section class="hero"><h1>${escapeHtml(selected.name || "가계부")} 캘린더</h1><p>월 이동과 일별 지출금액/건수를 한 화면에서 확인합니다.</p><form class="filters" method="get" action="/calendar"><select name="household_id">${households.map((h)=>`<option value="${escapeHtml(h.id)}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="dark" href="/calendar?month=${encodeURIComponent(prevMonth)}&household_id=${encodeURIComponent(selected.id || "")}">이전달</a><a class="dark" href="/calendar?month=${encodeURIComponent(nextMonth)}&household_id=${encodeURIComponent(selected.id || "")}">다음달</a></form></section><section class="card"><h2>기록 있는 날짜</h2><div class="activeDayGrid">${activeDayCards}</div></section><section class="card"><details class="fullCalendar"><summary>전체 날짜 달력 펼쳐 보기</summary><div class="heatLegend">지출 적음 <i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><i class="h5"></i> 많음 · 색이 진할수록 그날 지출이 큽니다</div><div class="calendarGrid">${days}</div></details></section>${detail}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(selected.name || "가계부")} · 캘린더</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:0;font-size:30px}.filters{display:grid;grid-template-columns:1fr 200px 120px 120px 120px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button,.filters a{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit;display:flex;align-items:center;justify-content:center;text-decoration:none;color:#111827}.filters button,.filters a.dark{background:#111827;color:#fff;font-weight:1000}.activeDayGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.fullCalendar summary{cursor:pointer;font-weight:1000;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px;margin-bottom:10px}.calendarGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.day{display:grid;grid-template-columns:auto auto;align-content:start;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;min-height:96px;box-shadow:0 8px 18px rgba(15,23,42,.035)}.day.hasSpend{border-color:#99f6e4;background:#f0fdfa}.day.heat1{background:#f0fdfa;border-color:#ccfbf1}.day.heat2{background:#ccfbf1;border-color:#99f6e4}.day.heat3{background:#99f6e4;border-color:#5eead4}.day.heat4{background:#5eead4;border-color:#2dd4bf}.day.heat5{background:#2dd4bf;border-color:#14b8a6}.day.heat4 span,.day.heat5 span{color:#134e4a}.heatLegend{display:flex;align-items:center;gap:5px;color:#64748b;font-size:12px;font-weight:900;margin:8px 0}.heatLegend i{display:inline-block;width:20px;height:12px;border-radius:4px;border:1px solid #e5e7eb}.heatLegend i.h1{background:#f0fdfa}.heatLegend i.h2{background:#ccfbf1}.heatLegend i.h3{background:#99f6e4}.heatLegend i.h4{background:#5eead4}.heatLegend i.h5{background:#2dd4bf}.day.emptyDay{opacity:.58}.day b{font-size:22px;line-height:1}.day em{font-style:normal;justify-self:end;color:#64748b;font-size:12px;font-weight:900}.day span{grid-column:1/-1;display:block;color:#0f766e;font-weight:1000;margin-top:8px}.day small{grid-column:1/-1;display:block;color:#64748b;margin-top:2px}.record{display:flex;justify-content:space-between;gap:10px;border:1px solid #e5e7eb;border-radius:16px;padding:12px;margin:8px 0}.record span{display:block;color:#64748b;font-size:13px}.income{color:#059669}.expense{color:#dc2626}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.filters{grid-template-columns:1fr 1fr}.filters select{grid-column:1/-1}.filters select,.filters input,.filters button,.filters a{width:100%;font-size:15px}.calendarGrid{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.day{min-height:58px;padding:7px 3px;grid-template-columns:1fr;align-content:start;justify-items:center;border-radius:11px;box-shadow:none}.day b{font-size:13px;line-height:1}.day em{display:none}.day span{grid-column:1/-1;margin-top:5px;font-size:10px;text-align:center;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}.day small{display:none}.record{display:block}.record strong{display:block;margin-top:6px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.card{border-radius:20px;padding:16px}}</style></head><body>${renderUnifiedNav("calendar", { month, householdId: selected.id || "", householdName: selected.name || "가계부" })}<main class="wrap"><section class="hero"><h1>${escapeHtml(selected.name || "가계부")} 캘린더</h1><p>월 이동과 일별 지출금액/건수를 한 화면에서 확인합니다.</p><form class="filters" method="get" action="/calendar"><select name="household_id">${households.map((h)=>`<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="dark" href="/calendar?month=${encodeURIComponent(prevMonth)}&household_id=${encodeURIComponent(selected.id || "")}">이전달</a><a class="dark" href="/calendar?month=${encodeURIComponent(nextMonth)}&household_id=${encodeURIComponent(selected.id || "")}">다음달</a></form></section><section class="card"><h2>기록 있는 날짜</h2><div class="activeDayGrid">${activeDayCards}</div></section><section class="card"><details class="fullCalendar"><summary>전체 날짜 달력 펼쳐 보기</summary><div class="heatLegend">지출 적음 <i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><i class="h5"></i> 많음 · 색이 진할수록 그날 지출이 큽니다</div><div class="calendarGrid">${days}</div></details></section>${detail}</main></body></html>`;
 }
 
 async function handlePcCalendarPage(request, env, url) {
@@ -24609,13 +24311,13 @@ function moneyPlanTabsCss() {
   return `.abMoneyPlanTabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}`
     + `.abMoneyPlanTabs a{display:grid;gap:3px;align-content:center;padding:11px 12px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;color:#475467!important;text-decoration:none;min-width:0}`
     + `.abMoneyPlanTabs a b{font-size:14px;font-weight:1000;overflow-wrap:anywhere}`
-    + `.abMoneyPlanTabs a small{font-size:11px;color:#98a2b3;font-weight:900}`
+    + `.abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:900}`
     + `.abMoneyPlanTabs a.on{background:#111827;border-color:#111827;color:#fff!important}`
     + `.abMoneyPlanTabs a.on small{color:#cbd5e1}`
     + `@media(max-width:600px){.abMoneyPlanTabs{grid-template-columns:1fr;gap:6px}.abMoneyPlanTabs a{display:flex;align-items:baseline;gap:8px;padding:10px 12px}}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a{background:#1e2026;border-color:#3b475a;color:#edeff3!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a small{color:#b3bdc9}`
-    + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#4e96fa;border-color:#4e96fa;color:#fff!important}`
+    + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on small{color:#dbeafe}`;
 }
 
@@ -24787,7 +24489,7 @@ async function handleBudgetCenterPage(request, env, url) {
     return `<article class="usageCard${usageState}"><div><b>${escapeHtml(row.name)}</b><span>${budgetStatusLabel(usage.rate || 0)}</span></div><dl><div><dt>예산</dt><dd>${numberWithCommas(row.amount)}원</dd></div><div><dt>사용</dt><dd>${numberWithCommas(usage.spent)}원</dd></div><div><dt>남음</dt><dd>${numberWithCommas(remain)}원</dd></div></dl><div class="miniBar"><i style="width:${Math.min(100, Math.max(0, usage.rate || 0))}%"></i></div><small>사용률 ${numberWithCommas(usage.rate || 0)}%</small></article>`;
   }).join("") : `<div class="empty">지출 분류별 한도를 저장하면 사용 현황이 표시됩니다.</div>`;
   const legacyTotal = budgets.find((b) => String(b.category || "") === "__total") || null;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${String(h.id) === String(householdId) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(householdId) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const hh = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
@@ -24837,7 +24539,7 @@ async function handleBudgetCenterPageLegacyV2264(request, env, url) {
   const totalBudgetRow = budgets.find((b) => String(b.category || "") === "__total") || {};
   const incomeBudgetRow = budgets.find((b) => String(b.category || "") === "__income") || {};
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const incomeOptions = CATEGORY_KEYWORD_GUIDE.filter((g) => g.type === "income").map((g) => `<option value="__income:${escapeHtml(g.category)}">${escapeHtml(g.category)} 수입 기준</option>`).join("");
   const budgetBasisList = renderBudgetBasisRows(budgets);
@@ -25168,7 +24870,7 @@ function renderUserLoginHtml(env, error = "", returnTo = "") {
   // 로그인이 풀려 튕겨 나온 사람은 원래 보던 화면으로 돌아가야 한다.
   const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.loginPage{max-width:960px;margin:0 auto;padding:24px 20px 96px}.hero,.card{background:#fff;border:1px solid #e3e8ef;border-radius:20px;box-shadow:0 4px 18px rgba(15,23,42,.045);padding:22px}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:800}.muted{color:#667085;line-height:1.6}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:14px}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:13px;font-weight:700;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:750;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:#FEE500!important;color:#191919!important;border:1px solid rgba(245,158,11,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#7b8494;font-weight:700;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.kakaoSpinner{animation-duration:2.4s}}@media(max-width:760px){.loginPage{padding:10px 12px 96px}.loginGrid{grid-template-columns:1fr}}</style></head><body><main class="loginPage"><section class="hero loginHero"><span class="badge">${title}</span><h1>내 가계부에 접속하세요.</h1><p class="muted">기존 계정은 로그인 이름과 비밀번호만 입력하면 바로 이어서 사용할 수 있습니다.</p>${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ""}${kakaoPart}</section><section class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form></div><details class="card signupCard"><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></section><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>💡 가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
 }
 
 function myNavCss() {
@@ -25207,7 +24909,7 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
   };
   const securityHref = `/my/backup-login?return_to=${encodeURIComponent(returnByMenu[current] || `/my/households?${qs}`)}`;
   const item = (key, href, label, hint = "") => `<a class="${current === key ? "active" : ""}" href="${href}"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</a>`;
-  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "무료 스마트 도구", "예측·자동화")}${item("receipts", `/receipts?${qs}`, "영수증 기록", "사진·문자")}${item("reports", `/reports?${qs}`, "자동 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<1024){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
+  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "무료 스마트 도구", "예측·자동화")}${item("reports", `/reports?${qs}`, "자동 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<1024){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
 }
 
 function renderMemberOptions(members = [], selected = "") {
@@ -25660,7 +25362,6 @@ function buildPremiumState({ env, month, allRows, analysis, extended }) {
     availableFeatures: [
       "가족별 소비 비교 리포트",
       "월간 PDF/이미지 리포트",
-      "영수증 사진 자동 기록",
       "카테고리별 예산 자동 추천",
       "AI 절약 미션",
       "자동 주간·월간 리포트",
@@ -25991,14 +25692,12 @@ function formatMessage(msg) {
     current_password_wrong: "현재 관리자 비밀번호가 맞지 않습니다.",
     delete_confirm_required: "삭제 전 확인 문구를 정확히 입력해 주세요.",
     display_name_required: "이 가계부에서 사용할 내 이름을 입력해 주세요.",
-    duplicate_receipt: "같은 날짜·금액의 영수증 기록이 있어 중복 저장하지 않았습니다.",
     household_deleted: "가계부와 연결된 기록을 안전하게 삭제했습니다.",
     household_left: "가계부에서 나왔습니다. 기존 기록의 지출자 이름은 유지됩니다.",
     household_required: "먼저 사용할 가계부를 선택해 주세요.",
     household_updated: "가계부 이름을 변경했습니다.",
     invalid_date: "날짜를 확인해 주세요. 기록은 변경되지 않았습니다.",
     invalid_mode: "지원하지 않는 정산 방식입니다. 방식을 다시 선택해 주세요.",
-    invalid_receipt: "영수증의 날짜와 0원보다 큰 금액을 확인해 주세요.",
     login_required: "이 기능을 사용하려면 먼저 로그인해 주세요.",
     manage_required: "가계부 소유자 또는 관리자만 변경할 수 있습니다.",
     member_missing: "변경할 참여자를 찾지 못했습니다. 목록을 새로 열어 다시 선택해 주세요.",
@@ -26009,7 +25708,6 @@ function formatMessage(msg) {
     personal_password_mismatch: "내 계정 로그인 비밀번호 확인이 일치하지 않습니다.",
     personal_password_short: "내 계정 로그인 비밀번호는 8자리 이상으로 입력해 주세요.",
     preference_saved: "설정을 저장했습니다.",
-    receipt_saved: "영수증 기록을 저장했습니다.",
     recurring_exists: "같은 반복 항목이 이미 등록되어 있어 중복 저장하지 않았습니다.",
     recurring_registered: "반복 항목을 등록했습니다.",
     recurring_save_failed: "반복 항목을 저장하지 못했습니다. 기존 데이터는 유지됩니다.",
@@ -26174,7 +25872,27 @@ function kakaoAmbiguityGuide(utterance = "", origin = "") {
   return null;
 }
 
+// V22.9.17: "안녕"·"고마워" 같은 인사에 "이해하지 못했어요"로 답하고 있었다. 첫 인사가 오류 문구면
+// 안 된다. 짧은 인사로 받고 다음 행동만 짚어 준다. 금액이 섞인 문장은 인사로 보지 않는다.
+const KAKAO_GREETING_PATTERN = /^(안녕|안녕하세요|안녕하십니까|하이|헬로|반가워|반갑습니다|ㅎㅇ|좋은\s*아침|굿모닝|굿나잇|잘\s*자|고마워|고맙습니다|감사|감사합니다|땡큐|수고|수고했어|잘\s*했어|최고|짱|ㅋㅋ+|ㅎㅎ+)[!~.^\s]*$/;
+
+function isKakaoGreetingUtterance(utterance = "") {
+  const t = normalizeText(utterance);
+  if (!t || /\d/.test(t)) return false;
+  return KAKAO_GREETING_PATTERN.test(t);
+}
+
+function kakaoGreetingReply(utterance = "") {
+  const t = normalizeText(utterance);
+  const thanks = /(고마|감사|땡큐|수고|잘\s*했|최고|짱)/.test(t);
+  const text = thanks
+    ? "저도 고마워요 😊 오늘 쓴 돈이 있으면 바로 적어 주세요.\n예: 커피 4500원"
+    : "안녕하세요 😊 무엇을 도와드릴까요?\n\n지출은 이렇게 보내면 바로 기록돼요.\n• 점심 12000원 국민카드\n• 어제 병원 15000원";
+  return { text, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"], ["도움말", "도움말"]] };
+}
+
 function kakaoNoMatchGuide(utterance = "", origin = "") {
+  if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
   const nlu = detectKakaoNaturalIntent(utterance);
   const text = kakaoNoMatchGuideText(utterance, origin);
   if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["내 이름 변경", "내 이름 설정"], ["취소", "취소"]] };
@@ -26307,7 +26025,7 @@ function kakaoDataPolicyText(origin = "") {
   return [
     "🔐 개인정보·데이터 안내",
     "",
-    "똑똑한가계부는 단톡방 전체 대화를 읽거나 학습하지 않습니다.",
+    "말해가계부는 단톡방 전체 대화를 읽거나 학습하지 않습니다.",
     "봇에게 직접 보낸 명령어와 가계부 기록에 필요한 데이터만 처리합니다.",
     "",
     "저장되는 정보",
@@ -26557,20 +26275,13 @@ function kakaoMemeUnavailableText(origin = "") {
   ].filter(Boolean).join("\n");
 }
 
-function isKakaoReceiptCommand(utterance = "") {
-  const text = normalizeText(stripKakaoBotMention(utterance));
-  return /^(?:영수증|영수증\s*(?:등록|기록|사진|읽기|스캔)|사진\s*영수증)$/.test(text);
-}
-
-function kakaoReceiptCaptureGuideText(origin = "") {
+function kakaoImageNotSupportedText(origin = "") {
   return [
-    "🧾 영수증 사진 등록",
+    "📷 사진은 봇이 읽을 수 없어요.",
     "",
-    "현재 카카오톡 대화방의 사진 파일을 봇이 직접 읽지는 않습니다.",
-    "사진을 휴대폰에 저장한 뒤 아래 영수증 등록 화면에서 ‘앨범에서 선택’을 눌러주세요.",
-    "",
-    "사진은 서버에 올리지 않고 휴대폰 브라우저에서 글자를 읽습니다.",
-    origin ? `영수증 등록 열기\n${origin}/receipts` : "",
+    "금액과 내용을 글로 보내주세요.",
+    "예: 점심 12000원, 커피 4500원 카드",
+    origin ? `가계부 열기\n${origin}/app` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -26581,7 +26292,7 @@ function hasKakaoImageAttachment(payload = {}) {
     ...safeObject(payload?.action?.detailParams),
   };
   return Object.entries(params).some(([key, value]) => {
-    if (!/(?:image|photo|media|receipt|영수증|사진)/i.test(String(key || ""))) return false;
+    if (!/(?:image|photo|media|사진)/i.test(String(key || ""))) return false;
     let sample = "";
     try { sample = typeof value === "string" ? value : JSON.stringify(value); } catch (error) { sample = ""; }
     return /https?:\/\//i.test(sample) || /(?:image|photo|media)/i.test(sample);
@@ -26621,7 +26332,6 @@ async function kakaoHouseholdSwitchText(env, user = {}, origin = "") {
 
 function kakaoPublicCommandReply(utterance = "", origin = "", env = {}) {
   if (isCommandMenuCommand(utterance)) return kakaoCommandMenuText(origin);
-  if (isKakaoReceiptCommand(utterance)) return kakaoReceiptCaptureGuideText(origin);
   if (isLinkCommand(utterance)) return linkText(origin, "");
   if (isOpenBuilderGuideCommand(utterance)) return kakaoOpenBuilderGuideText(origin);
   if (isBrandGuideCommand(utterance)) return kakaoBrandGuideText(origin, env);
@@ -26796,9 +26506,10 @@ function hasKakaoEditSessionHint(kakaoUserKey = "", payload = {}) {
 }
 
 async function getKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}) {
+  // Failed state reads must not reroute a numeric edit reply into a new transaction.
+  const raw = await getSettingValueStrict(env, kakaoEditSessionKeyV4(kakaoUserKey, payload));
+  if (!raw) return null;
   try {
-    const raw = await getSettingValue(env, kakaoEditSessionKeyV4(kakaoUserKey, payload));
-    if (!raw) return null;
     const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!obj || !obj.entryNo || !obj.entryId || !obj.step) return null;
     AB_KAKAO_EDIT_SESSION_HINTS.set(kakaoEditSessionHintKey(kakaoUserKey, payload), Date.now());
@@ -27093,7 +26804,7 @@ function kakaoEditGuideText(origin = "") {
 }
 
 // =====================================================================
-// 똑똑한가계부 — 수정(edit) 파서 V4 (동봉 모듈 edit-parser-v4.js 이식본)
+// 말해가계부 — 수정(edit) 파서 V4 (동봉 모듈 edit-parser-v4.js 이식본)
 // "무한루프 원천 차단 + 이탈율 최소화" 전면 강화판
 // ---------------------------------------------------------------------
 // 방어선
@@ -27509,7 +27220,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} '${parsed.value}'${josa(parsed.value, "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/['원]$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -27527,12 +27238,19 @@ function handleEditMessage(session, textRaw, config = {}) {
   });
 }
 
+// V22.9.17: 저장 응답은 "60,000원"인데 수정 응답만 '60000'이었다. 금액은 저장과 같은 표기로 보여 준다.
+function editValueLabel(field, value) {
+  if (field === "amount" && /^\d+$/.test(String(value ?? "").trim())) return `${numberWithCommas(Number(value))}원`;
+  return `'${value}'`;
+}
+
 function applyResult(session, field, value) {
+  const shown = editValueLabel(field, value);
   return finish(session, {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} '${value}'${josa(value, "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/['원]$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -28002,7 +27720,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
 function stripKakaoBotMention(text = "") {
   let t = String(text || "").trim();
   // 그룹챗봇 payload에 멘션 문자열이 포함되는 환경도 안전하게 처리합니다.
-  t = t.replace(/^@?똑똑한가계부(?:봇)?\s*/i, "");
+  // V22.9.20: 이름을 바꿨지만 단톡방에는 옛 멘션이 남을 수 있어 둘 다 벗긴다.
+  t = t.replace(/^@?(?:말해가계부|똑똑한가계부)(?:봇)?\s*/i, "");
   t = t.replace(/^@[가-힣A-Za-z0-9_.-]{1,40}\s+/, "");
   return t.trim();
 }
@@ -28125,8 +27844,8 @@ function buildKakaoSkillTestPayload(utterance = "메뉴") {
         properties: { botUserKey: "test-bot-user-key" },
       },
     },
-    bot: { id: "test-bot", name: "똑똑한가계부" },
-    action: { id: "test-action", name: "똑똑한가계부_스킬_v21", params: {}, detailParams: {}, clientExtra: {} },
+    bot: { id: "test-bot", name: "말해가계부" },
+    action: { id: "test-action", name: "말해가계부_스킬_v21", params: {}, detailParams: {}, clientExtra: {} },
     contexts: [],
   };
 }
@@ -28388,9 +28107,9 @@ function kakaoFlowStateKey(userId = "", payload = {}) {
 }
 
 async function getKakaoFlowState(env, userId = "", payload = {}) {
+  const raw = await getSettingValueStrict(env, kakaoFlowStateKey(userId, payload));
+  if (!raw) return null;
   try {
-    const raw = await getSettingValue(env, kakaoFlowStateKey(userId, payload));
-    if (!raw) return null;
     const obj = typeof raw === "string" ? JSON.parse(raw || "{}") : raw;
     const valid = normalizeKakaoFlowStateV2254(obj);
     if (!valid) {
@@ -28428,13 +28147,20 @@ async function saveKakaoFlowState(env, userId = "", payload = {}, state = {}) {
 }
 
 async function clearKakaoFlowState(env, userId = "", payload = {}) {
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key: kakaoFlowStateKey(userId, payload), value: "{}" }),
+  });
+}
+
+async function completeKakaoFlowState(env, userId = "", payload = {}) {
   try {
-    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: kakaoFlowStateKey(userId, payload), value: "{}" }),
-    });
-  } catch (err) {}
+    await clearKakaoFlowState(env, userId, payload);
+    return "";
+  } catch (_) {
+    return "\n\n진행 상태 정리가 지연됐어요. 변경 사항을 다시 입력하지 말고 ‘시작’을 입력해 상태를 확인해 주세요.";
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -28447,17 +28173,16 @@ function kakaoSelectedHouseholdKey(userId = "") {
 }
 
 async function getKakaoSelectedHouseholdId(env, userId = "") {
-  try { return String(await getSettingValue(env, kakaoSelectedHouseholdKey(userId)) || "").trim(); }
-  catch (_) { return ""; }
+  return String(await getSettingValueStrict(env, kakaoSelectedHouseholdKey(userId)) || "").trim();
 }
 
 async function setKakaoSelectedHousehold(env, userId = "", householdId = "") {
   if (!userId || !householdId) return;
-  await optionalSupabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
     method: "POST",
     headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
     body: JSON.stringify({ key: kakaoSelectedHouseholdKey(userId), value: String(householdId) }),
-  }, null);
+  });
 }
 
 async function clearKakaoSelectedHousehold(env, userId = "") {
@@ -28576,7 +28301,7 @@ function kakaoDirectStartText(current = null, households = []) {
 function kakaoStartText(hasHousehold = false, householdName = "") {
   if (!hasHousehold) return [
     "안녕하세요 😊",
-    "카카오톡에서 함께 쓰는 똑똑한가계부입니다.",
+    "카카오톡에서 함께 쓰는 말해가계부입니다.",
     "",
     "먼저 가계부를 만들어 보세요!",
     "가족 생활비, 부부·커플, 모임 회비, 여행 경비처럼 용도에 맞게 만들 수 있어요.",
@@ -28593,7 +28318,7 @@ function kakaoStartText(hasHousehold = false, householdName = "") {
 
 function guidedHelpText(hasHousehold = false) {
   if (!hasHousehold) return [
-    "📒 똑똑한가계부 시작하기",
+    "📒 말해가계부 시작하기",
     "",
     "1. 새 가계부를 만들거나 초대코드로 참여합니다.",
     "2. 만든 사람은 초대하고, 참여자는 관리자 승인을 기다립니다.",
@@ -28602,7 +28327,7 @@ function guidedHelpText(hasHousehold = false) {
     "5. ‘오늘 기록 보기’로 저장 결과를 확인합니다. 예산은 이후에 설정해도 됩니다.",
   ].join("\n");
   return [
-    "📒 똑똑한가계부 사용법",
+    "📒 말해가계부 사용법",
     "",
     "기록: 점심 12000원 국민카드",
     "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
@@ -28933,8 +28658,11 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       }
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, target.invite_code || "", { allowReplace: true });
+      if (result.ok) {
+        const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
+        return { text: `✅ 단톡방 연결 완료\n가계부: ${target.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+      }
       await clearKakaoFlowState(env, user.id, payload);
-      if (result.ok) return { text: `✅ 단톡방 연결 완료\n가계부: ${target.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.`, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
       return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] };
     }
     const all = await fetchUserHouseholds(env, user.id);
@@ -28968,11 +28696,12 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       };
     }
     const action = String(state.data?.action || "select");
-    await clearKakaoFlowState(env, user.id, payload);
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
-      return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.`, quickReplies: kakaoStartQuickReplies(true) };
+      const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
+      return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
+    await clearKakaoFlowState(env, user.id, payload);
     if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
     if (action === "bind") {
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
@@ -28988,15 +28717,15 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const groupKey = getKakaoBotGroupKey(payload);
       if (existing) {
         if (!groupKey) await setKakaoSelectedHousehold(env, user.id, existing.id);
-        await clearKakaoFlowState(env, user.id, payload);
+        const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
         return {
-          text: [`같은 이름의 가계부가 이미 있어 새로 만들지 않았어요.`, `가계부: ${existing.name}`, groupKey ? "현재 단톡방 연결은 자동으로 바뀌지 않습니다." : "기존 가계부를 현재 가계부로 선택했어요."].join("\n"),
+          text: [`같은 이름의 가계부가 이미 있어 새로 만들지 않았어요.`, `가계부: ${existing.name}`, groupKey ? "현재 단톡방 연결은 자동으로 바뀌지 않습니다." : "기존 가계부를 현재 가계부로 선택했어요."].join("\n") + cleanupNotice,
           quickReplies: groupKey ? [["단톡방 연결", "단톡방 연결"], ["가계부 전환", "가계부 전환"]] : kakaoStartQuickReplies(true),
         };
       }
       const household = await createUserHousehold(env, user.id, name, nickname);
       if (!groupKey) await setKakaoSelectedHousehold(env, user.id, household.id);
-      await clearKakaoFlowState(env, user.id, payload);
+      const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const linked = groupKey ? await getLinkedKakaoGroupHousehold(env, groupKey) : null;
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "household", `${origin}/my/households`);
       return {
@@ -29007,7 +28736,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
           `초대코드: ${household.invite_code}`,
           "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
           groupKey ? (linked?.id ? `이 단톡방은 계속 ‘${linked.name}’ 가계부에 연결되어 있어요. 새 가계부로 바꾸려면 ‘단톡방 연결’을 진행해 주세요.` : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. ‘단톡방 연결’을 진행해 주세요.") : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
-        ].filter(Boolean).join("\n") + cta,
+        ].filter(Boolean).join("\n") + cta + cleanupNotice,
         quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
       };
     };
@@ -29087,10 +28816,10 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     if (!code) return { text: "초대코드를 입력해 주세요.\n예: ABC123", quickReplies: [["취소", "취소"]] };
     const joined = await joinHouseholdByCode(env, user.id, code);
     if (!joined) return { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["다시 입력", "초대코드로 참여"], ["취소", "취소"]] };
-    await clearKakaoFlowState(env, user.id, payload);
+    const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     if (!["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`, quickReplies: [["도움말", "도움말"]] };
-    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, quickReplies: kakaoStartQuickReplies(true) };
+    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말", "도움말"]] };
+    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
   return null;
 }
@@ -29108,7 +28837,11 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
   }
   if (state.data?.household_id && state.data.household_id !== household.id) {
     const savedHousehold = await getHouseholdById(env, state.data.household_id);
-    if (savedHousehold) household = savedHousehold;
+    if (!savedHousehold) {
+      await clearKakaoFlowState(env, user.id, payload);
+      return { text: "설정하던 가계부를 찾을 수 없어 설정을 중단했어요. 변경 사항은 저장하지 않았어요. ‘시작’을 입력해 가계부를 다시 선택해 주세요.", quickReplies: [["시작", "시작"]] };
+    }
+    household = savedHousehold;
   }
   if (state.flow === "member_alias") {
     const alias = normalizeText(utterance).replace(/^(내 이름|이름)\s*/, "").trim().slice(0, 20);
@@ -29119,8 +28852,8 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     }
     if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return { text: "가계부에서 표시할 이름을 2~20자로 입력해 주세요.\n예: 인남, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] };
     await saveMemberAlias(env, household.id, user.id, alias);
-    await clearKakaoFlowState(env, user.id, payload);
-    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.`, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+    const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
+    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
   }
   if (state.flow === "budget_setup") {
     const role = await getHouseholdMemberRole(env, user.id, household.id);
@@ -29141,8 +28874,8 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       }
       if (t === "지난달 예산 복사") {
         const copied = await copyKakaoBudgetsFromPreviousMonth(env, household.id, month);
-        await clearKakaoFlowState(env, user.id, payload);
-        return { text: copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`, quickReplies: [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]] };
+        const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
+        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]] };
       }
       return { text: "어떤 예산을 설정할까요?", quickReplies: kakaoBudgetRootQuickReplies() };
     }
@@ -29185,10 +28918,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       const category = state.data?.category || "__total";
       const amount = Number(state.data?.amount || 0);
       await saveKakaoBudget(env, household.id, month, category, amount);
-      await clearKakaoFlowState(env, user.id, payload);
+      const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
       return {
-        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + cta,
+        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + cta + cleanupNotice,
         quickReplies: [["다른 카테고리", "예산 설정"], ["예산 현황", "남은 예산"], ["기록 방법", "기록 방법"]],
       };
     }
@@ -29228,6 +28961,7 @@ async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_B
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const origin = publicBaseUrl(env, new URL(request.url));
   if (!kakaoSkillCallerAuthorized(request, env)) {
+    abMonitorOutcome(env, "auth_denied");
     rememberSkillEvent({ kind: "caller_auth_failed", user_key: "unknown", utterance: "", detail: "missing or invalid skill authentication header" });
     return kakaoText(kakaoSkillSafeFallbackText(origin), null, 403);
   }
@@ -29242,6 +28976,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     utterance = String(payload?.userRequest?.utterance || payload?.utterance || "").trim();
   } catch (err) {
     if (safeError(err).includes("skill_request_too_large")) {
+      abMonitorOutcome(env, "error");
       rememberSkillEvent({ kind: "request_too_large", user_key: "unknown", utterance: "", detail: `max_bytes=${KAKAO_SKILL_MAX_BODY_BYTES}` });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
@@ -29257,20 +28992,22 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
           lang: "ko",
           user: { id: "raw-test-bot-user-key", type: "botUserKey", properties: { botUserKey: "raw-test-bot-user-key" } },
         },
-        bot: { id: "raw-test-bot", name: "똑똑한가계부" },
-        action: { id: "raw-test-action", name: "똑똑한가계부_스킬_v21", params: {}, detailParams: {}, clientExtra: {} },
+        bot: { id: "raw-test-bot", name: "말해가계부" },
+        action: { id: "raw-test-action", name: "말해가계부_스킬_v21", params: {}, detailParams: {}, clientExtra: {} },
         contexts: [],
       };
       userKey = getKakaoUserKey(payload);
       utterance = rawUtterance;
       rememberSkillEvent({ kind: "raw_text_test", user_key: userKey, utterance, detail: "invalid JSON accepted as test utterance" });
     } else {
+      abMonitorOutcome(env, "error");
       rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
   }
 
   if (isKakaoQaPayload(payload) && !(await kakaoQaRequestAllowed(request, env))) {
+    abMonitorOutcome(env, "fallback");
     rememberSkillEvent({ kind: "qa_payload_blocked", user_key: userKey, utterance, detail: "production skill rejected a QA identity" });
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
@@ -29283,12 +29020,14 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
 
   const rate = checkSkillRateLimit(userKey, env);
   if (!rate.ok) {
+    abMonitorOutcome(env, "fallback");
     rememberSkillEvent({ kind: "rate_limited", user_key: userKey, utterance, detail: `${rate.count}/${rate.limit}` });
     return kakaoGroupCompatibleResponse(rateLimitedKakaoText(origin), payload, origin);
   }
 
   const repeat = checkKakaoRepeatGuard(userKey, utterance, env, payload);
   if (!repeat.ok) {
+    abMonitorOutcome(env, "ok");
     rememberSkillEvent({ kind: "repeat_guard", user_key: userKey, utterance, detail: `${repeat.elapsedMs}ms` });
     rememberDuplicateEvent({ kind: "kakao_repeat", source: "kakao_skill", user_id: userKey, detail: utterance, path: "/skill", method: "POST" });
     return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin)), payload, origin);
@@ -29354,7 +29093,7 @@ async function handleKakaoSkill(request, env) {
   const nickname = getKakaoNickname(payload);
 
   if (!utterance) {
-    if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoReceiptCaptureGuideText(origin));
+    if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoImageNotSupportedText(origin));
     return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
   }
 
@@ -29597,9 +29336,9 @@ async function handleKakaoSkill(request, env) {
   const directAlias = parseDirectMemberAliasCommand(utterance);
   if (directAlias) {
     await saveMemberAlias(env, household.id, user.id, directAlias);
-    await clearKakaoFlowState(env, user.id, payload);
+    const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     return kakaoText(`✅ 가계부: ${household.name}
-이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 지출은 ${directAlias} 지출로 집계됩니다.`, [["이번 달 요약", "이번 달 요약"], ["기록 방법", "기록 방법"]]);
+이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 지출은 ${directAlias} 지출로 집계됩니다.` + cleanupNotice, [["이번 달 요약", "이번 달 요약"], ["기록 방법", "기록 방법"]]);
   }
 
   if (isKakaoMemberAliasCommand(utterance)) {
@@ -29717,12 +29456,19 @@ const KAKAO_RETRY_DEDUP_SECONDS = 120;
 async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const existing = [];
   const fresh = [];
-  for (const row of cleanRows) {
-    // Only collapse retries within a short window so genuine repeat entries
-    // (e.g. two coffees the same day) are still saved. Manual §5: 재전송 멱등 처리.
-    const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: KAKAO_RETRY_DEDUP_SECONDS });
-    if (dup) existing.push(dup);
-    else fresh.push(row);
+  // Bound concurrent reads so a 25-row message does not incur 25 serial round trips.
+  // No inserts occur until every duplicate check succeeds; retain original row order.
+  for (let offset = 0; offset < cleanRows.length; offset += 5) {
+    const batch = cleanRows.slice(offset, offset + 5);
+    const duplicates = await Promise.all(batch.map((row) =>
+      findExactDuplicateTransaction(env, row, { withinSeconds: KAKAO_RETRY_DEDUP_SECONDS })
+    ));
+    for (let index = 0; index < batch.length; index += 1) {
+      // Only collapse retries within a short window so genuine repeat entries
+      // (e.g. two coffees the same day) are still saved. Manual §5: 재전송 멱등 처리.
+      if (duplicates[index]) existing.push(duplicates[index]);
+      else fresh.push(batch[index]);
+    }
   }
   return { existing, fresh };
 }
@@ -30443,9 +30189,11 @@ function normalizeKakaoGroupLinkItem(value = null, expectedGroupKey = "") {
   }
 }
 
-async function fetchLegacyKakaoGroupLinkMap(env) {
+async function fetchLegacyKakaoGroupLinkMap(env, strict = false) {
+  const value = strict
+    ? await getSettingValueStrict(env, kakaoGroupLinksSettingsKey())
+    : await getSettingValue(env, kakaoGroupLinksSettingsKey());
   try {
-    const value = await getSettingValue(env, kakaoGroupLinksSettingsKey());
     if (!value) return {};
     const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
     const out = {};
@@ -30456,6 +30204,7 @@ async function fetchLegacyKakaoGroupLinkMap(env) {
     }
     return out;
   } catch (err) {
+    if (strict) throw err;
     return {};
   }
 }
@@ -30549,15 +30298,15 @@ async function saveKakaoGroupLink(env, groupKey = "", household = {}, userId = "
 async function getLinkedKakaoGroupHousehold(env, groupKey = "") {
   const key = String(groupKey || "").trim();
   if (!key) return null;
-  // Read the authoritative per-room row and the legacy compatibility map in parallel.
-  // Existing rooms keep working without putting a migration write on every Kakao request.
-  const [itemValue, legacy] = await Promise.all([
-    getSettingValue(env, kakaoGroupLinkItemSettingsKey(key)),
-    fetchLegacyKakaoGroupLinkMap(env),
-  ]);
-  const linked = normalizeKakaoGroupLinkItem(itemValue, key) || legacy[key] || null;
+  // Only a successful empty primary read may fall back to the legacy mirror.
+  // A failed read must never change room scope or skip existing-link authorization.
+  const itemValue = await getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(key));
+  const primary = normalizeKakaoGroupLinkItem(itemValue, key);
+  if (itemValue && !primary) throw new Error("invalid_kakao_group_link");
+  const linked = primary || (await fetchLegacyKakaoGroupLinkMap(env, true))[key] || null;
   if (!linked?.household_id) return null;
-  const rows = await optionalSupabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(linked.household_id)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" }, []) || [];
+  // A failed lookup does not prove deletion. Preserve the link and propagate the error.
+  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(linked.household_id)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" }) || [];
   if (!rows?.[0]) {
     await removeKakaoGroupLink(env, key);
     return null;
@@ -30688,7 +30437,7 @@ async function handleIdentityAuditPage(request, env, url) {
   const selected = audit.selected;
   const msg = String(url.searchParams.get("msg") || "");
   const err = String(url.searchParams.get("err") || "");
-  const householdOptions = audit.households.map((h) => `<option value="${escapeHtml(h.id)}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name || h.id)}</option>`).join("");
+  const householdOptions = audit.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name || h.id)}</option>`).join("");
   const memberOptions = audit.members.map((m) => `<option value="${escapeHtml(m.user_id)}">${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(identityTypeLabel(m.kakao_user_key))} · 거래 ${numberWithCommas(m.transaction_count)}건</option>`).join("");
   const tableRows = audit.members.map((m) => `<tr><td><b>${escapeHtml(m.nickname || "구성원")}</b><br/><span>${escapeHtml(m.base_nickname || "")}</span></td><td>${escapeHtml(userHouseholdRoleLabel(m.role))}</td><td>${escapeHtml(identityTypeLabel(m.kakao_user_key))}<br/><code>${escapeHtml(maskIdentityKey(m.kakao_user_key))}</code></td><td>${numberWithCommas(m.transaction_count)}건</td><td>${escapeHtml(String(m.created_at || "").slice(0, 19).replace("T", " "))}</td></tr>`).join("") || `<tr><td colspan="5">참여자가 없습니다.</td></tr>`;
   const warning = audit.owners.length > 1 ? `소유자가 ${audit.owners.length}명입니다. 같은 사람의 챗봇·웹 로그인 계정이 나뉜 경우, 거래가 많은 계정을 주 계정으로 선택해 통합하세요.` : "소유자 수는 정상입니다.";
@@ -30976,16 +30725,30 @@ async function supabase(env, path, init = {}) {
   headers.set("authorization", `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
 
-  const res = await fetch(`${base}${path}`, { ...init, headers });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
-  }
-  if (!text) return null;
+  const monitor = env.__AB_MONITOR_REQUEST;
+  const startedAt = monitor ? Date.now() : 0;
+  let failed = false;
   try {
-    return JSON.parse(text);
-  } catch (_) {
-    return text;
+    const res = await fetch(`${base}${path}`, { ...init, headers });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+    }
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return text;
+    }
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    if (monitor) {
+      monitor.db_count += 1;
+      monitor.db_ms += Math.max(0, Date.now() - startedAt);
+      if (failed) monitor.db_failures += 1;
+    }
   }
 }
 
@@ -31074,7 +30837,7 @@ function isOpenBuilderGuideCommand(text) {
 }
 
 function isBrandGuideCommand(text) {
-  return /^(브랜드|브랜드명|로고|똑똑한가계부|심사문구|심사 문구)$/i.test(normalizeText(text));
+  return /^(브랜드|브랜드명|로고|말해가계부|똑똑한가계부|심사문구|심사 문구)$/i.test(normalizeText(text));
 }
 
 function isDataPolicyCommand(text) {
@@ -31607,6 +31370,14 @@ function ymd(year, month, day) {
   return formatDate(d);
 }
 
+// V22.9.17: 검증 전용 고정 시계. 검증 스크립트가 globalThis.__AB_QA_FIXED_NOW_MS 에 시각(ms)을
+// 넣으면 KST 기준 "지금"이 그 시각이 된다. 환경변수로는 켜지지 않는다 — 운영에서 시계를
+// 바꿀 길은 없다. 월말·연말에만 달라지는 화면을 아무 날에나 재현하려고 둔다.
+function qaFixedNowMs() {
+  const fixed = globalThis.__AB_QA_FIXED_NOW_MS;
+  return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
+}
+
 function nowKstDate() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -31617,7 +31388,7 @@ function nowKstDate() {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(qaFixedNowMs()));
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
   return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
 }
@@ -31848,7 +31619,7 @@ function makeInviteCode() {
 
 function linkText(origin, inviteCode = "") {
   return [
-    "🔗 똑똑한가계부 링크",
+    "🔗 말해가계부 링크",
     "",
     `가계부 시작하기: ${origin}/my`,
     `시작가이드: ${origin}/start-guide`,
@@ -31861,7 +31632,7 @@ function linkText(origin, inviteCode = "") {
 
 function helpText(inviteCode = "", origin = "") {
   return [
-    "📒 똑똑한가계부 사용법",
+    "📒 말해가계부 사용법",
     "",
     "처음이라면 ‘시작’을 입력해 가계부 만들기 또는 초대코드 참여부터 진행하세요.",
     "",
@@ -32166,14 +31937,16 @@ function renderDomainStatusRows(env = {}, url = null) {
   const publicBase = publicBaseUrl(env, url);
   const canonicalOn = String(env.CANONICAL_REDIRECT || "").trim() === "1";
   const hasPublic = !!normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || "");
+  const loginConfig = inspectKakaoLoginConfig(env);
   const rows = [
     ["현재 접속 주소", requestBase || "확인 불가", requestBase.includes("workers.dev") ? "교체 권장" : "정상"],
-    ["공개 기준 주소", publicBase || "미설정", hasPublic ? "설정됨" : "요청 origin 사용"],
+    ["공개 기준 주소", publicBase || "미설정", hasPublic ? "설정됨" : "기본 공개 주소 사용"],
     ["PUBLIC_BASE_URL", env.PUBLIC_BASE_URL ? "설정됨" : "미설정", env.PUBLIC_BASE_URL ? "정상" : "권장"],
     ["SERVICE_BASE_URL/APP_BASE_URL", (env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL) ? "보조 설정 있음" : "미설정", "선택"],
-    ["CANONICAL_REDIRECT", canonicalOn ? "1" : "꺼짐", canonicalOn ? "workers.dev → 공개 주소 리다이렉트" : "안전 기본값"],
+    ["CANONICAL_REDIRECT", canonicalOn ? "1" : "꺼짐", canonicalOn ? "다른 호스트의 GET → 공개 주소 308 (POST 유지)" : "안전 기본값"],
     ["Skill URL", `${publicBase}/skill`, publicBase.includes("workers.dev") ? "교체 필요" : "공개 가능"],
-    ["Redirect URI", `${publicBase}/auth/kakao/callback`, publicBase.includes("workers.dev") ? "교체 필요" : "공개 가능"],
+    ["KAKAO_REDIRECT_URI", loginConfig.redirectUri || "미설정", loginConfig.redirectUri && !loginConfig.issues.some((issue) => issue.startsWith("redirect_")) ? "설정됨" : "확인 필요"],
+    ["카카오 로그인 설정", loginConfig.ready ? "사용 가능" : loginConfig.enabled ? "설정 확인 필요" : "꺼짐", loginConfig.issues.join(", ") || "설정 오류 없음"],
   ];
   return rows.map(([a,b,c]) => `<tr><th>${escapeHtml(a)}</th><td>${escapeHtml(b)}</td><td><span class="badge">${escapeHtml(c)}</span></td></tr>`).join("");
 }
@@ -32201,22 +31974,25 @@ function renderFinalCandidateRows(env = {}, url = null) {
 async function handleDomainMigrationGuidePage(request, env, url) {
   const publicBase = publicBaseUrl(env, url);
   const requestBase = currentRequestBaseUrl(url);
+  const migrationBase = DEFAULT_PUBLIC_BASE_URL;
   const rows = renderDomainStatusRows(env, url);
   const title = escapeHtml(appName(env));
   const sample = [
     "# Cloudflare Workers > Settings > Variables",
-    "PUBLIC_BASE_URL=https://ttokttok-accountbook.com",
+    "PUBLIC_BASE_URL=https://malhaebook.com",
+    "KAKAO_REDIRECT_URI=https://malhaebook.com/auth/kakao/callback",
+    "APP_NAME=말해가계부",
     "# 커스텀 도메인 연결 후에만 선택",
     "CANONICAL_REDIRECT=1",
     "",
     "# Kakao Developers",
-    `Web domain: ${publicBase}`,
-    `Redirect URI: ${publicBase}/auth/kakao/callback`,
+    `Web domain: ${migrationBase}`,
+    `Redirect URI: ${migrationBase}/auth/kakao/callback`,
     "",
     "# Kakao OpenBuilder Skill URL",
-    `${publicBase}/skill`,
+    `${migrationBase}/skill`,
   ].join("\n");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 도메인 이전 점검</title><style>${releaseCandidateDomainStyle()}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="tag">${escapeHtml(APP_VERSION)}</span><h1>도메인 이전 점검</h1><p>기존 workers.dev 주소가 심사·사용자 화면에 노출되지 않도록 공개 기준 주소를 환경변수로 분리합니다.</p><p><a class="btn light" href="/beta-release-candidate">V21 최종 후보</a><a class="btn light" href="/operation-center">운영센터</a></p></section><section class="card"><h2>현재 도메인 상태</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>권장 적용 순서</h2><ol><li>Cloudflare Workers에 커스텀 도메인을 연결합니다.</li><li>Worker 환경변수 <b>PUBLIC_BASE_URL</b>에 새 공개 주소를 넣습니다.</li><li>Kakao Developers의 Web domain과 Redirect URI를 새 주소로 바꿉니다.</li><li>OpenBuilder Skill URL을 새 주소의 <b>/skill</b>로 바꿉니다.</li><li>새 주소에서 /my, /skill, /auth/kakao/callback, /privacy, /terms를 확인합니다.</li><li>완전히 확인한 뒤 <b>CANONICAL_REDIRECT=1</b>로 workers.dev 접속을 새 주소로 보냅니다.</li></ol></section><section class="card"><h2>복사용 설정</h2><pre>${escapeHtml(sample)}</pre><p class="note">현재 접속 주소: ${escapeHtml(requestBase)}<br/>공개 기준 주소: ${escapeHtml(publicBase)}</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 도메인 이전 점검</title><style>${releaseCandidateDomainStyle()}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="tag">${escapeHtml(APP_VERSION)}</span><h1>도메인 이전 점검</h1><p>기존 workers.dev 주소가 심사·사용자 화면에 노출되지 않도록 공개 기준 주소를 환경변수로 분리합니다.</p><p><a class="btn light" href="/beta-release-candidate">V21 최종 후보</a><a class="btn light" href="/operation-center">운영센터</a></p></section><section class="card"><h2>현재 도메인 상태</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>권장 적용 순서</h2><ol><li>Cloudflare Workers에 커스텀 도메인을 연결합니다.</li><li>Kakao Developers에 새 Web domain과 Redirect URI를 먼저 추가합니다.</li><li>Worker 환경변수 <b>PUBLIC_BASE_URL</b>과 <b>KAKAO_REDIRECT_URI</b>를 새 주소로 함께 바꾸고 <b>APP_NAME=말해가계부</b>를 설정합니다.</li><li>OpenBuilder Skill URL을 새 주소의 <b>/skill</b>로 바꿉니다.</li><li>새 주소에서 /my, /skill, /auth/kakao/callback, /privacy, /terms를 확인합니다.</li><li>완전히 확인한 뒤 <b>CANONICAL_REDIRECT=1</b>로 workers.dev 접속을 새 주소로 보냅니다.</li></ol></section><section class="card"><h2>복사용 설정</h2><pre>${escapeHtml(sample)}</pre><p class="note">현재 접속 주소: ${escapeHtml(requestBase)}<br/>공개 기준 주소: ${escapeHtml(publicBase)}</p></section></main></body></html>`);
 }
 
 async function handleBetaReleaseCandidateFinalPage(request, env, url) {
@@ -32321,7 +32097,7 @@ async function handleGroupChatbotTrafficScalePage(request, env, url) {
     "KAKAO_BULK_LIMIT=25",
     "",
     "# 주소 고정",
-    "PUBLIC_BASE_URL=https://ttokttok-accountbook.com",
+    "PUBLIC_BASE_URL=https://malhaebook.com",
     "CANONICAL_REDIRECT=1"
   ].join("\n");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 대량 트래픽 준비</title><style>${releaseCandidateDomainStyle()}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="tag">${escapeHtml(APP_VERSION)}</span><h1>그룹 챗봇 대량 트래픽 준비</h1><p>그룹 챗봇 승인 이후 유입이 늘어날 것을 전제로, 카카오 스킬 요청은 사용자 키 기준으로 제한하고 웹 쓰기 요청은 기존 중복방어를 유지합니다.</p><p><a class="btn light" href="/ops-dashboard">운영 대시보드</a><a class="btn light" href="/ops-traffic">트래픽 이벤트</a><a class="btn light" href="/skill-ops">스킬 운영</a></p></section><section class="card"><h2>현재 적용 기준</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>Cloudflare 환경변수 권장값</h2><pre>${escapeHtml(envCopy)}</pre></section><section class="card"><h2>운영 원칙</h2><p class="warn">처음 오픈할 때는 기능을 더 늘리지 말고 /skill 저장, 요약, 가계부 연결, 빠른 입력, 중복 방어만 집중 확인합니다. 장애가 생기면 새 기능 추가가 아니라 HOTFIX로만 처리합니다.</p></section></main></body></html>`);

@@ -39,7 +39,7 @@ try {
       created_at: `2026-07-28T00:${String(i % 60).padStart(2, "0")}:00.000Z`,
     });
   }
-  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/u/api/recent-transactions?month=2026-07&household_id=house-home", {
+  const response = await app.fetch(new Request("https://malhaebook.com/u/api/recent-transactions?month=2026-07&household_id=house-home", {
     headers: { cookie: fixture.cookie, accept: "application/json" },
   }), fixture.env, {});
   eq(response.status, 200, "bounded activity endpoint succeeds for a large month");

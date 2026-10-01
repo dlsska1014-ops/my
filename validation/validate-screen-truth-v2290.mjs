@@ -35,7 +35,7 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "런타임이 V22.9.0 을 알린다");
 
@@ -79,7 +79,7 @@ ok(/class="usageCard isOver"/.test(overBudgets), "분류별 사용 카드가 초
 
 // 상태를 달아 놓고 색이 닿지 않으면 아무 소용이 없다 — 실제로 .homeUsage 가 그랬다.
 // 상태 클래스마다 그 색을 실제로 칠하는 규칙이 셸 자산에 있는지 본다.
-const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22914.css`), {}, {})).text();
+const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22923.css`), {}, {})).text();
 for (const selector of [
   ".homeBudget.isOver .homeProgress i",
   ".homeReport.isOver .homeReportBars i",

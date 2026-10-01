@@ -22,20 +22,20 @@ import app from "../src/index.js";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
-  "/assets/accountbook-shell-v22914.css": "1f89cfcf27abe09cd42354ef7585a9c381c22872eb557b04435296c6c1eb6944",
-  "/assets/ab-uiux-v22914.css": "35bc2a64b63e38ae6672e87a2d3e5e4277048e40dbbb9b505b0aeaeeadfdfe20",
+  "/assets/accountbook-shell-v22923.css": "8362a56bd3fa310617833a64afd63661c7a2a9efc40f78451486e617bb3eb564",
+  "/assets/ab-uiux-v22919.css": "59510e82bbd2b373da76dfa1a070d2ccb40232e115e23da5c23251403fcc9f0c",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
-  "/assets/accountbook-nav-v22893.js": "c206a5b0597eb7b1070f58c7184db42f943da3ed3e596e6302cf0fe5b19e4724",
-  "/assets/accountbook-v5-v22890.js": "bcc5be2d64d9c7a3be55e0bbe6e7d6f7131720e5975d82315d59c73bd91746da",
+  "/assets/accountbook-nav-v22919.js": "dd250c75718d9f8246b5171284f5abb1b77f59dae1cead9d2f6bd6853e5e22d4",
+  "/assets/accountbook-v5-v22923.js": "4f475a813b164fda1ee3a92aa97bb4057cb34cda7c5205a1ce90040c7a7de682",
   "/assets/mobile-home-v22915.js": "38b828923a12319cd8b6055b3c7cf8c6bec9c7bcfaf0f77759ca14712d7ae290",
   "/assets/mobile-home-shell-v22915.js": "111977861090d5250ed254d5bc55b882ed6acb11d5af0e5dcbafb8893d99c21f",
   "/assets/ab-category-rules-v22915.js": "9d3775ac02d708bea2b8295bbbfe7b08e0f2ef17dda142e81194749ebbd32e98",
-  "/assets/mobile-home-v22914.css": "26d0a10549ccb95198abe5f9facda0e42a65819baee5c355639bfd74de6848c3",
+  "/assets/mobile-home-v22919.css": "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7",
 };
 
 const measured = {};

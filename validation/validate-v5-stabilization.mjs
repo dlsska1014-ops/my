@@ -21,7 +21,7 @@ async function request(fixture, path, { cookie = fixture.cookie, method = "GET",
   const headers = { accept: "application/json" };
   if (cookie) headers.cookie = cookie;
   if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+  const response = await app.fetch(new Request(`https://malhaebook.com${path}`, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
   }), fixture.env, {});
   const text = await response.text();
@@ -50,9 +50,9 @@ try {
   eq(fixture.db.accountbook_settings.length, settingsBefore, "invalid favorite request creates no setting");
 
   for (const [path, mime] of [
-    ["/assets/accountbook-shell-v22914.css", "text/css"],
-    ["/assets/accountbook-nav-v22893.js", "javascript"],
-    ["/assets/accountbook-v5-v22890.js", "javascript"],
+    ["/assets/accountbook-shell-v22923.css", "text/css"],
+    ["/assets/accountbook-nav-v22919.js", "javascript"],
+    ["/assets/accountbook-v5-v22923.js", "javascript"],
     ["/assets/accountbook-goals-v22843.js", "javascript"],
   ]) {
     const asset = await request(fixture, path);
@@ -63,8 +63,8 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "V5 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "V5 home keeps the HTML shell below 35 KiB");
-  ok(home.text.includes("accountbook-v5-v22890.js"), "V5 home loads the shared bundle");
-  ok(home.text.includes("accountbook-nav-v22893.js"), "V5 home loads the shared navigation runtime");
+  ok(home.text.includes("accountbook-v5-v22923.js"), "V5 home loads the shared bundle");
+  ok(home.text.includes("accountbook-nav-v22919.js"), "V5 home loads the shared navigation runtime");
 
   const annual = await request(fixture, "/annual?month=2026-07&household_id=house-home");
   eq(annual.response.status, 200, "annual report renders in the selected household");

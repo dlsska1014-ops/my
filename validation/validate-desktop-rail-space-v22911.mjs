@@ -24,22 +24,22 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 // 레일 폭 변수 하나로 자리를 정한다 — 도킹 바·저장 알림 위치도 이 변수에서 나오므로
 // 변수만 0 이 되면 나머지가 따라온다. 값을 여러 군데 적어 두면 그 중 하나가 남는다.
 ok(source.includes(":root{--abActivityRailW:340px}"), "레일 폭이 변수 하나에서 나온다");
-ok(source.includes("body.abV22812Shell.abMobileAppSurface{padding-right:var(--abActivityRailW)!important}"),
+ok(source.includes("body.abV22812Shell.abHasActivityRail{padding-right:var(--abActivityRailW)!important}"),
   "본문 오른쪽 여백이 그 변수를 그대로 쓴다");
-ok(source.includes("body.abV22812Shell.abMobileAppSurface:has(.abActivityRail[hidden]){--abActivityRailW:0px}"),
+ok(source.includes("body.abV22812Shell:not(.abHasActivityRail){--abActivityRailW:0px}"),
   "레일이 숨어 있으면 그 폭이 0 이 된다");
 
 // :has() 를 모르는 브라우저에서 화면이 깨지지 않아야 한다. 이 규칙은 값을 **줄이는**
 // 방향으로만 쓰므로, 규칙이 무시되면 개편 전과 똑같이 340px 을 비운다(퇴보 없음).
-const hasRule = source.slice(source.indexOf(":has(.abActivityRail[hidden])"), source.indexOf(":has(.abActivityRail[hidden])") + 120);
+const hasRule = source.slice(source.indexOf("body.abV22812Shell:not(.abHasActivityRail)"), source.indexOf("body.abV22812Shell:not(.abHasActivityRail)") + 88);
 ok(hasRule.includes("--abActivityRailW:0px"), "그 규칙이 하는 일은 폭을 0 으로 두는 것뿐이다");
 ok(!hasRule.includes("display:none") && !hasRule.includes("position:"), "레이아웃을 다시 짜지 않는다 — 미지원 브라우저는 예전 그대로 동작한다");
 
 // 도킹 바·저장 알림이 같은 변수에서 위치를 계산하는지 — 하나만 고치고 나머지를
 // 잊으면 레일이 없는 폭에서 바가 가운데가 아닌 곳에 선다.
 for (const consumer of [
-  "body.abV22812Shell.abMobileAppSurface .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))}",
-  "body.abV22812Shell.abMobileAppSurface .abSaveFeedback{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))",
+  "body.abV22812Shell.abHasActivityRail .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))}",
+  "body.abV22812Shell.abHasActivityRail .abSaveFeedback{left:calc(50% + (var(--abNavWidth,238px) / 2) - (var(--abActivityRailW) / 2))",
 ]) {
   ok(source.includes(consumer), `위치 계산이 같은 변수를 쓴다: ${consumer.slice(0, 60)}…`);
 }

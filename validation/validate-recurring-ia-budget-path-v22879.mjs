@@ -67,7 +67,7 @@ ok(source.includes('["budgets", "예산", "budget", `/budgets?month=${encodeURIC
 // 실제 렌더
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const get = (path) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const get = (path) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" },
 }), fixture.env, {});
 const hh = "&household_id=house-home";

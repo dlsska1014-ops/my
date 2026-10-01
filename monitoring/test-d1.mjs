@@ -1,0 +1,117 @@
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+import worker, { collect, summary } from "./worker.mjs";
+
+const sqlite=new DatabaseSync(":memory:");
+sqlite.exec(readFileSync(new URL("schema.sql",import.meta.url),"utf8"));
+const db={
+  prepare(sql) {
+    const statement=sqlite.prepare(sql);
+    let args=[];
+    const api={bind(...values){args=values;return api;},async all(){return {results:statement.all(...args)};},async first(){return statement.get(...args)||null;},run(){const data=statement.run(...args);return {success:true,meta:{changes:data.changes}};}};
+    return api;
+  },
+  async batch(statements) {sqlite.exec("BEGIN");try{const values=[];for(const s of statements)values.push(s.run());sqlite.exec("COMMIT");return values;}catch(e){sqlite.exec("ROLLBACK");throw e;}}
+};
+let checks=0;
+const ok=(value,message)=>{assert.ok(value,message);checks++;};
+const eq=(value,expected,message)=>{assert.deepEqual(value,expected,message);checks++;};
+const now=new Date();
+const env={MONITOR_DB:db,OPS_MONITOR_TOKEN:"sqlite-test-secret",CF_ANALYTICS_TOKEN:"only-a-test",CF_ACCOUNT_ID:"test-account",APP_WORKER_NAME:"test-app",APP_ORIGIN:"https://app.example",SUPABASE_ORG_ID:"test-org",CF_PLAN:"free",SUPABASE_PLAN:"free",PLAN_VERIFIED_AT:now.toISOString(),ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));}}};
+const originalFetch=globalThis.fetch;
+let graphFails=false;
+globalThis.fetch=async(input,init)=>{
+  const url=new URL(typeof input==="string"?input:input.url);
+  if(url.hostname==="api.cloudflare.com") {
+    if(String(init?.body).includes('d1AnalyticsAdaptiveGroups')&&!graphFails) return new Response(JSON.stringify({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:450000,rowsWritten:4000}}],storage:[{dimensions:{databaseId:'fixture'},max:{databaseSizeBytes:1048576}}]}]}}}));
+    if(graphFails)return new Response('{"errors":[{"message":"test failure"}]}');
+    return new Response(JSON.stringify({data:{viewer:{accounts:[{today:[{sum:{requests:20000,errors:0,subrequests:20},dimensions:{status:"success"}}],hour:[{sum:{requests:100,errors:0,subrequests:1}}],app:[{sum:{requests:19000,errors:0,subrequests:19}}]}]}}}));
+  }
+  return new Response(JSON.stringify(url.pathname==="/ready"?{ready:true}:{alive:true,version:"fixture"}));
+};
+const req=(path,init={})=>new Request("https://monitor.example"+path,{...init,headers:{authorization:"Bearer sqlite-test-secret","content-type":"application/json",...init.headers}});
+try {
+  await collect(env,now);
+  let result=await summary(env,now.getTime());
+  eq(result.states.cloudflare.status,"ok","real SQLite persists successful provider collection");
+  eq(result.quotas[1].value,30*1024**2,"database logical size persisted");
+  eq(result.quotas[1].limit,500*1024**2,"free project size allowance used");
+  eq(result.states.d1.status,"ok","D1 account usage persisted");
+  eq(result.quotas.find(q=>q.key==="d1_reads").value,450000,"D1 reads counted across account");
+  eq(result.quotas.find(q=>q.key==="d1_writes").limit,100000,"D1 write cap displayed");
+  eq(result.quotas.find(q=>q.key==="d1_storage").value,1048576,"D1 conservative daily maximum displayed");
+  eq(result.database.cpu_percent,null,"first persisted CPU sample unknown");
+  eq(result.quotas.find(q=>q.key==="egress").status,"unknown","missing billing usage cannot appear normal");
+  ok(result.unknown.length>0,"global status reports missing data");
+  eq(result.application.telemetry_status,"not_connected","missing application telemetry explicitly unobserved");
+  ok(result.unknown.includes("앱 요청 표본 미관측 또는 갱신 지연"),"unobserved application is included in global unknown state");
+  const monthStart=new Date(now);monthStart.setUTCDate(1);monthStart.setUTCHours(0,0,0,0);
+  const monthEnd=new Date(monthStart);monthEnd.setUTCMonth(monthEnd.getUTCMonth()+1);
+  for(const key of ["egress","cached_egress","storage"]) eq((await worker.fetch(req("/api/manual",{method:"POST",body:JSON.stringify({key,value:1024,scope:"organization",period_start:monthStart.toISOString(),period_end:monthEnd.toISOString()})}),env,{})).status,200,"normal billing values seeded through authenticated route");
+  result=await summary(env);
+  ok(result.quotas.every(q=>q.status==="normal"),"all provider and billing quota metrics can be normal in no-telemetry case");
+  eq(result.status,"unknown","missing application observations prevent false global normal despite healthy quotas");
+  const later=new Date(now.getTime()+300000);
+  env.ACCOUNTBOOK.fetch=async()=>new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:6,max_connections:60,cpu_counter:{total:200,idle:130}}}));
+  await collect(env,later);
+  result=await summary(env,later.getTime());
+  eq(result.database.cpu_percent,50,"separate persisted samples support CPU delta");
+  graphFails=true;
+  await collect(env,new Date(later.getTime()+300000));
+  result=await summary(env,later.getTime()+300000);
+  eq(result.states.cloudflare.status,"error","provider failure stored");
+  eq(result.quotas[0].value,null,"past successful quota is not reused as current normal after failure");
+  ok(result.states.cloudflare.last_success_at!==null,"last known success retained for diagnosis");
+  const telemetry={id:"test-event-123",at:Date.now(),route:"skill",method:"POST",status:200,duration_ms:100,db_count:2,db_ms:30,db_failures:0,outcome:"saved",sample_kind:"random",utterance:"never store"};
+  for(let i=0;i<2;i++)eq((await worker.fetch(req("/internal/telemetry",{method:"POST",body:JSON.stringify(telemetry)}),env,{})).status,202,"event insert accepted");
+  eq(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry").get().n,1,"retry deduplicated by event ID");
+  const stored=sqlite.prepare("SELECT * FROM telemetry").get();
+  ok(!JSON.stringify(stored).includes("never store"),"SQLite payload contains only allowlisted columns");
+  result=await summary(env);
+  eq(result.application.telemetry_status,"ok","recent accepted application sample is observable");
+  sqlite.prepare("UPDATE telemetry SET at=?").run(Date.now()-2*3600000);
+  result=await summary(env);
+  eq(result.application.telemetry_status,"stale","old application telemetry explicitly stale");
+  ok(result.unknown.includes("카카오 p95 표본 부족"),"insufficient latency samples included in global unknown state");
+  sqlite.prepare("UPDATE telemetry SET at=?").run(Date.now());
+  for(let i=0;i<80;i++) await worker.fetch(req("/internal/telemetry",{method:"POST",body:JSON.stringify({...telemetry,id:`cap-event-${i}`})}),env,{});
+  ok(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry").get().n<=10,"global diagnostic cap protects monitoring storage write budget");
+  const login=await worker.fetch(req("/internal/ticket",{method:"POST"}),env,{});
+  const {ticket}=await login.json();
+  const accept=await worker.fetch(new Request("https://monitor.example/session",{method:"POST",body:new URLSearchParams({ticket})}),env,{});
+  eq(accept.status,303,"one-use ticket creates separate monitor session");
+  ok(accept.headers.get("set-cookie").includes("HttpOnly")&&accept.headers.get("set-cookie").includes("Secure"),"monitor session protected cookie");
+  const replay=await worker.fetch(new Request("https://monitor.example/session",{method:"POST",body:new URLSearchParams({ticket})}),env,{});
+  eq(replay.status,401,"one-use ticket cannot be replayed");
+  const cookie=accept.headers.get("set-cookie").split(";")[0];
+  const csrf=await worker.fetch(new Request("https://monitor.example/api/plans",{method:"POST",headers:{cookie,origin:"https://evil.example"},body:JSON.stringify({cloudflare:"paid",supabase:"pro"})}),env,{});
+  eq(csrf.status,403,"cross-origin setting write rejected");
+  const internal=await worker.fetch(new Request("https://monitor.example/internal/ticket",{method:"POST",headers:{cookie,origin:"https://monitor.example"}}),env,{});
+  eq(internal.status,403,"browser session cannot invoke internal collector routes");
+  const page=await worker.fetch(new Request("https://monitor.example/",{headers:{cookie}}),env,{});
+  eq(page.status,200,"separate session reads monitoring dashboard");
+  eq(page.headers.get("cache-control"),"no-store","monitor pages are never cached");
+  const beginning=new Date(now);beginning.setUTCDate(1);beginning.setUTCHours(0,0,0,0);
+  const ending=new Date(beginning);ending.setUTCMonth(ending.getUTCMonth()+1);
+  const manual=await worker.fetch(req("/api/manual",{method:"POST",body:JSON.stringify({key:"egress",value:1024**3,scope:"organization",period_start:beginning.toISOString(),period_end:ending.toISOString()})}),env,{});
+  eq(manual.status,200,"valid organization billing record stored");
+  const invalidScope=await worker.fetch(req("/api/manual",{method:"POST",body:JSON.stringify({key:"egress",value:1,scope:"project",period_start:beginning.toISOString(),period_end:ending.toISOString()})}),env,{});
+  eq(invalidScope.status,400,"project subtotal cannot masquerade as organization total");
+  const plans=await worker.fetch(req("/api/plans",{method:"POST",body:JSON.stringify({cloudflare:"paid",supabase:"pro"})}),env,{});
+  eq(plans.status,200,"verified plan metadata stored without billing action");
+  result=await summary(env);
+  eq(result.quotas.find(q=>q.key==="database_size").limit,null,"Pro physical disk allowance is not compared with logical database size");
+  eq(result.plans.cloudflare,"paid","manual plan verification used");
+  sqlite.prepare("UPDATE manual_usage SET verified_at=? WHERE key='egress'").run(new Date(Date.now()-2*86400000).toISOString());
+  result=await summary(env);
+  eq(result.quotas.find(q=>q.key==="egress").status,"unknown","old manual billing record explicitly unknown");
+  sqlite.prepare("INSERT INTO telemetry(id,at,route,method,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,slot) VALUES('expired-record',?,'web','GET',200,1,0,0,0,'ok','random','expired-slot')").run(Date.now()-8*86400000);
+  sqlite.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES('retention-test',?,?, '{}')").run(new Date(Date.now()-32*86400000).toISOString(),new Date(Date.now()-32*86400000).toISOString());
+  const midnight=new Date(now);midnight.setUTCDate(midnight.getUTCDate()+1);midnight.setUTCHours(0,0,0,0);
+  await collect(env,midnight);
+  eq(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry WHERE id='expired-record'").get().n,0,"hourly cleanup removes old request observations");
+  eq(sqlite.prepare("SELECT COUNT(*) AS n FROM samples WHERE source='retention-test'").get().n,0,"daily cleanup removes old aggregates");
+  ok(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry").get().n>0,"retention cleanup preserves recent request observations");
+  console.log(`PASS: monitor D1 integration (${checks} checks)`);
+} finally {globalThis.fetch=originalFetch;sqlite.close();}

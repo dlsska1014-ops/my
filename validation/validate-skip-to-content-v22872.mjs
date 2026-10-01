@@ -15,10 +15,10 @@ ok(!/\.abSkipLink\{[^}]*(display:none|visibility:hidden)/.test(source), "the ski
 ok(/body\.abV22812Shell \.abSkipLink\{[^}]*position:fixed/.test(source), "the skip link is taken out of the layout flow");
 ok(/\.abSkipLink:focus[^{]*\{[^}]*top:12px/.test(source), "the skip link comes into view when focused");
 ok(/\.abSkipLink\{[^}]*min-height:44px/.test(source), "the skip link meets the 44px target size");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "the shell stylesheet moved to a new immutable address");
-ok(source.includes('"accountbook-shell-v22914-css"'), "the shell stylesheet ships a matching ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "the shell stylesheet moved to a new immutable address");
+ok(source.includes('"accountbook-shell-v22923-css"'), "the shell stylesheet ships a matching ETag");
 
-const ORIGIN = "https://ttokttok-accountbook.com";
+const ORIGIN = "https://malhaebook.com";
 const q = "month=2026-08&household_id=house-home";
 // 사용자가 실제로 여는 화면 전부. 한 화면이라도 빠지면 그 화면에서만 키보드 사용자가 갇힌다.
 const PAGES = [
@@ -27,7 +27,6 @@ const PAGES = [
   ["캘린더", `/app?${q}&view=calendar`],
   ["정기지출", `/reserve-plans?${q}`],
   ["가져오기", `/my/backup?${q}&mode=import`],
-  ["영수증 기록", `/receipts?${q}`],
   ["자산·계좌", `/payment-methods?${q}`],
   ["저축·목표", `/goals?${q}`],
   ["통계", `/my/analysis?${q}`],

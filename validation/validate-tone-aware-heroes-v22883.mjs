@@ -81,14 +81,14 @@ ok(source.includes("linear-gradient(135deg,#111827,#334155)"), "the slate decora
 //   immutable 1년 캐시 때문에 사용자에게 영영 반영되지 않는다.
 // ---------------------------------------------------------------------------
 
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(source), false, "the swept literals are gone from the shell too");
 
 // ---------------------------------------------------------------------------
 // 실제 렌더
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const get = (path) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const get = (path) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   headers: { cookie: fixture.cookie },
 }), fixture.env, {});
 const hh = "month=2026-07&household_id=house-home";
@@ -113,7 +113,7 @@ for (const [name, path, fallback] of [
 }
 
 // 셸 CSS 는 정말로 그대로다(내용이 같으면 주소를 올리지 않는 것이 맞다).
-const shellRes = await get("/assets/accountbook-shell-v22914.css");
+const shellRes = await get("/assets/accountbook-shell-v22923.css");
 eq(shellRes.status, 200, "the shell stylesheet is still served at its current address");
 const shellCss = await shellRes.text();
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(shellCss), false, "the shipped shell has no pinned hero colour either");

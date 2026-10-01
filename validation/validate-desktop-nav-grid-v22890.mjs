@@ -30,13 +30,13 @@ try {
   const get = async (path, cookie = fixture.cookie) => {
     const headers = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120" };
     if (cookie) headers.cookie = cookie;
-    const response = await app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, { headers }), fixture.env, {});
+    const response = await app.fetch(new Request(`https://malhaebook.com${path}`, { headers }), fixture.env, {});
     return { response, text: await response.text() };
   };
 
   const home = await get("/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "데스크톱 홈이 렌더된다");
-  const runtime = await get("/assets/accountbook-v5-v22890.js", "");
+  const runtime = await get("/assets/accountbook-v5-v22923.js", "");
   eq(runtime.response.status, 200, "사이드바 런타임이 서빙된다");
 
   // 1. 달력은 격자다. 칸마다 링크를 두는 대신 격자 하나가 정지점을 갖는다.

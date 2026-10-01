@@ -29,14 +29,14 @@ function skillPayload({ utterance, userKey = "kakao_login:2265", groupKey = "gro
       lang: "ko",
       user: { id: userKey, type: "botUserKey", properties: { botUserKey: userKey, botGroupKey: groupKey } },
     },
-    bot: { id: "qa-bot", name: "똑똑한가계부" },
+    bot: { id: "qa-bot", name: "말해가계부" },
     action: { id: "qa-action", name: "기록", params: {}, detailParams: {}, clientExtra: {} },
     contexts: [],
   };
 }
 
 async function callSkill(fixture, payload) {
-  const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
+  const response = await app.fetch(new Request("https://malhaebook.com/skill", {
     method: "POST",
     headers: { "content-type": "application/json; charset=utf-8" },
     body: JSON.stringify(payload),
@@ -54,7 +54,7 @@ function cookiePairs(headers) {
 
 const fixture = await createV2265QaFixture();
 try {
-  const pageResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/households?month=2026-07&household_id=house-home&manage=house-home", {
+  const pageResponse = await app.fetch(new Request("https://malhaebook.com/my/households?month=2026-07&household_id=house-home&manage=house-home", {
     headers: { cookie: fixture.cookie },
   }), fixture.env, {});
   eq(pageResponse.status, 200, "household management page renders");
@@ -70,7 +70,7 @@ try {
 
   const householdCount = fixture.db.households.length;
   const identityCount = fixture.db.accountbook_user_identities.length;
-  const createResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/create", {
+  const createResponse = await app.fetch(new Request("https://malhaebook.com/my/create", {
     method: "POST",
     headers: { cookie: fixture.cookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({ household_name: "비밀번호 없는 새 가계부", display_name: "Bin" }),
@@ -86,7 +86,7 @@ try {
 const sessionSecurityFixture = await createV2265QaFixture();
 try {
   sessionSecurityFixture.db.__fail_user_security_reads = true;
-  const blockedSession = await app.fetch(new Request("https://ttokttok-accountbook.com/app?month=2026-07&household_id=house-home", {
+  const blockedSession = await app.fetch(new Request("https://malhaebook.com/app?month=2026-07&household_id=house-home", {
     headers: { cookie: sessionSecurityFixture.cookie },
   }), sessionSecurityFixture.env, {});
   eq(blockedSession.status, 303, "session verification fails closed when revocation state cannot be read");
@@ -99,7 +99,7 @@ const explicitScopeFixture = await createV2265QaFixture();
 try {
   const memberCookie = await explicitScopeFixture.cookieFor("user-wifi");
   const beforeTransactions = explicitScopeFixture.db.transactions.length;
-  const foreignWrite = await app.fetch(new Request("https://ttokttok-accountbook.com/my/transactions", {
+  const foreignWrite = await app.fetch(new Request("https://malhaebook.com/my/transactions", {
     method: "POST",
     headers: { cookie: memberCookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({
@@ -117,14 +117,14 @@ try {
   eq(explicitScopeFixture.db.transactions.length, beforeTransactions, "foreign household write creates no transaction in the user's default household");
   ok(!explicitScopeFixture.db.transactions.some((item) => item.memo === "foreign-target-probe"), "foreign household payload is not persisted anywhere");
 
-  const foreignManagePage = await app.fetch(new Request("https://ttokttok-accountbook.com/my/households?month=2026-07&manage=house-trip", {
+  const foreignManagePage = await app.fetch(new Request("https://malhaebook.com/my/households?month=2026-07&manage=house-trip", {
     headers: { cookie: memberCookie },
   }), explicitScopeFixture.env, {});
   eq(foreignManagePage.status, 200, "foreign household management link renders the safe household list");
   const foreignManageHtml = await foreignManagePage.text();
   ok(!foreignManageHtml.includes('id="manage"'), "foreign household management link never opens the default household controls");
 
-  const foreignSettlement = await app.fetch(new Request("https://ttokttok-accountbook.com/settlement-summary?month=2026-07&household_id=house-trip", {
+  const foreignSettlement = await app.fetch(new Request("https://malhaebook.com/settlement-summary?month=2026-07&household_id=house-trip", {
     headers: { cookie: memberCookie },
   }), explicitScopeFixture.env, {});
   eq(foreignSettlement.status, 303, "foreign household read is rejected without dereferencing a fallback household");
@@ -139,36 +139,36 @@ try {
     CRON_SECRET: "qa-cron-secret",
     ADMIN_API_TOKEN: "qa-admin-token",
   });
-  const legacyGetCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?key=qa-cron-secret"), operationsAuthFixture.env, {});
+  const legacyGetCron = await app.fetch(new Request("https://malhaebook.com/cron/recurring/apply?key=qa-cron-secret"), operationsAuthFixture.env, {});
   eq(legacyGetCron.status, 404, "state-changing cron route no longer accepts GET requests");
 
-  const querySecretCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?key=qa-cron-secret", {
+  const querySecretCron = await app.fetch(new Request("https://malhaebook.com/cron/recurring/apply?key=qa-cron-secret", {
     method: "POST",
   }), operationsAuthFixture.env, {});
   eq(querySecretCron.status, 401, "cron secret in the URL query is rejected");
 
-  const headerSecretCron = await app.fetch(new Request("https://ttokttok-accountbook.com/cron/recurring/apply?month=2026-07", {
+  const headerSecretCron = await app.fetch(new Request("https://malhaebook.com/cron/recurring/apply?month=2026-07", {
     method: "POST",
     headers: { "x-cron-secret": "qa-cron-secret" },
   }), operationsAuthFixture.env, {});
   ok(headerSecretCron.status !== 401, "cron secret in the dedicated header authenticates the scheduler request");
 
-  const querySecretOps = await app.fetch(new Request("https://ttokttok-accountbook.com/ops-snapshot.json?key=qa-cron-secret"), operationsAuthFixture.env, {});
+  const querySecretOps = await app.fetch(new Request("https://malhaebook.com/ops-snapshot.json?key=qa-cron-secret"), operationsAuthFixture.env, {});
   eq(querySecretOps.status, 401, "cron query secret cannot open the administrator operations snapshot");
 
-  const adminTokenOps = await app.fetch(new Request("https://ttokttok-accountbook.com/ops-snapshot.json", {
+  const adminTokenOps = await app.fetch(new Request("https://malhaebook.com/ops-snapshot.json", {
     headers: { authorization: "Bearer qa-admin-token" },
   }), operationsAuthFixture.env, {});
   eq(adminTokenOps.status, 200, "administrator bearer token still opens the operations snapshot");
 
-  const healthResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/health"), operationsAuthFixture.env, {});
+  const healthResponse = await app.fetch(new Request("https://malhaebook.com/health"), operationsAuthFixture.env, {});
   eq(healthResponse.status, 200, "liveness endpoint stays available while dependency readiness is checked separately");
   const health = await healthResponse.json();
   eq(health.status, "alive", "health endpoint reports process liveness explicitly");
   ok(!Object.hasOwn(health, "ready"), "health endpoint never claims database readiness without dependency checks");
 
   operationsAuthFixture.env.ADMIN_SESSION_SECRET = "qa-admin-session";
-  const readyResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/ready"), operationsAuthFixture.env, {});
+  const readyResponse = await app.fetch(new Request("https://malhaebook.com/ready"), operationsAuthFixture.env, {});
   eq(readyResponse.status, 503, "readiness endpoint fails closed when a required RPC is absent");
   const readiness = await readyResponse.json();
   eq(readiness.checked_rpcs, 17, "readiness endpoint checks required authentication, write, and asset mutation RPCs");
@@ -186,7 +186,7 @@ try {
     return missingRpcFetch(input, init);
   };
   try {
-    const signatureReadyResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/ready"), operationsAuthFixture.env, {});
+    const signatureReadyResponse = await app.fetch(new Request("https://malhaebook.com/ready"), operationsAuthFixture.env, {});
     eq(signatureReadyResponse.status, 200, "readiness accepts validation errors after PostgREST resolves the real RPC parameter signature");
     const signatureReadiness = await signatureReadyResponse.json();
     eq(signatureReadiness.missing_rpcs.length, 0, "signature-based readiness does not misclassify parameterized RPCs as missing");
@@ -201,7 +201,7 @@ const memberRoleFixture = await createV2265QaFixture();
 try {
   const target = memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi");
   target.role = "pending";
-  const updateResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+  const updateResponse = await app.fetch(new Request("https://malhaebook.com/admin/member/update", {
     method: "POST",
     headers: { cookie: memberRoleFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({
@@ -216,7 +216,7 @@ try {
   eq(memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi")?.role, "admin", "pending member is persisted as an administrator");
 
   memberRoleFixture.db.household_members.find((item) => item.household_id === "house-home" && item.user_id === "user-wifi").role = "pending";
-  const invalidRoleResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+  const invalidRoleResponse = await app.fetch(new Request("https://malhaebook.com/admin/member/update", {
     method: "POST",
     headers: { cookie: memberRoleFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({
@@ -246,7 +246,7 @@ try {
     return fixtureFetch(input, init);
   };
   try {
-    const failureResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/admin/member/update", {
+    const failureResponse = await app.fetch(new Request("https://malhaebook.com/admin/member/update", {
       method: "POST",
       headers: { cookie: memberRoleFailureFixture.cookie, "content-type": "application/x-www-form-urlencoded" },
       body: formBody({
@@ -270,7 +270,7 @@ try {
 const leaveFixture = await createV2265QaFixture();
 try {
   const memberCookie = await leaveFixture.cookieFor("user-wifi");
-  const leavePage = await app.fetch(new Request("https://ttokttok-accountbook.com/my/households?month=2026-07&household_id=house-home&manage=house-home", {
+  const leavePage = await app.fetch(new Request("https://malhaebook.com/my/households?month=2026-07&household_id=house-home&manage=house-home", {
     headers: { cookie: memberCookie },
   }), leaveFixture.env, {});
   const leaveHtml = await leavePage.text();
@@ -278,7 +278,7 @@ try {
   ok(leaveForm, "member leave form exists");
   ok(!leaveForm.includes('name="access_code"'), "leaving a household does not ask for an unrelated account password");
   const existingRecords = leaveFixture.db.transactions.filter((item) => item.user_id === "user-wifi").length;
-  const leaveResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/household/leave", {
+  const leaveResponse = await app.fetch(new Request("https://malhaebook.com/my/household/leave", {
     method: "POST",
     headers: { cookie: memberCookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({ household_id: "house-home", month: "2026-07", understand_history: "1" }),
@@ -333,7 +333,7 @@ try {
   Object.assign(reauthFixture.env, {
     KAKAO_LOGIN_ENABLED: "1",
     KAKAO_REST_API_KEY: "qa-rest-api-key",
-    KAKAO_REDIRECT_URI: "https://ttokttok-accountbook.com/auth/kakao/callback",
+    KAKAO_REDIRECT_URI: "https://malhaebook.com/auth/kakao/callback",
   });
   const fixtureFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
@@ -348,7 +348,7 @@ try {
   };
 
   const returnTo = "/my/households?month=2026-07&household_id=house-home&manage=house-home#manage";
-  const startResponse = await app.fetch(new Request(`https://ttokttok-accountbook.com/auth/kakao/start?reauth=household-delete&household_id=house-home&return_to=${encodeURIComponent(returnTo)}`, {
+  const startResponse = await app.fetch(new Request(`https://malhaebook.com/auth/kakao/start?reauth=household-delete&household_id=house-home&return_to=${encodeURIComponent(returnTo)}`, {
     headers: { cookie: reauthFixture.cookie },
   }), reauthFixture.env, {});
   eq(startResponse.status, 303, "Kakao deletion reauthentication starts");
@@ -357,7 +357,7 @@ try {
   const state = authorizeUrl.searchParams.get("state");
   ok(state, "OAuth state is generated");
   const oauthCookie = [reauthFixture.cookie, ...cookiePairs(startResponse.headers)].join("; ");
-  const callbackResponse = await app.fetch(new Request(`https://ttokttok-accountbook.com/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, {
+  const callbackResponse = await app.fetch(new Request(`https://malhaebook.com/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, {
     headers: { cookie: oauthCookie },
   }), reauthFixture.env, {});
   eq(callbackResponse.status, 303, "matching Kakao account completes deletion reauthentication");
@@ -366,10 +366,10 @@ try {
   ok(reauthCookie, "short-lived signed deletion token is issued");
 
   const verifiedCookie = [reauthFixture.cookie, reauthCookie].join("; ");
-  const verifiedPage = await app.fetch(new Request(`https://ttokttok-accountbook.com${returnTo}`, { headers: { cookie: verifiedCookie } }), reauthFixture.env, {});
+  const verifiedPage = await app.fetch(new Request(`https://malhaebook.com${returnTo}`, { headers: { cookie: verifiedCookie } }), reauthFixture.env, {});
   const verifiedHtml = await verifiedPage.text();
   ok(verifiedHtml.includes("카카오 계정 본인 확인 완료"), "verified page unlocks the destructive form");
-  const deleteResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/household/delete", {
+  const deleteResponse = await app.fetch(new Request("https://malhaebook.com/my/household/delete", {
     method: "POST",
     headers: { cookie: verifiedCookie, "content-type": "application/x-www-form-urlencoded" },
     body: formBody({ household_id: "house-home", month: "2026-07", confirm_name: "우리집 생활비", understand_members: "1" }),
@@ -388,7 +388,7 @@ try {
 const auditFixture = await createV2265QaFixture();
 try {
   const skillCall = async (utterance, botUserKey, ip, env) => {
-    const response = await app.fetch(new Request("https://ttokttok-accountbook.com/skill", {
+    const response = await app.fetch(new Request("https://malhaebook.com/skill", {
       method: "POST",
       headers: { "content-type": "application/json", "cf-connecting-ip": ip },
       body: JSON.stringify({
@@ -421,13 +421,13 @@ try {
   // CSV는 = + - @ 로 시작하는 셀을 스프레드시트가 수식으로 실행한다.
   const formulaMemos = ["=cmd|'/c calc'!A1", "@SUM(1+1)", "+1+1"];
   for (const [index, memo] of formulaMemos.entries()) {
-    await app.fetch(new Request("https://ttokttok-accountbook.com/admin/transactions", {
+    await app.fetch(new Request("https://malhaebook.com/admin/transactions", {
       method: "POST",
-      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      headers: { cookie: auditFixture.cookie, origin: "https://malhaebook.com", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ household_id: "house-home", month: "2026-07", type: "expense", amount: "1000", memo, transaction_date: `2026-07-2${index}` }).toString(),
     }), auditFixture.env, {});
   }
-  const csvResponse = await app.fetch(new Request("https://ttokttok-accountbook.com/my/backup.csv?household_id=house-home&month=2026-07", { headers: { cookie: auditFixture.cookie } }), auditFixture.env, {});
+  const csvResponse = await app.fetch(new Request("https://malhaebook.com/my/backup.csv?household_id=house-home&month=2026-07", { headers: { cookie: auditFixture.cookie } }), auditFixture.env, {});
   const csvBody = await csvResponse.text();
   const csvCells = csvBody.split(/\r?\n/).flatMap((line) => line.split(","));
   ok(csvCells.every((cell) => !/^"?[=+@\t\r]/.test(cell)), "CSV export neutralizes formula-leading cells");
@@ -436,17 +436,17 @@ try {
 
   // 카카오 대화용 종류 선택지 키워드가 웹 폼 이름 검증을 막지 않아야 한다.
   for (const householdName of ["가족 생활비", "생활비", "모임", "여행"]) {
-    const created = await app.fetch(new Request("https://ttokttok-accountbook.com/my/create", {
+    const created = await app.fetch(new Request("https://malhaebook.com/my/create", {
       method: "POST",
-      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      headers: { cookie: auditFixture.cookie, origin: "https://malhaebook.com", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ household_name: householdName, display_name: "Bin" }).toString(),
     }), auditFixture.env, {});
     ok(!decodeURIComponent(created.headers.get("location") || "").includes("household_name_invalid"), `web household creation accepts "${householdName}"`);
   }
   for (const householdName of ["도움말", "1"]) {
-    const created = await app.fetch(new Request("https://ttokttok-accountbook.com/my/create", {
+    const created = await app.fetch(new Request("https://malhaebook.com/my/create", {
       method: "POST",
-      headers: { cookie: auditFixture.cookie, origin: "https://ttokttok-accountbook.com", "content-type": "application/x-www-form-urlencoded" },
+      headers: { cookie: auditFixture.cookie, origin: "https://malhaebook.com", "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ household_name: householdName, display_name: "Bin" }).toString(),
     }), auditFixture.env, {});
     ok(decodeURIComponent(created.headers.get("location") || "").includes("household_name_invalid"), `web household creation still rejects "${householdName}"`);

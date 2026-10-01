@@ -54,7 +54,7 @@ const fixture = await createV2265QaFixture();
 try {
   const context = "month=2026-07&household_id=house-home";
   const request = (path) => app.fetch(
-    new Request(`https://ttokttok-accountbook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }),
+    new Request(`https://malhaebook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }),
     fixture.env,
     {},
   );

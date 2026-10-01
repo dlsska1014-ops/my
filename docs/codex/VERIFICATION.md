@@ -1,6 +1,35 @@
+## V22.9.24
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_24.sha256`을 사용하며 자동 검사 하한은 5,285개입니다.
+신규 설정 범위·취소·관제 SSO·DB 부분 지표 검사 121개를 포함합니다.
+`node monitoring/test-d1.mjs`는 Node.js 22 SQLite 메모리 검증 45개를 별도로 수행합니다.
+공개 배포 검사는 현재 릴리스 소스에서 자산 주소를 읽어 운영 자산의 바이트까지 비교합니다.
+운영 배포 ID와 실제 점검 결과, 남은 수동 검증은 `VERIFICATION_V22_9_24.md`에 기록합니다.
+
+## V22.9.23의 검증 기록
+
+당시 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_23.sha256`을 사용했으며 자동 검사 하한은 5,164개였습니다.
+이름 구분자·역할 표시·immutable 자산·반응형 레이아웃·Workers 런타임·실제 공급자 지표 회귀 37개를 추가했습니다.
+브라우저 감사와 Node.js 22 SQLite 45개 검사는 별도로 실행합니다. 최신 기록은 `VERIFICATION_V22_9_23.md`입니다.
+
+아래에는 이전 버전의 기록을 보존합니다.
+
+## V22.9.22 종합 관제
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_22.sha256`을 사용하며 자동 검사 하한은 5,127개입니다.
+관제 인증·허용 목록·수집 장애·리소스 한도 83개를 추가했습니다. Node.js 22에서는
+`node monitoring/test-d1.mjs`로 실제 SQLite의 45개 검사를 별도로 실행합니다.
+Wrangler 사전 검사는 실제 운영 수집 성공을 의미하지 않습니다. 최신 결과는 `VERIFICATION_V22_9_22.md`에 기록합니다.
+아래 내용은 이전 검증 기록입니다.
+
 # Codex 검증 하네스
 
-회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다. 현재 저장소 하네스는 V22.8.78 배포 묶음을 확인합니다.
+회사 PC와 집 PC의 Codex CLI·IDE에서 같은 저장소 검증을 실행하기 위한 기준입니다.
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_20.sha256`의 V22.9.20 파일 133개와
+자동 검사 4,966개 이상, Worker 문법, ESM 진입점, Git 공백 오류를 확인합니다.
+이름·도메인·카카오 콜백 전환과 월초·월말 하루 환산 검사가 포함됩니다.
+운영 점검은 `00_READ_FIRST_V22_9_20.md`와 `RELEASE-CHECKLIST.md`를 따릅니다.
+아래 상세 목록은 V22.8.78 당시의 검증 기록이며 최신 검사 수는 하네스 실행 결과로 확인합니다.
 
 ## 전체 검증
 
@@ -14,7 +43,7 @@ node .codex/scripts/verify-repository.mjs
 
 1. `BUNDLE_FILE_CHECKSUMS_V22_8_74.sha256`의 배포 파일
 2. `src/index.js` JavaScript 문법
-3. 영수증 56개
+3. 카드사 가져오기·로그인 대기·영수증 제거 110개
 4. 카카오 그룹 22개
 5. 카카오 수정·삭제·복구 V4 130개
 6. 가계부·운영 보안 89개
@@ -53,7 +82,7 @@ node .codex/scripts/verify-repository.mjs
 
 | 영역 | 명령 |
 |---|---|
-| 영수증 | `npm run validate:receipt` |
+| 카드사 가져오기·로그인 대기 | `npm run validate:card-import` |
 | 카카오 | `npm run validate:kakao-group` |
 | 카카오 수정·복구 | `npm run validate:kakao-edit` |
 | 계정·가계부 보안 | `npm run validate:household-security` |

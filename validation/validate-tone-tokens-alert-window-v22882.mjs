@@ -36,7 +36,6 @@ for (const selector of [
 const accentRule = "background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-accent)!important}";
 for (const selector of [
   'html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveCard.alert{',
-  'html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReceipts :is(.receiptConfirm,.receiptReadOnly){',
   'html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageMembers .inviteBox{',
 ]) {
   ok(source.includes(selector + accentRule), `emphasis surface follows the tone: ${selector.slice(-42)}`);
@@ -44,7 +43,8 @@ for (const selector of [
 
 // 라이트에서도 정기 강조 카드가 톤을 따라간다(예전에는 페이지 인라인 CSS 의 amber 가 그대로였다).
 ok(source.includes('html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}'), "the light reserve alert card follows the tone");
-ok(source.includes('html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small){color:var(--ab12-accent)!important}'), "the light reserve alert text follows the tone");
+// V22.9.18: 카드 안 수정 폼(.reserveEdit)은 뺀다 — 그 안의 선택 세그먼트까지 강조색으로 칠해져 검정 바탕 위 파랑(2.65:1)이 됐다.
+ok(source.includes('html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small):not(.reserveEdit *){color:var(--ab12-accent)!important}'), "the light reserve alert text follows the tone");
 
 // 눈에 띄는 화면의 히어로 그라디언트도 톤을 따라간다.
 // V22.8.83 에서 토큰이 --ab12-brand 에서 --ab12-action 으로 바뀌었다. brand 는 흰
@@ -74,15 +74,15 @@ ok(source.includes("const maxAlert = Math.max(...safeArray(plan.alert_days || [9
 //   셸 CSS 내용이 바뀌었다. immutable 1년 캐시라 주소를 올려야 반영된다.
 // ---------------------------------------------------------------------------
 
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22914.css"'), "the shell stylesheet path is bumped");
-ok(source.includes('\'"accountbook-shell-v22914-css"\''), "the shell stylesheet ETag matches its path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "the shell stylesheet path is bumped");
+ok(source.includes('\'"accountbook-shell-v22923-css"\''), "the shell stylesheet ETag matches its path");
 eq(source.includes("accountbook-shell-v22880"), false, "no stale shell stylesheet reference remains");
 
 // ---------------------------------------------------------------------------
 // 실제 렌더
 // ---------------------------------------------------------------------------
 const fixture = await createV2265QaFixture();
-const get = (path, init = {}) => app.fetch(new Request(`https://ttokttok-accountbook.com${path}`, {
+const get = (path, init = {}) => app.fetch(new Request(`https://malhaebook.com${path}`, {
   ...init,
   headers: { cookie: fixture.cookie, ...(init.headers || {}) },
 }), fixture.env, {});
@@ -90,9 +90,9 @@ const form = (data) => ({ method: "POST", body: new URLSearchParams(data), heade
 
 // 배포되는 셸 CSS 안에 amber 리터럴이 남아 있으면 그 규칙은 톤을 따라가지 못한다.
 // 정의(토큰·톤) 밖에서 값이 쓰이는 순간 같은 버그가 다시 생긴다.
-const shellRes = await get("/assets/accountbook-shell-v22914.css");
+const shellRes = await get("/assets/accountbook-shell-v22923.css");
 eq(shellRes.status, 200, "the bumped shell stylesheet is served");
-eq(shellRes.headers.get("etag"), '"accountbook-shell-v22914-css"', "the served ETag matches the path");
+eq(shellRes.headers.get("etag"), '"accountbook-shell-v22923-css"', "the served ETag matches the path");
 const shellCss = await shellRes.text();
 const amberUsers = shellCss.split("\n").filter((line) => /#49351a|#fcd34d|#765b26/.test(line));
 eq(amberUsers.length, 3, "amber values appear only where colours are defined, never where they are applied");
