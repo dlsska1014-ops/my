@@ -1,10 +1,10 @@
 # V22.9.24 적용 안내
 
-현재 운영은 V22.9.23이며 이번 수정본은 운영 배포 승인 대기 중입니다.
+2026-10-01에 사용자 승인 후 앱 V22.9.24와 관제 1.0.1의 운영 배포를 완료했습니다.
 삭제된 가계부의 설정 대체 저장, 설정 취소 실패 안내, 관제 SSO와 부분 DB 지표 판정을 수정합니다.
 
 1. `node .codex/scripts/verify-repository.mjs`와 `node monitoring/test-d1.mjs`를 실행합니다.
-2. 승인 후 현재 앱과 관제 Worker의 전체 소스·설정·배포 ID를 백업합니다.
+2. 승인 후 현재 앱과 관제 Worker의 전체 소스·설정·배포 ID를 백업합니다. 이번 배포의 백업은 완료했습니다.
 3. 기존 관제 설정으로 `monitoring/worker.mjs`를 번들링해 전체 배포합니다.
 4. 기존 앱 설정·Secrets·서비스 바인딩·도메인·Cron을 보존하고 `src/index.js` 전체를 번들링 없이 교체합니다.
 5. `node tools/verify-deployment-v22920.mjs --legacy-origin https://ttokttok-accountbook.com`으로 실제 V22.9.24와 최신 자산을 확인합니다.
