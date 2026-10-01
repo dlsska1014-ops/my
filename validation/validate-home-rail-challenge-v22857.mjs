@@ -24,10 +24,10 @@ ok(source.includes("rows.slice(0, 80).map"), "right rail response is bounded");
 ok(source.includes("function accountbookActivityRailClientMain"), "desktop activity rail client exists");
 ok(source.includes('window.matchMedia("(min-width:1320px)")'), "activity rail stays desktop-only");
 ok(source.includes('(${accountbookActivityRailClientMain.toString()})();'), "activity rail ships in the immutable shared bundle");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22923.css"'), "changed shell uses a fresh immutable asset URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22923.js"'), "changed V5 behavior uses a fresh immutable asset URL");
-ok(source.includes('"accountbook-shell-v22923-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22923-js"'), "V5 bundle ETag is refreshed");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "changed shell uses a fresh immutable asset URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22925.js"'), "changed V5 behavior uses a fresh immutable asset URL");
+ok(source.includes('"accountbook-shell-v22925-css"'), "shell ETag is refreshed");
+ok(source.includes('"accountbook-v5-v22925-js"'), "V5 bundle ETag is refreshed");
 ok(source.includes("renderAccountbookBrandIcon"), "navigation uses one SVG brand icon renderer");
 ok(source.includes('class="abNavToggleIcon"'), "collapse button uses a stable SVG chevron");
 ok(source.includes(".abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)"), "only the collapse icon rotates");
@@ -77,8 +77,8 @@ try {
   // 스쳤다. 실사용 부하 기준 예산은 validate-deferred-edit-forms 가 들고 있고
   // (거기에 상향 근거를 적었다), 여기서는 "가벼운 화면이 무거워지지 않는다"만 본다.
   ok(Buffer.byteLength(home.text) < 37 * 1024, "home remains below the protected HTML budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22923.css'), "home loads the refreshed shell asset");
-  ok(home.text.includes('/assets/accountbook-v5-v22923.js'), "home loads the refreshed V5 bundle");
+  ok(home.text.includes('/assets/accountbook-shell-v22925.css'), "home loads the refreshed shell asset");
+  ok(home.text.includes('/assets/accountbook-v5-v22925.js'), "home loads the refreshed V5 bundle");
   ok(home.text.includes('class="reportChallenge"'), "challenge is visible in the home content");
   // V22.9.0: 사이드바 챌린지 사본을 걷어냈다.
   //
@@ -120,16 +120,16 @@ try {
   ok(data.rows.some((row) => row.member === "WIFI♥"), "right rail resolves household member names");
   eq(fixture.db.transactions.length, before, "right rail API remains read-only");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22923.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22925.css");
   eq(shell.response.status, 200, "refreshed shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22923-css"', "refreshed shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22925-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".abActivityRail"), "shell contains restored activity rail styles");
   ok(shell.text.includes("body.abV22812Shell .reportChallenge{"), "shell contains home challenge styles");
   ok(shell.text.includes("right:-15px!important;top:20px!important"), "shell contains stable collapse button placement");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22923.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22925.js");
   eq(v5.response.status, 200, "refreshed V5 asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22923-js"', "refreshed V5 ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22925-js"', "refreshed V5 ETag is correct");
   ok(v5.text.includes("/u/api/recent-transactions"), "V5 bundle calls only the scoped recent transaction endpoint");
   ok(v5.text.includes("data-ab-activity-rail"), "V5 bundle contains responsive activity rail behavior");
   eq(fixture.db.transactions.length, before, "asset delivery does not mutate transactions");
