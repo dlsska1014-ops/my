@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_25.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_26.sha256",
 );
 const validationScripts = [
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
@@ -95,6 +95,7 @@ const validationScripts = [
   ["반응형 관제·금액 가림", "validation/validate-responsive-operations-v22923.mjs"],
   ["가계부 설정 범위·취소·관제 SSO·부분 지표", "validation/validate-safety-fix-v22924.mjs"],
   ["홈·거래 상세·가져오기 개선", "validation/validate-uiux-refinement-v22925.mjs"],
+  ["형제 사이트 링크", "validation/validate-sister-link-v22926.mjs"],
 ];
 
 function sha256(filePath) {
@@ -154,7 +155,8 @@ function run(command, args, label) {
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
 // V22.9.19: 영수증 사진 등록을 없애며 그 전용 검사 3개(약 250개 확인)가 빠졌고, 새 검사 110개가 들어왔다.
 // V22.9.20: 서비스명·도메인 변경 검사 48개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 5327;
+// V22.9.26: 공개 푸터 형제 사이트 링크 검사 44개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 5371;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
