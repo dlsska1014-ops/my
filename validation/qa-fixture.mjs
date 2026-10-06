@@ -14,10 +14,13 @@ function matchesFilter(row, key, expression) {
   const actual = String(row?.[key] ?? "");
   if (operator === "eq") return actual === expected;
   if (operator === "neq") return actual !== expected;
-  if (operator === "gte") return actual >= expected;
-  if (operator === "gt") return actual > expected;
-  if (operator === "lte") return actual <= expected;
-  if (operator === "lt") return actual < expected;
+  const comparable = /^-?\d+(?:\.\d+)?$/.test(actual) && /^-?\d+(?:\.\d+)?$/.test(expected)
+    ? [Number(actual), Number(expected)]
+    : [actual, expected];
+  if (operator === "gte") return comparable[0] >= comparable[1];
+  if (operator === "gt") return comparable[0] > comparable[1];
+  if (operator === "lte") return comparable[0] <= comparable[1];
+  if (operator === "lt") return comparable[0] < comparable[1];
   if (operator === "like" || operator === "ilike") {
     const regex = wildcardRegex(operator === "ilike" ? expected.toLowerCase() : expected);
     return regex.test(operator === "ilike" ? actual.toLowerCase() : actual);
@@ -171,6 +174,10 @@ export async function createV2265QaFixture() {
   };
   const sequence = { value: 1 };
   db.__operation_rpc_available = true;
+  db.__rpc_calls = [];
+  db.__settings_write_count = 0;
+  db.__operation_claim_count = 0;
+  db.__operation_release_count = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
@@ -179,10 +186,12 @@ export async function createV2265QaFixture() {
     const data = init.body ? JSON.parse(String(init.body)) : null;
     const rpcMatch = url.pathname.match(/\/rest\/v1\/rpc\/([^/]+)$/);
     if (rpcMatch) {
+      const rpcName = rpcMatch[1];
+      db.__rpc_calls.push({ name: rpcName, data: clone(data || {}) });
+      if (typeof db.__before_rpc === "function") await db.__before_rpc(rpcName, clone(data || {}));
       if (db.__operation_rpc_available === false) {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
-      const rpcName = rpcMatch[1];
       // Opt-in model of schema_v22_7_0_auth_atomicity.sql for import round-trip tests.
       if (rpcName === "accountbook_import_transactions_v227" && db.__import_rpc_available === true) {
         const rows = data?.p_rows;
@@ -238,6 +247,11 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ id: user.id, kakao_user_key: user.kakao_user_key, nickname: user.nickname }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_claim_operation") {
+        db.__operation_claim_count += 1;
+        if (db.__fail_next_operation_claim) {
+          db.__fail_next_operation_claim = false;
+          return new Response(JSON.stringify({ code: "QA_OPERATION_CLAIM_FAILED", message: "simulated operation claim failure" }), { status: 503, headers: { "content-type": "application/json" } });
+        }
         const now = Date.now();
         const key = String(data?.p_key || "").slice(0, 180);
         const owner = String(data?.p_owner || "").slice(0, 180);
@@ -252,6 +266,11 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ acquired: row.owner === owner && Date.parse(row.locked_until) > now, operation_key: key, owner: row.owner, locked_until: row.locked_until }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_release_operation") {
+        db.__operation_release_count += 1;
+        if (db.__fail_next_operation_release) {
+          db.__fail_next_operation_release = false;
+          return new Response(JSON.stringify({ code: "QA_OPERATION_RELEASE_FAILED", message: "simulated operation release failure" }), { status: 503, headers: { "content-type": "application/json" } });
+        }
         const row = db.accountbook_operation_locks.find((item) => item.operation_key === String(data?.p_key || "") && item.owner === String(data?.p_owner || ""));
         if (row) row.locked_until = new Date().toISOString();
         return new Response(JSON.stringify({ released: !!row }), { status: 200, headers: { "content-type": "application/json" } });
@@ -270,6 +289,13 @@ export async function createV2265QaFixture() {
         else return new Response(JSON.stringify({ code: "QA_ASSET_ACTION_INVALID", message: "asset_action_invalid" }), { status: 400, headers: { "content-type": "application/json" } });
         upsert(db, "accountbook_settings", { key, value: JSON.stringify(assets) }, ["key"], sequence);
         return new Response(JSON.stringify(assets), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_apply_recurring_v227") {
+        const householdId = String(data?.p_household_id || "");
+        const month = String(data?.p_month || "");
+        const rules = db.accountbook_recurring.filter((item) => item.household_id === householdId && item.is_active !== false && Number(item.day_of_month || 1) <= 28 && String(item.last_applied_month || "") !== month);
+        for (const rule of rules) rule.last_applied_month = month;
+        return new Response(JSON.stringify({ inserted: rules.length, skipped: 0 }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_replace_budget_plan_v227") {
         const householdId = String(data?.p_household_id || "");
@@ -328,6 +354,10 @@ export async function createV2265QaFixture() {
     const table = url.pathname.split("/").filter(Boolean).at(-1);
     if (!db[table]) db[table] = [];
     if (method === "GET") {
+      if (table === "accountbook_settings" && (db.__fail_next_settings_read || (db.__fail_settings_read_key && url.searchParams.get("key") === `eq.${db.__fail_settings_read_key}`))) {
+        db.__fail_next_settings_read = false;
+        return new Response(JSON.stringify({ code: "QA_SETTINGS_READ_FAILED", message: "simulated settings read failure" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
       if (db.__embed_unsupported && /\w+\([^)]*\)/.test(String(url.searchParams.get("select") || ""))) {
         return new Response(JSON.stringify({ code: "PGRST200", message: "Could not find a relationship in the schema cache" }), { status: 400, headers: { "content-type": "application/json" } });
       }
@@ -338,6 +368,10 @@ export async function createV2265QaFixture() {
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];
+      if (table === "accountbook_settings") {
+        if (typeof db.__before_settings_write === "function") await db.__before_settings_write(clone(items));
+        db.__settings_write_count += 1;
+      }
       if (table === "accountbook_settings" && db.__fail_next_settings_write) {
         db.__fail_next_settings_write = false;
         return new Response(JSON.stringify({ code: "QA_SETTINGS_WRITE_FAILED", message: "simulated settings write failure" }), { status: 503, headers: { "content-type": "application/json" } });

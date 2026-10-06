@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_25.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_26.sha256",
 );
 const validationScripts = [
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
@@ -95,7 +95,12 @@ const validationScripts = [
   ["반응형 관제·금액 가림", "validation/validate-responsive-operations-v22923.mjs"],
   ["가계부 설정 범위·취소·관제 SSO·부분 지표", "validation/validate-safety-fix-v22924.mjs"],
   ["홈·거래 상세·가져오기 개선", "validation/validate-uiux-refinement-v22925.mjs"],
+  ["라우터 await·안전 실패", "validation/validate-launch-hardening-v22926.mjs"],
+  ["출시 점검 수정 — 카카오·인증·시간·가져오기·예산·헤더", "validation/validate-launch-fixes-v22926.mjs"],
+  ["출시 코드리뷰 후속 — 설정 잠금·범위·날짜·오류 안전", "validation/validate-launch-review-followups-v22926.mjs"],
 ];
+
+const CHILD_NODE_FLAGS = process.execArgv.filter((arg) => arg === "--preserve-symlinks" || arg === "--preserve-symlinks-main");
 
 function sha256(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
@@ -134,7 +139,8 @@ function verifyChecksums() {
 
 function run(command, args, label) {
   console.log(`\n[실행] ${label}`);
-  const result = spawnSync(command, args, {
+  const childArgs = command === process.execPath ? [...CHILD_NODE_FLAGS, ...args] : args;
+  const result = spawnSync(command, childArgs, {
     cwd: repositoryRoot,
     stdio: "inherit",
     windowsHide: true,
@@ -154,22 +160,39 @@ function run(command, args, label) {
 // 하한선 밑으로 내려가면 실패시킨다. 검사를 의도적으로 늘린 PR 은 이 상수를 올린다.
 // V22.9.19: 영수증 사진 등록을 없애며 그 전용 검사 3개(약 250개 확인)가 빠졌고, 새 검사 110개가 들어왔다.
 // V22.9.20: 서비스명·도메인 변경 검사 48개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 5327;
+// V22.9.26: 출시 점검 — 라우터 await·안전 실패 47개, 카카오·인증·시간·가져오기·예산·헤더 83개,
+// 코드리뷰 후속 설정 잠금·범위·날짜·오류 안전 125개와 cold/warm 직렬 깊이 보호 6개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 5589;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
-  const result = spawnSync(process.execPath, [script], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  // Windows의 중첩 Node spawn에서 파이프가 자식 종료 뒤에도 닫히지 않는 런타임이 있다.
+  // 검사 개수 파싱은 유지하되 stdout/stderr를 임시 파일로 받아 파이프 대기를 피한다.
+  const captureDirectory = mkdtempSync(resolve(repositoryRoot, ".verify-output-"));
+  const stdoutPath = resolve(captureDirectory, "stdout.txt");
+  const stderrPath = resolve(captureDirectory, "stderr.txt");
+  const stdoutFd = openSync(stdoutPath, "w");
+  const stderrFd = openSync(stderrPath, "w");
+  let result;
+  try {
+    result = spawnSync(process.execPath, [...CHILD_NODE_FLAGS, script], {
+      cwd: repositoryRoot,
+      stdio: ["ignore", stdoutFd, stderrFd],
+      windowsHide: true,
+    });
+  } finally {
+    closeSync(stdoutFd);
+    closeSync(stderrFd);
+  }
+  const stdout = readFileSync(stdoutPath, "utf8");
+  const stderr = readFileSync(stderrPath, "utf8");
+  rmSync(captureDirectory, { recursive: true, force: true });
 
   if (result.error) {
     throw new Error(`${label} 실행 실패: ${result.error.message}`);
   }
-  const stdout = result.stdout || "";
   process.stdout.write(stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
+  if (stderr) process.stderr.write(stderr);
   if (result.status !== 0) {
     throw new Error(`${label} 실패 (종료 코드 ${result.status ?? "없음"})`);
   }
@@ -219,10 +242,10 @@ function runSelfTest() {
 function isGitWorktree() {
   const result = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
     cwd: repositoryRoot,
-    encoding: "utf8",
+    stdio: "ignore",
     windowsHide: true,
   });
-  return result.status === 0 && String(result.stdout || "").trim() === "true";
+  return result.status === 0;
 }
 
 function main() {
@@ -252,7 +275,7 @@ function main() {
     [
       "--input-type=module",
       "-e",
-      "import('./src/index.js').then((module) => { if (typeof module.default?.fetch !== 'function') process.exit(1); console.log('artifact_entrypoint: default.fetch available'); })",
+      "import('./src/index.js').then((module) => { if (typeof module.default?.fetch !== 'function') process.exit(1); console.log('artifact_entrypoint: default.fetch available'); process.exit(0); })",
     ],
     "ESM 진입점 검사",
   );

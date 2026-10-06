@@ -11,7 +11,7 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js"'), "navigation runtime uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22925.js"'), "unchanged V5 runtime keeps its immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22926.js"'), "unchanged V5 runtime keeps its immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.

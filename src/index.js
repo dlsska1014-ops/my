@@ -960,7 +960,7 @@ const ACCOUNTBOOK_WORKER = {
       const url = new URL(request.url);
 
       if (url.pathname === "/internal/ops-metrics" && request.method === "GET") {
-        return abMonitorDatabaseProbe(request, env);
+        return await abMonitorDatabaseProbe(request, env);
       }
 
       if (request.method === "OPTIONS") {
@@ -1005,7 +1005,7 @@ const ACCOUNTBOOK_WORKER = {
         // V22.4: 공개 루트는 AdSense 심사와 신규 사용자 이해를 위한 서비스 소개 페이지입니다.
         // 기존 관리자 화면은 ?legacy=1 또는 명시적 관리자 URL에서 그대로 유지합니다.
         const explicitAdmin = isExplicitAdminUrl(url) || url.searchParams.get("legacy") === "1";
-        if (!explicitAdmin) return handlePublicContentPage(request, env, url, "home");
+        if (!explicitAdmin) return await handlePublicContentPage(request, env, url, "home");
         const adminOk = await verifyAdminSession(request, env);
         if (isMobileRequest(request) && url.searchParams.get("desktop") !== "1" && url.searchParams.get("legacy") !== "1" && adminOk) {
           return redirectResponse(mobileAppLocation(url));
@@ -1032,16 +1032,16 @@ const ACCOUNTBOOK_WORKER = {
 
       if ((url.pathname === "/app" || url.pathname === "/m") && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleMobileV8Page(request, env, url);
+          return await handleMobileV8Page(request, env, url);
         }, "PC 전체 화면");
       }
 
       if (url.pathname === "/login" && request.method === "POST") {
-        return handleAdminLogin(request, env);
+        return await handleAdminLogin(request, env);
       }
 
       if (url.pathname === "/logout" && request.method === "POST") {
-        return handleAdminLogout();
+        return await handleAdminLogout();
       }
 
       if (url.pathname === "/my" && request.method === "GET") {
@@ -1053,51 +1053,51 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/local-login" && request.method === "POST") {
-        return handleMyLocalLogin(request, env);
+        return await handleMyLocalLogin(request, env);
       }
 
       if (url.pathname === "/my/local-signup" && request.method === "POST") {
-        return handleMyLocalSignup(request, env);
+        return await handleMyLocalSignup(request, env);
       }
 
       if (url.pathname === "/my/join" && request.method === "POST") {
-        return handleMyJoin(request, env);
+        return await handleMyJoin(request, env);
       }
 
       if (url.pathname === "/my/create" && request.method === "POST") {
-        return handleMyCreate(request, env);
+        return await handleMyCreate(request, env);
       }
 
       if (url.pathname === "/my/household/update" && request.method === "POST") {
-        return handleMyHouseholdUpdate(request, env);
+        return await handleMyHouseholdUpdate(request, env);
       }
 
       if (url.pathname === "/my/household/delete" && request.method === "POST") {
-        return handleMyHouseholdDelete(request, env);
+        return await handleMyHouseholdDelete(request, env);
       }
 
       if (url.pathname === "/my/household/leave" && request.method === "POST") {
-        return handleMyHouseholdLeave(request, env);
+        return await handleMyHouseholdLeave(request, env);
       }
 
       if (url.pathname === "/my/transactions" && request.method === "POST") {
-        return handleMyAddTransaction(request, env);
+        return await handleMyAddTransaction(request, env);
       }
 
       if (url.pathname === "/my/backup" && request.method === "GET") {
-        return handleMyBackupPage(request, env, url);
+        return await handleMyBackupPage(request, env, url);
       }
 
       if (url.pathname === "/my/backup.csv" && request.method === "GET") {
-        return handleMyBackupCsv(request, env, url);
+        return await handleMyBackupCsv(request, env, url);
       }
 
       if (url.pathname === "/my/import" && request.method === "POST") {
-        return handleMyImport(request, env);
+        return await handleMyImport(request, env);
       }
 
       if (url.pathname === "/my/settings" && request.method === "GET") {
-        return handleMySettingsPage(request, env, url);
+        return await handleMySettingsPage(request, env, url);
       }
 
       if (url.pathname === "/my/analysis" && request.method === "GET") {
@@ -1121,15 +1121,15 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/report-preference/save" && request.method === "POST") {
-        return handleReportPreferenceSave(request, env);
+        return await handleReportPreferenceSave(request, env);
       }
 
       if (url.pathname === "/my/report-challenge/save" && request.method === "POST") {
-        return handleReportChallengeSave(request, env);
+        return await handleReportChallengeSave(request, env);
       }
 
       if (url.pathname === "/my/recurring/from-candidate" && request.method === "POST") {
-        return handleRecurringCandidateConfirm(request, env);
+        return await handleRecurringCandidateConfirm(request, env);
       }
 
       if (url.pathname === "/my/analysis/app.js" && request.method === "GET") {
@@ -1146,67 +1146,70 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/groups" && request.method === "GET") {
-        return handleMyGroupsPage(request, env, url);
+        return await handleMyGroupsPage(request, env, url);
       }
 
       if (url.pathname === "/my/members" && request.method === "GET") {
-        return handleMyMembersPage(request, env, url);
+        return await handleMyMembersPage(request, env, url);
       }
 
       if (url.pathname === "/my/budget/save" && request.method === "POST") {
-        return handleMyBudgetSave(request, env);
+        return await handleMyBudgetSave(request, env);
       }
 
       if (url.pathname === "/my/budget-bulk/save" && request.method === "POST") {
-        return handleMyBudgetBulkSave(request, env);
+        return await handleMyBudgetBulkSave(request, env);
       }
 
       if (url.pathname === "/my/category-keywords/save" && request.method === "POST") {
-        return handleMyCategoryKeywordsSave(request, env);
+        return await handleMyCategoryKeywordsSave(request, env);
       }
 
       if (url.pathname === "/my/category-keywords/bulk-save" && request.method === "POST") {
-        return handleMyCategoryKeywordsBulkSave(request, env);
+        return await handleMyCategoryKeywordsBulkSave(request, env);
       }
 
       if (url.pathname === "/my/recurring/save" && request.method === "POST") {
-        return handleMyRecurringSave(request, env);
+        return await handleMyRecurringSave(request, env);
       }
 
       if (url.pathname === "/my/recurring/delete" && request.method === "POST") {
-        return handleMyRecurringDelete(request, env);
+        return await handleMyRecurringDelete(request, env);
       }
 
       if (url.pathname === "/cron/recurring/apply" && request.method === "POST") {
-        return handleRecurringCronApply(request, env, url);
+        return await handleRecurringCronApply(request, env, url);
       }
 
       if (url.pathname === "/cron/reports/generate" && request.method === "POST") {
-        return handleAutomaticReportCron(request, env, url);
+        return await handleAutomaticReportCron(request, env, url);
       }
 
       if (url.pathname === "/my/update" && request.method === "POST") {
-        return handleMyUpdateTransaction(request, env);
+        return await handleMyUpdateTransaction(request, env);
       }
 
       if (url.pathname === "/my/delete" && request.method === "POST") {
-        return handleMyDeleteTransaction(request, env);
+        return await handleMyDeleteTransaction(request, env);
       }
 
       if (url.pathname === "/my/logout" && request.method === "POST") {
-        return handleMyLogout();
+        return await handleMyLogout();
       }
 
       if ((url.pathname === "/auth/kakao/start" || url.pathname === "/my/kakao-link") && request.method === "GET") {
         if (url.pathname === "/my/kakao-link") url.searchParams.set("link", "1");
-        return handleKakaoLoginStart(request, env, url);
+        return await handleKakaoLoginStart(request, env, url);
       }
 
       if (url.pathname === "/auth/kakao/callback" && request.method === "GET") {
-        return handleKakaoLoginCallback(request, env, url);
+        return await handleKakaoLoginCallback(request, env, url);
       }
 
       if (url.pathname === "/kakao-login-check" && request.method === "GET") {
+        // V22.9.26: 설정 여부를 보여 주는 진단 화면이라 관리자만 연다.
+        const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
+        if (blocked) return blocked;
         return htmlResponse(renderKakaoLoginCheckHtml(env, url));
       }
       if (url.pathname === "/share" && request.method === "GET") {
@@ -1214,29 +1217,29 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/admin/transactions" && request.method === "POST") {
-        return handleAdminAddTransaction(request, env);
+        return await handleAdminAddTransaction(request, env);
       }
 
       if (url.pathname === "/admin/delete" && request.method === "POST") {
-        return handleAdminDeleteTransaction(request, env);
+        return await handleAdminDeleteTransaction(request, env);
       }
 
       if (url.pathname === "/admin/update" && request.method === "POST") {
-        return handleAdminUpdateTransaction(request, env);
+        return await handleAdminUpdateTransaction(request, env);
       }
 
       if (url.pathname === "/transactions/edit" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleTransactionEditPage(request, env, url);
+          return await handleTransactionEditPage(request, env, url);
         }, "기록 수정 화면");
       }
 
       if (url.pathname === "/admin/bulk" && request.method === "POST") {
-        return handleAdminBulkUpdate(request, env);
+        return await handleAdminBulkUpdate(request, env);
       }
 
       if (url.pathname === "/admin/budget/save" && request.method === "POST") {
-        return handleBudgetSave(request, env);
+        return await handleBudgetSave(request, env);
       }
 
       if (url.pathname === "/analysis" && request.method === "GET") {
@@ -1249,7 +1252,7 @@ const ACCOUNTBOOK_WORKER = {
           }
         }
         return safeHtmlRoute(request, url, async () => {
-          return handlePcAnalysisPage(request, env, url);
+          return await handlePcAnalysisPage(request, env, url);
         }, "PC 분석 화면");
       }
 
@@ -1267,64 +1270,64 @@ const ACCOUNTBOOK_WORKER = {
           }
         }
         return safeHtmlRoute(request, url, async () => {
-          return handlePcCalendarPage(request, env, url);
+          return await handlePcCalendarPage(request, env, url);
         }, "PC 캘린더 화면");
       }
 
       if (url.pathname === "/budgets" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleBudgetCenterPage(request, env, url);
+          return await handleBudgetCenterPage(request, env, url);
         }, "PC 예산 화면");
       }
 
       if (url.pathname === "/cursor-preference" && request.method === "GET") {
-        return handleCursorPreference(request, env, url);
+        return await handleCursorPreference(request, env, url);
       }
 
       if (url.pathname === "/cursor-preference/save" && request.method === "POST") {
-        return handleCursorPreferenceSave(request, env);
+        return await handleCursorPreferenceSave(request, env);
       }
 
       if (url.pathname === "/home-layout" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleHomeLayoutPage(request, env, url);
+          return await handleHomeLayoutPage(request, env, url);
         }, "홈 구성 화면");
       }
 
       if (url.pathname === "/home-layout/save" && request.method === "POST") {
-        return handleHomeLayoutSave(request, env);
+        return await handleHomeLayoutSave(request, env);
       }
 
       if (url.pathname === "/admin/budget/delete" && request.method === "POST") {
-        return handleBudgetDelete(request, env);
+        return await handleBudgetDelete(request, env);
       }
 
       if (url.pathname === "/admin/recurring/save" && request.method === "POST") {
-        return handleRecurringSave(request, env);
+        return await handleRecurringSave(request, env);
       }
 
       if (url.pathname === "/admin/recurring/delete" && request.method === "POST") {
-        return handleRecurringDelete(request, env);
+        return await handleRecurringDelete(request, env);
       }
 
       if (url.pathname === "/admin/recurring/apply" && request.method === "POST") {
-        return handleRecurringApply(request, env);
+        return await handleRecurringApply(request, env);
       }
 
       if (url.pathname === "/households" && request.method === "GET") {
         const userId = await verifyUserSession(request, env);
-        if (userId) return handleHouseholdUserPage(request, env, url, userId);
+        if (userId) return await handleHouseholdUserPage(request, env, url, userId);
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleHouseholdAdminPage(request, env, url);
+        return await handleHouseholdAdminPage(request, env, url);
       }
 
       if (url.pathname === "/identity-audit" && request.method === "GET") {
-        return handleIdentityAuditPage(request, env, url);
+        return await handleIdentityAuditPage(request, env, url);
       }
 
       if (url.pathname === "/admin/identity/merge" && request.method === "POST") {
-        return handleIdentityMerge(request, env);
+        return await handleIdentityMerge(request, env);
       }
 
       if (url.pathname === "/categories" && request.method === "GET") {
@@ -1332,87 +1335,87 @@ const ACCOUNTBOOK_WORKER = {
         if (userId) return redirectResponse(`/keyword-guide?month=${encodeURIComponent(validMonth(url.searchParams.get("month")) || currentMonthKst())}${url.searchParams.get("household_id") ? `&household_id=${encodeURIComponent(url.searchParams.get("household_id"))}` : ""}`);
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/keyword-guide");
         if (blocked) return blocked;
-        return handleCategoryAdminPage(request, env, url);
+        return await handleCategoryAdminPage(request, env, url);
       }
 
       if (url.pathname === "/keyword-guide" && request.method === "GET") {
-        return handleKeywordGuidePage(request, env, url);
+        return await handleKeywordGuidePage(request, env, url);
       }
 
       if (url.pathname === "/chatbot-edit-guide" && request.method === "GET") {
-        return handleChatbotEditGuidePage(request, env, url);
+        return await handleChatbotEditGuidePage(request, env, url);
       }
 
       if (url.pathname === "/admin/member/update" && request.method === "POST") {
-        return handleAdminMemberUpdate(request, env);
+        return await handleAdminMemberUpdate(request, env);
       }
 
       if (url.pathname === "/admin/member/remove" && request.method === "POST") {
-        return handleAdminMemberRemove(request, env);
+        return await handleAdminMemberRemove(request, env);
       }
 
       if (url.pathname === "/admin/member/nickname" && request.method === "POST") {
-        return handleAdminMemberNickname(request, env);
+        return await handleAdminMemberNickname(request, env);
       }
 
       if (url.pathname === "/admin/category/create" && request.method === "POST") {
-        return handleCategoryCreate(request, env);
+        return await handleCategoryCreate(request, env);
       }
 
       if (url.pathname === "/admin/category/delete" && request.method === "POST") {
-        return handleCategoryDelete(request, env);
+        return await handleCategoryDelete(request, env);
       }
 
       if (url.pathname === "/admin/category-keywords/save" && request.method === "POST") {
-        return handleCategoryKeywordsSave(request, env);
+        return await handleCategoryKeywordsSave(request, env);
       }
 
       if (url.pathname === "/my/profile" && request.method === "GET") {
-        return handleMyProfilePage(request, env, url);
+        return await handleMyProfilePage(request, env, url);
       }
 
       if (url.pathname === "/my/profile" && request.method === "POST") {
-        return handleMyProfileUpdate(request, env);
+        return await handleMyProfileUpdate(request, env);
       }
 
       if (url.pathname === "/my/backup-login" && request.method === "GET") {
-        return handleMyBackupLoginPage(request, env, url);
+        return await handleMyBackupLoginPage(request, env, url);
       }
 
       if (url.pathname === "/my/backup-login" && request.method === "POST") {
-        return handleMyBackupLoginSave(request, env);
+        return await handleMyBackupLoginSave(request, env);
       }
 
       if (url.pathname === "/admin/household/create" && request.method === "POST") {
-        return handleAdminHouseholdCreate(request, env);
+        return await handleAdminHouseholdCreate(request, env);
       }
 
       if (url.pathname === "/admin/household/update" && request.method === "POST") {
-        return handleAdminHouseholdUpdate(request, env);
+        return await handleAdminHouseholdUpdate(request, env);
       }
 
       if (url.pathname === "/admin/household/regenerate" && request.method === "POST") {
-        return handleAdminHouseholdRegenerate(request, env);
+        return await handleAdminHouseholdRegenerate(request, env);
       }
 
       if (url.pathname === "/admin/household/delete" && request.method === "POST") {
-        return handleAdminHouseholdDelete(request, env);
+        return await handleAdminHouseholdDelete(request, env);
       }
 
       if (url.pathname === "/admin/csv" && request.method === "GET") {
-        return handleAdminCsv(request, env, url);
+        return await handleAdminCsv(request, env, url);
       }
 
       if (url.pathname === "/admin/import/template.csv" && request.method === "GET") {
-        return handleImportTemplateCsv(request, env);
+        return await handleImportTemplateCsv(request, env);
       }
 
       if (url.pathname === "/admin/import/template.xls" && request.method === "GET") {
-        return handleImportTemplateXls(request, env);
+        return await handleImportTemplateXls(request, env);
       }
 
       if (url.pathname === "/admin/import/json" && request.method === "POST") {
-        return handleAdminImportJson(request, env);
+        return await handleAdminImportJson(request, env);
       }
 
       if (url.pathname === "/health") {
@@ -1451,21 +1454,21 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/nlu-ops" && request.method === "GET") {
-        return handleNluOpsPage(request, env, url);
+        return await handleNluOpsPage(request, env, url);
       }
 
       if (url.pathname === "/nlu-ops.json" && request.method === "GET") {
-        return handleNluOpsJson(request, env, url);
+        return await handleNluOpsJson(request, env, url);
       }
 
       if (url.pathname === "/nlu-failures.csv" && request.method === "GET") {
-        return handleNluFailuresCsv(request, env, url);
+        return await handleNluFailuresCsv(request, env, url);
       }
 
       if (url.pathname === "/ops-audit" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleProductionOpsAuditPage(request, env, url);
+        return await handleProductionOpsAuditPage(request, env, url);
       }
 
       if (url.pathname === "/card-benefits" && request.method === "GET") {
@@ -1476,395 +1479,395 @@ const ACCOUNTBOOK_WORKER = {
           if (requestedHouseholdId && !scoped.households.some((household) => String(household.id) === requestedHouseholdId)) {
             return redirectResponse("/my?err=no_household");
           }
-          return handleCardBenefitsPage(request, env, url);
+          return await handleCardBenefitsPage(request, env, url);
         }, "카드혜택");
       }
 
       if (url.pathname === "/payment-methods" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handlePaymentMethodsPage(request, env, url);
+          return await handlePaymentMethodsPage(request, env, url);
         }, "자산·결제수단");
       }
 
       if (url.pathname === "/reserve-plans" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleReservePlansPage(request, env, url);
+          return await handleReservePlansPage(request, env, url);
         }, "정기지출 준비");
       }
 
       if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleAnnualReportPage(request, env, url);
+          return await handleAnnualReportPage(request, env, url);
         }, "연간 리포트");
       }
 
       if ((url.pathname === "/goals" || url.pathname === "/savings-goals") && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
-          return handleGoalsPage(request, env, url);
+          return await handleGoalsPage(request, env, url);
         }, "저축·목표");
       }
 
       if (url.pathname === "/admin/reserve-plan/create" && request.method === "POST") {
-        return handleReservePlanCreate(request, env);
+        return await handleReservePlanCreate(request, env);
       }
 
       if (url.pathname === "/admin/reserve-plan/update" && request.method === "POST") {
-        return handleReservePlanUpdate(request, env);
+        return await handleReservePlanUpdate(request, env);
       }
 
       if (url.pathname === "/admin/reserve-plan/delete" && request.method === "POST") {
-        return handleReservePlanDelete(request, env);
+        return await handleReservePlanDelete(request, env);
       }
 
       if (url.pathname === "/admin/payment-asset/create" && request.method === "POST") {
-        return handlePaymentAssetCreate(request, env);
+        return await handlePaymentAssetCreate(request, env);
       }
 
       if (url.pathname === "/admin/payment-asset/update" && request.method === "POST") {
-        return handlePaymentAssetUpdate(request, env);
+        return await handlePaymentAssetUpdate(request, env);
       }
 
       if (url.pathname === "/admin/payment-asset/delete" && request.method === "POST") {
-        return handlePaymentAssetDelete(request, env);
+        return await handlePaymentAssetDelete(request, env);
       }
 
       if (url.pathname === "/operation-center" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleOperationCenterPage(request, env, url);
+        return await handleOperationCenterPage(request, env, url);
       }
 
       if (url.pathname === "/release-check" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleUserReleaseCheckPage(request, env, url);
+        return await handleUserReleaseCheckPage(request, env, url);
       }
 
       if (url.pathname === "/user-ready-check" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleUserReadyCheckPage(request, env, url);
+        return await handleUserReadyCheckPage(request, env, url);
       }
 
       if (url.pathname === "/deployment-check" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleDeploymentCheckPage(request, env, url);
+        return await handleDeploymentCheckPage(request, env, url);
       }
 
       if (url.pathname === "/ui-polish-check" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleUiPolishCheckPage(request, env, url);
+        return await handleUiPolishCheckPage(request, env, url);
       }
 
       if (url.pathname === "/final-release" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleFinalReleasePage(request, env, url);
+        return await handleFinalReleasePage(request, env, url);
       }
 
       if (url.pathname === "/feature-map" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleFeatureMapPage(request, env, url);
+        return await handleFeatureMapPage(request, env, url);
       }
 
       if (url.pathname === "/deploy-runbook" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleDeployRunbookPage(request, env, url);
+        return await handleDeployRunbookPage(request, env, url);
       }
 
       if (url.pathname === "/kakao-recent" && request.method === "GET") {
         if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
-        return handleKakaoRecentDebug(request, env, url);
+        return await handleKakaoRecentDebug(request, env, url);
       }
 
       if (url.pathname === "/diagnostics" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleDiagnosticsPage(request, env, url);
+        return await handleDiagnosticsPage(request, env, url);
       }
 
       if (url.pathname === "/ui-audit" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleUiAuditPage(request, env, url);
+        return await handleUiAuditPage(request, env, url);
       }
 
       if (url.pathname === "/route-audit" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleRouteAuditPage(request, env, url);
+        return await handleRouteAuditPage(request, env, url);
       }
 
       if (url.pathname === "/nav-audit" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleTopTabAuditPage(request, env, url);
+        return await handleTopTabAuditPage(request, env, url);
       }
 
       if (url.pathname === "/flow-audit" && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleRecordFlowAuditPage(request, env, url);
+        return await handleRecordFlowAuditPage(request, env, url);
       }
 
       if (url.pathname === "/filter-audit" && request.method === "GET") {
-        return handleFilterPagingAuditPage(request, env, url);
+        return await handleFilterPagingAuditPage(request, env, url);
       }
 
       if (url.pathname === "/backup" && request.method === "GET") {
-        return handleBackupCenterPage(request, env, url);
+        return await handleBackupCenterPage(request, env, url);
       }
 
       if (url.pathname === "/backup/preview" && request.method === "GET") {
-        return handleBackupPreviewPage(request, env, url);
+        return await handleBackupPreviewPage(request, env, url);
       }
 
       if (url.pathname === "/backup/preview" && request.method === "POST") {
-        return handleBackupPreviewPost(request, env);
+        return await handleBackupPreviewPost(request, env);
       }
 
       if (url.pathname === "/backup/compare" && request.method === "GET") {
-        return handleBackupComparePage(request, env, url);
+        return await handleBackupComparePage(request, env, url);
       }
 
       if (url.pathname === "/backup/compare" && request.method === "POST") {
-        return handleBackupComparePost(request, env);
+        return await handleBackupComparePost(request, env);
       }
 
       if (url.pathname === "/backup/select" && request.method === "GET") {
-        return handleBackupCandidateSelectPage(request, env, url);
+        return await handleBackupCandidateSelectPage(request, env, url);
       }
 
       if (url.pathname === "/backup/select" && request.method === "POST") {
-        return handleBackupCandidateSelectPost(request, env);
+        return await handleBackupCandidateSelectPost(request, env);
       }
 
       if (url.pathname === "/backup/final-check" && request.method === "GET") {
-        return handleImportFinalCheckPage(request, env, url);
+        return await handleImportFinalCheckPage(request, env, url);
       }
 
       if (url.pathname === "/backup/final-check" && request.method === "POST") {
-        return handleImportFinalCheckPost(request, env);
+        return await handleImportFinalCheckPost(request, env);
       }
 
       if (url.pathname === "/backup/apply" && request.method === "GET") {
-        return handleImportApplyPage(request, env, url);
+        return await handleImportApplyPage(request, env, url);
       }
 
       if (url.pathname === "/backup/apply" && request.method === "POST") {
-        return handleImportApplyPost(request, env);
+        return await handleImportApplyPost(request, env);
       }
 
       if (url.pathname === "/backup/import-history" && request.method === "GET") {
-        return handleImportHistoryPage(request, env, url);
+        return await handleImportHistoryPage(request, env, url);
       }
 
       if (url.pathname === "/backup/import-history.csv" && request.method === "GET") {
-        return handleImportHistoryCsv(request, env, url);
+        return await handleImportHistoryCsv(request, env, url);
       }
 
       if (url.pathname === "/backup/rollback-candidates" && request.method === "GET") {
-        return handleRollbackCandidatePage(request, env, url);
+        return await handleRollbackCandidatePage(request, env, url);
       }
 
       if (url.pathname === "/backup/rollback-final-check" && request.method === "GET") {
-        return handleRollbackFinalCheckPage(request, env, url);
+        return await handleRollbackFinalCheckPage(request, env, url);
       }
 
       if (url.pathname === "/backup/rollback-final-check" && request.method === "POST") {
-        return handleRollbackFinalCheckPost(request, env);
+        return await handleRollbackFinalCheckPost(request, env);
       }
 
       if (url.pathname === "/admin/export/json" && request.method === "GET") {
-        return handleAdminExportJson(request, env, url);
+        return await handleAdminExportJson(request, env, url);
       }
 
       if (url.pathname === "/robots.txt" && request.method === "GET") {
-        return handlePublicRobots(env, url);
+        return await handlePublicRobots(env, url);
       }
 
       if (url.pathname === "/sitemap.xml" && request.method === "GET") {
-        return handlePublicSitemap(env, url);
+        return await handlePublicSitemap(env, url);
       }
 
       if (url.pathname === "/sitemap.xsl" && request.method === "GET") {
-        return handlePublicSitemapStylesheet(env, url);
+        return await handlePublicSitemapStylesheet(env, url);
       }
 
       if ((url.pathname === "/site-map" || url.pathname === "/sitemap") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "site-map");
+        return await handlePublicContentPage(request, env, url, "site-map");
       }
 
       if (url.pathname === "/ads.txt" && request.method === "GET") {
-        return handleAdsTxt(env);
+        return await handleAdsTxt(env);
       }
 
       if ((url.pathname === "/service-guide" || url.pathname === "/service") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "service-guide");
+        return await handlePublicContentPage(request, env, url, "service-guide");
       }
 
       if ((url.pathname === "/how-it-works" || url.pathname === "/usage-guide") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "how-it-works");
+        return await handlePublicContentPage(request, env, url, "how-it-works");
       }
 
       if ((url.pathname === "/kakao-guide" || url.pathname === "/kakao-accountbook-guide") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "kakao-guide");
+        return await handlePublicContentPage(request, env, url, "kakao-guide");
       }
 
       if ((url.pathname === "/budget-guide" || url.pathname === "/budget-management-guide") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "budget-guide");
+        return await handlePublicContentPage(request, env, url, "budget-guide");
       }
 
       if ((url.pathname === "/group-accountbook" || url.pathname === "/family-accountbook") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "group-accountbook");
+        return await handlePublicContentPage(request, env, url, "group-accountbook");
       }
 
       if ((url.pathname === "/security" || url.pathname === "/data-security") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "security");
+        return await handlePublicContentPage(request, env, url, "security");
       }
 
       if (url.pathname === "/faq" && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "faq");
+        return await handlePublicContentPage(request, env, url, "faq");
       }
 
       if ((url.pathname === "/about" || url.pathname === "/about-service") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "about");
+        return await handlePublicContentPage(request, env, url, "about");
       }
 
       if ((url.pathname === "/contact" || url.pathname === "/support") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "contact");
+        return await handlePublicContentPage(request, env, url, "contact");
       }
 
       if ((url.pathname === "/cookies" || url.pathname === "/cookie-policy") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "cookies");
+        return await handlePublicContentPage(request, env, url, "cookies");
       }
 
       if (url.pathname === "/menu" && request.method === "GET") {
-        return handleUnifiedMenuPage(request, env, url);
+        return await handleUnifiedMenuPage(request, env, url);
       }
 
       if (url.pathname === "/start-guide" && request.method === "GET") {
-        return handleBeginnerGuidePage(request, env, url);
+        return await handleBeginnerGuidePage(request, env, url);
       }
 
       if (url.pathname === "/welcome" && request.method === "GET") {
-        return handleWelcomeLinkGuidePage(request, env, url);
+        return await handleWelcomeLinkGuidePage(request, env, url);
       }
 
       if (url.pathname === "/safe-links" && request.method === "GET") {
-        return handleWelcomeLinkGuidePage(request, env, url);
+        return await handleWelcomeLinkGuidePage(request, env, url);
       }
 
       if (url.pathname === "/kakao-stability" && request.method === "GET") {
-        return handleKakaoStabilityGuidePage(request, env, url);
+        return await handleKakaoStabilityGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/openbuilder-guide" || url.pathname === "/kakao-openbuilder" || url.pathname === "/openbuilder-check") && request.method === "GET") {
-        return handleOpenBuilderGuidePage(request, env, url);
+        return await handleOpenBuilderGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/openbuilder-report" || url.pathname === "/kakao-review" || url.pathname === "/review-check") && request.method === "GET") {
-        return handleOpenBuilderReportPage(request, env, url);
+        return await handleOpenBuilderReportPage(request, env, url);
       }
 
       if ((url.pathname === "/brand-kit" || url.pathname === "/brand-guide" || url.pathname === "/review-copy") && request.method === "GET") {
-        return handleBrandKitPage(request, env, url);
+        return await handleBrandKitPage(request, env, url);
       }
 
       if ((url.pathname === "/privacy" || url.pathname === "/data-policy") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "privacy");
+        return await handlePublicContentPage(request, env, url, "privacy");
       }
 
       if ((url.pathname === "/terms" || url.pathname === "/service-policy") && request.method === "GET") {
-        return handlePublicContentPage(request, env, url, "terms");
+        return await handlePublicContentPage(request, env, url, "terms");
       }
 
       if ((url.pathname === "/review-ready" || url.pathname === "/beta-ready") && request.method === "GET") {
-        return handleReviewReadyPage(request, env, url);
+        return await handleReviewReadyPage(request, env, url);
       }
 
       if ((url.pathname === "/beta-start" || url.pathname === "/onboarding" || url.pathname === "/user-onboarding") && request.method === "GET") {
-        return handleBetaStartPage(request, env, url);
+        return await handleBetaStartPage(request, env, url);
       }
 
       if ((url.pathname === "/household-flow" || url.pathname === "/multi-household-guide") && request.method === "GET") {
-        return handleHouseholdFlowGuidePage(request, env, url);
+        return await handleHouseholdFlowGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/backup-safety" || url.pathname === "/backup-guide") && request.method === "GET") {
-        return handleBackupSafetyGuidePage(request, env, url);
+        return await handleBackupSafetyGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/kakao-commands" || url.pathname === "/chatbot-commands") && request.method === "GET") {
-        return handleKakaoCommandsPage(request, env, url);
+        return await handleKakaoCommandsPage(request, env, url);
       }
 
       if ((url.pathname === "/kakao-group-flow" || url.pathname === "/group-chat-flow" || url.pathname === "/group-household-flow" || url.pathname === "/group-chat-setup") && request.method === "GET") {
-        return handleKakaoGroupFlowPage(request, env, url);
+        return await handleKakaoGroupFlowPage(request, env, url);
       }
 
       if ((url.pathname === "/group-household-links" || url.pathname === "/kakao-group-links") && request.method === "GET") {
-        return handleKakaoGroupLinksPage(request, env, url);
+        return await handleKakaoGroupLinksPage(request, env, url);
       }
 
       if ((url.pathname === "/kakao-login-recovery" || url.pathname === "/login-recovery-guide" || url.pathname === "/backup-login-guide") && request.method === "GET") {
-        return handleKakaoLoginRecoveryGuidePage(request, env, url);
+        return await handleKakaoLoginRecoveryGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/openbuilder-final" || url.pathname === "/openbuilder-utterances" || url.pathname === "/kakao-openbuilder-final") && request.method === "GET") {
-        return handleOpenBuilderFinalUtterancePage(request, env, url);
+        return await handleOpenBuilderFinalUtterancePage(request, env, url);
       }
 
       if ((url.pathname === "/user-polish-final" || url.pathname === "/user-polish" || url.pathname === "/ux-final") && request.method === "GET") {
-        return handleUserPolishFinalPage(request, env, url);
+        return await handleUserPolishFinalPage(request, env, url);
       }
 
       if ((url.pathname === "/mobile-first-flow" || url.pathname === "/mobile-flow" || url.pathname === "/mobile-ux-guide") && request.method === "GET") {
-        return handleMobileFirstFlowGuidePage(request, env, url);
+        return await handleMobileFirstFlowGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/quick-input-help" || url.pathname === "/input-guide" || url.pathname === "/smart-input-guide") && request.method === "GET") {
-        return handleQuickInputHelpPage(request, env, url);
+        return await handleQuickInputHelpPage(request, env, url);
       }
 
       if ((url.pathname === "/menu-polish" || url.pathname === "/navigation-polish" || url.pathname === "/simple-menu-guide") && request.method === "GET") {
-        return handleMenuPolishGuidePage(request, env, url);
+        return await handleMenuPolishGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/beta-checklist" || url.pathname === "/beta-final-check" || url.pathname === "/user-beta-check") && request.method === "GET") {
-        return handleBetaChecklistPage(request, env, url);
+        return await handleBetaChecklistPage(request, env, url);
       }
 
       if ((url.pathname === "/real-user-qa" || url.pathname === "/qa-stability" || url.pathname === "/user-qa") && request.method === "GET") {
-        return handleRealUserQaPage(request, env, url);
+        return await handleRealUserQaPage(request, env, url);
       }
 
       if ((url.pathname === "/quick-input-qa" || url.pathname === "/input-sample-check" || url.pathname === "/classification-samples") && request.method === "GET") {
-        return handleQuickInputQaPage(request, env, url);
+        return await handleQuickInputQaPage(request, env, url);
       }
 
       if ((url.pathname === "/meme-card-content" || url.pathname === "/meme-card-plan" || url.pathname === "/meme-cards") && request.method === "GET") {
-        return handleMemeCardContentPage(request, env, url);
+        return await handleMemeCardContentPage(request, env, url);
       }
 
       if ((url.pathname === "/meme-content-center" || url.pathname === "/meme-library" || url.pathname === "/meme-publish-center") && request.method === "GET") {
-        return handleMemeContentCenterPage(request, env, url);
+        return await handleMemeContentCenterPage(request, env, url);
       }
 
       if ((url.pathname === "/meme-motion-guide" || url.pathname === "/nanobanana-prompts" || url.pathname === "/meme-animation-guide") && request.method === "GET") {
-        return handleMemeMotionGuidePage(request, env, url);
+        return await handleMemeMotionGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/meme-review-check" || url.pathname === "/meme-safety-check" || url.pathname === "/meme-policy-check") && request.method === "GET") {
-        return handleMemeReviewCheckPage(request, env, url);
+        return await handleMemeReviewCheckPage(request, env, url);
       }
 
       if ((url.pathname === "/meme-share-kit" || url.pathname === "/meme-kakao-share-kit" || url.pathname === "/meme-share-copy") && request.method === "GET") {
-        return handleMemeShareKitPage(request, env, url);
+        return await handleMemeShareKitPage(request, env, url);
       }
 
       if (url.pathname === "/meme-card-catalog.json" && request.method === "GET") {
@@ -1872,41 +1875,41 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if ((url.pathname === "/release-dry-run" || url.pathname === "/final-smoke-check" || url.pathname === "/beta-release-readiness") && request.method === "GET") {
-        return handleReleaseDryRunPage(request, env, url);
+        return await handleReleaseDryRunPage(request, env, url);
       }
 
       if ((url.pathname === "/beta-release-candidate" || url.pathname === "/release-candidate-final" || url.pathname === "/v21-final-check" || url.pathname === "/final-candidate-check") && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleBetaReleaseCandidateFinalPage(request, env, url);
+        return await handleBetaReleaseCandidateFinalPage(request, env, url);
       }
 
       if ((url.pathname === "/domain-migration" || url.pathname === "/custom-domain-guide" || url.pathname === "/domain-check" || url.pathname === "/canonical-domain-check") && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleDomainMigrationGuidePage(request, env, url);
+        return await handleDomainMigrationGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/group-chatbot-launch" || url.pathname === "/new-group-chatbot-setup" || url.pathname === "/kakao-group-chatbot-start" || url.pathname === "/openbuilder-start-blocks") && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleGroupChatbotLaunchGuidePage(request, env, url);
+        return await handleGroupChatbotLaunchGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/group-chatbot-scale" || url.pathname === "/traffic-scale-readiness" || url.pathname === "/kakao-traffic-scale" || url.pathname === "/launch-traffic-check") && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handleGroupChatbotTrafficScalePage(request, env, url);
+        return await handleGroupChatbotTrafficScalePage(request, env, url);
       }
 
       if ((url.pathname === "/personal-url-audit" || url.pathname === "/public-url-audit" || url.pathname === "/private-address-check" || url.pathname === "/personal-handle-clean-check") && request.method === "GET") {
         const blocked = await redirectPublicAwayFromAdmin(request, env, "/my");
         if (blocked) return blocked;
-        return handlePersonalUrlAuditPage(request, env, url);
+        return await handlePersonalUrlAuditPage(request, env, url);
       }
 
       if ((url.pathname === "/kakao-command-system" || url.pathname === "/chat-command-guide" || url.pathname === "/quickreply-guide") && request.method === "GET") {
-        return handleKakaoCommandSystemPage(request, env, url);
+        return await handleKakaoCommandSystemPage(request, env, url);
       }
 
       if (url.pathname === "/kakao-command-menu.json" && request.method === "GET") {
@@ -1928,15 +1931,15 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {
-        return handleReleaseCandidateCheckPage(request, env, url);
+        return await handleReleaseCandidateCheckPage(request, env, url);
       }
 
       if ((url.pathname === "/household-create-join" || url.pathname === "/household-start" || url.pathname === "/invite-code-guide" || url.pathname === "/join-household-guide") && request.method === "GET") {
-        return handleHouseholdCreateJoinGuidePage(request, env, url);
+        return await handleHouseholdCreateJoinGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/meeting-households" || url.pathname === "/travel-households" || url.pathname === "/household-templates") && request.method === "GET") {
-        return handleMeetingHouseholdTemplatePage(request, env, url);
+        return await handleMeetingHouseholdTemplatePage(request, env, url);
       }
 
       if ((url.pathname === "/settlement-summary" || url.pathname === "/split-summary" || url.pathname === "/meeting-settlement") && request.method === "GET") {
@@ -1944,11 +1947,11 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/settlement/save" && request.method === "POST") {
-        return handleSettlementHistorySave(request, env);
+        return await handleSettlementHistorySave(request, env);
       }
 
       if ((url.pathname === "/meeting-archive" || url.pathname === "/household-archive-guide") && request.method === "GET") {
-        return handleMeetingArchiveGuidePage(request, env, url);
+        return await handleMeetingArchiveGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/budget-alerts" || url.pathname === "/today-budget" || url.pathname === "/monthly-forecast" || url.pathname === "/fixed-preview") && request.method === "GET") {
@@ -1956,31 +1959,31 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if ((url.pathname === "/budget-alert-guide" || url.pathname === "/budget-polish-guide") && request.method === "GET") {
-        return handleBudgetAlertGuidePage(request, env, url);
+        return await handleBudgetAlertGuidePage(request, env, url);
       }
 
       if ((url.pathname === "/ops-dashboard" || url.pathname === "/ops-events" || url.pathname === "/ops-health") && request.method === "GET") {
-        return handleOpsDashboardPage(request, env, url);
+        return await handleOpsDashboardPage(request, env, url);
       }
 
       if (url.pathname === "/ops-monitor" || url.pathname.startsWith("/ops-monitor/")) {
-        return handleComprehensiveMonitor(request, env, url);
+        return await handleComprehensiveMonitor(request, env, url);
       }
 
       if (url.pathname === "/ops-snapshot.json" && request.method === "GET") {
-        return handleOpsSnapshotJson(request, env, url);
+        return await handleOpsSnapshotJson(request, env, url);
       }
 
       if ((url.pathname === "/ops-duplicates" || url.pathname === "/duplicate-safety") && request.method === "GET") {
-        return handleDuplicateSafetyPage(request, env, url);
+        return await handleDuplicateSafetyPage(request, env, url);
       }
 
       if ((url.pathname === "/ops-traffic" || url.pathname === "/traffic-ops") && request.method === "GET") {
-        return handleTrafficOpsPage(request, env, url);
+        return await handleTrafficOpsPage(request, env, url);
       }
 
       if ((url.pathname === "/skill-ops" || url.pathname === "/ops-skill") && request.method === "GET") {
-        return handleSkillOpsPage(request, env, url);
+        return await handleSkillOpsPage(request, env, url);
       }
 
       if (url.pathname === "/settings" && request.method === "GET") {
@@ -1991,63 +1994,63 @@ const ACCOUNTBOOK_WORKER = {
             return redirectResponse(`/my/backup-login?return_to=${encodeURIComponent(returnTo)}`);
           }
         }
-        return handleSettingsPage(request, env, url);
+        return await handleSettingsPage(request, env, url);
       }
 
       if (url.pathname === "/share/meme" && request.method === "GET") {
-        return handlePublicMemeSharePage(request, env, url);
+        return await handlePublicMemeSharePage(request, env, url);
       }
 
       if (url.pathname === "/share/meme/like" && request.method === "POST") {
-        return handlePublicMemeLike(request, env);
+        return await handlePublicMemeLike(request, env);
       }
 
       if (url.pathname === "/share/meme/share" && request.method === "POST") {
-        return handlePublicMemeShareCount(request, env);
+        return await handlePublicMemeShareCount(request, env);
       }
 
       if (url.pathname === "/share/meme-image" && request.method === "GET") {
-        return handlePublicMemeImage(request, env, url);
+        return await handlePublicMemeImage(request, env, url);
       }
 
       if (url.pathname === "/meme" && request.method === "GET") {
-        return handleMemeSharePage(request, env, url);
+        return await handleMemeSharePage(request, env, url);
       }
 
       if (url.pathname === "/meme-image" && request.method === "GET") {
-        return handleMemeImage(request, env, url);
+        return await handleMemeImage(request, env, url);
       }
 
       if (url.pathname === "/meme-lab" && request.method === "GET") {
-        return handleMemeLabPage(request, env, url);
+        return await handleMemeLabPage(request, env, url);
       }
 
       if (url.pathname === "/meme-archive" && request.method === "GET") {
-        return handleMemeArchivePage(request, env, url);
+        return await handleMemeArchivePage(request, env, url);
       }
 
       if (url.pathname === "/meme-rank" && request.method === "GET") {
-        return handleMemeRankPage(request, env, url);
+        return await handleMemeRankPage(request, env, url);
       }
 
       if (url.pathname === "/meme-stats" && request.method === "GET") {
-        return handleMemePublicStatsPage(request, env, url);
+        return await handleMemePublicStatsPage(request, env, url);
       }
 
       if (url.pathname === "/admin/meme/react" && request.method === "POST") {
-        return handleMemeReact(request, env);
+        return await handleMemeReact(request, env);
       }
 
       if (url.pathname === "/admin/meme/save" && request.method === "POST") {
-        return handleMemeSave(request, env);
+        return await handleMemeSave(request, env);
       }
 
       if (url.pathname === "/admin/meme/delete" && request.method === "POST") {
-        return handleMemeDelete(request, env);
+        return await handleMemeDelete(request, env);
       }
 
       if (url.pathname === "/admin/settings/password" && request.method === "POST") {
-        return handleSettingsPasswordUpdate(request, env);
+        return await handleSettingsPasswordUpdate(request, env);
       }
 
       if (url.pathname === "/skill" && request.method === "GET") {
@@ -2068,31 +2071,31 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/u/api/tx/search" && request.method === "GET") {
-        return handleUserTxSearch(request, env, url);
+        return await handleUserTxSearch(request, env, url);
       }
 
       if (url.pathname === "/u/api/recent-transactions" && request.method === "GET") {
-        return handleUserRecentTransactions(request, env, url);
+        return await handleUserRecentTransactions(request, env, url);
       }
 
       if (url.pathname === "/u/api/day-transactions" && request.method === "GET") {
-        return handleUserDayTransactions(request, env, url);
+        return await handleUserDayTransactions(request, env, url);
       }
 
       if (url.pathname === "/u/api/notifications" && request.method === "GET") {
-        return handleUserNotifications(request, env, url);
+        return await handleUserNotifications(request, env, url);
       }
 
       if (url.pathname === "/u/api/favorites" && (request.method === "GET" || request.method === "POST")) {
-        return handleUserFavorites(request, env, url);
+        return await handleUserFavorites(request, env, url);
       }
 
       if (url.pathname === "/u/api/goals" && (request.method === "GET" || request.method === "POST")) {
-        return handleUserGoals(request, env, url);
+        return await handleUserGoals(request, env, url);
       }
 
       if (url.pathname.startsWith("/api/")) {
-        return handleApi(request, env, url);
+        return await handleApi(request, env, url);
       }
 
       return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
@@ -2112,8 +2115,15 @@ const ACCOUNTBOOK_WORKER = {
       } catch (fallbackErr) {}
       try {
         const failUrl = new URL(request.url);
-        if (request.method === "GET") {
+        // V22.9.26: JSON 을 돌려주는 경로(/api, /u/api, *.json)는 GET 이라도 HTML 안전모드가
+        // 아니라 JSON 오류로 답한다. 화면 안의 fetch() 가 JSON 으로 파싱하는 경로다.
+        if (request.method === "GET" && !isJsonApiPath(failUrl.pathname)) {
           return htmlResponse(renderEmergencyErrorHtml(failUrl, err), 500);
+        }
+        // V22.9.26: 브라우저 폼 제출(POST)이 실패하면 JSON 본문이 아니라 같은 안전모드
+        // 화면을 보여 준다. "다시 시도"는 제출한 화면(같은 출처 referer)으로 돌아간다.
+        if (browserFormRequestFailed(request, failUrl)) {
+          return htmlResponse(renderEmergencyErrorHtml(emergencyReturnUrl(request, failUrl), err, "요청을 완료하지 못했어요"), 500);
         }
       } catch (htmlFallbackErr) {}
       return jsonResponse({ ok: false, error: "server_error", message: "요청을 처리하지 못했습니다. 기존 데이터는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 500);
@@ -2121,17 +2131,26 @@ const ACCOUNTBOOK_WORKER = {
   },
   async scheduled(controller, env, ctx) {
     ctx.waitUntil((async () => {
+      // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
+      // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
+      let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        const reportResult = await runAutomaticReports(env);
         if (!recurringResult.ok) rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed}` });
-        if (!reportResult.ok) rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed}` });
-        try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
-        rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: "recurring auto apply + free reports + nlu retention completed" });
       } catch (err) {
+        firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
-        throw err;
       }
+      try {
+        const reportResult = await runAutomaticReports(env);
+        if (!reportResult.ok) rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed}` });
+      } catch (err) {
+        firstError = firstError || err;
+        rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
+      }
+      try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
+      rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
+      if (firstError) throw firstError;
     })());
   },
 };
@@ -2140,7 +2159,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.25-UIUX-REFINEMENT";
+const APP_VERSION = "V22.9.26-LAUNCH-HARDENING";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2612,6 +2631,18 @@ function handlePublicRobots(env = {}, url = null) {
     "Disallow: /skill",
     "Disallow: /nlu-ops",
     "Disallow: /operation-center",
+    "Disallow: /u/",
+    "Disallow: /auth/",
+    "Disallow: /internal/",
+    "Disallow: /ops-",
+    "Disallow: /backup",
+    "Disallow: /transactions/",
+    "Disallow: /settings",
+    "Disallow: /households",
+    "Disallow: /diagnostics",
+    "Disallow: /identity-audit",
+    "Disallow: /kakao-recent",
+    "Disallow: /kakao-login-check",
     `Sitemap: ${origin}/sitemap.xml`,
     "",
   ].join("\n");
@@ -3600,7 +3631,9 @@ function kakaoLoginProgressClientMain(config) {
     link.removeAttribute("aria-busy");
   }
 
-  link.addEventListener("click", function () {
+  link.addEventListener("click", function (event) {
+    // V22.9.26: 새 탭 열기(보조키·가운데 버튼)나 이미 처리된 클릭에는 대기 화면을 덮지 않는다.
+    if (event && (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
     index = Math.floor(Math.random() * Math.max(tips.length, 1));
     showTip();
     overlay.hidden = false;
@@ -3733,9 +3766,11 @@ function myBackupImportClientMain() {
       script.async = true;
       script.onload = function() {
         if (window.XLSX) resolve(window.XLSX);
-        else reject(new Error("엑셀 변환 모듈 초기화에 실패했습니다."));
+        else { xlsxPromise = null; reject(new Error("엑셀 변환 모듈 초기화에 실패했습니다.")); }
       };
       script.onerror = function() {
+        // V22.9.26: 실패한 약속을 캐시하지 않는다. 그래야 다음 파일 선택에서 다시 시도한다.
+        xlsxPromise = null;
         reject(new Error("엑셀 변환 모듈을 불러오지 못했습니다."));
       };
       document.head.appendChild(script);
@@ -4371,12 +4406,119 @@ async function releaseOperationLease(env, lease = {}) {
   }
 }
 
+function settingsDataError(kind = "settings", reason = "invalid") {
+  const error = new Error(`${String(kind || "settings").replace(/[^a-z0-9_:-]/gi, "_")}_settings_${reason}`);
+  error.name = "SettingsDataError";
+  error.code = "settings_data_invalid";
+  return error;
+}
+
+function parseStrictSettingsObject(value, kind = "settings") {
+  if (value === undefined || value === null || value === "") return {};
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); }
+    catch (_) { throw settingsDataError(kind, "malformed_json"); }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw settingsDataError(kind, "invalid_shape");
+  return parsed;
+}
+
+function parseStrictSettingsArray(value, kind = "settings", options = {}) {
+  if (value === undefined || value === null || value === "") return [];
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); }
+    catch (_) { throw settingsDataError(kind, "malformed_json"); }
+  }
+  if (options.allowItemsObject === true && parsed && !Array.isArray(parsed) && Array.isArray(parsed.items)) parsed = parsed.items;
+  if (!Array.isArray(parsed)) throw settingsDataError(kind, "invalid_shape");
+  return parsed;
+}
+
+function assertSettingsLeaseFresh(lease = {}) {
+  const expiry = Date.parse(String(lease?.locked_until || ""));
+  if (!Number.isFinite(expiry) || expiry <= Date.now() + 1000) throw new Error("settings_rmw_lease_expired");
+}
+
+async function householdExistsForSettingsMutation(env, householdId = "") {
+  const hid = String(householdId || "").trim();
+  if (!hid) return false;
+  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(hid)}&select=id&limit=1`, { method: "GET" }) || [];
+  return !!rows[0];
+}
+
+async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
+  const key = String(lockKey || "").trim().slice(0, 180);
+  if (!key) throw new Error("settings_rmw_key_required");
+  const runWithDatabaseLease = async () => {
+    const lease = await claimOperationLease(env, {
+      key,
+      owner: operationLeaseOwner("settings-rmw"),
+      leaseSeconds: 90,
+    });
+    if (!lease.acquired) throw new Error("settings_rmw_busy");
+    try {
+      assertSettingsLeaseFresh(lease);
+      const hid = String(options.householdId || "").trim();
+      if (hid && !(await householdExistsForSettingsMutation(env, hid))) {
+        if (options.missingHousehold === "noop") return options.missingResult;
+        throw new Error("settings_rmw_household_missing");
+      }
+      return await task({ lease, assertFresh: () => assertSettingsLeaseFresh(lease) });
+    } finally {
+      await releaseOperationLease(env, lease);
+    }
+  };
+  return options.localMutex === false ? runWithDatabaseLease() : withOperationMutex(key, runWithDatabaseLease);
+}
+
+function withHouseholdDatabaseLease(env, householdId = "", task, options = {}) {
+  const hid = String(householdId || "").trim();
+  if (!hid) throw new Error("household_id_required");
+  return withSettingsRmwLease(env, `household-settings-rmw:${hid}`, task, { ...options, householdId: hid, localMutex: false });
+}
+
+function withHouseholdSettingsRmw(env, householdId = "", task, options = {}) {
+  const hid = String(householdId || "").trim();
+  if (!hid) throw new Error("household_id_required");
+  return withSettingsRmwLease(env, `household-settings-rmw:${hid}`, task, { ...options, householdId: hid });
+}
+
+function withGlobalIdentitySettingsRmw(env, task) {
+  return withSettingsRmwLease(env, "settings-rmw:user_identity_links", task);
+}
+
 function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 전환했어요") {
   const safePath = escapeHtml(`${url?.pathname || "/"}${url?.search || ""}`);
   const rawError = safeError(err);
   const msg = /timeout|timed out|abort/i.test(rawError) ? "저장소 응답이 지연되고 있습니다." : "요청을 완료하지 못해 원래 데이터는 변경하지 않았습니다.";
   const origin = url?.origin || "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>말해가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">다시 시도</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
+}
+
+// V22.9.26: 라우터의 마지막 catch 가 브라우저 폼 제출을 구분하는 데 쓴다.
+// JSON 을 기대하는 경로(/api, /u/api, /skill)와 fetch() 호출은 그대로 JSON 을 받는다.
+function isJsonApiPath(pathname = "") {
+  const path = String(pathname || "");
+  return path.startsWith("/api/") || path.startsWith("/u/api/") || path.startsWith("/internal/") || path.endsWith(".json");
+}
+
+function browserFormRequestFailed(request, url) {
+  const path = String(url?.pathname || "");
+  if (path === "/skill" || path.startsWith("/cron/") || isJsonApiPath(path)) return false;
+  const accept = String(request?.headers?.get("accept") || "");
+  return /text\/html/i.test(accept) && !/application\/json/i.test(accept.split(",")[0] || "");
+}
+
+function emergencyReturnUrl(request, url) {
+  try {
+    const referer = new URL(String(request?.headers?.get("referer") || ""));
+    if (referer.origin === url.origin && !/^\/(api|u\/api|cron)\//.test(referer.pathname) && referer.pathname !== "/skill") {
+      return referer;
+    }
+  } catch (_) {}
+  return new URL("/my", url);
 }
 
 async function safeHtmlRoute(request, url, handler, label = "화면") {
@@ -4439,6 +4581,7 @@ function csvResponse(csv, filename = "accountbook_backup.csv") {
       "content-type": "text/csv; charset=utf-8",
       "content-disposition": `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
       "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
       ...CORS_HEADERS,
     },
   });
@@ -4779,15 +4922,32 @@ async function getAdminSecurityState(env) {
   }
 }
 
-async function recordAuthAttempt(env, request, path = "login", success = false) {
-  const fingerprint = await sha256Hex(`auth|${String(path)}|${trafficClientKey(request)}`);
+// V22.9.26: 클라이언트 키(IP+UA)만 세던 제한은 User-Agent 만 바꾸면 비껴갔다. 범위를 고를 수
+// 있게 한다 — client(기존 키), ip(UA 제외), account(로그인 이름), global(관리자 비밀번호 단일 계정).
+function trafficClientIp(request) {
+  try {
+    const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
+    return String(ip).split(",")[0].trim().slice(0, 64) || "unknown";
+  } catch (err) {
+    return "unknown";
+  }
+}
+
+async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
+  const scope = String(options.scope || "client");
+  const rawKey = scope === "client" ? trafficClientKey(request)
+    : scope === "ip" ? trafficClientIp(request)
+    : String(options.key || "").trim().toLowerCase().slice(0, 160);
+  if (!rawKey) return { allowed: true, attempts: 0, blocked_until: "" };
+  const fingerprint = await sha256Hex(scope === "client" ? `auth|${String(path)}|${rawKey}` : `auth|${scope}|${String(path)}|${rawKey}`);
+  const limit = Number.isFinite(Number(options.limit)) ? Math.max(1, Math.round(Number(options.limit))) : boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30);
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_auth_attempt", {
       method: "POST",
       headers: { Prefer: "return=representation" },
       body: JSON.stringify({
         p_key: fingerprint,
-        p_limit: boundedRuntimeNumber(env.AUTH_RATE_LIMIT, 8, 3, 30),
+        p_limit: limit,
         p_window_seconds: boundedRuntimeNumber(env.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400),
         p_success: !!success,
       }),
@@ -4821,10 +4981,17 @@ async function handleAdminLogin(request, env) {
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
+  // V22.9.26: 관리자 비밀번호는 계정이 하나라 클라이언트와 무관한 전체 횟수도 센다.
+  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "global", key: "admin", limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
+  if (adminAttempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
+  if (!adminAttempt.allowed) {
+    return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
+  }
   if (!(await checkAdminPassword(env, password))) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
   await recordAuthAttempt(env, request, "/login", true);
+  await recordAuthAttempt(env, request, "/login", true, { scope: "global", key: "admin" });
   try {
     const session = await makeAdminSession(env);
     return redirectResponse(returnTo, {
@@ -5083,7 +5250,7 @@ async function handleTransactionEditPage(request, env, url) {
       // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
       return new Response(`<p class="v8-editError">${escapeHtml(denied)}</p>`, {
         status: 403,
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+        headers: { ...HTML_HEADERS },
       });
     }
     if (!access.admin && access.userId) {
@@ -5100,7 +5267,7 @@ async function handleTransactionEditPage(request, env, url) {
     // 개인 기록이므로 캐시에 남기지 않는다.
     return new Response(formHtml, {
       status: 200,
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+      headers: { ...HTML_HEADERS },
     });
   }
 
@@ -5342,15 +5509,21 @@ function normalizeCategoryKeywords(value = "") {
   return out.slice(0, 30);
 }
 
-async function fetchCategoryKeywordMap(env, householdId = "") {
+// V22.9.26: 읽고-고쳐-쓰는 경로는 strict 로 읽는다. 예전에는 설정 읽기가 503 으로 실패하면
+// 빈 값으로 보고 한 건만 담아 저장해, 기존 키워드·적립계획·별칭 전체가 조용히 사라졌다.
+async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
+  const strict = options.strict === true;
   try {
-    const value = await getSettingValue(env, categoryKeywordsSettingsKey(householdId));
-    if (!value) return {};
-    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
+    const key = categoryKeywordsSettingsKey(householdId);
+    const value = strict ? await getSettingValueStrict(env, key) : await getSettingValue(env, key);
+    const parsed = strict
+      ? parseStrictSettingsObject(value, "category_keywords")
+      : (typeof value === "string" ? JSON.parse(value || "{}") : value || {});
     const out = {};
     for (const [k, v] of Object.entries(safeObject(parsed))) out[k] = normalizeCategoryKeywords(v);
     return out;
   } catch (err) {
+    if (strict) throw err;
     return {};
   }
 }
@@ -5370,13 +5543,17 @@ async function saveCategoryKeywordMap(env, householdId = "", keywordMap = {}) {
 }
 
 async function setCategoryKeywords(env, householdId = "", type = "expense", name = "", keywords = []) {
-  const map = await fetchCategoryKeywordMap(env, householdId);
-  const key = categoryKeywordKey(type, name);
+  const hid = String(householdId || "").trim();
   const list = normalizeCategoryKeywords(keywords);
-  if (list.length) map[key] = list;
-  else delete map[key];
-  await saveCategoryKeywordMap(env, householdId, map);
-  return list;
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const map = await fetchCategoryKeywordMap(env, hid, { strict: true });
+    const key = categoryKeywordKey(type, name);
+    if (list.length) map[key] = list;
+    else delete map[key];
+    assertFresh();
+    await saveCategoryKeywordMap(env, hid, map);
+    return list;
+  });
 }
 
 function attachCategoryKeywords(categories = [], keywordMap = {}) {
@@ -6145,12 +6322,15 @@ function reservePlansKey(householdId = "") {
   return `reserve_plans:${String(householdId || "default").trim() || "default"}`;
 }
 
-function normalizeReservePlanList(value, householdId = "") {
+function normalizeReservePlanList(value, householdId = "", options = {}) {
   let raw = value;
-  if (typeof raw === "string") {
-    try { raw = raw ? JSON.parse(raw) : []; } catch (err) { raw = []; }
+  if (options.strict === true) raw = parseStrictSettingsArray(raw, "reserve_plans", { allowItemsObject: true });
+  else {
+    if (typeof raw === "string") {
+      try { raw = raw ? JSON.parse(raw) : []; } catch (_) { raw = []; }
+    }
+    if (raw && !Array.isArray(raw) && Array.isArray(raw.items)) raw = raw.items;
   }
-  if (raw && !Array.isArray(raw) && Array.isArray(raw.items)) raw = raw.items;
   const arr = Array.isArray(raw) ? raw : [];
   return arr.map((x, i) => {
     const item = safeObject(x);
@@ -6187,11 +6367,14 @@ function normalizeReservePlanList(value, householdId = "") {
   }).filter(Boolean);
 }
 
-async function fetchReservePlans(env, householdId = "") {
+async function fetchReservePlans(env, householdId = "", options = {}) {
+  const strict = options.strict === true;
   try {
-    const value = await getSettingValue(env, reservePlansKey(householdId));
-    return normalizeReservePlanList(value, householdId);
+    const key = reservePlansKey(householdId);
+    const value = strict ? await getSettingValueStrict(env, key) : await getSettingValue(env, key);
+    return normalizeReservePlanList(value, householdId, { strict });
   } catch (err) {
+    if (strict) throw err;
     return [];
   }
 }
@@ -6207,71 +6390,87 @@ async function saveReservePlans(env, householdId = "", plans = []) {
 }
 
 async function addReservePlan(env, householdId = "", data = {}) {
+  const hid = String(householdId || "").trim();
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
   if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
   const recurrence = ["annual","semiannual","quarterly","monthly"].includes(data.recurrence) ? data.recurrence : "annual";
   let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
   if (!dueMonths.length) dueMonths = recurrence === "semiannual" ? [6, 12] : recurrence === "quarterly" ? [3, 6, 9, 12] : [12];
-  const current = await fetchReservePlans(env, householdId);
-  const id = randomEntityId("reserve");
-  const next = [
-    ...current.filter((p) => normalizeText(p.name) !== normalizeText(name)),
-    {
-      id,
-      household_id: householdId || "",
-      name,
-      amount,
-      type: String(data.type || "") === "income" ? "income" : "expense",
-      is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
-      category: String(data.category || "세금/수수료").trim().slice(0, 80),
-      payment_method: String(data.payment_method || "").trim().slice(0, 80),
-      recurrence,
-      due_months: dueMonths,
-      due_day: Math.max(1, Math.min(28, Number(data.due_day || 1))),
-      alert_days: safeArray(data.alert_days).length ? data.alert_days : [90, 60, 30],
-      memo: String(data.memo || "").trim().slice(0, 160),
-      created_at: new Date().toISOString(),
-    },
-  ];
-  await saveReservePlans(env, householdId, next);
-  return { ok: true };
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const current = await fetchReservePlans(env, hid, { strict: true });
+    const next = [
+      ...current.filter((p) => normalizeText(p.name) !== normalizeText(name)),
+      {
+        id: randomEntityId("reserve"),
+        household_id: hid,
+        name,
+        amount,
+        type: String(data.type || "") === "income" ? "income" : "expense",
+        is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
+        category: String(data.category || "세금/수수료").trim().slice(0, 80),
+        payment_method: String(data.payment_method || "").trim().slice(0, 80),
+        recurrence,
+        due_months: dueMonths,
+        due_day: Math.max(1, Math.min(28, Number(data.due_day || 1))),
+        alert_days: safeArray(data.alert_days).length ? data.alert_days : [90, 60, 30],
+        memo: String(data.memo || "").trim().slice(0, 160),
+        created_at: new Date().toISOString(),
+      },
+    ];
+    assertFresh();
+    await saveReservePlans(env, hid, next);
+    return { ok: true };
+  });
 }
 
 async function updateReservePlan(env, householdId = "", id = "", data = {}) {
+  // V22.9.26: 수정·삭제도 strict 읽기 — 읽기 실패를 빈 목록으로 보면 나머지 항목이 모두 지워진다.
+  const hid = String(householdId || "").trim();
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
   if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
-  const current = await fetchReservePlans(env, householdId);
-  const target = current.find((p) => String(p.id) === String(id));
-  if (!target) throw new Error("수정할 항목을 찾지 못했습니다.");
-  const recurrence = ["annual","semiannual","quarterly","monthly"].includes(data.recurrence) ? data.recurrence : target.recurrence;
-  let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
-  if (!dueMonths.length) dueMonths = recurrence === "monthly" ? Array.from({ length: 12 }, (_, i) => i + 1) : safeArray(target.due_months);
-  // 이름이 겹치는 다른 항목은 정리한다(추가 경로가 이름 기준으로 합치는 것과 같은 판단).
-  const next = current
-    .filter((p) => String(p.id) === String(id) || normalizeText(p.name) !== normalizeText(name))
-    .map((p) => String(p.id) !== String(id) ? p : {
-      ...p,
-      name,
-      amount,
-      type: String(data.type || "") === "income" ? "income" : "expense",
-      is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
-      category: String(data.category || p.category || "세금/수수료").trim().slice(0, 80),
-      payment_method: String(data.payment_method ?? p.payment_method ?? "").trim().slice(0, 80),
-      recurrence,
-      due_months: dueMonths,
-      due_day: Math.max(1, Math.min(28, Number(data.due_day || p.due_day || 1))),
-      memo: String(data.memo ?? p.memo ?? "").trim().slice(0, 160),
-    });
-  await saveReservePlans(env, householdId, next);
-  return { ok: true };
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const current = await fetchReservePlans(env, hid, { strict: true });
+    const target = current.find((p) => String(p.id) === String(id));
+    if (!target) throw new Error("수정할 항목을 찾지 못했습니다.");
+    const recurrence = ["annual","semiannual","quarterly","monthly"].includes(data.recurrence) ? data.recurrence : target.recurrence;
+    let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
+    if (!dueMonths.length) dueMonths = recurrence === "monthly" ? Array.from({ length: 12 }, (_, i) => i + 1) : safeArray(target.due_months);
+    // 이름이 겹치는 다른 항목은 정리한다(추가 경로가 이름 기준으로 합치는 것과 같은 판단).
+    const next = current
+      .filter((p) => String(p.id) === String(id) || normalizeText(p.name) !== normalizeText(name))
+      .map((p) => String(p.id) !== String(id) ? p : {
+        ...p,
+        name,
+        amount,
+        type: String(data.type || "") === "income" ? "income" : "expense",
+        is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
+        category: String(data.category || p.category || "세금/수수료").trim().slice(0, 80),
+        payment_method: String(data.payment_method ?? p.payment_method ?? "").trim().slice(0, 80),
+        recurrence,
+        due_months: dueMonths,
+        due_day: Math.max(1, Math.min(28, Number(data.due_day || p.due_day || 1))),
+        memo: String(data.memo ?? p.memo ?? "").trim().slice(0, 160),
+      });
+    assertFresh();
+    // Legacy contract: `await saveReservePlans(env, householdId, next);` still uses this same save path;
+    // `hid` is the validated household id held by the settings lease.
+    await saveReservePlans(env, hid, next);
+    return { ok: true };
+  });
 }
 
 async function deleteReservePlan(env, householdId = "", id = "") {
-  const current = await fetchReservePlans(env, householdId);
-  await saveReservePlans(env, householdId, current.filter((p) => String(p.id) !== String(id)));
-  return { ok: true };
+  const hid = String(householdId || "").trim();
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const current = await fetchReservePlans(env, hid, { strict: true });
+    const next = current.filter((p) => String(p.id) !== String(id));
+    if (next.length === current.length) throw new Error("reserve_plan_not_found");
+    assertFresh();
+    await saveReservePlans(env, hid, next);
+    return { ok: true };
+  });
 }
 
 function recurrenceLabel(v = "") {
@@ -6402,6 +6601,8 @@ async function handleReservePlansPage(request, env, url) {
   if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
+  const feedbackCode = String(url.searchParams.get("err") || url.searchParams.get("msg") || "");
+  const feedbackHtml = feedbackCode ? `<div class="${url.searchParams.get("err") ? "error" : "ok"}" role="status">${formatMessage(feedbackCode)}</div>` : "";
   // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
   // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
   // V22.9.16: 다섯 조회가 서로 필요 없다. 한 번에 던진다.
@@ -6426,7 +6627,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -6507,8 +6708,14 @@ async function handleReservePlanDelete(request, env) {
     if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기지출 삭제 권한이 없습니다.")}`);
   }
   const id = String(form.get("id") || "").trim();
-  try { await deleteReservePlan(env, householdId, id); } catch (_) {}
-  return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&msg=reserve_deleted`);
+  if (!id) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("삭제할 정기 항목을 찾지 못했습니다.")}`);
+  try {
+    await deleteReservePlan(env, householdId, id);
+    return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&msg=reserve_deleted`);
+  } catch (err) {
+    rememberOpsEvent({ kind: "reserve_plan_delete_failed", severity: "warn", path: "/admin/reserve-plan/delete", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.")}`);
+  }
 }
 
 const CATEGORY_KEYWORD_GUIDE = [
@@ -6616,14 +6823,14 @@ async function handleCategoryCreate(request, env) {
   const type = String(form.get("type") || "expense").trim() === "income" ? "income" : "expense";
   const keywords = normalizeCategoryKeywords(form.get("keywords") || "");
   if (!householdId || !name) return redirectResponse(`/categories?household_id=${encodeURIComponent(householdId)}&err=category_missing`);
+  let tableCreated = false;
   try {
     await supabase(env, "/rest/v1/accountbook_categories", {
       method: "POST",
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ household_id: householdId, name, type, sort_order: 100 }),
     });
-    if (keywords.length) await setCategoryKeywords(env, householdId, type, name, keywords);
-    return redirectResponse(`/categories?household_id=${encodeURIComponent(householdId)}&msg=category_created`);
+    tableCreated = true;
   } catch (err) {
     try {
       await addSettingsCategory(env, householdId, name, type, keywords);
@@ -6632,6 +6839,15 @@ async function handleCategoryCreate(request, env) {
       return redirectResponse(`/categories?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("분류 저장을 완료하지 못했습니다. 기본 분류는 계속 사용할 수 있습니다.")}`);
     }
   }
+  if (tableCreated && keywords.length) {
+    try {
+      await setCategoryKeywords(env, householdId, type, name, keywords);
+    } catch (err) {
+      rememberOpsEvent({ kind: "category_created_keywords_pending", severity: "warn", path: "/admin/category/create", method: "POST", detail: safeError(err) });
+      return redirectResponse(`/categories?household_id=${encodeURIComponent(householdId)}&msg=category_created&err=category_created_keywords_pending`);
+    }
+  }
+  return redirectResponse(`/categories?household_id=${encodeURIComponent(householdId)}&msg=category_created`);
 }
 
 async function handleCategoryDelete(request, env) {
@@ -6691,7 +6907,7 @@ async function handleMyProfileUpdate(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const nickname = String(form.get("nickname") || "").trim().slice(0, 80);
+  const nickname = stripMergedMarkerSuffix(String(form.get("nickname") || "")).slice(0, 80);
   if (!nickname) return redirectResponse("/my/profile?err=nickname_missing");
   await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
     method: "PATCH",
@@ -6943,6 +7159,7 @@ const IMPORT_REJECTION_GUIDE = Object.freeze({
   invalid_date: ["날짜 형식을 해석하지 못함", "예: 2026-07-15, 2026.7.15, 7월 15일, 46000(엑셀 날짜) 형식으로 바꿔 주세요."],
   missing_amount: ["금액을 찾지 못함", "금액·지출·수입·입금·출금 열을 추가하거나 ‘12,000원’처럼 적어 주세요."],
   invalid_amount: ["금액 형식을 해석하지 못함", "통화문자와 쉼표는 허용됩니다. 숫자 또는 ‘1만2천원’처럼 입력해 주세요."],
+  amount_too_large: ["금액이 허용 범위를 초과함", "한 거래 금액은 20억 원 이하로 바꾼 뒤 다시 확인해 주세요. 자동으로 줄여 저장하지 않습니다."],
   ambiguous_amount: ["금액 후보가 여러 개라 확정하지 못함", "잔액/누계 열은 빼고 실제 거래금액 열의 제목을 금액·지출·수입 중 하나로 바꿔 주세요."],
   column_mismatch: ["제목 수와 값 수가 맞지 않음", "쉼표가 든 내용은 큰따옴표로 감싸거나, CSV 대신 탭으로 구분한 표를 붙여넣어 주세요."],
   both_income_expense: ["수입과 지출 금액이 한 행에 함께 있음", "한 거래 행에는 수입 또는 지출 금액 하나만 남겨 주세요."],
@@ -6985,8 +7202,15 @@ function canonicalImportHeaderField(value = "") {
 }
 
 function importHeaderScore(row = []) {
-  const fields = new Set(safeArray(row).map(canonicalImportHeaderField).filter((field) => field && field !== "ignore"));
+  const cells = safeArray(row);
+  const fields = new Set(cells.map(canonicalImportHeaderField).filter((field) => field && field !== "ignore"));
   const hasMoney = ["amount", "income", "expense"].some((field) => fields.has(field));
+  // V22.9.26: 날짜나 숫자 금액이 든 행은 제목 행이 아니다. "2026-07-01,지출,4500,스타벅스,카페/간식,카드"
+  // 처럼 구분·결제수단 셀이 제목 별칭과 같은 가장 흔한 거래 행이 반복 제목으로 오인돼 저장 0건이 됐다.
+  const dataLike = !!findImportDateInValues(cells) || cells.some((cell) => {
+    const text = String(cell ?? "").trim();
+    return /^[-+]?[\d,]+(?:\.\d+)?\s*원?$/.test(text) && Math.abs(Number(text.replace(/[^\d.-]/g, ""))) >= 1;
+  });
   let score = 0;
   if (fields.has("date")) score += 2;
   if (hasMoney) score += 3;
@@ -6994,7 +7218,7 @@ function importHeaderScore(row = []) {
   if (fields.has("memo")) score += 1;
   if (fields.has("category")) score += 1;
   if (fields.has("payment")) score += 1;
-  return { score, fields, isHeader: hasMoney && fields.size >= 2 && score >= 4 };
+  return { score, fields, isHeader: !dataLike && hasMoney && fields.size >= 2 && score >= 4 };
 }
 
 function detectImportDelimiter(text = "") {
@@ -7225,14 +7449,27 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     if (naturalParsed.ok) chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
   }
   if (!chosen.amount) return { row: null, rejection: importRejection(anyAmountPresent ? "invalid_amount" : "missing_amount", options.rowNumber, rawText), warnings };
+  if (Math.abs(Math.round(Number(chosen.amount || 0))) > MAX_TRANSACTION_AMOUNT) {
+    return { row: null, rejection: importRejection("amount_too_large", options.rowNumber, rawText), warnings };
+  }
 
   const typeVal = canonicalImportValue(obj, "type");
-  let type = normalizeImportTypeValue(typeVal) || forcedType || (chosen.negative ? "expense" : "");
+  const normalizedType = normalizeImportTypeValue(typeVal);
+  let type = normalizedType || forcedType || (chosen.negative ? "expense" : "");
   if (!type) {
     type = naturalParsed?.type || detectType(rawText);
     if (typeVal) warnings.push(`구분 ‘${String(typeVal).slice(0, 30)}’을 직접 해석하지 못해 문맥으로 ${type === "income" ? "수입" : "지출"} 처리했습니다.`);
   }
   type = type === "income" ? "income" : "expense";
+  // V22.9.26: 구분 열이 지출인데 금액이 음수면 카드사 명세서의 취소·환불 표기다. 양수 지출로
+  // 더하면 원거래와 취소가 둘 다 지출로 집계된다. 환급(수입)으로 돌리고 확인 표시를 남긴다.
+  let refundFlipped = false;
+  const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
+  if (chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
+    type = "income";
+    refundFlipped = true;
+    warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
+  }
 
   let paymentVal = canonicalImportValue(obj, "payment");
   if (!paymentVal && typeVal && !normalizeImportTypeValue(typeVal) && /(카드|현금|계좌|페이|은행)/i.test(typeVal)) paymentVal = typeVal;
@@ -7240,7 +7477,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const memoVal = canonicalImportValue(obj, "memo");
   const rawField = canonicalImportValue(obj, "raw_text");
   const payment = paymentVal ? (normalizePaymentMethod(paymentVal) || String(paymentVal).trim()) : (naturalParsed?.payment_method || detectPaymentMethod(rawText));
-  const category = categoryVal || naturalParsed?.category || inferCategory(`${rawText} ${memoVal}`, type);
+  const category = refundFlipped ? "환급" : (categoryVal || naturalParsed?.category || inferCategory(`${rawText} ${memoVal}`, type));
   const memo = memoVal || naturalParsed?.memo || cleanMemo(rawText, chosen.raw || String(chosen.amount), type, payment, category) || category;
   const spender = canonicalImportValue(obj, "spender");
   const row = {
@@ -7256,6 +7493,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || rawText).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
+    _import_needs_confirmation: refundFlipped,
   };
   return { row, rejection: null, warnings };
 }
@@ -7427,19 +7665,23 @@ function memberAliasSettingsKey(householdId = "") {
   return `member_aliases:${String(householdId || "default").trim() || "default"}`;
 }
 
-async function fetchMemberAliasMap(env, householdId = "") {
+async function fetchMemberAliasMap(env, householdId = "", options = {}) {
+  const strict = options.strict === true;
   try {
-    const value = await getSettingValue(env, memberAliasSettingsKey(householdId));
-    return normalizeMemberAliasMap(value);
+    const key = memberAliasSettingsKey(householdId);
+    const value = strict ? await getSettingValueStrict(env, key) : await getSettingValue(env, key);
+    return normalizeMemberAliasMap(value, { strict });
   } catch (err) {
+    if (strict) throw err;
     return {};
   }
 }
 
-function normalizeMemberAliasMap(value = {}) {
+function normalizeMemberAliasMap(value = {}, options = {}) {
   let parsed = value;
-  if (typeof parsed === "string") {
-    try { parsed = parsed ? JSON.parse(parsed) : {}; } catch (err) { parsed = {}; }
+  if (options.strict === true) parsed = parseStrictSettingsObject(parsed, "member_aliases");
+  else if (typeof parsed === "string") {
+    try { parsed = parsed ? JSON.parse(parsed) : {}; } catch (_) { parsed = {}; }
   }
   const out = {};
   for (const [k, v] of Object.entries(safeObject(parsed))) {
@@ -7455,14 +7697,22 @@ async function saveMemberAlias(env, householdId = "", userId = "", alias = "") {
   const uid = String(userId || "").trim();
   const name = String(alias || "").trim().slice(0, 80);
   if (!hid || !uid || !name) return {};
-  const map = await fetchMemberAliasMap(env, hid);
-  map[uid] = name;
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(map) }),
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const [memberRows, userRows] = await Promise.all([
+      supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&user_id=eq.${encodeURIComponent(uid)}&select=user_id&limit=1`, { method: "GET" }),
+      supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(uid)}&select=id&limit=1`, { method: "GET" }),
+    ]);
+    if (!memberRows?.[0] || !userRows?.[0]) throw new Error("member_alias_target_missing");
+    const map = await fetchMemberAliasMap(env, hid, { strict: true });
+    map[uid] = name;
+    assertFresh();
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(map) }),
+    });
+    return map;
   });
-  return map;
 }
 
 function roleRank(role = "") {
@@ -12549,7 +12799,9 @@ function accountbookDetailExperienceClientMain() {
     if (!main || event.target.closest("a,input,button,select,textarea") || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     if (showRow(main)) { event.preventDefault(); event.stopPropagation(); }
   }, true);
-  document.querySelectorAll(".v8-tx > div.v8-tx-main").forEach(function(main) {
+  // V22.9.26: 실제 마크업은 article.v8-tx > details > summary.v8-tx-main 이라 자손 선택자여야 한다.
+  // 자식 선택자로는 한 번도 맞지 않아 키보드·보조기기 사용자에게 상세 시트가 열리지 않았다.
+  document.querySelectorAll(".v8-tx .v8-tx-main").forEach(function(main) {
     if (typeof HTMLDialogElement === "undefined" || typeof HTMLDialogElement.prototype.showModal !== "function") return;
     main.tabIndex = 0;
     main.setAttribute("role", "button");
@@ -13566,7 +13818,7 @@ function identityMergeRedirectSettingsKey(secondaryUserId = "") {
   return `identity_merge_redirect:${String(secondaryUserId || "").trim()}`.slice(0, 180);
 }
 
-function parseIdentityMergeRedirectValue(value, expectedSecondaryId = "") {
+function parseIdentityMergeRedirectValue(value, expectedSecondaryId = "", strict = false) {
   let parsed = value;
   if (typeof parsed === "string") {
     try { parsed = parsed ? JSON.parse(parsed) : {}; } catch (err) { parsed = {}; }
@@ -13575,7 +13827,18 @@ function parseIdentityMergeRedirectValue(value, expectedSecondaryId = "") {
   const secondaryId = String(item.secondary_user_id || "").trim();
   const primaryId = String(item.primary_user_id || item.user_id || "").trim();
   if (expectedSecondaryId && secondaryId && secondaryId !== expectedSecondaryId) return "";
+  // V22.9.26: 키가 대상 사용자와 묶여 있지 않은 광역 조회에서는 값 안의 secondary_user_id 가
+  // 반드시 일치해야 한다. 비어 있는 값을 통과시키면 아무 통합 기록이나 다른 사용자의 세션으로 이어진다.
+  if (strict && (!secondaryId || secondaryId !== expectedSecondaryId)) return "";
   return primaryId;
+}
+
+// V22.9.26: "(통합됨)" 꼬리표는 계정 통합이 붙이는 내부 표식이다. 사용자나 카카오 프로필에서 온
+// 표시 이름에서는 떼어 내, 통합 해석 경로가 입력만으로 켜지지 않게 한다.
+function stripMergedMarkerSuffix(value = "") {
+  let out = String(value || "");
+  for (let i = 0; i < 3; i += 1) out = out.replace(/\s*\(\s*통합됨\s*\)\s*$/u, "");
+  return out.trim();
 }
 
 function cacheEffectiveUserId(sourceUserId = "", effectiveUserId = "") {
@@ -13619,13 +13882,16 @@ async function fetchLegacyIdentityMergePrimaryId(env, secondaryUserId = "") {
   if (!sid) return "";
   const exactPattern = `identity_merge_audit:*:${sid}`;
   let rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(exactPattern)}&select=key,value&order=key.desc&limit=20`, { method: "GET" }, []) || [];
+  let strict = false;
   if (!rows.length) {
     // 구버전에서 키 끝부분이 달라졌거나 이관된 경우를 위한 제한적 호환 조회입니다.
+    // V22.9.26: 이 광역 조회는 키가 대상 사용자와 묶여 있지 않으므로 값의 secondary_user_id 일치를 요구한다.
     const broadPattern = "identity_merge_audit:*";
     rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(broadPattern)}&select=key,value&order=key.desc&limit=1000`, { method: "GET" }, []) || [];
+    strict = true;
   }
   for (const row of rows) {
-    const primaryId = parseIdentityMergeRedirectValue(row?.value, sid);
+    const primaryId = parseIdentityMergeRedirectValue(row?.value, sid, strict);
     if (primaryId && primaryId !== sid) return primaryId;
   }
   return "";
@@ -13822,15 +14088,11 @@ function userIdentityLinksSettingsKey() {
   return "user_identity_links";
 }
 
+// V22.9.26: 전역 식별 링크 표는 읽기 실패를 빈 값으로 보지 않는다. 모든 호출부가 읽고-고쳐-쓰는
+// 길이라, 503 한 번이 다른 모든 사용자의 카카오 식별 링크를 지우고 새 사용자로 갈라 놓을 수 있었다.
 async function fetchUserIdentityLinks(env) {
-  try {
-    const value = await getSettingValue(env, userIdentityLinksSettingsKey());
-    if (!value) return {};
-    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
-    return safeObject(parsed);
-  } catch (err) {
-    return {};
-  }
+  const value = await getSettingValueStrict(env, userIdentityLinksSettingsKey());
+  return parseStrictSettingsObject(value, "user_identity_links");
 }
 
 async function saveUserIdentityLinks(env, links = {}) {
@@ -13878,7 +14140,7 @@ async function linkKakaoLoginToUser(env, kakaoId = "", userId = "", profile = {}
   await supabase(env, "/rest/v1/rpc/accountbook_link_kakao_identity_v227", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: String(profile.nickname || "").slice(0, 80) }),
+    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: stripMergedMarkerSuffix(profile.nickname).slice(0, 80) }),
   });
   return true;
 }
@@ -14098,7 +14360,7 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
   const created = await supabase(env, "/rest/v1/users", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ kakao_user_key: key, nickname: String(nickname || "카카오사용자").slice(0, 80) }),
+    body: JSON.stringify({ kakao_user_key: key, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
   });
   const user = Array.isArray(created) ? created[0] : created;
   if (user?.id) {
@@ -14555,6 +14817,7 @@ function normalizeImportTransaction(row = {}, householdId = "", userId = "") {
   if (!normalized) return null;
   delete normalized._import_spender;
   delete normalized._import_warnings;
+  delete normalized._import_needs_confirmation;
   return normalized;
 }
 
@@ -14563,7 +14826,9 @@ async function findExactDuplicateTransaction(env, row = {}, options = {}) {
   const params = new URLSearchParams();
   params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,source_user_key,raw_text,created_at");
   params.set("household_id", `eq.${row.household_id}`);
-  params.set("user_id", `eq.${row.user_id}`);
+  // V22.9.26: 가져오기는 가계부 단위로 중복을 본다. 부부가 같은 카드 명세서를 각자 올리면
+  // 사용자 단위 판정으로는 모든 거래가 두 번 들어갔다. 카카오 재전송 판정은 사용자 단위 그대로다.
+  if (options.scope !== "household") params.set("user_id", `eq.${row.user_id}`);
   params.set("transaction_date", `eq.${row.transaction_date}`);
   params.set("type", `eq.${row.type === "income" ? "income" : "expense"}`);
   params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
@@ -14623,7 +14888,7 @@ function renderMyMembersHtml({ env, month, households, selected, members = [], m
     const remove = owner ? "" : `<form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 가계부에서 내보낼까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><button class="danger" type="submit">내보내기</button></form>`;
     return `<article class="memberCard"><div class="memberHead"><div class="avatar">${escapeHtml(String(m.nickname || "구").slice(0, 1))}</div><div><b>${escapeHtml(m.nickname || "구성원")}</b><span>${escapeHtml(userHouseholdRoleLabel(role))} · ${escapeHtml(String(m.created_at || "").slice(0, 10) || "참여일 미상")}</span></div></div><form method="post" action="/admin/member/nickname" class="nameForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><label>이 가계부에서 보일 이름<input name="nickname" value="${escapeHtml(m.nickname || "")}" maxlength="40" required/></label><button type="submit">이름 저장</button></form>${roleForm}<div class="memberFoot"><small>표시 이름과 권한으로 구분합니다.</small>${remove}</div></article>`;
   }).join("") || `<div class="empty">참여자가 없습니다.</div>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:1fr}.memberGrid{grid-template-columns:1fr}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section><section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${JSON.stringify(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:1fr}.memberGrid{grid-template-columns:1fr}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section><section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${jsonForInlineScript(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
 }
 
 function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, members = [], msg = "", err = "" }) {
@@ -14834,7 +15099,7 @@ async function handleMyBackupPage(request, env, url) {
   const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const canImport = canWriteMyHousehold(selected.role);
   const disabled = canImport ? "" : " disabled";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}${cardImportCss()}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 UTF-8 CSV로 받습니다. 엑셀에서 바로 열 수 있습니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a></p><p class="muted">컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section>${renderCardImportSection({ canImport })}<section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script><script id="cardImportRuntime">(${cardImportClientMain.toString()})({formId:"myImportForm",fileId:"myImportFile",textId:"myImportText"});</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}${cardImportCss()}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 UTF-8 CSV로 받습니다. 엑셀에서 바로 열 수 있습니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a> <a class="btn" href="/my/backup.csv?${hh}&amp;range=all">전체 기간 CSV</a></p><p class="muted">컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID. 가계부를 삭제하기 전에는 전체 기간 CSV를 받아 두세요.</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section>${renderCardImportSection({ canImport })}<section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script><script id="cardImportRuntime">(${cardImportClientMain.toString()})({formId:"myImportForm",fileId:"myImportFile",textId:"myImportText"});</script></body></html>`);
 }
 
 async function handleMyBackupCsv(request, env, url) {
@@ -14846,9 +15111,14 @@ async function handleMyBackupCsv(request, env, url) {
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
   if (!selected) return redirectResponse("/my?err=no_household");
   const members = await fetchHouseholdMembers(env, selected.id);
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: selected.id, type: "all" }), members);
+  // V22.9.26: `range=all` 이면 전 기간을 내보낸다. 영구 삭제 전 백업이 한 달치뿐이면 나머지를 잃는다.
+  const allRange = url.searchParams.get("range") === "all";
+  const rawRows = allRange
+    ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 200000 })
+    : await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
+  const rows = attachSpenderNames(rawRows, members);
   const csv = buildReadableTransactionsCsv(rows);
-  const file = `accountbook_${month}_${String(selected.name || "backup").replace(/[^\w가-힣-]+/g, "_")}.csv`;
+  const file = `accountbook_${allRange ? "all" : month}_${String(selected.name || "backup").replace(/[^\w가-힣-]+/g, "_")}.csv`;
   return csvResponse(csv, file);
 }
 
@@ -14905,9 +15175,11 @@ function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLook
   const internal = safeObject(entry.row);
   const spender = String(internal._import_spender || "").trim();
   const warnings = [...safeArray(entry.warnings), ...safeArray(internal._import_warnings)];
+  const needsConfirmation = internal._import_needs_confirmation === true;
   const row = { ...internal, user_id: userId, source: "my_import" };
   delete row._import_spender;
   delete row._import_warnings;
+  delete row._import_needs_confirmation;
   if (spender) {
     const key = normalizeText(spender).toLowerCase().replace(/\s+/g, "");
     const matches = memberLookup.get(key) || [];
@@ -14920,6 +15192,7 @@ function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLook
     row_number: Number(entry.row_number || 0),
     raw: String(entry.raw || "").slice(0, 500),
     warnings: [...new Set(warnings.map((item) => String(item || "").trim()).filter(Boolean))],
+    needs_confirmation: needsConfirmation,
     row,
   };
 }
@@ -15030,7 +15303,7 @@ async function handleMyImport(request, env) {
         outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
         continue;
       }
-      if (skipDuplicates && await findExactDuplicateTransaction(env, row)) {
+      if (skipDuplicates && await findExactDuplicateTransaction(env, row, { scope: "household" })) {
         duplicate += 1;
         outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
         continue;
@@ -15124,7 +15397,7 @@ async function handleMyImport(request, env) {
   for (const entry of entries) {
     const prepared = prepareMyImportEntry(entry, userId, selected, memberLookup, jti);
     prepared.row.id = await myImportDeterministicTransactionId(jti, entry.row_number);
-    if (skipDuplicates && await findExactDuplicateTransaction(env, prepared.row)) {
+    if (skipDuplicates && await findExactDuplicateTransaction(env, prepared.row, { scope: "household" })) {
       outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
       continue;
     }
@@ -15300,7 +15573,10 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       if (r.is_active === false || String(r.is_active) === "false") { skipped++; continue; }
       scanned++;
       if (String(r.last_applied_month || "") === month) { skipped++; continue; }
-      const dueDay = Math.min(31, Math.max(1, Number(r.day_of_month || 1)));
+      // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
+      // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
+      const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+      const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
       if (currentDay < dueDay) { skipped++; continue; }
       const txDate = recurringDateForMonth(month, dueDay);
       const row = {
@@ -15315,7 +15591,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
         source: "recurring_auto",
         raw_text: `recurring:${r.id || ""}:${month}`,
       };
-      if (!row.amount) { failed++; continue; }
+      // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
+      if (!row.amount) { skipped++; continue; }
       try {
         const dup = await findRecurringAutoDuplicate(env, row);
         if (!dup) {
@@ -15505,11 +15782,22 @@ async function clearMyBudgetPlan(env, householdId = "", month = currentMonthKst(
   }, null);
 }
 
+// V22.9.26: 예산 폼의 금액은 문장이 아니라 숫자 칸이다. 문장 파서는 "999" 같은 네 자리 미만을
+// 금액으로 보지 않아 0원이 됐고, 0원은 그 분류 삭제였다. 순수 숫자는 그대로 읽고 "50만" 같은
+// 표기만 문장 파서에 맡긴다.
+function parseBudgetFormAmount(value = "") {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  if (/^[\d,]+(?:\.\d+)?\s*원?$/.test(raw)) return Math.round(Number(raw.replace(/[^\d.]/g, "")) || 0);
+  return Math.round(Number(parseAmountValue(raw) || 0));
+}
+
 async function handleMyBudgetBulkSave(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const householdId = String(form.get("household_id") || "").trim();
   const returnTo = String(form.get("budget_return") || "") === "budgets"
     ? `/budgets?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`
@@ -15517,11 +15805,13 @@ async function handleMyBudgetBulkSave(request, env) {
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(addQueryToUrl(returnTo, { err: "write_not_allowed" }));
+  // V22.9.26: 달이 깨진 폼은 현재 달 계획을 통째로 바꾸지 않고 거절한다.
+  if (monthInput && month !== monthInput) return redirectResponse(addQueryToUrl(returnTo, { err: "invalid_month" }));
 
   const incomeNames = form.getAll("income_name").map((v) => String(v || "").trim().slice(0, 60));
-  const incomeAmounts = form.getAll("income_amount").map((v) => parseAmountValue(v || "0"));
+  const incomeAmounts = form.getAll("income_amount").map((v) => parseBudgetFormAmount(v));
   const expenseNames = form.getAll("budget_category").map((v) => String(v || "").trim().slice(0, 80));
-  const expenseAmounts = form.getAll("budget_amount").map((v) => parseAmountValue(v || "0"));
+  const expenseAmounts = form.getAll("budget_amount").map((v) => parseBudgetFormAmount(v));
 
   try {
     const plan = new Map();
@@ -15538,7 +15828,8 @@ async function handleMyBudgetBulkSave(request, env) {
       if (!amount) continue;
       plan.set(normalizeText(name), { category: name, amount });
     }
-    const rows = [...plan.values()].slice(0, 100);
+    const rows = [...plan.values()];
+    if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }));
     await supabase(env, "/rest/v1/rpc/accountbook_replace_budget_plan_v227", {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -16052,7 +16343,9 @@ async function runAutomaticReports(env, opts = {}) {
 
 async function handleAutomaticReportCron(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
-  const result = await runAutomaticReports(env, { today: url.searchParams.get("today") || "", force: url.searchParams.get("force") === "1" });
+  // V22.9.26: 날짜가 아닌 today 는 버린다. 예전에는 "NaN-NaN" 스냅샷 키가 저장됐다.
+  const todayParam = String(url.searchParams.get("today") || "").trim();
+  const result = await runAutomaticReports(env, { today: isValidTransactionDateString(todayParam) ? todayParam : "", force: url.searchParams.get("force") === "1" });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
 
@@ -17528,7 +17821,11 @@ function renderBudgetGaugeRows(budget = {}) {
 function shortWonLabel(amount = 0) {
   const n = Number(amount || 0);
   if (!n) return "0";
-  if (Math.abs(n) >= 100000000) return `${Math.round(n / 100000000)}억`;
+  if (Math.abs(n) >= 100000000) {
+    // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 소수 첫째 자리까지 둔다.
+    const eok = Math.round(n / 10000000) / 10;
+    return `${Number.isInteger(eok) ? eok : eok.toFixed(1)}억`;
+  }
   if (Math.abs(n) >= 10000) return `${Math.round(n / 10000)}만`;
   if (Math.abs(n) >= 1000) return `${Math.round(n / 1000)}천`;
   return `${Math.round(n)}`;
@@ -17568,8 +17865,8 @@ function renderWeekdayTrend(rows = []) {
     if (r.type === "income") continue;
     const date = String(r.transaction_date || "");
     if (!date) continue;
-    const d = new Date(`${date}T00:00:00+09:00`);
-    const idx = Number.isFinite(d.getTime()) ? d.getDay() : 0;
+    const weekday = weekdayIndexOfYmd(date);
+    const idx = weekday >= 0 ? weekday : 0;
     data[idx].amount += Number(r.amount || 0);
     data[idx].count += 1;
   }
@@ -17765,18 +18062,22 @@ async function handleMyCategoryKeywordsBulkSave(request, env) {
   const types = form.getAll("kw_type").map((v) => String(v || "expense"));
   const names = form.getAll("kw_name").map((v) => String(v || "").trim().slice(0, 80));
   const keywords = form.getAll("kw_keywords").map((v) => String(v || ""));
-  const map = await fetchCategoryKeywordMap(env, selected.id);
-  for (let i = 0; i < names.length; i++) {
-    const name = names[i];
-    if (!name) continue;
-    const type = types[i] === "income" ? "income" : "expense";
-    const key = categoryKeywordKey(type, name);
-    const list = normalizeCategoryKeywords(keywords[i] || "");
-    if (list.length) map[key] = list;
-    else delete map[key];
-  }
   try {
-    await saveCategoryKeywordMap(env, selected.id, map);
+    await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
+      // V22.9.26: strict 읽기 — 읽기 실패를 빈 값으로 보면 기존 키워드가 모두 사라진다.
+      const map = await fetchCategoryKeywordMap(env, selected.id, { strict: true });
+      for (let i = 0; i < names.length; i++) {
+        const name = names[i];
+        if (!name) continue;
+        const type = types[i] === "income" ? "income" : "expense";
+        const key = categoryKeywordKey(type, name);
+        const list = normalizeCategoryKeywords(keywords[i] || "");
+        if (list.length) map[key] = list;
+        else delete map[key];
+      }
+      assertFresh();
+      await saveCategoryKeywordMap(env, selected.id, map);
+    });
     return redirectResponse(keywordEditorLocation(returnTo, month, selected.id, { msg: "category_keywords_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_category_keywords_bulk_failed", severity: "warn", path: "/my/category-keywords/bulk-save", method: "POST", detail: safeError(err) });
@@ -17808,10 +18109,13 @@ async function handleMyRecurringSave(request, env) {
     is_active: true,
   };
   try {
-    await supabase(env, "/rest/v1/accountbook_recurring", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(row),
+    await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
+      assertFresh();
+      await supabase(env, "/rest/v1/accountbook_recurring", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
@@ -17830,7 +18134,10 @@ async function handleMyRecurringDelete(request, env) {
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "write_not_allowed" }));
   try {
-    await optionalSupabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }, null);
+    await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
+      assertFresh();
+      await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_recurring_delete_failed", severity: "warn", path: "/my/recurring/delete", method: "POST", detail: safeError(err) });
@@ -17864,15 +18171,19 @@ async function handleRecurringCandidateConfirm(request, env) {
     is_active: true,
   };
   try {
-    const existing = await fetchRecurring(env, selected.id);
-    const key = normalizeRecurringKey(row);
-    if (safeArray(existing).some((item) => normalizeRecurringKey(item) === key)) return redirectResponse(`${returnTo}&msg=recurring_exists`);
-    await supabase(env, "/rest/v1/accountbook_recurring", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(row),
+    const created = await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
+      const existing = await fetchRecurringStrict(env, selected.id);
+      const key = normalizeRecurringKey(row);
+      if (safeArray(existing).some((item) => normalizeRecurringKey(item) === key)) return false;
+      assertFresh();
+      await supabase(env, "/rest/v1/accountbook_recurring", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
+      return true;
     });
-    return redirectResponse(`${returnTo}&msg=recurring_registered`);
+    return redirectResponse(`${returnTo}&msg=${created ? "recurring_registered" : "recurring_exists"}`);
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_candidate_confirm_failed", severity: "warn", path: "/my/recurring/from-candidate", method: "POST", detail: safeError(err) });
     return redirectResponse(`${returnTo}&err=recurring_save_failed`);
@@ -17901,8 +18212,9 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryRows.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td>${escapeHtml(r.memo || "")}</td><td>${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td>${numberWithCommas(r.amount)}원</td><td>${escapeHtml(r.category || "")}</td><td>매월 ${escapeHtml(r.day_of_month || 1)}일</td><td>${escapeHtml(r.last_applied_month || "-")}</td><td><form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
-  const incomeInputs = incomeRows.slice(0, 8).map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");
-  const expenseInputs = budgetEditRows.slice(0, 12).map((r) => `<div class="budgetLine expenseLine"><input name="budget_category" value="${escapeHtml(r.name)}" placeholder="직접입력: 예산 분류"/><select class="pickValue">${categoryOptions}</select><input name="budget_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예산 금액"/></div>`).join("");
+  const incomeInputs = incomeRows.map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");
+  // V22.9.26: 설정한 분류를 모두 그린다. 12행만 그리면 저장(월 전체 교체)이 13번째부터 지웠다.
+  const expenseInputs = budgetEditRows.map((r) => `<div class="budgetLine expenseLine"><input name="budget_category" value="${escapeHtml(r.name)}" placeholder="직접입력: 예산 분류"/><select class="pickValue">${categoryOptions}</select><input name="budget_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예산 금액"/></div>`).join("");
   const budgetListRows = expenseSetRows.length ? expenseSetRows.map((r) => {
     const spent = Number(spentMap[r.name] || 0);
     const remain = Math.max(0, Number(r.amount || 0) - spent);
@@ -18393,7 +18705,7 @@ async function handleMyCreate(request, env) {
   if (!user) return handleMyLogout();
   const form = await request.formData();
   const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
-  const displayName = String(form.get("display_name") || user.nickname || "").trim().slice(0, 40);
+  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || user.nickname || "")).slice(0, 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
@@ -18485,21 +18797,25 @@ function householdSettingsKeys(householdId = "") {
 async function purgeHouseholdData(env, householdId = "") {
   const hid = String(householdId || "").trim();
   if (!hid) throw new Error("household_id_required");
-  const affectedMembers = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id`, { method: "GET" }, []) || [];
-  const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ p_household_id: hid }),
+  const purge = await withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const affectedMembers = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id`, { method: "GET" }, []) || [];
+    assertFresh();
+    const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ p_household_id: hid }),
+    });
+    const summary = Array.isArray(result) ? result[0] : result;
+    if (!summary?.deleted) throw new Error("household_delete_not_confirmed");
+    return { summary, affectedMembers };
   });
-  const summary = Array.isArray(result) ? result[0] : result;
-  if (!summary?.deleted) throw new Error("household_delete_not_confirmed");
 
   // Relational data is already committed atomically. External lookup mappings
   // are cleaned afterwards and never make the successful deletion look failed.
   try { await removeKakaoGroupLinksForHousehold(env, hid); } catch (err) {
     rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
   }
-  for (const member of affectedMembers) {
+  for (const member of purge.affectedMembers) {
     try {
       const selectedId = await getKakaoSelectedHouseholdId(env, member.user_id || "");
       if (String(selectedId) === hid) await clearKakaoSelectedHousehold(env, member.user_id || "");
@@ -18507,7 +18823,7 @@ async function purgeHouseholdData(env, householdId = "") {
       rememberOpsEvent({ kind: "household_selection_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household selection cleanup pending" });
     }
   }
-  return { ...safeObject(summary), affectedMembers: affectedMembers.length };
+  return { ...safeObject(purge.summary), affectedMembers: purge.affectedMembers.length };
 }
 
 async function handleMyHouseholdDelete(request, env) {
@@ -18547,15 +18863,19 @@ async function handleMyHouseholdDelete(request, env) {
 async function removeMemberAlias(env, householdId = "", userId = "") {
   const hid = String(householdId || "").trim();
   const uid = String(userId || "").trim();
-  if (!hid || !uid) return;
-  const aliases = await fetchMemberAliasMap(env, hid);
-  if (!Object.prototype.hasOwnProperty.call(aliases, uid)) return;
-  delete aliases[uid];
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(aliases) }),
-  });
+  if (!hid || !uid) return false;
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const aliases = await fetchMemberAliasMap(env, hid, { strict: true });
+    if (!Object.prototype.hasOwnProperty.call(aliases, uid)) return false;
+    delete aliases[uid];
+    assertFresh();
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(aliases) }),
+    });
+    return true;
+  }, { missingHousehold: "noop", missingResult: false });
 }
 
 async function handleMyHouseholdLeave(request, env) {
@@ -18709,6 +19029,13 @@ async function fetchRecurringStrict(env, householdId) {
   params.set("household_id", `eq.${householdId}`);
   params.set("order", "day_of_month.asc,created_at.asc");
   return (await supabase(env, `/rest/v1/accountbook_recurring?${params.toString()}`, { method: "GET" })) || [];
+}
+
+async function fetchRecurringRuleByIdStrict(env, id = "") {
+  const rid = String(id || "").trim();
+  if (!rid) return null;
+  const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month&limit=1`, { method: "GET" }) || [];
+  return rows[0] || null;
 }
 
 function budgetSummary(rows = [], budgets = []) {
@@ -19045,7 +19372,7 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
   const spenderEditor = canEditSpender
     ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
     : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
-  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" aria-label="금액"/><input name="memo" value="${escapeHtml(memo === "-" ? "" : memo)}" placeholder="내용" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
+  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(memo === "-" ? "" : memo)}" placeholder="내용" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
 }
 
 // V22.8.91 통합 작업지시서 4.3 — "이번 달 리포트" 4장.
@@ -20823,13 +21150,13 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22915.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22926.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22925.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22926.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -23659,7 +23986,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
     etag: path === AB_CATEGORY_RULES_ASSET_PATH
-      ? '"ab-category-rules-v22915-js"'
+      ? '"ab-category-rules-v22926-js"'
       : path === AB_CURSOR_ASSET_PATH
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
@@ -23675,7 +24002,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22915-js"'
+          ? '"mobile-home-shell-v22926-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22925-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
@@ -23687,7 +24014,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22925-js"'
+          ? '"accountbook-v5-v22926-js"'
           : '"mobile-home-v22915-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -24603,7 +24930,7 @@ function renderPcCalendarHtml({ month, households, selectedHousehold, rows, stat
   const heatLevel = (exp) => exp <= 0 ? 0 : Math.min(5, Math.max(1, Math.ceil(exp / maxDayExpense * 5)));
   const dayCard = (d, compact = false) => {
     const date = String(d.date || "");
-    const dayName = dayNames[new Date(`${date}T00:00:00+09:00`).getDay()] || "";
+    const dayName = dayNames[weekdayIndexOfYmd(date)] || "";
     const has = Number(d.count || 0) > 0;
     return `<a class="day ${compact ? "compactDay" : ""} ${has ? "hasSpend" : "emptyDay"} heat${heatLevel(Number(d.expense || 0))}" href="#day-${escapeHtml(date)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(d.expense || 0)}원 · ${numberWithCommas(d.count || 0)}건"><b>${escapeHtml(String(date).slice(8,10))}</b><em>${escapeHtml(dayName)}</em><span>${has ? escapeHtml(shortWonLabel(d.expense || 0)) : ""}</span><small>${has ? `${numberWithCommas(d.count || 0)}건` : ""}</small></a>`;
   };
@@ -24806,8 +25133,8 @@ async function handleBudgetCenterPage(request, env, url) {
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)].join("");
   const categoryNames = defaultExpenseBudgetNames(customCategories);
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)].join("");
-  const incomeInputs = incomePlans.slice(0, 8).map((row) => `<div class="planLine"><label>수입 종류<input name="income_name" value="${escapeHtml(row.name)}" placeholder="예: 급여, 상여, 부수입"/></label><label>빠른 선택<select class="pickValue">${incomeOptions}</select></label><label>예상 금액<input name="income_amount" inputmode="numeric" value="${Number(row.amount || 0) || ""}" placeholder="예: 2500000"/></label></div>`).join("");
-  const expenseInputs = editExpenses.slice(0, 12).map((row) => `<div class="planLine"><label>지출 분류<input name="budget_category" value="${escapeHtml(row.name)}" placeholder="예: 식비, 교통"/></label><label>빠른 선택<select class="pickValue">${categoryOptions}</select></label><label>한도 금액<input name="budget_amount" inputmode="numeric" value="${Number(row.amount || 0) || ""}" placeholder="예: 500000"/></label></div>`).join("");
+  const incomeInputs = incomePlans.map((row) => `<div class="planLine"><label>수입 종류<input name="income_name" value="${escapeHtml(row.name)}" placeholder="예: 급여, 상여, 부수입"/></label><label>빠른 선택<select class="pickValue">${incomeOptions}</select></label><label>예상 금액<input name="income_amount" inputmode="numeric" value="${Number(row.amount || 0) || ""}" placeholder="예: 2500000"/></label></div>`).join("");
+  const expenseInputs = editExpenses.map((row) => `<div class="planLine"><label>지출 분류<input name="budget_category" value="${escapeHtml(row.name)}" placeholder="예: 식비, 교통"/></label><label>빠른 선택<select class="pickValue">${categoryOptions}</select></label><label>한도 금액<input name="budget_amount" inputmode="numeric" value="${Number(row.amount || 0) || ""}" placeholder="예: 500000"/></label></div>`).join("");
   const actualIncomeRows = center.actualIncomeCategories.length
     ? center.actualIncomeCategories.map((item) => `<li><span><b>${escapeHtml(item.category)}</b><small>${numberWithCommas(item.count)}건</small></span><strong>${numberWithCommas(item.amount)}원</strong></li>`).join("")
     : `<li class="empty">아직 이번 달 수입 기록이 없습니다.</li>`;
@@ -24878,7 +25205,7 @@ async function handleBudgetCenterPageLegacyV2264(request, env, url) {
   const incomeOptions = CATEGORY_KEYWORD_GUIDE.filter((g) => g.type === "income").map((g) => `<option value="__income:${escapeHtml(g.category)}">${escapeHtml(g.category)} 수입 기준</option>`).join("");
   const budgetBasisList = renderBudgetBasisRows(budgets);
   const budgetConsistency = renderBudgetConsistencyAlert(budgets, center);
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>예산 관리</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:29px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.modeTag{display:inline-block;font-style:normal;font-size:11px;font-weight:1000;border-radius:999px;padding:2px 7px;margin-left:4px;vertical-align:1px}.modeTag.auto{background:#dcfce7;color:#166534}.modeTag.manual{background:#eff6ff;color:#1e3a8a}.bar{height:14px;background:#e5e7eb;border-radius:999px;overflow:hidden}.bar i{display:block;height:100%;width:var(--w);background:#3182F6;border-radius:999px}.basisGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:12px}.basisGrid>div{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;min-width:0}.basisGrid h3{margin:0 0 10px;font-size:17px}.basisGrid ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}.basisGrid li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px}.basisGrid li b{word-break:keep-all;line-height:1.25}.basisGrid li span{white-space:nowrap;font-weight:1000}.budgetWarn,.budgetOk{border-radius:18px;padding:14px;margin:12px 0;display:grid;gap:5px;line-height:1.45}.budgetWarn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.budgetOk{background:#ecfdf5;border:1px solid #86efac;color:#166534}.budgetWarn b,.budgetOk b{font-size:17px}.budgetWarn span,.budgetOk span{font-weight:900}.budgetWarn small{color:#9a3412}.tableWrap{overflow-x:auto}.catUse summary{cursor:pointer;font-weight:1000}.catUse small{display:block;color:#64748b;margin-top:3px}.budgetTree{margin-top:10px;display:grid;gap:7px}.memberUse{background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:8px}.memberUse summary{cursor:pointer;color:#111827}.memberUse ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px}.memberUse li{display:grid;grid-template-columns:92px 90px 1fr;gap:8px;font-size:12px;color:#475569}.memberUse li b{color:#111827}.memberUse li em{font-style:normal}.emptyTree{color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:10px}table{width:100%;border-collapse:collapse;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px}.status{display:inline-flex;border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.status.ok{background:#dcfce7;color:#166534}.status.warn{background:#fff7ed;color:#9a3412}.status.bad{background:#fee2e2;color:#991b1b}.mini{height:32px;border:0;border-radius:10px;padding:0 10px;font-weight:900}.danger{background:#fee2e2;color:#991b1b}.okmsg{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.errmsg{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid,.basisGrid{grid-template-columns:1fr}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:760px}.memberUse li{grid-template-columns:1fr;gap:3px}}</style></head><body>${renderUnifiedNav("budgets", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap"><section class="hero"><h1>예산 관리</h1><p>월 수입 기준으로 전체 예산을 얼마까지 잡았는지 보고, 분류별 예산의 사용금액·잔여금액·사용률을 한눈에 관리합니다.</p><form class="filters" method="get" action="/budgets"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="okmsg">${formatMessage(msg)}</div>` : ""}${err ? `<div class="errmsg">${escapeHtml(err)}</div>` : ""}<section class="metricGrid"><div class="metric"><span>월 수입 기준</span><b>${numberWithCommas(center.incomeBase)}원</b></div><div class="metric"><span>이번 달 예산 ${center.budget.explicitTotalBudget ? `<i class="modeTag manual">직접 설정</i>` : `<i class="modeTag auto">분류 합계 자동</i>`}</span><b>${numberWithCommas(center.totalBudget)}원</b></div><div class="metric"><span>수입 대비 예산</span><b>${center.budgetIncomeRate}%</b></div><div class="metric"><span>남은 배정 가능 예산</span><b>${numberWithCommas(center.freeAfterBudget)}원</b></div><div class="metric"><span>이번 달 지출</span><b>${numberWithCommas(center.budget.expense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${center.budget.rate || 0}%</b></div></section><section class="card"><h2>수입 대비 예산 비율</h2><div class="bar"><i style="--w:${Math.min(100, Math.max(0, center.budgetIncomeRate))}%"></i></div><p class="tip">월 수입 기준을 입력하면 예산이 수입의 몇 %인지 볼 수 있습니다. 수입 기준을 비워두면 이번 달 기록된 수입을 기준으로 계산합니다.</p></section><section class="card"><h2>월 기준 설정</h2><p class="note">월 예산은 <b>분류별 예산 합계로 자동 산정</b>되므로 따로 설정하지 않아도 됩니다. 수입 기준(이번 달 들어올 돈)만 입력해도 충분하고, 월 전체 예산 직접 설정은 분류 합계와 다르게 잡고 싶을 때만 쓰는 선택 항목입니다. 직접입력을 선택했을 때만 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>설정 항목<select name="category" class="jsBudgetKind"><option value="__income">월 수입 기준 합계</option>${incomeOptions}<option value="__income_custom">수입 기준 직접입력</option><option value="__total">월 전체 예산 직접 설정 (선택)</option></select></label><label class="jsCustomWrap" hidden>직접입력 이름<input name="category_custom" disabled placeholder="예: 상여, 부수입"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 3500000" value=""/></label><button type="submit">기준 저장</button></form>` : `<p class="note">예산 기준 저장은 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">현재 월 수입 기준 합계: ${numberWithCommas(center.incomeBudget || 0)}원 · 분류별 예산 합계(자동): ${numberWithCommas(center.budget.categoryBudgetTotal || 0)}원${Number(totalBudgetRow.amount || 0) ? ` · 직접 설정한 월 전체 예산: ${numberWithCommas(totalBudgetRow.amount)}원` : ""}</p>${Number(totalBudgetRow.amount || 0) && canManage ? `<form method="post" action="/admin/budget/delete" onsubmit="return confirm('직접 설정한 월 전체 예산을 지우고 분류별 합계 자동 산정으로 전환할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="category" value="__total"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><button type="submit" class="mini" style="background:#eff6ff;color:#1e3a8a">자동 산정(분류 합계)으로 전환</button></form>` : ""}${budgetConsistency}${budgetBasisList}</section><section class="card"><h2>분류별 예산 추가</h2><p class="note">먼저 기존 분류를 선택하거나, 맨 아래 “분류 직접입력”을 선택하면 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>분류<select name="category" class="jsBudgetKind">${categoryOptions}<option value="__category_custom">분류 직접입력</option></select></label><label class="jsCustomWrap" hidden>직접입력 분류명<input name="category_custom" disabled placeholder="예: 아이간식, 반려동물, 병원비"/></label><label>예산 금액<input name="amount" inputmode="numeric" placeholder="예: 500000"/></label><button type="submit">분류 예산 저장</button></form>` : `<p class="note">분류별 예산 추가는 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">분류별 사용 현황은 아래에서 분류명을 눌러 상세를 확인하세요.</p></section><section class="card"><h2>분류별 사용 현황</h2><p class="note">분류명을 눌러 멤버별 사용 합계를 보고, 멤버명을 한 번 더 누르면 날짜·금액·항목이 표시됩니다.</p><div class="tableWrap"><table><thead><tr><th>분류/상세</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th><th>상태</th><th>관리</th></tr></thead><tbody>${renderBudgetRows(budgets, center.budget, rows, canManage)}</tbody></table></div></section><script>const BUDGET_CTX={catTotal:${Number(center.budget.categoryBudgetTotal || 0)},incomeBase:${Number(center.incomeBase || 0)},explicitTotal:${Number(center.budget.explicitTotalBudget || 0)}};document.querySelectorAll(".smartBudgetForm").forEach((form)=>{const sel=form.querySelector(".jsBudgetKind");const wrap=form.querySelector(".jsCustomWrap");const input=wrap&&wrap.querySelector("input");function sync(){const v=sel?.value||"";const on=v==="__income_custom"||v==="__category_custom";if(wrap){wrap.hidden=!on;}if(input){input.disabled=!on;if(!on)input.value="";}}sel&&sel.addEventListener("change",sync);sync();form.addEventListener("submit",(e)=>{const kind=sel?.value||"";const amtEl=form.querySelector("input[name=amount]");const amt=Number(String(amtEl?.value||"").replace(/[^0-9]/g,""))||0;if(!amt)return;const won=(n)=>n.toLocaleString("ko-KR")+"원";if(kind&&!kind.startsWith("__")||kind==="__category_custom"){const nextTotal=BUDGET_CTX.catTotal+amt;const limit=BUDGET_CTX.explicitTotal||BUDGET_CTX.incomeBase;if(limit&&nextTotal>limit){const over=nextTotal-limit;const base=BUDGET_CTX.explicitTotal?"직접 설정한 월 전체 예산":"월 수입 기준";if(!confirm("⚠️ 예산 초과 경고\\n\\n이 예산을 저장하면 분류별 예산 합계("+won(nextTotal)+")가 "+base+"("+won(limit)+")를 "+won(over)+" 초과합니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}}else if(kind==="__total"&&BUDGET_CTX.incomeBase&&amt>BUDGET_CTX.incomeBase){if(!confirm("⚠️ 월 전체 예산("+won(amt)+")이 월 수입 기준("+won(BUDGET_CTX.incomeBase)+")보다 큽니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}});});</script></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>예산 관리</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:29px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.modeTag{display:inline-block;font-style:normal;font-size:11px;font-weight:1000;border-radius:999px;padding:2px 7px;margin-left:4px;vertical-align:1px}.modeTag.auto{background:#dcfce7;color:#166534}.modeTag.manual{background:#eff6ff;color:#1e3a8a}.bar{height:14px;background:#e5e7eb;border-radius:999px;overflow:hidden}.bar i{display:block;height:100%;width:var(--w);background:#3182F6;border-radius:999px}.basisGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:12px}.basisGrid>div{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;min-width:0}.basisGrid h3{margin:0 0 10px;font-size:17px}.basisGrid ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}.basisGrid li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px}.basisGrid li b{word-break:keep-all;line-height:1.25}.basisGrid li span{white-space:nowrap;font-weight:1000}.budgetWarn,.budgetOk{border-radius:18px;padding:14px;margin:12px 0;display:grid;gap:5px;line-height:1.45}.budgetWarn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.budgetOk{background:#ecfdf5;border:1px solid #86efac;color:#166534}.budgetWarn b,.budgetOk b{font-size:17px}.budgetWarn span,.budgetOk span{font-weight:900}.budgetWarn small{color:#9a3412}.tableWrap{overflow-x:auto}.catUse summary{cursor:pointer;font-weight:1000}.catUse small{display:block;color:#64748b;margin-top:3px}.budgetTree{margin-top:10px;display:grid;gap:7px}.memberUse{background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:8px}.memberUse summary{cursor:pointer;color:#111827}.memberUse ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px}.memberUse li{display:grid;grid-template-columns:92px 90px 1fr;gap:8px;font-size:12px;color:#475569}.memberUse li b{color:#111827}.memberUse li em{font-style:normal}.emptyTree{color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:10px}table{width:100%;border-collapse:collapse;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px}.status{display:inline-flex;border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.status.ok{background:#dcfce7;color:#166534}.status.warn{background:#fff7ed;color:#9a3412}.status.bad{background:#fee2e2;color:#991b1b}.mini{height:32px;border:0;border-radius:10px;padding:0 10px;font-weight:900}.danger{background:#fee2e2;color:#991b1b}.okmsg{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.errmsg{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid,.basisGrid{grid-template-columns:1fr}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:760px}.memberUse li{grid-template-columns:1fr;gap:3px}}</style></head><body>${renderUnifiedNav("budgets", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap"><section class="hero"><h1>예산 관리</h1><p>월 수입 기준으로 전체 예산을 얼마까지 잡았는지 보고, 분류별 예산의 사용금액·잔여금액·사용률을 한눈에 관리합니다.</p><form class="filters" method="get" action="/budgets"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="okmsg">${formatMessage(msg)}</div>` : ""}${err ? `<div class="errmsg">${formatMessage(err)}</div>` : ""}<section class="metricGrid"><div class="metric"><span>월 수입 기준</span><b>${numberWithCommas(center.incomeBase)}원</b></div><div class="metric"><span>이번 달 예산 ${center.budget.explicitTotalBudget ? `<i class="modeTag manual">직접 설정</i>` : `<i class="modeTag auto">분류 합계 자동</i>`}</span><b>${numberWithCommas(center.totalBudget)}원</b></div><div class="metric"><span>수입 대비 예산</span><b>${center.budgetIncomeRate}%</b></div><div class="metric"><span>남은 배정 가능 예산</span><b>${numberWithCommas(center.freeAfterBudget)}원</b></div><div class="metric"><span>이번 달 지출</span><b>${numberWithCommas(center.budget.expense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${center.budget.rate || 0}%</b></div></section><section class="card"><h2>수입 대비 예산 비율</h2><div class="bar"><i style="--w:${Math.min(100, Math.max(0, center.budgetIncomeRate))}%"></i></div><p class="tip">월 수입 기준을 입력하면 예산이 수입의 몇 %인지 볼 수 있습니다. 수입 기준을 비워두면 이번 달 기록된 수입을 기준으로 계산합니다.</p></section><section class="card"><h2>월 기준 설정</h2><p class="note">월 예산은 <b>분류별 예산 합계로 자동 산정</b>되므로 따로 설정하지 않아도 됩니다. 수입 기준(이번 달 들어올 돈)만 입력해도 충분하고, 월 전체 예산 직접 설정은 분류 합계와 다르게 잡고 싶을 때만 쓰는 선택 항목입니다. 직접입력을 선택했을 때만 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>설정 항목<select name="category" class="jsBudgetKind"><option value="__income">월 수입 기준 합계</option>${incomeOptions}<option value="__income_custom">수입 기준 직접입력</option><option value="__total">월 전체 예산 직접 설정 (선택)</option></select></label><label class="jsCustomWrap" hidden>직접입력 이름<input name="category_custom" disabled placeholder="예: 상여, 부수입"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 3500000" value=""/></label><button type="submit">기준 저장</button></form>` : `<p class="note">예산 기준 저장은 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">현재 월 수입 기준 합계: ${numberWithCommas(center.incomeBudget || 0)}원 · 분류별 예산 합계(자동): ${numberWithCommas(center.budget.categoryBudgetTotal || 0)}원${Number(totalBudgetRow.amount || 0) ? ` · 직접 설정한 월 전체 예산: ${numberWithCommas(totalBudgetRow.amount)}원` : ""}</p>${Number(totalBudgetRow.amount || 0) && canManage ? `<form method="post" action="/admin/budget/delete" onsubmit="return confirm('직접 설정한 월 전체 예산을 지우고 분류별 합계 자동 산정으로 전환할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="category" value="__total"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><button type="submit" class="mini" style="background:#eff6ff;color:#1e3a8a">자동 산정(분류 합계)으로 전환</button></form>` : ""}${budgetConsistency}${budgetBasisList}</section><section class="card"><h2>분류별 예산 추가</h2><p class="note">먼저 기존 분류를 선택하거나, 맨 아래 “분류 직접입력”을 선택하면 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>분류<select name="category" class="jsBudgetKind">${categoryOptions}<option value="__category_custom">분류 직접입력</option></select></label><label class="jsCustomWrap" hidden>직접입력 분류명<input name="category_custom" disabled placeholder="예: 아이간식, 반려동물, 병원비"/></label><label>예산 금액<input name="amount" inputmode="numeric" placeholder="예: 500000"/></label><button type="submit">분류 예산 저장</button></form>` : `<p class="note">분류별 예산 추가는 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">분류별 사용 현황은 아래에서 분류명을 눌러 상세를 확인하세요.</p></section><section class="card"><h2>분류별 사용 현황</h2><p class="note">분류명을 눌러 멤버별 사용 합계를 보고, 멤버명을 한 번 더 누르면 날짜·금액·항목이 표시됩니다.</p><div class="tableWrap"><table><thead><tr><th>분류/상세</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th><th>상태</th><th>관리</th></tr></thead><tbody>${renderBudgetRows(budgets, center.budget, rows, canManage)}</tbody></table></div></section><script>const BUDGET_CTX={catTotal:${Number(center.budget.categoryBudgetTotal || 0)},incomeBase:${Number(center.incomeBase || 0)},explicitTotal:${Number(center.budget.explicitTotalBudget || 0)}};document.querySelectorAll(".smartBudgetForm").forEach((form)=>{const sel=form.querySelector(".jsBudgetKind");const wrap=form.querySelector(".jsCustomWrap");const input=wrap&&wrap.querySelector("input");function sync(){const v=sel?.value||"";const on=v==="__income_custom"||v==="__category_custom";if(wrap){wrap.hidden=!on;}if(input){input.disabled=!on;if(!on)input.value="";}}sel&&sel.addEventListener("change",sync);sync();form.addEventListener("submit",(e)=>{const kind=sel?.value||"";const amtEl=form.querySelector("input[name=amount]");const amt=Number(String(amtEl?.value||"").replace(/[^0-9]/g,""))||0;if(!amt)return;const won=(n)=>n.toLocaleString("ko-KR")+"원";if(kind&&!kind.startsWith("__")||kind==="__category_custom"){const nextTotal=BUDGET_CTX.catTotal+amt;const limit=BUDGET_CTX.explicitTotal||BUDGET_CTX.incomeBase;if(limit&&nextTotal>limit){const over=nextTotal-limit;const base=BUDGET_CTX.explicitTotal?"직접 설정한 월 전체 예산":"월 수입 기준";if(!confirm("⚠️ 예산 초과 경고\\n\\n이 예산을 저장하면 분류별 예산 합계("+won(nextTotal)+")가 "+base+"("+won(limit)+")를 "+won(over)+" 초과합니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}}else if(kind==="__total"&&BUDGET_CTX.incomeBase&&amt>BUDGET_CTX.incomeBase){if(!confirm("⚠️ 월 전체 예산("+won(amt)+")이 월 수입 기준("+won(BUDGET_CTX.incomeBase)+")보다 큽니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}});});</script></main></body></html>`);
 }
 
 async function handleRecurringSave(request, env) {
@@ -24908,7 +25235,10 @@ async function handleRecurringSave(request, env) {
   if (!row.amount) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
   if (!spenderId || !activeSpenderExists(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목의 지출자를 가계부 활성 참여자 중에서 선택하세요." }));
   try {
-    await supabase(env, "/rest/v1/accountbook_recurring", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+    await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
+      assertFresh();
+      await supabase(env, "/rest/v1/accountbook_recurring", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+    });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_save_failed", severity: "warn", path: "/admin/recurring/save", method: "POST", detail: safeError(err) });
@@ -24918,18 +25248,23 @@ async function handleRecurringSave(request, env) {
 
 async function handleRecurringDelete(request, env) {
   const form = await request.formData();
-  const _hh = String(form.get("household_id") || "").trim();
-  const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
-  if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 삭제 권한이 없습니다.")}#fixed`);
+  const requestedHouseholdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const id = String(form.get("id") || "").trim();
+  const existingRule = id ? await fetchRecurringRuleByIdStrict(env, id) : null;
+  const householdId = String(existingRule?.household_id || "").trim();
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId || requestedHouseholdId)}#fixed`);
+  if (!id || !existingRule || !householdId) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
+  const access = await resolveTransactionAccess(request, env, householdId, { manageOnly: true });
+  if (!access.ok) {
+    if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: "고정지출 삭제 권한이 없습니다." }));
     return redirectResponse("/?legacy=1");
   }
-  const id = String(form.get("id") || "");
-  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
-  if (!id) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
   try {
-    const deleted = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(_hh)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    const deleted = await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
+      assertFresh();
+      return supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+    });
     if (!Array.isArray(deleted) || !deleted.length) throw new Error("recurring_not_found");
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_deleted" }));
   } catch (err) {
@@ -24951,14 +25286,21 @@ async function handleRecurringApply(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
   try {
-    const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ p_household_id: householdId, p_month: month }),
+    return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
+      // 운영 RPC는 29~31일을 28일로 줄인다. SQL 보완 승인 전까지 guard와 RPC를 같은 가계부 DB 임대 안에서 수행한다.
+      const monthEndRules = await supabase(env, `/rest/v1/accountbook_recurring?household_id=eq.${encodeURIComponent(householdId)}&day_of_month=gte.29&select=id,day_of_month,is_active,last_applied_month`, { method: "GET" }) || [];
+      const unsafeMonthEndRules = monthEndRules.filter((rule) => rule?.is_active !== false && String(rule?.last_applied_month || "") !== month);
+      if (unsafeMonthEndRules.length) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_manual_month_end_blocked" }));
+      assertFresh();
+      const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ p_household_id: householdId, p_month: month }),
+      });
+      const summary = Array.isArray(result) ? result[0] : result;
+      const count = Math.max(0, Number(summary?.inserted || 0));
+      return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록` }));
     });
-    const summary = Array.isArray(result) ? result[0] : result;
-    const count = Math.max(0, Number(summary?.inserted || 0));
-    return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록` }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
     const message = /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
@@ -25045,10 +25387,17 @@ async function handleMyLocalLogin(request, env) {
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false);
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴가지만
+  // 계정 단위 횟수는 어디서 보내든 같은 계정이면 함께 줄어든다.
+  const accountKey = normalizeLocalLoginName(nickname);
+  const accountAttempt = await recordAuthAttempt(env, request, "/my/local-login", false, { scope: "account", key: accountKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 10, 3, 50) });
+  if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
+  if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
     if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
     await recordAuthAttempt(env, request, "/my/local-login", true);
+    await recordAuthAttempt(env, request, "/my/local-login", true, { scope: "account", key: accountKey });
     let location = loginReturnTo || "/my";
     if (inviteCode) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
@@ -25069,7 +25418,7 @@ async function handleMyLocalLogin(request, env) {
 async function handleMyLocalSignup(request, env) {
   const form = await request.formData();
   const loginName = String(form.get("login_name") || "").trim().slice(0, 80);
-  const displayName = String(form.get("display_name") || loginName).trim().slice(0, 80);
+  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || loginName)).slice(0, 80);
   const accessCode = String(form.get("access_code") || "").trim();
   const confirm = String(form.get("access_code_confirm") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();
@@ -25080,11 +25429,15 @@ async function handleMyLocalSignup(request, env) {
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false);
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  // V22.9.26: 가입은 성공해도 횟수를 지우지 않고, User-Agent 를 뺀 IP 단위 상한도 함께 둔다.
+  // 예전에는 가입이 될 때마다 횟수가 지워져 한 클라이언트가 계정을 무한히 만들 수 있었다.
+  const ipAttempt = await recordAuthAttempt(env, request, "/my/local-signup", false, { scope: "ip", limit: boundedRuntimeNumber(env.AUTH_SIGNUP_IP_LIMIT, 20, 5, 200) });
+  if (ipAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
+  if (!ipAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   let user = null;
   try {
     user = await createLocalLoginUser(env, loginName, displayName, accessCode);
     if (!user?.id) throw new Error("local_signup_failed");
-    await recordAuthAttempt(env, request, "/my/local-signup", true);
   } catch (err) {
     const classified = classifyLocalSignupError(err);
     rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
@@ -26047,6 +26400,7 @@ function formatMessage(msg) {
     recurring_save_failed: "반복 항목을 저장하지 못했습니다. 기존 데이터는 유지됩니다.",
     regenerated: "초대코드를 새로 만들었습니다. 이전 코드는 더 이상 사용할 수 없습니다.",
     save_failed: "저장하지 못했습니다. 기존 데이터는 유지되므로 잠시 후 다시 시도해 주세요.",
+    "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.": "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.",
     settings_table_required: "보안 설정 저장 공간을 확인해야 합니다. 관리자에게 배포 상태 확인을 요청해 주세요.",
     settlement_already_completed: "같은 조건의 정산 완료 이력이 이미 있습니다.",
     settlement_busy: "다른 정산 저장이 진행 중입니다. 잠시 후 한 번만 다시 시도해 주세요.",
@@ -26058,13 +26412,13 @@ function formatMessage(msg) {
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
-  const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
+  const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
   reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
 };
-  const fallback = /^[a-z][a-z0-9_]*$/.test(String(msg || ""))
-    ? "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요."
-    : String(msg || "");
-  return escapeHtml(map[msg] || fallback);
+  const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
+  // 쿼리 문자열은 사용자가 직접 만들 수 있다. 정확히 열거한 코드만 사용자 안내로 바꾸고,
+  // 코드가 아닌 자유 문장(짧은 한국어 포함)은 출처를 증명할 수 없으므로 일반 안내로 닫는다.
+  return escapeHtml(map[msg] || generic);
 }
 
 function isMissingCategory(value) {
@@ -26685,6 +27039,20 @@ function kakaoSaveDelayText(origin = "") {
     "",
     "지금은 저장 확인이 지연되고 있어요.",
     "중복될 수 있으니 같은 내용을 다시 보내지 말고 잠시 후 ‘오늘 기록 보기’로 확인해 주세요.",
+  ].join("\n");
+}
+
+// V22.9.26: 저장소가 상태 코드로 거절한 경우(Supabase 4xx·5xx)는 저장된 행이 없다.
+function isDefiniteStorageFailure(err) {
+  return /^Supabase [45]\d\d\b/.test(safeError(err) || "");
+}
+
+function kakaoSaveFailedText(origin = "") {
+  return [
+    "저장하지 못했어요 😢",
+    "",
+    "가계부 저장소가 요청을 거절해 이번 내용은 기록되지 않았어요.",
+    "잠시 후 같은 내용을 다시 보내 주세요.",
   ].join("\n");
 }
 
@@ -28816,6 +29184,13 @@ function parseBudgetMonthHint(text = "") {
 function parseDirectBudgetSetCommand(text = "") {
   const t = normalizeText(text);
   const monthHint = "(이번달|이번 달|다음달|다음 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
+  // V22.9.26: "예산 50만원", "예산 설정 50만원", "월 예산 50만원", "이번달 예산 50만원" 처럼
+  // 분류 없이 말하면 전체 월 예산이다. 예전에는 거래 파서로 떨어져 50만원짜리 지출이 저장됐다.
+  const bareTotal = t.match(new RegExp(`^(?:${monthHint}\\s*)?(?:월\\s*|전체\\s*|총\\s*)?예산\\s*(?:설정|저장|등록|변경|수정)?\\s*(?:은|을|를)?\\s+(.+)$`, "i"));
+  if (bareTotal && normalizeKakaoEditAmountValue(bareTotal[2])) {
+    const totalAmount = parseAmountValue(bareTotal[2]);
+    if (totalAmount) return { month: parseBudgetMonthHint(bareTotal[1] || ""), category: "__total", amount: Math.round(totalAmount) };
+  }
   const explicit = t.match(new RegExp(`^(?:${monthHint}\\s*)?(.{1,35}?)\\s*예산\\s*(?:설정|저장|등록)\\s+(.+)$`, "i"));
   // "식비 예산 30만원" 처럼 설정·저장·등록을 빼고 말하는 사람이 많다. 예전에는
   // 이것이 예산이 아니라 30만원짜리 지출로 기록됐다. 다만 "회사 예산 회의 5000"
@@ -29749,6 +30124,12 @@ ${formatRecentTransactions(rows)}`);
 
   const kakaoBulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   const limitedParsedList = finalParsedList.slice(0, kakaoBulkLimit);
+  // V22.9.26: 웹 입력·카카오 수정과 같은 상한을 생성 경로에도 둔다. 오타 한 번으로 45조원이
+  // 저장되면 월 요약과 예산 사용률 전체가 깨지고 수정 명령으로도 되돌리기 어렵다.
+  const tooLarge = limitedParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
+  if (tooLarge) {
+    return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
+  }
   const rowsToInsert = limitedParsedList.map((parsed) => ({
     household_id: household.id, user_id: user.id, type: parsed.type, amount: parsed.amount,
     category: parsed.category, memo: parsed.memo, payment_method: parsed.payment_method,
@@ -29758,7 +30139,13 @@ ${formatRecentTransactions(rows)}`);
 
   let savedRows = [];
   try { savedRows = await insertKakaoTransactions(env, rowsToInsert); }
-  catch (err) { return kakaoText(kakaoSaveDelayText(origin)); }
+  catch (err) {
+    // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
+    // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
+    // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
+    rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
+    return kakaoText(isDefiniteStorageFailure(err) ? kakaoSaveFailedText(origin) : kakaoSaveDelayText(origin));
+  }
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
 
   if (limitedParsedList.length > 1) {
@@ -29928,8 +30315,9 @@ async function handleUserRecentTransactions(request, env, url) {
   const hasMore = fetchedRows.length > 80;
   const rawRows = fetchedRows.slice(0, 80);
   const rows = attachSpenderNames(rawRows, members);
-  const today = formatDate(nowKstDate());
-  const todayDate = new Date(`${today}T00:00:00+09:00`);
+  // V22.9.26: nowKstDate() 는 KST 날짜 부품으로 만든 로컬 Date 라 getDay() 가 어디서나 KST 요일이다.
+  const todayDate = nowKstDate();
+  const today = formatDate(todayDate);
   const weekOffset = todayDate.getDay() === 0 ? -6 : 1 - todayDate.getDay();
   todayDate.setDate(todayDate.getDate() + weekOffset);
   const weekStart = formatDate(todayDate);
@@ -30795,11 +31183,7 @@ async function handleIdentityMerge(request, env) {
   if (!selectedMembers.some((m) => String(m.user_id) === primaryId) || !selectedMembers.some((m) => String(m.user_id) === secondaryId)) {
     return redirectResponse(`${base}&err=${encodeURIComponent("선택한 두 계정이 모두 이 가계부의 참여자인지 확인하세요.")}`);
   }
-  const aliasSnapshots = [];
-  for (const sm of secondaryMemberships) {
-    const hid = String(sm.household_id || "");
-    if (hid) aliasSnapshots.push({ household_id: hid, aliases: await fetchMemberAliasMap(env, hid) });
-  }
+  const aliasHouseholdIds = [...new Set(secondaryMemberships.map((item) => String(item.household_id || "").trim()).filter(Boolean))];
 
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_merge_users_v227", {
@@ -30815,24 +31199,35 @@ async function handleIdentityMerge(request, env) {
   }
 
   rewireEffectiveUserCache(secondaryId, primaryId);
-  for (const snapshot of aliasSnapshots) {
+  // 병합 RPC 뒤 최신 별칭을 가계부별로 다시 읽는다. 잠금은 한 번에 하나만 잡아
+  // 여러 가계부의 설정 잠금 순서가 교차하지 않게 한다.
+  for (const hid of aliasHouseholdIds) {
     try {
-      const aliases = safeObject(snapshot.aliases);
-      if (!aliases[primaryId] && aliases[secondaryId]) aliases[primaryId] = aliases[secondaryId];
-      delete aliases[secondaryId];
-      await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: memberAliasSettingsKey(snapshot.household_id), value: JSON.stringify(aliases) }) });
+      await withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+        const aliases = await fetchMemberAliasMap(env, hid, { strict: true });
+        let changed = false;
+        if (!aliases[primaryId] && aliases[secondaryId]) { aliases[primaryId] = aliases[secondaryId]; changed = true; }
+        if (Object.prototype.hasOwnProperty.call(aliases, secondaryId)) { delete aliases[secondaryId]; changed = true; }
+        if (!changed) return false;
+        assertFresh();
+        await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(aliases) }) });
+        return true;
+      }, { missingHousehold: "noop", missingResult: false });
     } catch (err) {
       rememberOpsEvent({ kind: "identity_alias_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "alias cleanup pending" });
     }
   }
   try {
-    const links = await fetchUserIdentityLinks(env);
-    for (const [key, value] of Object.entries(safeObject(links))) {
-      if (String(safeObject(value).user_id || "") === secondaryId) links[key] = { ...safeObject(value), user_id: primaryId, merged_at: new Date().toISOString() };
-    }
-    if (secondary.kakao_user_key) links[`skill_identity:${secondary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
-    if (primary.kakao_user_key) links[`skill_identity:${primary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
-    await saveUserIdentityLinks(env, links);
+    await withGlobalIdentitySettingsRmw(env, async ({ assertFresh }) => {
+      const links = await fetchUserIdentityLinks(env);
+      for (const [key, value] of Object.entries(safeObject(links))) {
+        if (String(safeObject(value).user_id || "") === secondaryId) links[key] = { ...safeObject(value), user_id: primaryId, merged_at: new Date().toISOString() };
+      }
+      if (secondary.kakao_user_key) links[`skill_identity:${secondary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
+      if (primary.kakao_user_key) links[`skill_identity:${primary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
+      assertFresh();
+      await saveUserIdentityLinks(env, links);
+    });
   } catch (err) {
     rememberOpsEvent({ kind: "identity_legacy_link_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "legacy identity cleanup pending" });
   }
@@ -30852,16 +31247,22 @@ async function handleIdentityMerge(request, env) {
   return redirectResponse(`${base}&msg=${encodeURIComponent("계정 통합이 완료됐습니다. 거래와 참여 권한은 한 번에 이동됐습니다.")}`);
 }
 
+function eligibleKakaoUserId(payload = {}) {
+  const user = safeObject(payload?.userRequest?.user || payload?.user || {});
+  const userType = String(user.type || "").trim();
+  const userId = String(user.id || payload?.user?.id || "").trim();
+  // 일부 구형 payload는 type을 생략하므로 user.id만 있는 경우에 한해 호환합니다.
+  if ((userType === "botUserKey" || !userType) && userId && userId !== "unknown-user") return userId.slice(0, 160);
+  return "";
+}
+
 function getKakaoUserKey(payload) {
   const user = safeObject(payload?.userRequest?.user || payload?.user || {});
   const props = safeObject(user.properties || payload?.userRequest?.user?.properties || payload?.user?.properties || {});
   const explicitBotKey = String(props.botUserKey || payload?.botUserKey || "").trim();
   if (explicitBotKey && explicitBotKey !== "unknown-user") return explicitBotKey.slice(0, 160);
-  const userType = String(user.type || "").trim();
-  const userId = String(user.id || payload?.user?.id || "").trim();
-  if (userType === "botUserKey" && userId && userId !== "unknown-user") return userId.slice(0, 160);
-  // 일부 구형 테스트 payload는 type을 생략하므로 user.id만 있는 경우에 한해 호환합니다.
-  if (!userType && userId && userId !== "unknown-user") return userId.slice(0, 160);
+  const userId = eligibleKakaoUserId(payload);
+  if (userId) return userId;
   const appUserId = String(props.appUserId || payload?.appUserId || "").trim();
   if (appUserId) return `app_user:${appUserId}`.slice(0, 160);
   const plusfriend = String(props.plusfriendUserKey || payload?.plusfriendUserKey || "").trim();
@@ -30876,6 +31277,8 @@ function getKakaoIdentityAliases(payload = {}, primaryKey = "") {
   const aliases = new Set();
   const key = String(primaryKey || "").trim();
   if (key) aliases.add(`skill_identity:${key}`);
+  const eligibleUserId = eligibleKakaoUserId(payload);
+  if (eligibleUserId && eligibleUserId !== key) aliases.add(`skill_identity:${eligibleUserId}`);
   const appUserId = String(props.appUserId || payload?.appUserId || "").trim();
   if (appUserId) aliases.add(kakaoLoginUserKey(appUserId));
   const plusfriend = String(props.plusfriendUserKey || payload?.plusfriendUserKey || "").trim();
@@ -30913,34 +31316,88 @@ async function resolveLinkedIdentityUser(env, aliasKeys = []) {
   return null;
 }
 
+function identityAliasPersistenceError(error) {
+  const wrapped = new Error(`identity_alias_persistence_failed:${safeError(error)}`);
+  wrapped.name = "IdentityAliasPersistenceError";
+  wrapped.code = "identity_alias_persistence_failed";
+  wrapped.cause = error;
+  return wrapped;
+}
+
+function isSettingsRmwBusyError(error) {
+  return /settings_rmw_busy/.test(safeError(error));
+}
+
 async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill") {
-  const uid = String(userId || "").trim();
-  if (!uid || !safeArray(aliasKeys).length) return false;
-  const links = await fetchUserIdentityLinks(env);
-  let changed = false;
-  for (const alias of aliasKeys) {
-    const key = String(alias || "").trim();
-    if (!key) continue;
-    if (String(safeObject(links[key]).user_id || "") === uid) continue;
-    links[key] = { user_id: uid, provider, linked_at: new Date().toISOString() };
-    changed = true;
+  const requestedUid = String(userId || "").trim();
+  const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
+  if (!requestedUid || !aliases.length) return false;
+  let lastBusyError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await withGlobalIdentitySettingsRmw(env, async ({ assertFresh }) => {
+        const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
+        const canonicalUser = canonicalUid ? await fetchUserById(env, canonicalUid) : null;
+        if (!canonicalUser) throw new Error("identity_alias_target_missing");
+        const links = await fetchUserIdentityLinks(env);
+        let changed = false;
+        for (const key of aliases) {
+          const existingUid = String(safeObject(links[key]).user_id || "").trim();
+          if (existingUid) {
+            const existingCanonicalUid = await resolveEffectiveUserId(env, existingUid);
+            if (existingCanonicalUid && existingCanonicalUid !== canonicalUid) throw new Error("identity_alias_conflict");
+          }
+          if (existingUid === canonicalUid) continue;
+          links[key] = { user_id: canonicalUid, provider, linked_at: new Date().toISOString() };
+          changed = true;
+        }
+        if (changed) {
+          assertFresh();
+          await saveUserIdentityLinks(env, links);
+        }
+        return changed;
+      });
+    } catch (err) {
+      if (isSettingsRmwBusyError(err) && attempt < 2) {
+        lastBusyError = err;
+        await new Promise((resolve) => setTimeout(resolve, 12 + attempt * 11 + Math.floor(Math.random() * 7)));
+        continue;
+      }
+      rememberOpsEvent({ kind: "identity_alias_persistence_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+      throw identityAliasPersistenceError(err);
+    }
   }
-  if (changed) await saveUserIdentityLinks(env, links);
-  return changed;
+  throw identityAliasPersistenceError(lastBusyError || new Error("settings_rmw_busy"));
 }
 
 async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = []) {
   const rawKey = String(kakaoUserKey || "").trim();
   if (!rawKey) throw new Error("missing_kakao_user_identity");
   const key = encodeURIComponent(rawKey);
-  const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
-  if (existing?.[0]) return existing[0];
-
   const aliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
+  const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
+  if (existing?.[0]) {
+    const rawUser = existing[0];
+    const primaryAlias = `skill_identity:${rawKey}`;
+    const hasAlternateAlias = aliases.some((alias) => alias !== primaryAlias);
+    const mergedLooking = String(rawUser.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(rawUser.nickname || ""));
+    // A current, non-merged raw key with no distinct alias is already authoritative. Avoid a
+    // second users read on a cold isolate, but keep merged-looking or reconciliation paths strict.
+    if (!mergedLooking && !hasAlternateAlias) return rawUser;
+    const effectiveId = await resolveEffectiveUserId(env, rawUser.id);
+    const effective = effectiveId === String(rawUser.id) ? rawUser : await fetchUserById(env, effectiveId);
+    if (!effective) throw new Error("effective_user_missing");
+    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    return effective;
+  }
+
   const linked = await resolveLinkedIdentityUser(env, aliases);
   if (linked) {
-    await persistIdentityAliases(env, aliases, linked.id, "skill");
-    return linked;
+    const effectiveId = await resolveEffectiveUserId(env, linked.id);
+    const effective = effectiveId === String(linked.id) ? linked : await fetchUserById(env, effectiveId);
+    if (!effective) throw new Error("effective_user_missing");
+    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    return effective;
   }
 
   let user = null;
@@ -30948,7 +31405,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = []) {
     const created = await supabase(env, "/rest/v1/users?on_conflict=kakao_user_key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify({ kakao_user_key: rawKey, nickname: String(nickname || "카카오사용자").slice(0, 80) }),
+      body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
     });
     user = Array.isArray(created) ? created[0] : created;
   } catch (err) {
@@ -30958,12 +31415,18 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = []) {
       const created = await supabase(env, "/rest/v1/users", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ kakao_user_key: rawKey, nickname: String(nickname || "카카오사용자").slice(0, 80) }),
+        body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
       });
       user = Array.isArray(created) ? created[0] : created;
     }
   }
-  if (user?.id) await persistIdentityAliases(env, aliases, user.id, "skill");
+  if (user?.id) {
+    const effectiveId = await resolveEffectiveUserId(env, user.id);
+    const effective = effectiveId === String(user.id) ? user : await fetchUserById(env, effectiveId);
+    if (!effective) throw new Error("effective_user_missing");
+    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    return effective;
+  }
   return user;
 }
 
@@ -31203,12 +31666,12 @@ function parseMultipleTransactions(text, payload) {
 
 function hasDateHint(text) {
   const t = normalizeText(text);
-  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/]\d{1,2})/.test(t);
+  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/]\d{1,2}|[월화수목금토일]요일)/.test(t);
 }
 
 function extractLeadingDateHint(text) {
   const t = normalizeText(text);
-  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|내일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|\d{1,2}\s*월\s*\d{1,2}\s*일?|\d{1,2}[.\/]\d{1,2})\s*)/);
+  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|\d{1,2}\s*월\s*\d{1,2}\s*일?|\d{1,2}[.\/]\d{1,2})\s*)/);
   return m ? m[1].trim() : "";
 }
 
@@ -31220,7 +31683,9 @@ function splitTransactionClauses(text) {
   // 숫자 사이의 쉼표는 자릿수 구분이지 문장 구분이 아니다. 그냥 나누면 "12,345원"이
   // "12" + "345원"으로 쪼개져 345원만 저장된다.
   const firstPass = raw
-    .split(/\s*(?:(?<!\d)[,，](?!\d)|[,，](?!\d)|(?<!\d)[,，]|;|；|\n|(?<=^|\s)(?:그리고|또|추가로|다음으로)\s+|(?<=[가-힣]{2})(?:랑|하고)\s+)\s*/)
+    // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
+    // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
+    .split(/\s*(?:(?<!\d)[,，](?!\d)|[,，](?!\d)|(?<!\d)[,，]|;|；|\n|(?<=\s)\/|\/(?=\s)|·|(?<=^|\s)(?:그리고|또|추가로|다음으로)\s+|(?<=[가-힣]{2})(?:랑|하고)\s+)\s*/)
     .map((x) => String(x || "").trim())
     .filter(Boolean);
   const datePrefix = extractLeadingDateHint(raw);
@@ -31635,6 +32100,8 @@ function parseExplicitDateFromText(text) {
   if (/어제|전날/.test(raw)) return formatDate(addDays(now, -1));
   if (/내일/.test(raw)) return formatDate(addDays(now, 1));
   if (/오늘|금일|지금|방금/.test(raw)) return formatDate(now);
+  const weekdayDate = resolveWeekdayPhrase(raw, now);
+  if (weekdayDate) return weekdayDate;
 
   let m = raw.match(/(\d{1,2})\s*일\s*전/);
   if (m) return formatDate(addDays(now, -Number(m[1])));
@@ -31674,25 +32141,28 @@ function extractDate(text) {
   if (/모레/.test(raw)) return formatDate(addDays(now, 2));
   if (/내일/.test(raw)) return formatDate(addDays(now, 1));
   if (/오늘|금일|지금|방금/.test(raw)) return formatDate(now);
+  const weekdayDate = resolveWeekdayPhrase(raw, now);
+  if (weekdayDate) return weekdayDate;
 
   let m = raw.match(/(\d{1,2})\s*일\s*전/);
   if (m) return formatDate(addDays(now, -Number(m[1])));
   m = raw.match(/(\d{1,2})\s*주\s*전/);
   if (m) return formatDate(addDays(now, -Number(m[1]) * 7));
 
+  // V22.9.26: 달력에 없는 날("2월 31일")은 조용히 다음 달로 넘기지 않고 날짜 없음으로 둔다.
   m = raw.match(/(?:지난|저번)\s*달\s*(\d{1,2})일?/);
-  if (m) return ymd(now.getFullYear(), now.getMonth(), Number(m[1]));
+  if (m) return safeYmd(now.getFullYear(), now.getMonth(), Number(m[1]));
   m = raw.match(/(?:이번\s*달|이달)\s*(\d{1,2})일?/);
-  if (m) return ymd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
+  if (m) return safeYmd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
   m = raw.match(/(?:다음\s*달|담달)\s*(\d{1,2})일?/);
-  if (m) return ymd(now.getFullYear(), now.getMonth() + 2, Number(m[1]));
+  if (m) return safeYmd(now.getFullYear(), now.getMonth() + 2, Number(m[1]));
 
   m = raw.match(/(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/);
-  if (m) return ymd(Number(m[1]), Number(m[2]), Number(m[3]));
+  if (m) return safeYmd(Number(m[1]), Number(m[2]), Number(m[3]));
   m = raw.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일?/);
-  if (m) return ymd(now.getFullYear(), Number(m[1]), Number(m[2]));
+  if (m) return safeYmd(now.getFullYear(), Number(m[1]), Number(m[2]));
   m = raw.match(/(?:^|\s)(\d{1,2})[.\/](\d{1,2})(?:\s|$)/);
-  if (m) return ymd(now.getFullYear(), Number(m[1]), Number(m[2]));
+  if (m) return safeYmd(now.getFullYear(), Number(m[1]), Number(m[2]));
   m = raw.match(/(?:^|\s)(\d{1,2})일(?:\s|$)/);
   if (m) return ymd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
 
@@ -31744,6 +32214,32 @@ function currentMonthKst() {
   return formatDate(nowKstDate()).slice(0, 7);
 }
 
+// V22.9.26: Workers 런타임의 로컬 시간대는 UTC 다. `YYYY-MM-DDT00:00:00+09:00` 을 만들어
+// getDay() 를 부르면 KST 자정 = 전날 15:00Z 라 전날 요일이 나온다. 날짜 문자열의 요일은
+// UTC 자정으로 만들어 getUTCDay() 로 읽어야 어디서 돌아도 같다.
+function weekdayIndexOfYmd(date = "") {
+  const d = new Date(`${String(date || "").slice(0, 10)}T00:00:00Z`);
+  return Number.isFinite(d.getTime()) ? d.getUTCDay() : -1;
+}
+
+// V22.9.26: "지난주 금요일", "이번주 월요일", "다음주 일요일", "금요일" 을 날짜로 푼다.
+// 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
+const AB_WEEKDAY_PHRASE = /(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/;
+function resolveWeekdayPhrase(raw = "", now = nowKstDate()) {
+  const m = String(raw || "").match(AB_WEEKDAY_PHRASE);
+  if (!m) return "";
+  const target = "일월화수목금토".indexOf(m[2]);
+  if (target < 0) return "";
+  const mondayBased = (idx) => (idx + 6) % 7;
+  const scope = String(m[1] || "").replace(/\s+/g, "");
+  let offset;
+  if (scope === "이번주" || scope === "금주") offset = mondayBased(target) - mondayBased(now.getDay());
+  else if (scope === "다음주" || scope === "내주") offset = mondayBased(target) - mondayBased(now.getDay()) + 7;
+  else if (scope) offset = mondayBased(target) - mondayBased(now.getDay()) - 7;
+  else offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7);
+  return formatDate(addDays(now, offset));
+}
+
 // 월은 01~12만 허용한다. 형식만 맞고 범위를 벗어난 값(2026-13, 2026-00)은
 // 그대로 `transaction_date=gte.2026-13-01` 같은 날짜 리터럴이 되어 Postgres가
 // 22008로 거절하고 화면이 500으로 끝난다.
@@ -31784,7 +32280,7 @@ const CATEGORY_RULES = [
   // 그냥 빠진 것이라 되살린다.
   { name: "급여", type: "income", weight: 100, words: ["급여","월급","상여","보너스","성과급","수당","연봉","알바비","일당"] },
   { name: "용돈", type: "income", weight: 92, words: ["용돈","축하금","받은돈"] },
-  { name: "환급", type: "income", weight: 90, words: ["환급","캐시백","환불받","돌려받","돌려","정산받","반환"] },
+  { name: "환급", type: "income", weight: 90, words: ["환급","캐시백","환불","돌려받","돌려","정산받","반환"] },
   { name: "이자배당", type: "income", weight: 88, words: ["이자","배당","예금이자","주식배당"] },
   { name: "부업/매출", type: "income", weight: 70, words: ["부업","매출","판매","수익","원고료","강의료"] },
 
@@ -31854,14 +32350,14 @@ const LEGACY_CATEGORY_SPLITS = Object.freeze({
 // 규칙을 늘린 사람이 잘못한 게 아니다 — 늘릴 곳이 셋인 구조가 문제였다. 정본을
 // 하나 두고 클라이언트는 그것을 **읽기만** 한다. 아래 자산이 그 전달 통로다.
 const AB_TYPE_HINTS = Object.freeze({
-  income: "수입|입금|급여|월급|상여|보너스|용돈\\s*받|받았|환급\\s*받|환불\\s*받|이자|배당|매출|정산\\s*받|돌려받|들어왔|들어옴|입금됨",
+  income: "수입|입금|급여|월급|상여|보너스|용돈\\s*받|받았|환급\\s*받|환불(?!\\s*수수료)|이자|배당|매출|정산\\s*받|돌려받|들어왔|들어옴|입금됨",
   expense: "지출|사용|결제|구매|썼|썻|샀|냈|납부|출금|자동이체|송금|카드|현금|삼성페이|카카오페이|토스|계좌이체|빠져나감|빠져나갔|나감",
   incomeCategory: "급여|월급|상여|보너스|수당|용돈|환급|캐시백|이자|배당|정산금|부업|알바비|매출",
 });
 
 // 1년 캐시되는 불변 자산. 홈 HTML 안에 규칙을 인라인으로 싣던 2,248 B 가 여기로
 // 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다.
-const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22915.js";
+const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22926.js";
 const AB_CATEGORY_RULES_SCRIPT_TAG = `<script src="${AB_CATEGORY_RULES_ASSET_PATH}"></script>`;
 function abCategoryRulesJsAsset() {
   return `window.AB_CATEGORY_RULES=${JSON.stringify(CATEGORY_RULES)};window.AB_TYPE_HINTS=${JSON.stringify(AB_TYPE_HINTS)};`;
@@ -31909,6 +32405,7 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
+    .replace(/(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일/g, " ")
     .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
@@ -32262,6 +32759,15 @@ function formatSummary(summary, month) {
     .join("\n");
 }
 
+// V22.9.26: <script> 안에 서버 값을 JSON 으로 넣을 때 `</script` 와 줄 구분 문자로 스크립트가
+// 끊기지 않게 한다. 초대코드처럼 지금은 안전한 값도 입력 경로가 생기면 저장형 XSS 가 된다.
+function jsonForInlineScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(new RegExp(String.fromCharCode(8232), "g"), "\\u2028")
+    .replace(new RegExp(String.fromCharCode(8233), "g"), "\\u2029");
+}
+
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
@@ -32501,6 +33007,22 @@ export {
   parseFlexibleImportRecords,
   canonicalImportField,
   normalizeImportedRecordDetailed,
+  resolveWeekdayPhrase,
+  formatMessage,
+  fetchCategoryKeywordMap,
+  setCategoryKeywords,
+  fetchReservePlans,
+  addReservePlan,
+  updateReservePlan,
+  deleteReservePlan,
+  fetchMemberAliasMap,
+  saveMemberAlias,
+  removeMemberAlias,
+  fetchUserIdentityLinks,
+  persistIdentityAliases,
+  ensureUser,
+  resolveEffectiveUserId,
+  purgeHouseholdData,
   alignImportCells,
   decodeImportUploadBytes,
   createUserHousehold,

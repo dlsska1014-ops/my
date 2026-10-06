@@ -26,7 +26,7 @@ try{
   ok(html.includes('소유자</option>'),'selected option retains localized role');
  }
  eq(JSON.stringify(fixture.db.transactions),before,'layout checks do not mutate trades');
- for(const [path,etag]of [['accountbook-shell-v22925.css','"accountbook-shell-v22925-css"'],['accountbook-v5-v22925.js','"accountbook-v5-v22925-js"']]){
+ for(const [path,etag]of [['accountbook-shell-v22925.css','"accountbook-shell-v22925-css"'],['accountbook-v5-v22926.js','"accountbook-v5-v22926-js"']]){
   const response=await app.fetch(new Request('https://malhaebook.com/assets/'+path),fixture.env,{});
   eq(response.status,200,'new immutable asset is served');eq(response.headers.get('etag'),etag,'asset cache identity advances');
   ok(response.headers.get('cache-control').includes('immutable'),'immutable caching remains');

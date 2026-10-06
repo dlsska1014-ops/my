@@ -31,10 +31,10 @@ const ORIGIN = "https://malhaebook.com";
 // ---------------------------------------------------------------------------
 // 1) 정본이 하나 있고, 캐시되는 자산으로 전달된다
 // ---------------------------------------------------------------------------
-const RULES_ASSET = "/assets/ab-category-rules-v22915.js";
+const RULES_ASSET = "/assets/ab-category-rules-v22926.js";
 const rulesResponse = await app.fetch(new Request(`${ORIGIN}${RULES_ASSET}`), {}, {});
 eq(rulesResponse.status, 200, "분류 규칙 자산이 서빙된다");
-eq(rulesResponse.headers.get("etag"), '"ab-category-rules-v22915-js"', "ETag 가 주소와 맞는다");
+eq(rulesResponse.headers.get("etag"), '"ab-category-rules-v22926-js"', "ETag 가 주소와 맞는다");
 ok(String(rulesResponse.headers.get("cache-control") || "").includes("immutable"), "1년 캐시 불변 자산이다");
 const rulesJs = await rulesResponse.text();
 
@@ -91,7 +91,7 @@ function slice(text, from, to) {
 
 // ① 홈 빠른입력 — 홈이 실제로 받는 캐시 자산에서 떼어낸다. 소스 문자열을 자르면
 //    템플릿 리터럴 이스케이프가 한 겹 더 껴서 브라우저가 받는 것과 다른 코드를 재게 된다.
-const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22915.js`), {}, {})).text();
+const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22926.js`), {}, {})).text();
 ok(shellJs.includes("window.AB_CATEGORY_RULES=["), "홈 셸 자산이 규칙을 함께 싣는다(요청이 늘지 않는다)");
 const noDom = { querySelectorAll: () => [] };
 const homeAsk = new Function("window", "document",
