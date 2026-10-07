@@ -1,3 +1,9 @@
+## V22.9.27의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_27.sha256`의 174개 파일을 사용하며 자동 검사 하한은 5,662개입니다.
+신규 `validation/validate-prelogin-preview-v22927.mjs` 73개는 로그인 전 가상 기능 미리보기, 기존 로그인·가입·`return_to`, 로그인·가입·OAuth 오류 순서와 focusable 입력 대상·단일 alert·가입 열림 상태, 기본 CTA의 기본·hover·focus 흰 글자, no-store·CSP·쿠키 없음, 48KiB HTML 예산, Help·메뉴 URL 없음, 신규·기존 웹 명령의 단일 URL, 그룹 QuickReplies 금지를 확인합니다.
+전체 하네스와 공개 브라우저 최종 확인은 부모 작업에서 수행하며 결과는 `VERIFICATION_V22_9_27.md`에 기록합니다. SQLite·실기기·OpenBuilder·채널 홈 확인은 자동 통과로 보지 않습니다.
+
 ## V22.9.26의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_26.sha256`의 170개 파일을 사용하며 자동 검사 하한은 5,589개입니다.

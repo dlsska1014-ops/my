@@ -1,3 +1,8 @@
+## V22.9.27
+
+DB 스키마·SQL·RPC·RLS·GRANT·인덱스 변경은 없습니다.
+로그인 전 미리보기는 정적 가상 HTML이며 DB 읽기와 쓰기를 수행하지 않습니다. 운영 수동 `accountbook_apply_recurring_v227`의 29~31일 SQL 복원은 이번 범위에서 하지 않습니다.
+
 ## V22.9.26
 
 DB 스키마·SQL·RPC·RLS·GRANT·인덱스 변경은 없습니다.
