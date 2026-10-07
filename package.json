@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.27",
+  "version": "22.9.28",
   "private": true,
   "type": "module",
   "scripts": {
@@ -74,6 +74,7 @@
     "validate:uiux-refinement": "node validation/validate-uiux-refinement-v22925.mjs",
     "validate:launch-review-followups": "node --preserve-symlinks --preserve-symlinks-main validation/validate-launch-review-followups-v22926.mjs",
     "validate:prelogin-preview": "node validation/validate-prelogin-preview-v22927.mjs",
-    "audit:uiux": "node tools/uiux-audit-v22925.mjs"
+    "audit:uiux": "node tools/uiux-audit-v22925.mjs",
+    "validate:chat-first": "node --preserve-symlinks --preserve-symlinks-main validation/validate-chat-first-v22928.mjs"
   }
 }

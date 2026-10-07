@@ -1,3 +1,18 @@
+## V22.9.28
+
+- [ ] 신규 botUserKey·properties.botUserKey·appUserId 첫 기록과 시작 후 첫 기록
+- [ ] 무인증·observe 미인증·legacy 전용 신규 경로·그룹·viewer/pending/blocked·기존 무가계부 차단
+- [ ] 동시 첫 요청·재전송·소유자 참여 실패 보상·거래 실패와 모호한 네트워크 응답 재시도
+- [ ] 삭제/나가기 후 자동 재생성 차단과 늦은 pending 복원 차단
+- [ ] 동일 웹 사용자 세션·현재 다른 계정과 분리·return_to·쿠키·원산지·만료·재사용·재발급·늦은 JSON 코드 복원
+- [ ] 독립 보안 리뷰·전체 하네스·체크섬·ESM·공백·SQLite 검사
+- [ ] 최종 소스 해시·로컬 커밋·승인된 Worker 전체 교체와 운영 소스 일치
+- [ ] /health·/ready·공개 연결 폼·기존 설정 깊은 비교
+- [ ] GitHub push 결과를 로컬 커밋/운영 배포와 구분해 기록
+- [ ] 실제 신규 카카오 1:1·그룹·OAuth 왕복·실기기에서 별도 확인
+
+SQL·Secrets·환경변수·바인딩·Cron·도메인·관제 Worker·Kakao Developers·OpenBuilder·채널 홈 변경과 29~31일 수동 RPC SQL 복원은 이번 배포 범위가 아닙니다.
+
 ## V22.9.27
 
 - [x] `node validation/validate-prelogin-preview-v22927.mjs` 73개로 가상 미리보기, 인증 폼·`return_to`, 로그인·가입·OAuth 오류 순서와 입력 대상·단일 alert·가입 열림 상태, 기본 CTA의 기본·hover·focus 흰 글자, 보안 헤더, 쿠키 없음, 48KiB HTML 예산, Help·메뉴 URL 없음, 신규·기존 웹 명령의 단일 URL, 그룹 QuickReplies 금지를 확인했습니다.
