@@ -14,7 +14,7 @@ Node.js v22.23.1에서 합성 메모리 DB만 사용했습니다. 실제 금융 
 
 기존 직렬 깊이 보호는 홈 8회/3단계, 카카오 기록 cold/warm 12회/6단계를 유지했습니다. 기존 보안·수정·그룹·개인 첫 기록·가져오기·성능·AdSense·UX 검사를 보존했습니다. 새 자산 주소에 대해 바이트 pin을 갱신했고 이전 자산의 pin은 유지했습니다. 분석의 기존 구조 pin은 예산 범위·KST 보정 후 갱신했으며 실제 렌더러의 예산 숫자를 새 회귀로 확인했습니다.
 
-SQLite 관제 통합 검사는 Node.js v22.23.1에서 별도로 45개 통과했습니다. SQLite 실험 기능 안내는 런타임이 출력하는 경고이며 운영 PostgreSQL 검증과 구분합니다. CI는 Node 22에서 Ubuntu와 Windows를 검사하고 SQLite 통합 검사도 실행하도록 준비했습니다. 아직 GitHub에서 이 새 CI가 실행됐다고 기록하지 않습니다.
+SQLite 관제 통합 검사는 Node.js v22.23.1에서 별도로 45개 통과했습니다. SQLite 실험 기능 안내는 런타임이 출력하는 경고이며 운영 PostgreSQL 검증과 구분합니다. GitHub의 Node 22 Ubuntu·Windows CI에서도 전체 하네스와 SQLite 통합 검사가 통과했습니다. 아래 GitHub 기록과 운영 미확인 항목을 구분합니다.
 
 historical manifest를 고치지 않고 V22.9.30의 완전한 manifest를 생성했습니다. 최종 전체 결과는 아래 기록을 따릅니다.
 
@@ -43,4 +43,10 @@ root가 별도로 실행한 합성 Chrome UIUX 감사는 동결한 `ae7e4671…c
 
 최종 `src/index.js` SHA-256은 `d2b31eeef01167fa0ab25f660b0cc91437d6630ac1f98177f6e8a725a49c2a6c`입니다. 같은 소스의 합성 Chrome UIUX 감사 320개도 종료 코드 0으로 통과했습니다. 운영 금융 데이터·실제 가입·OAuth·실기기·배포를 수행했다는 뜻은 아닙니다. SQLite45는 위에 기록한 별도 Node.js v22.23.1 검사입니다.
 
-독립 검토에서 보완을 확인한 상대 날짜와 공유 입력 의존성은 실제 저장 경로와 전체 IIFE 회귀를 유지합니다. GitHub push·main 병합·원격 CI 결과는 이 저장소 검증과 구분하여 Git 기록과 최종 보고에서 확인합니다.
+독립 검토에서 보완을 확인한 상대 날짜와 공유 입력 의존성은 실제 저장 경로와 전체 IIFE 회귀를 유지합니다. 최종 독립 재검토의 감사378·공유44·추가 날짜92개도 통과했으며 마지막 두 항목에서 추가 조치가 필요한 문제를 찾지 못했습니다.
+
+## GitHub 통합 기록
+
+구현 커밋 `e71c2a360861076c919f414aa7d0d20baa5d4829`를 `codex/v22930-claude-audit-fixes`에 push했고, [PR #54](https://github.com/dlsska1014-ops/my/pull/54)를 main에 병합했습니다. 구현 병합 커밋은 `cc628d7fe8ba906c3423715b13a53f4b0a46a741`입니다. 커밋된 배포 파일195개와 검증한 작업본의 바이트 일치를 확인했습니다.
+
+[브랜치 CI](https://github.com/dlsska1014-ops/my/actions/runs/37700736878)와 [PR CI](https://github.com/dlsska1014-ops/my/actions/runs/37700983722)의 Ubuntu·Windows 네 작업이 모두 통과했습니다. 각 작업에는 전체7,079개와 SQLite45가 포함됩니다. 이 GitHub 통합은 Worker·SQL·외부 설정의 운영 적용을 포함하지 않습니다. 최종 기록 문서의 커밋과 원격 일치는 Git 로그에서 별도로 확인합니다.

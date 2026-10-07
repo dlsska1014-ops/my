@@ -249,4 +249,4 @@ SQL·Secrets·환경변수·바인딩·Cron·도메인·관제 Worker·Kakao Dev
 - [ ] 최종 Worker 전체 source hash·배포 ID·100%·health/ready·신규 자산·설정 보존을 확인합니다.
 - [ ] 신규 로컬 가입의 운영 CPU/PBKDF2·실제 Kakao/OAuth/인앱 외부 브라우저·실기기를 확인합니다.
 - [ ] 실제 backup/off-site/restore, legacy-only 복구, Cron cursor 소진 시간을 확인합니다.
-- [ ] GitHub publish/main merge·remote CI 결과를 기록합니다.
+- [x] 구현 `e71c2a3`을 push하고 PR54를 main의 `cc628d7`로 병합했습니다. 브랜치/PR의 Ubuntu·Windows CI 네 작업이 전체7,079개와 SQLite45를 통과했습니다. 최종 기록 문서의 원격 일치는 Git 로그에서 별도로 확인합니다.

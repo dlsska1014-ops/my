@@ -37,7 +37,7 @@
 | I-1 가져오기 | FIXED | 명시 원화 열 우선, 외화-only 거부, 천 단위 쉼표 보존, 선택 월의 연도로 MM/DD 처리, 취소 행 확인 필요/기본 미선택을 적용합니다. 원거래 매칭·환율·취소 정산을 추정하지 않습니다. |
 | U-1 이름/가입 UX | FIXED | 웹의 독립 이름 칸에서 영문·숫자5~12자를 초대코드로 거절하는 규칙은 제거했습니다. 첫 화면에 가입/로그인 anchor를 안내하고 로그인 기본·별도 가입 단계와 배치를 유지했습니다. 잘못된 초대코드는 계정 생성 완료·초대 결과를 분리하여 안내하고 이름 오류에서는 이름 필드만 HTML escape하여 복원합니다. |
 | O-1 규모·무료 한도 | MANUAL-PENDING | recurring/report cursor, shared invocation50 budget, 1,001 가계부 페이지, 120건 import atomic batch 조회를 구현했습니다. 미완료는 partial이고 월말 원래 날짜를 유지합니다. 현재 Cron 빈도·큐 지연·CPU10ms·Paid/RPC 집계 선택은 운영 확인이 필요합니다. |
-| O-2 릴리스 계통 | MANUAL-PENDING | main의 sister-link와 V22.9.26~29 변경을 통합했습니다. 모든 branch push/PRmain, Ubuntu/Windows Node22, SQLite45 CI를 준비했습니다. GitHub publish/main merge·remote CI 결과·branch protection/오래된 PR·branch 정리는 root/운영 확인 대상입니다. |
+| O-2 릴리스 계통 | FIXED / MANUAL-PENDING | main의 sister-link와 V22.9.26~29 변경을 통합했습니다. 구현 e71c2a3을 push하고 PR54를 main의 cc628d7로 병합했습니다. 모든 branch push/PRmain의 Ubuntu·Windows Node22 전체7,079개와 SQLite45 CI가 통과했습니다. branch protection/오래된 PR·branch 정리는 소유자 결정과 운영 확인 대상으로 남습니다. |
 | O-3 재현성·설정 | MANUAL-PENDING | 실제 schema·RPC definition·FK/RLS/ACL inventory와 backup 범위를 읽기 전용 aside 절차로 준비했습니다. 없는 DDL이나 wrangler/Secrets/크론/계정 설정을 추정해 만들지 않습니다. KAKAO_SKILL_AUTH_REQUIRED 변경도 별도 승인 대상입니다. |
 | D-1 방침·계정 탈퇴 | DEFERRED | 실제 처리자/이전·보호책임자·파기/연령·법적 고지와 계정 삭제는 운영 정보·제품 정책·법무 확인이 필요합니다. 현재 계정 탈퇴 endpoint가 없음을 방침에 반영하고 가계부 나가기의 거래 보존과 가계부 영구 삭제를 구분했습니다. 법률 준수 전체는 아직 확인하지 않았습니다. |
 | D-2 공개 저장소 | MANUAL-PENDING | 공개 여부·LICENSE·작성자 이메일·식별자 공개 방침은 소유자 결정입니다. private 전환, history rewrite, force push 또는 비밀 설정 변경을 하지 않습니다. `.claude/`와 실제 dump는 commit하지 않습니다. |
