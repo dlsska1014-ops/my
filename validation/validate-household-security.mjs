@@ -168,6 +168,7 @@ try {
   ok(!Object.hasOwn(health, "ready"), "health endpoint never claims database readiness without dependency checks");
 
   operationsAuthFixture.env.ADMIN_SESSION_SECRET = "qa-admin-session";
+  operationsAuthFixture.db.__missing_rpcs = ["accountbook_set_local_identity_v227"];
   const readyResponse = await app.fetch(new Request("https://malhaebook.com/ready"), operationsAuthFixture.env, {});
   eq(readyResponse.status, 503, "readiness endpoint fails closed when a required RPC is absent");
   const readiness = await readyResponse.json();

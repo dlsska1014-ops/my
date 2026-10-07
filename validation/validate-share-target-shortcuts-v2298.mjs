@@ -17,6 +17,7 @@
 // 를 본다. 필드만 확인하면 "공유는 되는데 빈칸으로 열리는" 상태를 통과시킨다.
 
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
@@ -93,15 +94,26 @@ try {
   // -------------------------------------------------------------------------
   // 여기가 이 기능의 값어치다. 입력칸에 글자만 들어가고 금액·분류가 안 붙으면
   // 사용자는 어차피 손으로 다시 쳐야 한다.
-  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22915.js`), {}, {})).text();
-  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22915.js`), {}, {})).text();
+  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22926.js`), {}, {})).text();
+  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22930.js`), {}, {})).text();
   const win = {};
   new Function("window", rulesJs)(win);
-  const start = shellJs.indexOf("function parseKoreanAmount(text){");
-  const end = shellJs.indexOf("function applySmart(clearInput)");
-  ok(start >= 0 && end > start, "홈이 받는 자산에서 파서를 떼어낼 수 있다");
-  const parse = new Function("window", "document", shellJs.slice(start, end)
-    + "\nreturn function(t){var ty=detectQuickType(t);return {amount:parseKoreanAmount(t),type:ty,category:inferQuickCategory(t,ty),payment:detectQuickPayment(t)};};")(win, { querySelectorAll: () => [] });
+  const end = shellJs.indexOf("\n(function mobileShellUiClientMain");
+  ok(end > 0 && shellJs.slice(0,end).includes("function abQuickSyncMore()"), "실제 quick-input IIFE와 공유 입력의 모든 의존 함수를 실행한다");
+  const parse = (text) => {
+    const form = { appendChild(){},querySelector(){return {value:"2026-07"};},addEventListener(){} };
+    const node = (value="",attrs={}) => ({value,textContent:"",getAttribute(key){return attrs[key]??null;},setAttribute(key,value){attrs[key]=String(value);},setCustomValidity(){},addEventListener(){},closest(){return form;}});
+    const fields = {smartInput:node(text,{"data-ab-shared":"1"}),amountInput:node(),memoInput:node(),payInput:node(),catInput:node(),txDate:node("2026-07-15"),rawTextInput:node(),quickAfter:node(),type:"expense"};
+    const radios = {expense:node(),income:node()};
+    for (const [kind,radio] of Object.entries(radios)) Object.defineProperty(radio,"checked",{get(){return fields.type===kind;},set(value){if(value)fields.type=kind;}});
+    const document = {
+      getElementById(id){return fields[id]||null;},createElement(){return node();},addEventListener(){},
+      querySelectorAll(selector){return selector==="input[name=type]"?Object.values(radios):[];},
+      querySelector(selector){if(selector==="#add form.form")return form;if(selector==="input[name=type][value=income]:checked")return fields.type==="income"?radios.income:null;const match=selector.match(/input\[name=type\]\[value="?(income|expense)"?\]/);return match?radios[match[1]]:null;}
+    };
+    vm.runInContext(shellJs.slice(0,end),vm.createContext({document,window:{...win,addEventListener(){}},location:{hash:""},navigator:{},Intl,Date}));
+    return {amount:Number(fields.amountInput.value.replace(/,/g,"")),type:fields.type,category:fields.catInput.value,payment:fields.payInput.value};
+  };
 
   // 실제 카드사 알림 모양 그대로다.
   for (const [text, expected] of [

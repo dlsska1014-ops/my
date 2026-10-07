@@ -439,7 +439,7 @@ begin
          make_date(
            split_part(p_month, '-', 1)::integer,
            split_part(p_month, '-', 2)::integer,
-           least(28, greatest(1, coalesce(r.day_of_month, 1)))
+           least(extract(day from (to_date(p_month || '-01', 'YYYY-MM-DD') + interval '1 month' - interval '1 day'))::integer, greatest(1, coalesce(r.day_of_month, 1)))
          ),
          'recurring_auto',
          'recurring:' || r.id::text || ':' || p_month

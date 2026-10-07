@@ -1,9 +1,14 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.26",
+  "version": "22.9.30",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=22 <23" },
   "scripts": {
+    "test": "node .codex/scripts/verify-repository.mjs",
+    "validate:audit-corrections": "node validation/validate-audit-corrections-v22930.mjs",
+    "validate:startup-budget": "node validation/validate-startup-budget-v22930.mjs",
+    "validate:import-cron": "node validation/validate-import-cron-v22930.mjs",
     "validate:kakao-group": "node validation/validate-kakao-group.mjs",
     "validate:household-security": "node validation/validate-household-security.mjs",
     "validate:member-role-schema": "node validation/validate-member-role-schema-v22846.mjs",
@@ -72,7 +77,11 @@
     "audit:responsive": "node tools/responsive-audit-v22923.mjs",
     "validate:safety-fix": "node validation/validate-safety-fix-v22924.mjs",
     "validate:uiux-refinement": "node validation/validate-uiux-refinement-v22925.mjs",
+    "validate:launch-review-followups": "node --preserve-symlinks --preserve-symlinks-main validation/validate-launch-review-followups-v22926.mjs",
+    "validate:prelogin-preview": "node validation/validate-prelogin-preview-v22927.mjs",
     "audit:uiux": "node tools/uiux-audit-v22925.mjs",
-    "validate:sister-link": "node validation/validate-sister-link-v22926.mjs"
+    "validate:chat-first": "node --preserve-symlinks --preserve-symlinks-main validation/validate-chat-first-v22928.mjs",
+    "validate:sister-link": "node validation/validate-sister-link-v22926.mjs",
+    "validate:remaining-ops": "node --preserve-symlinks --preserve-symlinks-main validation/validate-remaining-ops-v22929.mjs"
   }
 }

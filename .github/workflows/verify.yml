@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: ['**']
 
 permissions:
   contents: read
@@ -15,7 +15,10 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - name: Check out repository
@@ -26,3 +29,5 @@ jobs:
           node-version: 22
       - name: Run repository verification
         run: node .codex/scripts/verify-repository.mjs
+      - name: Verify SQLite monitoring integration
+        run: node monitoring/test-d1.mjs

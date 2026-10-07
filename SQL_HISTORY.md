@@ -1,7 +1,12 @@
+## V22.9.27
+
+DB 스키마·SQL·RPC·RLS·GRANT·인덱스 변경은 없습니다.
+로그인 전 미리보기는 정적 가상 HTML이며 DB 읽기와 쓰기를 수행하지 않습니다. 운영 수동 `accountbook_apply_recurring_v227`의 29~31일 SQL 복원은 이번 범위에서 하지 않습니다.
+
 ## V22.9.26
 
 DB 스키마·SQL·RPC·RLS·GRANT·인덱스 변경은 없습니다.
-공개 페이지 푸터 링크만 바뀌며 데이터 접근 경로는 그대로입니다.
+새 회귀 검사는 독립 메모리 픽스처에서 Supabase 503 응답을 흉내 내며 실제 DB에는 연결하지 않습니다.
 
 ## V22.9.25
 
@@ -349,3 +354,8 @@ V22.9.23에서 적용한 관제 D1 스키마는 재실행할 필요가 없습니
 | V22.8.0 | 있음 | 자산·결제수단 기반 스키마 |
 
 과거 SQL 원본은 과거 배포본의 신규 설치·장애 복구 자료입니다. V22.8.20 적용을 위해 실행하지 않습니다. 성능 인덱스는 운영 행 수와 실행 계획에서 병목이 확인될 때만 별도 버전으로 검토합니다.
+## V22.9.30 판단
+
+새 SQL·schema·index를 만들거나 실행하지 않았습니다. V22.9.29의 `01_FIX_RECURRING_MONTH_END_V22_9_29.sql`과 `02_ROLLBACK_RECURRING_MONTH_END_V22_9_29.sql`을 그대로 보존했습니다. 별도 승인된 forward 함수 하나를 먼저 적용한 뒤 V22.9.30 Worker 전체를 교체해야 합니다. 테이블/금융 행/기존 반영월/ACL 변경을 추가하지 않습니다.
+
+기존 users/security FK nesting, 실제 RLS/ACL·RPC 정의와 legacy-only 계정 수는 읽기 전용 metadata/집계 점검으로 확인합니다. 정의가 없는 RPC나 baseline dump를 추정해 생성하지 않습니다. 실제 dump/복구는 `docs/BACKUP_RECOVERY_RUNBOOK.md`의 별도 운영 작업입니다.

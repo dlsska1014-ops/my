@@ -88,9 +88,9 @@ try {
   //    현재 값을 그대로 말한다 — JS 가 없어도 이 문장은 참이어야 한다.
   const after = (sheet.match(/data-ab-quick-after[^>]*>([^<]*)</) || [])[1] || "";
   ok(after.includes("남은 예산"), `저장 버튼 아래에 결과 줄이 있다 (${after})`);
-  ok(/data-remaining="\d+"/.test(sheet) && /data-daily="\d+"/.test(sheet), "그 줄이 계산에 쓸 값을 들고 있다");
+  ok(/data-remaining="\d+"/.test(sheet) && /data-bsc="[^"]+"/.test(sheet), "preview carries remaining allowance plus current date and actual budget scope");
   ok(source.includes("function abQuickSyncAfter()"), "금액을 적으면 결과 줄이 다시 계산된다");
-  ok(source.includes("'저장하면 남은 예산 '"), "금액이 있으면 저장 후 값으로 바꿔 말한다");
+  ok(source.includes("저장하면 남은 예산 "), "valid covered input has a post-save allowance preview");
 
   // 7. 칩 선택 상태. 전부 파란 채움이라 무엇을 골랐는지 읽을 수 없었다.
   ok(shell.text.includes('body.abV22812Shell #add .chipRow button[aria-pressed="true"]'), "선택된 칩에만 채움이 붙는다");

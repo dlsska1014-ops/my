@@ -1,13 +1,18 @@
+## V22.9.27의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_27.sha256`의 174개 파일을 사용하며 자동 검사 하한은 5,662개입니다.
+신규 `validation/validate-prelogin-preview-v22927.mjs` 73개는 로그인 전 가상 기능 미리보기, 기존 로그인·가입·`return_to`, 로그인·가입·OAuth 오류 순서와 focusable 입력 대상·단일 alert·가입 열림 상태, 기본 CTA의 기본·hover·focus 흰 글자, no-store·CSP·쿠키 없음, 48KiB HTML 예산, Help·메뉴 URL 없음, 신규·기존 웹 명령의 단일 URL, 그룹 QuickReplies 금지를 확인합니다.
+전체 하네스 5,662개·체크섬 174개와 운영 소스 일치, /health·/ready·정적 자산 16개·80개, 공개 응답의 1440px·390px 격리 렌더를 부모 작업에서 확인했습니다. 결과는 `VERIFICATION_V22_9_27.md`에 기록합니다. SQLite·실기기·실제 인증 왕복·Kakao 앱 확인을 자동 통과로 보지 않으며 채널 홈은 기존 카드를 읽기 전용 확인한 범위만 기록합니다.
+
 ## V22.9.26의 검증 방법
 
-현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_26.sha256`을 사용하며 자동 검사 하한은 5,371개입니다.
-공개 페이지 푸터의 형제 사이트 링크 검사 44개(`npm run validate:sister-link`)를 추가했습니다. 소스·공개 페이지 10개·로그인 전후 개인 화면을 독립 메모리 픽스처로 확인합니다.
-브라우저 감사와 `node monitoring/test-d1.mjs`는 별도로 실행합니다. 결과는 `VERIFICATION_V22_9_26.md`에 기록합니다.
-이 판은 저장소 검증까지 마친 상태이며 운영 배포는 사용자 승인 후 별도로 진행합니다.
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_26.sha256`의 170개 파일을 사용하며 자동 검사 하한은 5,589개입니다.
+라우터 await·안전 실패 회귀 검사 47개, 출시 점검 수정(카카오·인증·시간·가져오기·예산·헤더) 83개, 코드리뷰 후속 125개와 cold/warm 직렬 깊이 보호 6개를 포함합니다. 독립 메모리 픽스처가 Supabase 503·네트워크 끊김·레이트리밋 거부를 흉내 내며 실제 DB에 연결하지 않습니다.
+브라우저 감사와 `node monitoring/test-d1.mjs`는 하네스 밖에서 별도로 실행하고 실제 실행 시점의 소스 해시와 Node.js 버전을 기록합니다. 결과는 `VERIFICATION_V22_9_26.md`에 기록합니다.
 
 ## V22.9.25의 검증 방법
 
-현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_25.sha256`을 사용하며 자동 검사 하한은 5,327개입니다.
+당시 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_25.sha256`을 사용했으며 자동 검사 하한은 5,327개였습니다.
 홈·거래 상세·가져오기 회귀 검사 42개를 추가했습니다. `npm run audit:uiux`는 설치된 Chrome 또는 Edge에서 독립 메모리 픽스처를 사용합니다.
 브라우저 감사와 `node monitoring/test-d1.mjs`는 별도로 실행합니다. 결과는 `VERIFICATION_V22_9_25.md`에 기록합니다.
 사용자 승인 후 앱 V22.9.25를 운영에 배포했으며 공개 검사 116개, 운영 소스 일치와 설정 보존을 확인했습니다. 배포 ID와 남은 수동 검증도 같은 문서에 기록합니다.
@@ -139,3 +144,8 @@ node .codex/scripts/verify-repository.mjs --self-test
 ## 자동화할 수 없는 항목
 
 하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.78에는 신규 SQL이 없으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
+## V22.9.30
+
+현재 정본은 `BUNDLE_FILE_CHECKSUMS_V22_9_30.sha256`의 195개와 동적으로 합산하는 `.codex/scripts/verify-repository.mjs`의 실측 7,079개입니다. `npm test` 또는 `node .codex/scripts/verify-repository.mjs`로 실행하며 Node22를 사용합니다. 새 audit-corrections378, startup-budget40, import-cron477과 main sister-link44가 전체 하네스에 포함됩니다. 기존 검사와 checksum coverage를 줄이지 않습니다.
+
+SQLite45는 실제 Node.js v22.23.1에서 별도로 확인했고 CI도 Node22 Ubuntu/Windows에서 실행하도록 준비했습니다. 운영·실기기 결과와 코드 검증은 `VERIFICATION_V22_9_30.md`와 `docs/ASIDE_V22_9_30.md`에 구분합니다. `.agents` 스킬의 제거된 receipt 명령과 오래된 count는 범위 밖으로 보고하며 현재 package scripts/하네스 결과를 따릅니다.

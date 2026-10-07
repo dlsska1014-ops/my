@@ -1,11 +1,11 @@
 # 말해가계부 V22.9.26 적용 안내
 
-공개 페이지 푸터에 함께 운영하는 한국어 생활 계산기 링크를 추가했습니다.
-저장소 검증은 2026-10-06에 마쳤으며 운영 배포는 사용자 승인 후 진행합니다.
+2026-10-06 출시 점검에서 확인한 라우터 안전 실패와 결함 16건(카카오 예산 오저장, 요일 UTC 밀림, 정기지출 말일 적용, 가져오기 제목행 오인, 설정 덮어쓰기, 예산 폼 잘림, 인증 횟수 제한 우회 등)을 고쳤습니다. 2026-10-07 07:53:17 KST에 운영 배포를 완료했습니다.
 
-1. `node .codex/scripts/verify-repository.mjs`로 배포 파일 체크섬과 회귀 검사를 확인합니다.
-2. `npm run validate:sister-link`로 푸터 링크 검사 44개만 따로 실행할 수 있습니다.
-3. 검증한 `src/index.js` 전체를 앱 Worker에 교체합니다. 관제 Worker 재배포와 SQL·환경변수·Secret·카카오 설정 변경은 없습니다.
-4. 배포 후 `node tools/verify-deployment-v22920.mjs --origin https://malhaebook.com`으로 버전과 공개 경로를 확인하고 공개 페이지 푸터의 "생활 계산기" 링크를 눈으로 확인합니다.
+1. 앱 버전 ID는 `599061e5-892f-4974-b1b5-2e7dc7f45932`, 배포 ID는 `c48ece5b-d8e6-4a05-83ca-e9d374bc40bd`입니다.
+2. 배포 전 편집기 전체 소스는 SHA-256 `2312d8943e772df8bb71237c801487b601aa73a687b750cfd6cedbf74dccfeaa`와 정확히 일치했습니다.
+3. 배포 후 `/health`는 HTTP 200, V22.9.26, `alive=true`, `missing=0`이었고 `/ready`는 HTTP 200, `true`였습니다.
+4. 기존 바인딩과 런타임 설정은 배포 전후 깊은 비교에서 같았습니다. 관제 Worker·SQL·환경변수·Secret·카카오 설정 변경은 없습니다.
+5. 직전 롤백 배포는 `5a0c7faa-a9a3-4b3f-9373-5b565e3d2bc7`입니다. Workers 요금제와 Supabase API Max rows, 실기기·실제 카카오톡 대화는 계속 수동 확인 항목입니다.
 
-동작과 수동 확인 범위는 `VERIFICATION_V22_9_26.md`, `RELEASE-CHECKLIST.md`에서 확인합니다.
+동작과 검증 범위는 `VERIFICATION_V22_9_26.md`에서 확인합니다.

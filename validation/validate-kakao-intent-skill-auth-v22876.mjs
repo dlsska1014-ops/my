@@ -150,11 +150,11 @@ for (const utterance of ["전체 예산설정 300만원", "전체 예산 300만�
   ok(reply.includes("전체 월 예산을 설정했어요"), `"${utterance}"가 전체 예산으로 저장된다`);
 }
 
-// 꼬리에 다른 말이 붙으면 예산 명령이 아니라 지출이다.
+// Ambiguous budget intent must ask for confirmation rather than save an expense.
 const beforeMixed = fixture.db.transactions.length;
 const mixed = await say("회사 예산 회의 5000");
-eq(fixture.db.transactions.length - beforeMixed, 1, "\"회사 예산 회의 5000\"은 지출로 남는다");
-ok(mixed.includes("지출 저장했어요"), "금액 말고 다른 말이 붙으면 예산 명령으로 가로채지 않는다");
+eq(fixture.db.transactions.length - beforeMixed, 0, "ambiguous budget intent creates no transaction");
+ok(mixed.includes("예산"), "ambiguous budget intent returns explicit setup guidance");
 
 // 금액이 없는 예산 관련 말은 조회·안내로 남아야 한다.
 ok((await say("남은 예산")).includes("예산 현황"), "\"남은 예산\"은 조회 그대로다");
@@ -260,14 +260,14 @@ eq(unknownSecond.slice(0, 20), unknownFirst.slice(0, 20), "같은 안내가 그�
   // 먼저 바꿔 두지 않으면 멀쩡한 문구를 못 찾는다.
   const location = decodeURIComponent(String(failed.headers.get("location") || "").replace(/\+/g, "%20"));
   ok(location.startsWith("/app?"), "실패해도 사용자가 있던 화면으로 돌아온다");
-  ok(location.includes("저장하지 못했습니다"), "실패 사유가 함께 전달된다");
+  ok(location.includes("err=db_write_unknown"), "unknown write result retains the recognized confirmation code through redirect");
   ok(location.includes("quick=1"), "입력 시트가 다시 열리도록 표시된다");
   ok(!/amount=8800|memo=/.test(location), "적어 둔 내용이 주소에 실려 기록에 남지 않는다");
 
   const backHtml = await (await app.fetch(new Request(`${ORIGIN}${failed.headers.get("location")}`, {
     headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" },
   }), fixture.env, {})).text();
-  ok(backHtml.includes("저장하지 못했습니다"), "돌아온 화면에 실패 안내가 보인다");
+  ok(backHtml.includes("결과") && backHtml.includes("반복"), "returned screen shows the honest unknown-write confirmation notice");
 }
 
 ok(source.includes('var DRAFT_KEY = "abQuickInputDraft";'), "입력 초안을 브라우저 안에 둔다");

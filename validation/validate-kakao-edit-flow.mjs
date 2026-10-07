@@ -225,7 +225,7 @@ try {
 
   // 한 줄 즉시 반영 + 세션 미보존
   const oneLiner = await say("수정 01번 금액 13000");
-  ok(oneLiner.includes("변경했어요"), "[E2E·수락10] 한 줄 수정 즉시 반영");
+  ok(oneLiner.includes("변경했어요"), "[E2E·수락10] 한 줄 수정 즉시 반영: " + oneLiner);
   eq(txById("tx-edit-1").amount, 13000, "[E2E·수락10] DB 금액 반영");
   const sessionRow = fixture.db.accountbook_settings.find((r) => String(r.key).startsWith("kakao_edit_v4:") && String(r.key).endsWith("kakao_login:2265"));
   ok(!sessionRow || !String(sessionRow.value || "").trim(), "[E2E·수락10] 즉시 반영 시 세션 없음");

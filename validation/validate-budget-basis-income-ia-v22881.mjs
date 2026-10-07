@@ -35,7 +35,7 @@ ok(source.includes("totalBudget, explicitTotalBudget, categoryBudgetTotal, expen
 ok(source.includes("const budgetUsed = Number(budget.budgetedExpense ?? stats.totals.expense ?? 0);"), "the home gauge uses the budgeted spend");
 ok(source.includes("const spent = Number(budget.budgetedExpense ?? budget.expense ?? 0);"), "the budget alert model uses the budgeted spend");
 ok(source.includes("const budgetedExpense = Number(budget.budgetedExpense ?? expense);"), "the report dashboard uses the budgeted spend");
-ok(source.includes('name = "예산 잡은 분류 합계"; info = budgetStageInfo(budgeted, total);'), "the kakao alert line names the budgeted-category basis");
+ok(source.includes("info = budgetStageInfo(summary.budgetedExpense, summary.totalBudget);"), "the kakao alert line consumes the shared budgeted-category basis");
 
 // 더 작아진 "사용" 숫자가 오해를 부르지 않도록 예산 밖 지출을 따로 적어 준다.
 ok(source.includes("예산 잡은 분류 기준 · 예산 밖 지출 ${numberWithCommas(model.budget.uncoveredExpense)}원 별도"), "the alert centre notes the spend outside the budget");

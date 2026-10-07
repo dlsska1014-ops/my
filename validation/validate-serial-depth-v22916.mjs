@@ -48,13 +48,17 @@ globalThis.fetch = async (input, init = {}) => {
   return fixtureFetch(input, init);
 };
 
-async function measure(request) {
+async function measureWith(worker, request) {
   trace = { calls: 0, maxDepth: 0, maxCompleted: 0 };
-  const response = await app.fetch(request, fixture.env, { waitUntil() {}, passThroughOnException() {} });
+  const response = await worker.fetch(request, fixture.env, { waitUntil() {}, passThroughOnException() {} });
   const text = await response.text();
   const result = { status: response.status, text, calls: trace.calls, depth: trace.maxDepth };
   trace = null;
   return result;
+}
+
+function measure(request) {
+  return measureWith(app, request);
 }
 
 function page(path) {
@@ -122,6 +126,25 @@ ok(home.text.includes("WIFI♥") || home.text.includes("Bin"), "홈이 구성원
 await kakao("가계부"); // 가계부 선택 흐름 시작
 const chosen = await kakao("우리집 생활비");
 ok(/선택했어요/.test(chosen.text), "카카오에서 가계부를 골랐다");
+
+// 새 Worker 아이솔레이트처럼 모듈 캐시가 빈 상태에서도 권위 있는 기존 raw 사용자는 두 번째 users 조회 없이 처리한다.
+{
+  const coldWorker = (await import(`../src/index.js?cold-skill-depth-v22926=${Date.now()}`)).default;
+  const coldRequest = (utterance) => new Request(`${base}/skill`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userRequest: { utterance, user: { id: kakaoKey, type: "botUserKey", properties: { botUserKey: kakaoKey } } }, bot: { id: "bot" }, action: { name: "fallback", params: {} } }),
+  });
+  const cold = await measureWith(coldWorker, coldRequest("콜드아이솔레이트커피 4511"));
+  ok(cold.status === 200 && /저장했어요/.test(cold.text), "fresh-isolate Kakao record succeeds through the actual worker");
+  ok(cold.calls === 12, `fresh-isolate Kakao record keeps exactly 12 DB calls (${cold.calls})`);
+  ok(cold.depth === 6, `fresh-isolate Kakao record keeps exactly depth 6 (${cold.depth})`);
+  const warm = await measureWith(coldWorker, coldRequest("웜아이솔레이트커피 4512"));
+  ok(warm.status === 200 && /저장했어요/.test(warm.text), "same-isolate warm Kakao record succeeds");
+  ok(warm.calls === 12, `same-isolate warm Kakao record keeps exactly 12 DB calls (${warm.calls})`);
+  ok(warm.depth === 6, `same-isolate warm Kakao record keeps exactly depth 6 (${warm.depth})`);
+}
+
 // 상한은 V22.9.16 에서 잰 값이다(V22.9.15 는 기록 14회/12단계, 수정 21회/18단계).
 const kakaoCases = [
   ["기록", "커피 4500", { calls: 12, depth: 6 }, /저장했어요/],

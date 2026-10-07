@@ -28,9 +28,9 @@ ok(source.includes('rememberOpsEvent({ kind: "budget_save_failed"'), "a failed b
 ok(source.includes('rememberOpsEvent({ kind: "budget_row_upsert_failed"'), "a failed budget upsert is reported instead of silently falling back");
 ok(source.includes("async function getSettingValueStrict"), "read-modify-write settings paths can fail closed instead of treating read errors as empty values");
 ok(source.includes('reason: "goal_save_failed"'), "goal write failures provide an explicit retryable response");
-ok(source.includes("function showError(err)") && source.includes("catch(function (err) { showError(err); })"), "goal create failures are surfaced in the browser instead of being silently ignored");
+ok(source.includes("function showError(err)") && source.includes('if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); }'), "goal create failures remain visible and unknown outcomes refresh before verification");
 ok(source.includes('id: String(o.id || `goal_${crypto.randomUUID()}`)'), "new goal identifiers use Web Crypto randomness");
-ok(source.includes('const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js"') && source.includes('"accountbook-goals-v22843-js"'), "changed goal runtime uses a new immutable asset URL and ETag");
+ok(source.includes('const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22929.js"') && source.includes('"accountbook-goals-v22929-js"'), "changed goal runtime uses a new immutable asset URL and ETag");
 ok(source.includes('return `goals:v5:${String(householdId || "default")'), "shared goals remain scoped by household");
 ok(source.includes('return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared")'), "personal favorites remain scoped by household and user");
 
@@ -222,7 +222,8 @@ try {
       request(transactionFixture, "/my/transactions", { method: "POST", body: failedConcurrentBody }),
     ]);
     eq(transactionFixture.db.transactions.length, beforeFailedConcurrent, "failed lease holder and contending request persist no transaction");
-    eq(failedConcurrent.filter((response) => String(response.headers.get("location") || "").includes("err=db_delay")).length, 2, "leader failure and contention both report retryable failure, never false duplicate success");
+    eq(failedConcurrent.filter((response) => String(response.headers.get("location") || "").includes("err=db_delay")).length, 1, "contending request reports a definite busy state without claiming save");
+    eq(failedConcurrent.filter((response) => String(response.headers.get("location") || "").includes("err=db_write_unknown")).length, 1, "503 lease holder outcome requires verification, not blind retry");
   } finally {
     globalThis.fetch = fixtureFetch;
   }
@@ -530,7 +531,7 @@ try {
   goalFailureFixture.db.__fail_next_settings_write = true;
   const failedWrite = await requestJson(goalFailureFixture, "/u/api/goals", { method: "POST", body: { household: "house-home", action: "create", name: "쓰기 실패 목표", target: 300000 } });
   eq(failedWrite.response.status, 503, "goal settings write failure is returned to the client");
-  eq(failedWrite.data?.reason, "goal_save_failed", "goal settings write failure provides a retry reason");
+  eq(failedWrite.data?.reason, "db_write_unknown", "goal settings 503 write failure requires verification rather than retry");
   eq(JSON.parse(goalFailureFixture.db.accountbook_settings.find((row) => row.key === goalKey)?.value || "[]").length, 1, "failed goal write preserves the prior list");
   const retriedGoal = await requestJson(goalFailureFixture, "/u/api/goals", { method: "POST", body: { household: "house-home", action: "create", name: "쓰기 실패 목표", target: 300000 } });
   eq(retriedGoal.response.status, 200, "goal change succeeds when retried after a transient settings failure");

@@ -14,10 +14,13 @@ function matchesFilter(row, key, expression) {
   const actual = String(row?.[key] ?? "");
   if (operator === "eq") return actual === expected;
   if (operator === "neq") return actual !== expected;
-  if (operator === "gte") return actual >= expected;
-  if (operator === "gt") return actual > expected;
-  if (operator === "lte") return actual <= expected;
-  if (operator === "lt") return actual < expected;
+  const comparable = /^-?\d+(?:\.\d+)?$/.test(actual) && /^-?\d+(?:\.\d+)?$/.test(expected)
+    ? [Number(actual), Number(expected)]
+    : [actual, expected];
+  if (operator === "gte") return comparable[0] >= comparable[1];
+  if (operator === "gt") return comparable[0] > comparable[1];
+  if (operator === "lte") return comparable[0] <= comparable[1];
+  if (operator === "lt") return comparable[0] < comparable[1];
   if (operator === "like" || operator === "ilike") {
     const regex = wildcardRegex(operator === "ilike" ? expected.toLowerCase() : expected);
     return regex.test(operator === "ilike" ? actual.toLowerCase() : actual);
@@ -52,7 +55,7 @@ function filteredRows(db, table, url) {
     });
   }
   const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
-  const limit = Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0));
+  const limit = Math.min(Number(db.__max_rows || Infinity), Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0)));
   return rows.slice(offset, offset + (Number.isFinite(limit) ? limit : rows.length));
 }
 
@@ -66,6 +69,10 @@ function embedRelatedRows(db, rows, select = "") {
   return rows.map((row) => {
     const out = { ...row };
     for (const [, table, columns] of embeds) {
+      if (table === "accountbook_user_security") {
+        out[table] = (db[table] || []).filter(item => String(item.user_id) === String(row.id)).map(item => ({session_version:item.session_version}));
+        continue;
+      }
       const foreignKey = `${table.replace(/s$/, "")}_id`;
       const target = (db[table] || []).find((item) => String(item.id) === String(row[foreignKey] ?? "")) || null;
       const wanted = columns.split(",").map((column) => column.trim()).filter(Boolean);
@@ -171,6 +178,10 @@ export async function createV2265QaFixture() {
   };
   const sequence = { value: 1 };
   db.__operation_rpc_available = true;
+  db.__rpc_calls = [];
+  db.__settings_write_count = 0;
+  db.__operation_claim_count = 0;
+  db.__operation_release_count = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
@@ -179,10 +190,12 @@ export async function createV2265QaFixture() {
     const data = init.body ? JSON.parse(String(init.body)) : null;
     const rpcMatch = url.pathname.match(/\/rest\/v1\/rpc\/([^/]+)$/);
     if (rpcMatch) {
-      if (db.__operation_rpc_available === false) {
+      const rpcName = rpcMatch[1];
+      db.__rpc_calls.push({ name: rpcName, data: clone(data || {}) });
+      if (typeof db.__before_rpc === "function") await db.__before_rpc(rpcName, clone(data || {}));
+      if (db.__operation_rpc_available === false || (db.__missing_rpcs || []).includes(rpcName)) {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
-      const rpcName = rpcMatch[1];
       // Opt-in model of schema_v22_7_0_auth_atomicity.sql for import round-trip tests.
       if (rpcName === "accountbook_import_transactions_v227" && db.__import_rpc_available === true) {
         const rows = data?.p_rows;
@@ -205,7 +218,25 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ inserted, duplicates }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_auth_attempt") {
+        if (db.__enforce_auth_rate) {
+          db.__auth_attempts ||= new Map();
+          const attempts = data.p_success ? 0 : Number(db.__auth_attempts.get(data.p_key) || 0)+1;
+          db.__auth_attempts.set(data.p_key,attempts);
+          return new Response(JSON.stringify({allowed:attempts<=Number(data.p_limit),attempts,blocked_until:null}), {headers:{"content-type":"application/json"}});
+        }
         return new Response(JSON.stringify({ allowed: true, attempts: data?.p_success ? 0 : 1, blocked_until: null }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_set_local_identity_v227" && db.__operation_rpc_available !== false) {
+        if (!db.users.some(row=>row.id===data.p_user_id) || String(data.p_credential_hash || "").length < 20 || String(data.p_credential_salt || "").length < 16 || Number(data.p_credential_iterations) < 100000) return new Response(JSON.stringify({message:"invalid_credential"}),{status:400});
+        const subject=String(data.p_login_name).normalize("NFKC").trim().replace(/\s+/g," ").toLowerCase();
+        if (db.accountbook_user_identities.some(row=>row.provider==="local"&&row.provider_subject===subject&&row.user_id!==data.p_user_id)) return new Response(JSON.stringify({message:"login_name_in_use"}),{status:400});
+        const index=db.accountbook_user_identities.findIndex(row=>row.provider==="local"&&row.user_id===data.p_user_id);
+        const identity={user_id:data.p_user_id,provider:"local",provider_subject:subject,login_name:data.p_login_name,credential_hash:data.p_credential_hash,credential_salt:data.p_credential_salt,credential_iterations:data.p_credential_iterations,credential_version:2};
+        if(index>=0) db.accountbook_user_identities[index]=identity;else db.accountbook_user_identities.push(identity);
+        const security=db.accountbook_user_security.find(row=>row.user_id===data.p_user_id);
+        const version=Number(security?.session_version||1)+(data.p_revoke_sessions?1:0);
+        upsert(db,"accountbook_user_security",{user_id:data.p_user_id,session_version:version,password_changed_at:new Date().toISOString()},["user_id"],sequence);
+        return new Response(JSON.stringify({saved:true,session_version:version,login_name:data.p_login_name}),{headers:{"content-type":"application/json"}});
       }
       if (rpcName === "accountbook_create_local_user_v227") {
         if (db.__create_local_user_error) {
@@ -238,6 +269,11 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ id: user.id, kakao_user_key: user.kakao_user_key, nickname: user.nickname }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_claim_operation") {
+        db.__operation_claim_count += 1;
+        if (db.__fail_next_operation_claim) {
+          db.__fail_next_operation_claim = false;
+          return new Response(JSON.stringify({ code: "QA_OPERATION_CLAIM_FAILED", message: "simulated operation claim failure" }), { status: 503, headers: { "content-type": "application/json" } });
+        }
         const now = Date.now();
         const key = String(data?.p_key || "").slice(0, 180);
         const owner = String(data?.p_owner || "").slice(0, 180);
@@ -252,6 +288,11 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ acquired: row.owner === owner && Date.parse(row.locked_until) > now, operation_key: key, owner: row.owner, locked_until: row.locked_until }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_release_operation") {
+        db.__operation_release_count += 1;
+        if (db.__fail_next_operation_release) {
+          db.__fail_next_operation_release = false;
+          return new Response(JSON.stringify({ code: "QA_OPERATION_RELEASE_FAILED", message: "simulated operation release failure" }), { status: 503, headers: { "content-type": "application/json" } });
+        }
         const row = db.accountbook_operation_locks.find((item) => item.operation_key === String(data?.p_key || "") && item.owner === String(data?.p_owner || ""));
         if (row) row.locked_until = new Date().toISOString();
         return new Response(JSON.stringify({ released: !!row }), { status: 200, headers: { "content-type": "application/json" } });
@@ -270,6 +311,29 @@ export async function createV2265QaFixture() {
         else return new Response(JSON.stringify({ code: "QA_ASSET_ACTION_INVALID", message: "asset_action_invalid" }), { status: 400, headers: { "content-type": "application/json" } });
         upsert(db, "accountbook_settings", { key, value: JSON.stringify(assets) }, ["key"], sequence);
         return new Response(JSON.stringify(assets), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_apply_recurring_v227") {
+        const householdId = String(data?.p_household_id || "");
+        const month = String(data?.p_month || "");
+        if (!/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(month)) return new Response(JSON.stringify({ code: "P0001", message: "invalid_month" }), { status: 400 });
+        const rules = db.accountbook_recurring.filter((item) => item.household_id === householdId && item.is_active !== false && String(item.last_applied_month || "") !== month);
+        if (rules.some((rule) => !rule.user_id || !db.household_members.some((member) => member.household_id === householdId && member.user_id === rule.user_id && !["blocked", "pending"].includes(member.role)))) return new Response(JSON.stringify({ code: "P0001", message: "recurring_spender_required" }), { status: 400 });
+        const [year, monthNumber] = month.split("-").map(Number);
+        const monthLastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+        let inserted = 0;
+        for (const rule of rules) {
+          const day = Math.min(monthLastDay, Math.max(1, Number(rule.day_of_month ?? 1)));
+          const date = month + "-" + String(day).padStart(2, "0");
+          const rawText = "recurring:" + rule.id + ":" + month;
+          const type = rule.type === "income" ? "income" : "expense";
+          const duplicate = db.transactions.some((tx) => tx.household_id === householdId && tx.source === "recurring_auto" && (tx.raw_text === rawText || (tx.transaction_date === date && tx.type === type && Number(tx.amount) === Number(rule.amount) && tx.memo === rule.memo && tx.category === rule.category)));
+          if (!duplicate) {
+            upsert(db, "transactions", { household_id: householdId, user_id: rule.user_id, type, amount: rule.amount, category: rule.category, memo: rule.memo, payment_method: rule.payment_method, transaction_date: date, source: "recurring_auto", raw_text: rawText }, ["id"], sequence);
+            inserted += 1;
+          }
+        }
+        for (const rule of rules) rule.last_applied_month = month;
+        return new Response(JSON.stringify({ inserted, skipped: rules.length - inserted }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_replace_budget_plan_v227") {
         const householdId = String(data?.p_household_id || "");
@@ -328,16 +392,24 @@ export async function createV2265QaFixture() {
     const table = url.pathname.split("/").filter(Boolean).at(-1);
     if (!db[table]) db[table] = [];
     if (method === "GET") {
+      if (table === "accountbook_settings" && (db.__fail_next_settings_read || (db.__fail_settings_read_key && url.searchParams.get("key") === `eq.${db.__fail_settings_read_key}`))) {
+        db.__fail_next_settings_read = false;
+        return new Response(JSON.stringify({ code: "QA_SETTINGS_READ_FAILED", message: "simulated settings read failure" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
       if (db.__embed_unsupported && /\w+\([^)]*\)/.test(String(url.searchParams.get("select") || ""))) {
         return new Response(JSON.stringify({ code: "PGRST200", message: "Could not find a relationship in the schema cache" }), { status: 400, headers: { "content-type": "application/json" } });
       }
-      if (table === "accountbook_user_security" && db.__fail_user_security_reads) {
+      if ((table === "accountbook_user_security" || String(url.searchParams.get("select") || "").includes("accountbook_user_security(")) && db.__fail_user_security_reads) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
       return new Response(JSON.stringify(embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"))), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];
+      if (table === "accountbook_settings") {
+        if (typeof db.__before_settings_write === "function") await db.__before_settings_write(clone(items));
+        db.__settings_write_count += 1;
+      }
       if (table === "accountbook_settings" && db.__fail_next_settings_write) {
         db.__fail_next_settings_write = false;
         return new Response(JSON.stringify({ code: "QA_SETTINGS_WRITE_FAILED", message: "simulated settings write failure" }), { status: 503, headers: { "content-type": "application/json" } });
