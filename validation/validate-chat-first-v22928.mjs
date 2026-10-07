@@ -563,4 +563,21 @@ await withFixture(async (f) => {
   eq(f.db.transactions.filter((row) => row.source_user_key === f.key).length, 0, "retired orphan receives no fallback record");
 });
 
+// Active public manuals must describe chat-first without provisioning on guide reads.
+await withFixture(async (f) => {
+  const before = Object.fromEntries(["users", "households", "household_members", "transactions"].map((key) => [key, f.db[key].length]));
+  let guide = "";
+  for (const path of ["/", "/how-it-works"]) {
+    const response = await web(f, "GET", path);
+    const html = await response.text();
+    eq(response.status, 200, `${path} public start manual is available`);
+    ok(html.includes("웹 로그인 없이") && html.includes("첫 기록"), `${path} starts with private chat-first, not mandatory web signup`);
+    ok(!html.includes("단톡방을 연결하고, 짧은 기록 연습을 거쳐 첫 기록") && !html.includes("처음 사용자는 새 가계부를 만들거나 받은 초대코드로 참여합니다"), `${path} removes obsolete mandatory shared setup before first record`);
+    if (path === "/how-it-works") guide = html;
+  }
+  ok(guide.includes("10분") && guide.includes("카카오에서 기록한 가계부 이어 열기") && guide.includes("다른 계정과 자동 병합하지 않습니다"), "manual explains optional one-time web continuation without account merging");
+  ok(guide.includes("단톡방에서는 개인 가계부나 공동 참여를 자동 생성하지 않으며 웹 연결 코드도 제공하지 않습니다"), "manual keeps group creation, participation and code boundaries explicit");
+  for (const [key, count] of Object.entries(before)) eq(f.db[key].length, count, `public manual read does not provision ${key}`);
+});
+
 console.log(`PASS: trusted chat-first onboarding and one-time web continuation (${checks} checks)`);

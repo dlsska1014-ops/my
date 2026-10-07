@@ -165,7 +165,7 @@ function run(command, args, label) {
 // V22.9.26: 출시 점검 — 라우터 await·안전 실패 47개, 카카오·인증·시간·가져오기·예산·헤더 83개,
 // 코드리뷰 후속 설정 잠금·범위·날짜·오류 안전 125개와 cold/warm 직렬 깊이 보호 6개가 들어왔다.
 // V22.9.27: 로그인 전 기능 미리보기·인증 오류 초점·CTA 대비·웹 별칭 단일 URL·헤더·성능 검사 73개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 5898;
+const EXPECTED_MINIMUM_CHECKS = 5910;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
