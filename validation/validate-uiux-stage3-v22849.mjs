@@ -41,9 +41,9 @@ ok(source.includes('body.abQuickInputOpen{overflow:hidden!important}'), "backgro
 ok(source.includes('.abQuickInputOriginalTitle{display:none!important}'), "duplicate inline title is hidden after modal promotion");
 ok(source.includes('.abDayDetailAdd{background:var(--action)'), "day-detail add action is visually primary");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "current release uses a fresh shell asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22929.js"'), "current release uses a fresh V5 runtime asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22930.js"'), "current release uses a fresh V5 runtime asset");
 ok(source.includes('"accountbook-shell-v22925-css"'), "current shell has an immutable ETag");
-ok(source.includes('"accountbook-v5-v22929-js"'), "current runtime has an immutable ETag");
+ok(source.includes('"accountbook-v5-v22930-js"'), "current runtime has an immutable ETag");
 ok(source.includes('(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();'), "quick input loads before day-detail integration");
 ok(source.includes('method="post" action="/admin/transactions"'), "existing transaction form action remains present");
 ok(source.includes('async function handleMyAddTransaction(request, env)'), "existing user transaction handler remains present");
@@ -64,7 +64,7 @@ try {
   eq(home.response.status, 200, "home renders with stage 3 assets");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home stays below the protected 35 KiB HTML budget");
   ok(home.text.includes('/assets/accountbook-shell-v22925.css'), "home loads the current shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22929.js'), "home loads the current runtime");
+  ok(home.text.includes('/assets/accountbook-v5-v22930.js'), "home loads the current runtime");
   ok(home.text.includes('id="add"'), "home still emits the existing quick-input form for progressive enhancement");
   ok(home.text.includes('name="transaction_date"'), "home keeps the existing date field");
   ok(home.text.includes('name="amount"'), "home keeps the existing amount field");
@@ -72,10 +72,10 @@ try {
   ok(home.text.includes('name="payment_method"'), "home keeps the existing payment field");
   eq(fixture.db.transactions.length, beforeCount, "rendering stage 3 UI does not mutate transactions");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22929.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22930.js");
   eq(v5.response.status, 200, "stage 3 V5 runtime is served");
   ok((v5.response.headers.get("content-type") || "").includes("javascript"), "stage 3 runtime has a JavaScript content type");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22929-js"', "current runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22930-js"', "current runtime ETag is correct");
   ok(v5.text.includes("abQuickInputOverlay"), "runtime contains quick-input modal logic");
   ok(v5.text.includes("openAbQuickInput"), "runtime exposes the shared quick-input opener");
   ok(v5.text.includes("data-ab-day-add"), "runtime connects day details to input");

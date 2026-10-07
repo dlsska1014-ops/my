@@ -13,7 +13,7 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime expos
 // 1. 숫자 사이 쉼표는 문장 구분자가 아니다.
 ok(source.includes("(?<!\\d)[,，](?!\\d)"), "clause splitting skips commas that sit between digits");
 // 2. 단위가 이어진 금액은 하나의 토큰으로 잡아야 한다.
-ok(/const pattern = \/\(\?:\(\?:\\d\+\(\?:\\\.\\d\+\)\?\\s\*\(\?:억\|만\|천\|백\|십\)\\s\*\)\+/.test(source), "combined unit amounts are one token span");
+ok(source.includes("return moneyTokenSpans(normalizeText(text));"), "clause splitting and amounts share the combined-unit scanner");
 // 3. 한 글자 조사는 떼어내지 않는다.
 ok(source.includes('(에서|으로|에게|한테)(?=\\s|$)/g, "$1 ")'), "only multi-syllable particles are stripped");
 ok(!/\(에서\|으로\|에게\|한테\|로\|에\|을\|를\|은\|는\|이\|가\)\(\?=/.test(source), "single-syllable particle stripping is gone");

@@ -10,8 +10,8 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the audit fix release");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js"'), "navigation runtime uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22929.js"'), "updated V5 runtime uses the current immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22930.js"'), "navigation runtime uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22930.js"'), "updated V5 runtime uses the current immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.
@@ -49,9 +49,9 @@ try {
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
   ok(shell.text.includes(".chipRow button:before{display:none}"), "V22.9.14 칩 장식은 마크업이 아니라 CSS 에서 다뤄진다(지금은 그리지 않는다)");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22925.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22930.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22925-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22930-js"', "new navigation ETag is correct");
   // V22.8.87(M1): 도킹이 사라지고 뷰포트에 따라 자리를 잡는 방식으로 바뀌었다.
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
 

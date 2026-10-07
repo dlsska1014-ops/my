@@ -157,8 +157,8 @@ try {
   eq(home.text.includes("number-flow"), false, "초기 HTML 은 라이브러리를 언급조차 하지 않는다");
   eq(home.text.includes("/assets/number-flow"), false, "초기 HTML 에 라이브러리 주소가 없다");
   // 어댑터도 초기 HTML 이 아니라 이미 내려가던 내비 자산 안에 있다.
-  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js";'), "어댑터는 이미 내려가던 자산에 실린다");
-  const navAsset = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22925.js`), fixture.env, {});
+  ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22930.js";'), "어댑터는 이미 내려가던 자산에 실린다");
+  const navAsset = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22930.js`), fixture.env, {});
   eq(navAsset.status, 200, "내비 자산이 새 주소에서 내려온다");
   ok((await navAsset.text()).includes('import("/assets/number-flow-v22893.mjs")'), "어댑터가 그 자산 안에 들어 있다");
 

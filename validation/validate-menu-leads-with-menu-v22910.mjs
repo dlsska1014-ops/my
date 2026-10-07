@@ -73,11 +73,11 @@ try {
     ok(!main.includes(`aria-hidden="true">${glyph}<`), `글리프 아이콘 "${glyph}" 가 남아 있지 않다`);
   }
   // 이름이 실제로 그려질 수 있는 것들인지 — 내비 런타임이 아는 이름이어야 한다.
-  const runtime = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22925.js`), {}, {})).text();
+  const runtime = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22930.js`), {}, {})).text();
   const used = [...new Set([...main.matchAll(/data-ab-nav-icon="([^"]+)"/g)].map((m) => m[1]))];
   ok(used.length >= 15, `쓰는 아이콘 종류가 충분하다 (${used.length}종)`);
   for (const name of used) ok(new RegExp(`\\b${name}:\\s*'`).test(runtime), `내비 런타임이 "${name}" 아이콘을 그릴 줄 안다`);
-  ok(main.includes('data-ab-nav-icon') && html.includes("accountbook-nav-v22925.js"), "그 SVG 를 그리는 런타임이 이 화면에 실려 있다");
+  ok(main.includes('data-ab-nav-icon') && html.includes("accountbook-nav-v22930.js"), "그 SVG 를 그리는 런타임이 이 화면에 실려 있다");
 
   // 5) 기준 변경은 조용한 보조 버튼이다
   ok(source.includes('body.abV22812Shell.abPageMenu main.menuPage form.menuContext button[type="submit"]{grid-column:auto!important;background:var(--ab12-surface)!important'),

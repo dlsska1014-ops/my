@@ -91,18 +91,19 @@ function slice(text, from, to) {
 
 // ① 홈 빠른입력 — 홈이 실제로 받는 캐시 자산에서 떼어낸다. 소스 문자열을 자르면
 //    템플릿 리터럴 이스케이프가 한 겹 더 껴서 브라우저가 받는 것과 다른 코드를 재게 된다.
-const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22926.js`), {}, {})).text();
+const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22930.js`), {}, {})).text();
 ok(shellJs.includes("window.AB_CATEGORY_RULES=["), "홈 셸 자산이 규칙을 함께 싣는다(요청이 늘지 않는다)");
 const noDom = { querySelectorAll: () => [] };
+const sharedType = slice(source,"function transactionTypeFromText(","\nfunction quickInputDate(");
 const homeAsk = new Function("window", "document",
-  slice(shellJs, "function abNorm(v){", "function parseQuickDate(text){")
+  sharedType + "\n" + slice(shellJs, "function abNorm(v){", "function parseQuickDate(text){")
   + slice(shellJs, "var quickRules=", "function stripQuickMemo(")
   + "\nreturn function(t){var ty=detectQuickType(t);return ty + \"/\" + inferQuickCategory(t,ty);};")(win, noDom);
 
 // ② 다른 화면(mobileUiUxClientMain)
 const mainAt = source.indexOf("function mobileUiUxClientMain()");
 const otherAsk = new Function("window",
-  slice(source.slice(mainAt), "  function normalizeText(value) {", "  function detectPayment(text) {")
+  sharedType + "\n" + slice(source.slice(mainAt), "  function normalizeText(value) {", "  function detectPayment(text) {")
   + slice(source.slice(mainAt), "  function detectCategory(text, type) {", "\n  function ")
   + '\nreturn function(t){var raw=normalizeText(t);var ty=detectType(raw);return ty + "/" + (detectCategory(raw,ty)||"기타지출");};')(win);
 
@@ -112,7 +113,7 @@ const serverAsk = new Function(
   + "\n" + slice(source, "const CATEGORY_RULES = [", "\n];") + "\n];"
   + '\nfunction normalizeText(v){return String(v||"").replace(/\\s+/g," ").trim();}\n'
   + slice(source, "function inferCategory(text, type) {", "\nfunction cleanMemo")
-  + "\n" + slice(source, "function detectType(text) {\n  const raw = normalizeText(text);", "\n}\n") + "\n}\n"
+  + "\n" + sharedType + "\nfunction detectType(text){return transactionTypeFromText(text);}\n"
   + '\nreturn function(t){var ty=detectType(t);return ty + "/" + inferCategory(t,ty);};')();
 
 // 개편 전 이 16개 중 13개에서 세 곳이 갈렸다. 그 13개가 여기 그대로 들어 있다.

@@ -259,3 +259,8 @@ DB 부하 지표가 일부 누락되면 종합 상태를 확인 불가로 표시
 4. 챌린지 `7일 → 8일` 저장, 신규 계정 생성·로그인과 1320px 이상 우측 기록을 확인합니다.
 
 운영 Supabase의 V22.8.46 참여자 역할 SQL은 이미 적용된 상태를 전제로 하며 기존 SQL을 다시 실행하지 않습니다. `/app` 대량 월 요청 수와 `/skill` 호출자 인증은 `KNOWN-ISSUES.md`에서 별도 운영 과제로 관리합니다.
+## 현재 저장소 준비본: V22.9.30
+
+운영 V22.9.28과 구분합니다. [먼저 읽기](00_READ_FIRST_V22_9_30.md), [검증 기록](VERIFICATION_V22_9_30.md), [감사 처리표](docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md), [aside 전달문](docs/ASIDE_V22_9_30.md), [backup·복구](docs/BACKUP_RECOVERY_RUNBOOK.md)를 확인하세요.
+
+Node22에서 `npm test`가 전체 저장소 하네스를 실행하며 `node monitoring/test-d1.mjs`는 SQLite45를 별도로 실행합니다. 운영 SQL/Worker/요금제/Secrets/외부 콘솔은 자동 CI에서 적용하지 않습니다.

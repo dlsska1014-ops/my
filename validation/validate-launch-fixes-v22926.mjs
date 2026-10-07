@@ -123,7 +123,7 @@ try {
   reply = await skill("금요일 치킨 21000");
   eq(txBy((t) => Number(t.amount) === 21000)[0]?.transaction_date, "2026-07-10", "주 말이 없는 요일은 가장 가까운 지난 요일이다");
   reply = await skill("2월 31일 책 15500");
-  eq(txBy((t) => Number(t.amount) === 15500)[0]?.transaction_date, "2026-07-15", "달력에 없는 날은 다음 달로 넘기지 않고 오늘로 둔다");
+  eq(txBy((t) => Number(t.amount) === 15500).length, 0, "invalid explicit date stores no transaction");
 
   hooks.txPostMode = "503";
   before = fixture.db.transactions.length;
@@ -153,9 +153,9 @@ try {
   response = await form("/my/local-login", { login_name: "launchfam", access_code: "pass-word-2026" }, "");
   eq(response.status, 303, "로그인이 된다");
   const loginKeys = [...new Set(rpcCalls.filter((c) => c.p_success !== true).map((c) => c.p_key))];
-  eq(loginKeys.length, 2, "로그인은 클라이언트·계정 두 범위를 센다");
+  eq(loginKeys.length, 3, "login uses persistent IP admission plus subject/caller failure limits");
   eq(rpcCalls.filter((c) => c.p_success === true).length, 2, "로그인 성공은 두 범위 모두 지운다");
-  hooks.denyAuthKey = loginKeys[1];
+  hooks.denyAuthKey = loginKeys[2];
   response = await form("/my/local-login", { login_name: "LaunchFam", access_code: "pass-word-2026" }, "", { "user-agent": "rotated-agent/1.0" });
   eq(response.status, 429, "계정 단위 횟수가 차면 User-Agent 를 바꿔도 429 다");
   ok((await response.text()).includes("이 로그인 이름으로"), "계정 단위 차단 문구를 보여 준다");
@@ -163,7 +163,7 @@ try {
 
   rpcCalls.length = 0;
   response = await form("/login", { password: "wrong-admin-password" }, "");
-  ok(rpcCalls.length >= 2 && new Set(rpcCalls.map((c) => c.p_key)).size === 2, "관리자 로그인은 클라이언트·전체 두 범위를 센다");
+  ok(rpcCalls.length >= 3 && new Set(rpcCalls.map((c) => c.p_key)).size === 3, "admin admission and caller failures use independent scopes");
 
   const launchCookie = await fixture.cookieFor(newUser.id);
   response = await form("/my/profile", { nickname: "출시 (통합됨) (통합됨)" }, launchCookie);
@@ -173,13 +173,13 @@ try {
   fixture.db.accountbook_settings.push({ id: "legacy-merge", key: "identity_merge_audit:legacy:user-other", value: JSON.stringify({ primary_user_id: "user-bin" }), created_at: "2026-07-01T00:00:00.000Z" });
   const mtCookie = await fixture.cookieFor("user-mt");
   response = await get("/my/profile", mtCookie);
-  eq(response.status, 200, "secondary 가 없는 광역 통합 기록은 다른 사용자 세션을 발급하지 않는다");
+  eq(response.status, 303, "merged-looking raw token requires fresh login");
   ok(!String(response.headers.get("set-cookie") || "").includes("user-bin"), "다른 사용자의 세션 쿠키가 발급되지 않는다");
   fixture.db.accountbook_settings.push({ id: "real-merge", key: "identity_merge_audit:real:user-mt", value: JSON.stringify({ primary_user_id: "user-bin", secondary_user_id: "user-mt" }), created_at: "2026-07-01T00:00:00.000Z" });
   globalThis.__AB_EFFECTIVE_USER_CACHE?.clear?.();
   response = await get("/my/profile", mtCookie);
   eq(response.status, 303, "secondary 가 일치하는 정식 통합 기록은 예전처럼 주 계정으로 복구한다");
-  eq(response.headers.get("x-accountbook-session-recovered"), "1", "정식 통합 복구 헤더가 붙는다");
+  eq(response.headers.get("x-accountbook-session-recovered"), null, "old merged token cannot mint a primary-account session");
 
   // ── 시간·cron ───────────────────────────────────────────────────────────
   globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-07-13T12:00:00"); // 월요일
@@ -327,7 +327,7 @@ try {
   ok((source.match(/xlsxPromise = null;/g) || []).length >= 4, "엑셀 변환 모듈 로더는 실패한 약속을 캐시하지 않는다");
   ok(source.includes("event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;"), "카카오 대기 화면은 새 탭 열기 클릭을 건너뛴다");
   ok(source.includes('querySelectorAll(".v8-tx .v8-tx-main")'), "거래 상세 키보드 진입 선택자가 실제 마크업과 맞는다");
-  ok(source.includes('"/assets/accountbook-v5-v22929.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
+  ok(source.includes('"/assets/accountbook-v5-v22930.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
 } finally {
   globalThis.fetch = mockFetch;
   fixture.restore();

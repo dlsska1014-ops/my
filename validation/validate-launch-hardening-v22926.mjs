@@ -38,10 +38,12 @@ globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-15T12:00:00+09:00");
 const fixture = await createV2265QaFixture();
 const mockFetch = globalThis.fetch;
 let dbDown = false;
+let authDown = false;
 let failHouseholdUserRows = false;
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" ? input : input.url);
-  if ((dbDown || (failHouseholdUserRows && url.pathname === "/rest/v1/users")) && url.hostname === "mock.supabase.co") {
+  const authenticationRead = url.pathname === "/rest/v1/accountbook_user_security" || (url.pathname === "/rest/v1/users" && String(url.searchParams.get("select") || "").includes("accountbook_user_security("));
+  if ((authDown && authenticationRead || dbDown && !authenticationRead || failHouseholdUserRows && url.pathname === "/rest/v1/household_members") && url.hostname === "mock.supabase.co") {
     return new Response(JSON.stringify({ message: "upstream unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
   }
   return mockFetch(input, init);
@@ -94,7 +96,7 @@ try {
   eq(apiHtmlAccept.type, "application/json", "/u/api 는 브라우저 accept 로도 HTML 이 아니라 JSON 이다");
 
   // 4) safeHtmlRoute 밖의 GET 화면 → 안전모드 HTML
-  for (const path of ["/menu?household_id=house-home", "/my/settings?household_id=house-home", "/my/members?household_id=house-home", "/my/profile"]) {
+  for (const path of ["/my/households?household_id=house-home", "/my/settings?household_id=house-home", "/my/members?household_id=house-home", "/my/backup?household_id=house-home"]) {
     const page = await call("GET", path);
     eq(page.threw, null, `DB 장애 중 GET ${path.split("?")[0]} 이 예외를 던지지 않는다`);
     eq(page.response.status, 500, `GET ${path.split("?")[0]} 실패는 HTTP 500 이다`);
@@ -115,10 +117,20 @@ try {
   eq(fixture.db.transactions.length, txBefore, "DB 장애 중 거래가 저장되지 않았다");
   const serverErrors = (globalThis.__AB_OPS_EVENTS || []).slice(eventsBefore).filter((event) => event.kind === "server_error");
   ok(serverErrors.some((event) => event.path === "/my/transactions" && event.method === "POST"), "폼 제출 실패가 server_error 운영 이벤트로 남는다");
-  ok(serverErrors.some((event) => event.path === "/menu"), "GET 화면 실패도 server_error 운영 이벤트로 남는다");
+  ok(serverErrors.some((event) => event.path === "/my/settings"), "GET business failure remains a server_error event");
 
   // 7) 폼이 아닌 본문(잘못된 content-type)도 1101 이 아니라 안전모드다.
   dbDown = false;
+  authDown = true;
+  const authEvents = (globalThis.__AB_OPS_EVENTS || []).length;
+  const authPage = await call("GET", "/app?household_id=house-home");
+  eq(authPage.response.status,303,"revocation snapshot outage fails closed before private HTML");
+  ok(!authPage.text.includes("우리집 생활비"),"revocation outage discloses no household data");
+  const authWrite = await call("POST","/my/transactions",{body:formBody});
+  eq(authWrite.response.status,303,"auth outage refuses financial writes");
+  eq(fixture.db.transactions.length,txBefore,"auth outage stores zero transactions");
+  ok((globalThis.__AB_OPS_EVENTS || []).slice(authEvents).some(event=>event.kind==="user_session_snapshot_unavailable"),"auth outage records its own closed-auth event");
+  authDown = false;
   const plain = await call("POST", "/my/transactions", { body: "garbage", contentType: "text/plain" });
   eq(plain.threw, null, "폼이 아닌 본문의 POST 가 예외를 던지지 않는다");
   eq(plain.response.status, 500, "폼이 아닌 본문의 POST 는 500 안전모드다");

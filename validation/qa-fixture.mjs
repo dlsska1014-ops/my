@@ -55,7 +55,7 @@ function filteredRows(db, table, url) {
     });
   }
   const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
-  const limit = Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0));
+  const limit = Math.min(Number(db.__max_rows || Infinity), Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0)));
   return rows.slice(offset, offset + (Number.isFinite(limit) ? limit : rows.length));
 }
 
@@ -69,6 +69,10 @@ function embedRelatedRows(db, rows, select = "") {
   return rows.map((row) => {
     const out = { ...row };
     for (const [, table, columns] of embeds) {
+      if (table === "accountbook_user_security") {
+        out[table] = (db[table] || []).filter(item => String(item.user_id) === String(row.id)).map(item => ({session_version:item.session_version}));
+        continue;
+      }
       const foreignKey = `${table.replace(/s$/, "")}_id`;
       const target = (db[table] || []).find((item) => String(item.id) === String(row[foreignKey] ?? "")) || null;
       const wanted = columns.split(",").map((column) => column.trim()).filter(Boolean);
@@ -189,7 +193,7 @@ export async function createV2265QaFixture() {
       const rpcName = rpcMatch[1];
       db.__rpc_calls.push({ name: rpcName, data: clone(data || {}) });
       if (typeof db.__before_rpc === "function") await db.__before_rpc(rpcName, clone(data || {}));
-      if (db.__operation_rpc_available === false) {
+      if (db.__operation_rpc_available === false || (db.__missing_rpcs || []).includes(rpcName)) {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
       // Opt-in model of schema_v22_7_0_auth_atomicity.sql for import round-trip tests.
@@ -214,7 +218,25 @@ export async function createV2265QaFixture() {
         return new Response(JSON.stringify({ inserted, duplicates }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_auth_attempt") {
+        if (db.__enforce_auth_rate) {
+          db.__auth_attempts ||= new Map();
+          const attempts = data.p_success ? 0 : Number(db.__auth_attempts.get(data.p_key) || 0)+1;
+          db.__auth_attempts.set(data.p_key,attempts);
+          return new Response(JSON.stringify({allowed:attempts<=Number(data.p_limit),attempts,blocked_until:null}), {headers:{"content-type":"application/json"}});
+        }
         return new Response(JSON.stringify({ allowed: true, attempts: data?.p_success ? 0 : 1, blocked_until: null }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (rpcName === "accountbook_set_local_identity_v227" && db.__operation_rpc_available !== false) {
+        if (!db.users.some(row=>row.id===data.p_user_id) || String(data.p_credential_hash || "").length < 20 || String(data.p_credential_salt || "").length < 16 || Number(data.p_credential_iterations) < 100000) return new Response(JSON.stringify({message:"invalid_credential"}),{status:400});
+        const subject=String(data.p_login_name).normalize("NFKC").trim().replace(/\s+/g," ").toLowerCase();
+        if (db.accountbook_user_identities.some(row=>row.provider==="local"&&row.provider_subject===subject&&row.user_id!==data.p_user_id)) return new Response(JSON.stringify({message:"login_name_in_use"}),{status:400});
+        const index=db.accountbook_user_identities.findIndex(row=>row.provider==="local"&&row.user_id===data.p_user_id);
+        const identity={user_id:data.p_user_id,provider:"local",provider_subject:subject,login_name:data.p_login_name,credential_hash:data.p_credential_hash,credential_salt:data.p_credential_salt,credential_iterations:data.p_credential_iterations,credential_version:2};
+        if(index>=0) db.accountbook_user_identities[index]=identity;else db.accountbook_user_identities.push(identity);
+        const security=db.accountbook_user_security.find(row=>row.user_id===data.p_user_id);
+        const version=Number(security?.session_version||1)+(data.p_revoke_sessions?1:0);
+        upsert(db,"accountbook_user_security",{user_id:data.p_user_id,session_version:version,password_changed_at:new Date().toISOString()},["user_id"],sequence);
+        return new Response(JSON.stringify({saved:true,session_version:version,login_name:data.p_login_name}),{headers:{"content-type":"application/json"}});
       }
       if (rpcName === "accountbook_create_local_user_v227") {
         if (db.__create_local_user_error) {
@@ -377,7 +399,7 @@ export async function createV2265QaFixture() {
       if (db.__embed_unsupported && /\w+\([^)]*\)/.test(String(url.searchParams.get("select") || ""))) {
         return new Response(JSON.stringify({ code: "PGRST200", message: "Could not find a relationship in the schema cache" }), { status: 400, headers: { "content-type": "application/json" } });
       }
-      if (table === "accountbook_user_security" && db.__fail_user_security_reads) {
+      if ((table === "accountbook_user_security" || String(url.searchParams.get("select") || "").includes("accountbook_user_security(")) && db.__fail_user_security_reads) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
       return new Response(JSON.stringify(embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"))), { status: 200, headers: { "content-type": "application/json" } });

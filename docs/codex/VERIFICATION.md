@@ -144,3 +144,8 @@ node .codex/scripts/verify-repository.mjs --self-test
 ## 자동화할 수 없는 항목
 
 하네스 성공은 운영 배포 승인이 아닙니다. Cloudflare 운영 배포, `/health`·`/ready`, 챌린지 인라인 저장, 신규 계정 생성·재로그인과 실기기 반응형·모바일 화면은 `RELEASE-CHECKLIST.md`에서 별도 확인합니다. V22.8.78에는 신규 SQL이 없으며 기존 V22.6.8·V22.7.0·V22.7.1과 V22.8.46 SQL은 다시 실행하지 않습니다.
+## V22.9.30
+
+현재 정본은 `BUNDLE_FILE_CHECKSUMS_V22_9_30.sha256`의 195개와 동적으로 합산하는 `.codex/scripts/verify-repository.mjs`의 실측 7,079개입니다. `npm test` 또는 `node .codex/scripts/verify-repository.mjs`로 실행하며 Node22를 사용합니다. 새 audit-corrections378, startup-budget40, import-cron477과 main sister-link44가 전체 하네스에 포함됩니다. 기존 검사와 checksum coverage를 줄이지 않습니다.
+
+SQLite45는 실제 Node.js v22.23.1에서 별도로 확인했고 CI도 Node22 Ubuntu/Windows에서 실행하도록 준비했습니다. 운영·실기기 결과와 코드 검증은 `VERIFICATION_V22_9_30.md`와 `docs/ASIDE_V22_9_30.md`에 구분합니다. `.agents` 스킬의 제거된 receipt 명령과 오래된 count는 범위 밖으로 보고하며 현재 package scripts/하네스 결과를 따릅니다.

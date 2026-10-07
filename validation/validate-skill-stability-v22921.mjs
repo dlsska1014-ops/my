@@ -221,7 +221,7 @@ for (const failLookup of [false, true]) {
         peak = Math.max(peak, active);
         try {
           await new Promise((resolve) => setTimeout(resolve, 210));
-          if (failLookup && url.searchParams.get("amount") === `eq.${amountBase + 2}`) return new Response('{"message":"synthetic duplicate lookup outage"}', { status: 503 });
+          if (failLookup && (url.searchParams.get("amount") === `eq.${amountBase + 2}` || String(url.searchParams.get("amount")).includes(String(amountBase+2)))) return new Response('{"message":"synthetic duplicate lookup outage"}', { status: 503 });
           return await baseFetch(input, init);
         } finally { active -= 1; }
       }
@@ -231,13 +231,13 @@ for (const failLookup of [false, true]) {
     const start = performance.now();
     await say(fixture, utterance);
     const elapsed = Math.round(performance.now() - start);
-    eq(peak, 5, "duplicate checks run with a maximum concurrency of five");
+    eq(peak, 1, "one shared duplicate lookup checks the complete batch");
     if (failLookup) {
-      eq(reads, 5, "failed batch prevents later lookup batches");
+      eq(reads, 1, "failed shared lookup permits no further duplicate calls");
       eq(fixture.db.transactions.length, before, "one failed duplicate check prevents all inserts");
       await new Promise((resolve) => setTimeout(resolve, 25));
     } else {
-      eq(reads, 25, "every submitted row is checked for duplicates");
+      eq(reads, 1, "all submitted rows are checked using one authoritative response");
       eq(fixture.db.transactions.length - before, 25, "all valid rows are saved exactly once");
       const saved = fixture.db.transactions.slice(before);
       eq(saved.map((row) => row.amount).join(","), Array.from({ length: 25 }, (_, index) => amountBase + index).join(","), "saved rows retain submitted order");

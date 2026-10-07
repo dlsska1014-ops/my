@@ -97,7 +97,7 @@ try {
     eq(page.text.includes("abCursorCanvas"), false, `${label} 초기 HTML 에 캔버스가 없다`);
   }
   // 로더는 이미 내려가던 내비 자산 안에 있다 — 초기 HTML 이 늘지 않는 이유다.
-  const navAsset = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22925.js`), fixture.env, {});
+  const navAsset = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-nav-v22930.js`), fixture.env, {});
   const navText = await navAsset.text();
   ok(navText.includes('import("/assets/ab-cursor-v22895.mjs")'), "로더가 이미 내려가던 자산 안에 있다");
   ok(navText.includes('matchMedia("(hover:hover) and (pointer:fine)")'), "그 자산 안에서 조건을 판정한다");

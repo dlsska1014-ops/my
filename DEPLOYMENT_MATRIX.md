@@ -343,3 +343,14 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.30 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 정기 SQL | 기존 V22.9.29 forward 함수 하나를 승인 후 먼저 적용합니다. 파일·롤백 SQL은 보존했습니다. 신규 SQL/인덱스는 없습니다. |
+| 앱 Worker | 최종 검증된 `src/index.js` 전체를 교체하고 SHA-256을 대조해야 합니다. 이 작업에서 배포하지 않았습니다. |
+| immutable runtime | mobile-home/mobile-home-shell/nav/V5는 v22930을 사용하며 이전 bytes/ETag를 보존합니다. |
+| 설정 | Data API 자동 새 테이블 노출 OFF 저장 완료와 Max Rows1,000 유지는 사용자 보고입니다. 환경변수·Secrets·바인딩·Cron·도메인·Kakao/관제 콘솔·요금제는 변경하지 않습니다. |
+| 수동 점검 | CPU1102/가입, 실제 OAuth/카카오/실기기, FK nesting, Cron 큐 소진, 실제 backup/복구를 별도로 확인합니다. |
+
+aside 전달은 `docs/ASIDE_V22_9_30.md`, 미해결 범위는 `docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md`를 따릅니다. 현재 운영 V22.9.28은 사용자 보고 기준이며 이번 작업에서 live 검증했다고 기록하지 않습니다.

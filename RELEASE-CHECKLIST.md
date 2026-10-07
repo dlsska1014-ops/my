@@ -238,3 +238,15 @@ SQL·Secrets·환경변수·바인딩·Cron·도메인·관제 Worker·Kakao Dev
 - [ ] 옛 자산 경로 5종이 404
 - [ ] 카카오 저장·파서 무회귀 (`/kakao-recent`)
 - [ ] 다크 모드에서 신규 요소에 흰 박스 없음
+## V22.9.30 출시 점검
+
+- [x] V22.9.29 수정·SQL/롤백과 main의 공개 푸터 링크를 보존했습니다.
+- [x] 신규 보안·parser·실제 예산 소비자378개, startup40개, import/cron477개와 관련 기존 targeted 검사를 통과했습니다.
+- [x] Node.js v22.23.1에서 SQLite45를 별도로 통과했습니다.
+- [x] aside 읽기 전용/적용 전달문, backup/복구 절차와 리포트 항목별 처리를 준비했습니다.
+- [x] 최종 V22.9.30 전체 7,079개·체크섬 195개·ESM·worktree/staged 공백을 통과했습니다. 커밋 바이트 대조와 GitHub 통합 결과는 Git 기록에서 별도로 확인합니다.
+- [ ] 승인된 정기 SQL 함수 하나 적용·정의/시그니처/ACL 대조를 완료합니다.
+- [ ] 최종 Worker 전체 source hash·배포 ID·100%·health/ready·신규 자산·설정 보존을 확인합니다.
+- [ ] 신규 로컬 가입의 운영 CPU/PBKDF2·실제 Kakao/OAuth/인앱 외부 브라우저·실기기를 확인합니다.
+- [ ] 실제 backup/off-site/restore, legacy-only 복구, Cron cursor 소진 시간을 확인합니다.
+- [ ] GitHub publish/main merge·remote CI 결과를 기록합니다.

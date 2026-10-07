@@ -243,7 +243,7 @@ for (const path of ["/my/recurring/save", "/admin/recurring/save", "/my/recurrin
     const rule = fixture.db.accountbook_recurring.find(r => r.household_id === "house-home");
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
-      if (url.pathname === "/rest/v1/accountbook_recurring" && ["POST", "DELETE"].includes(init.method)) {
+      if (url.pathname === "/rest/v1/accountbook_recurring" && ["POST", "PATCH", "DELETE"].includes(init.method)) {
         writes++; await baseFetch(input, init); throw new Error("synthetic recurring committed without response");
       }
       return baseFetch(input, init);

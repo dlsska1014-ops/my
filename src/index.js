@@ -945,7 +945,7 @@ async function handleComprehensiveMonitor(request, env, url) {
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     const monitoring = abMonitorRequestContext(request, env);
-    const requestEnv = monitoring ? { ...env, __AB_MONITOR_REQUEST: monitoring } : env;
+    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
     const routed = rememberedHouseholdRequest(request);
     try {
       const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
@@ -959,6 +959,9 @@ const ACCOUNTBOOK_WORKER = {
   async route(request, env, ctx) {
     try {
       const url = new URL(request.url);
+      if (["POST", "PUT", "PATCH"].includes(request.method) && url.pathname !== "/skill") {
+        request = await boundedFormRequest(request, /\/import(?:\/|$)/.test(url.pathname) ? 16 * 1024 * 1024 : 64 * 1024);
+      }
 
       if (url.pathname === "/internal/ops-metrics" && request.method === "GET") {
         return await abMonitorDatabaseProbe(request, env);
@@ -1055,6 +1058,9 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/local-login" && request.method === "POST") {
         return await handleMyLocalLogin(request, env);
+      }
+      if (url.pathname === "/my/account-reauth" && request.method === "POST") {
+        return await handleAccountReauth(request, env);
       }
 
       if (url.pathname === "/my/kakao-claim" && request.method === "GET") {
@@ -2109,6 +2115,7 @@ const ACCOUNTBOOK_WORKER = {
 
       return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     } catch (err) {
+      if (err?.httpStatus === 400 || err?.httpStatus === 413) return jsonResponse({ ok: false, error: err.httpStatus === 413 ? "body_too_large" : "invalid_body", message: "입력 내용을 확인해 주세요." }, err.httpStatus);
       let failedRequestUrl = null;
       try { failedRequestUrl = new URL(request.url); } catch (_urlErr) {}
       logWorkerError({ event: "unhandled_request_error", path: failedRequestUrl?.pathname || "", method: request.method || "GET", error: err });
@@ -2140,20 +2147,21 @@ const ACCOUNTBOOK_WORKER = {
     }
   },
   async scheduled(controller, env, ctx) {
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed}` });
+        if (!recurringResult.ok) { firstError = firstError || new Error("scheduled_recurring_partial"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed}` });
+        if (!reportResult.ok) { firstError = firstError || new Error("scheduled_reports_partial"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
@@ -2169,7 +2177,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.29-REMAINING-OPS-HARDENING";
+const APP_VERSION = "V22.9.30-CLAUDE-AUDIT-HARDENING";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2394,7 +2402,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://everyday-tools-ko.pages.dev" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
 }
 
 function publicPageCatalog(env = {}, url = null) {
@@ -2552,7 +2560,7 @@ function publicPageCatalog(env = {}, url = null) {
       sections: [
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 단톡방 연결키는 사용자가 명시적으로 연결한 그룹방과 가계부를 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간, 배포 버전 같은 문장 없는 집계를 우선합니다. 이해 실패 문장을 제한적으로 보관하는 기능을 활성화할 경우 URL, 이메일, 전화번호, 초대코드와 긴 숫자를 마스킹하고 도움말에 저장 사실과 기간을 안내합니다. 기본 보관기간은 최대 14일이며 운영 설정에 따라 더 짧게 적용할 수 있습니다."] },
-        { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 삭제, 탈퇴 또는 적법한 삭제 요청이 확인되면 필요한 범위를 제외하고 삭제합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
+        { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
         { title: "4. 제3자 광고와 쿠키", paragraphs: ["광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
         { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
         { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
@@ -2703,20 +2711,145 @@ function renderBusinessInfoReviewCard(variant = "") {
 }
 
 export function parseMobileAmountText(text = "") {
-  const source = String(text || "").replace(/,/g, "").trim();
-  if (!source) return 0;
-  let total = 0;
-  let unitMatched = false;
-  const multipliers = { "억": 100000000, "만": 10000, "천": 1000, "백": 100 };
-  const unitPattern = /(\d+(?:\.\d+)?)\s*(억|만|천|백)/g;
-  let match;
-  while ((match = unitPattern.exec(source))) {
-    total += Number(match[1] || 0) * Number(multipliers[match[2]] || 0);
-    unitMatched = true;
+  const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;
+}
+
+// The same self-contained scanner is serialized into the immutable client asset.
+function moneyTokenSpans(text = "") {
+  const source = String(text || "").replace(/[₩￦]/g, "원");
+  if (/\d+,\d{1,2}(?!\d)/.test(source)) return [];
+  const excluded = [...source.matchAll(/\b01[016789][ -]?\d{3,4}[ -]?\d{4}\b|\b20\d{6}\b|\b20\d{2}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./]\d{1,2}\b(?!\s*[억만천백십원\d])|\d+(?:\.\d+)?\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);
+  const pattern = /(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\s*[십백천만억]\s*(?:\d+(?:\.\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\s*원?/g;
+  const result = [];
+  for (const match of source.matchAll(pattern)) {
+    const start = match.index, end = start + match[0].trimEnd().length;
+    if (excluded.some(([a, b]) => start < b && end > a)) continue;
+    if (/[A-Za-z\d,]/.test(source[start - 1] || "") || /[A-Za-z\d,]/.test(source[end] || "")) continue;
+    let raw = match[0].trim();
+    if (/[가-힣]/.test(source[start-1] || "") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {
+      const stem = source.slice(0,start).trim().split(/\s+/).pop() || "";
+      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;
+      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;
+    }
+    if (/^\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || "")) continue;
+    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
+    if (!/[\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;
+    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
+    const body = raw.replace(/[\s,원]/g, "").replace(/하나|한/g, "일").replace(/둘|두/g, "이").replace(/셋|세/g, "삼").replace(/넷|네/g, "사").replace(/다섯/g, "오").replace(/여섯/g, "육").replace(/일곱/g, "칠").replace(/여덟/g, "팔").replace(/아홉/g, "구");
+    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};
+    let sum = 0, section = 0, number = "";
+    for (const token of body.match(/\d+(?:\.\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || []) {
+      if (/^[\d.]+$/.test(token)) number += token;
+      else if (token in digit) number += digit[token];
+      else if (token === "만" || token === "억") { section += Number(number || 0); sum += (section || 1) * (token === "억" ? 100000000 : 10000); section = 0; number = ""; }
+      else { section += Number(number || 1) * ({십:10,백:100,천:1000}[token]); number = ""; }
+    }
+    const amount = Math.round(sum + section + Number(number || 0));
+    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});
   }
-  if (unitMatched && Number.isFinite(total) && total > 0) return Math.round(total);
-  const numbers = source.match(/\d{2,12}/g);
-  return numbers ? Math.max(0, Number(numbers[numbers.length - 1] || 0)) : 0;
+  return result;
+}
+
+function transactionTypeFromText(text = "") {
+  const raw = String(text || "").trim();
+  if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return "expense";
+  if (/(?:^|\s)환불(?=\s*\d|$)/.test(raw)) return "income";
+  if (/(?:받음|받았|받은|들어옴|들어온|환급|환불받)/.test(raw)) return "income";
+  if (/(?:대출|카드|할부|연체)\s*이자|무이자/.test(raw)) return "expense";
+  if (/(?:^|\s)(?:수입|입금|급여|월급|매출|판매|중고\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈|수당|캐시백|월세수입)(?=\s|\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return "income";
+  return "expense";
+}
+
+function quickInputDate(text = "", today = "") {
+  const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
+  const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  const valid = (y, m, d) => { const dt = new Date(Date.UTC(y, m - 1, d)); return y >= 2000 && y <= 2099 && dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? dt.toISOString().slice(0, 10) : ""; };
+  const raw = String(text || "");
+  let m = raw.match(/(?:^|\s)(그저께|그제|어제|전날|오늘|금일|지금|방금|내일|모레)(?=\s|$)/);
+  if (m) { now.setUTCDate(now.getUTCDate() + ({그저께:-2,그제:-2,어제:-1,전날:-1,내일:1,모레:2}[m[1]] || 0)); return now.toISOString().slice(0, 10); }
+  m = raw.match(/(?:^|\s)(\d{1,2})\s*(일|주)\s*(전|후)(?=\s|$)/);
+  if (m) { now.setUTCDate(now.getUTCDate() + Number(m[1]) * (m[2] === "주" ? 7 : 1) * (m[3] === "전" ? -1 : 1)); return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate()); }
+  m = raw.match(/(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*(\d{1,2})\s*일?/);
+  if (m) { const dt = new Date(Date.UTC(parts[0], parts[1] - 1 + (/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0), 1)); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }
+  m = raw.match(/(?:^|\s)(20\d{2})(\d{2})(\d{2})(?=\s|$)/);
+  if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));
+  m = raw.match(/(?:^|\s)(20\d{2})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
+  if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = raw.match(/(?:^|\s)(\d{1,2})\s*(?:월\s*|[./])(\d{1,2})\s*일?(?=\s|$|[.,!?])/);
+  if (m) return valid(parts[0], Number(m[1]), Number(m[2]));
+  m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
+  return m ? valid(parts[0], parts[1], Number(m[1])) : "";
+}
+
+function explicitDateIntent(text = "") {
+  const raw = String(text || "");
+  if (/(?:^|\s)\d{1,2}\s*(?:일|주)\s*(?:전|후)(?=\s|$)/.test(raw)) return true;
+  return /(?:^|\s)(?:그저께|그제|어제|전날|오늘|금일|지금|방금|내일|모레)(?=\s|$)|(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*\d{1,2}|(?:^|\s)20\d{2}(?:[.\-/년]\s*\d{1,2}|\d{4}(?=\s|$))|(?:^|\s)\d{1,2}\s*월\s*\d{1,2}|(?:^|\s)\d{1,2}[./]\d{1,2}(?!\d|\s*[억만천백십원])|(?:^|\s)\d{1,2}일(?=\s|$)/.test(raw);
+}
+
+function quickSmartInputController(config) {
+  const byId = id => document.getElementById(id);
+  const smart = byId("smartInput"), amount = byId("amountInput"), date = byId("txDate"), after = byId("quickAfter");
+  const form = amount?.closest("form");
+  const initialDate = date?.value || "";
+  const baseMessage = after?.textContent || "저장 전 입력 내용을 확인하세요.";
+  let scope = {};
+  try { const data=JSON.parse(after?.getAttribute("data-bsc") || "[]"); scope={month:form?.querySelector?.('input[name="month"]')?.value || "",today:String(data[0] || "").replace(/^(\d{4})(\d{2})(\d{2})$/,"$1-$2-$3"),basis:Array.isArray(data[1])?"category":data[1]===0?"total":"unknown",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}
+  const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};
+  let invalidAmount = false, invalidDate = false;
+  const markers = {};
+  for (const key of ["amount","date"]) {
+    if (form && document.createElement && form.appendChild) {
+      const input = document.createElement("input"); input.type="hidden"; input.name="quick_manual_"+key; input.value="0"; form.appendChild(input); markers[key]=input;
+    }
+  }
+  const cleanNumber = value => Number(String(value || "").replace(/,/g,""));
+  const validAmount = () => cleanNumber(amount?.value)>0 && cleanNumber(amount?.value)<=2000000000;
+  const validDate = () => /^20\d{2}-\d{2}-\d{2}$/.test(date?.value || "") && config.date(date.value,scope.today || initialDate)===date.value;
+  const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:""); field.setAttribute("aria-invalid",bad?"true":"false"); };
+  function preview() {
+    if (!after) return;
+    after.setAttribute("aria-live","polite");
+    if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? "금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요." : "달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요."; return; }
+    const value=cleanNumber(amount?.value);
+    if (!value || !validAmount()) { after.textContent=baseMessage; return; }
+    const income=!!document.querySelector("input[name=type][value=income]:checked");
+    if (income) { after.textContent="수입으로 저장합니다. 지출 예산을 차감하지 않습니다."; return; }
+    const category=byId("catInput")?.value || "";
+    if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis==="unknown") { after.textContent="기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다."; return; }
+    if (scope.basis==="category" && !(scope.cats || []).includes(category)) { after.textContent="예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다."; return; }
+    if (after.getAttribute("data-has-budget")!=="1") { after.textContent="기록을 저장한 뒤 예산을 설정할 수 있습니다."; return; }
+    const remain=Math.max(0,Number(after.getAttribute("data-remaining") || 0)-value);
+    const money=value=>new Intl.NumberFormat("ko-KR").format(value)+"원";
+    after.textContent="저장하면 남은 예산 "+money(remain);
+    if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split("-").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=" · 하루 "+money(Math.floor(remain/days)); }
+  }
+  function apply(clearInput) {
+    const text=smart?.value.trim(); if (!text) return;
+    const value=config.amount(text), parsedDate=config.date(text,scope.today || initialDate);
+    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);
+    const token=moneyTokenSpans(text)[0]?.raw || "";
+    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat("ko-KR").format(value) : ""; invalidAmount=!value; }
+    else invalidAmount=!validAmount();
+    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?"":initialDate); invalidDate=explicitDateIntent(text) && !parsedDate; }
+    else invalidDate=!validDate();
+    const radio=document.querySelector('input[name=type][value="'+type+'"]'); if (radio&&!manual.type) radio.checked=true;
+    if (!manual.memo&&byId("memoInput")) byId("memoInput").value=config.memo(text,token,payment,category);
+    if (!manual.payment&&byId("payInput")) byId("payInput").value=payment;
+    if (!manual.category&&byId("catInput")) byId("catInput").value=category;
+    if (byId("rawTextInput")) byId("rawTextInput").value=text;
+    setValidity(amount,invalidAmount,"유효한 금액을 입력하세요."); setValidity(date,invalidDate,"유효한 날짜를 선택하세요.");
+    if (clearInput) smart.value="";
+    config.sync?.(); preview();
+  }
+  for (const [id,key] of [["amountInput","amount"],["txDate","date"],["catInput","category"],["payInput","payment"],["memoInput","memo"]]) {
+    const field=byId(id); if (!field) continue;
+    const changed=()=>{manual[key]=true;if(markers[key])markers[key].value="1";if(key==="amount")invalidAmount=!validAmount();if(key==="date")invalidDate=!validDate();setValidity(amount,invalidAmount,"유효한 금액을 입력하세요.");setValidity(date,invalidDate,"유효한 날짜를 선택하세요.");preview();};
+    field.addEventListener("input",changed); field.addEventListener("change",changed);
+  }
+  document.querySelectorAll("input[name=type]").forEach(field=>field.addEventListener("change",()=>{manual.type=true;preview();}));
+  form?.addEventListener("submit",event=>{if(invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();preview();}});
+  return {apply,preview};
 }
 
 function mobileUiUxClientMain() {
@@ -2730,13 +2863,7 @@ function mobileUiUxClientMain() {
       .trim();
   }
 
-  function detectType(text) {
-    var hints = window.AB_TYPE_HINTS || {};
-    if (hints.income && new RegExp("(" + hints.income + ")").test(text)) return "income";
-    if (hints.expense && new RegExp("(" + hints.expense + ")").test(text)) return "expense";
-    if (hints.incomeCategory && new RegExp("(" + hints.incomeCategory + ")").test(text)) return "income";
-    return "expense";
-  }
+  function detectType(text) { return transactionTypeFromText(text); }
 
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
@@ -2821,6 +2948,9 @@ function mobileUiUxClientMain() {
     if (!smart || !amount || !memo) return;
     const raw = normalizeText(smart.value);
     const parsedAmount = parseMobileAmountText(raw);
+    const dateInput = document.getElementById("txDate");
+    const parsedDate = quickInputDate(raw);
+    if (dateInput && parsedDate) dateInput.value = parsedDate;
     const type = detectType(raw);
     const parsedPayment = detectPayment(raw);
     const parsedCategory = detectCategory(raw, type);
@@ -2873,7 +3003,7 @@ function mobileUiUxClientMain() {
 
   function canonicalBottomItems() {
     const params = new URLSearchParams(location.search);
-    const month = params.get("month") || new Date().toISOString().slice(0, 7);
+    const month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     const household = params.get("household_id") || "";
     const query = "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
     return [
@@ -2978,7 +3108,7 @@ function mobileShellUiClientMain() {
 
   function canonicalBottomItems() {
     const params = new URLSearchParams(location.search);
-    const month = params.get("month") || new Date().toISOString().slice(0, 7);
+    const month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     const household = params.get("household_id") || "";
     const query = "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
     return [
@@ -4270,7 +4400,7 @@ function attachUiUxRuntime(html = "") {
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
     const runtime = needsSmartRuntime
-      ? parseMobileAmountText.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      ? moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
       : "(" + mobileShellUiClientMain.toString() + ")();";
     // 분류 규칙은 이 런타임보다 먼저 있어야 한다. 평범한 <script src> 는 순서대로
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).
@@ -4932,7 +5062,7 @@ async function getAdminSecurityState(env) {
     const rows = await supabase(env, "/rest/v1/accountbook_admin_security?singleton=eq.true&select=password_hash,password_salt,password_iterations,password_version,session_version&limit=1", { method: "GET" }) || [];
     return rows[0] || { password_version: 1, session_version: 1 };
   } catch (err) {
-    return { password_version: 1, session_version: 1, migration_required: true };
+    throw new Error("admin_session_security_unavailable", {cause:err});
   }
 }
 
@@ -4948,7 +5078,7 @@ function trafficClientIp(request) {
 }
 
 async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
-  const scope = String(options.scope || "client");
+  const scope = String(options.scope || "ip");
   const rawKey = scope === "client" ? trafficClientKey(request)
     : scope === "ip" ? trafficClientIp(request)
     : String(options.key || "").trim().toLowerCase().slice(0, 160);
@@ -4976,10 +5106,10 @@ async function recordAuthAttempt(env, request, path = "login", success = false, 
 
 function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   const value = String(raw || "").trim();
-  if (!value.startsWith("/") || value.startsWith("//") || /[\r\n]/.test(value)) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//") || /[\\\r\n]/.test(value)) return fallback;
   try {
     const parsed = new URL(value, "https://accountbook.local");
-    if (["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
+    if (parsed.origin !== "https://accountbook.local" || ["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (err) {
     return fallback;
@@ -4990,13 +5120,15 @@ async function handleAdminLogin(request, env) {
   const form = await request.formData();
   const password = String(form.get("password") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/?legacy=1");
+  const admission = await recordAuthAttempt(env, request, "/login-admission", false, {limit:40});
+  if (!admission.allowed) return htmlResponse(renderServerLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", returnTo), admission.unavailable ? 503 : 429);
   const attempt = await recordAuthAttempt(env, request, "/login", false);
   if (attempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
   // V22.9.26: 관리자 비밀번호는 계정이 하나라 클라이언트와 무관한 전체 횟수도 센다.
-  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "global", key: "admin", limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
+  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "account", key: trafficClientIp(request) + "|admin", limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
   if (adminAttempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!adminAttempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
@@ -5005,7 +5137,7 @@ async function handleAdminLogin(request, env) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
   await recordAuthAttempt(env, request, "/login", true);
-  await recordAuthAttempt(env, request, "/login", true, { scope: "global", key: "admin" });
+  await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: trafficClientIp(request) + "|admin" });
   try {
     const session = await makeAdminSession(env);
     return redirectResponse(returnTo, {
@@ -5157,6 +5289,9 @@ async function handleAdminAddTransaction(request, env) {
   const txType = normalizeTransactionType(form.get("type"));
   const transactionDate = String(form.get("transaction_date") || formatDate(nowKstDate())).trim();
   const amount = readTransactionAmount(form);
+  const smartText=String(form.get("raw_text") || "");
+  if (/\d+,\d{1,2}(?!\d)/.test(smartText) && form.get("quick_manual_amount")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"amount_required"}),transactionAddRedirectExtras(form,{err:"amount_required"},"error")));
+  if (explicitDateIntent(smartText) && !extractDate(smartText) && form.get("quick_manual_date")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"invalid_date"}),transactionAddRedirectExtras(form,{err:"invalid_date"},"error")));
   const validationError = validateRecordFormFields({ householdId, amount, transactionDate, mode: "add" });
   if (validationError) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), transactionAddRedirectExtras(form, { err: validationError }, "error")));
@@ -5183,7 +5318,7 @@ async function handleAdminAddTransaction(request, env) {
       category: String(form.get("category") || "").trim(),
       payment_method: String(form.get("payment_method") || "").trim(),
     });
-    await createManualTransaction(env, {
+    const savedTransaction = await createManualTransaction(env, {
       household_id: householdId,
       type: txType,
       transaction_date: transactionDate,
@@ -5195,7 +5330,7 @@ async function handleAdminAddTransaction(request, env) {
       source: access.admin ? "web_admin" : "web_user",
       raw_text: rawText,
     });
-    const msg = "added";
+    const msg = savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
     let balert = "";
     try {
       if (txType !== "income" && householdId) {
@@ -5208,7 +5343,7 @@ async function handleAdminAddTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, balert ? { msg, balert } : { msg }, "success")));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_create_failed", severity: "warn", path: "/admin/transactions", method: "POST", detail: safeError(err) });
-    const message = "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.";
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.";
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), transactionAddRedirectExtras(form, { err: message }, "error")));
   }
 }
@@ -6248,8 +6383,8 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
     ]);
     const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
     return {
-      category: String(refined.category || baseCategory || "").trim(),
-      payment_method: String(refined.payment_method || basePayment || "").trim(),
+      category: String(explicitCategory || refined.category || baseCategory || "").trim(),
+      payment_method: String(explicitPayment || refined.payment_method || basePayment || "").trim(),
     };
   } catch (err) {
     return { category: baseCategory, payment_method: basePayment };
@@ -6659,7 +6794,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -7082,7 +7217,7 @@ function returnLocation(form, fallback, extra = {}) {
 
 function safeUserReturnPath(raw = "", fallback = "/my/households") {
   const value = String(raw || "").trim();
-  if (!value.startsWith("/") || value.startsWith("//") || /[\r\n]/.test(value)) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//") || /[\\\r\n]/.test(value)) return fallback;
   let parsed;
   try { parsed = new URL(value, "https://accountbook.local"); }
   catch (err) { return fallback; }
@@ -7168,6 +7303,7 @@ function cleanImportedRowsForInsert(rows = []) {
 }
 
 const IMPORT_FIELD_ALIASES = Object.freeze({
+  currency: ["currency","currencycode","통화","통화코드","거래통화"],
   date: ["날짜","일자","일시","기준일","거래일","거래일자","거래일시","거래시간","사용일","사용일자","사용일시","이용일","이용일자","이용일시","승인일","승인일자","승인일시","결제일","결제일자","결제일시","매입일","작성일","등록일","발생일","회계일","전표일","date","datetime","transactiondate","transactiondatetime","purchasedate","approvaldate","postingdate"],
   type: ["구분","유형","종류","거래구분","거래유형","수입지출","수입지출구분","입출금","입출금구분","차변대변","debitcredit","type","transactiontype","inout"],
   income: ["수입","입금","입금액","수입액","수입금액","받은금액","대변","credit","income","deposit","moneyin"],
@@ -7226,7 +7362,7 @@ function canonicalImportHeaderField(value = "") {
   const key = normalizeImportHeader(value);
   if (!key) return "";
   const withoutBracketUnit = normalizeImportHeader(String(value || "").replace(/\([^)]*\)|\[[^\]]*\]/g, ""));
-  const variants = [key, withoutBracketUnit, key.replace(/(?:kst|utc|서울시간|원화|krw|won|원|명|코드)$/i, "")].filter(Boolean);
+  const variants = [key, withoutBracketUnit, withoutBracketUnit.replace(/외화|원화|USD|EUR|JPY|KRW/gi,""), key.replace(/(?:kst|utc|서울시간|원화|krw|won|원|명|코드)$/i, "")].filter(Boolean);
   for (const [field, aliases] of Object.entries(IMPORT_FIELD_ALIASES)) {
     if (aliases.some((alias) => variants.includes(normalizeImportHeader(alias)))) return field;
   }
@@ -7315,6 +7451,7 @@ function canonicalImportValue(obj = {}, field = "") {
   if (direct !== undefined && String(direct ?? "").trim()) return String(direct).trim();
   for (const [key, value] of Object.entries(obj || {})) {
     if (key.startsWith("__")) continue;
+    if (["amount","income","expense"].includes(field) && /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(key)) continue;
     if (canonicalImportField(key) === field && String(value ?? "").trim()) return String(value).trim();
   }
   return "";
@@ -7354,16 +7491,23 @@ function importRejection(code = "unsupported_row", rowNumber = 0, raw = "") {
 
 function importObjectFromHeaders(headers = [], cells = []) {
   const obj = { __canonical: {}, __headers: headers.slice(), __cells: cells.slice() };
+  const localMoney = new Set();
   headers.forEach((header, index) => {
     const key = normalizeImportHeader(header) || `col${index + 1}`;
     const value = cells[index] ?? "";
-    obj[key] = value;
     const field = canonicalImportField(header);
+    const moneyField = ["amount", "income", "expense"].includes(field);
+    const foreign = /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(String(header));
+    if (foreign && (moneyField || /금액|amount|통화|currency/i.test(String(header)))) { obj.__foreign_money = true; return; }
+    obj[key] = value;
+    const local = moneyField && /원화|KRW|won|\(원\)|\[원\]/i.test(String(header));
     if (field && field !== "ignore" && String(value).trim()) {
-      if (!obj.__canonical[field]) obj.__canonical[field] = String(value).trim();
+      if (local || !obj.__canonical[field]) obj.__canonical[field] = String(value).trim();
       else if (field === "memo" || field === "category") obj.__canonical[field] = `${obj.__canonical[field]} / ${String(value).trim()}`;
+      if (local) localMoney.add(field);
     }
   });
+  obj.__local_money = localMoney.size > 0;
   return obj;
 }
 
@@ -7443,8 +7587,13 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const rawText = String(raw || safeArray(cells).join(" ") || Object.values(obj).filter((v) => typeof v !== "object").join(" ")).replace(/\s+/g, " ").trim();
   const warnings = [];
   const natural = !!options.natural;
+  const currency = canonicalImportValue(obj,"currency");
+  if (currency && !/^(?:KRW|WON|원|원화|₩|￦)$/i.test(String(currency).trim()) && !obj.__local_money) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["원화 통화와 금액을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
+  if (obj.__foreign_money && !obj.__local_money) return {row:null, rejection:importRejection("ambiguous_amount",options.rowNumber,rawText), warnings:["원화 금액 열을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
   const dateVal = canonicalImportValue(obj, "date");
   let transactionDate = dateVal ? parseDateStrict(dateVal) || parseExplicitDateFromText(dateVal) : "";
+  const shortDate = String(dateVal || "").match(/^(\d{1,2})[/-](\d{1,2})$/);
+  if (shortDate) transactionDate = safeYmd(Number(options.importYear || nowKstDate().getFullYear()), Number(shortDate[1]), Number(shortDate[2]));
   if (!transactionDate) {
     transactionDate = findImportDateInValues(cells) || parseExplicitDateFromText(rawText);
     if (transactionDate && dateVal) warnings.push("날짜 열 값 대신 행 안의 다른 날짜를 사용했습니다.");
@@ -7461,6 +7610,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   if (incomeInfo.amount > 0 && expenseInfo.amount > 0) return { row: null, rejection: importRejection("both_income_expense", options.rowNumber, rawText), warnings };
 
   let chosen = incomeInfo.amount > 0 ? incomeInfo : expenseInfo.amount > 0 ? expenseInfo : amountInfo;
+  if (/\$|¥|USD|EUR|JPY|달러|유로|엔화/i.test(chosen.raw || "")) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["외화 금액을 원화로 자동 환산하지 않습니다."]};
   let forcedType = incomeInfo.amount > 0 ? "income" : expenseInfo.amount > 0 ? "expense" : "";
   const anyAmountPresent = amountInfo.present || incomeInfo.present || expenseInfo.present;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
@@ -7496,6 +7646,8 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.26: 구분 열이 지출인데 금액이 음수면 카드사 명세서의 취소·환불 표기다. 양수 지출로
   // 더하면 원거래와 취소가 둘 다 지출로 집계된다. 환급(수입)으로 돌리고 확인 표시를 남긴다.
   let refundFlipped = false;
+  const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(rawText);
+  if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
   if (chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
     type = "income";
@@ -7525,7 +7677,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || rawText).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
-    _import_needs_confirmation: refundFlipped,
+    _import_needs_confirmation: refundFlipped || cancellation,
   };
   return { row, rejection: null, warnings };
 }
@@ -7587,7 +7739,8 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
       obj = importObjectFromHeaders(currentHeaders, effectiveCells);
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
-    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { natural, rowNumber, source: options.source || "import_smart" });
+    if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells)) effectiveCells = [raw];
+    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { natural, rowNumber, importYear: options.importYear, source: options.source || "import_smart" });
     if (!detailed.row) { addRejected(detailed.rejection || importRejection("unsupported_row", rowNumber, raw)); continue; }
     if (alignmentWarnings.length) {
       detailed.warnings = [...alignmentWarnings, ...safeArray(detailed.warnings)];
@@ -11431,7 +11584,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const forecastDiff = totalBudget ? forecastExpense - totalBudget : 0;
   const rate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0;
   const projectedRate = totalBudget ? Math.round((forecastExpense / totalBudget) * 100) : 0;
-  const activeRecurring = safeArray(recurring).filter((r) => r.is_active !== false && Number(r.amount || 0) > 0);
+  const activeRecurring = safeArray(recurring).filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => b.category === r.category)));
   const pendingRecurring = activeRecurring.filter((r) => String(r.last_applied_month || "") !== month);
   const recurringTotal = activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const pendingRecurringTotal = pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
@@ -11453,8 +11606,8 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
     ok: "현재 소비 속도는 예산 안에서 관리되고 있습니다. 오늘 사용 가능 금액 기준으로 기록하면 됩니다.",
   }[status] || "예산 상태를 확인하세요.";
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
-  const dangerCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 100);
-  const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.rate || 0) < 100);
+  const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
+  const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
   return { selectedHousehold, month, budget, center, todayStr, sameMonth, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
@@ -11469,9 +11622,9 @@ function renderBudgetAlertRows(model) {
   if (!rows.length) return `<tr><td colspan="6">분류별 예산이 아직 없습니다. 예산 화면에서 분류 예산을 설정하면 초과/주의 분류가 표시됩니다.</td></tr>`;
   return rows.map((x) => {
     const remain = Math.max(0, Number(x.budget || 0) - Number(x.spent || 0));
-    const state = Number(x.rate || 0) >= 100 ? "bad" : Number(x.rate || 0) >= 85 ? "warn" : "ok";
+    const state = Number(x.spent || 0) > Number(x.budget || 0) ? "bad" : Number(x.rate || 0) >= 85 ? "warn" : "ok";
     const link = `/app?month=${encodeURIComponent(model.month)}${model.selectedHousehold?.id ? `&household_id=${encodeURIComponent(model.selectedHousehold.id)}` : ""}&type=expense&category=${encodeURIComponent(x.category || "")}&feed=all#feed`;
-    return `<tr><td><a href="${escapeHtml(link)}">${escapeHtml(x.category || "미분류")}</a></td><td>${numberWithCommas(x.budget)}원</td><td>${numberWithCommas(x.spent)}원</td><td>${numberWithCommas(remain)}원</td><td><div class="miniBar"><span class="${state}" style="width:${Math.min(100, Number(x.rate || 0))}%"></span></div></td><td><span class="state ${state}">${budgetStatusLabel(x.rate || 0)} · ${numberWithCommas(x.rate || 0)}%</span></td></tr>`;
+    return `<tr><td><a href="${escapeHtml(link)}">${escapeHtml(x.category || "미분류")}</a></td><td>${numberWithCommas(x.budget)}원</td><td>${numberWithCommas(x.spent)}원</td><td>${numberWithCommas(remain)}원</td><td><div class="miniBar"><span class="${state}" style="width:${Math.min(100, Number(x.rate || 0))}%"></span></div></td><td><span class="state ${state}">${budgetStatusLabel(x.rate || 0, x.spent, x.budget)} · ${numberWithCommas(x.rate || 0)}%</span></td></tr>`;
   }).join("");
 }
 
@@ -11965,7 +12118,7 @@ function accountbookQuickInputClientMain() {
   }
   function currentContext() {
     var params = new URLSearchParams(location.search);
-    var month = params.get("month") || new Date().toISOString().slice(0, 7);
+    var month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     var household = params.get("household_id") || "";
     return { month: month, household: household };
   }
@@ -12180,7 +12333,7 @@ function accountbookActivityRailClientMain() {
   function fmt(value) { return Number(value || 0).toLocaleString("ko-KR"); }
   function context() {
     var params = new URLSearchParams(location.search);
-    return { month: params.get("month") || new Date().toISOString().slice(0, 7), household: params.get("household_id") || "" };
+    return { month: params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7), household: params.get("household_id") || "" };
   }
   function endpoint() {
     var ctx = context();
@@ -13246,7 +13399,7 @@ async function handleBrandKitPage(request, env, url) {
 
 async function handleDataPolicyPage(request, env, url) {
   const title = escapeHtml(appName(env));
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 개인정보 안내</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#d1fae5}.muted{color:#667085;line-height:1.7}li{margin:8px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.65}</style></head><body><main class="wrap"><section class="hero"><h1>개인정보·데이터 안내</h1><p>${title}는 봇에게 직접 보낸 명령어와 가계부 기록에 필요한 데이터만 처리합니다.</p></section><section class="card"><h2>처리하는 데이터</h2><ul><li>사용자가 입력한 수입·지출 기록</li><li>가계부 이름, 참여자 권한, 초대코드</li><li>가계부 안 표시명, 예산, 분류 키워드, 정기지출 설정</li><li>카카오 봇 사용자키, 그룹방 연결키 같은 식별키</li></ul></section><section class="card"><h2>하지 않는 것</h2><div class="ok">단톡방 전체 대화를 읽거나 학습하지 않습니다.<br/>봇에게 전달된 명령어와 기록 요청만 처리합니다.<br/>카카오 공식 서비스로 오인되도록 표현하지 않습니다.</div></section><section class="card"><h2>보관 기간과 삭제</h2><p class="muted">입력한 기록과 설정값은 <b>가계부를 이용하는 동안 보관</b>합니다. 사용자가 웹 화면에서 직접 수정·삭제할 수 있고, 삭제한 기록은 서비스에서 제거됩니다. 가계부에서 탈퇴하거나 삭제를 요청하면 해당 데이터는 더 이상 보관하지 않습니다. 카카오 발화 원문은 기록 처리에 필요한 범위에서만 저장하며 같은 기준으로 관리합니다. 백업으로 내려받은 파일은 사용자가 직접 보관·관리합니다. 참여자 권한과 표시명은 관리자 또는 가계부 설정 화면에서 관리합니다.</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 개인정보 안내</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#d1fae5}.muted{color:#667085;line-height:1.7}li{margin:8px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.65}</style></head><body><main class="wrap"><section class="hero"><h1>개인정보·데이터 안내</h1><p>${title}는 봇에게 직접 보낸 명령어와 가계부 기록에 필요한 데이터만 처리합니다.</p></section><section class="card"><h2>처리하는 데이터</h2><ul><li>사용자가 입력한 수입·지출 기록</li><li>가계부 이름, 참여자 권한, 초대코드</li><li>가계부 안 표시명, 예산, 분류 키워드, 정기지출 설정</li><li>카카오 봇 사용자키, 그룹방 연결키 같은 식별키</li></ul></section><section class="card"><h2>하지 않는 것</h2><div class="ok">단톡방 전체 대화를 읽거나 학습하지 않습니다.<br/>봇에게 전달된 명령어와 기록 요청만 처리합니다.<br/>카카오 공식 서비스로 오인되도록 표현하지 않습니다.</div></section><section class="card"><h2>보관 기간과 삭제</h2><p class="muted">입력한 기록과 설정값은 <b>가계부를 이용하는 동안 보관</b>합니다. 사용자가 웹 화면에서 직접 수정·삭제할 수 있고, 삭제한 기록은 서비스에서 제거됩니다. 가계부 나가기는 참여 권한을 종료하고 공동 거래 이력은 보존합니다. 가계부 소유자의 영구 삭제는 해당 가계부의 거래·관련 설정을 삭제합니다. 계정 자체 탈퇴·삭제는 온라인에서 제공하지 않으며 문의 경로를 통해 요청해야 합니다. 카카오 발화 원문은 기록 처리에 필요한 범위에서만 저장하며 같은 기준으로 관리합니다. 백업으로 내려받은 파일은 사용자가 직접 보관·관리합니다. 참여자 권한과 표시명은 관리자 또는 가계부 설정 화면에서 관리합니다.</p></section></main></body></html>`);
 }
 
 function expectedOpenBuilderRows() {
@@ -13911,11 +14064,11 @@ async function fetchLegacyIdentityMergePrimaryId(env, secondaryUserId = "") {
   return "";
 }
 
-async function resolveEffectiveUserId(env, userId = "") {
+async function resolveEffectiveUserId(env, userId = "", options = {}) {
   const original = String(userId || "").trim();
   if (!original) return "";
   const cached = cachedEffectiveUserId(original);
-  if (cached) return cached;
+  if (cached && !options.fresh) return cached;
 
   let current = original;
   let sawMergedMarker = false;
@@ -13946,7 +14099,7 @@ async function resolveEffectiveUserId(env, userId = "") {
 async function verifyUserSession(request, env) {
   if (!request || (typeof request !== "object" && typeof request !== "function")) {
     const rawUserId = await verifyRawUserSession(request, env);
-    return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+    if (!rawUserId) return ""; const effective = await resolveEffectiveUserId(env, rawUserId, { fresh: true }); return effective === rawUserId ? rawUserId : "";
   }
   let pending = AB_REQUEST_USER_CACHE.get(request);
   if (!pending) {
@@ -13955,7 +14108,7 @@ async function verifyUserSession(request, env) {
       const rawPending = AB_REQUEST_RAW_USER_CACHE.get(request);
       if (rawPending) {
         const rawUserId = await rawPending;
-        return rawUserId ? resolveEffectiveUserId(env, rawUserId) : "";
+        if (!rawUserId) return ""; const effective = await resolveEffectiveUserId(env, rawUserId, { fresh: true }); return effective === rawUserId ? rawUserId : "";
       }
       // V22.9.16: 세션 판 확인과 통합 계정 해석을 나란히 던진다. 예전에는 "판 확인 → 사용자
       // 행" 순서로 두 번 기다렸다. 세션이 무효면 사용자 행 한 번을 헛읽지만, 그 경우는 드물다.
@@ -13964,13 +14117,16 @@ async function verifyUserSession(request, env) {
         AB_REQUEST_RAW_USER_CACHE.set(request, Promise.resolve(""));
         return "";
       }
-      const [currentVersion, effectiveUserId] = await Promise.all([
-        getUserSessionVersion(env, parsed.userId),
-        resolveEffectiveUserId(env, parsed.userId),
-      ]);
+      const snapshot = await supabaseWithEmbedFallback(env, "users_session_security", `/rest/v1/users?id=eq.${encodeURIComponent(parsed.userId)}&select=id,nickname,kakao_user_key,accountbook_user_security(session_version)&limit=1`, `/rest/v1/users?id=eq.${encodeURIComponent(parsed.userId)}&select=id,nickname,kakao_user_key&limit=1`);
+      const currentUser = snapshot.rows?.[0];
+      if (snapshot.embedded && currentUser && !Object.prototype.hasOwnProperty.call(currentUser,"accountbook_user_security")) return "";
+      const security = currentUser?.accountbook_user_security;
+      const currentVersion = snapshot.embedded ? Math.max(1, Number((Array.isArray(security) ? security[0] : security)?.session_version || 1)) : await getUserSessionVersion(env, parsed.userId);
+      const effectiveUserId = currentUser && !String(currentUser.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(currentUser.nickname || "")) ? String(currentUser.id) : "";
+      if (currentUser && env.__AB_REQUEST_USER_ROWS) env.__AB_REQUEST_USER_ROWS.set(parsed.userId, currentUser);
       const valid = userSessionVersionMatches(parsed.tokenVersion, currentVersion);
       if (!AB_REQUEST_RAW_USER_CACHE.has(request)) AB_REQUEST_RAW_USER_CACHE.set(request, Promise.resolve(valid ? parsed.userId : ""));
-      return valid ? effectiveUserId : "";
+      return valid && effectiveUserId === parsed.userId ? effectiveUserId : "";
     })();
     AB_REQUEST_USER_CACHE.set(request, pending);
   }
@@ -13978,7 +14134,9 @@ async function verifyUserSession(request, env) {
     return await pending;
   } catch (error) {
     AB_REQUEST_USER_CACHE.delete(request);
-    throw error;
+    AB_REQUEST_RAW_USER_CACHE.set(request,Promise.resolve(""));
+    rememberOpsEvent({kind:"user_session_snapshot_unavailable",severity:"error",path:"",method:"GET",detail:safeError(error)});
+    return "";
   }
 }
 
@@ -14131,7 +14289,7 @@ async function fetchStrongIdentityBySubject(env, provider = "local", subject = "
     const rows = await supabase(env, `/rest/v1/accountbook_user_identities?provider=eq.${cleanProvider}&provider_subject=eq.${encodeURIComponent(cleanSubject)}&select=user_id,provider,provider_subject,login_name,credential_hash,credential_salt,credential_iterations,credential_version&limit=1`, { method: "GET" }) || [];
     return rows[0] || null;
   } catch (err) {
-    return null;
+    throw err;
   }
 }
 
@@ -14143,7 +14301,7 @@ async function fetchStrongIdentityForUser(env, provider = "local", userId = "") 
     const rows = await supabase(env, `/rest/v1/accountbook_user_identities?provider=eq.${cleanProvider}&user_id=eq.${encodeURIComponent(uid)}&select=user_id,provider,provider_subject,login_name,credential_hash,credential_salt,credential_iterations,credential_version&limit=1`, { method: "GET" }) || [];
     return rows[0] || null;
   } catch (err) {
-    return null;
+    throw err;
   }
 }
 
@@ -14194,28 +14352,7 @@ async function verifyLocalLoginForUser(env, userId = "", accessCode = "") {
     const actual = await pbkdf2PasswordHash(code, strong.credential_salt, strong.credential_iterations);
     return constantTimeTextEqual(actual, strong.credential_hash);
   }
-  // Identity-link storage was added after the first local-login releases.
-  // Keep already signed-in legacy users usable when the original identity
-  // exists only on users.kakao_user_key.
-  const user = await fetchUserById(env, uid);
-  if (user && String(user.kakao_user_key || "").startsWith("local_web:")) {
-    const nickname = String(user.nickname || "").trim();
-    if (nickname && constantTimeTextEqual(localWebUserKey(nickname, code), String(user.kakao_user_key))) {
-      try { await replaceLocalLoginForUser(env, nickname, code, uid, { revokeSessions: false }); } catch (err) { rememberOpsEvent({ kind: "legacy_identity_migration_failed", severity: "warn", path: "/my/local-login", method: "POST", detail: "V22.7 migration required" }); }
-      return true;
-    }
-  }
-  const links = await fetchUserIdentityLinks(env);
-  const match = Object.entries(safeObject(links)).find(([key, value]) => {
-    const item = safeObject(value);
-    if (!String(key || "").startsWith("local_web:") || String(item.user_id || "") !== uid) return false;
-    const nickname = String(item.nickname || "").trim();
-    return !!nickname && constantTimeTextEqual(localWebUserKey(nickname, code), String(key));
-  });
-  if (!match) return false;
-  const legacyName = String(safeObject(match[1]).nickname || user?.nickname || "").trim();
-  try { await replaceLocalLoginForUser(env, legacyName, code, uid, { revokeSessions: false }); } catch (err) { rememberOpsEvent({ kind: "legacy_identity_migration_failed", severity: "warn", path: "/my/local-login", method: "POST", detail: "V22.7 migration required" }); }
-  return true;
+  return false;
 }
 
 function isPlaceholderUserNickname(value = "") {
@@ -14234,21 +14371,7 @@ async function findUserByLocalLoginIdentity(env, nickname = "", accessCode = "")
     return await fetchUserById(env, strong.user_id);
   }
 
-  const key = localWebUserKey(nickname, code);
-  const links = await fetchUserIdentityLinks(env);
-  const linkedUserId = String(safeObject(links[key]).user_id || "");
-  if (linkedUserId) {
-    const linked = await fetchUserById(env, linkedUserId);
-    if (linked) {
-      try { await replaceLocalLoginForUser(env, nickname, code, linked.id, { revokeSessions: false }); } catch (err) { rememberOpsEvent({ kind: "legacy_identity_migration_failed", severity: "warn", path: "/my/local-login", method: "POST", detail: "V22.7 migration required" }); }
-      return linked;
-    }
-  }
-  const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${encodeURIComponent(key)}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" }) || [];
-  if (existing[0]) {
-    try { await replaceLocalLoginForUser(env, nickname, code, existing[0].id, { revokeSessions: false }); } catch (err) { rememberOpsEvent({ kind: "legacy_identity_migration_failed", severity: "warn", path: "/my/local-login", method: "POST", detail: "V22.7 migration required" }); }
-    return existing[0];
-  }
+  await pbkdf2PasswordHash(code, "accountbook-missing-identity-timing-v22930", PASSWORD_KDF_ITERATIONS);
   return null;
 }
 
@@ -14296,6 +14419,71 @@ async function kakaoLoginIdentityMatchesUser(env, userId = "", kakaoId = "") {
   if (constantTimeTextEqual(String(user?.kakao_user_key || ""), kakaoLoginUserKey(kid))) return true;
   const links = await fetchUserIdentityLinks(env);
   return constantTimeTextEqual(String(safeObject(links[kakaoLoginUserKey(kid)]).user_id || ""), uid);
+}
+
+async function boundedFormRequest(request, limit = 65536) {
+  const fail = (status) => Object.assign(new Error("invalid_request_body"), { httpStatus: status });
+  if (Number(request.headers.get("content-length") || 0) > limit) throw fail(413);
+  const reader = request.body?.getReader();
+  const chunks = []; let size = 0;
+  if (reader) try {
+    while (true) { const part = await reader.read(); if (part.done) break; size += part.value.byteLength; if (size > limit) throw fail(413); chunks.push(part.value); }
+  } catch (error) { await reader.cancel().catch(() => {}); throw error; }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const bounded = new Request(request.url, {method: request.method, headers: request.headers, body: bytes});
+  const contentType = request.headers.get("content-type") || "";
+  if (/multipart\/form-data|application\/x-www-form-urlencoded/i.test(contentType)) {
+    let form; try { form = await bounded.clone().formData(); } catch (_) { throw fail(400); }
+    bounded.formData = async () => form;
+  } else if (/application\/json/i.test(contentType) && size) {
+    try { JSON.parse(new TextDecoder().decode(bytes)); } catch (_) { throw fail(400); }
+  }
+  return bounded;
+}
+
+async function signedPurposeToken(env, purpose, values = {}, seconds = 300) {
+  const data = base64UrlEncodeText(JSON.stringify({...values, purpose, exp: Math.floor(Date.now()/1000) + seconds}));
+  return data + "." + await hmacSha256(userSessionSecret(env), purpose + ":" + data);
+}
+
+async function readPurposeToken(env, purpose, token = "") {
+  if (!token || token.length > 4096) return null;
+  const dot = token.lastIndexOf("."); if (dot < 1) return null;
+  const data = token.slice(0, dot);
+  if (!constantTimeTextEqual(token.slice(dot+1), await hmacSha256(userSessionSecret(env), purpose + ":" + data))) return null;
+  try { const payload = JSON.parse(base64UrlDecodeText(data)); return payload.purpose === purpose && payload.exp >= Math.floor(Date.now()/1000) ? payload : null; } catch (_) { return null; }
+}
+
+async function makeCredentialProof(env, userId) {
+  const version = await getUserSessionVersion(env, userId);
+  if (version < 1) throw new Error("user_session_security_unavailable");
+  return signedPurposeToken(env, "credential-change", {user_id: userId, version});
+}
+
+async function verifyCredentialProof(request, env, userId) {
+  const proof = await readPurposeToken(env, "credential-change", getCookie(request, "ab_credential_reauth"));
+  return !!proof && proof.user_id === userId && Number(proof.version) >= 1 && Number(proof.version) === Number(await getUserSessionVersion(env, userId));
+}
+
+async function verifyPasswordReauth(request, env, userId, password) {
+  const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, {limit:30});
+  if (!admission.allowed) return false;
+  const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false);
+  if (!attempt.allowed) return false;
+  try {
+    const valid = await verifyLocalLoginForUser(env, userId, password);
+    if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true);
+    return valid;
+  } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true); throw error; }
+}
+
+async function handleAccountReauth(request, env) {
+  const userId = await verifyUserSession(request, env); if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  if (!(await verifyPasswordReauth(request, env, userId, String(form.get("current_password") || "")))) return redirectResponse("/my/backup-login?err=account_reauth_required");
+  const proof = await makeCredentialProof(env, userId);
+  return redirectResponse("/my/backup-login?msg=account_reauth_verified", {"set-cookie": `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`});
 }
 
 function householdDeleteReauthCookieName() {
@@ -14395,7 +14583,8 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
 }
 
 async function handleKakaoLoginStart(request, env, url) {
-  const reauthMode = url.searchParams.get("reauth") === "household-delete";
+  const reauthPurpose = ["household-delete", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
+  const reauthMode = !!reauthPurpose;
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
   const config = inspectKakaoLoginConfig(env);
@@ -14414,15 +14603,17 @@ async function handleKakaoLoginStart(request, env, url) {
   const linkMode = url.searchParams.get("link") === "1" || reauthMode;
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
+  if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
+  if (linkMode && !reauthMode && !(await verifyCredentialProof(request, env, currentUserId))) return redirectResponse("/my/backup-login?err=account_reauth_required");
   if (reauthMode) {
     const [role, currentUser] = await Promise.all([
       getHouseholdMemberRole(env, currentUserId, reauthHouseholdId),
       fetchUserById(env, currentUserId),
     ]);
-    if (!reauthHouseholdId || role !== "owner") return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }));
+    if (reauthPurpose === "household-delete" && (!reauthHouseholdId || role !== "owner")) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }));
     if (!(await hasKakaoLoginIdentity(env, currentUser))) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_unavailable" }));
   }
-  const state = randomState();
+  const state = await signedPurposeToken(env, "kakao-oauth", { nonce: randomState(), user_id: currentUserId, mode: reauthPurpose || (linkMode ? "link" : "login"), household_id: reauthHouseholdId, return_to: reauthReturnTo }, 600);
   const redirectUri = config.redirectUri;
   const qs = new URLSearchParams();
   qs.set("client_id", kakaoRestApiKey(env));
@@ -14436,7 +14627,7 @@ async function handleKakaoLoginStart(request, env, url) {
       ? `kakao_oauth_link_user=${encodeURIComponent(currentUserId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
       : "kakao_oauth_link_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
     reauthMode
-      ? `kakao_oauth_reauth_household=${encodeURIComponent(reauthHouseholdId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
+      ? `kakao_oauth_reauth_household=${encodeURIComponent(reauthPurpose === "credential-change" ? "credential-change" : reauthHouseholdId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
       : "kakao_oauth_reauth_household=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
     reauthMode
       ? `kakao_oauth_return_to=${encodeURIComponent(reauthReturnTo)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
@@ -14550,7 +14741,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     const code = String(url.searchParams.get("code") || "");
     const state = String(url.searchParams.get("state") || "");
     const savedState = getCookie(request, "kakao_oauth_state");
-    if (!code || !state || !savedState || !constantTimeTextEqual(state, savedState)) {
+    const stateProof = await readPurposeToken(env, "kakao-oauth", state);
+    if (!code || !state || !savedState || !constantTimeTextEqual(state, savedState) || !stateProof) {
       rememberOpsEvent({
         kind: "kakao_login_state_mismatch",
         severity: "warn",
@@ -14560,6 +14752,11 @@ async function handleKakaoLoginCallback(request, env, url) {
       });
       return errorResponse("state", 400);
     }
+    const callbackAttempt = await recordAuthAttempt(env, request, "/auth/kakao/callback", false, {limit: 20});
+    if (!callbackAttempt.allowed) return errorResponse("state", callbackAttempt.unavailable ? 503 : 429);
+    if (stateProof.user_id !== (getCookie(request, "kakao_oauth_link_user") || "") || (reauthRequested && stateProof.mode !== (reauthHouseholdId === "credential-change" ? "credential-change" : "household-delete"))) return errorResponse("state", 400);
+    if (stateProof.mode === "household-delete" && stateProof.household_id !== reauthHouseholdId) return errorResponse("state", 400);
+    if (reauthRequested && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return errorResponse("state", 403);
     stage = "token";
     const profile = await fetchKakaoProfileByCode(env, url, code);
     stage = "account";
@@ -14577,6 +14774,10 @@ async function handleKakaoLoginCallback(request, env, url) {
         rememberOpsEvent({ kind: "kakao_reauth_identity_mismatch", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
         return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_account_mismatch" }), clearOauthCookies);
       }
+      if (stateProof.mode === "credential-change") {
+        const proof = await makeCredentialProof(env, currentUserId);
+        return redirectResponseWithCookies("/my/backup-login?msg=account_reauth_verified", [...clearOauthCookies, `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`]);
+      }
       if (role !== "owner") return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }), clearOauthCookies);
       const reauthToken = await makeHouseholdDeleteReauthToken(env, currentUserId, reauthHouseholdId);
       return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { msg: "kakao_reauth_verified" }), [
@@ -14585,6 +14786,7 @@ async function handleKakaoLoginCallback(request, env, url) {
       ]);
     }
     if (linkUserId && currentUserId && linkUserId === currentUserId) {
+      if (stateProof.mode !== "link" || !(await verifyCredentialProof(request, env, currentUserId))) return errorResponse("state", 403);
       await linkKakaoLoginToUser(env, profile.kakaoId, currentUserId, profile);
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
@@ -14620,7 +14822,9 @@ function handleMyLogout() {
 }
 
 async function fetchUserById(env, userId) {
+  if (env.__AB_REQUEST_USER_ROWS?.has(String(userId))) return env.__AB_REQUEST_USER_ROWS.get(String(userId));
   const rows = await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=id,nickname,kakao_user_key,created_at&limit=1`, { method: "GET" });
+  if (env.__AB_REQUEST_USER_ROWS) env.__AB_REQUEST_USER_ROWS.set(String(userId), rows?.[0] || null);
   return rows?.[0] || null;
 }
 
@@ -14658,7 +14862,7 @@ function isPostgrestEmbedRejection(err) {
 }
 
 async function supabaseWithEmbedFallback(env, embedKey, embeddedPath, plainPath) {
-  if (AB_POSTGREST_EMBED_SUPPORT[embedKey]) {
+  if (AB_POSTGREST_EMBED_SUPPORT[embedKey] !== false) {
     try {
       return { rows: (await supabase(env, embeddedPath, { method: "GET" })) || [], embedded: true };
     } catch (err) {
@@ -15290,6 +15494,26 @@ async function findMyImportIdempotencyDuplicate(env, row = {}) {
   }
 }
 
+async function importDuplicateCandidates(env, householdId, rows = []) {
+  const amounts = [...new Set(rows.map(row => Math.round(Number(row.amount || 0))))];
+  const found = [];
+  for (let i = 0; i < amounts.length; i += 500) {
+    for (let offset = 0; ; offset += 1000) {
+      const params = new URLSearchParams({household_id:`eq.${householdId}`, amount:`in.(${amounts.slice(i,i+500).join(",")})`, select:"*", order:"id.asc", limit:"1000", offset:String(offset)});
+      const page = await supabase(env, `/rest/v1/transactions?${params}`, {method:"GET"});
+      if (!Array.isArray(page)) throw new Error("import_duplicate_source_invalid");
+      found.push(...page);
+      if (page.length < 1000) break;
+    }
+  }
+  return found;
+}
+
+function importedRowDuplicate(candidates, row, exact = true) {
+  const norm = v => normalizeText(v || "");
+  return candidates.some(other => other.source_user_key && other.source_user_key === row.source_user_key || exact && other.transaction_date === row.transaction_date && other.type === row.type && Number(other.amount) === Number(row.amount) && (norm(row.raw_text) && norm(other.raw_text) === norm(row.raw_text) || norm(other.category) === norm(row.category) && norm(other.memo) === norm(row.memo) && norm(other.payment_method) === norm(row.payment_method)));
+}
+
 function myImportReasonCounts(outcomes = []) {
   const counts = {};
   for (const item of safeArray(outcomes)) {
@@ -15348,6 +15572,7 @@ async function handleMyImport(request, env) {
     let imported = 0, duplicate = 0, failed = 0;
     const pendingRows = [];
     const pendingEntries = [];
+    const duplicateCandidates = await importDuplicateCandidates(env, selected.id, entries.map(entry => entry.row));
     for (const entry of entries) {
       const candidate = safeObject(entry.row);
       if (String(candidate.household_id || "") !== selected.id) {
@@ -15362,12 +15587,12 @@ async function handleMyImport(request, env) {
         outcomes.push(importRejection("write_failed", entry.row_number, entry.raw));
         continue;
       }
-      if (await findMyImportIdempotencyDuplicate(env, row)) {
+      if (importedRowDuplicate(duplicateCandidates, row, false)) {
         duplicate += 1;
         outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
         continue;
       }
-      if (skipDuplicates && await findExactDuplicateTransaction(env, row, { scope: "household" })) {
+      if (skipDuplicates && importedRowDuplicate(duplicateCandidates, row)) {
         duplicate += 1;
         outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
         continue;
@@ -15444,7 +15669,7 @@ async function handleMyImport(request, env) {
   }
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  const parsed = parseFlexibleImportRecords(csvText, selected.id, userId, { source: "my_import", maxRows: 5000 });
+  const parsed = parseFlexibleImportRecords(csvText, selected.id, userId, { source: "my_import", maxRows: 5000, importYear: Number(month.slice(0,4)) });
   const importLimit = boundedRuntimeNumber(env.MY_IMPORT_LIMIT, 120, 10, 1000);
   const entries = parsed.accepted.slice(0, importLimit);
   const outcomes = parsed.rejected.slice();
@@ -15458,10 +15683,11 @@ async function handleMyImport(request, env) {
   const memberLookup = buildMyImportMemberLookup(members);
   const jti = randomHex(12);
   const ready = [];
+  const duplicateCandidates = skipDuplicates ? await importDuplicateCandidates(env, selected.id, entries.map(entry => entry.row)) : [];
   for (const entry of entries) {
     const prepared = prepareMyImportEntry(entry, userId, selected, memberLookup, jti);
     prepared.row.id = await myImportDeterministicTransactionId(jti, entry.row_number);
-    if (skipDuplicates && await findExactDuplicateTransaction(env, prepared.row, { scope: "household" })) {
+    if (skipDuplicates && importedRowDuplicate(duplicateCandidates, prepared.row)) {
       outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
       continue;
     }
@@ -15561,7 +15787,7 @@ function renderMyImportPreviewHtml({ env, selected, month, payload = {}, token =
     const row = safeObject(entry.row);
     const reviewNeeded = safeArray(entry.warnings).length > 0 || /취소|환불|승인취소|cancel|refund/i.test([entry.raw, row.memo].join(" "));
     const warning = safeArray(entry.warnings).map((item) => `<small>${escapeHtml(item)}</small>`).join("");
-    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}" checked aria-label="${Number(entry.row_number || 0)}행 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${numberWithCommas(entry.row_number || 0)}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><b>${row.type === "income" ? "수입" : "지출"}</b></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
+    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}"${entry.needs_confirmation ? "" : " checked"} aria-label="${Number(entry.row_number || 0)}행 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${numberWithCommas(entry.row_number || 0)}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><b>${row.type === "income" ? "수입" : "지출"}</b></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
   }).join("") || `<tr><td colspan="7">저장 가능한 행이 없습니다. 제외 사유를 확인해 원본의 해당 행만 수정해 주세요.</td></tr>`;
   const rejectedRows = outcomes.slice(0, 40).map((item) => `<tr><td>${numberWithCommas(item.row_number || 0)}</td><td><b>${escapeHtml(item.reason || "제외")}</b><small>${escapeHtml(item.suggestion || "")}</small></td><td>${escapeHtml(item.raw || "-")}</td></tr>`).join("") || `<tr><td colspan="3">제외된 행이 없습니다.</td></tr>`;
   const mappings = safeArray(payload.parsed?.mappings).map((item) => `<span>${escapeHtml(item.source || "-")} → <b>${escapeHtml(item.label || item.field || "-")}</b></span>`).join("") || "제목 행 없이 자연어·행 위치를 기준으로 분석했습니다.";
@@ -15603,7 +15829,8 @@ async function findRecurringAutoDuplicate(env, row = {}) {
   params.set("type", `eq.${row.type === "income" ? "income" : "expense"}`);
   params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
   params.set("source", "eq.recurring_auto");
-  params.set("limit", "30");
+  params.set("raw_text", `eq.${row.raw_text}`);
+  params.set("limit", "1");
   let rows = [];
   try {
     rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
@@ -15613,16 +15840,26 @@ async function findRecurringAutoDuplicate(env, row = {}) {
     throw err;
   }
   const norm = (v) => normalizeText(v || "");
-  return rows.find((r) => norm(r.memo) === norm(row.memo) && norm(r.category) === norm(row.category) && norm(r.payment_method) === norm(row.payment_method)) || null;
+  return rows.find(r => String(r.raw_text) === String(row.raw_text)) || null;
 }
 
 async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const today = opts.today || formatDate(nowKstDate());
-  const month = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
-  const currentDay = Number(String(today).slice(8, 10) || "1");
-  const households = await supabase(env, "/rest/v1/households?select=id,name,created_at&order=created_at.asc&limit=5000", { method: "GET" }) || [];
+  const requestedMonth = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
+  let month = requestedMonth;
+  const cursorKey = opts.month ? `cron_recurring_cursor_v22930:${month}` : "cron_recurring_cursor_v22930";
+  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env, cursorKey), "recurring_cursor");
+  if (!opts.month && (cursor.pending || cursor.after) && validMonth(cursor.month) && cursor.month < requestedMonth) month = cursor.month;
+  const currentDay = month < String(today).slice(0,7) ? 31 : Number(String(today).slice(8, 10) || "1");
+  await saveSettingValue(env,cursorKey,JSON.stringify({after:String(cursor.after || ""),month,pending:true}));
+  const params = new URLSearchParams({select:"id,name,created_at",order:"id.asc",limit:"6"});
+  if (cursor.after) params.set("id", `gt.${cursor.after}`);
+  const households = await supabase(env, `/rest/v1/households?${params}`, {method:"GET"});
+  if (!Array.isArray(households)) throw new Error("cron_household_source_invalid");
+  let after = String(cursor.after || ""), partial = households.length === 6;
   let scanned = 0, applied = 0, deduplicated = 0, skipped = 0, failed = 0;
-  for (const household of safeArray(households)) {
+  for (const household of households.slice(0,5)) {
+    if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { partial = true; break; }
     const householdId = household.id;
     if (!householdId) continue;
     let items = [];
@@ -15631,12 +15868,16 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     } catch (err) {
       failed++;
       rememberOpsEvent({ kind: "recurring_household_scan_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${safeError(err)}` });
-      continue;
+      partial = true; break;
     }
+    const members = items.some(r => String(r.last_applied_month || "") !== month) ? await fetchRawHouseholdMembers(env, householdId) : [];
+    let householdComplete = true;
     for (const r of safeArray(items)) {
       if (r.is_active === false || String(r.is_active) === "false") { skipped++; continue; }
       scanned++;
       if (String(r.last_applied_month || "") === month) { skipped++; continue; }
+      if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { householdComplete = false; partial = true; break; }
+      if (!members.some(m => m.user_id === r.user_id && ["owner","admin","member"].includes(m.role))) { skipped++; continue; }
       // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
       // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
       const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -15675,18 +15916,24 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
         await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
       } catch (err) {
         failed++;
+        householdComplete = false;
         rememberOpsEvent({ kind: "recurring_auto_apply_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${String(r.id || "")}:${safeError(err)}` });
       }
     }
+    if (!householdComplete) { partial = true; break; }
+    after = String(householdId);
   }
-  return { ok: failed === 0, month, today, households: safeArray(households).length, scanned, applied, deduplicated, skipped, failed };
+  if (!partial) after = "";
+  await saveSettingValue(env, cursorKey, JSON.stringify({after,month,pending:partial}));
+  return { ok: failed === 0 && !partial, partial, cursor:after, month, today, households: households.length, scanned, applied, deduplicated, skipped, failed };
 }
 
 async function runRecurringAutoApply(env, opts = {}) {
+  if (!env.__AB_DB_BUDGET) env = {...env,__AB_DB_BUDGET:{used:0,limit:50}};
   const month = validMonth(opts.month) || String(opts.today || formatDate(nowKstDate())).slice(0, 7) || currentMonthKst();
   if (opts.lock === false) return runRecurringAutoApplyUnlocked(env, opts);
   const lease = await claimOperationLease(env, {
-    key: `cron:recurring:${month}`,
+    key: "cron:recurring:v22930",
     owner: operationLeaseOwner("recurring"),
     leaseSeconds: Number(env.CRON_RECURRING_LEASE_SECONDS || 900),
   });
@@ -15703,7 +15950,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 
 async function handleRecurringCronApply(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
-  const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || currentMonthKst(), today: url.searchParams.get("today") || formatDate(nowKstDate()) });
+  const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || "", today: url.searchParams.get("today") || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
 
@@ -15852,8 +16099,9 @@ async function clearMyBudgetPlan(env, householdId = "", month = currentMonthKst(
 function parseBudgetFormAmount(value = "") {
   const raw = String(value ?? "").trim();
   if (!raw) return 0;
-  if (/^[\d,]+(?:\.\d+)?\s*원?$/.test(raw)) return Math.round(Number(raw.replace(/[^\d.]/g, "")) || 0);
-  return Math.round(Number(parseAmountValue(raw) || 0));
+  if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?\s*원?$/.test(raw)) return Math.round(Number(raw.replace(/[^\d.]/g, "")));
+  const spans = moneyTokenSpans(raw);
+  return spans.length === 1 && spans[0].raw === raw ? spans[0].amount : NaN;
 }
 
 async function handleMyBudgetBulkSave(request, env) {
@@ -15876,6 +16124,7 @@ async function handleMyBudgetBulkSave(request, env) {
   const incomeAmounts = form.getAll("income_amount").map((v) => parseBudgetFormAmount(v));
   const expenseNames = form.getAll("budget_category").map((v) => String(v || "").trim().slice(0, 80));
   const expenseAmounts = form.getAll("budget_amount").map((v) => parseBudgetFormAmount(v));
+  if ([...incomeAmounts,...expenseAmounts].some(amount => !Number.isFinite(amount) || amount < 0 || amount > MAX_TRANSACTION_AMOUNT)) return redirectResponse(addQueryToUrl(returnTo, {err:"invalid_budget_amount"}));
 
   try {
     const plan = new Map();
@@ -15970,7 +16219,7 @@ function reportChallengeTypeMeta(type = "no_spend_days", settings = {}) {
   return { type: "no_spend_days", typeLabel: "무지출 일수", successLabel: "무지출 성공", failureLabel: "지출 있음", goalLabel: "지출 0원" };
 }
 
-function normalizeReportChallenge(value = {}) {
+function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
   const raw = value && typeof value === "object" ? value : parseJsonSetting(value, {});
   const targetDays = Math.max(1, Math.min(20, Math.round(Number(raw.target_days || 4)) || 4));
   const title = String(raw.title || "무지출 데이").trim().replace(/\s+/g, " ").slice(0, 30) || "무지출 데이";
@@ -15978,7 +16227,7 @@ function normalizeReportChallenge(value = {}) {
   const targetAmount = Math.max(0, Math.min(MAX_TRANSACTION_AMOUNT, Math.round(Number(raw.target_amount || raw.goal?.amount || 0)) || 0));
   const category = String(raw.category || raw.goal?.category || "").trim().replace(/\s+/g, " ").slice(0, 40);
   const today = formatDate(nowKstDate());
-  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : today;
+  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : `${validMonth(month) || currentMonthKst()}-01`;
   let targetDate = isValidTransactionDateString(raw.target_date) ? String(raw.target_date) : shiftChallengeDate(startDate, targetDays - 1);
   let periodDays = challengePeriodDays(startDate, targetDate);
   if (!periodDays || periodDays > 90) {
@@ -15990,8 +16239,8 @@ function normalizeReportChallenge(value = {}) {
 }
 
 function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) {
-  const settings = normalizeReportChallenge(value);
   const safeMonth = validMonth(month) || currentMonthKst();
+  const settings = normalizeReportChallenge(value,safeMonth);
   const today = formatDate(nowKstDate());
   const yesterday = shiftChallengeDate(today, -1);
   const evaluationEnd = yesterday < settings.targetDate ? yesterday : settings.targetDate;
@@ -16042,8 +16291,8 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
 }
 
 async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {} } = {}) {
-  const settings = normalizeReportChallenge(value);
   const safeMonth = validMonth(month) || currentMonthKst();
+  const settings = normalizeReportChallenge(value,safeMonth);
   const monthStart = `${safeMonth}-01`;
   const monthEnd = nextMonthStart(safeMonth);
   const today = formatDate(nowKstDate());
@@ -16337,20 +16586,36 @@ async function handleReportPreferenceSave(request, env) {
 }
 
 async function runAutomaticReportsUnlocked(env, opts = {}) {
-  const today = opts.today ? new Date(`${opts.today}T12:00:00`) : nowKstDate();
-  const todayString = formatDate(today);
-  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-  const isWeekEnd = today.getDay() === 0;
-  const isMonthEnd = tomorrow.getMonth() !== today.getMonth();
-  const force = !!opts.force;
+  const invocationDate = opts.today || formatDate(nowKstDate());
+  const cursorKey = "cron_report_cursor_v22930";
+  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env,cursorKey),"report_cursor");
+  if (cursor.scopes !== undefined && !Array.isArray(cursor.scopes)) throw new Error("report_cursor_scope_invalid");
+  const scopes = safeArray(cursor.scopes).map(scope => ({...scope}));
+  if (scopes.some(scope => !isValidTransactionDateString(scope.date) || typeof scope.after !== "string" || [scope.force,scope.weekly,scope.monthly].some(flag => typeof flag !== "boolean"))) throw new Error("report_cursor_scope_invalid");
+  const requested = new Date(`${invocationDate}T12:00:00`);
+  const requestedTomorrow = new Date(requested.getFullYear(),requested.getMonth(),requested.getDate()+1);
+  if ((opts.force || requested.getDay() === 0 || requestedTomorrow.getMonth() !== requested.getMonth()) && !scopes.some(scope => scope.date === invocationDate)) scopes.push({date:invocationDate,after:"",force:!!opts.force,weekly:!!opts.force || requested.getDay()===0,monthly:!!opts.force || requestedTomorrow.getMonth()!==requested.getMonth()});
+  if (!scopes.length) return {ok:true,partial:false,today:invocationDate,invocation_date:invocationDate,scanned:0,generated:0,skipped:0,invalid:0,failed:0};
+  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
+  const active = scopes[0];
+  const today = new Date(`${active.date}T12:00:00`), todayString = active.date;
+  const tomorrow = new Date(today.getFullYear(),today.getMonth(),today.getDate()+1);
+  const isWeekEnd = active.weekly, isMonthEnd = active.monthly, force = active.force;
   const preferenceQuery = new URLSearchParams();
   preferenceQuery.append("key", "gte.free_report_preference:");
   preferenceQuery.append("key", "lt.free_report_preference;");
   preferenceQuery.set("select", "key,value");
-  preferenceQuery.set("limit", "5000");
-  const settings = await optionalSupabase(env, `/rest/v1/accountbook_settings?${preferenceQuery.toString()}`, { method: "GET" }, []) || [];
+  if (active.after) preferenceQuery.append("key", `gt.${active.after}`);
+  preferenceQuery.set("order", "key.asc");
+  preferenceQuery.set("limit", "3");
+  const settings = await supabase(env, `/rest/v1/accountbook_settings?${preferenceQuery}`, {method:"GET"});
+  if (!Array.isArray(settings)) throw new Error("report_preferences_source_invalid");
+  let after = active.after, partial = settings.length === 3;
   let scanned = 0, generated = 0, skipped = 0, failed = 0, invalid = 0;
-  for (const setting of safeArray(settings)) {
+  scan: for (const setting of safeArray(settings).slice(0,2)) {
+    if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { partial = true; break; }
+    const previousAfter = after;
+    after = String(setting.key || "");
     const preference = parseJsonSetting(setting.value, {});
     const key = String(setting.key || "");
     const prefix = "free_report_preference:";
@@ -16369,6 +16634,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
     if (preference.monthly && (force || isMonthEnd)) jobs.push({ kind: "monthly", period: todayString.slice(0, 7), start: `${todayString.slice(0, 7)}-01`, end: formatDate(tomorrow) });
     if (!jobs.length) { skipped++; continue; }
     for (const job of jobs) {
+      if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { after = previousAfter; partial = true; break scan; }
       const snapshotKey = freeReportSnapshotKey(householdId, job.kind, job.period);
       try {
         const existing = await getSettingValue(env, snapshotKey);
@@ -16378,19 +16644,24 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         await saveSettingValue(env, snapshotKey, report);
         generated++;
       } catch (err) {
-        failed++;
+        failed++; after = previousAfter; partial = true;
         rememberOpsEvent({ kind: "free_report_generate_failed", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${safeError(err)}` });
+        break scan;
       }
     }
   }
-  return { ok: failed === 0, today: todayString, scanned, generated, skipped, invalid, failed };
+  if (partial) active.after = after; else scopes.shift();
+  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
+  partial = partial || scopes.length > 0;
+  return { ok: failed === 0 && !partial, partial, cursor:after, today: todayString, invocation_date:invocationDate, pending_scopes:scopes.length, scanned, generated, skipped, invalid, failed };
 }
 
 async function runAutomaticReports(env, opts = {}) {
+  if (!env.__AB_DB_BUDGET) env = {...env,__AB_DB_BUDGET:{used:0,limit:50}};
   const today = String(opts.today || formatDate(nowKstDate())).slice(0, 10);
   if (opts.lock === false) return runAutomaticReportsUnlocked(env, opts);
   const lease = await claimOperationLease(env, {
-    key: `cron:reports:${today}`,
+    key: "cron:reports:v22930",
     owner: operationLeaseOwner("reports"),
     leaseSeconds: Number(env.CRON_REPORT_LEASE_SECONDS || 900),
   });
@@ -16484,7 +16755,7 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected?.id || "")}`;
   const recurringTotal = safeArray(recurringCandidates).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const anomalyTotal = safeArray(anomalies).reduce((sum, x) => sum + Number(x.amount || 0), 0);
-  const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.expense || 0));
+  const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const weeklyText = weeklyReport ? `${numberWithCommas(weeklyReport.thisWeek || 0)}원` : "집계 대기";
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
@@ -16552,7 +16823,7 @@ async function handleMyInsightPage(request, env, url) {
 }
 
 function insightAppJsResponse() {
-  const body = `(${insightClientMain.toString()})();`;
+  const body = `${budgetExpenseRows.toString()}\n(${insightClientMain.toString()})();`;
   return new Response(body, {
     status: 200,
     headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=600", "x-content-type-options": "nosniff" },
@@ -16580,6 +16851,7 @@ function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], bud
     budget: {
       month,
       total: Number(budget.totalBudget || 0),
+      basis: budget.basis,
       cats: safeArray(budget.categoryAlerts).map((a) => [String(a.category || ""), Number(a.budget || 0)]),
     },
     rows: slim,
@@ -16752,6 +17024,11 @@ ${renderReportChallenge(challenge, { householdId: selected.id, canManage: canMan
 
 // 분석 스튜디오 클라이언트. /my/analysis/app.js 로 toString() 직렬화되어 그대로 서빙되므로
 // 외부 함수/변수를 절대 참조하지 말 것 (완전 자급자족 함수).
+function budgetExpenseRows(rows = [], categories = [], basis = "total") {
+  const covered = new Set(categories.map(row => Array.isArray(row) ? row[0] : row.category));
+  return rows.filter(row => !row.income && row.type !== "income" && (basis !== "category" || covered.has(row.cat || row.category)));
+}
+
 function insightClientMain() {
   "use strict";
   var DATA = window.__INSIGHT__ || {};
@@ -16831,8 +17108,8 @@ function insightClientMain() {
   }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.amount > 0; });
   ROWS.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
-  var MONTH = String(DATA.month || "").slice(0, 7) || new Date().toISOString().slice(0, 7);
-  var TODAY = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.today || "")) ? DATA.today : new Date().toISOString().slice(0, 10);
+  var MONTH = String(DATA.month || "").slice(0, 7) || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
+    var TODAY = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.today || "")) ? DATA.today : new Date(Date.now()+32400000).toISOString().slice(0, 10);
   var DATA_START = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.start || "")) ? DATA.start : addMonthsYm(MONTH, -11) + "-01";
   var DATA_END = monthEnd(MONTH);
   var IS_CUR = MONTH === ymOf(TODAY);
@@ -17047,7 +17324,7 @@ function insightClientMain() {
     box.appendChild(kpiTile("수입", won(inc), hasPrev ? pct(inc, pinc) : null, false, "", pw.label));
     var net = inc - ex;
     box.appendChild(kpiTile("수입-지출", (net < 0 ? "-" : "") + won(Math.abs(net)), null, false, inc > 0 ? "저축률 " + Math.round(net / inc * 100) + "%" : ""));
-    box.appendChild(kpiTile("하루 평균 지출", won(elapsed > 0 ? Math.round(ex / elapsed) : 0), null, false, elapsed + "일 기준"));
+    box.appendChild(kpiTile("조회기간 하루 평균 지출", won(elapsed > 0 ? Math.round(ex / elapsed) : 0), null, false, state.start + " ~ " + (state.end > TODAY && state.start <= TODAY ? TODAY : state.end) + " (" + elapsed + "일 기준)"));
     box.appendChild(kpiTile("기록", fmt(viewRows().length) + "건", null, false, compLabel() + " 기준 목록"));
   }
 
@@ -17082,7 +17359,7 @@ function insightClientMain() {
       if (endCount >= state.start) {
         var days = dayDiff(state.start, endCount) + 1;
         var noSpend = days - Object.keys(byDay).filter(function (d2) { return d2 <= endCount; }).length;
-        if (noSpend > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend + "일"));
+        if (noSpend > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend + "일 (" + state.start + " ~ " + endCount + ")"));
       }
     }
   }
@@ -17447,7 +17724,7 @@ function insightClientMain() {
     card.hidden = false;
     var box = $("budgetBox");
     box.textContent = "";
-    var monthRows = ROWS.filter(function (r) { return !r.income && ymOf(r.date) === MONTH; });
+    var monthRows = budgetExpenseRows(ROWS.filter(function (r) { return !r.income && ymOf(r.date) === MONTH; }), BUDGET.cats, BUDGET.basis);
     var spent = sumAmt(monthRows);
     var total = Number(BUDGET.total) || 0;
     if (total > 0) {
@@ -17460,8 +17737,8 @@ function insightClientMain() {
       box.appendChild(head);
       var meter = el("div", "meterBig");
       var fill = el("i");
-      var color = rate >= 100 ? C.crit : rate >= 80 ? C.warn : C.ex;
-      var trackColor = rate >= 100 ? "#f5d4d4" : rate >= 80 ? "#faeccb" : "#cde2fb";
+      var color = spent > total ? C.crit : rate >= 85 ? C.warn : C.ex;
+      var trackColor = spent > total ? "#f5d4d4" : rate >= 85 ? "#faeccb" : "#cde2fb";
       meter.style.background = trackColor;
       fill.style.width = Math.min(100, rate) + "%";
       fill.style.background = color;
@@ -17866,7 +18143,7 @@ function renderPatternBoxes(analysis = {}) {
 
 function renderBudgetGaugeCards(budget = {}) {
   const total = Number(budget.totalBudget || 0);
-  const expense = Number(budget.expense || 0);
+  const expense = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const remain = Math.max(0, total - expense);
   const rate = total ? Math.min(160, Math.round(expense / total * 100)) : 0;
   const over = Math.max(0, expense - total);
@@ -17948,7 +18225,7 @@ function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month
   const expense = Number(stats.totals?.expense || analysis.expense || 0);
   const saving = income - expense;
   const savingRate = income ? Math.round(saving / income * 100) : 0;
-  const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.expense || 0));
+  const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const risk = analysis.riskScore || 0;
   const tools = [
     ["현금흐름", `${numberWithCommas(saving)}원`, `수입-지출 · 저축률 ${savingRate}%`],
@@ -18031,7 +18308,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}.budgetTableHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.budgetTableHead h2{margin:0}.budgetTableSet{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 깊게 보는 분석 화면입니다. <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>이고, <b>소비 분석은 필터로 좁혀 보는 화면</b>입니다. 여기서는 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}#reportCockpitTitle">← 한눈에 보기(소비 분석)</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><div class="budgetTableHead"><h2>분류별 예산 사용률</h2><a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a></div><p class="muted">여기서는 사용률만 봅니다. 금액을 바꾸려면 예산 설정으로 이동하세요.</p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}.budgetTableHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.budgetTableHead h2{margin:0}.budgetTableSet{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 깊게 보는 분석 화면입니다. <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>이고, <b>소비 분석은 필터로 좁혀 보는 화면</b>입니다. 여기서는 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><p class="muted">\uD3C9\uADE0\u00B7\uBB34\uC9C0\uCD9C: ${escapeHtml(month)}-01 ~ ${escapeHtml(month)}-${new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()} \uC6D4 \uC804\uCCB4 \uAE30\uC900${month === currentMonthKst() ? " (\uBBF8\uB798 \uB0A0\uC9DC \uD3EC\uD568)" : ""}</p><div class="pcBox"><a class="btn" href="/my/analysis?${qs}#reportCockpitTitle">← 한눈에 보기(소비 분석)</a><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${deltaClass(fair.expense)}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${fair.income > 0 ? "deltaDown" : fair.income < 0 ? "deltaUp" : "deltaFlat"}">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${numberWithCommas(analysis.avgExpense || 0)}원</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">무지출일</span><b>${numberWithCommas(analysis.noSpendDays || 0)}일</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${numberWithCommas(analysis.burnForecast || 0)}원</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><div class="budgetTableHead"><h2>분류별 예산 사용률</h2><a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a></div><p class="muted">여기서는 사용률만 봅니다. 금액을 바꾸려면 예산 설정으로 이동하세요.</p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
 }
 
 function shiftMonthString(month = currentMonthKst(), delta = 0) {
@@ -18160,7 +18437,8 @@ async function handleMyRecurringSave(request, env) {
   if (!canManageMyHousehold(selected.role)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "write_not_allowed" }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
   const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
-  if (!memo || !amount) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
+  if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
+  const ruleId = String(form.get("id") || "").trim();
   const row = {
     household_id: selected.id,
     type: normalizeTransactionType(String(form.get("type") || "expense")),
@@ -18174,9 +18452,11 @@ async function handleMyRecurringSave(request, env) {
   };
   try {
     await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
+      const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
+      if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      await supabase(env, "/rest/v1/accountbook_recurring", {
-        method: "POST",
+      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
+        method: ruleId ? "PATCH" : "POST",
         headers: { Prefer: "return=minimal" },
         body: JSON.stringify(row),
       });
@@ -18275,7 +18555,7 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
   const categoryRows = defaultExpenseBudgetNames(customCategories);
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryRows.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
-  const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td>${escapeHtml(r.memo || "")}</td><td>${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td>${numberWithCommas(r.amount)}원</td><td>${escapeHtml(r.category || "")}</td><td>매월 ${escapeHtml(r.day_of_month || 1)}일</td><td>${escapeHtml(r.last_applied_month || "-")}</td><td><form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
+  const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td>${escapeHtml(r.memo || "")}</td><td>${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td>${numberWithCommas(r.amount)}원</td><td>${escapeHtml(r.category || "")}</td><td>매월 ${escapeHtml(r.day_of_month || 1)}일</td><td>${escapeHtml(r.last_applied_month || "-")}</td><td>${renderRecurringEditForm(r, selected.id, month, [], "/my/recurring/save")}<form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
   const incomeInputs = incomeRows.map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");
   // V22.9.26: 설정한 분류를 모두 그린다. 12행만 그리면 저장(월 전체 교체)이 13번째부터 지웠다.
   const expenseInputs = budgetEditRows.map((r) => `<div class="budgetLine expenseLine"><input name="budget_category" value="${escapeHtml(r.name)}" placeholder="직접입력: 예산 분류"/><select class="pickValue">${categoryOptions}</select><input name="budget_amount" value="${Number(r.amount || 0) || ""}" inputmode="numeric" placeholder="예산 금액"/></div>`).join("");
@@ -18732,7 +19012,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       ${leaveForm}
     </section>` : "";
 
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(preset?.name || "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
 }
 
 async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
@@ -18771,10 +19051,11 @@ async function handleMyCreate(request, env) {
   let user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const form = await request.formData();
-  const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
+  const attemptedName = String(form.get("household_name") || "").trim().slice(0,80);
+  const name = sanitizeWebHouseholdNameInput(attemptedName);
   const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || user.nickname || "")).slice(0, 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
-  if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid#create`);
+  if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
   try {
     if (displayName !== String(user.nickname || "")) {
@@ -18900,6 +19181,12 @@ async function purgeHouseholdData(env, householdId = "") {
     }
   }
   if (!purge) throw new Error("household_delete_not_confirmed");
+  if (/^[A-Za-z0-9-]+$/.test(hid)) {
+    for (const prefix of ["cursor:v1", "home-layout:v1"]) {
+      try { await supabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${prefix}:${hid}:*`)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}); }
+      catch(error) { rememberOpsEvent({kind:"household_preference_cleanup_pending",severity:"warn",path:"/my/household/delete",method:"POST",detail:safeError(error)}); }
+    }
+  }
 
   // Relational data is already committed atomically. External lookup mappings
   // are cleaned afterwards and never make the successful deletion look failed.
@@ -18937,7 +19224,7 @@ async function handleMyHouseholdDelete(request, env) {
     hasBackupLoginIdentity(env, user),
     verifyHouseholdDeleteReauth(request, env, userId, householdId),
   ]);
-  const localVerified = hasLocalLogin && accessCode ? await verifyLocalLoginForUser(env, userId, accessCode) : false;
+  const localVerified = hasLocalLogin && accessCode ? await verifyPasswordReauth(request, env, userId, accessCode) : false;
   if (!localVerified && !kakaoReauthVerified) {
     const code = hasLocalLogin && accessCode ? "personal_password_invalid" : "account_reauth_required";
     return redirectResponse(addQueryToUrl(back, { err: code }));
@@ -18980,6 +19267,7 @@ async function handleMyHouseholdLeave(request, env) {
   const role = await getHouseholdMemberRole(env, userId, householdId);
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
+  if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
   if (!understood) return redirectResponse(addQueryToUrl(back, { err: "household_leave_ack_required" }));
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
@@ -18987,6 +19275,7 @@ async function handleMyHouseholdLeave(request, env) {
       const freshRole = await getHouseholdMemberRole(env, userId, householdId);
       if (!freshRole) throw new Error("household_leave_not_member");
       if (freshRole === "owner") throw new Error("household_owner_cannot_leave");
+      if (freshRole === "blocked") throw new Error("household_blocked_member_cannot_leave");
       assertFresh();
       await markKakaoChatFirstHistory(env, userId);
       assertFresh();
@@ -19206,7 +19495,8 @@ function budgetCenterSummary(rows = [], budgets = []) {
   return { stats, budget, incomeBudget, actualIncome, actualIncomeCategories, incomeBase, totalBudget, budgetIncomeRate, freeAfterBudget, actualSavings, incomeBudgets };
 }
 
-function budgetStatusLabel(rate = 0) {
+function budgetStatusLabel(rate = 0, spent = null, budget = null) {
+  if (spent != null && budget != null) { if (Number(spent) > Number(budget)) return "\uCD08\uACFC"; if (Number(spent) === Number(budget)) return "\uC18C\uC9C4"; if (rate >= 85) return "\uC8FC\uC758"; return "\uC0AC\uC6A9\uC911"; }
   if (rate >= 100) return "초과";
   if (rate >= 85) return "주의";
   if (rate >= 60) return "사용중";
@@ -19278,7 +19568,7 @@ function renderBudgetRows(budgets = [], budget = {}, rowsForDetails = [], canMan
     const alert = safeArray(budget.categoryAlerts).find((x) => normalizeText(x.category) === normalizeText(b.category)) || { spent: 0, budget: Number(b.amount || 0), rate: 0 };
     const remain = Math.max(0, Number(b.amount || 0) - Number(alert.spent || 0));
     const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails);
-    return `<tr><td><details class="catUse"><summary><b>${escapeHtml(b.category)}</b><small>사용 내역 보기</small></summary>${tree}</details></td><td>${numberWithCommas(b.amount)}원</td><td>${numberWithCommas(alert.spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${alert.rate || 0}%</td><td><span class="status ${alert.rate >= 100 ? "bad" : alert.rate >= 85 ? "warn" : "ok"}">${budgetStatusLabel(alert.rate || 0)}</span></td><td>${canManage ? `<form method="post" action="/admin/budget/delete"><input type="hidden" name="household_id" value="${escapeHtml(b.household_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(b.month || currentMonthKst())}"/><input type="hidden" name="category" value="${escapeHtml(b.category)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(b.month || currentMonthKst())}&household_id=${escapeHtml(b.household_id || "")}"/><button class="mini danger" type="submit">삭제</button></form>` : `<span class="status ok">조회 전용</span>`}</td></tr>`;
+    return `<tr><td><details class="catUse"><summary><b>${escapeHtml(b.category)}</b><small>사용 내역 보기</small></summary>${tree}</details></td><td>${numberWithCommas(b.amount)}원</td><td>${numberWithCommas(alert.spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${alert.rate || 0}%</td><td><span class="status ${alert.rate >= 100 ? "bad" : alert.rate >= 85 ? "warn" : "ok"}">${budgetStatusLabel(alert.rate || 0, alert.spent, alert.budget)}</span></td><td>${canManage ? `<form method="post" action="/admin/budget/delete"><input type="hidden" name="household_id" value="${escapeHtml(b.household_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(b.month || currentMonthKst())}"/><input type="hidden" name="category" value="${escapeHtml(b.category)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(b.month || currentMonthKst())}&household_id=${escapeHtml(b.household_id || "")}"/><button class="mini danger" type="submit">삭제</button></form>` : `<span class="status ok">조회 전용</span>`}</td></tr>`;
   }).join("");
 }
 
@@ -19289,8 +19579,8 @@ function budgetStageInfo(spent = 0, budget = 0) {
   const over = Math.max(0, sp - b);
   const remain = Math.max(0, b - sp);
   let stage = "ok";
-  if (b && sp >= b) stage = "over";
-  else if (b && rate >= 80) stage = "warn";
+  if (b && sp > b) stage = "over";
+  else if (b && rate >= 85) stage = "warn";
   return { rate, over, remain, stage, budget: b, spent: sp };
 }
 
@@ -19304,19 +19594,10 @@ function budgetAlertText(rows = [], budgets = [], category = "") {
   let name = "", info = null;
   if (catBudget) { name = catBudget.category; info = budgetStageInfo(byCategory[catBudget.category] || 0, catBudget.amount); }
   else {
-    const explicitTotal = Number((safeArray(budgets).find((b) => String(b.category || "") === "__total") || {}).amount || 0);
-    const catSum = safeArray(budgets).filter((b) => { const c = String(b.category || ""); return c && c !== "__total" && c !== "__income" && !isIncomeBudgetCategory(c); }).reduce((a, b) => a + Number(b.amount || 0), 0);
-    const total = explicitTotal || catSum;
-    if (!total) return "";
-    // 분류별 예산만 있는 달에는 그 분류들의 지출만 견준다(전체 지출을 얹지 않는다).
-    if (!explicitTotal) {
-      const budgeted = safeArray(budgets)
-        .filter((b) => { const c = String(b.category || ""); return c && c !== "__total" && c !== "__income" && !isIncomeBudgetCategory(c) && Number(b.amount || 0) > 0; })
-        .reduce((a, b) => a + Number(byCategory[b.category] || 0), 0);
-      name = "예산 잡은 분류 합계"; info = budgetStageInfo(budgeted, total);
-    } else {
-      name = "이번 달 전체"; info = budgetStageInfo(expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0), total);
-    }
+    const summary = budgetSummary(rows, budgets);
+    if (!summary.totalBudget) return "";
+    name = "\uC608\uC0B0 \uAE30\uC900";
+    info = budgetStageInfo(summary.budgetedExpense, summary.totalBudget);
   }
   if (!info || info.stage === "ok") return "";
   if (info.stage === "over") return `🚨 ${name} 예산 초과 · ${numberWithCommas(info.over)}원 넘었어요 (${info.rate}%)`;
@@ -19339,11 +19620,10 @@ function budgetFeedbackLine(rows = [], budgets = [], category = "") {
     const tail = info.stage === "over" ? `\n${numberWithCommas(info.over)}원 초과했어요.` : `\n남은 예산: ${numberWithCommas(info.remain)}원`;
     return `\n\n${head}\n사용: ${numberWithCommas(spent)}원 / ${numberWithCommas(budget)}원 (${info.rate}%)${tail}`;
   }
-  const explicitTotal = Number((safeArray(budgets).find((b) => String(b.category || "") === "__total") || {}).amount || 0);
-  const catSum = safeArray(budgets).filter((b) => { const c = String(b.category || ""); return c && c !== "__total" && c !== "__income" && !isIncomeBudgetCategory(c); }).reduce((a, b) => a + Number(b.amount || 0), 0);
-  const totalBudget = explicitTotal || catSum;
+  const summary = budgetSummary(rows, budgets);
+  const totalBudget = summary.totalBudget;
   if (totalBudget) {
-    const spent = expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0);
+    const spent = summary.budgetedExpense;
     const info = budgetStageInfo(spent, totalBudget);
     const head = info.stage === "over" ? `🚨 이번 달 전체 예산 초과` : info.stage === "warn" ? `⚠️ 이번 달 전체 예산 주의` : `📊 이번 달 전체 예산`;
     const tail = info.stage === "over" ? `\n${numberWithCommas(info.over)}원 초과했어요.` : `\n남은 예산: ${numberWithCommas(info.remain)}원`;
@@ -19359,13 +19639,13 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     const stats = calculateStats(rows);
     const budget = budgetSummary(rows, budgets);
     const totalBudget = Number(budget.totalBudget || 0);
-    const expense = Number(budget.expense || stats.totals.expense || 0);
+    const expense = Number(budget.budgetedExpense ?? budget.expense ?? stats.totals.expense ?? 0);
     const remain = totalBudget ? totalBudget - expense : 0;
     const rate = totalBudget ? Math.round((expense / totalBudget) * 100) : 0;
     if (!totalBudget && !budgets.length) {
       return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", "아직 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
     }
-    const status = rate >= 100 ? "초과" : rate >= 85 ? "주의" : rate >= 60 ? "사용중" : "여유";
+    const status = expense > totalBudget ? "초과" : rate >= 85 ? "주의" : rate >= 60 ? "사용중" : "여유";
     const categoryLines = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).slice(0, 7).map((x) => {
       const left = Number(x.budget || 0) - Number(x.spent || 0);
       const leftText = left >= 0 ? `${numberWithCommas(left)}원 남음` : `${numberWithCommas(Math.abs(left))}원 초과`;
@@ -19603,8 +19883,8 @@ function renderHomeReportCards(options = {}) {
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
-  const over = alerts.filter((b) => Number(b.rate || 0) >= 100);
-  const near = alerts.filter((b) => Number(b.rate || 0) >= 80 && Number(b.rate || 0) < 100);
+  const over = alerts.filter((b) => Number(b.spent || 0) > Number(b.budget || 0));
+  const near = alerts.filter((b) => Number(b.rate || 0) >= 85 && Number(b.spent || 0) <= Number(b.budget || 0));
   const worst = alerts.slice().sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0))[0] || null;
   const budgetRead = !alerts.length
     ? "분류별 예산을 정하면 넘치는 항목을 미리 알려드려요"
@@ -21158,7 +21438,7 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 `;
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22915.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22930.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
@@ -21253,13 +21533,13 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22926.js";
-const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22930.js";
+const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22930.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22929.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
 const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22929.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22929.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22930.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -22825,6 +23105,7 @@ function rawMobileHomeInlineRuntime() {
 function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
+      moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
       rawMobileHomeInlineRuntime(),
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,
@@ -22937,7 +23218,7 @@ function accountbookStage4NavClientMain() {
   }
   function contextQuery() {
     var params = new URLSearchParams(location.search);
-    var month = params.get("month") || new Date().toISOString().slice(0, 7);
+    var month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     var household = params.get("household_id") || "";
     return "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
   }
@@ -24053,9 +24334,13 @@ async function appIconAssetResponse(request, url) {
   });
 }
 
+const AB_HISTORICAL_RUNTIME_ASSETS = {"/assets/mobile-home-v22915.js":{"body":"(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);var h=window.AB_TYPE_HINTS||{};if(h.income&&new RegExp('('+h.income+')').test(raw))return'income';if(h.expense&&new RegExp('('+h.expense+')').test(raw))return'expense';if(h.incomeCategory&&new RegExp('('+h.incomeCategory+')').test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(clearInput){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value=\"'+qType+'\"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;if(clearInput){smart.value='';if(!amt&&amount)amount.focus();}abQuickSyncMore();abQuickSyncAfter();}\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){var out=document.getElementById('quickAfter');if(!out)return;if(out.getAttribute('data-has-budget')!=='1')return;var base=Number(out.getAttribute('data-remaining')||0);var daily=Number(out.getAttribute('data-daily')||0);var amountEl=document.getElementById('amountInput');var amt=amountEl?Number(String(amountEl.value||'').replace(/[^0-9]/g,'')):0;var isIncome=!!document.querySelector('input[name=type][value=income]:checked');function comma(n){return String(Math.max(0,Math.round(n))).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');}if(!amt){out.textContent='남은 예산 '+comma(base)+'원'+(daily?' · 하루 '+comma(daily)+'원':'');return;}var next=isIncome?base:Math.max(0,base-amt);var ratio=base>0&&daily>0?daily/base:0;var nextDaily=ratio?Math.round(next*ratio):0;out.textContent='저장하면 남은 예산 '+comma(next)+'원'+(nextDaily?' · 하루 '+comma(nextDaily)+'원':'');}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date().toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();","etag":"\"mobile-home-v22915-js\""},"/assets/mobile-home-shell-v22926.js":{"body":"window.AB_CATEGORY_RULES=[{\"name\":\"급여\",\"type\":\"income\",\"weight\":100,\"words\":[\"급여\",\"월급\",\"상여\",\"보너스\",\"성과급\",\"수당\",\"연봉\",\"알바비\",\"일당\"]},{\"name\":\"용돈\",\"type\":\"income\",\"weight\":92,\"words\":[\"용돈\",\"축하금\",\"받은돈\"]},{\"name\":\"환급\",\"type\":\"income\",\"weight\":90,\"words\":[\"환급\",\"캐시백\",\"환불\",\"돌려받\",\"돌려\",\"정산받\",\"반환\"]},{\"name\":\"이자배당\",\"type\":\"income\",\"weight\":88,\"words\":[\"이자\",\"배당\",\"예금이자\",\"주식배당\"]},{\"name\":\"부업/매출\",\"type\":\"income\",\"weight\":70,\"words\":[\"부업\",\"매출\",\"판매\",\"수익\",\"원고료\",\"강의료\"]},{\"name\":\"주거/월세\",\"type\":\"expense\",\"weight\":100,\"words\":[\"월세\",\"전세\",\"전월세\",\"임대료\",\"집세\",\"주택\",\"원룸\",\"부동산\"]},{\"name\":\"관리비\",\"type\":\"expense\",\"weight\":99,\"words\":[\"관리비\",\"아파트관리\"]},{\"name\":\"대출/이자\",\"type\":\"expense\",\"weight\":98,\"words\":[\"대출\",\"대출이자\",\"원리금\",\"상환\",\"할부이자\"]},{\"name\":\"저축/투자\",\"type\":\"expense\",\"weight\":97,\"words\":[\"저축\",\"적금\",\"예금\",\"투자\",\"주식\",\"펀드\",\"연금\",\"청약\"]},{\"name\":\"공과금\",\"type\":\"expense\",\"weight\":96,\"words\":[\"공과금\",\"전기\",\"전기세\",\"가스\",\"가스비\",\"수도\",\"수도세\",\"도시가스\"]},{\"name\":\"통신비\",\"type\":\"expense\",\"weight\":95,\"words\":[\"통신\",\"통신비\",\"핸드폰\",\"휴대폰\",\"휴대전화\",\"인터넷\",\"와이파이\",\"알뜰폰\",\"유플러스\",\"lg유플러스\"],\"exact\":[\"kt\",\"skt\"]},{\"name\":\"보험\",\"type\":\"expense\",\"weight\":94,\"words\":[\"보험\",\"보험료\",\"실비\",\"암보험\",\"화재보험\",\"자동차보험\"]},{\"name\":\"약국\",\"type\":\"expense\",\"weight\":92,\"words\":[\"약국\",\"약값\",\"의약품\",\"처방\",\"영양제\"]},{\"name\":\"의료/병원\",\"type\":\"expense\",\"weight\":90,\"words\":[\"병원\",\"의원\",\"치과\",\"안과\",\"내과\",\"피부과\",\"한의원\",\"소아과\",\"진료\",\"검진\",\"의료\",\"렌즈\",\"콘택트\"]},{\"name\":\"차량관리\",\"type\":\"expense\",\"weight\":89,\"words\":[\"세차\",\"정비\",\"엔진오일\",\"타이어\",\"주차\",\"주차비\",\"하이패스\",\"톨비\",\"카센터\",\"대리운전\"]},{\"name\":\"주유/충전\",\"type\":\"expense\",\"weight\":88,\"words\":[\"주유\",\"휘발유\",\"경유\",\"기름\",\"충전소\",\"전기차충전\"],\"exact\":[\"ev\"]},{\"name\":\"택시\",\"type\":\"expense\",\"weight\":87,\"words\":[\"택시\",\"카카오t\",\"타다\"]},{\"name\":\"교통\",\"type\":\"expense\",\"weight\":86,\"words\":[\"교통\",\"버스\",\"지하철\",\"기차\",\"ktx\",\"srt\",\"티머니\",\"캐시비\"]},{\"name\":\"구독\",\"type\":\"expense\",\"weight\":85,\"words\":[\"구독\",\"넷플릭스\",\"유튜브\",\"유튜브고급\",\"멤버십\",\"멜론\",\"디즈니\",\"쿠팡와우\",\"스포티파이\",\"왓챠\",\"티빙\",\"웨이브\",\"애플뮤직\",\"클라우드\"]},{\"name\":\"배달\",\"type\":\"expense\",\"weight\":84,\"words\":[\"배달\",\"배민\",\"요기요\",\"쿠팡이츠\"]},{\"name\":\"편의점\",\"type\":\"expense\",\"weight\":83,\"words\":[\"편의점\",\"gs25\",\"세븐일레븐\",\"이마트24\"],\"exact\":[\"cu\"]},{\"name\":\"장보기\",\"type\":\"expense\",\"weight\":82,\"words\":[\"마트\",\"이마트\",\"홈플러스\",\"롯데마트\",\"코스트코\",\"트레이더스\",\"시장\",\"농협\",\"장보기\",\"슈퍼\",\"마켓\",\"식료품\",\"식자재\",\"식재료\",\"쌀\",\"시리얼\",\"반찬\",\"김자반\"]},{\"name\":\"카페/간식\",\"type\":\"expense\",\"weight\":80,\"words\":[\"커피\",\"카페\",\"스타벅스\",\"스벅\",\"이디야\",\"투썸\",\"메가커피\",\"컴포즈\",\"빽다방\",\"간식\",\"빵\",\"디저트\",\"베이커리\",\"과자\",\"아이스크림\",\"마시멜로우\",\"초콜릿\",\"젤리\"]},{\"name\":\"외식\",\"type\":\"expense\",\"weight\":78,\"words\":[\"외식\",\"식당\",\"점심\",\"저녁\",\"아침\",\"밥\",\"식사\",\"김밥\",\"라면\",\"치킨\",\"피자\",\"햄버거\",\"버거\",\"맥도날드\",\"국밥\",\"분식\",\"고기\",\"회식\",\"음식\",\"술\",\"맥주\",\"소주\",\"와인\"]},{\"name\":\"육아/자녀\",\"type\":\"expense\",\"weight\":76,\"words\":[\"육아\",\"어린이집\",\"유치원\",\"기저귀\",\"분유\",\"장난감\",\"아이\",\"키즈\",\"학습지\",\"어린이\",\"아동\",\"유아\",\"아기\",\"이유식\"]},{\"name\":\"교육/학습\",\"type\":\"expense\",\"weight\":75,\"words\":[\"교육\",\"학원\",\"수업\",\"수강\",\"강의\",\"교재\",\"학교\",\"인강\",\"문제집\",\"자격증\",\"등록금\",\"공부\"]},{\"name\":\"도서\",\"type\":\"expense\",\"weight\":74,\"words\":[\"책\",\"도서\",\"서점\",\"교보\",\"알라딘\",\"예스24\"]},{\"name\":\"생활용품\",\"type\":\"expense\",\"weight\":72,\"words\":[\"생활용품\",\"다이소\",\"문구\",\"세제\",\"휴지\",\"샴푸\",\"풋샴푸\",\"린스\",\"비누\",\"치약\",\"칫솔\",\"청소\",\"주방\",\"소모품\",\"건전지\",\"수납\",\"온열안대\",\"안대\",\"식기\"]},{\"name\":\"의류/잡화\",\"type\":\"expense\",\"weight\":71,\"words\":[\"옷\",\"의류\",\"신발\",\"가방\",\"잡화\",\"패션\"]},{\"name\":\"미용\",\"type\":\"expense\",\"weight\":70,\"words\":[\"미용\",\"미용실\",\"헤어\",\"커트\",\"염색\",\"네일\",\"피부관리\",\"마사지\",\"화장품\",\"올리브영\"]},{\"name\":\"쇼핑\",\"type\":\"expense\",\"weight\":68,\"words\":[\"쇼핑\",\"쿠팡\",\"네이버쇼핑\",\"11번가\",\"g마켓\",\"옥션\",\"무신사\",\"구매\",\"샀\",\"주문\",\"택배\"]},{\"name\":\"운동\",\"type\":\"expense\",\"weight\":66,\"words\":[\"헬스\",\"운동\",\"필라테스\",\"요가\",\"골프\",\"수영\"]},{\"name\":\"여행\",\"type\":\"expense\",\"weight\":65,\"words\":[\"여행\",\"호텔\",\"숙박\",\"항공\",\"리조트\",\"펜션\",\"캠핑\"]},{\"name\":\"문화/여가\",\"type\":\"expense\",\"weight\":64,\"words\":[\"영화\",\"공연\",\"전시\",\"게임\",\"노래방\",\"취미\",\"놀이\",\"콘서트\"]},{\"name\":\"경조사/선물\",\"type\":\"expense\",\"weight\":63,\"words\":[\"축의금\",\"부의금\",\"조의금\",\"경조사\",\"선물\",\"생일\",\"명절\",\"용돈드림\",\"화환\"]},{\"name\":\"반려동물\",\"type\":\"expense\",\"weight\":62,\"words\":[\"강아지\",\"고양이\",\"반려\",\"사료\",\"동물병원\",\"애견\",\"애묘\",\"배변패드\",\"펫\"]},{\"name\":\"세금/수수료\",\"type\":\"expense\",\"weight\":58,\"words\":[\"세금\",\"자동차세\",\"재산세\",\"종부세\",\"부가세\",\"수수료\",\"과태료\",\"벌금\"]}];window.AB_TYPE_HINTS={\"income\":\"수입|입금|급여|월급|상여|보너스|용돈\\\\s*받|받았|환급\\\\s*받|환불(?!\\\\s*수수료)|이자|배당|매출|정산\\\\s*받|돌려받|들어왔|들어옴|입금됨\",\"expense\":\"지출|사용|결제|구매|썼|썻|샀|냈|납부|출금|자동이체|송금|카드|현금|삼성페이|카카오페이|토스|계좌이체|빠져나감|빠져나갔|나감\",\"incomeCategory\":\"급여|월급|상여|보너스|수당|용돈|환급|캐시백|이자|배당|정산금|부업|알바비|매출\"};\n(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);var h=window.AB_TYPE_HINTS||{};if(h.income&&new RegExp('('+h.income+')').test(raw))return'income';if(h.expense&&new RegExp('('+h.expense+')').test(raw))return'expense';if(h.incomeCategory&&new RegExp('('+h.incomeCategory+')').test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(clearInput){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value=\"'+qType+'\"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;if(clearInput){smart.value='';if(!amt&&amount)amount.focus();}abQuickSyncMore();abQuickSyncAfter();}\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){var out=document.getElementById('quickAfter');if(!out)return;if(out.getAttribute('data-has-budget')!=='1')return;var base=Number(out.getAttribute('data-remaining')||0);var daily=Number(out.getAttribute('data-daily')||0);var amountEl=document.getElementById('amountInput');var amt=amountEl?Number(String(amountEl.value||'').replace(/[^0-9]/g,'')):0;var isIncome=!!document.querySelector('input[name=type][value=income]:checked');function comma(n){return String(Math.max(0,Math.round(n))).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');}if(!amt){out.textContent='남은 예산 '+comma(base)+'원'+(daily?' · 하루 '+comma(daily)+'원':'');return;}var next=isIncome?base:Math.max(0,base-amt);var ratio=base>0&&daily>0?daily/base:0;var nextDaily=ratio?Math.round(next*ratio):0;out.textContent='저장하면 남은 예산 '+comma(next)+'원'+(nextDaily?' · 하루 '+comma(nextDaily)+'원':'');}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date().toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();\n(function mobileHomeNavStateClientMain() {\n  var mobileLinks = Array.from(document.querySelectorAll(\".bottom a.tab\"));\n  var desktopLinks = Array.from(document.querySelectorAll(\".homeDesktopNav nav a\"));\n  if (!mobileLinks.length && !desktopLinks.length) return;\n  var desktopMedia = typeof window.matchMedia === \"function\" ? window.matchMedia(\"(min-width:1024px)\") : null;\n  var allLinks = mobileLinks.concat(desktopLinks);\n  function sectionKey(link) {\n    var href = String(link?.getAttribute(\"href\") || \"\");\n    if (href === \"#feed\") return \"feed\";\n    if (href === \"#add\") return \"add\";\n    if (href === \"#top\") return \"top\";\n    return \"\";\n  }\n  function hashKey() {\n    var hash = String(window.location?.hash || \"\");\n    return hash === \"#feed\" ? \"feed\" : hash === \"#add\" ? \"add\" : \"top\";\n  }\n  function activeMobileKey() {\n    var active = mobileLinks.find(function(link) { return link.classList.contains(\"active\") && sectionKey(link); });\n    return active ? sectionKey(active) : hashKey();\n  }\n  function setCurrent(key) {\n    var nextKey = [\"top\", \"feed\", \"add\"].includes(key) ? key : \"top\";\n    allLinks.forEach(function(link) {\n      var matches = sectionKey(link) === nextKey;\n      if (sectionKey(link)) link.classList.toggle(\"active\", matches);\n      link.removeAttribute(\"aria-current\");\n    });\n    var visibleLinks = desktopMedia?.matches ? desktopLinks : mobileLinks;\n    var current = visibleLinks.find(function(link) { return sectionKey(link) === nextKey; });\n    if (current) current.setAttribute(\"aria-current\", \"location\");\n  }\n  function syncAfterScroll() {\n    var run = function() { setCurrent(activeMobileKey()); };\n    if (typeof window.requestAnimationFrame === \"function\") window.requestAnimationFrame(run);\n    else run();\n  }\n  allLinks.forEach(function(link) {\n    link.addEventListener(\"click\", function() {\n      var key = sectionKey(link);\n      if (key) setCurrent(key);\n    });\n  });\n  window.addEventListener(\"hashchange\", function() { setCurrent(hashKey()); });\n  window.addEventListener(\"scroll\", syncAfterScroll, { passive: true });\n  if (desktopMedia) {\n    var syncMedia = function() { setCurrent(activeMobileKey()); };\n    if (typeof desktopMedia.addEventListener === \"function\") desktopMedia.addEventListener(\"change\", syncMedia);\n    else if (typeof desktopMedia.addListener === \"function\") desktopMedia.addListener(syncMedia);\n  }\n  setCurrent(window.location?.hash ? hashKey() : activeMobileKey());\n})();","etag":"\"mobile-home-shell-v22926-js\""},"/assets/accountbook-nav-v22925.js":{"body":"(function accountbookStage4NavClientMain() {\n  \"use strict\";\n  function iconSvg(name) {\n    var paths = {\n      home: '<path d=\"M3 10.5 12 3l9 7.5\"/><path d=\"M5.5 9.5V21h13V9.5M9 21v-7h6v7\"/>',\n      records: '<path d=\"M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2Z\"/><path d=\"M8 8h8M8 12h8M8 16h5\"/>',\n      calendar: '<rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01\"/>',\n      recurring: '<path d=\"M20 7h-6V1\"/><path d=\"M20 7a9 9 0 1 0 1 8\"/>',\n      receipt: '<path d=\"M6 3h12v18l-3-2-3 2-3-2-3 2V3Z\"/><path d=\"M9 8h6M9 12h6M9 16h3\"/>',\n      import: '<path d=\"M12 3v12M7 10l5 5 5-5\"/><path d=\"M4 19h16\"/>',\n      settlement: '<path d=\"M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4\"/>',\n      // V22.8.87: 없던 키였다. iconSvg 는 모르는 이름을 home 으로 되돌려 주므로\n      // \"빠른 입력\" 버튼이 집 모양을 달고 있었다. M1 의 가운데 ＋ 도 이 키를 쓴다.\n      plus: '<path d=\"M12 5v14M5 12h14\"/>',\n      report: '<path d=\"M4 20V10M10 20V4M16 20v-7M22 20H2\"/>',\n      stats: '<path d=\"M4 20V12M10 20V7M16 20V3M22 20H2\"/>',\n      budget: '<rect x=\"3\" y=\"6\" width=\"18\" height=\"14\" rx=\"3\"/><path d=\"M16 11h5M7 6V4h10v2\"/>',\n      file: '<path d=\"M6 2h8l4 4v16H6V2Z\"/><path d=\"M14 2v5h5M9 12h6M9 16h6\"/>',\n      sparkle: '<path d=\"m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM19 13l.7 1.8 1.8.7-1.8.7L19 18l-.7-1.8-1.8-.7 1.8-.7L19 13Z\"/>',\n      bell: '<path d=\"M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4\"/>',\n      users: '<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75\"/>',\n      chat: '<path d=\"M21 15a4 4 0 0 1-4 4H8l-5 3v-7a7 7 0 0 1-1-4 8 8 0 0 1 8-8h3a8 8 0 0 1 8 8v4Z\"/><path d=\"M7 10h.01M12 10h.01M17 10h.01\"/>',\n      switch: '<path d=\"M17 3l4 4-4 4M3 7h18M7 21l-4-4 4-4M21 17H3\"/>',\n      wallet: '<path d=\"M4 5h14a2 2 0 0 1 2 2v13H4a2 2 0 0 1-2-2V5a3 3 0 0 1 3-3h12\"/><path d=\"M15 11h7v5h-7a2.5 2.5 0 0 1 0-5Z\"/>',\n      tag: '<path d=\"M20 13 13 20l-9-9V4h7l9 9Z\"/><path d=\"M8.5 8.5h.01\"/>',\n      backup: '<ellipse cx=\"12\" cy=\"5\" rx=\"8\" ry=\"3\"/><path d=\"M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6\"/>',\n      shield: '<path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z\"/><path d=\"m9 12 2 2 4-4\"/>',\n      tools: '<path d=\"M14.7 6.3a4 4 0 0 0-5-5L7 4l3 3 2.7-2.7a4 4 0 0 0 2 2ZM5 13l6 6-2 2-6-6 2-2ZM14 14l7 7\"/>',\n      search: '<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-4-4\"/>',\n      plus: '<path d=\"M12 5v14M5 12h14\"/>',\n      palette: '<path d=\"M12 3a9 9 0 0 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a1.5 1.5 0 0 1 0-3h3a6 6 0 0 0 0-12h-3Z\"/><path d=\"M7.5 9h.01M9 6h.01M13 6h.01\"/>',\n      more: '<circle cx=\"5\" cy=\"12\" r=\"1\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/>',\n      check: '<path d=\"M20 6 9 17l-5-5\"/>',\n    };\n    return '<svg class=\"abNavIconSvg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\">' + (paths[name] || paths.home) + \"</svg>\";\n  }\n  function contextQuery() {\n    var params = new URLSearchParams(location.search);\n    var month = params.get(\"month\") || new Date().toISOString().slice(0, 7);\n    var household = params.get(\"household_id\") || \"\";\n    return \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n  }\n  function items() {\n    var query = contextQuery();\n    return [\n      { key: \"home\", icon: \"home\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"records\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"quick\", icon: \"plus\", label: \"입력\", href: \"/app?\" + query + \"&quick=1#quick\", quick: true },\n      { key: \"budgets\", icon: \"budget\", label: \"예산\", href: \"/budgets?\" + query },\n      { key: \"menu\", icon: \"more\", label: \"전체\", href: \"/menu?\" + query },\n    ];\n  }\n  function activeKey() {\n    var path = String(location.pathname || \"\");\n    var params = new URLSearchParams(location.search);\n    if (path.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (path === \"/my/analysis\") return params.get(\"view\") === \"report\" ? \"analysis\" : \"stats\";\n    if (path.indexOf(\"budgets\") >= 0) return \"budgets\";\n    if (path === \"/menu\") return \"menu\";\n    if (path === \"/my/households\") return \"my-households\";\n    if (path === \"/my/members\") return \"members\";\n    if (path === \"/my/groups\") return \"groups\";\n    if (path === \"/my/backup\") return params.get(\"mode\") === \"import\" || location.hash === \"#myImportForm\" ? \"import\" : \"backup\";\n    if (path === \"/payment-methods\") return \"payment-methods\";\n    if (path === \"/reserve-plans\") return \"reserve-plans\";\n    if (path === \"/reports\") return \"reports\";\n    if (path === \"/annual\" || path === \"/annual-report\") return \"annual\";\n    if (path === \"/goals\" || path === \"/savings-goals\") return \"goals\";\n    if ([\"/budget-alerts\", \"/today-budget\", \"/monthly-forecast\", \"/fixed-preview\"].indexOf(path) >= 0) return \"budget-alerts\";\n    if (path === \"/smart-tools\" || path === \"/my/premium\") return \"smart-tools\";\n    if (path === \"/keyword-guide\" || path === \"/categories\") return \"categories\";\n    if (path === \"/my/backup-login\") return \"backup-login\";\n    if (path === \"/app\" && params.get(\"view\") === \"calendar\") return \"calendar\";\n    if (path === \"/app\" && (location.hash === \"#feed\" || params.get(\"tab\") === \"transactions\")) return \"records\";\n    if (path === \"/app\") return \"home\";\n    return \"\";\n  }\n  function render(nav) {\n    var active = activeKey();\n    nav.setAttribute(\"aria-label\", \"모바일 주요 메뉴\");\n    nav.innerHTML = items().map(function(item) {\n      var on = item.key === active;\n      var classes = (on ? \"active \" : \"\") + (item.quick ? \"abNavQuickInput\" : \"\");\n      return '<a data-key=\"' + item.key + '\" class=\"' + classes.trim() + '\" ' + (item.quick ? 'data-ab-quick-open ' : '') + (on ? 'aria-current=\"page\" ' : \"\") + 'href=\"' + item.href + '\"><i>' + iconSvg(item.icon) + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n  function hydrateIcons() {\n    Array.from(document.querySelectorAll(\"[data-ab-nav-icon]\")).forEach(function(target) {\n      target.innerHTML = iconSvg(target.getAttribute(\"data-ab-nav-icon\") || \"home\");\n    });\n  }\n  var mobileMenuReturnFocus = null;\n  function syncActiveNavigation() {\n    var active = activeKey();\n    var sidebarActive = active === \"home\" ? \"app\" : active;\n    Array.from(document.querySelectorAll(\".abLayoutNav a[data-key]\")).forEach(function(link) {\n      var on = link.getAttribute(\"data-key\") === sidebarActive;\n      link.classList.toggle(\"active\", on);\n      if (on) {\n        link.setAttribute(\"aria-current\", \"page\");\n        var group = link.closest(\"details.abNavGroup\");\n        if (group) group.open = true;\n      } else link.removeAttribute(\"aria-current\");\n    });\n    Array.from(document.querySelectorAll(\".abNavBottom a[data-key]\")).forEach(function(link) {\n      var key = link.getAttribute(\"data-key\") || \"\";\n      var on = key === active || (key === \"home\" && active === \"app\") || (key === \"records\" && active === \"calendar\") || (key === \"stats\" && active === \"analysis\");\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n  function syncMobileMenu(open) {\n    document.body.classList.toggle(\"abMobileNavOpen\", !!open);\n    var button = document.getElementById(\"abMobileMenuButton\");\n    if (button) button.setAttribute(\"aria-expanded\", open ? \"true\" : \"false\");\n    var drawer = document.getElementById(\"abDesktopSidebar\");\n    if (drawer && window.matchMedia && window.matchMedia(\"(max-width:899px)\").matches) drawer.setAttribute(\"aria-hidden\", open ? \"false\" : \"true\");\n    if (open) {\n      mobileMenuReturnFocus = document.activeElement;\n      var activeLink = drawer && drawer.querySelector('a[aria-current=\"page\"]');\n      var target = activeLink || (drawer && drawer.querySelector(\"a,summary,button\"));\n      if (target && target.focus) target.focus();\n    } else if (mobileMenuReturnFocus && mobileMenuReturnFocus.focus) {\n      mobileMenuReturnFocus.focus();\n      mobileMenuReturnFocus = null;\n    }\n  }\n  function syncSideNav(collapsed) {\n    document.body.classList.toggle(\"abNavCollapsed\", !!collapsed);\n    var button = document.getElementById(\"abDesktopNavToggle\");\n    if (button) {\n      button.setAttribute(\"aria-expanded\", collapsed ? \"false\" : \"true\");\n      button.setAttribute(\"aria-label\", collapsed ? \"사이드바 펼치기\" : \"사이드바 접기\");\n    }\n  }\n  function bindShell() {\n    window.syncAbMobileMenu = syncMobileMenu;\n    window.syncAbSideNav = syncSideNav;\n    window.toggleAbSideNav = function() {\n      var collapsed = !document.body.classList.contains(\"abNavCollapsed\");\n      syncSideNav(collapsed);\n      try { localStorage.setItem(\"abNavCollapsed\", collapsed ? \"1\" : \"0\"); } catch (_error) {}\n    };\n    window.toggleAbMobileNav = function() { syncMobileMenu(!document.body.classList.contains(\"abMobileNavOpen\")); };\n    try { syncSideNav(localStorage.getItem(\"abNavCollapsed\") === \"1\"); } catch (_error) { syncSideNav(false); }\n    var mobileMedia = window.matchMedia ? window.matchMedia(\"(max-width:899px)\") : null;\n    var syncShellMedia = function() {\n      var drawer = document.getElementById(\"abDesktopSidebar\");\n      if (!drawer) return;\n      if (mobileMedia && mobileMedia.matches) drawer.setAttribute(\"aria-hidden\", document.body.classList.contains(\"abMobileNavOpen\") ? \"false\" : \"true\");\n      else {\n        document.body.classList.remove(\"abMobileNavOpen\");\n        drawer.removeAttribute(\"aria-hidden\");\n        var button = document.getElementById(\"abMobileMenuButton\");\n        if (button) button.setAttribute(\"aria-expanded\", \"false\");\n      }\n    };\n    syncShellMedia();\n    if (mobileMedia) {\n      if (typeof mobileMedia.addEventListener === \"function\") mobileMedia.addEventListener(\"change\", syncShellMedia);\n      else if (typeof mobileMedia.addListener === \"function\") mobileMedia.addListener(syncShellMedia);\n    }\n    document.addEventListener(\"click\", function(event) {\n      var link = event.target && event.target.closest && event.target.closest(\".abLayoutNav a\");\n      if (link && window.matchMedia && window.matchMedia(\"(max-width:899px)\").matches) { syncMobileMenu(false); return; }\n      var drawer = event.target && event.target.closest && event.target.closest(\".abLayoutNav\");\n      var top = event.target && event.target.closest && event.target.closest(\".abNavMobileTop\");\n      if (document.body.classList.contains(\"abMobileNavOpen\") && !drawer && !top) syncMobileMenu(false);\n    });\n    document.addEventListener(\"keydown\", function(event) {\n      if (event.key === \"Escape\") { syncMobileMenu(false); return; }\n      if (event.key !== \"Tab\" || !document.body.classList.contains(\"abMobileNavOpen\")) return;\n      var drawer = document.getElementById(\"abDesktopSidebar\");\n      if (!drawer) return;\n      var focusable = Array.from(drawer.querySelectorAll(\"a,button,summary\")).filter(function(node) { return node.offsetParent !== null && !node.hasAttribute(\"disabled\"); });\n      if (!focusable.length) return;\n      var first = focusable[0], last = focusable[focusable.length - 1];\n      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }\n      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }\n    });\n  }\n  var globalActionReturnFocus = null;\n  function globalActionMarkup() {\n    return '<div class=\"abGlobalActions\" data-ab-quick-dock aria-label=\"빠른 실행\">' +\n      '<button type=\"button\" class=\"abGlobalAction\" data-abv5-search-open>' + iconSvg(\"search\") + '<span>거래 검색</span></button>' +\n      '<a class=\"abGlobalAction abGlobalActionPrimary abGlobalActionQuick\" data-ab-global-direct=\"quick\" data-ab-quick-open href=\"/app?' + contextQuery() + '#add\">' + iconSvg(\"plus\") + '<span>빠른 입력</span></a>' +\n      '<button type=\"button\" class=\"abGlobalAction\" data-abv5-notif-open aria-label=\"알림 센터\">' + iconSvg(\"bell\") + '<span>알림</span><span class=\"abV5NotifBadge\" hidden></span></button>' +\n      '<button type=\"button\" class=\"abGlobalAction\" data-ab-global-open=\"appearance\">' + iconSvg(\"palette\") + '<span>화면 설정</span></button>' +\n      // V22.8.87 M1: 모바일 상단바의 \"작업\" 버튼을 뺐다. 그 버튼이 열던 목록은\n      // 검색·알림·화면 설정 셋이었고, 셋 다 이제 전체 메뉴 서랍 안에 직접 놓인다.\n      // 상단바에 아이콘을 쌓으면 좁은 화면에서 가계부 이름과 자리를 다툰다.\n      '</div>';\n  }\n  function dialogMarkup() {\n    return '<dialog id=\"abGlobalActionDialog\" class=\"abGlobalDialog\" aria-labelledby=\"abGlobalDialogTitle\">' +\n      '<header class=\"abGlobalDialogHeader\"><div><h2 id=\"abGlobalDialogTitle\">공통 작업</h2><p id=\"abGlobalDialogDescription\">현재 가계부와 기준 월을 유지합니다.</p></div><button type=\"button\" class=\"abGlobalDialogClose\" data-ab-global-close aria-label=\"닫기\">×</button></header>' +\n      '<div class=\"abGlobalDialogBody\" data-ab-global-panel=\"actions\"><div class=\"abGlobalActionGrid\">' +\n      '<button type=\"button\" class=\"abGlobalActionChoice\" data-abv5-search-open>' + iconSvg(\"search\") + '<span>거래 검색</span></button>' +\n      '<a class=\"abGlobalActionChoice\" data-ab-quick-open href=\"/app?' + contextQuery() + '#add\">' + iconSvg(\"plus\") + '<span>빠른 입력</span></a>' +\n      '<button type=\"button\" class=\"abGlobalActionChoice\" data-abv5-notif-open>' + iconSvg(\"bell\") + '<span>알림 센터</span><span class=\"abV5NotifBadge\" hidden></span></button>' +\n      '<button type=\"button\" class=\"abGlobalActionChoice\" data-ab-global-open=\"appearance\">' + iconSvg(\"palette\") + '<span>화면 설정</span></button>' +\n      '</div></div>' +\n      '<div class=\"abGlobalDialogBody\" data-ab-global-panel=\"appearance\" hidden><div class=\"abGlobalAppearance\"><div class=\"abGlobalAppearanceRow\"><b>화면 모드</b><div class=\"abGlobalAppearanceChoices\" role=\"group\" aria-label=\"화면 모드\"><button type=\"button\" data-ab-theme-choice=\"light\" aria-pressed=\"false\">라이트</button><button type=\"button\" data-ab-theme-choice=\"dark\" aria-pressed=\"false\">다크</button></div></div><div class=\"abGlobalAppearanceRow\"><b>컬러톤</b><div class=\"abGlobalAppearanceChoices\" role=\"group\" aria-label=\"컬러톤\"><button type=\"button\" data-ab-tone-choice=\"blue\" aria-pressed=\"false\">블루</button><button type=\"button\" data-ab-tone-choice=\"emerald\" aria-pressed=\"false\">그린</button><button type=\"button\" data-ab-tone-choice=\"violet\" aria-pressed=\"false\">바이올렛</button><button type=\"button\" data-ab-tone-choice=\"amber\" aria-pressed=\"false\">앰버</button></div></div><p class=\"abGlobalAppearanceNote\">설정은 이 브라우저에 저장되며 모든 로그인 후 화면에 적용됩니다.</p></div></div>' +\n      '</dialog>';\n  }\n  function openGlobalAction(panelName, trigger) {\n    var dialog = document.getElementById(\"abGlobalActionDialog\");\n    if (!dialog) return;\n    if (!dialog.open) globalActionReturnFocus = trigger || document.activeElement;\n    Array.from(dialog.querySelectorAll(\"[data-ab-global-panel]\")).forEach(function(panel) { panel.hidden = panel.getAttribute(\"data-ab-global-panel\") !== panelName; });\n    var titles = { actions: [\"공통 작업\", \"현재 가계부와 기준 월을 유지합니다.\"], appearance: [\"화면 설정\", \"라이트·다크 모드와 포인트 컬러를 선택합니다.\"] };\n    var copy = titles[panelName] || titles.actions;\n    var title = document.getElementById(\"abGlobalDialogTitle\");\n    var description = document.getElementById(\"abGlobalDialogDescription\");\n    if (title) title.textContent = copy[0];\n    if (description) description.textContent = copy[1];\n    document.body.classList.add(\"abGlobalDialogOpen\");\n    if (typeof dialog.showModal === \"function\" && !dialog.open) dialog.showModal();\n    else dialog.setAttribute(\"open\", \"\");\n    var focusTarget = dialog.querySelector('[data-ab-global-panel=\"' + panelName + '\"] button, [data-ab-global-panel=\"' + panelName + '\"] a');\n    if (focusTarget && focusTarget.focus) focusTarget.focus();\n  }\n  function closeGlobalAction() {\n    var dialog = document.getElementById(\"abGlobalActionDialog\");\n    if (!dialog) return;\n    if (typeof dialog.close === \"function\" && dialog.open) dialog.close();\n    else dialog.removeAttribute(\"open\");\n    document.body.classList.remove(\"abGlobalDialogOpen\");\n    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();\n    globalActionReturnFocus = null;\n  }\n  function restoreGlobalActionFocus() {\n    document.body.classList.remove(\"abGlobalDialogOpen\");\n    if (globalActionReturnFocus && globalActionReturnFocus.focus) globalActionReturnFocus.focus();\n    globalActionReturnFocus = null;\n  }\n  // V22.8.87 M1: 예전에는 \"작업\" 버튼을 상단바로 옮겨 붙였다. 이제 그 버튼이 없고,\n  // 검색·알림·화면 설정 셋을 전체 메뉴 서랍 안으로 옮긴다.\n  //\n  // 복제가 아니라 이동을 쓴다: 검색·알림 트리거는 첫 번째 요소에만 묶일 수 있어\n  // 복제본은 눌러도 아무 일이 없는 채로 조용히 남을 수 있다.\n  // 대신 되돌리는 길을 만든다 — 이 셋은 데스크톱 독에서도 쓰는 요소라, 창을 넓혔을 때\n  // 서랍에 남아 있으면 데스크톱에서 사라진다. 폭이 바뀔 때마다 제자리를 다시 잡는다.\n  var GLOBAL_ACTION_ORDER = [\"[data-abv5-search-open]\", \"[data-ab-quick-open]\", \"[data-abv5-notif-open]\", \"[data-ab-global-open='appearance']\"];\n  var mobileActionQuery = window.matchMedia ? window.matchMedia(\"(max-width:899px)\") : null;\n  function findGlobalAction(selector) {\n    return document.querySelector(\".abGlobalActions \" + selector) || document.querySelector(\".abNavDrawerActions \" + selector);\n  }\n  function syncGlobalActionPlacement() {\n    var actions = document.querySelector(\".abGlobalActions\");\n    var footer = document.querySelector(\".abLayoutNav .abNavFooter\");\n    if (!actions || !footer) return;\n    var wantDrawer = mobileActionQuery ? mobileActionQuery.matches : false;\n    var group = footer.querySelector(\".abNavDrawerActions\");\n    if (wantDrawer) {\n      if (!group) {\n        group = document.createElement(\"div\");\n        group.className = \"abNavDrawerActions\";\n        group.setAttribute(\"aria-label\", \"빠른 실행\");\n        footer.insertBefore(group, footer.firstChild);\n      }\n      // 빠른 입력은 옮기지 않는다 — 모바일에서는 하단 탭 가운데 ＋ 가 그 일을 한다.\n      [\"[data-abv5-search-open]\", \"[data-abv5-notif-open]\", \"[data-ab-global-open='appearance']\"].forEach(function(selector) {\n        var element = findGlobalAction(selector);\n        if (element && element.parentNode !== group) group.appendChild(element);\n      });\n      return;\n    }\n    if (!group) return;\n    // 데스크톱으로 돌아갈 때는 원래 순서대로 다시 붙인다. 옮겨 온 것만 되돌리면\n    // 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.\n    GLOBAL_ACTION_ORDER.forEach(function(selector) {\n      var element = findGlobalAction(selector);\n      if (element) actions.appendChild(element);\n    });\n    group.remove();\n  }\n  function bindGlobalActions() {\n    if (!document.querySelector(\".abLayoutNav\")) return;\n    if (document.getElementById(\"abGlobalActionDialog\")) return;\n    document.body.insertAdjacentHTML(\"beforeend\", globalActionMarkup() + dialogMarkup());\n    syncGlobalActionPlacement();\n    if (mobileActionQuery) {\n      if (mobileActionQuery.addEventListener) mobileActionQuery.addEventListener(\"change\", syncGlobalActionPlacement);\n      else if (mobileActionQuery.addListener) mobileActionQuery.addListener(syncGlobalActionPlacement);\n    }\n    var dialog = document.getElementById(\"abGlobalActionDialog\");\n    document.addEventListener(\"click\", function(event) {\n      var v5Action = event.target && event.target.closest && event.target.closest(\"[data-abv5-search-open],[data-abv5-notif-open],[data-ab-quick-open]\");\n      if (v5Action && dialog && dialog.open) closeGlobalAction();\n      var open = event.target && event.target.closest && event.target.closest(\"[data-ab-global-open]\");\n      if (open) { openGlobalAction(open.getAttribute(\"data-ab-global-open\") || \"actions\", open); return; }\n      var close = event.target && event.target.closest && event.target.closest(\"[data-ab-global-close]\");\n      if (close) closeGlobalAction();\n    });\n    if (dialog) {\n      dialog.addEventListener(\"cancel\", function() { document.body.classList.remove(\"abGlobalDialogOpen\"); });\n      dialog.addEventListener(\"close\", restoreGlobalActionFocus);\n      dialog.addEventListener(\"click\", function(event) { if (event.target === dialog) closeGlobalAction(); });\n    }\n    document.addEventListener(\"keydown\", function(event) {\n      var target = event.target;\n      var editing = target && (target.matches && target.matches(\"input,textarea,select,[contenteditable=true]\"));\n      if (event.key === \"Escape\" && dialog && dialog.open) { event.preventDefault(); closeGlobalAction(); return; }\n      if (event.key === \"/\" && !event.ctrlKey && !event.metaKey && !event.altKey && !editing) {\n        var searchTrigger = document.querySelector(\"[data-abv5-search-open]\");\n        if (searchTrigger) { event.preventDefault(); searchTrigger.click(); }\n      }\n    });\n  }\n  // V22.8.86 지연 로드 계약(작업지시서 4.5). 수정 폼은 초기 HTML 에 없다.\n  // <details> 를 처음 열 때 조각을 받아 슬롯을 채운다. 실패하면 슬롯에 남아 있는\n  // 링크를 그대로 두어 화면 이동으로 도달할 수 있게 한다 — 되돌아갈 길을 지운 뒤\n  // 실패하는 것이 가장 나쁘다. 이 스크립트가 아예 안 와도 링크는 처음부터 있다.\n  function bindDeferredEditForms(root) {\n    var scope = root && root.querySelectorAll ? root : document;\n    Array.from(scope.querySelectorAll(\"details[data-ab-edit-src]\")).forEach(function (details) {\n      if (details.getAttribute(\"data-ab-edit-bound\") === \"1\") return;\n      details.setAttribute(\"data-ab-edit-bound\", \"1\");\n      details.addEventListener(\"toggle\", function () {\n        if (!details.open) return;\n        if (details.getAttribute(\"data-ab-edit-state\")) return;\n        var slot = details._abEditSlot || details.querySelector(\".v8-editSlot\");\n        var src = details.getAttribute(\"data-ab-edit-src\");\n        if (!slot || !src) return;\n        details.setAttribute(\"data-ab-edit-state\", \"loading\");\n        slot.setAttribute(\"aria-busy\", \"true\");\n        slot.querySelectorAll(\".abEditStatus,[data-ab-edit-retry]\").forEach(function(node) { node.remove(); });\n        var status = document.createElement(\"p\");\n        status.className = \"abEditStatus\";\n        status.setAttribute(\"role\", \"status\");\n        status.textContent = \"수정 항목을 불러오는 중입니다.\";\n        slot.prepend(status);\n        fetch(src + (src.indexOf(\"?\") >= 0 ? \"&\" : \"?\") + \"fragment=1\", { credentials: \"same-origin\", headers: { \"x-requested-with\": \"fetch\" } })\n          .then(function (response) {\n            if (!response.ok) throw new Error(\"status \" + response.status);\n            return response.text();\n          })\n          .then(function (html) {\n            if (!html) throw new Error(\"empty\");\n            slot.innerHTML = html;\n            slot.removeAttribute(\"aria-busy\");\n            details.setAttribute(\"data-ab-edit-state\", \"ready\");\n            var first = slot.querySelector('select:not(:disabled),input:not([type=\"hidden\"]):not(:disabled),button:not(:disabled)');\n            if (first && details.open && slot.getClientRects().length && typeof first.focus === \"function\") first.focus();\n          })\n          .catch(function () {\n            // 링크는 지우지 않았으므로 그대로 남는다. 재시도할 수 있게 상태만 푼다.\n            slot.removeAttribute(\"aria-busy\");\n            details.removeAttribute(\"data-ab-edit-state\");\n            status.textContent = \"수정 항목을 불러오지 못했습니다. 다시 시도하거나 수정 화면을 열어 주세요.\";\n            var retry = document.createElement(\"button\");\n            retry.type = \"button\";\n            retry.setAttribute(\"data-ab-edit-retry\", \"\");\n            retry.textContent = \"다시 시도\";\n            retry.addEventListener(\"click\", function() {\n              status.remove(); retry.remove();\n              details.open = false;\n              requestAnimationFrame(function() { details.open = true; });\n            });\n            slot.appendChild(retry);\n          });\n      });\n    });\n  }\n\n  // V22.8.93 (9장): 서버는 완성된 글자를 보내고(9.3), 여기서는 **값이 처음 바뀌는\n  // 순간에만** 그 자리를 <number-flow> 로 바꾼다. 그래서 JS 가 없거나 늦어도 화면은\n  // 처음부터 완성 상태이고, 첫 진입에서 0부터 올라오는 카운트업도 일어나지 않는다(9.2).\n  // 라이브러리는 초기 HTML 에 없다 — 첫 값 변화 때 import() 로만 내려온다(9.4).\n  var abFlowModule = null;\n  function abLoadNumberFlow() {\n    if (abFlowModule) return abFlowModule;\n    abFlowModule = import(\"/assets/number-flow-v22893.mjs\")\n      .then(function () { return customElements.whenDefined(\"number-flow\"); });\n    return abFlowModule;\n  }\n  function abNumValue(node) {\n    var raw = node && node.getAttribute ? node.getAttribute(\"data-ab-num\") : \"\";\n    var value = Number(raw);\n    return raw === \"\" || raw === null || !isFinite(value) ? null : value;\n  }\n  // 9.5: 그림자 DOM 안에는 0~9 자릿수 더미가 들어 있어 그대로 읽히면 뜻이 없는 소리가\n  // 된다. 단위까지 포함한 완성 문장을 값이 바뀔 때마다 다시 붙인다.\n  function abFlowLabel(host, text) {\n    var label = (host.getAttribute(\"data-ab-num-label\") || \"\").trim();\n    if (!label) {\n      var box = host.closest(\".homeBudget,.homeDailyPlan,.budgetP0\");\n      var lead = box && box.querySelector(\"span\");\n      label = lead ? (lead.textContent || \"\").trim() : \"\";\n    }\n    return (label ? label + \" \" : \"\") + text + (host.getAttribute(\"data-ab-num-unit\") || \"\");\n  }\n  function abUpgradeNumber(host, next) {\n    return abLoadNumberFlow().then(function () {\n      var flow = host.__abFlow;\n      if (!flow) {\n        flow = document.createElement(\"number-flow\");\n        // 9.5: 설정은 업그레이드 후 · update() 전. 엘리먼트가 정의되기 전에 대입하면\n        // 세터에 닿지 않고 죽은 속성으로 남는다 — whenDefined 뒤에 넣는 이유다.\n        var spin = { duration: 620, easing: \"cubic-bezier(.2,.8,.2,1)\" };\n        flow.transformTiming = spin;\n        flow.spinTiming = spin;\n        flow.opacityTiming = { duration: 340, easing: \"ease-out\" };\n        flow.locales = \"ko-KR\";\n        // 퍼센트는 비율을 받는다. 29 를 넘기면 Intl 이 다시 100 을 곱해 2,900% 가 된다.\n        if (host.getAttribute(\"data-ab-num-style\") === \"percent\") flow.format = { style: \"percent\" };\n        flow.style.lineHeight = \"0.85\";\n        flow.style.fontVariantNumeric = \"tabular-nums\";\n        host.textContent = \"\";\n        host.appendChild(flow);\n        host.__abFlow = flow;\n        // 첫 교체는 지금 화면에 있는 값에서 출발해야 굴러가는 방향이 뜻과 맞는다.\n        flow.update(abNumValue(host));\n      }\n      flow.update(next);\n      host.setAttribute(\"aria-label\", abFlowLabel(host, flow.textContent || String(next)));\n      host.setAttribute(\"data-ab-num\", String(next));\n    });\n  }\n  // 밖에서 값을 바꿀 때 쓰는 하나의 입구. 값이 그대로면 아무것도 하지 않는다 —\n  // 바뀌지 않은 숫자를 굴리면 \"무언가 달라졌다\"는 거짓 신호가 된다.\n  window.abSetNumber = function (host, next) {\n    if (!host || !isFinite(Number(next))) return;\n    if (abNumValue(host) === Number(next)) return;\n    abUpgradeNumber(host, Number(next));\n  };\n  // 8.2: 저장하고 돌아오면 게이지가 이전 값에서 출발해 실제 값으로 움직인다. 서버가\n  // 담아 준 이전 값으로 한 프레임 되돌린 뒤 실제 값을 돌려준다. 동작 줄이기가 켜져\n  // 있으면 CSS 쪽 전환이 0 이라 결과만 바뀐다(전환을 건너뛴 것과 같다).\n  function bindGaugeHandoff(root) {\n    Array.from((root || document).querySelectorAll(\".homeProgress i[data-ab-prev-used]\")).forEach(function (bar) {\n      if (bar.__abHandoff) return;\n      bar.__abHandoff = true;\n      var target = bar.style.width;\n      bar.style.width = bar.getAttribute(\"data-ab-prev-used\") + \"%\";\n      requestAnimationFrame(function () {\n        requestAnimationFrame(function () { bar.style.width = target; });\n      });\n    });\n  }\n\n  // V22.8.95 (10장): 데스크톱 커서 로더. 켜는 조건 넷을 **모두** 만족할 때만\n  // 스크립트를 내려받는다. 터치 기기와 899px 이하에서는 네트워크에 아무것도 뜨지\n  // 않는다(10.5). 초기 HTML 증가 0바이트 — 로더는 이미 내려가던 이 자산 안에 있다.\n  var abCursorModule = null;\n  var abCursorMotion = null;\n  function abCursorAllowed() {\n    if (!window.matchMedia) return false;\n    if (!window.matchMedia(\"(hover:hover) and (pointer:fine)\").matches) return false;\n    if (abCursorMotion && abCursorMotion.matches) return false;\n    return Math.min(window.innerWidth || 0, (document.documentElement || {}).clientWidth || 0) >= 900;\n  }\n  function abCursorStop() {\n    if (abCursorModule) abCursorModule.then(function (mod) { if (mod && mod.stop) mod.stop(); });\n  }\n  function abCursorStart() {\n    if (abCursorModule || !abCursorAllowed()) return;\n    // 스위치는 (가계부·사용자) 설정이다. 기본은 켜짐이고, 못 읽으면 켜지 않는다 —\n    // 꺼 둔 사람에게 잘못 켜는 쪽이 그 반대보다 나쁘다.\n    abCursorModule = fetch(\"/cursor-preference\" + location.search, { credentials: \"same-origin\" })\n      .then(function (response) { return response.ok ? response.json() : { on: false }; })\n      .then(function (pref) {\n        if (!pref || pref.on === false || !abCursorAllowed()) return null;\n        return import(\"/assets/ab-cursor-v22895.mjs\").then(function (mod) { mod.start(); return mod; });\n      })\n      .catch(function () { return null; });\n  }\n  function bindCursorEffect() {\n    if (!window.matchMedia) return;\n    abCursorMotion = window.matchMedia(\"(prefers-reduced-motion:reduce)\");\n    // 동작 줄이기를 켜면 즉시 해제하고 캔버스를 지운다. 다시 끄면 되살아난다.\n    var onMotion = function () { if (abCursorMotion.matches) { abCursorStop(); abCursorModule = null; } };\n    if (abCursorMotion.addEventListener) abCursorMotion.addEventListener(\"change\", onMotion);\n    else if (abCursorMotion.addListener) abCursorMotion.addListener(onMotion);\n    if (!abCursorAllowed()) return;\n    window.addEventListener(\"mousemove\", abCursorStart, { once: true });\n  }\n\n  function apply() {\n    bindGlobalActions();\n    Array.from(document.querySelectorAll(\"nav.bottom,nav.abNavBottom,nav.abUxBottom\")).forEach(render);\n    hydrateIcons();\n    syncActiveNavigation();\n    bindDeferredEditForms(document);\n    bindGaugeHandoff(document);\n  }\n  bindCursorEffect();\n  bindShell();\n  apply();\n  window.addEventListener(\"hashchange\", apply);\n  window.addEventListener(\"pageshow\", apply);\n})();","etag":"\"accountbook-nav-v22925-js\""},"/assets/accountbook-v5-v22929.js":{"body":"(function(){try{if(!document.getElementById(\"abV5Search\"))document.body.insertAdjacentHTML(\"beforeend\",\"<div id=\\\"abV5Search\\\" class=\\\"abV5SearchOverlay\\\" hidden aria-hidden=\\\"true\\\"><div class=\\\"abV5SearchScrim\\\" data-abv5-search-close></div><div class=\\\"abV5SearchPanel\\\" role=\\\"dialog\\\" aria-modal=\\\"true\\\" aria-labelledby=\\\"abV5SearchTitle\\\" aria-describedby=\\\"abV5SearchHint\\\" tabindex=\\\"-1\\\"><h2 id=\\\"abV5SearchTitle\\\" class=\\\"srOnly\\\">통합 검색</h2><div class=\\\"abV5SearchBar\\\"><span class=\\\"abV5SearchIcon\\\" aria-hidden=\\\"true\\\">🔍</span><input id=\\\"abV5SearchInput\\\" type=\\\"search\\\" autocomplete=\\\"off\\\" placeholder=\\\"메모·분류·결제수단·금액 검색\\\" aria-label=\\\"검색어\\\"/><button type=\\\"button\\\" class=\\\"abV5SearchClose\\\" data-abv5-search-close aria-label=\\\"검색 닫기\\\">Esc</button></div><div id=\\\"abV5SearchResults\\\" class=\\\"abV5SearchResults\\\" role=\\\"list\\\" aria-live=\\\"polite\\\"></div><div id=\\\"abV5SearchHint\\\" class=\\\"abV5SearchHint\\\">전체 거래에서 찾아요 · <b>Ctrl/⌘K</b></div></div></div>\");if(!document.getElementById(\"abV5Notif\"))document.body.insertAdjacentHTML(\"beforeend\",\"<div id=\\\"abV5Notif\\\" class=\\\"abV5NotifOverlay\\\" hidden aria-hidden=\\\"true\\\"><div class=\\\"abV5NotifScrim\\\" data-abv5-notif-close></div><div class=\\\"abV5NotifPanel\\\" role=\\\"dialog\\\" aria-modal=\\\"true\\\" aria-labelledby=\\\"abV5NotifTitle\\\" tabindex=\\\"-1\\\"><div class=\\\"abV5NotifHead\\\"><b id=\\\"abV5NotifTitle\\\">알림</b><button type=\\\"button\\\" class=\\\"abV5NotifClose\\\" data-abv5-notif-close aria-label=\\\"알림 닫기\\\">Esc</button></div><div id=\\\"abV5NotifList\\\" class=\\\"abV5NotifList\\\" aria-live=\\\"polite\\\"></div></div></div>\");}catch(e){}})();(function accountbookSearchClientMain() {\n  var overlay = document.getElementById(\"abV5Search\");\n  if (!overlay) return;\n  var input = document.getElementById(\"abV5SearchInput\");\n  var resultsBox = document.getElementById(\"abV5SearchResults\");\n  var timer = null;\n  var lastQ = null;\n  var favIds = {};\n  var favList = [];\n  var returnFocus = null;\n  var panel = overlay.querySelector(\".abV5SearchPanel\");\n  function favKeyOf(r) {\n    return (r.transaction_date || \"\") + \"|\" + (r.type || \"expense\") + \"|\" + (r.amount || 0) + \"|\" + String(r.memo || r.category || \"\").trim();\n  }\n  function currentHousehold() {\n    try {\n      var p = new URLSearchParams(location.search);\n      return p.get(\"household\") || p.get(\"household_id\") || \"\";\n    } catch (e) { return \"\"; }\n  }\n  function isOpen() { return !overlay.hidden; }\n  function fmt(n) { try { return Number(n || 0).toLocaleString(\"ko-KR\"); } catch (e) { return String(n || 0); } }\n  function setMessage(text) {\n    resultsBox.textContent = \"\";\n    var d = document.createElement(\"div\");\n    d.className = \"abV5SearchEmpty\";\n    d.textContent = text;\n    resultsBox.appendChild(d);\n  }\n  function focusable(container) {\n    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])')).filter(function (node) { return node.offsetParent !== null; });\n  }\n  function open(trigger) {\n    if (!isOpen()) returnFocus = trigger || document.activeElement;\n    overlay.hidden = false;\n    overlay.setAttribute(\"aria-hidden\", \"false\");\n    document.body.classList.add(\"abV5SearchOpen\");\n    lastQ = null;\n    setTimeout(function () { if (input) { input.focus(); input.select(); } }, 30);\n    run(input ? input.value : \"\");\n    loadFavorites();\n  }\n  function close() {\n    overlay.hidden = true;\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    document.body.classList.remove(\"abV5SearchOpen\");\n    if (returnFocus && returnFocus.focus) returnFocus.focus();\n    returnFocus = null;\n  }\n  function buildRow(r) {\n    var row = document.createElement(\"div\");\n    row.className = \"abV5SearchRow\";\n    var a = document.createElement(\"a\");\n    a.className = \"abV5SearchRowLink\";\n    a.href = \"/app?month=\" + encodeURIComponent(r.month || \"\")\n      + (currentHousehold() ? \"&household_id=\" + encodeURIComponent(currentHousehold()) : \"\")\n      + (r.transaction_date ? \"&date=\" + encodeURIComponent(r.transaction_date) : \"\")\n      + \"&abfm=\" + encodeURIComponent(r.memo || r.category || \"\")\n      + \"&abfa=\" + encodeURIComponent(String(r.amount || \"\"))\n      + \"#feed\";\n    a.setAttribute(\"role\", \"listitem\");\n    var main = document.createElement(\"div\");\n    main.className = \"abV5SearchRowMain\";\n    var memo = document.createElement(\"b\");\n    memo.textContent = r.memo || r.category || \"(메모 없음)\";\n    var meta = document.createElement(\"small\");\n    var parts = [];\n    if (r.transaction_date) parts.push(r.transaction_date);\n    if (r.category) parts.push(r.category);\n    if (r.payment_method) parts.push(r.payment_method);\n    if (r.member) parts.push(r.member);\n    meta.textContent = parts.join(\" · \");\n    main.appendChild(memo);\n    main.appendChild(meta);\n    var amt = document.createElement(\"span\");\n    amt.className = \"abV5SearchAmt \" + (r.type === \"income\" ? \"isIncome\" : \"isExpense\");\n    amt.textContent = (r.type === \"income\" ? \"+\" : \"-\") + fmt(r.amount) + \"원\";\n    a.appendChild(main);\n    a.appendChild(amt);\n    var star = document.createElement(\"button\");\n    star.type = \"button\";\n    var fk = favKeyOf(r);\n    star.className = \"abV5SearchFav\" + (favIds[fk] ? \" isFav\" : \"\");\n    star.setAttribute(\"aria-label\", \"즐겨찾기\");\n    star.setAttribute(\"aria-pressed\", favIds[fk] ? \"true\" : \"false\");\n    star.textContent = \"★\";\n    star.addEventListener(\"click\", function (ev) { ev.preventDefault(); ev.stopPropagation(); toggleFav(r, star); });\n    row.appendChild(a);\n    row.appendChild(star);\n    return row;\n  }\n  function render(data) {\n    resultsBox.textContent = \"\";\n    var list = (data && data.results) || [];\n    if (!list.length) { setMessage(\"검색 결과가 없어요.\"); return; }\n    if (data && data.has_more) {\n      var notice = document.createElement(\"p\");\n      notice.className = \"abV5SearchFavHead\";\n      notice.setAttribute(\"role\", \"status\");\n      notice.textContent = \"더 많은 결과가 있어 처음 50건만 표시합니다. 검색어를 더 구체적으로 입력해 주세요.\";\n      resultsBox.appendChild(notice);\n    }\n    list.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });\n  }\n  function renderFavorites() {\n    resultsBox.textContent = \"\";\n    if (!favList.length) { setMessage(\"메모·분류·결제수단·금액으로 검색하거나 ★로 자주 보는 거래를 즐겨찾기하세요.\"); return; }\n    var head = document.createElement(\"div\");\n    head.className = \"abV5SearchFavHead\";\n    head.textContent = \"즐겨찾기\";\n    resultsBox.appendChild(head);\n    favList.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });\n  }\n  function loadFavorites() {\n    var url = \"/u/api/favorites\";\n    var hh = currentHousehold();\n    if (hh) url += \"?household=\" + encodeURIComponent(hh);\n    fetch(url, { headers: { accept: \"application/json\" }, credentials: \"same-origin\" })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (json) {\n        favList = (json && json.favorites) || [];\n        favIds = {};\n        favList.forEach(function (f) { favIds[f.id] = true; });\n        if (isOpen() && !String((input && input.value) || \"\").trim()) renderFavorites();\n      })\n      .catch(function () {});\n  }\n  function toggleFav(r, btn) {\n    var fk = favKeyOf(r);\n    var on = !favIds[fk];\n    favIds[fk] = on;\n    if (btn) { btn.classList.toggle(\"isFav\", on); btn.setAttribute(\"aria-pressed\", on ? \"true\" : \"false\"); }\n    var body = on ? { household: currentHousehold(), id: fk, tx: { id: fk, type: r.type, amount: r.amount, memo: r.memo, category: r.category, payment_method: r.payment_method, transaction_date: r.transaction_date, month: r.month } } : { household: currentHousehold(), id: fk, remove: true };\n    fetch(\"/u/api/favorites\", { method: \"POST\", headers: { \"content-type\": \"application/json\", accept: \"application/json\" }, credentials: \"same-origin\", body: JSON.stringify(body) })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (json) { favList = (json && json.favorites) || favList; favIds = {}; favList.forEach(function (f) { favIds[f.id] = true; }); })\n      .catch(function () { favIds[fk] = !on; if (btn) { btn.classList.toggle(\"isFav\", !on); btn.setAttribute(\"aria-pressed\", !on ? \"true\" : \"false\"); } });\n  }\n  function run(q) {\n    var query = String(q || \"\").trim();\n    if (query === lastQ) return;\n    lastQ = query;\n    if (!query) { renderFavorites(); return; }\n    setMessage(\"검색 중…\");\n    var url = \"/u/api/tx/search?q=\" + encodeURIComponent(query);\n    var hh = currentHousehold();\n    if (hh) url += \"&household=\" + encodeURIComponent(hh);\n    fetch(url, { headers: { accept: \"application/json\" }, credentials: \"same-origin\" })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (data) { if (lastQ === query) render(data); })\n      .catch(function (err) { if (lastQ === query) setMessage(err === 401 ? \"로그인이 필요해요.\" : \"검색 중 문제가 생겼어요.\"); });\n  }\n  if (input) {\n    input.addEventListener(\"input\", function () {\n      clearTimeout(timer);\n      var v = input.value;\n      timer = setTimeout(function () { run(v); }, 350);\n    });\n  }\n  overlay.addEventListener(\"click\", function (ev) {\n    var t = ev.target;\n    if (t && t.closest && t.closest(\"[data-abv5-search-close]\")) { close(); }\n  });\n  document.addEventListener(\"keydown\", function (ev) {\n    var k = ev.key;\n    if ((ev.metaKey || ev.ctrlKey) && (k === \"k\" || k === \"K\")) {\n      ev.preventDefault();\n      if (isOpen()) { close(); } else { open(document.activeElement); }\n    } else if (k === \"Escape\" && isOpen()) {\n      ev.preventDefault();\n      close();\n    } else if (k === \"Tab\" && isOpen() && panel) {\n      var nodes = focusable(panel);\n      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }\n      var first = nodes[0], last = nodes[nodes.length - 1];\n      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }\n      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }\n    }\n  });\n  document.addEventListener(\"click\", function (ev) {\n    var btn = ev.target && ev.target.closest && ev.target.closest(\"[data-abv5-search-open]\");\n    if (!btn) return;\n    ev.preventDefault();\n    var focusTarget = btn.closest && btn.closest(\"#abGlobalActionDialog\")\n      ? document.querySelector('[data-ab-global-open=\"actions\"]') || btn\n      : btn;\n    open(focusTarget);\n  });\n  setMessage(\"메모·분류·결제수단·금액으로 검색해 보세요.\");\n  function tryFocusFromUrl() {\n    var p; try { p = new URLSearchParams(location.search); } catch (e) { return; }\n    var memo = (p.get(\"abfm\") || \"\").trim();\n    var amtDigits = (p.get(\"abfa\") || \"\").replace(/[^0-9]/g, \"\");\n    if (!memo && !amtDigits) return;\n    var tries = 0;\n    function attempt() {\n      tries += 1;\n      var candidates = document.querySelectorAll(\".txRow,.txItem,.timelineItem\");\n      var found = null;\n      for (var i = 0; i < candidates.length; i++) {\n        var node = candidates[i];\n        if (node.closest && node.closest(\"#abV5Search\")) continue;\n        var text = node.textContent || \"\";\n        var okMemo = !memo || text.indexOf(memo) >= 0;\n        var okAmt = !amtDigits || text.replace(/[^0-9]/g, \"\").indexOf(amtDigits) >= 0;\n        if (okMemo && okAmt) { found = node; break; }\n      }\n      if (found) {\n        try { found.scrollIntoView({ behavior: \"smooth\", block: \"center\" }); } catch (e) {}\n        found.classList.add(\"abV5Focus\");\n        setTimeout(function () { found.classList.remove(\"abV5Focus\"); }, 2600);\n        return;\n      }\n      if (tries < 12) setTimeout(attempt, 300);\n    }\n    attempt();\n  }\n  tryFocusFromUrl();\n})();(function accountbookNotifClientMain() {\n  var overlay = document.getElementById(\"abV5Notif\");\n  var listBox = document.getElementById(\"abV5NotifList\");\n  var badges = document.querySelectorAll(\".abV5NotifBadge\");\n  if (!overlay || !listBox) return;\n  var data = [];\n  var dismissed = {};\n  var returnFocus = null;\n  var panel = overlay.querySelector(\".abV5NotifPanel\");\n  function currentHousehold() {\n    try { var p = new URLSearchParams(location.search); return p.get(\"household\") || p.get(\"household_id\") || \"\"; } catch (e) { return \"\"; }\n  }\n  var storeKey = \"abV5NotifDismissed:\" + currentHousehold();\n  function loadDismissed() {\n    try {\n      var raw = localStorage.getItem(storeKey);\n      var arr = raw ? JSON.parse(raw) : [];\n      dismissed = {};\n      (arr || []).forEach(function (k) { dismissed[k] = true; });\n    } catch (e) { dismissed = {}; }\n  }\n  function saveDismissed() {\n    try { localStorage.setItem(storeKey, JSON.stringify(Object.keys(dismissed))); } catch (e) {}\n  }\n  function visible() { return data.filter(function (n) { return !dismissed[n.key]; }); }\n  function isOpen() { return !overlay.hidden; }\n  function focusable(container) {\n    return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])')).filter(function (node) { return node.offsetParent !== null; });\n  }\n  function setBadge() {\n    var n = visible().length;\n    Array.prototype.forEach.call(badges, function (b) {\n      if (n > 0) { b.textContent = n > 99 ? \"99+\" : String(n); b.hidden = false; }\n      else { b.hidden = true; }\n    });\n  }\n  function open(trigger) {\n    if (!isOpen()) returnFocus = trigger || document.activeElement;\n    overlay.hidden = false;\n    overlay.setAttribute(\"aria-hidden\", \"false\");\n    document.body.classList.add(\"abV5SearchOpen\");\n    renderList();\n    setTimeout(function () {\n      var nodes = panel ? focusable(panel) : [];\n      var target = nodes[0] || panel;\n      if (target && target.focus) target.focus();\n    }, 0);\n  }\n  function close() {\n    overlay.hidden = true;\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    document.body.classList.remove(\"abV5SearchOpen\");\n    if (returnFocus && returnFocus.focus) returnFocus.focus();\n    returnFocus = null;\n  }\n  function dismiss(key) { dismissed[key] = true; saveDismissed(); renderList(); setBadge(); renderBanner(); }\n  function renderList() {\n    listBox.textContent = \"\";\n    var list = visible();\n    if (!list.length) {\n      var e = document.createElement(\"div\");\n      e.className = \"abV5NotifEmpty\";\n      e.textContent = \"새 알림이 없어요.\";\n      listBox.appendChild(e);\n      return;\n    }\n    list.forEach(function (n) {\n      var item = document.createElement(\"div\");\n      item.className = \"abV5NotifItem lvl-\" + (n.level || \"info\");\n      var body = document.createElement(\"div\");\n      body.className = \"abV5NotifItemBody\";\n      var a = document.createElement(\"a\");\n      a.href = n.href || \"#\";\n      var b = document.createElement(\"b\"); b.textContent = n.title || \"\";\n      var s = document.createElement(\"span\"); s.textContent = n.body || \"\";\n      a.appendChild(b); a.appendChild(s);\n      body.appendChild(a);\n      var x = document.createElement(\"button\");\n      x.type = \"button\"; x.className = \"abV5NotifDismiss\"; x.setAttribute(\"aria-label\", \"이 알림 지우기\"); x.textContent = \"×\";\n      x.addEventListener(\"click\", function (ev) { ev.preventDefault(); ev.stopPropagation(); dismiss(n.key); });\n      item.appendChild(body); item.appendChild(x);\n      listBox.appendChild(item);\n    });\n  }\n  function renderBanner() {\n    var existing = document.getElementById(\"abV5Banner\");\n    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);\n    if (location.pathname !== \"/app\") return;\n    var list = visible();\n    var top = null;\n    for (var i = 0; i < list.length; i++) {\n      if (list[i].banner && (list[i].level === \"danger\" || list[i].level === \"warn\")) { top = list[i]; break; }\n    }\n    if (!top) return;\n    var bar = document.createElement(\"div\");\n    bar.id = \"abV5Banner\";\n    bar.className = \"abV5Banner lvl-\" + top.level;\n    var a = document.createElement(\"a\"); a.href = top.href || \"#\";\n    var b = document.createElement(\"b\"); b.textContent = top.title || \"\";\n    var s = document.createElement(\"span\"); s.textContent = top.body || \"\";\n    a.appendChild(b); a.appendChild(s);\n    var x = document.createElement(\"button\");\n    x.type = \"button\"; x.className = \"abV5BannerClose\"; x.setAttribute(\"aria-label\", \"배너 닫기\"); x.textContent = \"×\";\n    x.addEventListener(\"click\", function (ev) { ev.preventDefault(); dismiss(top.key); });\n    bar.appendChild(a); bar.appendChild(x);\n    document.body.appendChild(bar);\n  }\n  function load() {\n    var url = \"/u/api/notifications\";\n    var hh = currentHousehold();\n    if (hh) url += \"?household=\" + encodeURIComponent(hh);\n    fetch(url, { headers: { accept: \"application/json\" }, credentials: \"same-origin\" })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (json) { data = (json && json.notifications) || []; setBadge(); renderBanner(); if (isOpen()) renderList(); })\n      .catch(function () { data = []; setBadge(); });\n  }\n  document.addEventListener(\"click\", function (ev) {\n    var btn = ev.target && ev.target.closest && ev.target.closest(\"[data-abv5-notif-open]\");\n    if (!btn) return;\n    ev.preventDefault();\n    var focusTarget = btn.closest && btn.closest(\"#abGlobalActionDialog\")\n      ? document.querySelector('[data-ab-global-open=\"actions\"]') || btn\n      : btn;\n    if (isOpen()) close(); else open(focusTarget);\n  });\n  overlay.addEventListener(\"click\", function (ev) {\n    var t = ev.target;\n    if (t && t.closest && t.closest(\"[data-abv5-notif-close]\")) close();\n  });\n  document.addEventListener(\"keydown\", function (ev) {\n    if (ev.key === \"Escape\" && isOpen()) { ev.preventDefault(); close(); }\n    else if (ev.key === \"Tab\" && isOpen() && panel) {\n      var nodes = focusable(panel);\n      if (!nodes.length) { ev.preventDefault(); panel.focus(); return; }\n      var first = nodes[0], last = nodes[nodes.length - 1];\n      if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }\n      else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }\n    }\n  });\n  loadDismissed();\n  load();\n})();(function accountbookFavRowsClientMain() {\n  function hh() { try { var p = new URLSearchParams(location.search); return p.get(\"household\") || p.get(\"household_id\") || \"\"; } catch (e) { return \"\"; } }\n  var favSet = {};\n  var loaded = false;\n  function apiUrl() { var u = \"/u/api/favorites\"; var h = hh(); if (h) u += \"?household=\" + encodeURIComponent(h); return u; }\n  function markAll() {\n    var rows = document.querySelectorAll(\"[data-fav-key]\");\n    Array.prototype.forEach.call(rows, function (row) {\n      var key = row.getAttribute(\"data-fav-key\");\n      var star = row.querySelector(\".abV5RowFav\");\n      if (star) { var on = !!favSet[key]; star.classList.toggle(\"isFav\", on); star.setAttribute(\"aria-pressed\", on ? \"true\" : \"false\"); }\n    });\n  }\n  function doToggle(row, key, star) {\n    var on = !favSet[key];\n    favSet[key] = on;\n    star.classList.toggle(\"isFav\", on);\n    star.setAttribute(\"aria-pressed\", on ? \"true\" : \"false\");\n    var tx; try { tx = JSON.parse(row.getAttribute(\"data-fav-tx\") || \"{}\"); } catch (e) { tx = { id: key }; }\n    var body = on ? { household: hh(), id: key, tx: tx } : { household: hh(), id: key, remove: true };\n    fetch(\"/u/api/favorites\", { method: \"POST\", headers: { \"content-type\": \"application/json\", accept: \"application/json\" }, credentials: \"same-origin\", body: JSON.stringify(body) })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); markAll(); })\n      .catch(function () { favSet[key] = !on; star.classList.toggle(\"isFav\", !on); star.setAttribute(\"aria-pressed\", !on ? \"true\" : \"false\"); });\n  }\n  function enhance() {\n    var rows = document.querySelectorAll(\"[data-fav-key]\");\n    Array.prototype.forEach.call(rows, function (row) {\n      if (row.__favDone) return;\n      row.__favDone = true;\n      var key = row.getAttribute(\"data-fav-key\");\n      var star = document.createElement(\"span\");\n      star.className = \"abV5RowFav\" + (favSet[key] ? \" isFav\" : \"\");\n      star.setAttribute(\"role\", \"button\");\n      star.setAttribute(\"tabindex\", \"0\");\n      star.setAttribute(\"aria-label\", \"즐겨찾기\");\n      star.setAttribute(\"aria-pressed\", favSet[key] ? \"true\" : \"false\");\n      star.textContent = \"★\";\n      function toggle(ev) { ev.preventDefault(); ev.stopPropagation(); doToggle(row, key, star); }\n      star.addEventListener(\"click\", toggle);\n      star.addEventListener(\"keydown\", function (ev) { if (ev.key === \"Enter\" || ev.key === \" \") toggle(ev); });\n      row.appendChild(star);\n    });\n  }\n  function load() {\n    fetch(apiUrl(), { headers: { accept: \"application/json\" }, credentials: \"same-origin\" })\n      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })\n      .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); loaded = true; enhance(); markAll(); })\n      .catch(function () { loaded = true; enhance(); });\n  }\n  var target = document.getElementById(\"txList\") || document.body;\n  if (window.MutationObserver && target) {\n    var obs = new MutationObserver(function () { enhance(); markAll(); });\n    obs.observe(target, { childList: true, subtree: true });\n  }\n  load();\n  setTimeout(function () { enhance(); markAll(); }, 500);\n})();(function accountbookSidebarDashboardClientMain() {\n  function fmt(n) { return Number(n || 0).toLocaleString(\"ko-KR\"); }\n  function addMonth(ym, delta) {\n    var p = String(ym || \"\").split(\"-\");\n    var d = new Date(Number(p[0]), Number(p[1] || 1) - 1 + delta, 1);\n    return d.getFullYear() + \"-\" + String(d.getMonth() + 1).padStart(2, \"0\");\n  }\n  function qs(month, householdId, extra) {\n    var out = \"/app?month=\" + encodeURIComponent(month);\n    if (householdId) out += \"&household_id=\" + encodeURIComponent(householdId);\n    return out + (extra || \"\");\n  }\n  function renderCalendar(root) {\n    var month = root.getAttribute(\"data-month\") || \"\";\n    var householdId = root.getAttribute(\"data-household-id\") || \"\";\n    var p = month.split(\"-\");\n    var year = Number(p[0]), mon = Number(p[1]);\n    if (!year || !mon) return;\n    var active = {};\n    String(root.getAttribute(\"data-active-days\") || \"\").split(\",\").forEach(function (v) { var d = Number(v); if (d) active[d] = true; });\n    var firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();\n    var days = new Date(Date.UTC(year, mon, 0)).getUTCDate();\n    var today = new Date();\n    var todayKey = today.getFullYear() + \"-\" + String(today.getMonth() + 1).padStart(2, \"0\") + \"-\" + String(today.getDate()).padStart(2, \"0\");\n    var html = '<div class=\"abNavCalHead\"><a href=\"' + qs(addMonth(month, -1), householdId) + '\" aria-label=\"이전 달\">‹</a><b>' + year + '년 ' + mon + '월</b><a href=\"' + qs(addMonth(month, 1), householdId) + '\" aria-label=\"다음 달\">›</a></div>';\n    html += '<div class=\"abNavCalDows\" aria-hidden=\"true\"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class=\"abNavCalGrid\" role=\"grid\" aria-label=\"' + year + '년 ' + mon + '월 달력\">';\n    for (var b = 0; b < firstDow; b++) html += '<span class=\"abNavCalBlank\" role=\"presentation\"></span>';\n    // V22.8.90 지시서 4.2: 격자는 탭 정지점 하나다. 42칸을 각각 링크로 두면 그것만으로\n    // 정지점이 마흔 개 넘게 생기고, 사이드바를 지나 본문에 닿기까지 탭을 그만큼 눌러야 한다.\n    // 한 칸만 tabindex=0 으로 두고 나머지는 -1 로 내린 뒤 방향키로 옮긴다(roving tabindex).\n    var focusDay = todayKey.slice(0, 7) === month ? Number(todayKey.slice(8, 10)) : 1;\n    for (var day = 1; day <= days; day++) {\n      var date = month + \"-\" + String(day).padStart(2, \"0\");\n      var cls = \"abNavCalDay\" + (active[day] ? \" hasRecord\" : \"\") + (date === todayKey ? \" isToday\" : \"\");\n      var href = qs(month, householdId, \"&view=calendar&date=\" + encodeURIComponent(date) + \"&feed=all#feed\");\n      html += '<a class=\"' + cls + '\" role=\"gridcell\" tabindex=\"' + (day === focusDay ? \"0\" : \"-1\") + '\" href=\"' + href + '\" data-ab-day=\"' + date + '\" data-ab-household-id=\"' + householdId + '\" aria-label=\"' + mon + '월 ' + day + '일' + (active[day] ? ', 기록 있음' : ', 기록 없음') + '\"><span>' + day + '</span>' + (active[day] ? '<i aria-hidden=\"true\"></i>' : '') + '</a>';\n    }\n    html += '</div><a class=\"abNavCalToday\" href=\"' + qs(todayKey.slice(0, 7), householdId) + '\">오늘이 있는 달로</a>';\n    root.innerHTML = html;\n    bindCalendarRoving(root);\n  }\n  // 방향키로 날짜를 옮긴다. 격자를 벗어나는 이동은 하지 않는다 — 마지막 칸에서 오른쪽을\n  // 누르면 다음 달로 넘어가는 대신 그 자리에 머무는 편이 예측 가능하다.\n  function bindCalendarRoving(root) {\n    var grid = root.querySelector('[role=\"grid\"]');\n    if (!grid) return;\n    grid.addEventListener(\"keydown\", function (event) {\n      var step = event.key === \"ArrowRight\" ? 1 : event.key === \"ArrowLeft\" ? -1\n        : event.key === \"ArrowDown\" ? 7 : event.key === \"ArrowUp\" ? -7 : 0;\n      var cells = Array.prototype.slice.call(grid.querySelectorAll('[role=\"gridcell\"]'));\n      if (!cells.length) return;\n      var index = cells.indexOf(event.target);\n      if (index < 0) return;\n      var next = index;\n      if (step) next = index + step;\n      else if (event.key === \"Home\") next = 0;\n      else if (event.key === \"End\") next = cells.length - 1;\n      else return;\n      if (next < 0 || next >= cells.length) return;\n      event.preventDefault();\n      cells[index].setAttribute(\"tabindex\", \"-1\");\n      cells[next].setAttribute(\"tabindex\", \"0\");\n      cells[next].focus();\n    });\n  }\n  function renderChallengeDays(root) {\n    var states = { s: [\"success\", \"✓\", \"무지출 성공\"], x: [\"spent\", \"−\", \"지출 있음\"], t: [\"today\", \"●\", \"오늘 진행 중\"], f: [\"future\", \"\", \"예정\"] };\n    var slots = String(root.getAttribute(\"data-ab-challenge-slots\") || \"\").split(\",\").filter(Boolean);\n    root.setAttribute(\"role\", \"list\");\n    root.setAttribute(\"aria-label\", \"날짜별 챌린지 진행 상태\");\n    root.innerHTML = slots.map(function(slot) {\n      var parts = slot.split(\":\");\n      var full = root.hasAttribute(\"data-ab-challenge-full\");\n      var state = states[parts[full ? 2 : 1]] || states.f;\n      if (full) return '<li class=\"is-' + state[0] + '\" aria-label=\"' + parts[0] + '일, ' + state[2] + '\"><span>' + (parts[1] || \"\") + '</span><b>' + parts[0] + '</b></li>';\n      return '<span class=\"is-' + state[0] + '\" role=\"listitem\" aria-label=\"' + parts[0] + '일, ' + state[2] + '\"><i>' + parts[0] + '</i><b aria-hidden=\"true\">' + state[1] + '</b></span>';\n    }).join(\"\");\n  }\n  document.querySelectorAll(\"[data-ab-nav-calendar]\").forEach(renderCalendar);\n  document.querySelectorAll(\"[data-ab-challenge-slots]\").forEach(renderChallengeDays);\n})();(function accountbookQuickInputClientMain() {\n  var overlay = null;\n  var panel = null;\n  var body = null;\n  var section = null;\n  var returnFocus = null;\n  var lockedScrollY = 0;\n  var scrollLocked = false;\n  function validDate(value) { return /^20\\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$/.test(String(value || \"\")); }\n  // 모바일 사파리·인앱 브라우저는 body의 overflow:hidden만으로 스크롤이 잠기지 않는다.\n  // 시트를 밀면 뒤 배경이 대신 올라가므로 스크롤 위치를 고정했다가 닫을 때 되돌린다.\n  function isMobileViewport() { return !window.matchMedia || window.matchMedia(\"(max-width:899px)\").matches; }\n  function lockScroll() {\n    if (scrollLocked || !isMobileViewport()) return;\n    lockedScrollY = window.scrollY || window.pageYOffset || 0;\n    var style = document.body.style;\n    style.position = \"fixed\";\n    style.top = -lockedScrollY + \"px\";\n    style.left = \"0\";\n    style.right = \"0\";\n    style.width = \"100%\";\n    scrollLocked = true;\n  }\n  function unlockScroll() {\n    if (!scrollLocked) return;\n    var style = document.body.style;\n    style.position = \"\";\n    style.top = \"\";\n    style.left = \"\";\n    style.right = \"\";\n    style.width = \"\";\n    scrollLocked = false;\n    window.scrollTo(0, lockedScrollY);\n    lockedScrollY = 0;\n  }\n  function currentContext() {\n    var params = new URLSearchParams(location.search);\n    var month = params.get(\"month\") || new Date().toISOString().slice(0, 7);\n    var household = params.get(\"household_id\") || \"\";\n    return { month: month, household: household };\n  }\n  function fallbackUrl(date) {\n    var context = currentContext();\n    var month = validDate(date) ? String(date).slice(0, 7) : context.month;\n    var out = \"/app?month=\" + encodeURIComponent(month);\n    if (context.household) out += \"&household_id=\" + encodeURIComponent(context.household);\n    out += \"&quick=1\";\n    if (validDate(date)) out += \"&date=\" + encodeURIComponent(date);\n    return out + \"#quick\";\n  }\n  function returnUrlForDate(date) {\n    var context = currentContext();\n    var month = validDate(date) ? String(date).slice(0, 7) : context.month;\n    var out = \"/app?month=\" + encodeURIComponent(month);\n    if (context.household) out += \"&household_id=\" + encodeURIComponent(context.household);\n    if (validDate(date)) out += \"&view=calendar&date=\" + encodeURIComponent(date) + \"&feed=all\";\n    return out + \"#calendar\";\n  }\n  function findSection() { return document.querySelector('section#add.panel,section#add'); }\n  function syncReturnTarget(date) {\n    if (!section || !validDate(date)) return;\n    var field = section.querySelector('input[name=\"return_to\"]');\n    if (field) field.value = returnUrlForDate(date);\n  }\n  function ensure() {\n    if (overlay) return overlay;\n    section = findSection();\n    if (!section) return null;\n    overlay = document.createElement(\"div\");\n    overlay.className = \"abQuickInputOverlay\";\n    overlay.setAttribute(\"hidden\", \"\");\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    overlay.innerHTML = '<div class=\"abQuickInputScrim\" data-ab-quick-close></div><section class=\"abQuickInputPanel\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"abQuickInputTitle\" aria-describedby=\"abQuickInputDescription\" tabindex=\"-1\"><header class=\"abQuickInputHead\"><div><b id=\"abQuickInputTitle\">빠른 입력</b><small id=\"abQuickInputDescription\">현재 가계부에 지출 또는 수입을 기록합니다.</small></div><button type=\"button\" class=\"abQuickInputClose\" data-ab-quick-close aria-label=\"빠른 입력 닫기\">✕</button></header><div class=\"abQuickInputBody\" data-ab-quick-body></div></section>';\n    document.body.appendChild(overlay);\n    panel = overlay.querySelector(\".abQuickInputPanel\");\n    body = overlay.querySelector(\"[data-ab-quick-body]\");\n    section.classList.add(\"abQuickInputContent\");\n    var originalTitle = Array.prototype.find.call(section.children || [], function(child) { return child && child.tagName === \"H2\"; });\n    if (originalTitle) { originalTitle.classList.add(\"abQuickInputOriginalTitle\"); originalTitle.setAttribute(\"aria-hidden\", \"true\"); }\n    body.appendChild(section);\n    var form = section.querySelector(\"form\");\n    if (form) form.addEventListener(\"submit\", function() {\n      var input = section.querySelector('input[name=\"transaction_date\"],#txDate');\n      if (input) syncReturnTarget(input.value);\n      rememberDraft(form);\n    });\n    // 새로고침이나 화면 이탈은 경고 없이 일어난다. 적는 동안에도 남겨 둬야\n    // 돌아왔을 때 이어서 쓸 수 있다.\n    if (form) {\n      var draftTimer = null;\n      form.addEventListener(\"input\", function() {\n        if (draftTimer) clearTimeout(draftTimer);\n        draftTimer = setTimeout(function() { rememberDraft(form); }, 400);\n      });\n    }\n    overlay.addEventListener(\"click\", function(event) {\n      if (event.target && event.target.closest && event.target.closest(\"[data-ab-quick-close]\")) close();\n    });\n    return overlay;\n  }\n  // 저장에 실패하면 지금까지는 적은 내용이 전부 사라져 처음부터 다시 써야 했다.\n  // 주소로 돌려보내면 메모가 주소창과 방문 기록에 남으므로 브라우저 안에만 둔다.\n  var DRAFT_KEY = \"abQuickInputDraft\";\n  var DRAFT_FIELDS = [\"amount\", \"memo\", \"category\", \"payment_method\", \"transaction_date\", \"type\", \"user_id\"];\n  function draftStore() {\n    try { return window.sessionStorage; } catch (_error) { return null; }\n  }\n  var DRAFT_MAX_AGE_MS = 30 * 60 * 1000;\n  function rememberDraft(form) {\n    var store = draftStore();\n    if (!store || !form) return;\n    var draft = { at: Date.now() };\n    var typed = false;\n    DRAFT_FIELDS.forEach(function (name) {\n      var field = form.querySelector('[name=\"' + name + '\"]:checked') || form.querySelector('[name=\"' + name + '\"]');\n      if (field && field.value) { draft[name] = String(field.value).slice(0, 200); }\n      if (field && field.value && (name === \"amount\" || name === \"memo\")) typed = true;\n    });\n    // 날짜·유형은 기본값이라 그것만으로는 \"적던 중\"이 아니다.\n    if (!typed) { forgetDraft(); return; }\n    try { store.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_error) {}\n  }\n  function forgetDraft() {\n    var store = draftStore();\n    if (store) { try { store.removeItem(DRAFT_KEY); } catch (_error) {} }\n  }\n  function restoreDraft() {\n    var store = draftStore();\n    if (!store || !section) return false;\n    var raw = \"\";\n    try { raw = store.getItem(DRAFT_KEY) || \"\"; } catch (_error) { return false; }\n    if (!raw) return false;\n    forgetDraft();\n    var draft = null;\n    try { draft = JSON.parse(raw); } catch (_error) { return false; }\n    if (!draft || typeof draft !== \"object\") return false;\n    // 오래된 초안이 되살아나면 지난번에 그만둔 입력이 엉뚱하게 끼어든다.\n    if (draft.at && Date.now() - Number(draft.at) > DRAFT_MAX_AGE_MS) return false;\n    var restored = false;\n    DRAFT_FIELDS.forEach(function (name) {\n      var value = draft[name];\n      if (!value) return;\n      var radio = section.querySelector('[name=\"' + name + '\"][value=\"' + String(value).replace(/\"/g, \"\") + '\"]');\n      if (radio && (radio.type === \"radio\" || radio.type === \"checkbox\")) { radio.checked = true; restored = true; return; }\n      var field = section.querySelector('[name=\"' + name + '\"]');\n      if (!field || field.type === \"radio\" || field.type === \"checkbox\") return;\n      // 이미 적혀 있는 칸은 덮지 않는다.\n      if (field.value && name !== \"transaction_date\") return;\n      field.value = value;\n      field.dispatchEvent(new Event(\"change\", { bubbles: true }));\n      restored = true;\n    });\n    return restored;\n  }\n  function setDate(date) {\n    var input = section && section.querySelector('input[name=\"transaction_date\"],#txDate');\n    if (input && validDate(date)) {\n      input.value = date;\n      input.dispatchEvent(new Event(\"change\", { bubbles: true }));\n      syncReturnTarget(date);\n    }\n    var description = overlay && overlay.querySelector(\"#abQuickInputDescription\");\n    if (description) description.textContent = validDate(date) ? date + \" 기록을 현재 가계부에 추가합니다.\" : \"현재 가계부에 지출 또는 수입을 기록합니다.\";\n  }\n  function open(date, trigger) {\n    var node = ensure();\n    if (!node) { location.href = fallbackUrl(date); return; }\n    returnFocus = trigger || document.activeElement;\n    var dateInput = section.querySelector('input[name=\"transaction_date\"],#txDate');\n    var selectedDate = validDate(date) ? date : (dateInput ? dateInput.value : \"\");\n    setDate(selectedDate);\n    node.removeAttribute(\"hidden\");\n    node.setAttribute(\"aria-hidden\", \"false\");\n    document.body.classList.add(\"abQuickInputOpen\");\n    lockScroll();\n    var target = section.querySelector(\"#smartInput\") || section.querySelector(\"#amountInput\") || section.querySelector(\"input:not([type=hidden]),select,button\");\n    if (target && target.focus) { try { target.focus(); } catch (_error) {} }\n  }\n  function close() {\n    if (!overlay || overlay.hasAttribute(\"hidden\")) return;\n    overlay.setAttribute(\"hidden\", \"\");\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    document.body.classList.remove(\"abQuickInputOpen\");\n    unlockScroll();\n    if (returnFocus && returnFocus.focus) { try { returnFocus.focus(); } catch (_error) {} }\n    returnFocus = null;\n  }\n  function requestedDate(trigger) {\n    var direct = trigger && trigger.getAttribute && trigger.getAttribute(\"data-ab-quick-date\");\n    if (validDate(direct)) return direct;\n    var params = new URLSearchParams(location.search);\n    var queryDate = params.get(\"date\") || \"\";\n    return validDate(queryDate) ? queryDate : \"\";\n  }\n  window.openAbQuickInput = function(date, trigger) { open(date, trigger); };\n  window.closeAbQuickInput = close;\n  document.addEventListener(\"click\", function(event) {\n    var trigger = event.target && event.target.closest && event.target.closest('[data-ab-quick-open],a[href^=\"/app?\"][href$=\"#add\"],a[href^=\"/app?\"][href$=\"#quick\"]');\n    if (!trigger || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;\n    event.preventDefault();\n    open(requestedDate(trigger), trigger);\n  });\n  document.addEventListener(\"keydown\", function(event) {\n    if (!overlay || overlay.hasAttribute(\"hidden\")) return;\n    if (event.key === \"Escape\") { event.preventDefault(); close(); return; }\n    if (event.key !== \"Tab\" || !panel) return;\n    var focusable = Array.prototype.slice.call(panel.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])')).filter(function(el) { return !el.hasAttribute(\"hidden\") && el.offsetParent !== null; });\n    if (!focusable.length) { event.preventDefault(); panel.focus(); return; }\n    var first = focusable[0], last = focusable[focusable.length - 1];\n    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }\n    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }\n  });\n  function autoOpen() {\n    var params = new URLSearchParams(location.search);\n    var hash = String(location.hash || \"\");\n    // 저장에 성공했으면 남은 초안은 버린다. 그 밖에는 되살릴 기회를 준다 —\n    // 저장 실패로 돌아온 경우와, 적다가 새로고침한 경우가 모두 여기에 해당한다.\n    if (params.get(\"msg\")) { forgetDraft(); return; }\n    if (location.pathname !== \"/app\" || !(params.get(\"quick\") === \"1\" || hash === \"#add\" || hash === \"#quick\")) return;\n    open(requestedDate(null), null);\n    if (restoreDraft()) {\n      var dateField = section && section.querySelector('input[name=\"transaction_date\"],#txDate');\n      setDate(dateField ? dateField.value : \"\");\n    }\n    if (params.get(\"quick\") === \"1\" && window.history && window.history.replaceState) {\n      params.delete(\"quick\");\n      var query = params.toString();\n      window.history.replaceState({}, \"\", location.pathname + (query ? \"?\" + query : \"\") + location.hash);\n    }\n  }\n  if (document.readyState === \"loading\") document.addEventListener(\"DOMContentLoaded\", autoOpen, { once: true });\n  else autoOpen();\n})();(function accountbookDayDetailClientMain() {\n  var overlay = null;\n  var panel = null;\n  var lastTrigger = null;\n  var activeRequest = null;\n  var activeDate = \"\";\n  var activeHouseholdId = \"\";\n  function esc(value) {\n    return String(value == null ? \"\" : value).replace(/[&<>\"']/g, function (ch) {\n      return { \"&\": \"&amp;\", \"<\": \"&lt;\", \">\": \"&gt;\", '\"': \"&quot;\", \"'\": \"&#39;\" }[ch];\n    });\n  }\n  function fmt(n) { return Number(n || 0).toLocaleString(\"ko-KR\"); }\n  function titleFor(date) {\n    var p = String(date || \"\").split(\"-\");\n    return p.length === 3 ? Number(p[0]) + \"년 \" + Number(p[1]) + \"월 \" + Number(p[2]) + \"일\" : String(date || \"\");\n  }\n  function validDate(value) { return /^20\\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])$/.test(String(value || \"\")); }\n  function returnTo(date, householdId) {\n    var out = \"/app?month=\" + encodeURIComponent(String(date || \"\").slice(0, 7));\n    if (householdId) out += \"&household_id=\" + encodeURIComponent(householdId);\n    return out + \"&view=calendar&date=\" + encodeURIComponent(date) + \"&feed=all&day_detail=1#calendar\";\n  }\n  function memberOptions(members, selected) {\n    return (Array.isArray(members) ? members : []).map(function (member) {\n      var id = String(member && member.user_id || \"\");\n      return '<option value=\"' + esc(id) + '\"' + (id === String(selected || \"\") ? \" selected\" : \"\") + '>' + esc(member && member.nickname || \"구성원\") + \" (\" + esc(member && member.role || \"member\") + \")</option>\";\n    }).join(\"\");\n  }\n  function renderItemActions(item, data) {\n    if (!item || (!item.can_edit && !item.can_delete)) return \"\";\n    var date = String(item.transaction_date || activeDate || \"\");\n    var householdId = String(data && data.household_id || activeHouseholdId || \"\");\n    var hidden = '<input type=\"hidden\" name=\"id\" value=\"' + esc(item.id) + '\"/><input type=\"hidden\" name=\"month\" value=\"' + esc(date.slice(0, 7)) + '\"/><input type=\"hidden\" name=\"household_id\" value=\"' + esc(householdId) + '\"/><input type=\"hidden\" name=\"return_to\" value=\"' + esc(returnTo(date, householdId)) + '\"/>';\n    var spender = data && data.can_manage_spender\n      ? '<label><span>' + (item.type === \"income\" ? \"수입자\" : \"지출자\") + '</span><select name=\"user_id\" required>' + memberOptions(data.members, item.user_id) + \"</select></label>\"\n      : '<input type=\"hidden\" name=\"user_id\" value=\"' + esc(item.user_id || \"\") + '\"/><p class=\"abDayDetailSpender\">' + (item.type === \"income\" ? \"수입자\" : \"지출자\") + \" \" + esc(item.member || \"미지정\") + \"</p>\";\n    var edit = item.can_edit ? '<details class=\"abDayDetailEdit\"><summary>수정</summary><form method=\"post\" action=\"/admin/update\" data-ab-day-write data-ab-day-update>' + hidden + '<div class=\"abDayDetailEditGrid\"><label><span>구분</span><select name=\"type\"><option value=\"expense\"' + (item.type !== \"income\" ? \" selected\" : \"\") + '>지출</option><option value=\"income\"' + (item.type === \"income\" ? \" selected\" : \"\") + '>수입</option></select></label><label><span>날짜</span><input type=\"date\" name=\"transaction_date\" value=\"' + esc(date) + '\" required/></label><label><span>금액</span><input name=\"amount\" inputmode=\"numeric\" value=\"' + esc(item.amount || 0) + '\" required/></label><label><span>분류</span><input name=\"category\" value=\"' + esc(item.category || \"\") + '\"/></label><label><span>결제수단</span><input name=\"payment_method\" value=\"' + esc(item.payment_method || \"\") + '\"/></label><label class=\"abDayDetailMemo\"><span>메모</span><input name=\"memo\" value=\"' + esc(item.memo || \"\") + '\"/></label>' + spender + '</div><button type=\"submit\" class=\"abDayDetailSave\">수정 저장</button></form></details>' : \"\";\n    var description = (item.memo || \"내용 없음\") + \" · \" + fmt(item.amount) + \"원\";\n    var remove = item.can_delete ? '<form method=\"post\" action=\"/admin/delete\" class=\"abDayDetailDelete\" data-ab-day-write data-ab-day-delete data-confirm=\"' + esc(description + \" 기록을 삭제할까요?\") + '\">' + hidden + '<button type=\"submit\">삭제</button></form>' : \"\";\n    return '<div class=\"abDayDetailActions\">' + edit + remove + \"</div>\";\n  }\n  function ensure() {\n    if (overlay) return overlay;\n    overlay = document.createElement(\"div\");\n    overlay.className = \"abDayDetailOverlay\";\n    overlay.setAttribute(\"hidden\", \"\");\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    overlay.innerHTML = '<div class=\"abDayDetailScrim\" data-ab-day-close></div><section class=\"abDayDetailPanel\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"abDayDetailTitle\" aria-describedby=\"abDayDetailStatus\" tabindex=\"-1\"><header class=\"abDayDetailHead\"><div><b id=\"abDayDetailTitle\">일별 상세</b><small id=\"abDayDetailStatus\" aria-live=\"polite\">거래를 불러오는 중입니다.</small></div><button type=\"button\" class=\"abDayDetailClose\" data-ab-day-close aria-label=\"일별 상세 닫기\">✕</button></header><div class=\"abDayDetailBody\"><div class=\"abDayDetailSums\" data-ab-day-sums hidden><div class=\"abDayDetailSum isExpense\"><span>지출</span><b data-ab-day-expense>0원</b></div><div class=\"abDayDetailSum isIncome\"><span>수입</span><b data-ab-day-income>0원</b></div></div><div class=\"abDayDetailList\" data-ab-day-list></div></div><footer class=\"abDayDetailFoot\"><button type=\"button\" class=\"abDayDetailAdd\" data-ab-day-add hidden>이 날 기록 추가</button><a class=\"abDayDetailView\" data-ab-day-view href=\"#\">전체 기록에서 보기</a><button type=\"button\" data-ab-day-close>닫기</button></footer></section>';\n    document.body.appendChild(overlay);\n    panel = overlay.querySelector(\".abDayDetailPanel\");\n    overlay.addEventListener(\"click\", function (event) {\n      var add = event.target && event.target.closest && event.target.closest(\"[data-ab-day-add]\");\n      if (add) {\n        var date = activeDate;\n        var householdId = activeHouseholdId;\n        close();\n        setTimeout(function() {\n          if (typeof window.openAbQuickInput === \"function\") window.openAbQuickInput(date, lastTrigger);\n          else {\n            var out = \"/app?month=\" + encodeURIComponent(String(date || \"\").slice(0, 7));\n            if (householdId) out += \"&household_id=\" + encodeURIComponent(householdId);\n            location.href = out + \"&quick=1&date=\" + encodeURIComponent(date) + \"#quick\";\n          }\n        }, 0);\n        return;\n      }\n      if (event.target.closest(\"[data-ab-day-close]\")) close();\n    });\n    overlay.addEventListener(\"submit\", function (event) {\n      var form = event.target && event.target.closest && event.target.closest(\"[data-ab-day-write]\");\n      if (!form) return;\n      if (form.hasAttribute(\"data-ab-day-delete\") && !window.confirm(form.getAttribute(\"data-confirm\") || \"이 기록을 삭제할까요?\")) {\n        event.preventDefault();\n        return;\n      }\n      var nextDate = activeDate;\n      var dateInput = form.querySelector('[name=\"transaction_date\"]');\n      if (dateInput && validDate(dateInput.value)) nextDate = dateInput.value;\n      var returnInput = form.querySelector('[name=\"return_to\"]');\n      if (returnInput) returnInput.value = returnTo(nextDate, activeHouseholdId);\n      var monthInput = form.querySelector('[name=\"month\"]');\n      if (monthInput) monthInput.value = String(nextDate || \"\").slice(0, 7);\n      form.setAttribute(\"aria-busy\", \"true\");\n      var submit = form.querySelector('button[type=\"submit\"]');\n      if (submit) submit.textContent = form.hasAttribute(\"data-ab-day-delete\") ? \"삭제 중…\" : \"수정 중…\";\n      var status = overlay.querySelector(\"#abDayDetailStatus\");\n      if (status) status.textContent = form.hasAttribute(\"data-ab-day-delete\") ? \"기록을 삭제하는 중입니다.\" : \"수정 내용을 저장하는 중입니다.\";\n    });\n    return overlay;\n  }\n  function setLoading(date, href) {\n    var node = ensure();\n    node.querySelector(\"#abDayDetailTitle\").textContent = titleFor(date);\n    node.querySelector(\"#abDayDetailStatus\").textContent = titleFor(date) + \" 기록을 불러오는 중입니다.\";\n    node.querySelector(\"[data-ab-day-sums]\").setAttribute(\"hidden\", \"\");\n    node.querySelector(\"[data-ab-day-add]\").setAttribute(\"hidden\", \"\");\n    node.querySelector(\"[data-ab-day-list]\").innerHTML = '<div class=\"abDayDetailLoading\"><i aria-hidden=\"true\"></i><span>일별 기록을 확인하고 있습니다.</span></div>';\n    node.querySelector(\"[data-ab-day-view]\").setAttribute(\"href\", href || \"#\");\n  }\n  function renderError(message, date, householdId, href) {\n    var node = ensure();\n    node.querySelector(\"#abDayDetailStatus\").textContent = \"불러오지 못했습니다.\";\n    node.querySelector(\"[data-ab-day-sums]\").setAttribute(\"hidden\", \"\");\n    var list = node.querySelector(\"[data-ab-day-list]\");\n    list.innerHTML = '<div class=\"abDayDetailEmpty\"><b>일별 기록을 불러오지 못했습니다.</b><span>' + esc(message || \"잠시 후 다시 시도해 주세요.\") + '</span><button type=\"button\" data-ab-day-retry>다시 시도</button></div>';\n    var retry = list.querySelector(\"[data-ab-day-retry]\");\n    if (retry) retry.addEventListener(\"click\", function () { load(date, householdId, href); });\n  }\n  function renderData(data, href) {\n    var node = ensure();\n    var count = Number(data && data.count || 0);\n    node.querySelector(\"#abDayDetailStatus\").textContent = count + \"건\" + (data && data.has_more ? \" · 최근 \" + Number(data.displayed_count || 0) + \"건 표시\" : \"\");\n    var sums = node.querySelector(\"[data-ab-day-sums]\");\n    sums.removeAttribute(\"hidden\");\n    node.querySelector(\"[data-ab-day-expense]\").textContent = \"−\" + fmt(data && data.expense) + \"원\";\n    node.querySelector(\"[data-ab-day-income]\").textContent = \"+\" + fmt(data && data.income) + \"원\";\n    node.querySelector(\"[data-ab-day-view]\").setAttribute(\"href\", href || \"#\");\n    var add = node.querySelector(\"[data-ab-day-add]\");\n    if (data && data.can_write) add.removeAttribute(\"hidden\");\n    else add.setAttribute(\"hidden\", \"\");\n    var items = Array.isArray(data && data.items) ? data.items : [];\n    var list = node.querySelector(\"[data-ab-day-list]\");\n    if (!items.length) {\n      list.innerHTML = '<div class=\"abDayDetailEmpty\"><b>이 날은 기록이 없습니다.</b><span>이 날짜가 선택된 빠른 입력을 바로 열 수 있습니다.</span></div>';\n      return;\n    }\n    list.innerHTML = items.map(function (item) {\n      var income = item.type === \"income\";\n      var category = item.category || (income ? \"수입\" : \"미분류\");\n      var memo = item.memo || \"내용 없음\";\n      var meta = [item.payment_method, item.member].filter(Boolean).map(esc).join(\" · \");\n      return '<article class=\"abDayDetailItem ' + (income ? \"isIncome\" : \"isExpense\") + '\"><span class=\"abDayDetailType\">' + (income ? \"수입\" : \"지출\") + '</span><div class=\"abDayDetailCopy\"><b>' + esc(memo) + '</b><span>' + esc(category) + (meta ? \" · \" + meta : \"\") + '</span></div><strong>' + (income ? \"+\" : \"−\") + fmt(item.amount) + '원</strong>' + renderItemActions(item, data) + '</article>';\n    }).join(\"\") + (data && data.has_more ? '<div class=\"abDayDetailMore\">거래가 많아 최근 ' + Number(data.displayed_count || 0) + '건만 표시했습니다. 전체 기록에서 나머지를 확인하세요.</div>' : \"\");\n  }\n  function load(date, householdId, href) {\n    if (activeRequest && typeof activeRequest.abort === \"function\") activeRequest.abort();\n    activeRequest = typeof AbortController === \"function\" ? new AbortController() : null;\n    setLoading(date, href);\n    var url = \"/u/api/day-transactions?date=\" + encodeURIComponent(date);\n    if (householdId) url += \"&household_id=\" + encodeURIComponent(householdId);\n    fetch(url, { headers: { accept: \"application/json\" }, credentials: \"same-origin\", signal: activeRequest ? activeRequest.signal : undefined })\n      .then(function (response) { return response.json().catch(function () { return {}; }).then(function (json) { if (!response.ok || !json.ok) throw new Error(json.message || \"조회에 실패했습니다.\"); return json; }); })\n      .then(function (json) { renderData(json, href); })\n      .catch(function (error) { if (error && error.name === \"AbortError\") return; renderError(error && error.message, date, householdId, href); });\n  }\n  function open(trigger) {\n    var date = trigger.getAttribute(\"data-ab-day\") || \"\";\n    if (!date) return;\n    lastTrigger = trigger;\n    activeDate = date;\n    activeHouseholdId = trigger.getAttribute(\"data-ab-household-id\") || \"\";\n    var node = ensure();\n    node.removeAttribute(\"hidden\");\n    node.setAttribute(\"aria-hidden\", \"false\");\n    document.body.classList.add(\"abDayDetailOpen\");\n    load(date, trigger.getAttribute(\"data-ab-household-id\") || \"\", trigger.getAttribute(\"href\") || \"#\");\n    var closeButton = node.querySelector(\".abDayDetailClose\");\n    if (closeButton && closeButton.focus) { try { closeButton.focus(); } catch (_error) {} }\n  }\n  function close() {\n    if (!overlay || overlay.hasAttribute(\"hidden\")) return;\n    if (activeRequest && typeof activeRequest.abort === \"function\") activeRequest.abort();\n    overlay.setAttribute(\"hidden\", \"\");\n    overlay.setAttribute(\"aria-hidden\", \"true\");\n    document.body.classList.remove(\"abDayDetailOpen\");\n    if (lastTrigger && lastTrigger.focus) { try { lastTrigger.focus(); } catch (_error) {} }\n  }\n  document.addEventListener(\"click\", function (event) {\n    var trigger = event.target && event.target.closest && event.target.closest(\"a.abNavCalDay[data-ab-day],a.calDay.hasRec[data-ab-day]\");\n    if (!trigger || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;\n    event.preventDefault();\n    open(trigger);\n  });\n  document.addEventListener(\"keydown\", function (event) {\n    if (!overlay || overlay.hasAttribute(\"hidden\")) return;\n    if (event.key === \"Escape\") { event.preventDefault(); close(); return; }\n    if (event.key !== \"Tab\" || !panel) return;\n    var focusable = Array.prototype.slice.call(panel.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])')).filter(function (el) { return !el.hasAttribute(\"hidden\"); });\n    if (!focusable.length) { event.preventDefault(); panel.focus(); return; }\n    var first = focusable[0], last = focusable[focusable.length - 1];\n    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }\n    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }\n  });\n  function autoOpenReturnedDate() {\n    var params;\n    try { params = new URLSearchParams(location.search); } catch (_error) { return; }\n    var date = params.get(\"date\") || \"\";\n    if (location.pathname !== \"/app\" || params.get(\"day_detail\") !== \"1\" || !validDate(date)) return;\n    var trigger = document.querySelector('a.abNavCalDay[data-ab-day=\"' + date + '\"],a.calDay.hasRec[data-ab-day=\"' + date + '\"]');\n    if (!trigger) return;\n    open(trigger);\n    if (window.history && window.history.replaceState) {\n      params.delete(\"day_detail\");\n      var query = params.toString();\n      window.history.replaceState({}, \"\", location.pathname + (query ? \"?\" + query : \"\") + location.hash);\n    }\n  }\n  // V22.8.92 (7.3): 상태 문구를 담은 시트를 첫 열기 *전에* 문서에 붙인다.\n  // aria-live 는 이미 등록된 영역의 글자가 바뀔 때만 읽힌다. 시트를 여는 순간\n  // 만들어 붙이면 그 안의 문구는 \"변화\"가 아니라 처음부터 있던 글자라서\n  // 첫 열기에서만 통째로 묵음이 됐다. 미리 붙여 두고, 여는 순간의 문구를\n  // 날짜가 들어간 다른 문장으로 바꿔 실제 변화가 일어나게 한다.\n  function prepareLiveRegion() { ensure(); }\n  if (document.readyState === \"loading\") document.addEventListener(\"DOMContentLoaded\", function () { prepareLiveRegion(); autoOpenReturnedDate(); }, { once: true });\n  else { prepareLiveRegion(); autoOpenReturnedDate(); }\n})();(function accountbookActivityRailClientMain() {\n  \"use strict\";\n  if (String(location.pathname || \"\") !== \"/app\") return;\n  var transactionMode = new URLSearchParams(location.search).get(\"tab\") === \"transactions\";\n  var desktop = typeof window.matchMedia === \"function\" ? window.matchMedia(\"(min-width:1320px)\") : null;\n  var rail = null;\n  var payload = null;\n  var loading = false;\n  var loaded = false;\n  var filter = \"all\";\n  function esc(value) {\n    return String(value == null ? \"\" : value).replace(/[&<>\"']/g, function(char) {\n      return { \"&\": \"&amp;\", \"<\": \"&lt;\", \">\": \"&gt;\", '\"': \"&quot;\", \"'\": \"&#39;\" }[char];\n    });\n  }\n  function fmt(value) { return Number(value || 0).toLocaleString(\"ko-KR\"); }\n  function context() {\n    var params = new URLSearchParams(location.search);\n    return { month: params.get(\"month\") || new Date().toISOString().slice(0, 7), household: params.get(\"household_id\") || \"\" };\n  }\n  function endpoint() {\n    var ctx = context();\n    return \"/u/api/recent-transactions?month=\" + encodeURIComponent(ctx.month) + (ctx.household ? \"&household_id=\" + encodeURIComponent(ctx.household) : \"\");\n  }\n  function recordsHref() {\n    var ctx = context();\n    return \"/app?month=\" + encodeURIComponent(ctx.month) + (ctx.household ? \"&household_id=\" + encodeURIComponent(ctx.household) : \"\") + \"&tab=transactions&feed=all#feed\";\n  }\n  function quickHref() {\n    var ctx = context();\n    return \"/app?month=\" + encodeURIComponent(ctx.month) + (ctx.household ? \"&household_id=\" + encodeURIComponent(ctx.household) : \"\") + \"&quick=1#quick\";\n  }\n  function ensure() {\n    if (rail) return rail;\n    rail = document.createElement(\"aside\");\n    rail.className = \"abActivityRail\";\n    rail.setAttribute(\"data-ab-activity-rail\", \"\");\n    rail.setAttribute(\"aria-label\", \"최근 사용 내역\");\n    if (transactionMode) {\n      rail.classList.add(\"abTransactionRail\");\n      rail.setAttribute(\"aria-label\", \"거래 검색 결과 요약\");\n      var head = document.querySelector(\".txTabHead\");\n      var data = head ? head.dataset : {};\n      rail.innerHTML = '<header class=\"abActivityHead\"><div><span>현재 검색 결과</span><h2>거래 요약</h2></div></header><div class=\"abTransactionSummary\"><span>조건에 맞는 기록</span><b>' + fmt(data.count) + '건</b><dl><div><dt>수입</dt><dd class=\"income\">+' + fmt(data.income) + '원</dd></div><div><dt>지출</dt><dd class=\"expense\">−' + fmt(data.expense) + '원</dd></div></dl></div><div class=\"abTransactionConditions\"><h3>적용한 조건</h3><p data-ab-transaction-conditions></p></div><div class=\"abTransactionTools\"><h3>기록 정리</h3><nav aria-label=\"거래 정리 필터\"></nav></div><p class=\"abTransactionHint\">거래를 누르면 상세 내용을 확인할 수 있습니다. 수정·삭제는 상세 화면에서 선택하세요.</p><a class=\"abActivityAdd\" data-ab-quick-open href=\"' + quickHref() + '\"><b>＋</b><span>거래 추가하기</span></a>';\n      var conditionForm = document.querySelector(\".txFilterMore form\");\n      var conditions = [];\n      if (conditionForm) [\"q\", \"date\", \"category\", \"payment_method\", \"type\", \"quality\"].forEach(function(name) {\n        var field = conditionForm.querySelector('[name=\"' + name + '\"]');\n        if (!field || !field.value || field.value === \"all\") return;\n        var labels = { q: \"내용\", date: \"날짜\", category: \"분류\", payment_method: \"결제수단\", type: \"구분\", quality: \"정리 상태\" };\n        var value = field.tagName === \"SELECT\" ? field.options[field.selectedIndex].textContent : field.value;\n        conditions.push(labels[name] + \": \" + value);\n      });\n      rail.querySelector(\"[data-ab-transaction-conditions]\").textContent = conditions.length ? conditions.join(\"\\n\") : \"선택한 달의 전체 기록입니다.\";\n      document.querySelectorAll(\".txChipBar a\").forEach(function(link) { rail.querySelector(\".abTransactionTools nav\").appendChild(link.cloneNode(true)); });\n      var pager = document.querySelector(\".txPager\");\n      if (pager) rail.querySelector(\".abTransactionSummary\").appendChild(pager.cloneNode(true));\n      document.body.appendChild(rail);\n      return rail;\n    }\n    rail.innerHTML = '<header class=\"abActivityHead\"><div><span>이번 달</span><h2>사용 내역</h2></div><a data-ab-activity-all href=\"' + recordsHref() + '\">전체 보기</a></header>' +\n      '<div class=\"abActivityTabs\" role=\"group\" aria-label=\"사용 내역 기간\"><button type=\"button\" data-ab-activity-filter=\"today\">오늘</button><button type=\"button\" data-ab-activity-filter=\"week\">이번 주</button><button type=\"button\" data-ab-activity-filter=\"all\" class=\"active\" aria-pressed=\"true\">전체</button></div>' +\n      '<a class=\"abActivityAdd\" data-ab-quick-open href=\"' + quickHref() + '\"><b>＋</b><span>거래 추가하기</span></a>' +\n      '<div class=\"abActivityList\" data-ab-activity-list><div class=\"abActivityLoading\"><i></i><span>최근 기록을 불러오는 중입니다.</span></div></div>' +\n      '<footer class=\"abActivitySummary\" data-ab-activity-summary hidden><div><span>현재 목록 수입</span><b data-ab-activity-income>0원</b></div><div><span>현재 목록 지출</span><b data-ab-activity-expense>0원</b></div><p><span>현재 목록 잔액</span><strong data-ab-activity-balance>0원</strong></p></footer>';\n    document.body.appendChild(rail);\n    rail.addEventListener(\"click\", function(event) {\n      var button = event.target && event.target.closest && event.target.closest(\"[data-ab-activity-filter]\");\n      if (!button) return;\n      filter = button.getAttribute(\"data-ab-activity-filter\") || \"all\";\n      rail.querySelectorAll(\"[data-ab-activity-filter]\").forEach(function(item) {\n        var active = item === button;\n        item.classList.toggle(\"active\", active);\n        item.setAttribute(\"aria-pressed\", active ? \"true\" : \"false\");\n      });\n      render();\n    });\n    return rail;\n  }\n  function dateLabel(date) {\n    if (!payload) return date;\n    if (date === payload.today) return \"오늘\";\n    var today = new Date(payload.today + \"T00:00:00\");\n    today.setDate(today.getDate() - 1);\n    var yesterday = today.getFullYear() + \"-\" + String(today.getMonth() + 1).padStart(2, \"0\") + \"-\" + String(today.getDate()).padStart(2, \"0\");\n    if (date === yesterday) return \"어제\";\n    var parts = String(date || \"\").split(\"-\");\n    return parts.length === 3 ? Number(parts[1]) + \"월 \" + Number(parts[2]) + \"일\" : date;\n  }\n  function iconKind(row) {\n    var value = String((row && row.category) || \"\").toLowerCase();\n    if (row && row.type === \"income\") return \"income\";\n    if (/카페|커피|간식|디저트/.test(value)) return \"cafe\";\n    if (/식|마트|외식|음식|배달/.test(value)) return \"food\";\n    if (/교통|택시|주유|버스|지하철|자동차/.test(value)) return \"transport\";\n    if (/의료|병원|약|건강/.test(value)) return \"medical\";\n    if (/쇼핑|생활|의류|뷰티/.test(value)) return \"shopping\";\n    if (/주거|월세|관리비|공과금/.test(value)) return \"housing\";\n    if (/통신|보험|구독|정기/.test(value)) return \"subscription\";\n    if (/교육|학원|도서|육아/.test(value)) return \"education\";\n    if (/여행|여가|문화|취미/.test(value)) return \"leisure\";\n    return \"receipt\";\n  }\n  function iconSvg(kind) {\n    var paths = {\n      income: '<path d=\"M4 7.5h16v10H4z\"/><path d=\"M4 10.5h16M8 14h.01M16 14h.01\"/>',\n      cafe: '<path d=\"M5 7h11v8a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z\"/><path d=\"M16 9h1.5a2.5 2.5 0 0 1 0 5H16M8 4v1M12 4v1\"/>',\n      food: '<path d=\"M7 3v7M4 3v4a3 3 0 0 0 6 0V3M7 10v11M16 3v18M16 3c3 2 4 5 4 8h-4\"/>',\n      transport: '<path d=\"M5 16h14l-1-7H6z\"/><path d=\"m7 9 1.5-4h7L17 9M7 16v2M17 16v2M8 13h.01M16 13h.01\"/>',\n      medical: '<path d=\"M9 4h6v5h5v6h-5v5H9v-5H4V9h5z\"/>',\n      shopping: '<path d=\"M5 8h14l-1 12H6z\"/><path d=\"M9 9V6a3 3 0 0 1 6 0v3\"/>',\n      housing: '<path d=\"m3 11 9-7 9 7\"/><path d=\"M5 10v10h14V10M9 20v-6h6v6\"/>',\n      subscription: '<path d=\"M20 7h-5V2M4 17h5v5\"/><path d=\"M18.5 9A7 7 0 0 0 6 5.5L4 7M5.5 15A7 7 0 0 0 18 18.5l2-1.5\"/>',\n      education: '<path d=\"M4 5.5A3.5 3.5 0 0 1 7.5 2H12v17H7.5A3.5 3.5 0 0 0 4 22z\"/><path d=\"M20 5.5A3.5 3.5 0 0 0 16.5 2H12v17h4.5A3.5 3.5 0 0 1 20 22z\"/>',\n      leisure: '<path d=\"m3 11 18-7-7 18-2-8z\"/><path d=\"m12 14-4 4\"/>',\n      receipt: '<path d=\"M6 3h12v18l-3-2-3 2-3-2-3 2z\"/><path d=\"M9 8h6M9 12h6M9 16h4\"/>'\n    };\n    return '<svg viewBox=\"0 0 24 24\" focusable=\"false\" aria-hidden=\"true\">' + (paths[kind] || paths.receipt) + '</svg>';\n  }\n  function visibleRows() {\n    var rows = payload && Array.isArray(payload.rows) ? payload.rows : [];\n    if (filter === \"today\") return rows.filter(function(row) { return row.transaction_date === payload.today; });\n    if (filter === \"week\") return rows.filter(function(row) { return row.transaction_date >= payload.week_start && row.transaction_date <= payload.today; });\n    return rows;\n  }\n  function render() {\n    if (!rail || !payload) return;\n    var rows = visibleRows();\n    var list = rail.querySelector(\"[data-ab-activity-list]\");\n    var summary = rail.querySelector(\"[data-ab-activity-summary]\");\n    if (summary) {\n      var income = rows.reduce(function(total, row) { return total + (row.type === \"income\" ? Number(row.amount || 0) : 0); }, 0);\n      var expense = rows.reduce(function(total, row) { return total + (row.type === \"income\" ? 0 : Number(row.amount || 0)); }, 0);\n      summary.hidden = false;\n      summary.querySelector(\"[data-ab-activity-income]\").textContent = \"+\" + fmt(income) + \"원\";\n      summary.querySelector(\"[data-ab-activity-expense]\").textContent = \"−\" + fmt(expense) + \"원\";\n      var balance = income - expense;\n      var balanceNode = summary.querySelector(\"[data-ab-activity-balance]\");\n      balanceNode.textContent = (balance >= 0 ? \"+\" : \"−\") + fmt(Math.abs(balance)) + \"원\";\n      balanceNode.classList.toggle(\"isNegative\", balance < 0);\n    }\n    if (!rows.length) {\n      list.innerHTML = '<div class=\"abActivityEmpty\"><b>표시할 기록이 없습니다.</b><span>빠른 입력으로 첫 기록을 남겨보세요.</span></div>';\n      return;\n    }\n    var groups = {};\n    rows.slice(0, 40).forEach(function(row) {\n      var date = String(row.transaction_date || \"\");\n      if (!groups[date]) groups[date] = [];\n      groups[date].push(row);\n    });\n    var ctx = context();\n    list.innerHTML = Object.keys(groups).sort().reverse().map(function(date) {\n      var dayRows = groups[date];\n      var dayTotal = dayRows.reduce(function(total, row) { return total + (row.type === \"income\" ? 0 : Number(row.amount || 0)); }, 0);\n      var items = dayRows.map(function(row) {\n        var income = row.type === \"income\";\n        var kind = iconKind(row);\n        var href = \"/app?month=\" + encodeURIComponent(String(date).slice(0, 7) || ctx.month) + (ctx.household ? \"&household_id=\" + encodeURIComponent(ctx.household) : \"\") + \"&view=calendar&date=\" + encodeURIComponent(date) + \"&feed=all&day_detail=1#calendar\";\n        var category = row.category || (income ? \"수입\" : \"미분류\");\n        var meta = [row.payment_method || \"\", row.member || \"\"].filter(Boolean).join(\" · \");\n        var spokenAmount = (income ? \"수입 \" : \"지출 \") + fmt(row.amount) + \"원\";\n        return '<a class=\"abActivityItem ' + (income ? \"isIncome\" : \"isExpense\") + '\" href=\"' + href + '\" aria-label=\"' + esc((row.memo || category || \"기록\") + \", \" + category + \", \" + spokenAmount) + '\"><i class=\"abActivityTypeIcon kind-' + kind + '\" aria-hidden=\"true\">' + iconSvg(kind) + '</i><span><b>' + esc(row.memo || category || \"기록\") + '</b><small><em>' + esc(category) + '</em>' + (meta ? '<span>' + esc(meta) + '</span>' : '') + '</small></span><strong><b>' + (income ? \"+\" : \"−\") + fmt(row.amount) + '</b><small>원</small></strong></a>';\n      }).join(\"\");\n      return '<section class=\"abActivityGroup\"><header><b>' + esc(dateLabel(date)) + '</b><span><em>' + fmt(dayRows.length) + '건</em>' + (dayTotal ? '<b>−' + fmt(dayTotal) + '원</b>' : '') + '</span></header>' + items + '</section>';\n    }).join(\"\") + (payload.has_more && filter === \"all\" ? '<p class=\"abActivityLimitNote\">최근 80건을 표시합니다. 전체 기록은 전체 보기에서 확인하세요.</p>' : \"\");\n  }\n  function fail(message) {\n    var node = ensure();\n    var list = node.querySelector(\"[data-ab-activity-list]\");\n    list.innerHTML = '<div class=\"abActivityEmpty isError\"><b>사용 내역을 불러오지 못했습니다.</b><span>' + esc(message || \"잠시 후 다시 시도해 주세요.\") + '</span><button type=\"button\" data-ab-activity-retry>다시 시도</button></div>';\n    var retry = list.querySelector(\"[data-ab-activity-retry]\");\n    if (retry) retry.addEventListener(\"click\", function() { loaded = false; load(); });\n  }\n  function load() {\n    if (transactionMode) return;\n    if (loading || loaded) return;\n    loading = true;\n    var node = ensure();\n    node.hidden = false;\n    fetch(endpoint(), { headers: { accept: \"application/json\" }, credentials: \"same-origin\" })\n      .then(function(response) { return response.ok ? response.json() : response.json().then(function(data) { throw new Error(data && data.message || \"조회 실패\"); }); })\n      .then(function(data) {\n        if (!data || !data.ok) throw new Error(data && data.message || \"조회 실패\");\n        payload = data;\n        loaded = true;\n        var all = rail.querySelector(\"[data-ab-activity-all]\");\n        if (all) all.setAttribute(\"href\", recordsHref());\n        render();\n      })\n      .catch(function(error) { fail(error && error.message); })\n      .finally(function() { loading = false; });\n  }\n  function sync() {\n    var wide = !desktop || desktop.matches;\n    var node = ensure();\n    node.hidden = !wide;\n    document.body.classList.toggle(\"abHasActivityRail\", wide);\n    if (wide) load();\n  }\n  if (desktop) {\n    if (typeof desktop.addEventListener === \"function\") desktop.addEventListener(\"change\", sync);\n    else if (typeof desktop.addListener === \"function\") desktop.addListener(sync);\n  }\n  if (document.readyState === \"loading\") document.addEventListener(\"DOMContentLoaded\", sync, { once: true });\n  else sync();\n})();(function accountbookSaveFeedbackClientMain() {\n  var feedback = document.querySelector(\"[data-ab-save-feedback]\");\n  if (!feedback) return;\n  var timer = null;\n  var kind = feedback.getAttribute(\"data-ab-feedback-kind\") || \"success\";\n  function close() {\n    if (!feedback || feedback.hasAttribute(\"hidden\")) return;\n    feedback.classList.remove(\"isVisible\");\n    feedback.classList.add(\"isLeaving\");\n    setTimeout(function() { if (feedback) feedback.setAttribute(\"hidden\", \"\"); }, 180);\n  }\n  var closer = feedback.querySelector(\"[data-ab-feedback-close]\");\n  if (closer) closer.addEventListener(\"click\", close);\n  requestAnimationFrame(function() { feedback.classList.add(\"isVisible\"); });\n  if (kind === \"success\") timer = setTimeout(close, 5200);\n  else if (kind === \"warning\") timer = setTimeout(close, 9000);\n  feedback.addEventListener(\"mouseenter\", function() { if (timer) clearTimeout(timer); });\n  feedback.addEventListener(\"mouseleave\", function() {\n    if (kind === \"success\") timer = setTimeout(close, 2400);\n    else if (kind === \"warning\") timer = setTimeout(close, 4200);\n  });\n  try {\n    var params = new URLSearchParams(location.search);\n    var changed = false;\n    [\"msg\", \"err\", \"balert\"].forEach(function(key) { if (params.has(key)) { params.delete(key); changed = true; } });\n    if (changed && window.history && window.history.replaceState) {\n      var query = params.toString();\n      window.history.replaceState({}, \"\", location.pathname + (query ? \"?\" + query : \"\") + location.hash);\n    }\n  } catch (_error) {}\n})();(function accountbookChallengeClientMain() {\n  \"use strict\";\n  function syncFields(form) {\n    if (!form || !form.querySelector) return;\n    var type = form.querySelector(\"[data-report-challenge-type]\");\n    var value = type ? type.value : \"no_spend_days\";\n    var amount = form.querySelector(\"[data-report-challenge-amount]\");\n    var category = form.querySelector(\"[data-report-challenge-category]\");\n    if (amount) {\n      amount.hidden = value === \"no_spend_days\";\n      var amountInput = amount.querySelector(\"input\");\n      if (amountInput) amountInput.required = value !== \"no_spend_days\";\n    }\n    if (category) {\n      category.hidden = value !== \"category_spend_limit_days\";\n      var categoryInput = category.querySelector(\"input\");\n      if (categoryInput) categoryInput.required = value === \"category_spend_limit_days\";\n    }\n  }\n  function statusElement(scope) {\n    return scope && scope.querySelector ? scope.querySelector(\"[data-report-challenge-status]\") : null;\n  }\n  function showStatus(scope, message, failed) {\n    var target = statusElement(scope);\n    if (!target) return;\n    target.hidden = false;\n    target.classList.toggle(\"isError\", !!failed);\n    target.textContent = String(message || (failed ? \"저장하지 못했습니다.\" : \"저장했습니다.\"));\n  }\n  function replaceChallenge(html) {\n    var current = document.getElementById(\"reportChallenge\");\n    if (!current || !html) return current;\n    var template = document.createElement(\"template\");\n    template.innerHTML = String(html).trim();\n    var next = template.content.firstElementChild;\n    if (!next) return current;\n    current.replaceWith(next);\n    var details = next.querySelector(\"details\");\n    if (details) details.open = true;\n    syncFields(next.querySelector(\"form[data-report-challenge-form]\"));\n    return next;\n  }\n  document.addEventListener(\"change\", function (event) {\n    if (!event.target || !event.target.matches || !event.target.matches(\"[data-report-challenge-type]\")) return;\n    syncFields(event.target.closest(\"form[data-report-challenge-form]\"));\n  });\n  document.addEventListener(\"submit\", function (event) {\n    var form = event.target;\n    if (!form || !form.matches || !form.matches(\"form[data-report-challenge-form]\")) return;\n    if (!window.fetch || !window.FormData) return;\n    event.preventDefault();\n    var section = form.closest(\"#reportChallenge\") || form.parentElement;\n    var button = form.querySelector('button[type=\"submit\"]');\n    var original = button ? button.textContent : \"\";\n    if (button) {\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      button.textContent = \"저장 중…\";\n    }\n    showStatus(section, \"챌린지 설정을 저장하고 있습니다.\", false);\n    fetch(form.action, {\n      method: \"POST\",\n      body: new FormData(form),\n      credentials: \"same-origin\",\n      headers: { accept: \"application/json\", \"x-accountbook-inline\": \"1\" },\n    }).then(function (response) {\n      return response.json().catch(function () { return { ok: false, message: \"서버 응답을 확인하지 못했습니다.\" }; }).then(function (data) {\n        if (!response.ok || !data.ok) {\n          var error = new Error(String(data.message || \"챌린지 설정을 저장하지 못했습니다.\"));\n          error.payload = data;\n          throw error;\n        }\n        return data;\n      });\n    }).then(function (data) {\n      section = replaceChallenge(data.challenge_html) || section;\n      showStatus(section, data.message || \"챌린지 설정을 저장했습니다.\", false);\n    }).catch(function (error) {\n      showStatus(section, error && error.message ? error.message : \"챌린지 설정을 저장하지 못했습니다. 다시 시도해 주세요.\", true);\n    }).finally(function () {\n      var activeButton = section && section.querySelector ? section.querySelector('form[data-report-challenge-form] button[type=\"submit\"]') : button;\n      if (activeButton) {\n        activeButton.disabled = false;\n        activeButton.removeAttribute(\"aria-busy\");\n        activeButton.textContent = original || \"설정 저장\";\n      }\n    });\n  });\n  function initialize() {\n    Array.prototype.forEach.call(document.querySelectorAll(\"form[data-report-challenge-form]\"), syncFields);\n  }\n  if (document.readyState === \"loading\") document.addEventListener(\"DOMContentLoaded\", initialize, { once: true });\n  else initialize();\n})();(function accountbookDetailExperienceClientMain() {\n  \"use strict\";\n  var dialog = null, owner = null, slot = null, opener = null;\n  function dismissHelp() {\n    if (typeof HTMLElement.prototype.hidePopover !== \"function\") return;\n    document.querySelectorAll(\".abHelpPopover:popover-open\").forEach(function(help) { help.hidePopover(); });\n  }\n  function ensureDialog() {\n    if (dialog) return dialog;\n    dialog = document.createElement(\"dialog\");\n    if (typeof dialog.showModal !== \"function\") { dialog = null; return null; }\n    dialog.className = \"abTxDetail\";\n    dialog.setAttribute(\"aria-labelledby\", \"abTxDetailTitle\");\n    dialog.innerHTML = '<header class=\"abTxDetailHead\"><h2 id=\"abTxDetailTitle\">거래 상세</h2><button type=\"button\" data-ab-tx-close aria-label=\"거래 상세 닫기\">×</button></header><div class=\"abTxDetailBody\"><section class=\"abTxOverview\" data-ab-tx-overview></section><div data-ab-tx-editor hidden></div></div><footer class=\"abTxDetailFoot\"><button type=\"button\" data-ab-tx-edit>수정하기</button><button type=\"button\" class=\"secondary\" data-ab-tx-close>닫기</button></footer>';\n    document.body.appendChild(dialog);\n    new MutationObserver(function() {\n      var focused = document.activeElement;\n      dialog.querySelectorAll('.v8-edit [aria-label]').forEach(function(field) {\n        if (field.closest('label')) return;\n        var label = document.createElement('label');\n        label.className = 'abTxField';\n        var caption = document.createElement('span');\n        caption.textContent = field.getAttribute('aria-label');\n        field.before(label);\n        label.append(caption, field);\n      });\n      if (focused && focused !== document.activeElement && dialog.open && dialog.contains(focused) && focused.getClientRects().length) focused.focus({ preventScroll: true });\n    }).observe(dialog, { childList: true, subtree: true });\n    dialog.addEventListener(\"keydown\", function(event) {\n      if (event.key === \"Escape\") { event.preventDefault(); event.stopPropagation(); dialog.close(); }\n      if (event.key === \"Tab\") {\n        var targets = Array.from(dialog.querySelectorAll('a[href],button,input,select,textarea,[tabindex=\"0\"]')).filter(function(target) { return !target.disabled && target.getClientRects().length > 0; });\n        var index = targets.indexOf(document.activeElement);\n        if (targets.length && (index < 0 || event.shiftKey && index === 0 || !event.shiftKey && index === targets.length - 1)) {\n          event.preventDefault();\n          targets[event.shiftKey ? targets.length - 1 : 0].focus();\n        }\n      }\n    });\n    dialog.addEventListener(\"click\", function(event) {\n      if (event.target.closest(\"[data-ab-tx-close]\")) dialog.close();\n      if (event.target === dialog) {\n        var rect = dialog.getBoundingClientRect();\n        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();\n      }\n      if (event.target.closest(\"[data-ab-tx-edit]\") && owner && slot) {\n        dialog.querySelector(\"[data-ab-tx-overview]\").hidden = true;\n        var editor = dialog.querySelector(\"[data-ab-tx-editor]\");\n        editor.hidden = false;\n        owner._abEditSlot = slot;\n        editor.appendChild(slot);\n        event.target.hidden = true;\n        owner.open = true;\n        if (owner.dataset.abEditState === \"ready\") {\n          var field = slot.querySelector('select:not(:disabled),input:not([type=\"hidden\"]):not(:disabled),button:not(:disabled)');\n          if (field) field.focus();\n        }\n      }\n    });\n    dialog.addEventListener(\"close\", function() {\n      if (owner && slot) {\n        owner.open = false;\n        owner.appendChild(slot);\n        delete owner._abEditSlot;\n      }\n      document.body.classList.remove(\"abTxDetailOpen\");\n      var target = opener;\n      owner = null; slot = null; opener = null;\n      if (target && target.isConnected) target.focus({ preventScroll: true });\n    });\n    return dialog;\n  }\n  function showRow(main) {\n    var node = ensureDialog();\n    if (!node || node.open) return false;\n    dismissHelp();\n    var details = main.closest(\"details[data-ab-edit-src]\");\n    owner = details;\n    slot = details && details.querySelector(\".v8-editSlot\");\n    opener = main;\n    var overview = node.querySelector(\"[data-ab-tx-overview]\");\n    overview.replaceChildren();\n    overview.hidden = false;\n    var title = document.createElement(\"h3\");\n    title.textContent = main.querySelector(\"b\")?.textContent || \"거래 기록\";\n    var amount = main.querySelector(\"strong\");\n    overview.appendChild(title);\n    if (amount) { var value = amount.cloneNode(true); value.classList.add(\"abTxDetailAmount\"); overview.appendChild(value); }\n    var copy = document.createElement(\"p\");\n    copy.textContent = Array.from(main.querySelectorAll(\"div > span\")).map(function(item) { return item.textContent; }).join(\"\\n\");\n    overview.appendChild(copy);\n    var note = document.createElement(\"p\");\n    note.className = \"abTxDetailNote\";\n    note.textContent = details ? \"기록을 확인한 뒤 필요한 항목만 수정할 수 있습니다.\" : \"현재 권한으로는 이 기록을 조회할 수 있습니다.\";\n    overview.appendChild(note);\n    node.querySelector(\"[data-ab-tx-editor]\").hidden = true;\n    node.querySelector(\"[data-ab-tx-edit]\").hidden = !details;\n    document.body.classList.add(\"abTxDetailOpen\");\n    try { node.showModal(); } catch (_error) { document.body.classList.remove(\"abTxDetailOpen\"); owner = null; slot = null; opener = null; return false; }\n    return true;\n  }\n  document.addEventListener(\"click\", function(event) {\n    var main = event.target.closest && event.target.closest(\".v8-tx-main\");\n    if (!main || event.target.closest(\"a,input,button,select,textarea\") || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;\n    if (showRow(main)) { event.preventDefault(); event.stopPropagation(); }\n  }, true);\n  // V22.9.26: 실제 마크업은 article.v8-tx > details > summary.v8-tx-main 이라 자손 선택자여야 한다.\n  // 자식 선택자로는 한 번도 맞지 않아 키보드·보조기기 사용자에게 상세 시트가 열리지 않았다.\n  document.querySelectorAll(\".v8-tx .v8-tx-main\").forEach(function(main) {\n    if (typeof HTMLDialogElement === \"undefined\" || typeof HTMLDialogElement.prototype.showModal !== \"function\") return;\n    main.tabIndex = 0;\n    main.setAttribute(\"role\", \"button\");\n    main.setAttribute(\"aria-label\", main.textContent.trim().replace(/\\s+/g, \" \") + \" 상세 보기\");\n    main.addEventListener(\"keydown\", function(event) { if (event.key === \"Enter\" || event.key === \" \") { if (showRow(main)) event.preventDefault(); } });\n  });\n\n  // Read submitted values, including manual corrections, without re-running the parser.\n  var summaryQueued = false;\n  function syncQuickSummary() {\n    summaryQueued = false;\n    var form = document.querySelector(\"#add form.form\");\n    if (!form) return;\n    var amount = Number(String(form.elements.amount?.value || \"\").replace(/[^0-9]/g, \"\"));\n    var memo = String(form.elements.memo?.value || \"\").trim();\n    var summary = form.querySelector(\".abQuickValue\");\n    if (!summary) {\n      summary = document.createElement(\"div\");\n      summary.className = \"abQuickValue\";\n      summary.innerHTML = '<span>저장할 내용</span><b></b><small></small>';\n      form.querySelector(\".quickSubmit\")?.before(summary);\n    }\n    summary.hidden = !amount && !memo;\n    var income = form.querySelector('input[name=\"type\"][value=\"income\"]:checked');\n    summary.querySelector(\"b\").textContent = (income ? \"수입 \" : \"지출 \") + (amount ? amount.toLocaleString(\"ko-KR\") + \"원\" : \"금액을 입력하세요\");\n    summary.querySelector(\"small\").textContent = memo || \"내용을 입력하면 이곳에 표시됩니다.\";\n  }\n  function scheduleSummary() { if (!summaryQueued) { summaryQueued = true; queueMicrotask(syncQuickSummary); } }\n  document.addEventListener(\"input\", scheduleSummary);\n  document.addEventListener(\"change\", scheduleSummary);\n  document.addEventListener(\"click\", function(event) {\n    if (event.target.closest && event.target.closest(\"#add,[data-ab-quick-open]\")) scheduleSummary();\n    if (event.target.closest && event.target.closest(\"[data-ab-quick-open]\")) dismissHelp();\n  });\n  window.addEventListener(\"pageshow\", scheduleSummary);\n  syncQuickSummary();\n\n  // The details fallback remains usable if popovers are unavailable.\n  document.querySelectorAll(\"details.abDailyHelp\").forEach(function(details, index) {\n    if (typeof HTMLElement.prototype.showPopover !== \"function\") return;\n    var button = document.createElement(\"button\");\n    button.type = \"button\"; button.className = \"abHelpButton\";\n    button.textContent = details.querySelector(\"summary\").textContent;\n    var popover = document.createElement(\"div\");\n    popover.id = \"abDailyHelp\" + index;\n    popover.className = \"abHelpPopover\";\n    popover.setAttribute(\"popover\", \"auto\");\n    popover.textContent = details.querySelector(\"p\").textContent;\n    button.setAttribute(\"popovertarget\", popover.id);\n    button.style.setProperty(\"anchor-name\", \"--ab-daily-help-\" + index);\n    popover.style.setProperty(\"position-anchor\", \"--ab-daily-help-\" + index);\n    details.replaceWith(button);\n    document.body.appendChild(popover);\n  });\n})();","etag":"\"accountbook-v5-v22929-js\""}};
+
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
+  const historical = AB_HISTORICAL_RUNTIME_ASSETS[path];
+  if (historical) return new Response(request.method === "HEAD" ? null : historical.body, {headers:{"content-type":"text/javascript; charset=utf-8", "cache-control":"public, max-age=31536000, immutable", "x-content-type-options":"nosniff", "cross-origin-resource-policy":"same-origin", etag:historical.etag}});
   const assetPaths = [AB_CATEGORY_RULES_ASSET_PATH, AB_CURSOR_ASSET_PATH, AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
   const isCss = [AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH].includes(path);
@@ -24112,9 +24397,9 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22926-js"'
+          ? '"mobile-home-shell-v22930-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22925-js"'
+          ? '"accountbook-nav-v22930-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22929-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -24124,8 +24409,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22929-js"'
-          : '"mobile-home-v22915-js"',
+          ? '"accountbook-v5-v22930-js"'
+          : '"mobile-home-v22930-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
@@ -24217,7 +24502,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     : `<div class="appMonthAway"><span class="appMonthAwayBadge">${escapeHtml(monthAwayLabel)}</span><a class="appMonthAwayGo" href="${escapeHtml(backToCurrentMonthPath)}">이번 달로 이동</a></div>`;
   const daysInThisMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const remainDays = isCurrentMonth ? Math.max(1, daysInThisMonth - Number(todayStr.slice(8, 10)) + 1) : 0;
-  const remainBudgetAmt = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.expense || 0));
+  const remainBudgetAmt = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const dailyAllowanceAmt = (isCurrentMonth && budget.totalBudget) ? Math.floor(remainBudgetAmt / remainDays) : 0;
   const todayOk = dailyAllowanceAmt ? todaySpend <= dailyAllowanceAmt : true;
   // V22.8.88 통합 작업지시서 M3(하루 환산). 계산은 이미 위에 있었다 — remainDays 는
@@ -24225,10 +24510,10 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 나누지 않는다. 없던 것은 그 값을 사람에게 보여 주는 자리였다. 지금까지 이 숫자는
   // "오늘 쓴 돈"의 글자색을 고르는 데만 쓰이고 화면에 나온 적이 없다.
   // 새 질의는 없다 — budget 과 rows 는 이미 위에서 받아 둔 값이다.
-  const budgetOverAmt = Math.max(0, Number(budget.expense || 0) - Number(budget.totalBudget || 0));
+  const budgetOverAmt = Math.max(0, Number(budget.budgetedExpense ?? budget.expense ?? 0) - Number(budget.totalBudget || 0));
   // 지금까지의 하루 평균. 지난달을 보고 있으면 그 달 전체로 나눈다.
   const paceDay = isCurrentMonth ? Math.max(1, Number(todayStr.slice(8, 10))) : daysInThisMonth;
-  const paceDaily = Math.round(Number(budget.expense || 0) / paceDay);
+  const paceDaily = Math.round(Number(budget.budgetedExpense ?? budget.expense ?? 0) / paceDay);
   // 이 속도를 유지하면 예산은 며칠째에 바닥나는가. 달 끝보다 이르면 그 차이를 말한다.
   const paceEndDay = paceDaily > 0 && budget.totalBudget ? Math.floor(Number(budget.totalBudget) / paceDaily) : 0;
   const paceDaysEarly = paceEndDay > 0 ? daysInThisMonth - paceEndDay : 0;
@@ -24467,6 +24752,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 저장 버튼 아래 한 줄. 누르기 전에 결과가 보여야 한다는 것이 M4 의 요구였다.
   // 금액을 아직 적지 않았으면 "저장하면"이라고 말할 수 없으므로 현재 값을 그대로 말한다.
   // JS 가 없어도 이 문장은 참이고, 금액을 적으면 클라이언트가 뺀 값으로 바꿔 쓴다.
+  let quickBudgetScope = JSON.stringify([Number(formatDate(nowKstDate()).replace(/-/g,"")),budget.basis==="category" ? budget.categoryAlerts.map(row=>row.category) : 0]);
+  if (new TextEncoder().encode(quickBudgetScope).length > 96) quickBudgetScope = JSON.stringify([Number(formatDate(nowKstDate()).replace(/-/g,"")),false]);
   const quickAfterBaseText = budgetTotal
     ? `남은 예산 ${numberWithCommas(budgetRemaining)}원${dailyAllowanceAmt ? ` · 하루 ${numberWithCommas(dailyAllowanceAmt)}원` : ""}`
     : "예산을 설정하면 저장 후 남는 돈이 함께 보여요";
@@ -24475,7 +24762,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const onboardingHtml = `<section class="homeOnboarding" data-household-id="${escapeHtml(householdId || "default")}" data-first-record="${firstRecordDone ? "1" : "0"}" aria-labelledby="homeOnboardingTitle"><div class="homeOnboardingHead"><div><h2 id="homeOnboardingTitle">첫 사용 3단계</h2><p class="muted">필수 흐름만 끝낸 뒤 예산·자산 설정은 필요할 때 추가하세요.</p></div><span>${onboardingDone}/3 완료</span></div><div class="homeOnboardingSteps"><div class="homeOnboardingStep done"><b>1. 가계부 준비</b><small>${escapeHtml(selectedHousehold?.name || "가계부")} 선택 완료</small></div><div class="homeOnboardingStep ${firstRecordDone ? "done" : "current"}"><b>2. 첫 기록</b><small>${firstRecordDone ? "첫 기록 완료" : "한 줄로 지출을 남겨보세요"}</small>${firstRecordDone ? "" : `<a href="#add">기록하러 가기 →</a>`}</div><div class="homeOnboardingStep ${firstRecordDone ? "current" : ""}"><b>3. 저장 결과 확인</b><small>${firstRecordDone ? "최근 기록에서 금액·내용을 확인하세요" : "첫 기록을 저장하면 확인할 수 있어요"}</small>${firstRecordDone ? `<a href="#feed" data-onboarding-result-check>최근 기록 확인 →</a>` : ""}</div></div></section>`;
   const reserveInfo = reserveDashboard(reservePlans || []);
   const topCatsForHome = stats.categories.filter((c) => c.expense > 0).slice(0, 4);
-  const topCatTotal = topCatsForHome.reduce((a, c) => a + Number(c.expense || 0), 0) || Number(stats.totals.expense || 0) || 1;
+  const topCatTotal = Number(stats.totals.expense || 0) || 1;
   const mobileMemberNames = memberNameMap(members);
   const homeTimeline = rows.slice(0, 6).map((r) => {
     const isIncome = r.type === "income";
@@ -24552,8 +24839,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div><div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveHeadline, reserveHref: homeReserveHref, reserveCount: homeReserveCount, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-daily="${Math.max(0, Number(dailyAllowanceAmt) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){var m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만\\s*(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000+parseFloat(m[2].replace(',',''))*1000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*만/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*10000);m=text.match(/(\\d+(?:[.,]\\d+)?)\\s*천/);if(m)return Math.round(parseFloat(m[1].replace(',',''))*1000);var nums=text.replace(/,/g,'').match(/\\d{2,9}/g);if(nums)return parseInt(nums[nums.length-1],10);return 0;}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){var raw=abNorm(text);var h=window.AB_TYPE_HINTS||{};if(h.income&&new RegExp('('+h.income+')').test(raw))return'income';if(h.expense&&new RegExp('('+h.expense+')').test(raw))return'expense';if(h.incomeCategory&&new RegExp('('+h.incomeCategory+')').test(raw))return'income';return'expense';}function parseQuickDate(text){var raw=abNorm(text);var now=new Date();function pad(n){return String(n).padStart(2,'0');}function ymd(y,m,d){return y+'-'+pad(m)+'-'+pad(d);}function add(days){var d=new Date(now.getFullYear(),now.getMonth(),now.getDate()+days);return ymd(d.getFullYear(),d.getMonth()+1,d.getDate());}if(/그저께|그제/.test(raw))return add(-2);if(/어제|전날/.test(raw))return add(-1);if(/오늘|금일|지금|방금/.test(raw))return add(0);var m=raw.match(/(20\\d{2})[.\\-/년\\s]+(\\d{1,2})[.\\-/월\\s]+(\\d{1,2})/);if(m)return ymd(Number(m[1]),Number(m[2]),Number(m[3]));m=raw.match(/(\\d{1,2})\\s*월\\s*(\\d{1,2})\\s*일?/);if(m)return ymd(now.getFullYear(),Number(m[1]),Number(m[2]));m=raw.match(/(?:^|\\s)(\\d{1,2})일(?:\\s|$)/);if(m)return ymd(now.getFullYear(),now.getMonth()+1,Number(m[1]));return'';}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}function applySmart(clearInput){if(!smart)return;var text=smart.value.trim();if(!text)return;var amt=parseKoreanAmount(text);var amountText='';var amountMatch=text.match(/(\\d+(?:[.,]\\d+)?\\s*만\\s*\\d*(?:[.,]?\\d+)?\\s*천\\s*원?|\\d+(?:[.,]\\d+)?\\s*(?:만원|만|천원|천|원)|[\\d,]{2,}\\s*원?)/);if(amountMatch)amountText=amountMatch[0];var qType=detectQuickType(text);var qDate=parseQuickDate(text);var qPayment=detectQuickPayment(text);var qCategory=inferQuickCategory(text,qType);var qMemo=stripQuickMemo(text,amountText,qPayment,qCategory);var typeRadio=document.querySelector('input[name=type][value="'+qType+'"]');if(typeRadio)typeRadio.checked=true;var amount=document.getElementById('amountInput');if(amount&&amt)amount.value=String(amt).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');var memoEl=document.getElementById('memoInput');if(memoEl) memoEl.value=qMemo;var payEl=document.getElementById('payInput');if(payEl&&qPayment)payEl.value=qPayment;var catEl=document.getElementById('catInput');if(catEl&&qCategory)catEl.value=qCategory;var dateEl=document.getElementById('txDate');if(dateEl&&qDate)dateEl.value=qDate;var rawEl=document.getElementById('rawTextInput');if(rawEl)rawEl.value=text;if(clearInput){smart.value='';if(!amt&&amount)amount.focus();}abQuickSyncMore();abQuickSyncAfter();}
-function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){var out=document.getElementById('quickAfter');if(!out)return;if(out.getAttribute('data-has-budget')!=='1')return;var base=Number(out.getAttribute('data-remaining')||0);var daily=Number(out.getAttribute('data-daily')||0);var amountEl=document.getElementById('amountInput');var amt=amountEl?Number(String(amountEl.value||'').replace(/[^0-9]/g,'')):0;var isIncome=!!document.querySelector('input[name=type][value=income]:checked');function comma(n){return String(Math.max(0,Math.round(n))).replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');}if(!amt){out.textContent='남은 예산 '+comma(base)+'원'+(daily?' · 하루 '+comma(daily)+'원':'');return;}var next=isIncome?base:Math.max(0,base-amt);var ratio=base>0&&daily>0?daily/base:0;var nextDaily=ratio?Math.round(next*ratio):0;out.textContent='저장하면 남은 예산 '+comma(next)+'원'+(nextDaily?' · 하루 '+comma(nextDaily)+'원':'');}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app"><select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div><div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveHeadline, reserveHref: homeReserveHref, reserveCount: homeReserveCount, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');if(amount){amount.addEventListener('input',function(){var raw=this.value.replace(/[^0-9]/g,'');this.value=raw?raw.replace(/\\B(?=(\\d{3})+(?!\\d))/g,','):'';});var f=amount.closest('form');if(f){f.addEventListener('submit',function(){amount.value=amount.value.replace(/,/g,'');});}}document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay)pay.value=payOnly;return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value)pay.value=chipPay;if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp)inp.value=v;document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'수입','입금','지출','출금','사용','결제','구매','납부','정산','기록','가계부','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+
+function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
 
 async function fetchMonthAmountRows(env, month, householdId) {
@@ -24935,7 +25223,7 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() || 30;
   const todayStr = formatDate(nowKstDate());
   const remainingDays = todayStr.slice(0, 7) === month ? Math.max(1, daysInMonth - Number(todayStr.slice(8, 10)) + 1) : 0;
-  const remainingBudget = Math.max(0, center.totalBudget - center.budget.expense);
+  const remainingBudget = Math.max(0, center.totalBudget - center.budget.budgetedExpense);
   const dailyAllowance = center.totalBudget && remainingDays ? Math.round(remainingBudget / remainingDays) : 0;
   const recurringTotal = safeArray(recurringCandidates).reduce((s, c) => s + Number(c.amount || 0), 0);
   const drillBase = `/app?month=${encodeURIComponent(month)}${selected.id ? `&household_id=${encodeURIComponent(selected.id)}` : ""}`;
@@ -25323,6 +25611,10 @@ function normalizeRecurringDay(value) {
   return Number.isFinite(day) ? Math.min(31, Math.max(1, Math.round(day))) : 1;
 }
 
+function renderRecurringEditForm(row, householdId, month, members, action) {
+  return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${members.length ? `<label>지출자<select name="user_id">${renderSpenderOptions(members,row.user_id,"지출자 선택")}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
+}
+
 async function handleRecurringSave(request, env) {
   const form = await request.formData();
   const _hh = String(form.get("household_id") || "").trim();
@@ -25336,10 +25628,11 @@ async function handleRecurringSave(request, env) {
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
   const members = await fetchHouseholdMembers(env, householdId);
   const spenderId = String(form.get("user_id") || "").trim();
+  const ruleId = String(form.get("id") || "").trim();
   const row = {
     household_id: householdId,
     type: String(form.get("type") || "expense") === "income" ? "income" : "expense",
-    amount: Math.max(0, Math.round(Number(form.get("amount") || 0))),
+    amount: Math.max(0, Math.round(parseBudgetFormAmount(form.get("amount") || 0))),
     category: String(form.get("category") || "기타").slice(0, 80),
     memo: String(form.get("memo") || "").slice(0, 160),
     payment_method: String(form.get("payment_method") || "").slice(0, 40),
@@ -25347,12 +25640,14 @@ async function handleRecurringSave(request, env) {
     user_id: spenderId,
     is_active: true,
   };
-  if (!row.amount) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
+  if (!row.amount || !Number.isFinite(row.amount) || row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
   if (!spenderId || !activeSpenderExists(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목의 지출자를 가계부 활성 참여자 중에서 선택하세요." }));
   try {
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
+      const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
+      if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      await supabase(env, "/rest/v1/accountbook_recurring", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
@@ -25449,6 +25744,10 @@ async function createLocalLoginUser(env, loginName = "", displayName = "", acces
   const cleanCode = String(accessCode || "").trim();
   if (normalizeLocalLoginName(cleanLoginName).length < 2) throw new Error("invalid_login_name");
   if (cleanCode.length < 8) throw new Error("password_too_short");
+  const legacy = await supabase(env, `/rest/v1/users?nickname=ilike.${encodeURIComponent(cleanLoginName)}&kakao_user_key=like.local_web%3A*&select=id&limit=1`, {method:"GET"});
+  if (legacy?.length) throw new Error("login_name_in_use:legacy_recovery_required");
+  const links = await fetchUserIdentityLinks(env);
+  if (Object.entries(links).some(([key,value]) => key.startsWith("local_web:") && normalizeLocalLoginName(safeObject(value).nickname) === normalizeLocalLoginName(cleanLoginName))) throw new Error("login_name_in_use:legacy_recovery_required");
   const salt = newPasswordSalt();
   const hash = await pbkdf2PasswordHash(cleanCode, salt, PASSWORD_KDF_ITERATIONS);
   const result = await supabase(env, "/rest/v1/rpc/accountbook_create_local_user_v227", {
@@ -25497,19 +25796,22 @@ async function handleMyLocalLogin(request, env) {
   const loginReturnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
   if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요.", loginReturnTo), 400);
   if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요.", loginReturnTo), 400);
-  const attempt = await recordAuthAttempt(env, request, "/my/local-login", false);
+  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, {limit:40});
+  if (!admission.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", loginReturnTo), admission.unavailable ? 503 : 429);
+  const clientSubject = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname) + "|" + trafficClientKey(request);
+  const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴가지만
   // 계정 단위 횟수는 어디서 보내든 같은 계정이면 함께 줄어든다.
-  const accountKey = normalizeLocalLoginName(nickname);
+  const accountKey = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname);
   const accountAttempt = await recordAuthAttempt(env, request, "/my/local-login", false, { scope: "account", key: accountKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 10, 3, 50) });
   if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
     if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
-    await recordAuthAttempt(env, request, "/my/local-login", true);
+    await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, { scope: "account", key: accountKey });
     let location = loginReturnTo || "/my";
     if (inviteCode) {
@@ -25523,6 +25825,8 @@ async function handleMyLocalLogin(request, env) {
       "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     });
   } catch (err) {
+    await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
+    await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));
     return htmlResponse(renderUserLoginHtml(env, missingSecret ? "운영 보안키가 설정되지 않아 로그인할 수 없습니다." : "로그인을 처리하지 못했습니다. 잠시 후 다시 시도하세요."), missingSecret ? 503 : 500);
   }
@@ -25539,7 +25843,7 @@ async function handleMyLocalSignup(request, env) {
   if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup"), 400);
   if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup"), 400);
   if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup"), 400);
-  const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false);
+  const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false, {scope:"client"});
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup"), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup"), 429, { "retry-after": "900" });
   // V22.9.26: 가입은 성공해도 횟수를 지우지 않고, User-Agent 를 뺀 IP 단위 상한도 함께 둔다.
@@ -25553,6 +25857,7 @@ async function handleMyLocalSignup(request, env) {
     if (!user?.id) throw new Error("local_signup_failed");
   } catch (err) {
     const classified = classifyLocalSignupError(err);
+    if (classified.status >= 500) { await recordAuthAttempt(env, request, "/my/local-signup", true, {scope:"client"}); }
     rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
     return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup"), classified.status);
   }
@@ -25571,7 +25876,7 @@ async function handleMyLocalSignup(request, env) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
         ? addQueryToUrl("/my", householdJoinFeedback(joined))
-        : `/my/households?first=1&err=${encodeURIComponent("초대코드를 찾지 못했습니다. 계정은 생성되었습니다.")}`;
+        : `/my/households?first=1&msg=signup_created_invite_missing#create`;
     } catch (err) {
       rememberOpsEvent({ kind: "local_signup_invite_failed", severity: "warn", path: "/my/local-signup", method: "POST", detail: safeError(err) });
       location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
@@ -25624,6 +25929,9 @@ async function handleMyBackupLoginSave(request, env) {
   if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "로그인 이름은 2자 이상 입력하세요." }), 400);
   if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
   if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
+  const currentPassword = String(form.get("current_password") || "");
+  const reauthenticated = await verifyCredentialProof(request, env, userId) || (currentPassword && await verifyPasswordReauth(request, env, userId, currentPassword));
+  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
     const session = await makeUserSession(env, userId);
@@ -25642,7 +25950,7 @@ function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, has
   const userName = escapeHtml(user?.nickname || "사용자");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 내 계정·보안</title><style>
 *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
-</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
+</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="currentPassword">현재 로그인 비밀번호</label><input id="currentPassword" name="current_password" type="password" autocomplete="current-password"/></div><p><a href="/auth/kakao/start?reauth=credential-change&amp;return_to=%2Fmy%2Fbackup-login">원래 연결한 카카오 계정으로 본인 확인</a></p><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p><form method="post" action="/my/account-reauth"><label>카카오 연결 전 현재 비밀번호 확인<input name="current_password" type="password" autocomplete="current-password" required/></label><button type="submit">본인 확인</button></form><p><a href="/my/kakao-link">카카오 로그인 연결</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
 }
 
 function renderKakaoLoginCheckHtml(env, url) {
@@ -25822,6 +26130,9 @@ async function handleMyKakaoClaim(request, env) {
       "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     });
     response.headers.append("set-cookie", "ab_hh=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax");
+    const userId = session.slice(0,session.lastIndexOf(".")).split("|")[0];
+    const proof = await makeCredentialProof(env,userId);
+    response.headers.append("set-cookie", `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`);
     return response;
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_web_claim_redeem_failed", severity: "error", path: "/my/kakao-claim", method: "POST", detail: safeError(err) });
@@ -25831,6 +26142,12 @@ async function handleMyKakaoClaim(request, env) {
 
 function renderKakaoClaimForm(backField = "", open = false) {
   return `<details class="loginOptional" id="kakao-claim-start"${open ? " open" : ""}><summary style="min-height:44px;display:flex;align-items:center">카카오에서 기록한 가계부 이어 열기</summary><p class="muted">카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내고 받은 웹 연결 코드를 붙여 넣으세요. 초대코드와는 다르며, 같은 기록 계정으로 접속합니다. 현재 웹 계정이 있다면 이 카카오 기록 계정으로 전환하며 계정을 합치지는 않습니다.</p><form method="post" action="/my/kakao-claim">${backField}<div class="field"><label for="kakaoClaimCode">웹 연결 코드</label><input id="kakaoClaimCode" name="kakao_claim_code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="64" enterkeyhint="go" placeholder="1:1 채팅에서 받은 코드 붙여 넣기" required/></div><button type="submit" class="secondary">카카오 기록 이어 열기</button></form><p class="hint">10분 동안 1회 사용합니다. 다른 사람에게 공유하지 마세요. 접속 후 내 계정·보안에서 이후 로그인 방법을 설정할 수 있습니다.</p></details>`;
+}
+
+function loginEntryAnchorClientMain() {
+  document.querySelectorAll("[data-signup-entry]").forEach(function(link) {
+    link.addEventListener("click",function() { const panel=document.getElementById("signup-start"); if (panel) panel.open=true; });
+  });
 }
 
 function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login") {
@@ -25844,7 +26161,7 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login")
   const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 시작</title><style>
   *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light;--landing-bg:#f5f7fb;--landing-surface:#fff;--landing-ink:#172033;--landing-muted:#586579;--landing-line:#dfe5ed;--landing-blue:var(--ab12-action,#2457d6);--landing-blue-dark:#173b94;--landing-blue-soft:#edf3ff;--landing-yellow:#fee500;--landing-green:#137a55;--landing-green-soft:#eaf8f1;--landing-orange:#a74b13;--landing-orange-soft:#fff3e8;--landing-shadow:0 22px 60px rgba(27,45,78,.09)}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 8% 4%,#e7efff 0,transparent 27rem),linear-gradient(180deg,#fbfcff 0,#f5f7fb 42%,#eef2f7 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:var(--landing-ink);letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.landingPage{max-width:1180px;margin:0 auto;padding:28px 24px 104px}.landingHero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:28px;align-items:center;padding:42px 0 34px}.eyebrow,.sampleLabel{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em}.eyebrow{background:#e7efff;color:#20479f}.sampleLabel{background:#fff6cc;color:#6d5700;border:1px solid #efd66a}.landingHero h1{max-width:720px;margin:18px 0 16px;font-size:clamp(38px,5.4vw,68px);line-height:1.05;letter-spacing:-.075em}.landingHero h1 strong{color:var(--landing-blue)}.heroLead{max-width:650px;margin:0;color:var(--landing-muted);font-size:clamp(17px,2vw,20px);line-height:1.7}.heroActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}.cta{display:inline-flex;align-items:center;justify-content:center;min-height:52px;border-radius:15px;padding:0 20px;text-decoration:none;font-weight:850;border:1px solid transparent}.landingPage .cta.ctaPrimary{background:var(--landing-blue);color:#fff!important}.landingPage .cta.ctaPrimary:hover{background:var(--landing-blue-dark);color:#fff!important}.landingPage .cta.ctaPrimary:focus{color:#fff!important}.ctaSecondary{background:#fff;color:var(--landing-ink);border-color:#cfd8e5}.heroNote{margin:14px 0 0;color:#647187;font-size:13px;line-height:1.55}.sampleWindow{background:rgba(255,255,255,.88);border:1px solid rgba(207,216,229,.9);border-radius:28px;padding:16px;box-shadow:var(--landing-shadow);backdrop-filter:blur(10px)}.sampleWindowTop{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 4px 14px}.windowDots{display:flex;gap:6px}.windowDots i{display:block;width:8px;height:8px;border-radius:50%;background:#cbd5e1}.windowDots i:first-child{background:var(--ab12-action,#2457d6)}.miniLedger{display:grid;gap:10px}.miniSummary{padding:20px;border-radius:20px;background:linear-gradient(135deg,#173b94,var(--ab12-action,#2457d6));color:#fff}.miniSummary span,.miniSummary small{display:block;color:#dbe7ff}.miniSummary b{display:block;margin:6px 0 2px;font-size:30px;letter-spacing:-.05em}.miniRow{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:12px;align-items:center;background:#fff;border:1px solid #e3e8ef;border-radius:17px;padding:13px}.miniMark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#edf3ff;color:var(--ab12-action,#2457d6);font-weight:900}.miniRow b,.miniRow span{display:block}.miniRow span{color:#657187;font-size:13px;margin-top:2px}.miniRow strong{font-size:15px}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:var(--landing-muted);line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.conversationDemo{display:grid;grid-template-columns:minmax(0,.9fr) minmax(360px,1.1fr);gap:16px;margin-bottom:16px}.demoPanel,.sampleCard,.authIntro,.card{background:var(--landing-surface);border:1px solid var(--landing-line);box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:#ffeb57;color:#2c2800;border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.recordCard{border-radius:20px;background:#f9fbfe;border:1px solid #dfe7f1;padding:18px}.recordTop{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:13px}.recordTop strong{font-size:18px}.recordType{display:inline-flex;border-radius:999px;background:#fff0ed;color:#a43d2d;padding:5px 9px;font-size:12px;font-weight:850}.recordCard dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}.recordCard dl div{background:#fff;border:1px solid #e5eaf1;border-radius:14px;padding:11px}.recordCard dt{color:#68758a;font-size:12px;font-weight:750}.recordCard dd{margin:5px 0 0;font-weight:850}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:var(--landing-muted);font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--landing-blue);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:var(--landing-green-soft);color:#0c6344;padding:11px;text-align:center;font-weight:850}.previewCta{display:flex;justify-content:space-between;align-items:center;gap:22px;margin:24px 0 44px;padding:22px 24px;border-radius:24px;background:#172033;color:#fff;box-shadow:0 18px 40px rgba(23,32,51,.18)}.previewCta h2{margin:0 0 5px;font-size:22px}.previewCta p{margin:0;color:#d8dfeb;line-height:1.55}.previewCta .cta{flex:0 0 auto;background:#fff;color:#172033}.authSection{scroll-margin-top:18px}.authIntro{border-radius:26px;padding:24px;margin-bottom:16px}.authIntroHead{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.85fr);gap:24px;align-items:start}.authIntro h2{margin:10px 0 8px;font-size:clamp(26px,3vw,38px);letter-spacing:-.055em}.muted{color:#667085;line-height:1.65}.loginMethods{min-width:0}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:16px}.card{border-radius:22px;padding:22px}.card h2{margin:0 0 8px;font-size:20px}.field{display:grid;gap:7px;margin:11px 0}.field label{font-size:13px;font-weight:750;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:var(--landing-yellow)!important;color:#191919!important;border:1px solid rgba(150,120,0,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 0 18px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#667085;font-weight:750;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.legacyHelp{margin-top:16px}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}@media(max-width:900px){.landingHero,.conversationDemo,.authIntroHead{grid-template-columns:1fr}.sampleWindow{max-width:680px}.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}.previewCta{align-items:flex-start;flex-direction:column}.previewCta .cta{width:100%}}@media(max-width:680px){.landingPage{padding:14px 14px 90px}.landingHero{padding:24px 0 26px;gap:20px}.landingHero h1{font-size:40px}.heroActions{display:grid}.cta{width:100%}.sampleWindow{padding:12px;border-radius:22px}.miniSummary{padding:17px}.previewSection{padding-top:22px}.conversationDemo,.sampleGrid,.loginGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard,.authIntro,.card{padding:18px;border-radius:19px}.recordCard dl{grid-template-columns:1fr 1fr}.authIntro{padding:18px}.field input{font-size:16px}.previewCta{margin-bottom:30px;padding:20px}.kakaoProgressCard{padding:24px 18px}}@media(max-width:400px){.landingHero h1{font-size:34px}.recordCard dl{grid-template-columns:1fr}.miniRow{grid-template-columns:38px minmax(0,1fr) auto;padding:11px}.miniMark{width:38px;height:38px}.miniRow strong{font-size:14px}}
-  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><main class="landingPage">${errorSummary}<section class="landingHero" aria-labelledby="landingTitle"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 기록하고 웹에서 예산, 월 요약, 정산까지 한 흐름으로 확인하는 공동 가계부입니다.</p><div class="heroActions" aria-label="시작 선택"><a class="cta ctaPrimary" href="#feature-preview">기능 먼저 보기</a><a class="cta ctaSecondary" href="#login-start">로그인하고 실제 기록하기</a></div><p class="heroNote">아래 미리보기는 기능을 설명하기 위한 가상 데이터이며 어떤 정보도 저장하지 않습니다.</p></div><div class="sampleWindow" aria-label="가상 가계부 화면 예시"><div class="sampleWindowTop"><span class="sampleLabel">가상 데이터 예시</span><span class="windowDots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="miniLedger"><div class="miniSummary"><span>10월 남은 생활비</span><b>1,914,000원</b><small>예시 월 예산 3,200,000원 기준</small></div><div class="miniRow"><span class="miniMark" aria-hidden="true">식</span><div><b>점심</b><span>식비 · 국민카드</span></div><strong>-12,000원</strong></div><div class="miniRow"><span class="miniMark" aria-hidden="true">교</span><div><b>주유</b><span>교통 · 현대카드</span></div><strong>-72,000원</strong></div></div></div></section><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">기능 먼저 보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="conversationDemo"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="demoPanel"><div class="recordTop"><div><span class="cardKicker">구조화된 기록 카드 예시</span><strong>점심</strong></div><span class="recordType">지출</span></div><div class="recordCard"><dl><div><dt>날짜</dt><dd>오늘</dd></div><div><dt>금액</dt><dd>12,000원</dd></div><div><dt>분류</dt><dd>식비</dd></div><div><dt>결제수단</dt><dd>국민카드</dd></div></dl></div></article></div><div class="sampleGrid"><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><section class="previewCta" aria-labelledby="actualStartTitle"><div><h2 id="actualStartTitle">내 기록을 시작할 준비가 되셨나요?</h2><p>여기부터는 로그인한 계정의 실제 가계부로 연결됩니다.</p></div><a class="cta" href="#login-start">로그인하고 실제 기록하기</a></section><section id="login-start" class="authSection" aria-labelledby="loginStartTitle"><div class="authIntro"><div class="authIntroHead"><div><span class="eyebrow">실제 가계부 시작</span><h2 id="loginStartTitle">로그인하고 실제 기록하기</h2><p class="muted">기존 계정은 로그인 이름과 비밀번호로 바로 이어서 사용할 수 있습니다. 새 계정 만들기는 별도 단계로 아래에 두었습니다.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}</div><div class="loginMethods">${kakaoPart}</div></div></div><div class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form>${renderKakaoClaimForm(backField, claimMode)}</div><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></div><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script></body></html>`;
+  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><main class="landingPage">${errorSummary}<section class="landingHero" aria-labelledby="landingTitle"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 기록하고 웹에서 예산, 월 요약, 정산까지 한 흐름으로 확인하는 공동 가계부입니다.</p><div class="heroActions" aria-label="시작 선택"><a class="cta ctaPrimary" href="#feature-preview">기능 먼저 보기</a><a class="cta ctaSecondary" href="#login-start">로그인하고 실제 기록하기</a><a class="cta ctaSecondary" href="#signup-start" data-signup-entry>\uCC98\uC74C\uC774\uB77C\uBA74 \uC0C8 \uACC4\uC815 \uB9CC\uB4E4\uAE30</a></div><p class="heroNote">아래 미리보기는 기능을 설명하기 위한 가상 데이터이며 어떤 정보도 저장하지 않습니다.</p></div><div class="sampleWindow" aria-label="가상 가계부 화면 예시"><div class="sampleWindowTop"><span class="sampleLabel">가상 데이터 예시</span><span class="windowDots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="miniLedger"><div class="miniSummary"><span>10월 남은 생활비</span><b>1,914,000원</b><small>예시 월 예산 3,200,000원 기준</small></div><div class="miniRow"><span class="miniMark" aria-hidden="true">식</span><div><b>점심</b><span>식비 · 국민카드</span></div><strong>-12,000원</strong></div><div class="miniRow"><span class="miniMark" aria-hidden="true">교</span><div><b>주유</b><span>교통 · 현대카드</span></div><strong>-72,000원</strong></div></div></div></section><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">기능 먼저 보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="conversationDemo"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="demoPanel"><div class="recordTop"><div><span class="cardKicker">구조화된 기록 카드 예시</span><strong>점심</strong></div><span class="recordType">지출</span></div><div class="recordCard"><dl><div><dt>날짜</dt><dd>오늘</dd></div><div><dt>금액</dt><dd>12,000원</dd></div><div><dt>분류</dt><dd>식비</dd></div><div><dt>결제수단</dt><dd>국민카드</dd></div></dl></div></article></div><div class="sampleGrid"><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><section class="previewCta" aria-labelledby="actualStartTitle"><div><h2 id="actualStartTitle">내 기록을 시작할 준비가 되셨나요?</h2><p>여기부터는 로그인한 계정의 실제 가계부로 연결됩니다.</p></div><a class="cta" href="#login-start">로그인하고 실제 기록하기</a></section><section id="login-start" class="authSection" aria-labelledby="loginStartTitle"><div class="authIntro"><div class="authIntroHead"><div><span class="eyebrow">실제 가계부 시작</span><h2 id="loginStartTitle">로그인하고 실제 기록하기</h2><p class="muted">기존 계정은 로그인 이름과 비밀번호로 바로 이어서 사용할 수 있습니다. 새 계정 만들기는 별도 단계로 아래에 두었습니다.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}</div><div class="loginMethods">${kakaoPart}</div></div></div><div class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form>${renderKakaoClaimForm(backField, claimMode)}</div><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></div><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script></body></html>`;
 }
 function myNavCss() {
   return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:900px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:899px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
@@ -26657,6 +26974,7 @@ function mergedOptions(base, extra) {
 }
 
 function formatMessage(msg) {
+  if (msg === "signup_created_invite_missing") return "계정을 만들고 로그인했습니다. 입력한 초대코드는 찾지 못했습니다. 가입을 다시 누르지 말고 아래에서 가계부를 만들거나 초대코드로 참여하세요.";
   if (msg === "import_preview_expired") return escapeHtml("가져오기 미리보기가 만료되었거나 현재 계정·가계부와 맞지 않습니다. 원본은 저장되지 않았으니 파일을 다시 선택해 미리보기를 만들어 주세요.");
   if (msg === "member_alias_updated") return escapeHtml("참여자 이름을 수정했습니다.");
   const friendly = {
@@ -28742,11 +29060,10 @@ function stripLeadingCommand(text = "") {
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
-  if (/예산\s*(설정|변경)|초대코드|단톡방\s*연결|가계부\s*(참여|만들기|생성)/.test(raw)) return false;
-  if (isHelpCommand(raw) || isSummaryCommand(raw) || isRecentCommand(raw) || isBudgetCommand(raw) ||
-      isSettlementCommand(raw) || isLinkCommand(raw) || isInviteCommand(raw) || isUndoCommand(raw) ||
-      !!parseKakaoEditCommandV4(raw) || !!parseKakaoDeleteCommandV4(raw) || !!parseKakaoRestoreCommandV4(raw) || isKakaoTransactionSpenderChangeCommand(raw) ||
-      isInputExampleCommand(raw) || isKakaoGuidedCommand(raw) || !!parseKakaoSummaryRange(raw)) return false;
+  const control = raw.slice(extractLeadingDateHint(raw).length).trim();
+  if (/^(?:수정|삭제|복구)\s*\d+/.test(control)) return false;
+  if (/^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출)(?=\s|$)/.test(raw)) return false;
+  if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)|^(?:수정|삭제|복구)\s*\d|^(?:\d+\s*번)\s*(?:수정|삭제|복구)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
   const remainder = raw
@@ -29437,7 +29754,7 @@ function sanitizeHouseholdNameInput(text = "") {
 function sanitizeWebHouseholdNameInput(text = "") {
   const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
   if (t.length < 2 || t.length > 40) return "";
-  if (isExplicitKakaoTopLevelCommandV2254(t) || isUnsafeHouseholdNameContent(t)) return "";
+  if (isExplicitKakaoTopLevelCommandV2254(t) || /https?:|[<>\r\n]/i.test(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
 }
@@ -29480,6 +29797,11 @@ function parseBudgetMonthHint(text = "") {
 
 function parseDirectBudgetSetCommand(text = "") {
   const t = normalizeText(text);
+  const span = moneyTokenSpans(t)[0];
+  if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
+    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
+    return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
+  }
   const monthHint = "(이번달|이번 달|다음달|다음 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
   // V22.9.26: "예산 50만원", "예산 설정 50만원", "월 예산 50만원", "이번달 예산 50만원" 처럼
   // 분류 없이 말하면 전체 월 예산이다. 예전에는 거래 파서로 떨어져 50만원짜리 지출이 저장됐다.
@@ -29521,6 +29843,7 @@ async function saveKakaoBudget(env, householdId = "", month = currentMonthKst(),
 
 async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = currentMonthKst()) {
   const previous = shiftMonthString(month, -1);
+  if ((await fetchBudgets(env, householdId, month)).some(row => Number(row.amount || 0) > 0)) throw new Error("budget_copy_current_configured");
   const rows = await fetchBudgets(env, householdId, previous);
   const copyRows = safeArray(rows).filter((r) => Number(r.amount || 0) > 0);
   for (const row of copyRows) await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
@@ -30099,6 +30422,7 @@ async function handleKakaoSkill(request, env) {
   const origin = publicBaseUrl(env, new URL(request.url));
   const utterance = stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim());
   const preParsedList = parseMultipleTransactions(utterance, payload);
+  if (!preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
@@ -30111,14 +30435,14 @@ async function handleKakaoSkill(request, env) {
   const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
-  const earlyReply = bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
+  const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
   const seedChatFirst = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
   const earlyUserPromise = skillConfigured && kakaoUserKey && !earlyReply
-    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst }).then((user) => ({ user }), (error) => ({ error }))
+    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) }).then((user) => ({ user }), (error) => ({ error }))
     : null;
 
   // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
@@ -30136,9 +30460,9 @@ async function handleKakaoSkill(request, env) {
   }
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    if (isCommandMenuCommand(utterance)) return kakaoText(kakaoCommandMenuText(origin));
-    if (isKakaoStartCommand(utterance) || isHelpCommand(utterance)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
-    if (isBudgetCommand(utterance) || isKakaoBudgetSetupCommand(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
+    if (!strongTransactionInput && isCommandMenuCommand(utterance)) return kakaoText(kakaoCommandMenuText(origin));
+    if (!strongTransactionInput && isKakaoStartCommand(utterance) || isHelpCommand(utterance)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    if (!strongTransactionInput && isBudgetCommand(utterance) || isKakaoBudgetSetupCommand(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
@@ -30147,7 +30471,8 @@ async function handleKakaoSkill(request, env) {
   }
   const earlyUser = earlyUserPromise ? await earlyUserPromise : null;
   if (earlyUser?.error) throw earlyUser.error;
-  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst });
+  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) });
+  if (!user?.id) return kakaoText("skill_identity_untrusted: \uC778\uC99D\uB41C \uCE74\uCE74\uC624 \uC694\uCCAD\uC5D0\uC11C \uCC98\uC74C \uAE30\uB85D\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
   const botGroupKey = getKakaoBotGroupKey(payload);
 
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
@@ -30162,11 +30487,11 @@ async function handleKakaoSkill(request, env) {
     : getKakaoSelectedHouseholdId(env, user.id).then((value) => ({ value }), (error) => ({ error }));
   const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
 
-  if (isCommandMenuCommand(utterance)) {
+  if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
     return kakaoText(kakaoCommandMenuText(origin));
   }
 
-  if (isKakaoStartCommand(utterance)) {
+  if (!strongTransactionInput && isKakaoStartCommand(utterance)) {
     await clearKakaoFlowState(env, user.id, payload);
     const [households, linkedGroupHousehold, selectedHouseholdId] = await Promise.all([
       settle(householdsPromise),
@@ -30217,7 +30542,7 @@ async function handleKakaoSkill(request, env) {
     }
   }
 
-  if (isKakaoCreateFlowCommand(utterance)) {
+  if (!strongTransactionInput && isKakaoCreateFlowCommand(utterance)) {
     const directName = sanitizeHouseholdNameInput(parseCreateHouseholdCommand(utterance));
     if (directName) {
       const kind = inferKakaoCreateKind(directName) || "직접 입력";
@@ -30228,7 +30553,7 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(kakaoCreateKindPromptText(), kakaoCreateKindQuickReplies());
   }
 
-  if (isKakaoJoinFlowCommand(utterance)) {
+  if (!strongTransactionInput && isKakaoJoinFlowCommand(utterance)) {
     await saveKakaoFlowState(env, user.id, payload, { flow: "join_household", step: "code", data: {} });
     return kakaoText("초대코드를 입력해 주세요.\n예: ABC123", [["취소", "취소"]]);
   }
@@ -30240,7 +30565,7 @@ async function handleKakaoSkill(request, env) {
     return kakaoText([`가계부 이름: ${createHouseholdName}`, kind !== "직접 입력" ? `용도: ${kind}` : "", "", "이 이름으로 만들까요?"].filter(Boolean).join("\n"), [["이 이름으로 만들기", "이 이름으로 만들기"], ["이름 다시 입력", "이름 다시 입력"], ["취소", "취소"]]);
   }
 
-  if (isHouseholdSwitchCommand(utterance)) {
+  if (!strongTransactionInput && isHouseholdSwitchCommand(utterance)) {
     const households = await settle(householdsPromise);
     const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: botGroupKey ? "bind" : "select", origin, groupKey: botGroupKey, forceChoice: !!botGroupKey });
     return kakaoText(choice.text, choice.quickReplies || []);
@@ -30264,11 +30589,11 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(`✅ 단톡방 연결 완료\n가계부: ${result.household.name}\n\n이제 이 방에서 구성원들이 함께 기록하고 조회할 수 있어요.`, [["기록 방법", "기록 방법"], ["예산 설정", "예산 설정"], ["이번 달 요약", "이번 달 요약"]]);
   }
 
-  if (isGroupLinkInfoCommand(utterance)) {
+  if (!strongTransactionInput && isGroupLinkInfoCommand(utterance)) {
     return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["연결 방법", "단톡방 연결"], ["초대코드", "초대코드"]]);
   }
 
-  const joinCode = parseJoinCode(utterance);
+  const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
   if (joinCode) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
@@ -30312,7 +30637,7 @@ async function handleKakaoSkill(request, env) {
   let accessRole = "";
   if (botGroupKey) {
     if (!linkedGroupHousehold?.id) {
-      if (isInviteCommand(utterance)) {
+      if (!strongTransactionInput && isInviteCommand(utterance)) {
         const choice = await beginKakaoHouseholdChoice(env, { user, payload, households: activeHouseholds, action: "invite", origin, groupKey: botGroupKey });
         return kakaoText(choice.text, choice.quickReplies || []);
       }
@@ -30320,7 +30645,8 @@ async function handleKakaoSkill(request, env) {
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
-    accessRole = membership?.role || await ensurePendingMemberIfMissing(env, linkedGroupHousehold.id, user.id);
+    accessRole = membership?.role || "";
+    if (!accessRole) return kakaoText("\uC774 \uBC29\uC758 \uAC00\uACC4\uBD80\uC5D0 \uCC38\uC5EC\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uAC1C\uC778 \uB300\uD654\uC5D0\uC11C \uCD08\uB300\uCF54\uB4DC\uB85C \uCC38\uC5EC\uD574 \uC8FC\uC138\uC694.");
   } else {
     household = activeHouseholds.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
     if (!household && selectedHouseholdId) await clearKakaoSelectedHousehold(env, user.id);
@@ -30358,7 +30684,7 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(ambiguityReply.text, ambiguityReply.quickReplies || []);
   }
 
-  const directAlias = parseDirectMemberAliasCommand(utterance);
+  const directAlias = strongTransactionInput ? "" : parseDirectMemberAliasCommand(utterance);
   if (directAlias) {
     await saveMemberAlias(env, household.id, user.id, directAlias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
@@ -30366,12 +30692,12 @@ async function handleKakaoSkill(request, env) {
 이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 지출은 ${directAlias} 지출로 집계됩니다.` + cleanupNotice, [["이번 달 요약", "이번 달 요약"], ["기록 방법", "기록 방법"]]);
   }
 
-  if (isKakaoMemberAliasCommand(utterance)) {
+  if (!strongTransactionInput && isKakaoMemberAliasCommand(utterance)) {
     await saveKakaoFlowState(env, user.id, payload, { flow: "member_alias", step: "name", data: { household_id: household.id } });
     return kakaoText("가계부에서 표시할 내 이름을 입력해 주세요.\n예: 인남, 엄마, 아빠\n\n한 번에 바꾸려면 ‘닉네임 인남으로 변경’처럼 입력할 수도 있어요.", nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]]);
   }
 
-  if (isKakaoBudgetSetupCommand(utterance)) {
+  if (!strongTransactionInput && isKakaoBudgetSetupCommand(utterance)) {
     if (!["owner","admin"].includes(accessRole)) return kakaoText("예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.", [["예산 현황", "남은 예산"]]);
     await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "root", data: { household_id: household.id, month: currentMonthKst() } });
     return kakaoText("어떤 예산을 설정할까요?", kakaoBudgetRootQuickReplies());
@@ -30393,36 +30719,37 @@ async function handleKakaoSkill(request, env) {
 
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
-  const kakaoEditCommandReply = await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin });
+  if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
+  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin });
   if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
-  if (isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
+  if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
 
-  if (isInviteCommand(utterance)) {
+  if (!strongTransactionInput && isInviteCommand(utterance)) {
     return kakaoText(kakaoInviteManagementText(household, origin), [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]]);
   }
 
-  if (isBudgetCommand(utterance)) return kakaoText(await kakaoBudgetStatusText(env, household.id, currentMonthKst(), origin, household.name));
+  if (!strongTransactionInput && isBudgetCommand(utterance)) return kakaoText(await kakaoBudgetStatusText(env, household.id, currentMonthKst(), origin, household.name));
 
-  if (isSettlementCommand(utterance)) return kakaoText(await kakaoSettlementText(env, household));
+  if (!strongTransactionInput && isSettlementCommand(utterance)) return kakaoText(await kakaoSettlementText(env, household));
 
   const summaryRange = parseKakaoSummaryRange(utterance);
   if (summaryRange) return kakaoText(await kakaoDateSummaryText(env, household, user, summaryRange, origin));
 
-  if (isSummaryCommand(utterance)) {
+  if (!strongTransactionInput && isSummaryCommand(utterance)) {
     const summary = await getMonthSummary(env, household.id, currentMonthKst());
     const reserveLine = await kakaoReserveAlert(env, household.id);
     return kakaoText(`${formatSummary(summary, currentMonthKst())}
 가계부: ${household.name}${reserveLine}`);
   }
 
-  if (isRecentCommand(utterance)) {
+  if (!strongTransactionInput && isRecentCommand(utterance)) {
     const rows = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 5);
     return kakaoText(`📒 가계부: ${household.name}
 ${formatRecentTransactions(rows)}`);
   }
 
-  if (isUndoCommand(utterance)) {
+  if (!strongTransactionInput && isUndoCommand(utterance)) {
     return kakaoText("삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 삭제 01번\n\n방금 입력을 지우려면 ‘방금 삭제’라고 입력해 주세요.\n삭제한 기록은 ‘복구’로 되돌릴 수 있어요.");
   }
 
@@ -30432,14 +30759,23 @@ ${formatRecentTransactions(rows)}`);
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
+  const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
+  if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
 
   // V22.9.16: 지출자 이름표는 저장 뒤 응답 문구에만 쓰지만, 읽는 데 저장 결과가 필요 없다.
   // 분류·결제수단과 같이 던져 두고 응답을 만들 때 받는다(왕복 한 단계 절감).
-  const aliasesPromise = fetchMemberAliasMap(env, household.id);
-  const [customCategoryRows, paymentAssetRows] = await Promise.all([
-    fetchCustomCategories(env, household.id),
-    fetchPaymentAssets(env, household.id),
-  ]);
+  const inputSettingsPromise = fetchKakaoInputSettings(env, household.id);
+  const messageKey = "kakao-message:" + await sha256Hex(JSON.stringify([household.id,user.id,parsedList]));
+  const messageLeasePromise = claimOperationLease(env, {key:messageKey,owner:operationLeaseOwner("kakao-message"),leaseSeconds:90});
+  let messageLease = null, releasePromise = null;
+  try {
+  const settled = await Promise.allSettled([inputSettingsPromise,messageLeasePromise]);
+  if (settled[1].status === "fulfilled") messageLease = settled[1].value;
+  if (settled[0].status === "rejected") throw settled[0].reason;
+  if (settled[1].status === "rejected") throw settled[1].reason;
+  if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases} = settled[0].value;
+  const aliasesPromise = Promise.resolve(inputAliases);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
   const kakaoBulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
@@ -30456,17 +30792,21 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     transaction_date: parsed.transaction_date, source: "kakao_skill", source_user_key: kakaoUserKey,
     raw_text: parsed.raw_text || utterance,
   }));
+  if (Date.now() - handlerStartedAt >= 3500) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
   let savedRows = [];
-  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { assertFresh }); }
+  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
   catch (err) {
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
     rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
-    return kakaoText(isDefiniteStorageFailure(err) ? kakaoSaveFailedText(origin) : kakaoSaveDelayText(origin));
+    return kakaoText(isUncertainStorageWrite(err) ? kakaoSaveDelayText(origin) : kakaoSaveFailedText(origin));
   }
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
+  const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
+  const duplicateCount = savedRows.length - newCount;
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원`;
 
   let finalizeNotice = "";
   if (onSaved) {
@@ -30481,9 +30821,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     // 대량 입력에서 번호 조회를 건별 순차 실행하면 카카오 제한 시간을 넘길 수 있어 저장 결과만 즉시 반환합니다.
     const lines = savedRows.slice(0, 6).map((row) => {
       const memo = row.memo || row.raw_text || row.category || "기록";
-      return `${row.transaction_date} - ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
+      return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
     });
-    return kakaoText(`${firstNotice}✅ ${savedRows.length}건 저장했어요.\n가계부: ${household.name}\n${lines.join("\n")}\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.${finalizeNotice}`);
+    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.${finalizeNotice}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -30498,7 +30838,20 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const payerName = aliases?.[user.id] || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
   const editGuide = seq ? `\n\n수정: "수정 ${twoDigitSeq(seq)}번" 또는 "수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} 저장했어요 😊\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
+  } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
+}
+
+async function fetchKakaoInputSettings(env, householdId) {
+  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId)];
+  const settingsPromise=supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, {method:"GET"});
+  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"});
+  const [settings,categories]=await Promise.all([settingsPromise,categoryPromise]);
+  if (!Array.isArray(settings) || !Array.isArray(categories)) throw new Error("kakao_input_settings_invalid");
+  const values=new Map(settings.map(row=>[row.key,row.value]));
+  const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
+  const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3]))};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
@@ -30506,25 +30859,26 @@ const KAKAO_RETRY_DEDUP_SECONDS = 120;
 async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const existing = [];
   const fresh = [];
-  // Bound concurrent reads so a 25-row message does not incur 25 serial round trips.
-  // No inserts occur until every duplicate check succeeds; retain original row order.
-  for (let offset = 0; offset < cleanRows.length; offset += 5) {
-    const batch = cleanRows.slice(offset, offset + 5);
-    const duplicates = await Promise.all(batch.map((row) =>
-      findExactDuplicateTransaction(env, row, { withinSeconds: KAKAO_RETRY_DEDUP_SECONDS })
-    ));
-    for (let index = 0; index < batch.length; index += 1) {
-      // Only collapse retries within a short window so genuine repeat entries
-      // (e.g. two coffees the same day) are still saved. Manual §5: 재전송 멱등 처리.
-      if (duplicates[index]) existing.push(duplicates[index]);
-      else fresh.push(batch[index]);
-    }
+  if (!cleanRows.length) return {existing, fresh};
+  const first = cleanRows[0];
+  if (cleanRows.some(row => row.household_id !== first.household_id || row.user_id !== first.user_id)) throw new Error("kakao_batch_scope_invalid");
+  const params = new URLSearchParams({household_id: `eq.${first.household_id}`, user_id: `eq.${first.user_id}`, amount: `in.(${[...new Set(cleanRows.map(row => row.amount))].join(",")})`, created_at: `gte.${new Date(Date.now() - KAKAO_RETRY_DEDUP_SECONDS*1000).toISOString()}`, select: "*", limit: "1000"});
+  const candidates = await supabase(env, `/rest/v1/transactions?${params}`, {method:"GET"});
+  if (!Array.isArray(candidates) || candidates.length >= 1000) throw new Error("kakao_duplicate_scan_incomplete");
+  const norm = value => normalizeText(value || "");
+  for (const row of cleanRows) {
+    const duplicate = candidates.find(r => r.transaction_date === row.transaction_date && r.type === row.type && Number(r.amount) === Number(row.amount) && ((norm(row.raw_text) && norm(r.raw_text) === norm(row.raw_text)) || (norm(r.category) === norm(row.category) && norm(r.memo) === norm(row.memo) && norm(r.payment_method) === norm(row.payment_method))));
+    if (duplicate) existing.push({...duplicate, __duplicate_skipped: true}); else fresh.push(row);
   }
   return { existing, fresh };
 }
 
 async function insertKakaoTransactions(env, rows, options = {}) {
   if (!Array.isArray(rows) || !rows.length) return [];
+  if (!options.messageLeaseHeld) {
+    const key = "kakao-message:" + await sha256Hex(JSON.stringify(rows));
+    return withSettingsRmwLease(env, key, async ({assertFresh}) => insertKakaoTransactions(env, rows, {...options, messageLeaseHeld:true, assertFresh: () => { options.assertFresh?.(); assertFresh(); }}));
+  }
   const bulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   const originalCount = rows.length;
   if (originalCount > bulkLimit) rememberDuplicateEvent({ kind: "bulk_limited", source: "kakao_skill", detail: `${originalCount} requested, ${bulkLimit} processed`, path: "/skill", method: "POST" });
@@ -30559,6 +30913,7 @@ async function insertKakaoTransactions(env, rows, options = {}) {
     insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
   }
 
+  options.onConfirmed?.();
   return [...existing, ...insertedRows];
 }
 
@@ -31002,11 +31357,14 @@ async function handleUserGoals(request, env, url) {
     if (action === "create") {
       const g = normalizeGoal({ name: body.name, emoji: body.emoji, target: body.target, saved: body.saved, monthly: body.monthly, deadline: body.deadline });
       if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
-      list = [...list, g].slice(0, 50);
+      if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
+      list = [...list, g];
     } else if (action === "restore") {
       const g = normalizeGoal(body.goal);
       if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
-      list = [...list.filter((x) => x.id !== g.id), g].slice(0, 50);
+      const remaining = list.filter(x=>x.id!==g.id);
+      if (remaining.length >= 50) return jsonResponse({ok:false,error:"goal_limit"},400);
+      list = [...remaining,g];
     } else if (action === "fund" || action === "update" || action === "delete") {
       const id = String(body.id || "").trim();
       const idx = list.findIndex((x) => x.id === id);
@@ -31370,15 +31728,7 @@ async function getLinkedKakaoGroupHousehold(env, groupKey = "") {
 }
 
 async function ensurePendingMemberIfMissing(env, householdId = "", userId = "") {
-  if (!householdId || !userId) return "";
-  const role = await getHouseholdMemberRole(env, userId, householdId);
-  if (role) return role;
-  await optionalSupabase(env, "/rest/v1/household_members?on_conflict=household_id,user_id", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ household_id: householdId, user_id: userId, role: "pending" }),
-  }, null);
-  return "pending";
+  return getHouseholdMemberRole(env, userId, householdId);
 }
 
 async function resolveKakaoHousehold(env, user = {}, nickname = "", payload = {}) {
@@ -31692,6 +32042,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   const requestedUid = String(userId || "").trim();
   const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
+  if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
   let lastBusyError = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -31715,6 +32066,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
           assertFresh();
           await saveUserIdentityLinks(env, links);
         }
+        if (env.__AB_IDENTITY_CONFIRMED) for (const alias of aliases) env.__AB_IDENTITY_CONFIRMED.set(alias, canonicalUid);
         return changed;
       });
     } catch (err) {
@@ -31753,12 +32105,16 @@ async function markKakaoChatFirstHistory(env, userId) {
 }
 
 async function kakaoChatFirstCompleted(env, markerKey, userId) {
-  const history = parseStrictSettingsObject(await getSettingValueStrict(env, `kakao_first_record_history_v22928:${String(userId)}`), "kakao_first_record_history");
+  const historyKey = `kakao_first_record_history_v22928:${String(userId)}`;
+  const doneKey = markerKey.replace("kakao_first_record_v22928:", "kakao_first_record_done_v22928:");
+  const records = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${encodeURIComponent(historyKey)},${encodeURIComponent(doneKey)})&select=key,value`, {method:"GET"});
+  if (!Array.isArray(records)) throw settingsDataError("kakao_first_record_history", "invalid_shape");
+  const history = parseStrictSettingsObject(records.find(row => row.key === historyKey)?.value, "kakao_first_record_history");
   if (Object.keys(history).length) {
     if (history.version !== 1 || history.user_id !== String(userId)) throw settingsDataError("kakao_first_record_history", "invalid_shape");
     return true;
   }
-  const done = parseStrictSettingsObject(await getSettingValueStrict(env, markerKey.replace("kakao_first_record_v22928:", "kakao_first_record_done_v22928:")), "kakao_first_record_done");
+  const done = parseStrictSettingsObject(records.find(row => row.key === doneKey)?.value, "kakao_first_record_done");
   if (!Object.keys(done).length) return false;
   if (done.version !== 1 || typeof done.user_id !== "string" || !done.user_id) throw settingsDataError("kakao_first_record_done", "invalid_shape");
   if (done.user_id !== String(userId)) throw new Error("kakao_first_record_completed_identity_conflict");
@@ -31790,7 +32146,7 @@ async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
       assertFresh();
       await saveSettingValue(env, key, JSON.stringify(marker));
     }
-    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh });
+    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh, absenceConfirmed: true });
     if (!user?.id) throw new Error("kakao_first_record_user_missing");
     assertFresh();
     await saveSettingValue(env, key, JSON.stringify({ ...marker, user_id: String(user.id) }));
@@ -31826,12 +32182,14 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
           await saveSettingValue(env, key, JSON.stringify(marker));
         }
         let household = await getHouseholdById(env, marker.candidate_id);
+        let createdHere = false;
         if (!household) {
           assertFresh();
           household = await createUserHousehold(env, user.id, "내 개인 가계부", nickname, { id: marker.candidate_id, assertFresh, skipChatFirstHistory: true, lifecycleLeaseHeld: true });
+          createdHere = true;
         }
         assertFresh();
-        const role = await ensureOwnerMembership(env, user.id, household.id, { explicitHouseholdCreation: true });
+        const role = createdHere ? "owner" : await ensureOwnerMembership(env, user.id, household.id, { explicitHouseholdCreation: true });
         if (role !== "owner") throw new Error("kakao_first_record_owner_required");
         const firstNotice = "웹 로그인 없이 내 개인 가계부를 준비했어요.\n이름·예산은 나중에 웹에서 설정할 수 있어요.\n\n";
         return await saveKakaoParsedTransactionsReply(env, {
@@ -31869,7 +32227,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   if (!rawKey) throw new Error("missing_kakao_user_identity");
   const key = encodeURIComponent(rawKey);
   const aliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
-  const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
+  const existing = options.absenceConfirmed ? [] : await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
   if (existing?.[0]) {
     const rawUser = existing[0];
     const primaryAlias = `skill_identity:${rawKey}`;
@@ -31885,7 +32243,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     return effective;
   }
 
-  const linked = await resolveLinkedIdentityUser(env, aliases);
+  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases);
   if (linked) {
     const effectiveId = await resolveEffectiveUserId(env, linked.id);
     const effective = effectiveId === String(linked.id) ? linked : await fetchUserById(env, effectiveId);
@@ -32046,6 +32404,7 @@ async function supabase(env, path, init = {}) {
   const { timeoutMs, rawHeadResponse = false, ...fetchInit } = init;
   const method = String(fetchInit.method || "GET").toUpperCase();
   const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
+  if (!readOnly && !/\/rpc\/accountbook_(?:auth_attempt|claim_operation|release_operation)/.test(path)) env.__AB_REQUEST_USER_ROWS?.clear();
   const headers = new Headers(fetchInit.headers || {});
   headers.set("apikey", env.SUPABASE_SERVICE_ROLE_KEY);
   headers.set("authorization", `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`);
@@ -32063,6 +32422,10 @@ async function supabase(env, path, init = {}) {
   try {
     if (upstreamSignal?.aborted) throw new Error("supabase_request_cancelled_before_dispatch");
     const execute = async () => {
+      if (env.__AB_DB_BUDGET) {
+        if (env.__AB_DB_BUDGET.used >= env.__AB_DB_BUDGET.limit) throw Object.assign(new Error("supabase_subrequest_budget_before_dispatch"), {code:"supabase_subrequest_budget_before_dispatch"});
+        env.__AB_DB_BUDGET.used++;
+      }
       dispatched = true;
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, ...(signal ? { signal } : {}) });
       status = res.status;
@@ -32211,6 +32574,7 @@ function parseMultipleTransactions(text, payload) {
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
+    if (parsed.message === "invalid_transaction_date") return [];
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
@@ -32223,6 +32587,7 @@ function hasDateHint(text) {
 
 function extractLeadingDateHint(text) {
   const t = normalizeText(text);
+  if (/^(?:오늘|금일|지금|방금|어제|전날|그제|그저께|내일)[가-힣A-Za-z]/.test(t)) return "";
   const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|\d{1,2}\s*월\s*\d{1,2}\s*일?|\d{1,2}[.\/]\d{1,2})\s*)/);
   return m ? m[1].trim() : "";
 }
@@ -32249,11 +32614,7 @@ function splitTransactionClauses(text) {
       if (piece.trim()) clauses.push(piece.trim());
     }
   }
-  const unique = [];
-  for (const c of clauses) {
-    if (c && !unique.includes(c)) unique.push(c);
-  }
-  return unique;
+  return clauses;
 }
 
 function splitByAmountEnds(text) {
@@ -32276,21 +32637,7 @@ function splitByAmountEnds(text) {
   return out;
 }
 
-function findAmountTokenSpans(text) {
-  const t = normalizeText(text);
-  // 단위가 이어진 금액(1만5천원, 10만5000원, 3만 5천)은 하나로 잡아야 한다.
-  // 쪼개면 "3만5천원"이 30,000원과 5,000원 두 건으로 저장된다.
-  const pattern = /(?:(?:\d+(?:\.\d+)?\s*(?:억|만|천|백|십)\s*)+(?:\d{3,4})?\s*원?|(?:\d{1,3}(?:,\d{3})+|\d{4,})\s*원?|\d+\s*(?:만원|만|천원|천|원)|[일이삼사오육칠팔구십백천만한두세네다섯여섯일곱여덟아홉열스무서른마흔쉰예순일흔여든아흔]+\s*(?:만원|천원|원|만|천))/g;
-  const spans = [];
-  let m;
-  while ((m = pattern.exec(t)) !== null) {
-    const raw = m[0];
-    if (!raw || isLikelyDateAround(t, m.index, raw)) continue;
-    const amount = parseAmountValue(raw);
-    if (amount > 0) spans.push({ start: m.index, end: m.index + raw.length, raw });
-  }
-  return spans;
-}
+function findAmountTokenSpans(text) { return moneyTokenSpans(normalizeText(text)); }
 
 function parseTransaction(text, payload) {
   const raw = normalizeText(text);
@@ -32305,7 +32652,8 @@ function parseTransaction(text, payload) {
   }
 
   const entityDateValue = params.date || params.transaction_date || params.날짜 || params.일자;
-  const transactionDate = entityDateValue ? (normalizeDateValue(entityDateValue) || extractDate(raw)) : extractDate(raw);
+  const transactionDate = entityDateValue ? normalizeDateValue(entityDateValue) : extractDate(raw);
+  if (!transactionDate) return {ok:false, message:"invalid_transaction_date"};
   const paymentMethod = normalizePaymentMethod(params.payment_method || params.payment || params.결제수단 || params.수단) || detectPaymentMethod(raw);
   const explicitCategory = normalizeCategoryName(params.category || params.카테고리 || params.분류, type);
   const category = explicitCategory || inferCategory(raw, type);
@@ -32376,7 +32724,7 @@ function normalizeText(text) {
     .replace(/처눤/g, "천원")
     .replace(/백 원/g, "백원")
     .replace(/십 원/g, "십원")
-    .replace(/[~!@#$%^&*_=+\`|\\{}\[\]:;"'<>?]/g, " ")
+    .replace(/[~!@#$^&*_=+\`|\\{}\[\]:;"'<>?]/g, " ")
     .replace(/[()]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -32392,16 +32740,7 @@ function normalizeType(value) {
   return "";
 }
 
-function detectType(text) {
-  const raw = normalizeText(text);
-  // 낱말 목록은 AB_TYPE_HINTS 하나에서만 자란다. 여기 직접 적으면 클라이언트 사본과
-  // 다시 갈라진다 — 갈라졌던 상태가 정확히 그렇게 만들어졌다.
-  if (new RegExp(`(${AB_TYPE_HINTS.income})`).test(raw)) return "income";
-  if (new RegExp(`(${AB_TYPE_HINTS.expense})`).test(raw)) return "expense";
-  // 수입 카테고리 단어가 명확하면 수입 처리
-  if (new RegExp(`(${AB_TYPE_HINTS.incomeCategory})`).test(raw)) return "income";
-  return "expense";
-}
+function detectType(text) { return transactionTypeFromText(normalizeText(text)); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Math.round(value);
@@ -32409,30 +32748,7 @@ function parseAmountValue(value) {
   return found ? found.amount : 0;
 }
 
-function extractAmount(text) {
-  const candidates = [];
-  const normalized = normalizeText(text);
-  const noComma = normalized.replace(/,/g, "");
-
-  collectCombinedNumericUnitCandidates(noComma, candidates);
-  collectSimpleUnitCandidates(noComma, candidates);
-  collectStandardNumberCandidates(normalized, candidates);
-  collectKoreanNumberCandidates(normalized, candidates);
-
-  candidates.sort((a, b) => {
-    if (a.index !== b.index) return a.index - b.index;
-    return String(b.raw).length - String(a.raw).length;
-  });
-
-  for (const c of candidates) {
-    if (isLikelyDateAround(normalized, c.index, c.raw)) continue;
-    if (isLikelyYearOrTime(normalized, c.index, c.raw)) continue;
-    if (Number.isFinite(c.amount) && c.amount > 0) {
-      return { amount: Math.round(c.amount), raw: c.raw };
-    }
-  }
-  return null;
-}
+function extractAmount(text) { const found = moneyTokenSpans(normalizeText(text))[0]; return found ? { amount: found.amount, raw: found.raw } : null; }
 
 function collectCombinedNumericUnitCandidates(text, candidates) {
   let m;
@@ -32448,22 +32764,7 @@ function collectCombinedNumericUnitCandidates(text, candidates) {
   }
 }
 
-function parseMixedNumericAmount(body) {
-  let amount = 0;
-  let rest = String(body || "").replace(/\s+/g, "");
-  const units = [["억", 100000000], ["만", 10000], ["천", 1000], ["백", 100], ["십", 10]];
-  for (const [unit, value] of units) {
-    const idx = rest.indexOf(unit);
-    if (idx >= 0) {
-      const front = rest.slice(0, idx);
-      const n = front ? Number(front) : 1;
-      if (Number.isFinite(n)) amount += n * value;
-      rest = rest.slice(idx + unit.length);
-    }
-  }
-  if (/^\d{3,4}$/.test(rest)) amount += Number(rest);
-  return amount;
-}
+function parseMixedNumericAmount(body) { return moneyTokenSpans(body)[0]?.amount || 0; }
 
 function collectSimpleUnitCandidates(text, candidates) {
   let m;
@@ -32594,6 +32895,7 @@ function koreanSimpleNumber(s, digit) {
 function normalizeDateValue(value) {
   const strict = parseDateStrict(value);
   if (strict) return strict;
+  if (!hasDateHint(value)) return "";
   return extractDate(value);
 }
 
@@ -32660,11 +32962,11 @@ function parseExplicitDateFromText(text) {
   m = raw.match(/(\d{1,2})\s*주\s*전/);
   if (m) return formatDate(addDays(now, -Number(m[1]) * 7));
   m = raw.match(/(?:지난|저번)\s*달\s*(\d{1,2})일?/);
-  if (m) return safeYmd(now.getFullYear(), now.getMonth(), Number(m[1]));
+  if (m) return safeYmd(now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear(), now.getMonth() === 0 ? 12 : now.getMonth(), Number(m[1]));
   m = raw.match(/(?:이번\s*달|이달)\s*(\d{1,2})일?/);
   if (m) return safeYmd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
   m = raw.match(/(?:다음\s*달|담달)\s*(\d{1,2})일?/);
-  if (m) return safeYmd(now.getFullYear(), now.getMonth() + 2, Number(m[1]));
+  if (m) return safeYmd(now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear(), now.getMonth() === 11 ? 1 : now.getMonth() + 2, Number(m[1]));
   m = raw.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일?/);
   if (m) return safeYmd(now.getFullYear(), Number(m[1]), Number(m[2]));
   return "";
@@ -32686,38 +32988,14 @@ function excelSerialDate(serial) {
 }
 
 function extractDate(text) {
-  const raw = normalizeText(text);
-  const now = nowKstDate();
-  if (/그저께|그제/.test(raw)) return formatDate(addDays(now, -2));
-  if (/어제|전날/.test(raw)) return formatDate(addDays(now, -1));
-  if (/모레/.test(raw)) return formatDate(addDays(now, 2));
-  if (/내일/.test(raw)) return formatDate(addDays(now, 1));
-  if (/오늘|금일|지금|방금/.test(raw)) return formatDate(now);
-  const weekdayDate = resolveWeekdayPhrase(raw, now);
-  if (weekdayDate) return weekdayDate;
-
-  let m = raw.match(/(\d{1,2})\s*일\s*전/);
-  if (m) return formatDate(addDays(now, -Number(m[1])));
-  m = raw.match(/(\d{1,2})\s*주\s*전/);
-  if (m) return formatDate(addDays(now, -Number(m[1]) * 7));
-
-  // V22.9.26: 달력에 없는 날("2월 31일")은 조용히 다음 달로 넘기지 않고 날짜 없음으로 둔다.
-  m = raw.match(/(?:지난|저번)\s*달\s*(\d{1,2})일?/);
-  if (m) return safeYmd(now.getFullYear(), now.getMonth(), Number(m[1]));
-  m = raw.match(/(?:이번\s*달|이달)\s*(\d{1,2})일?/);
-  if (m) return safeYmd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
-  m = raw.match(/(?:다음\s*달|담달)\s*(\d{1,2})일?/);
-  if (m) return safeYmd(now.getFullYear(), now.getMonth() + 2, Number(m[1]));
-
-  m = raw.match(/(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/);
-  if (m) return safeYmd(Number(m[1]), Number(m[2]), Number(m[3]));
-  m = raw.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일?/);
-  if (m) return safeYmd(now.getFullYear(), Number(m[1]), Number(m[2]));
-  m = raw.match(/(?:^|\s)(\d{1,2})[.\/](\d{1,2})(?:\s|$)/);
-  if (m) return safeYmd(now.getFullYear(), Number(m[1]), Number(m[2]));
-  m = raw.match(/(?:^|\s)(\d{1,2})일(?:\s|$)/);
-  if (m) return ymd(now.getFullYear(), now.getMonth() + 1, Number(m[1]));
-
+  const raw = normalizeText(text), now = nowKstDate();
+  const date = quickInputDate(raw,formatDate(now));
+  if (date) return date;
+  if (explicitDateIntent(raw)) return "";
+  const weekday = resolveWeekdayPhrase(raw,now);
+  if (weekday) return weekday;
+  const ago = raw.match(/(?:^|\s)(\d{1,2})\s*(일|주)\s*전(?=\s|$)/);
+  if (ago) return formatDate(addDays(now,-Number(ago[1]) * (ago[2] === "주" ? 7 : 1)));
   return formatDate(now);
 }
 
@@ -33609,3 +33887,11 @@ export {
   resolveQuickPaymentIcon,
   quickChipIconCss,
 };
+
+export { moneyTokenSpans, transactionTypeFromText, quickInputDate, signedPurposeToken, readPurposeToken, makeCredentialProof, verifyCredentialProof, boundedFormRequest, parseMultipleTransactions, parseTransaction, budgetSummary };
+
+export { runRecurringAutoApply, runAutomaticReports, buildBudgetAlertPolishModel, budgetStageInfo, budgetAlertText, budgetFeedbackLine, parseDirectBudgetSetCommand };
+
+export { budgetExpenseRows };
+
+export { explicitDateIntent };

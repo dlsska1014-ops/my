@@ -681,3 +681,11 @@ Sites 배포 주소와 `malhaebook.com` Cloudflare 운영 도메인은 별도 �
 - 2026-10-01에 카카오 상태 조회·선택 저장 오류와 대량 중복 확인 지연을 보정했습니다. 상세 재현과 운영 오류 발생 시각은 `VERIFICATION_V22_9_21.md`에 기록합니다.
 - 채널 1002와 그룹 1001 이력은 오늘 이관 배포 이전입니다. 이후 신규 오류의 발생 여부를 구분하여 확인합니다.
 - 전체 DB 요청 deadline은 아직 없으며 외부 서비스 지연에 따른 모든 타임아웃을 보장하여 제거한 것은 아닙니다.
+## V22.9.30 확인한 운영 한계
+
+- 로컬 PBKDF2는210,000회를 유지했습니다. Workers Free의 실제 CPU1102/iteration 상한과 신규 가입 성공은 운영 지표·실계정으로 확인해야 합니다. Node 시간을 엣지 한도 증명으로 사용하지 않습니다.
+- 신규 첫1/3/25건은 background 포함47/46/47회이고 invocation50 상한 모사를 통과했습니다. 대규모 global alias JSON과 lease의 확장성은 남아 있으며 실제 DB 지연/카카오5초는 별도입니다.
+- FNV-only 계정 로그인/재인증은 닫았습니다. 실제 legacy-only 계정 수와 소유 확인·강한 자격 복구가 필요합니다. 기존 금융 데이터는 삭제하지 않습니다.
+- cron/report는 bounded cursor로 이어 처리하므로 현재 Cron 빈도에 따라 완료가 늦을 수 있습니다. partial을 전체 성공으로 표시하지 않습니다. 직접 DB writer·임대 만료 이후 이미 진행한 commit의 완전한 fencing은 보장하지 않습니다.
+- backup runbook은 준비됐지만 실제 dump/off-site/restore는 미실행입니다. schema-only와 앱 CSV는 전체 disaster recovery가 아닙니다.
+- 월 전체/조회 기간의 표기와 가입·초대 결과 안내는 수정했습니다. 개인정보·계정 탈퇴, 대규모 구조/스키마 이행과 공개 저장소 정책은 남은 범위입니다. 항목별 이유는 `docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md`를 확인합니다.

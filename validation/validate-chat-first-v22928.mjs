@@ -317,7 +317,9 @@ await withFixture(async (f) => {
     }
     return original(url, init);
   };
-  const backup = await web(f, "POST", "/my/backup-login", { cookie, extra: { login_name: `synthetic-${f.key}`, access_code: "SyntheticFixturePassword28", access_code_confirm: "SyntheticFixturePassword28", return_to: "/my" } });
+  const proofCookie = login.headers.getSetCookie().find(value => value.startsWith("ab_credential_reauth="))?.split(";")[0];
+  ok(proofCookie, "fresh one-time chat possession proof has a credential-change scope");
+  const backup = await web(f, "POST", "/my/backup-login", { cookie: cookie + "; " + proofCookie, extra: { login_name: `synthetic-${f.key}`, access_code: "SyntheticFixturePassword28", access_code_confirm: "SyntheticFixturePassword28", return_to: "/my" } });
   globalThis.fetch = original;
   eq(backup.status, 303, "first password setup completes through the authenticated route");
   eq(security.session_version, 2, "first password advances explicit security version");
@@ -360,7 +362,7 @@ for (const manual of ["create", "join"]) {
       const u = new URL(String(url));
       if (u.pathname === "/rest/v1/rpc/accountbook_claim_operation" && init.method === "POST" && JSON.parse(String(init.body)).p_key === lifecycleKey) lifecycleClaims += 1;
       const response = await original(url, init);
-      if (!interleaved && u.pathname === "/rest/v1/accountbook_settings" && u.searchParams.get("key") === `eq.${historyKey}` && (!init.method || init.method === "GET")) {
+      if (!interleaved && u.pathname === "/rest/v1/accountbook_settings" && (u.searchParams.get("key") === `eq.${historyKey}` || String(u.searchParams.get("key") || "").startsWith("in.(") && String(u.searchParams.get("key")).includes(historyKey)) && (!init.method || init.method === "GET")) {
         interleaved = true;
         if (manual === "create") await runtime.createUserHousehold(f.env, userId, "Synthetic concurrent manual ledger", "Synthetic actor");
         else await runtime.joinHouseholdByCode(f.env, userId, f.db.households[0].invite_code);
@@ -517,7 +519,7 @@ await withFixture(async (f) => {
     const u = new URL(String(url));
     if (u.pathname === "/rest/v1/rpc/accountbook_purge_household_v227") purgePosted = true;
     const response = await original(url, init);
-    if (u.pathname === "/rest/v1/accountbook_settings" && u.searchParams.get("key") === `eq.kakao_first_record_history_v22928:${pending.user_id}` && (!init.method || init.method === "GET") && ++historyReads === 2) {
+    if (u.pathname === "/rest/v1/accountbook_settings" && (u.searchParams.get("key") === `eq.kakao_first_record_history_v22928:${pending.user_id}` || String(u.searchParams.get("key") || "").startsWith("in.(") && String(u.searchParams.get("key")).includes(`kakao_first_record_history_v22928:${pending.user_id}`)) && (!init.method || init.method === "GET") && ++historyReads === 2) {
       reached();
       await gate;
     }

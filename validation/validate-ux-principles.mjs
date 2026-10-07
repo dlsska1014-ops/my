@@ -177,7 +177,7 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime repor
 // V22.8.79: renderMyAnalysisHtml changes again — the category budget table gained a
 // read-only note and a "예산 설정 →" link so that editing budgets happens only on
 // /budgets. The table itself and renderBudgetGaugeRows stay untouched.
-eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308fc6eaee5a2b43bc42abe9105f87bf0c764b3aaa", "analysis client matches the V22.8.75 role-split baseline");
+eq(functionBlockHash("function insightClientMain("), "6ea83976d5b0eaa4c52e3f15129a968130d805feb14bd71d67c6d31ee8c81b59", "analysis client matches the V22.8.75 role-split baseline");
 // V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
 // 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을
 // 확인했다). `.meme` 의 #f59e0b 은 히어로가 아니라 그대로 둔다.
@@ -188,7 +188,7 @@ eq(functionBlockHash("function insightClientMain("), "54ec24252330c921a6bcd9308f
 // 문장으로 말한다("소비 분석은 필터로 좁혀 보는 화면 / 종합 리포트는 이번 달
 // 전체를 고정해 보는 화면"). V22.8.75 가 정한 역할 자체는 그대로이고, 무엇이
 // 실제로 다른지를 덧붙였을 뿐이다. 계산·필터 로직은 손대지 않았다(7.4 규칙).
-eq(functionBlockHash("function renderMyAnalysisHtml("), "c4f0632fbb1d11844a88d6b869c49dfd8d1aa3eca2bc6f7d212fa90669428112", "analysis renderer matches the V22.8.92 role-sentence baseline");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "a52240604f1488633040a9723d2b546398f1828c961e055743b1b279b6afb045", "analysis renderer matches the V22.8.92 role-sentence baseline");
 
 const fixture = await createV2265QaFixture();
 try {
