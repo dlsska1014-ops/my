@@ -293,9 +293,25 @@ export async function createV2265QaFixture() {
       if (rpcName === "accountbook_apply_recurring_v227") {
         const householdId = String(data?.p_household_id || "");
         const month = String(data?.p_month || "");
-        const rules = db.accountbook_recurring.filter((item) => item.household_id === householdId && item.is_active !== false && Number(item.day_of_month || 1) <= 28 && String(item.last_applied_month || "") !== month);
+        if (!/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(month)) return new Response(JSON.stringify({ code: "P0001", message: "invalid_month" }), { status: 400 });
+        const rules = db.accountbook_recurring.filter((item) => item.household_id === householdId && item.is_active !== false && String(item.last_applied_month || "") !== month);
+        if (rules.some((rule) => !rule.user_id || !db.household_members.some((member) => member.household_id === householdId && member.user_id === rule.user_id && !["blocked", "pending"].includes(member.role)))) return new Response(JSON.stringify({ code: "P0001", message: "recurring_spender_required" }), { status: 400 });
+        const [year, monthNumber] = month.split("-").map(Number);
+        const monthLastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+        let inserted = 0;
+        for (const rule of rules) {
+          const day = Math.min(monthLastDay, Math.max(1, Number(rule.day_of_month ?? 1)));
+          const date = month + "-" + String(day).padStart(2, "0");
+          const rawText = "recurring:" + rule.id + ":" + month;
+          const type = rule.type === "income" ? "income" : "expense";
+          const duplicate = db.transactions.some((tx) => tx.household_id === householdId && tx.source === "recurring_auto" && (tx.raw_text === rawText || (tx.transaction_date === date && tx.type === type && Number(tx.amount) === Number(rule.amount) && tx.memo === rule.memo && tx.category === rule.category)));
+          if (!duplicate) {
+            upsert(db, "transactions", { household_id: householdId, user_id: rule.user_id, type, amount: rule.amount, category: rule.category, memo: rule.memo, payment_method: rule.payment_method, transaction_date: date, source: "recurring_auto", raw_text: rawText }, ["id"], sequence);
+            inserted += 1;
+          }
+        }
         for (const rule of rules) rule.last_applied_month = month;
-        return new Response(JSON.stringify({ inserted: rules.length, skipped: 0 }), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ inserted, skipped: rules.length - inserted }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_replace_budget_plan_v227") {
         const householdId = String(data?.p_household_id || "");

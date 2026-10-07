@@ -155,7 +155,7 @@ await withFixture(async (f) => {
 });
 
 // Failure recovery reuses the server-generated candidate rather than creating another ledger.
-for (const failure of ["membership", "transaction", "network-after-commit", "aliases"]) {
+for (const failure of ["membership", "membership-definite", "transaction", "network-after-commit", "aliases"]) {
   await withFixture(async (f) => {
     const original = globalThis.fetch;
     let failed = false;
@@ -165,25 +165,26 @@ for (const failure of ["membership", "transaction", "network-after-commit", "ali
       const body = init.body ? JSON.parse(String(init.body)) : {};
       const method = String(init.method || "GET");
       if (method === "POST" && parsed.pathname === "/rest/v1/households") postedHouseholds.push(body.id);
-      const target = failure === "membership" ? parsed.pathname === "/rest/v1/household_members" :
+      const target = failure.startsWith("membership") ? parsed.pathname === "/rest/v1/household_members" :
         failure === "aliases" ? parsed.pathname === "/rest/v1/accountbook_settings" && body.key === "user_identity_links" : parsed.pathname === "/rest/v1/transactions";
       if (!failed && method === "POST" && target) {
         failed = true;
         if (failure === "network-after-commit") { await original(url, init); throw new TypeError("Synthetic network lost after commit"); }
-        return new Response("Synthetic QA storage failure", { status: 503 });
+        return new Response("Synthetic QA storage failure", { status: failure === "membership-definite" ? 400 : 503 });
       }
       return original(url, init);
     };
     const before = f.db.households.length;
     const first = await skill(f, "점심 만원");
     ok(!textOf(first.body).includes("저장했어요"), `${failure}: failure never falsely claims save success`);
-    if (failure === "membership") eq(f.db.households.length, before, "failed owner assignment compensates orphan household");
-    globalThis.fetch = original;
+    if (failure === "membership") eq(f.db.households.length, before + 1, "unknown owner assignment retains the stable candidate and never compensates a possible late commit");
+    if (failure === "membership-definite") eq(f.db.households.length, before, "definite rejected owner assignment compensates only a strictly confirmed empty household");
+    // Keep the observer for retry too; the one-shot synthetic failure is consumed.
     await skill(f, "점심 만원");
     eq(f.db.households.length, before + 1, `${failure}: retry leaves one personal household`);
     eq(f.db.transactions.filter((row) => row.source_user_key === f.key).length, 1, `${failure}: retry saves exactly once`);
     eq(JSON.parse(marker(f).value).state, "complete", `${failure}: retry completes the original preparation`);
-    if (postedHouseholds.length > 1) eq(new Set(postedHouseholds).size, 1, "creation retries use one stable candidate UUID");
+    eq(new Set(postedHouseholds).size, 1, "initial creation and any retries use one stable candidate UUID");
   });
 }
 

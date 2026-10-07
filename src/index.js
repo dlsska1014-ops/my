@@ -410,6 +410,7 @@ function isDatabaseBusyError(err) {
 }
 
 function userSafeErrorCode(err) {
+  if (isUncertainStorageWrite(err)) return "db_write_unknown";
   if (isDatabaseBusyError(err)) return "db_delay";
   const raw = safeError(err);
   if (/spender_not_member|transaction_spender_not_member/i.test(raw)) return "spender_not_member";
@@ -2134,6 +2135,7 @@ const ACCOUNTBOOK_WORKER = {
           return htmlResponse(renderEmergencyErrorHtml(emergencyReturnUrl(request, failUrl), err, "요청을 완료하지 못했어요"), 500);
         }
       } catch (htmlFallbackErr) {}
+      if (isUncertainStorageWrite(err)) return jsonResponse({ ok: false, error: "db_write_unknown", reason: "db_write_unknown", uncertain: true, message: formatMessage("db_write_unknown") }, 503);
       return jsonResponse({ ok: false, error: "server_error", message: "요청을 처리하지 못했습니다. 기존 데이터는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 500);
     }
   },
@@ -2167,7 +2169,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.28-CHAT-FIRST-ONBOARDING";
+const APP_VERSION = "V22.9.29-REMAINING-OPS-HARDENING";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4503,9 +4505,10 @@ function withGlobalIdentitySettingsRmw(env, task) {
 function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 전환했어요") {
   const safePath = escapeHtml(`${url?.pathname || "/"}${url?.search || ""}`);
   const rawError = safeError(err);
-  const msg = /timeout|timed out|abort/i.test(rawError) ? "저장소 응답이 지연되고 있습니다." : "요청을 완료하지 못해 원래 데이터는 변경하지 않았습니다.";
+  const uncertain = isUncertainStorageWrite(err);
+  const msg = uncertain ? formatMessage("db_write_unknown") : /timeout|timed out|abort/i.test(rawError) ? "저장소 응답이 지연되고 있습니다." : "요청을 완료하지 못해 원래 데이터는 변경하지 않았습니다.";
   const origin = url?.origin || "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>말해가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">다시 시도</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>말해가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">${uncertain ? "목록에서 결과 확인" : "다시 시도"}</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
 }
 
 // V22.9.26: 라우터의 마지막 catch 가 브라우저 폼 제출을 구분하는 데 쓴다.
@@ -6656,7 +6659,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="28" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -7864,31 +7867,13 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
   return wanted === null ? rows : rows.slice(0, wanted);
 }
 
-async function supabaseExactCount(env, path) {
-  const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
-  if (!base) throw new Error("SUPABASE_URL is not set");
-  if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+async function supabaseExactCount(env, path, { timeoutMs } = {}) {
   const parsed = new URL(String(path || ""), "https://postgrest.local");
   if (!parsed.searchParams.has("select")) parsed.searchParams.set("select", "id");
   parsed.searchParams.set("limit", "1");
-  const headers = new Headers({
-    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-    authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-    prefer: "count=exact",
-    "range-unit": "items",
-  });
-  const monitor = env.__AB_MONITOR_REQUEST;
-  const startedAt = monitor ? Date.now() : 0;
-  let response;
-  try {
-    response = await fetch(`${base}${parsed.pathname}${parsed.search}`, { method: "HEAD", headers });
-    if (monitor && !response.ok && ![405, 501].includes(response.status)) monitor.db_failures += 1;
-  } catch (error) {
-    if (monitor) monitor.db_failures += 1;
-    throw error;
-  } finally {
-    if (monitor) { monitor.db_count += 1; monitor.db_ms += Math.max(0, Date.now() - startedAt); }
-  }
+  const headers = new Headers({ prefer: "count=exact", "range-unit": "items" });
+  // HEAD uses the same read deadline and monitor accounting as ordinary GETs.
+  const response = await supabase(env, `${parsed.pathname}${parsed.search}`, { method: "HEAD", headers, rawHeadResponse: true, timeoutMs });
   if (response.ok) {
     const range = String(response.headers.get("content-range") || "");
     const match = range.match(/\/(\d+)$/);
@@ -11639,7 +11624,7 @@ function accountbookGoalsClientMain() {
     toastMsg.textContent = failureMessage(err);
     if (toastUndo) toastUndo.hidden = true;
     toast.hidden = false;
-    setTimeout(function () { if (!pending) toast.hidden = true; }, 5000);
+    if (!(err && err.error === "db_write_unknown")) setTimeout(function () { if (!pending) toast.hidden = true; }, 5000);
   }
   function statusLabel(s) { return s === "done" ? "달성" : s === "behind" ? "부족" : "순조"; }
   function setOverall() {
@@ -11773,13 +11758,13 @@ function accountbookGoalsClientMain() {
     };
     if (!String(body.name || "").trim()) { f.name.focus(); return; }
     if (!(Number(body.target) > 0)) { f.target.focus(); return; }
-    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { showError(err); });
+    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); } });
   });
   function load() {
     var url = "/u/api/goals";
     var h = hh();
     if (h) url += "?household=" + encodeURIComponent(h);
-    fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
+    return fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
       .then(function (p) { applyPayload(p); render(); })
       .catch(function (err) { root.textContent = ""; var e = document.createElement("div"); e.className = "card goalEmpty"; e.textContent = err === 401 ? "로그인이 필요해요." : "목표를 불러오지 못했어요."; root.appendChild(e); });
@@ -14396,7 +14381,13 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
     try {
       await linkKakaoLoginToUser(env, kakaoId, user.id, { nickname });
     } catch (err) {
-      await optionalSupabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(user.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }, null);
+      // A late identity-link commit must never be undone by deleting its user.
+      // Only an authoritative 4xx rejection permits cleanup of this new row.
+      if (isDefiniteStorageFailure(err)) {
+        const members = await supabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(user.id)}&select=household_id&limit=1`, { method: "GET" });
+        if (!Array.isArray(members)) throw new Error("household_member_source_invalid");
+        if (!members.length) await optionalSupabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(user.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }, null);
+      }
       throw err;
     }
   }
@@ -14747,13 +14738,18 @@ async function createUserHousehold(env, userId, name, nickname, options = {}) {
     options.assertFresh?.();
     await ensureOwnerMembership(env, userId, household.id, { explicitHouseholdCreation: true });
   } catch (membershipErr) {
-    let recoveredOwner = false;
-    if (!isDefiniteStorageFailure(membershipErr)) {
-      options.assertFresh?.();
-      // An unavailable reread must not delete a possibly committed ownership.
-      recoveredOwner = await getHouseholdMemberRole(env, userId, household.id) === "owner";
-    }
+    options.assertFresh?.();
+    // Strict full-membership read: an outage is not evidence of absent ownership.
+    let freshMembers;
+    try { freshMembers = await fetchRawHouseholdMembers(env, household.id); }
+    catch (readErr) { if (isUncertainStorageWrite(membershipErr)) throw membershipErr; throw readErr; }
+    const recoveredOwner = bestRoleFromRows(freshMembers.filter((row) => String(row.user_id || "") === String(userId))) === "owner";
     if (!recoveredOwner) {
+      // Even a confirmed empty reread cannot exclude an unknown POST committing later.
+      if (!isDefiniteStorageFailure(membershipErr) || freshMembers.length) throw membershipErr;
+      const transactions = await supabase(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(household.id)}&select=id&limit=1`, { method: "GET" });
+      if (!Array.isArray(transactions)) throw new Error("household_transaction_source_invalid");
+      if (transactions.length) throw membershipErr;
       try {
         options.assertFresh?.();
         await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(household.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
@@ -18172,7 +18168,7 @@ async function handleMyRecurringSave(request, env) {
     category: String(form.get("category") || "정기지출").trim().slice(0, 80),
     memo,
     payment_method: String(form.get("payment_method") || "").trim().slice(0, 80),
-    day_of_month: Math.min(31, Math.max(1, Number(form.get("day_of_month") || 1))),
+    day_of_month: normalizeRecurringDay(form.get("day_of_month")),
     user_id: userId,
     is_active: true,
   };
@@ -18187,7 +18183,7 @@ async function handleMyRecurringSave(request, env) {
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_table_required" }));
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_table_required" }));
   }
 }
 
@@ -18209,7 +18205,7 @@ async function handleMyRecurringDelete(request, env) {
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_recurring_delete_failed", severity: "warn", path: "/my/recurring/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_delete_failed" }));
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_delete_failed" }));
   }
 }
 
@@ -18234,7 +18230,7 @@ async function handleRecurringCandidateConfirm(request, env) {
     category: String(form.get("category") || "정기지출").trim().slice(0, 80) || "정기지출",
     memo,
     payment_method: String(form.get("payment_method") || "").trim().slice(0, 80),
-    day_of_month: Math.min(28, Math.max(1, Number(form.get("day_of_month") || 1))),
+    day_of_month: normalizeRecurringDay(form.get("day_of_month")),
     user_id: userId,
     is_active: true,
   };
@@ -18254,7 +18250,7 @@ async function handleRecurringCandidateConfirm(request, env) {
     return redirectResponse(`${returnTo}&msg=${created ? "recurring_registered" : "recurring_exists"}`);
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_candidate_confirm_failed", severity: "warn", path: "/my/recurring/from-candidate", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=recurring_save_failed`);
+    return redirectResponse(`${returnTo}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_save_failed"}`);
   }
 }
 
@@ -18584,7 +18580,7 @@ async function handleMyUpdateTransaction(request, env) {
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
-    return redirectResponse(myReturnLocation(month, selected.id, { err: "record_update_failed" }));
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_update_failed" }));
   }
 }
 
@@ -18606,7 +18602,7 @@ async function handleMyDeleteTransaction(request, env) {
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_delete_failed", severity: "warn", path: "/my/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(myReturnLocation(month, selected.id, { err: "record_delete_failed" }));
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
   }
 }
 
@@ -18625,6 +18621,9 @@ function householdPageMessage(code = "") {
     created: "가계부를 만들었습니다. 이제 초대코드를 공유하세요.",
     household_duplicate_selected: "같은 이름의 기존 가계부를 선택했습니다.",
     joined: "이미 참여 중인 가계부를 열었습니다.",
+    joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
+    join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
+    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.",
     approval_pending: "참여 요청을 보냈습니다. 관리자가 승인하면 열 수 있습니다.",
     household_updated: "가계부 이름을 변경했습니다.",
     household_deleted: "가계부와 모든 기록을 삭제했습니다. 연결된 단톡방도 해제되어 이후 입력은 저장되지 않습니다.",
@@ -18867,8 +18866,8 @@ async function purgeHouseholdData(env, householdId = "") {
   if (!hid) throw new Error("household_id_required");
   const readPurgeScope = async () => {
     const [members, markers] = await Promise.all([
-      supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id`, { method: "GET" }),
-      supabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_first_record_v22928:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&limit=1000`, { method: "GET" }),
+      fetchPostgrestRows(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id&order=user_id.asc`, { maxRows: 1000 }),
+      fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_first_record_v22928:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 }),
     ]);
     const candidateUsers = markers.map((row) => parseKakaoChatFirstMarker(row.value)).filter((item) => item?.candidate_id === hid && item.user_id).map((item) => String(item.user_id));
     return { members, userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers].filter(Boolean))].sort() };
@@ -18948,7 +18947,7 @@ async function handleMyHouseholdDelete(request, env) {
     return redirectResponseWithCookies(`/my/households?month=${encodeURIComponent(month)}&msg=household_deleted`, [clearHouseholdDeleteReauthCookie()]);
   } catch (err) {
     rememberOpsEvent({ kind: "household_delete_failed", severity: "error", path: "/my/household/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(back, { err: "household_delete_failed" }));
+    return redirectResponse(addQueryToUrl(back, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
   }
 }
 
@@ -19004,10 +19003,17 @@ async function handleMyHouseholdLeave(request, env) {
     }
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=household_left`);
   } catch (err) {
-    const code = /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : "household_leave_failed";
+    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : "household_leave_failed";
     rememberOpsEvent({ kind: "household_leave_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }
+}
+
+function householdJoinFeedback(joined) {
+  const role = String(joined?.join_role || "");
+  if (role === "blocked") return { err: "join_blocked" };
+  if (!["owner", "admin", "member", "viewer", "pending"].includes(role)) return { err: "join_failed" };
+  return { household_id: String(joined.id || ""), msg: role === "pending" ? "approval_pending" : role === "viewer" ? "joined_viewer" : "joined" };
 }
 
 async function handleMyJoin(request, env) {
@@ -19019,12 +19025,12 @@ async function handleMyJoin(request, env) {
   try {
     const joined = await joinHouseholdByCode(env, userId, code);
     if (!joined) return redirectResponse(returnLocation(form, "/my/households", { err: "invite_code_not_found" }));
-    const msg = joined.join_role === "pending" ? "approval_pending" : "joined";
-    const fallback = `/my/households?household_id=${encodeURIComponent(joined.id)}&msg=${msg}`;
-    return redirectResponse(returnLocation(form, fallback, { household_id: joined.id, msg }));
+    const feedback = householdJoinFeedback(joined);
+    const fallback = addQueryToUrl("/my/households", feedback);
+    return redirectResponse(returnLocation(form, fallback, feedback));
   } catch (err) {
     rememberOpsEvent({ kind: "household_join_failed", severity: "warn", path: "/my/join", method: "POST", detail: safeError(err) });
-    return redirectResponse(returnLocation(form, "/my/households", { err: "join_failed" }));
+    return redirectResponse(returnLocation(form, "/my/households", { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "join_failed" }));
   }
 }
 
@@ -21249,11 +21255,11 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
 const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22926.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22925.js";
-const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22836.js";
+const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22929.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";
-const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22843.js";
+const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22929.js";
 const ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH = "/assets/accountbook-favrows-v22836.js";
-const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22926.js";
+const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22929.js";
 let AB_MOBILE_HOME_CSS_CACHE = "";
 let AB_MOBILE_HOME_JS_CACHE = "";
 let AB_MOBILE_HOME_SHELL_JS_CACHE = "";
@@ -23490,6 +23496,13 @@ function accountbookSearchClientMain() {
     resultsBox.textContent = "";
     var list = (data && data.results) || [];
     if (!list.length) { setMessage("검색 결과가 없어요."); return; }
+    if (data && data.has_more) {
+      var notice = document.createElement("p");
+      notice.className = "abV5SearchFavHead";
+      notice.setAttribute("role", "status");
+      notice.textContent = "더 많은 결과가 있어 처음 50건만 표시합니다. 검색어를 더 구체적으로 입력해 주세요.";
+      resultsBox.appendChild(notice);
+    }
     list.forEach(function (r) { resultsBox.appendChild(buildRow(r)); });
   }
   function renderFavorites() {
@@ -24103,15 +24116,15 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22925-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
-          ? '"accountbook-search-v22836-js"'
+          ? '"accountbook-search-v22929-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
           ? '"accountbook-notif-v22836-js"'
         : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
-          ? '"accountbook-goals-v22843-js"'
+          ? '"accountbook-goals-v22929-js"'
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22836-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22926-js"'
+          ? '"accountbook-v5-v22929-js"'
           : '"mobile-home-v22915-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
@@ -25305,6 +25318,11 @@ async function handleBudgetCenterPageLegacyV2264(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>예산 관리</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:29px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.modeTag{display:inline-block;font-style:normal;font-size:11px;font-weight:1000;border-radius:999px;padding:2px 7px;margin-left:4px;vertical-align:1px}.modeTag.auto{background:#dcfce7;color:#166534}.modeTag.manual{background:#eff6ff;color:#1e3a8a}.bar{height:14px;background:#e5e7eb;border-radius:999px;overflow:hidden}.bar i{display:block;height:100%;width:var(--w);background:#3182F6;border-radius:999px}.basisGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:12px}.basisGrid>div{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;min-width:0}.basisGrid h3{margin:0 0 10px;font-size:17px}.basisGrid ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}.basisGrid li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px}.basisGrid li b{word-break:keep-all;line-height:1.25}.basisGrid li span{white-space:nowrap;font-weight:1000}.budgetWarn,.budgetOk{border-radius:18px;padding:14px;margin:12px 0;display:grid;gap:5px;line-height:1.45}.budgetWarn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.budgetOk{background:#ecfdf5;border:1px solid #86efac;color:#166534}.budgetWarn b,.budgetOk b{font-size:17px}.budgetWarn span,.budgetOk span{font-weight:900}.budgetWarn small{color:#9a3412}.tableWrap{overflow-x:auto}.catUse summary{cursor:pointer;font-weight:1000}.catUse small{display:block;color:#64748b;margin-top:3px}.budgetTree{margin-top:10px;display:grid;gap:7px}.memberUse{background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:8px}.memberUse summary{cursor:pointer;color:#111827}.memberUse ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:5px}.memberUse li{display:grid;grid-template-columns:92px 90px 1fr;gap:8px;font-size:12px;color:#475569}.memberUse li b{color:#111827}.memberUse li em{font-style:normal}.emptyTree{color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:10px}table{width:100%;border-collapse:collapse;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px}.status{display:inline-flex;border-radius:999px;padding:5px 9px;font-weight:1000;font-size:12px}.status.ok{background:#dcfce7;color:#166534}.status.warn{background:#fff7ed;color:#9a3412}.status.bad{background:#fee2e2;color:#991b1b}.mini{height:32px;border:0;border-radius:10px;padding:0 10px;font-weight:900}.danger{background:#fee2e2;color:#991b1b}.okmsg{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.errmsg{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid,.basisGrid{grid-template-columns:1fr}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:760px}.memberUse li{grid-template-columns:1fr;gap:3px}}</style></head><body>${renderUnifiedNav("budgets", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap"><section class="hero"><h1>예산 관리</h1><p>월 수입 기준으로 전체 예산을 얼마까지 잡았는지 보고, 분류별 예산의 사용금액·잔여금액·사용률을 한눈에 관리합니다.</p><form class="filters" method="get" action="/budgets"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="okmsg">${formatMessage(msg)}</div>` : ""}${err ? `<div class="errmsg">${formatMessage(err)}</div>` : ""}<section class="metricGrid"><div class="metric"><span>월 수입 기준</span><b>${numberWithCommas(center.incomeBase)}원</b></div><div class="metric"><span>이번 달 예산 ${center.budget.explicitTotalBudget ? `<i class="modeTag manual">직접 설정</i>` : `<i class="modeTag auto">분류 합계 자동</i>`}</span><b>${numberWithCommas(center.totalBudget)}원</b></div><div class="metric"><span>수입 대비 예산</span><b>${center.budgetIncomeRate}%</b></div><div class="metric"><span>남은 배정 가능 예산</span><b>${numberWithCommas(center.freeAfterBudget)}원</b></div><div class="metric"><span>이번 달 지출</span><b>${numberWithCommas(center.budget.expense)}원</b></div><div class="metric"><span>예산 사용률</span><b>${center.budget.rate || 0}%</b></div></section><section class="card"><h2>수입 대비 예산 비율</h2><div class="bar"><i style="--w:${Math.min(100, Math.max(0, center.budgetIncomeRate))}%"></i></div><p class="tip">월 수입 기준을 입력하면 예산이 수입의 몇 %인지 볼 수 있습니다. 수입 기준을 비워두면 이번 달 기록된 수입을 기준으로 계산합니다.</p></section><section class="card"><h2>월 기준 설정</h2><p class="note">월 예산은 <b>분류별 예산 합계로 자동 산정</b>되므로 따로 설정하지 않아도 됩니다. 수입 기준(이번 달 들어올 돈)만 입력해도 충분하고, 월 전체 예산 직접 설정은 분류 합계와 다르게 잡고 싶을 때만 쓰는 선택 항목입니다. 직접입력을 선택했을 때만 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>설정 항목<select name="category" class="jsBudgetKind"><option value="__income">월 수입 기준 합계</option>${incomeOptions}<option value="__income_custom">수입 기준 직접입력</option><option value="__total">월 전체 예산 직접 설정 (선택)</option></select></label><label class="jsCustomWrap" hidden>직접입력 이름<input name="category_custom" disabled placeholder="예: 상여, 부수입"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 3500000" value=""/></label><button type="submit">기준 저장</button></form>` : `<p class="note">예산 기준 저장은 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">현재 월 수입 기준 합계: ${numberWithCommas(center.incomeBudget || 0)}원 · 분류별 예산 합계(자동): ${numberWithCommas(center.budget.categoryBudgetTotal || 0)}원${Number(totalBudgetRow.amount || 0) ? ` · 직접 설정한 월 전체 예산: ${numberWithCommas(totalBudgetRow.amount)}원` : ""}</p>${Number(totalBudgetRow.amount || 0) && canManage ? `<form method="post" action="/admin/budget/delete" onsubmit="return confirm('직접 설정한 월 전체 예산을 지우고 분류별 합계 자동 산정으로 전환할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="category" value="__total"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><button type="submit" class="mini" style="background:#eff6ff;color:#1e3a8a">자동 산정(분류 합계)으로 전환</button></form>` : ""}${budgetConsistency}${budgetBasisList}</section><section class="card"><h2>분류별 예산 추가</h2><p class="note">먼저 기존 분류를 선택하거나, 맨 아래 “분류 직접입력”을 선택하면 이름 입력칸이 열립니다.</p>${canManage ? `<form class="formGrid smartBudgetForm" method="post" action="/admin/budget/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(month)}${escapeHtml(hh)}"/><label>분류<select name="category" class="jsBudgetKind">${categoryOptions}<option value="__category_custom">분류 직접입력</option></select></label><label class="jsCustomWrap" hidden>직접입력 분류명<input name="category_custom" disabled placeholder="예: 아이간식, 반려동물, 병원비"/></label><label>예산 금액<input name="amount" inputmode="numeric" placeholder="예: 500000"/></label><button type="submit">분류 예산 저장</button></form>` : `<p class="note">분류별 예산 추가는 가계부 소유자·관리자만 할 수 있습니다.</p>`}<p class="tip">분류별 사용 현황은 아래에서 분류명을 눌러 상세를 확인하세요.</p></section><section class="card"><h2>분류별 사용 현황</h2><p class="note">분류명을 눌러 멤버별 사용 합계를 보고, 멤버명을 한 번 더 누르면 날짜·금액·항목이 표시됩니다.</p><div class="tableWrap"><table><thead><tr><th>분류/상세</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th><th>상태</th><th>관리</th></tr></thead><tbody>${renderBudgetRows(budgets, center.budget, rows, canManage)}</tbody></table></div></section><script>const BUDGET_CTX={catTotal:${Number(center.budget.categoryBudgetTotal || 0)},incomeBase:${Number(center.incomeBase || 0)},explicitTotal:${Number(center.budget.explicitTotalBudget || 0)}};document.querySelectorAll(".smartBudgetForm").forEach((form)=>{const sel=form.querySelector(".jsBudgetKind");const wrap=form.querySelector(".jsCustomWrap");const input=wrap&&wrap.querySelector("input");function sync(){const v=sel?.value||"";const on=v==="__income_custom"||v==="__category_custom";if(wrap){wrap.hidden=!on;}if(input){input.disabled=!on;if(!on)input.value="";}}sel&&sel.addEventListener("change",sync);sync();form.addEventListener("submit",(e)=>{const kind=sel?.value||"";const amtEl=form.querySelector("input[name=amount]");const amt=Number(String(amtEl?.value||"").replace(/[^0-9]/g,""))||0;if(!amt)return;const won=(n)=>n.toLocaleString("ko-KR")+"원";if(kind&&!kind.startsWith("__")||kind==="__category_custom"){const nextTotal=BUDGET_CTX.catTotal+amt;const limit=BUDGET_CTX.explicitTotal||BUDGET_CTX.incomeBase;if(limit&&nextTotal>limit){const over=nextTotal-limit;const base=BUDGET_CTX.explicitTotal?"직접 설정한 월 전체 예산":"월 수입 기준";if(!confirm("⚠️ 예산 초과 경고\\n\\n이 예산을 저장하면 분류별 예산 합계("+won(nextTotal)+")가 "+base+"("+won(limit)+")를 "+won(over)+" 초과합니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}}else if(kind==="__total"&&BUDGET_CTX.incomeBase&&amt>BUDGET_CTX.incomeBase){if(!confirm("⚠️ 월 전체 예산("+won(amt)+")이 월 수입 기준("+won(BUDGET_CTX.incomeBase)+")보다 큽니다.\\n\\n그래도 저장할까요?")){e.preventDefault();}}});});</script></main></body></html>`);
 }
 
+function normalizeRecurringDay(value) {
+  const day = Number(value);
+  return Number.isFinite(day) ? Math.min(31, Math.max(1, Math.round(day))) : 1;
+}
+
 async function handleRecurringSave(request, env) {
   const form = await request.formData();
   const _hh = String(form.get("household_id") || "").trim();
@@ -25325,7 +25343,7 @@ async function handleRecurringSave(request, env) {
     category: String(form.get("category") || "기타").slice(0, 80),
     memo: String(form.get("memo") || "").slice(0, 160),
     payment_method: String(form.get("payment_method") || "").slice(0, 40),
-    day_of_month: Math.min(28, Math.max(1, Math.round(Number(form.get("day_of_month") || 1)))),
+    day_of_month: normalizeRecurringDay(form.get("day_of_month")),
     user_id: spenderId,
     is_active: true,
   };
@@ -25339,7 +25357,7 @@ async function handleRecurringSave(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_save_failed", severity: "warn", path: "/admin/recurring/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
   }
 }
 
@@ -25366,7 +25384,7 @@ async function handleRecurringDelete(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_delete_failed", severity: "warn", path: "/recurring/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목을 삭제하지 못했습니다. 기존 항목은 유지됩니다." }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "고정항목을 삭제하지 못했습니다. 기존 항목은 유지됩니다." }));
   }
 }
 
@@ -25384,10 +25402,8 @@ async function handleRecurringApply(request, env) {
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
-      // 운영 RPC는 29~31일을 28일로 줄인다. SQL 보완 승인 전까지 guard와 RPC를 같은 가계부 DB 임대 안에서 수행한다.
-      const monthEndRules = await supabase(env, `/rest/v1/accountbook_recurring?household_id=eq.${encodeURIComponent(householdId)}&day_of_month=gte.29&select=id,day_of_month,is_active,last_applied_month`, { method: "GET" }) || [];
-      const unsafeMonthEndRules = monthEndRules.filter((rule) => rule?.is_active !== false && String(rule?.last_applied_month || "") !== month);
-      if (unsafeMonthEndRules.length) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_manual_month_end_blocked" }));
+      // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
+      // The RPC preserves the requested day and clamps only to this target month's last day.
       assertFresh();
       const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
         method: "POST",
@@ -25400,7 +25416,7 @@ async function handleRecurringApply(request, env) {
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
-    const message = /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }
 }
@@ -25499,7 +25515,7 @@ async function handleMyLocalLogin(request, env) {
     if (inviteCode) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
-        ? `/my?household_id=${encodeURIComponent(joined.id)}&msg=${joined.join_role === "pending" ? "approval_pending" : "joined"}`
+        ? addQueryToUrl("/my", householdJoinFeedback(joined))
         : `/my/households?err=${encodeURIComponent("초대코드를 찾지 못했습니다. 로그인은 완료되었습니다.")}`;
     }
     const session = await makeUserSession(env, user.id);
@@ -25554,11 +25570,11 @@ async function handleMyLocalSignup(request, env) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
-        ? `/my?household_id=${encodeURIComponent(joined.id)}&msg=${joined.join_role === "pending" ? "approval_pending" : "joined"}`
+        ? addQueryToUrl("/my", householdJoinFeedback(joined))
         : `/my/households?first=1&err=${encodeURIComponent("초대코드를 찾지 못했습니다. 계정은 생성되었습니다.")}`;
     } catch (err) {
       rememberOpsEvent({ kind: "local_signup_invite_failed", severity: "warn", path: "/my/local-signup", method: "POST", detail: safeError(err) });
-      location = `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
+      location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
     }
   }
   return redirectResponse(location, {
@@ -26682,7 +26698,10 @@ function formatMessage(msg) {
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
-  const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
+  const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
+    joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
+    join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
+    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
   reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
 };
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
@@ -27312,8 +27331,17 @@ function kakaoSaveDelayText(origin = "") {
 }
 
 // V22.9.26: 저장소가 상태 코드로 거절한 경우(Supabase 4xx·5xx)는 저장된 행이 없다.
+function isUncertainStorageWrite(err) {
+  // Alias/security wrappers must retain the transport outcome classification.
+  for (let current = err, depth = 0; current && depth < 8; current = current.cause, depth += 1) {
+    if (current.uncertain_write === true || current.code === "supabase_write_result_unknown") return true;
+  }
+  return false;
+}
+
 function isDefiniteStorageFailure(err) {
-  return /^Supabase [45]\d\d\b/.test(safeError(err) || "");
+  if (isUncertainStorageWrite(err)) return false;
+  return /^Supabase 4\d\d\b/.test(safeError(err) || "") && !/^Supabase 408\b/.test(safeError(err) || "");
 }
 
 function kakaoSaveFailedText(origin = "") {
@@ -30567,10 +30595,12 @@ async function handleUserTxSearch(request, env, url) {
   const needle = q.toLowerCase();
   const digits = q.replace(/[^0-9]/g, "");
   const matched = [];
+  let hasMore = false;
   for (const t of rows) {
     const hay = `${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""} ${t.spender_name || ""}`.toLowerCase();
     const hit = hay.includes(needle) || (digits.length >= 2 && String(t.amount || "").includes(digits));
     if (!hit) continue;
+    if (matched.length >= 50) { hasMore = true; break; }
     matched.push({
       id: t.id,
       type: t.type,
@@ -30582,9 +30612,8 @@ async function handleUserTxSearch(request, env, url) {
       month: String(t.transaction_date || "").slice(0, 7),
       member: t.spender_name || "",
     });
-    if (matched.length >= 50) break;
   }
-  return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, results: matched });
+  return jsonResponse({ ok: true, q, household_id: household.id, count: matched.length, count_is_total: !hasMore, has_more: hasMore, result_limit: 50, results: matched });
 }
 
 async function fetchRecentTransactionRows(env, householdId, month, limit = 80) {
@@ -31000,6 +31029,7 @@ async function handleUserGoals(request, env, url) {
     return jsonResponse({ ...goalsPayload(household.id, list), can_write: true });
   } catch (err) {
     rememberOpsEvent({ kind: "goal_settings_write_failed", severity: "warn", path: "/u/api/goals", method: "POST", detail: `${household.id}:${safeError(err)}` });
+    if (isUncertainStorageWrite(err)) return jsonResponse({ ok: false, error: "db_write_unknown", reason: "db_write_unknown", uncertain: true, message: formatMessage("db_write_unknown") }, 503);
     return jsonResponse({ ok: false, error: "save_failed", reason: "goal_save_failed", message: "목표 변경을 저장하지 못했습니다. 기존 목표는 유지됩니다. 잠시 후 다시 시도해 주세요." }, 503);
   } finally {
     await releaseOperationLease(env, lease);
@@ -31881,9 +31911,15 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     });
     user = Array.isArray(created) ? created[0] : created;
   } catch (err) {
-    const retry = await optionalSupabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" }, []);
-    if (retry?.[0]) user = retry[0];
+    let retry;
+    try { retry = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" }); }
+    catch (readErr) { if (isUncertainStorageWrite(err)) throw err; throw readErr; }
+    if (!Array.isArray(retry)) throw new Error("user_source_invalid");
+    if (retry[0]) user = retry[0];
     else {
+      // Bare-insert compatibility is allowed only after a definite missing
+      // on-conflict constraint, never after an unknown or late create result.
+      if (!isDefiniteStorageFailure(err) || !/42P10|no unique or exclusion constraint|on_conflict/i.test(safeError(err))) throw err;
       options.assertFresh?.();
       const created = await supabase(env, "/rest/v1/users", {
         method: "POST",
@@ -31962,7 +31998,9 @@ async function joinHouseholdByCode(env, userId, code, options = {}) {
   } catch (pendingErr) {
     // 승인대기 저장 실패를 member 자동 승격으로 우회하지 않는다. 재전송/동시 요청으로
     // 이미 만들어진 역할만 한 번 다시 읽고, 없으면 안전하게 실패한다.
-    const reread = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(household.id)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }) || [];
+    let reread;
+    try { reread = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(household.id)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }) || []; }
+    catch (readErr) { if (isUncertainStorageWrite(pendingErr)) throw pendingErr; throw readErr; }
     const rereadRole = bestRoleFromRows(reread);
     if (rereadRole) {
       assertFresh();
@@ -31970,7 +32008,8 @@ async function joinHouseholdByCode(env, userId, code, options = {}) {
       return { ...household, join_role: rereadRole, already_joined: true };
     }
     rememberOpsEvent({ kind: "household_join_pending_failed", severity: "error", path: "/rest/v1/household_members", method: "POST", detail: safeError(pendingErr) });
-    throw new Error("approval_request_failed");
+    if (isUncertainStorageWrite(pendingErr)) throw pendingErr;
+    throw new Error("approval_request_failed", { cause: pendingErr });
   }
   });
 }
@@ -32004,31 +32043,56 @@ async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
   if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-
-  const headers = new Headers(init.headers || {});
+  const { timeoutMs, rawHeadResponse = false, ...fetchInit } = init;
+  const method = String(fetchInit.method || "GET").toUpperCase();
+  const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
+  const headers = new Headers(fetchInit.headers || {});
   headers.set("apikey", env.SUPABASE_SERVICE_ROLE_KEY);
   headers.set("authorization", `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`);
-  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-
+  if (fetchInit.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   const monitor = env.__AB_MONITOR_REQUEST;
   const startedAt = monitor ? Date.now() : 0;
   let failed = false;
+  let dispatched = false;
+  let status = 0;
+  let timer;
+  let timeout = false;
+  const controller = readOnly ? new AbortController() : null;
+  const upstreamSignal = fetchInit.signal;
+  const signal = controller ? (upstreamSignal ? AbortSignal.any([controller.signal, upstreamSignal]) : controller.signal) : upstreamSignal;
   try {
-    const res = await fetch(`${base}${path}`, { ...init, headers });
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
-    }
-    if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch (_) {
-      return text;
-    }
+    if (upstreamSignal?.aborted) throw new Error("supabase_request_cancelled_before_dispatch");
+    const execute = async () => {
+      dispatched = true;
+      const res = await fetch(`${base}${path}`, { ...fetchInit, headers, ...(signal ? { signal } : {}) });
+      status = res.status;
+      if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;
+      const text = await res.text();
+      if (!res.ok) throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+      if (!text) return null;
+      try { return JSON.parse(text); } catch (_) { return text; }
+    };
+    // Bound safe reads first. Mutating deadlines require end-to-end result
+    // reconciliation; no automatic write retry or cancellation is introduced here.
+    if (!readOnly) return await execute();
+    const budget = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Math.min(60000, Math.max(1, Number(timeoutMs))) : 10000;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => { timeout = true; controller.abort(); const error = new Error("supabase_read_timeout: 저장소 조회 응답을 기다리는 시간이 초과되었습니다."); error.code = "supabase_read_timeout"; reject(error); }, budget);
+    });
+    return await Promise.race([execute(), deadline]);
   } catch (error) {
     failed = true;
+    if (!readOnly && dispatched && (!status || status >= 500 || status === 408)) {
+      const uncertain = new Error("supabase_write_result_unknown: 처리 결과를 확인하지 못했습니다. 기록·목표·참여 상태를 먼저 확인하고 같은 요청을 반복하지 마세요.", { cause: error });
+      uncertain.name = "SupabaseWriteUncertainError";
+      uncertain.code = "supabase_write_result_unknown";
+      uncertain.uncertain_write = true;
+      throw uncertain;
+    }
+    if (timeout && error?.code !== "supabase_read_timeout") { const deadlineError = new Error("supabase_read_timeout: 저장소 조회 응답을 기다리는 시간이 초과되었습니다.", { cause: error }); deadlineError.code = "supabase_read_timeout"; throw deadlineError; }
     throw error;
   } finally {
+    if (timer) clearTimeout(timer);
     if (monitor) {
       monitor.db_count += 1;
       monitor.db_ms += Math.max(0, Date.now() - startedAt);
@@ -33510,6 +33574,13 @@ export {
   decodeImportUploadBytes,
   createUserHousehold,
   joinHouseholdByCode,
+  normalizeRecurringDay,
+  householdJoinFeedback,
+  isUncertainStorageWrite,
+  ensureKakaoLoginUser,
+  supabase,
+  supabaseExactCount,
+  isDefiniteStorageFailure,
   getMySelectedHousehold,
   renderMyAccessStatusHtml,
   renderMyImportPreviewHtml,

@@ -11,6 +11,7 @@ import app, {
   fetchReservePlans,
   fetchUserIdentityLinks,
   formatMessage,
+  isUncertainStorageWrite,
   ensureUser,
   normalizeImportedRecordDetailed,
   persistIdentityAliases,
@@ -57,7 +58,7 @@ ok(!source.includes("const aliasSnapshots = []"), "identity merge no longer save
 ok(source.includes("for (const hid of aliasHouseholdIds)") && source.includes("fetchMemberAliasMap(env, hid, { strict: true })"), "identity merge rereads aliases under sequential household locks");
 ok(!source.includes("[...plan.values()].slice(0, 100)"), "budget plan is not silently truncated");
 ok(source.includes('if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }))'), "budget plan rejects more than 100 normalized entries before RPC");
-ok(source.includes("unsafeMonthEndRules") && source.includes("recurring_manual_month_end_blocked"), "manual recurring apply has a 29-31 safety guard");
+ok(!source.includes("unsafeMonthEndRules") && source.includes("V22.9.29 requires the month-end RPC patch"), "manual recurring apply uses the repaired month-end RPC after SQL-first deployment");
 ok(source.includes("settings_rmw_lease_expired") && source.includes("locked_until"), "settings writes check the observed lease expiry before mutation");
 ok(source.includes("category_created_keywords_pending"), "category creation reports partial success instead of invoking duplicate fallback");
 
@@ -186,7 +187,7 @@ ok(source.includes("category_created_keywords_pending"), "category creation repo
 
     db.__fail_next_settings_write = true;
     const transportWrites = db.__settings_write_count;
-    await rejects(ensureUser(env, "kakao_login:2265", "Bin", ["kakao_login:transport-alt"]), (err) => err?.name === "IdentityAliasPersistenceError" && /QA_SETTINGS_WRITE_FAILED/.test(String(err.message || "")), "identity transport write failure propagates as typed failure without false success");
+    await rejects(ensureUser(env, "kakao_login:2265", "Bin", ["kakao_login:transport-alt"]), (err) => err?.name === "IdentityAliasPersistenceError" && isUncertainStorageWrite(err) && /QA_SETTINGS_WRITE_FAILED/.test(String(err.cause?.cause?.message || "")), "identity transport write failure propagates as typed failure without false success");
     eq(db.__settings_write_count, transportWrites + 1, "transport failure attempts the required settings write only once");
     user = await ensureUser(env, "kakao_login:2265", "Bin", ["kakao_login:transport-alt"]);
     links = JSON.parse(setting(db, "user_identity_links").value);
@@ -194,7 +195,7 @@ ok(source.includes("category_created_keywords_pending"), "category creation repo
     eq(links["kakao_login:transport-alt"].user_id, "user-bin", "later request repairs the alias after transport recovery");
 
     db.__fail_next_settings_write = true;
-    await rejects(ensureUser(env, "new-required-user", "New", ["kakao_login:new-required-alt"]), (err) => err?.name === "IdentityAliasPersistenceError" && /QA_SETTINGS_WRITE_FAILED/.test(String(err.message || "")), "newly created user also treats identity alias persistence as required");
+    await rejects(ensureUser(env, "new-required-user", "New", ["kakao_login:new-required-alt"]), (err) => err?.name === "IdentityAliasPersistenceError" && isUncertainStorageWrite(err) && /QA_SETTINGS_WRITE_FAILED/.test(String(err.cause?.cause?.message || "")), "newly created user also treats identity alias persistence as required");
     const createdAfterFailure = db.users.find((item) => item.kakao_user_key === "new-required-user");
     ok(createdAfterFailure?.id, "new-user alias failure leaves one recoverable raw user rather than reporting false success");
     links = JSON.parse(setting(db, "user_identity_links").value);
@@ -399,8 +400,8 @@ ok((source.match(/withHouseholdDatabaseLease\(env,/g) || []).length >= 6, "manua
     ok(!fixture.db.accountbook_recurring.some((item) => item.memo === "경합말일"), "busy concurrent day-31 mutation performs zero recurring writes");
     releaseApply();
     response = await applyPromise;
-    ok(String(response.headers.get("location") || "").includes("msg="), "already-applied NULL-active month-end rule does not block the safe 1-28 manual RPC");
-    eq(rpcCount(fixture.db, "accountbook_apply_recurring_v227"), 1, "guard and manual RPC complete once under the shared lease");
+    ok(String(response.headers.get("location") || "").includes("msg="), "already-applied NULL-active month-end rule does not duplicate any manual RPC record");
+    eq(rpcCount(fixture.db, "accountbook_apply_recurring_v227"), 1, "manual RPC completes once under the shared lease");
     eq(fixture.db.accountbook_recurring.find((item) => item.id === "recurring-rent").last_applied_month, "2026-07", "normal 1-28 recurring rule remains functional");
 
     fixture.db.__before_rpc = null;
@@ -409,12 +410,12 @@ ok((source.match(/withHouseholdDatabaseLease\(env,/g) || []).length >= 6, "manua
     ok(fixture.db.accountbook_recurring.some((item) => item.memo === "경합말일" && Number(item.day_of_month) === 31), "retry stores the requested day-31 rule without rerouting or marking it applied");
 
     response = await call(fixture, "POST", "/admin/recurring/apply", { body: applyBody });
-    ok(String(response.headers.get("location") || "").includes("err=recurring_manual_month_end_blocked"), "next manual apply sees the newly stored day-31 rule and blocks before the bad RPC");
-    eq(rpcCount(fixture.db, "accountbook_apply_recurring_v227"), 1, "blocked follow-up performs zero additional manual RPC writes");
+    ok(String(response.headers.get("location") || "").includes("msg="), "next manual apply safely handles the newly stored day-31 rule");
+    eq(rpcCount(fixture.db, "accountbook_apply_recurring_v227"), 2, "follow-up performs exactly one additional repaired manual RPC");
     const createdMonthEnd = fixture.db.accountbook_recurring.find((item) => item.memo === "경합말일");
-    ok(!createdMonthEnd.last_applied_month, "blocked follow-up does not silently mark the new month-end rule applied");
-    response = await call(fixture, "GET", "/reserve-plans?household_id=house-home&month=2026-07&err=recurring_manual_month_end_blocked");
-    ok((await response.text()).includes("29~31일 고정항목"), "reserve page renders the mapped month-end safety notice after the race-safe block");
+    eq(createdMonthEnd.last_applied_month, "2026-07", "confirmed day-31 application publishes its applied month");
+    const writtenMonthEnd = fixture.db.transactions.find((item) => item.raw_text === `recurring:${createdMonthEnd.id}:2026-07`);
+    eq(writtenMonthEnd?.transaction_date, "2026-07-31", "July day-31 manual application preserves the requested date instead of day 28");
   } finally {
     fixture.restore();
   }

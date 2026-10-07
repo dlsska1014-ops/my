@@ -69,7 +69,7 @@ try {
   const nav = await request('/assets/accountbook-nav-v22925.js', { cookie: '' });
   new Function(nav.html); checks++;
   ok(nav.html.includes('수정 항목을 불러오는 중입니다') && nav.html.includes('다시 시도'), 'deferred editor explains loading and retry');
-  const bundle = await request('/assets/accountbook-v5-v22926.js', { cookie: '' });
+  const bundle = await request('/assets/accountbook-v5-v22929.js', { cookie: '' });
   new Function(bundle.html); checks++;
   ok(bundle.html.includes('typeof HTMLElement.prototype.showPopover'), 'popover enhancement checks support');
   const css = await request('/assets/accountbook-shell-v22925.css', { cookie: '' });

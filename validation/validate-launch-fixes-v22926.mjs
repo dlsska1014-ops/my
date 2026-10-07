@@ -47,6 +47,7 @@ globalThis.fetch = async (input, init = {}) => {
     }
     if (hooks.txPostMode && method === "POST" && url.pathname.endsWith("/transactions")) {
       if (hooks.txPostMode === "503") return new Response(JSON.stringify({ message: "upstream unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+      if (hooks.txPostMode === "400") return new Response(JSON.stringify({ message: "synthetic authoritative rejection" }), { status: 400, headers: { "content-type": "application/json" } });
       throw new TypeError("fetch failed: ECONNRESET");
     }
   }
@@ -128,7 +129,11 @@ try {
   before = fixture.db.transactions.length;
   reply = await skill("라면 4100");
   eq(fixture.db.transactions.length, before, "저장소 503 중 거래는 저장되지 않는다");
-  ok(reply.includes("저장하지 못했어요") && reply.includes("다시 보내"), "확정 실패는 다시 보내 달라고 안내한다");
+  ok(reply.includes("저장 확인이 지연") && reply.includes("다시 보내지 말고"), "503 응답은 커밋을 부정하지 않고 확인부터 안내한다");
+  hooks.txPostMode = "400";
+  reply = await skill("라면 4110");
+  eq(fixture.db.transactions.length, before, "명확한 400 거부 중 거래는 저장되지 않는다");
+  ok(reply.includes("저장하지 못했어요") && reply.includes("다시 보내"), "명확한 400 거부만 다시 보내 달라고 안내한다");
   hooks.txPostMode = "neterr";
   reply = await skill("김밥 4200");
   ok(reply.includes("저장 확인이 지연") && reply.includes("다시 보내지 말고"), "응답 없는 실패는 저장 여부가 불확실하다고 안내한다");
@@ -322,7 +327,7 @@ try {
   ok((source.match(/xlsxPromise = null;/g) || []).length >= 4, "엑셀 변환 모듈 로더는 실패한 약속을 캐시하지 않는다");
   ok(source.includes("event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;"), "카카오 대기 화면은 새 탭 열기 클릭을 건너뛴다");
   ok(source.includes('querySelectorAll(".v8-tx .v8-tx-main")'), "거래 상세 키보드 진입 선택자가 실제 마크업과 맞는다");
-  ok(source.includes('"/assets/accountbook-v5-v22926.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
+  ok(source.includes('"/assets/accountbook-v5-v22929.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
 } finally {
   globalThis.fetch = mockFetch;
   fixture.restore();

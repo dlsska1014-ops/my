@@ -31,7 +31,7 @@ const PINNED = {
   "/assets/ab-uiux-v22919.css": "59510e82bbd2b373da76dfa1a070d2ccb40232e115e23da5c23251403fcc9f0c",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22925.js": "a8a0419a8f9980194159fb26ca6385c619a2142177b99156203eccf3f1684352",
-  "/assets/accountbook-v5-v22926.js": "cf483d628c5e7e28619426658e1c0de168ada4d4afd371f977449628cba94345",
+  "/assets/accountbook-v5-v22929.js": "453e3d0963d6591573562c986e983e4c57bfd4a700fd6c0d4dacfacbfc7ce030",
   "/assets/mobile-home-v22915.js": "38b828923a12319cd8b6055b3c7cf8c6bec9c7bcfaf0f77759ca14712d7ae290",
   "/assets/mobile-home-shell-v22926.js": "3230a6cd1389cd8dcf5eb1d8e3de1029a161030c15a66f6c7fd9c9ad4be57bf8",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",
