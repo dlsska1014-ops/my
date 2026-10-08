@@ -116,7 +116,8 @@ await withFixture(async (f) => {
 await withFixture(async (f) => {
   const before = f.db.households.length;
   const grouped = await skill(f, "점심 만원", { group: `${f.key}-unbound-group` });
-  eq(f.db.households.length, before, "unbound group creates no personal/shared household");
+  eq(f.db.households.length, before + 1, "approved explicit room record prepares one shared household");
+  ok(!marker(f), "group preparation never seeds personal first-use eligibility");
   ok(!grouped.body.template?.quickReplies, "group response contains no QuickReplies");
   const link = await skill(f, "웹 가계부 열기", { group: `${f.key}-unbound-group` });
   ok(!codePattern.test(textOf(link.body)), "group response never exposes a web credential");

@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_30.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256",
 );
 const validationScripts = [
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
@@ -105,6 +105,7 @@ const validationScripts = [
   ["감사 보안·금액·날짜·실제 예산 소비자", "validation/validate-audit-corrections-v22930.mjs"],
   ["신규 사용자·백그라운드 호출 예산", "validation/validate-startup-budget-v22930.mjs"],
   ["가져오기·대량 cron·월 경계 cursor", "validation/validate-import-cron-v22930.mjs"],
+  ["공동방 첫 기록·권한·수명주기","validation/validate-group-first-v22931.mjs"],
 ];
 
 const CHILD_NODE_FLAGS = process.execArgv.filter((arg) => arg === "--preserve-symlinks" || arg === "--preserve-symlinks-main");
@@ -170,7 +171,7 @@ function run(command, args, label) {
 // V22.9.26: 출시 점검 — 라우터 await·안전 실패 47개, 카카오·인증·시간·가져오기·예산·헤더 83개,
 // 코드리뷰 후속 설정 잠금·범위·날짜·오류 안전 125개와 cold/warm 직렬 깊이 보호 6개가 들어왔다.
 // V22.9.27: 로그인 전 기능 미리보기·인증 오류 초점·CTA 대비·웹 별칭 단일 URL·헤더·성능 검사 73개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 7079;
+const EXPECTED_MINIMUM_CHECKS = 8000;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

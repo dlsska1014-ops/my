@@ -75,12 +75,13 @@ npm run validate:account-runtime
 npm run validate:sister-link
 npm run validate:audit-corrections
 npm run validate:startup-budget
+npm run validate:group-first
 npm run validate:import-cron
 node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_30.sha256`로 확인하며 자동 검사의 최소 기준은 7,079개이다. ESM `default.fetch`, 작업 트리와
+현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`로 확인하며 자동 검사의 최소 기준은 8,000개이다. ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 여기에는 V22.9.24의 설정 범위·취소·관제 SSO·부분 지표 검사 121개, V22.9.25의 UI/UX 회귀 검사 42개, V22.9.26의 라우터 await·안전 실패 검사 47개, 출시 점검 수정 검사 83개, 코드리뷰 후속 검사 125개와 cold/warm 직렬 깊이 보호 6개가 포함된다.
 설정 JSON(키워드·적립계획·별칭·식별 링크)을 읽고-고쳐-쓰는 경로는 `{ strict: true }` 읽기를 쓴다. 읽기 실패를 빈 값으로 보면 기존 값이 통째로 사라진다.
 라우터 `route()` 안에서 핸들러는 반드시 `return await handleX(...)` 로 돌려준다. `await` 가 빠지면 핸들러의 오류가 라우터의 안전모드 catch 를 건너뛴다.
