@@ -2,7 +2,7 @@ e2cfdafc8bbfcd753ddc1083d8279484a80630078a33797cf751432f0d1adc31  ./.agents/skil
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-3f6783c6ccfcb868d4dba89ff8689eec77919affd8fa789ee41fbf756aa1aefd  ./.codex/scripts/verify-repository.mjs
+a9a873f572cf840d43688d38af025197c3c45247b9b439269f4590c1ee130f9d  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
 e68657c87aceec2ae46b71a102be07ad63ae4249a965a2e7acab95a76e73b015  ./.github/workflows/verify.yml
 688e3598af038122d5939902aefc6d530c4590d04a7f2fd00f79e4392d78a7b2  ./.gitignore
@@ -36,7 +36,7 @@ b484171ad67c52c48c75edbd5cae2e11de955e0078f071105a9d96444b9a7d07  ./10_VERIFY_AF
 95cf55cb5dabc693abfe1f907134473b4f280204aeaf386f44f3330e14bc9ef5  ./10_VERIFY_AFTER_DEPLOY_V22_8_77.ps1
 3ea7d1bc9f173114c8dd5a0fbc923d07ee978ac422b133ff6e7f958e28c91405  ./10_VERIFY_AFTER_DEPLOY_V22_8_78.ps1
 e5c7827d455957de51f3362938b8fca9e9fa9cc09f25b35a2ba542ca4967379e  ./10_VERIFY_AFTER_DEPLOY_V22_8_79.ps1
-08d52de1d8c6f1577875f26d5c98a5b18eeb7079098f745211153094878c114b  ./AGENTS.md
+59917f739873dce21451f5006d5cbc1832b104947faf74bfe50ebb866c48fd37  ./AGENTS.md
 be324ac6787ba3c5847e7ccb8f1b4759174ba7b0d9a923a4f900cde69724ed79  ./ARTIFACT_MANIFEST_V22_8_74.txt
 51502036c5eb6525da7670d27c9215af897bc7e4ddf0afd85edf6841481829e6  ./ARTIFACT_MANIFEST_V22_8_75.txt
 f81e30563604fd3369238beea1920e849656a71b26236bf8b6bf7d75f0738d3c  ./ARTIFACT_MANIFEST_V22_8_76.txt
@@ -92,7 +92,7 @@ a7a4f5e006bfb15b7ee6c37fac8bd95a5d98a2892d103d789da29b55d6e53b89  ./monitoring/m
 6334d3e3b02eebbc5272e92cdcde00f07e9990edb46e281c4447564a70ebee71  ./monitoring/test-d1.mjs
 19244cd0c24d7fc669624f0512a6e95cf393599ef96fe07de6b6955a2c63c76f  ./monitoring/worker.mjs
 1d240853d6c40fd2f1c0f6e694bc2d4fbaccfb211f1e04a8b7157648d93cc246  ./monitoring/wrangler.jsonc
-885f9634bc6d522ef7a874ea134be34d23210d06394e5178d8c4a9ae30b8971b  ./package.json
+2b21640bd208c004698ecb6581e780870c0c7acdb7dd4315943bfebd18f6aa4b  ./package.json
 bbcd1756a622e4892c2811644c503fb28f2091aac19cbf89f0261daeac6d4c15  ./src/index.js
 20d2c5054c92b00d796204b9e50aafd0fc81141b30abc1d12f323331ec2e5b1d  ./tools/bundle-number-flow.mjs
 64e41468dc2276ffc0088a3f0bcb3cec244df9b18accbc40e9e792cfc20a1a55  ./tools/responsive-audit-v22923.mjs

@@ -1,0 +1,143 @@
+
+function recurringDateForMonth(month = currentMonthKst(), day = 1) {
+  const ym = validMonth(month) || currentMonthKst();
+  const y = Number(ym.slice(0, 4));
+  const m = Number(ym.slice(5, 7));
+  const last = new Date(y, m, 0).getDate();
+  const d = Math.min(last, Math.max(1, Number(day || 1)));
+  return `${ym}-${String(d).padStart(2, "0")}`;
+}
+
+async function findRecurringAutoDuplicate(env, row = {}) {
+  if (!row.household_id || !row.transaction_date || !row.amount) return null;
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
+  params.set("household_id", `eq.${row.household_id}`);
+  params.set("transaction_date", `eq.${row.transaction_date}`);
+  params.set("type", `eq.${row.type === "income" ? "income" : "expense"}`);
+  params.set("amount", `eq.${Math.round(Number(row.amount || 0))}`);
+  params.set("source", "eq.recurring_auto");
+  params.set("raw_text", `eq.${row.raw_text}`);
+  params.set("limit", "1");
+  let rows = [];
+  try {
+    rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  } catch (err) {
+    rememberOpsEvent({ kind: "duplicate_check_error", severity: "warn", path: "/rest/v1/transactions", method: "GET", detail: safeError(err) });
+    // 무인 자동화에서는 확인 실패를 "중복 없음"으로 간주하지 않습니다.
+    throw err;
+  }
+  const norm = (v) => normalizeText(v || "");
+  return rows.find(r => String(r.raw_text) === String(row.raw_text)) || null;
+}
+
+async function runRecurringAutoApplyUnlocked(env, opts = {}) {
+  const today = opts.today || formatDate(nowKstDate());
+  const requestedMonth = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
+  let month = requestedMonth;
+  const cursorKey = opts.month ? `cron_recurring_cursor_v22930:${month}` : "cron_recurring_cursor_v22930";
+  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env, cursorKey), "recurring_cursor");
+  if (!opts.month && (cursor.pending || cursor.after) && validMonth(cursor.month) && cursor.month < requestedMonth) month = cursor.month;
+  const currentDay = month < String(today).slice(0,7) ? 31 : Number(String(today).slice(8, 10) || "1");
+  await saveSettingValue(env,cursorKey,JSON.stringify({after:String(cursor.after || ""),month,pending:true}));
+  const params = new URLSearchParams({select:"id,name,created_at",order:"id.asc",limit:"6"});
+  if (cursor.after) params.set("id", `gt.${cursor.after}`);
+  const households = await supabase(env, `/rest/v1/households?${params}`, {method:"GET"});
+  if (!Array.isArray(households)) throw new Error("cron_household_source_invalid");
+  let after = String(cursor.after || ""), partial = households.length === 6;
+  let scanned = 0, applied = 0, deduplicated = 0, skipped = 0, failed = 0;
+  for (const household of households.slice(0,5)) {
+    if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { partial = true; break; }
+    const householdId = household.id;
+    if (!householdId) continue;
+    let items = [];
+    try {
+      items = await fetchRecurringStrict(env, householdId);
+    } catch (err) {
+      failed++;
+      rememberOpsEvent({ kind: "recurring_household_scan_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${safeError(err)}` });
+      partial = true; break;
+    }
+    const members = items.some(r => String(r.last_applied_month || "") !== month) ? await fetchRawHouseholdMembers(env, householdId) : [];
+    let householdComplete = true;
+    for (const r of safeArray(items)) {
+      if (r.is_active === false || String(r.is_active) === "false") { skipped++; continue; }
+      scanned++;
+      if (String(r.last_applied_month || "") === month) { skipped++; continue; }
+      if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { householdComplete = false; partial = true; break; }
+      if (!members.some(m => m.user_id === r.user_id && ["owner","admin","member"].includes(m.role))) { skipped++; continue; }
+      // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
+      // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
+      const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+      const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
+      if (currentDay < dueDay) { skipped++; continue; }
+      const txDate = recurringDateForMonth(month, dueDay);
+      const row = {
+        household_id: householdId,
+        user_id: r.user_id || "",
+        type: r.type === "income" ? "income" : "expense",
+        amount: Math.max(0, Math.round(Number(r.amount || 0))),
+        category: r.category || (r.type === "income" ? "정기수입" : "정기지출"),
+        memo: r.memo || r.category || "정기지출",
+        payment_method: r.payment_method || "",
+        transaction_date: txDate,
+        source: "recurring_auto",
+        raw_text: `recurring:${r.id || ""}:${month}`,
+      };
+      // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
+      if (!row.amount) { skipped++; continue; }
+      try {
+        const dup = await findRecurringAutoDuplicate(env, row);
+        if (!dup) {
+          try {
+            const created = await createManualTransaction(env, row);
+            if (created?.__duplicate_skipped) deduplicated++;
+            else applied++;
+          } catch (err) {
+            if (isUniqueConstraintError(err)) deduplicated++;
+            else throw err;
+          }
+        } else {
+          deduplicated++;
+        }
+        // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신합니다.
+        await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+      } catch (err) {
+        failed++;
+        householdComplete = false;
+        rememberOpsEvent({ kind: "recurring_auto_apply_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${String(r.id || "")}:${safeError(err)}` });
+      }
+    }
+    if (!householdComplete) { partial = true; break; }
+    after = String(householdId);
+  }
+  if (!partial) after = "";
+  await saveSettingValue(env, cursorKey, JSON.stringify({after,month,pending:partial}));
+  return { ok: failed === 0 && !partial, partial, cursor:after, month, today, households: households.length, scanned, applied, deduplicated, skipped, failed };
+}
+
+async function runRecurringAutoApply(env, opts = {}) {
+  if (!env.__AB_DB_BUDGET) env = {...env,__AB_DB_BUDGET:{used:0,limit:50}};
+  const month = validMonth(opts.month) || String(opts.today || formatDate(nowKstDate())).slice(0, 7) || currentMonthKst();
+  if (opts.lock === false) return runRecurringAutoApplyUnlocked(env, opts);
+  const lease = await claimOperationLease(env, {
+    key: "cron:recurring:v22930",
+    owner: operationLeaseOwner("recurring"),
+    leaseSeconds: Number(env.CRON_RECURRING_LEASE_SECONDS || 900),
+  });
+  if (!lease.acquired) {
+    rememberOpsEvent({ kind: "scheduled_duplicate_skipped", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${month}:${lease.mode}` });
+    return { ok: true, month, today: opts.today || formatDate(nowKstDate()), households: 0, scanned: 0, applied: 0, deduplicated: 0, skipped: 0, failed: 0, skipped_run: true, reason: "already_running", lock_mode: lease.mode };
+  }
+  try {
+    return { ...(await runRecurringAutoApplyUnlocked(env, opts)), skipped_run: false, lock_mode: lease.mode };
+  } finally {
+    await releaseOperationLease(env, lease);
+  }
+}
+
+async function handleRecurringCronApply(request, env, url) {
+  if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
+  const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || "", today: url.searchParams.get("today") || formatDate(nowKstDate()) });
+  return jsonResponse(result, result.ok ? 200 : 207);
+}
