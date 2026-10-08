@@ -1,12 +1,16 @@
 # V22.9.31 공동방 첫 기록 적용 안내
 
-이 문서는 새 `V22.9.31-GROUP-FIRST-RECORD` 적용 준비본입니다. 이전에 전달한 `docs/ASIDE_V22_9_30.md`의 Worker 소스와 혼용하지 않습니다. 정확한 checkout은 `D:\Github_Kakao_Account\my`, 브랜치는 `codex/v22931-group-first-record`이며 동결 `src/index.js` SHA-256은 `bbcd1756a622e4892c2811644c503fb28f2091aac19cbf89f0261daeac6d4c15`입니다.
+이 문서는 새 `V22.9.31-GROUP-FIRST-RECORD` 적용 준비본입니다. 이전에 전달한 `docs/ASIDE_V22_9_30.md`의 Worker 소스와 혼용하지 않습니다. 정확한 checkout은 `D:\Github_Kakao_Account\my`, 최종 checkout은 `main`이며 구현 커밋은 `12cfc8f7ada3286dc5aa034874d499a7b823a141`이며 동결 `src/index.js` SHA-256은 `bbcd1756a622e4892c2811644c503fb28f2091aac19cbf89f0261daeac6d4c15`입니다.
 
 ## 변경 결과
 
 인증된 새 미연결 단톡방에서 ‘커피 4500’ 같은 첫 기록으로 공동 가계부 하나를 자동 준비합니다. 첫 입력자는 소유자가 되고 다음 기록 참여자는 absent 역할에만 member를 추가합니다. 같은 사용자가 A·B·C 방에서 같은 내용을 보내도 각 방의 별도 가계부에 기록됩니다. 개인 선택 상태와 기존 ID를 유지하고 이름·예산은 나중에 같은 가계부에 설정합니다.
 
 기존 수동 연결·초대 승인과 pending/blocked/viewer 역할을 보존합니다. 나가기·연결 해제·삭제 뒤 자동 재생성/참여를 막으며 직접 재연결해도 이전 거래를 이동하지 않습니다. 완료된 자동방은 모든 명령·재전송 캐시 전에 실제 스킬 인증을 확인합니다. 일반 대화·조회·Help는 생성/참여하지 않으며 그룹 응답에 개인 웹 코드·QuickReplies·CommerceCard·Carousel을 추가하지 않습니다.
+
+## 현재 운영 기준
+
+aside의 `docs/deployments/V22_9_30_2026_10_08.md`는 V22.9.30의 100% 적용과 기존 정기 SQL 적용 완료를 기록합니다. 부모도 공개 GET /health의 V22.9.30·alive=true를 확인했습니다. 이 운영 기록과 실제 현재 상태가 일치하면 기존 정기 SQL을 재실행하지 않습니다. 이번 남은 적용은 검증된 V22.9.31 Worker 전체 교체이며, 신규 SQL은 없습니다.
 
 ## 적용 순서
 

@@ -264,3 +264,6 @@ SQL·Secrets·환경변수·바인딩·Cron·도메인·관제 Worker·Kakao Dev
 - [x] 구현 `e71c2a3`을 push하고 PR54를 main의 `cc628d7`로 병합했습니다. 브랜치/PR의 Ubuntu·Windows CI 네 작업이 전체7,079개와 SQLite45를 통과했습니다. 최종 기록 문서의 원격 일치는 Git 로그에서 별도로 확인합니다.
 
 - [x] 독립 검토의 계정 통합·나가기 이력·정본 문서 세 발견을 보완하고 한정 재검토에서 추가 조치가 필요한 문제를 찾지 못했습니다.
+
+- [x] 구현12cfc8f·PR55·main57cb1f9 통합과 브랜치/PR/main Ubuntu·Windows CI를 확인했습니다.
+- [x] V22.9.30의 별도 운영 기록과 공개 health 응답을 확인했습니다. V22.9.31 배포는 아직 실행하지 않았습니다.
