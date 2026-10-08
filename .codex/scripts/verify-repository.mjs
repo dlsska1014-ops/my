@@ -15,6 +15,7 @@ const checksumManifest = resolve(
 const validationScripts = [
   // 모든 검사가 src/index.js 를 읽으므로 그 파일이 모듈과 같은지부터 본다.
   ["빌드 동일성 — src/modules → src/index.js", "validation/validate-build-identity-v22932.mjs"],
+  ["배포 스크립트 — 업로드·대조·승격 (가짜 API)", "validation/validate-deploy-worker-v22932.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
@@ -174,7 +175,8 @@ function run(command, args, label) {
 // 코드리뷰 후속 설정 잠금·범위·날짜·오류 안전 125개와 cold/warm 직렬 깊이 보호 6개가 들어왔다.
 // V22.9.27: 로그인 전 기능 미리보기·인증 오류 초점·CTA 대비·웹 별칭 단일 URL·헤더·성능 검사 73개가 들어왔다.
 // V22.9.32 모듈 분리 0·1단계: src/modules 재조립과 src/index.js 의 바이트 동일성·빌드 규칙 검사 19개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 8019;
+// V22.9.32 모듈 분리 6단계: 배포 스크립트의 업로드·대조·승격·되돌림을 가짜 API 로 확인하는 검사 178개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 8197;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

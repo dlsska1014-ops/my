@@ -21,6 +21,8 @@
   Cloudflare Worker 전체 배포 산출물. 검증·배포가 이 파일을 보므로 함께 커밋한다.
 - `tools/build-worker.mjs`, `tools/split-worker.mjs`: 연결 빌드(`--check`는 드리프트
   검사)와 1회용 위치 분할 도구.
+- `tools/deploy-worker-version.mjs`: Versions API 업로드·대조·승격·되돌림 스크립트. 토큰은
+  환경변수로만 받고, 업로드는 배포하지 않으며 승격은 `--promote`와 사용자 승인 뒤에만 한다.
 - `docs/refactor/modularization-v1/`: 모듈 분리 설계·분할 명세와 재생산 스크립트.
 - `validation/`: 현재 릴리스의 독립 회귀 검증.
 - `docs/kakao-manual/`: 카카오 1:1·그룹 응답과 가계부 규칙.
@@ -93,7 +95,7 @@ node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`로 확인하며 자동 검사의 최소 기준은 8,019개이다. ESM `default.fetch`, 작업 트리와
+현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`로 확인하며 자동 검사의 최소 기준은 8,197개이다. ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 여기에는 V22.9.24의 설정 범위·취소·관제 SSO·부분 지표 검사 121개, V22.9.25의 UI/UX 회귀 검사 42개, V22.9.26의 라우터 await·안전 실패 검사 47개, 출시 점검 수정 검사 83개, 코드리뷰 후속 검사 125개와 cold/warm 직렬 깊이 보호 6개가 포함된다.
 설정 JSON(키워드·적립계획·별칭·식별 링크)을 읽고-고쳐-쓰는 경로는 `{ strict: true }` 읽기를 쓴다. 읽기 실패를 빈 값으로 보면 기존 값이 통째로 사라진다.
 라우터 `route()` 안에서 핸들러는 반드시 `return await handleX(...)` 로 돌려준다. `await` 가 빠지면 핸들러의 오류가 라우터의 안전모드 catch 를 건너뛴다.

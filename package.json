@@ -8,6 +8,7 @@
     "test": "node .codex/scripts/verify-repository.mjs",
     "build:worker": "node tools/build-worker.mjs",
     "validate:build-identity": "node validation/validate-build-identity-v22932.mjs",
+    "validate:deploy-script": "node validation/validate-deploy-worker-v22932.mjs",
     "validate:audit-corrections": "node validation/validate-audit-corrections-v22930.mjs",
     "validate:startup-budget": "node validation/validate-startup-budget-v22930.mjs",
     "validate:group-first": "node validation/validate-group-first-v22931.mjs",
