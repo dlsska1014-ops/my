@@ -2177,7 +2177,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.30-CLAUDE-AUDIT-HARDENING";
+const APP_VERSION = "V22.9.31-GROUP-FIRST-RECORD";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5616,6 +5616,8 @@ async function handleAdminMemberRemove(request, env) {
     }
     assertFresh();
     await markKakaoChatFirstHistory(env, userId);
+    assertFresh();
+    await markKakaoGroupDeparture(env, userId, householdId, assertFresh);
     assertFresh();
     await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}`, {
       method: "DELETE",
@@ -19146,25 +19148,33 @@ async function purgeHouseholdData(env, householdId = "") {
   const hid = String(householdId || "").trim();
   if (!hid) throw new Error("household_id_required");
   const readPurgeScope = async () => {
-    const [members, markers] = await Promise.all([
+    const [members, markers, roomRows, linkRows, legacy] = await Promise.all([
       fetchPostgrestRows(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id&order=user_id.asc`, { maxRows: 1000 }),
       fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_first_record_v22928:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 }),
+      fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_group_first*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 }),
+      fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_group_link_v2254:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 }),
+      fetchLegacyKakaoGroupLinkMap(env, true),
     ]);
     const candidateUsers = markers.map((row) => parseKakaoChatFirstMarker(row.value)).filter((item) => item?.candidate_id === hid && item.user_id).map((item) => String(item.user_id));
-    return { members, userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers].filter(Boolean))].sort() };
+    const roomMarkers = roomRows.map(row => { const raw = parseStrictSettingsObject(row.value, "kakao_group_first"); return parseKakaoGroupFirstMarker(raw, raw.group_key, row.key.startsWith("kakao_group_first_done_v22931:")); }).filter(item => item?.candidate_id === hid);
+    const links = linkRows.map(row => { const link = normalizeKakaoGroupLinkItem(row.value); if (!link) throw settingsDataError("kakao_group_link", "invalid_shape"); return link; });
+    const groupKeys = [...new Set([...roomMarkers.map(item => item.group_key), ...links.filter(item => item.household_id === hid).map(item => item.group_key), ...Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key)])].sort();
+    if (groupKeys.length > 1000) throw new Error("household_purge_scope_too_large");
+    return { members, groupKeys, userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort() };
   };
   let purge;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await readPurgeScope();
-    const work = async ({ assertFresh: lifecycleFresh }) => withHouseholdSettingsRmw(env, hid, async ({ assertFresh: householdFresh }) => {
-      const assertFresh = () => { lifecycleFresh(); householdFresh(); };
+    const work = async ({ assertFresh: lifecycleFresh }) => withKakaoGroupLifecycleLease(env, before.groupKeys, async ({ assertFresh: roomFresh }) => withHouseholdSettingsRmw(env, hid, async ({ assertFresh: householdFresh }) => {
+      const assertFresh = () => { lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
-      if (JSON.stringify(current.userIds) !== JSON.stringify(before.userIds)) throw new Error("household_purge_scope_changed");
+      if (JSON.stringify(current.userIds) !== JSON.stringify(before.userIds) || JSON.stringify(current.groupKeys) !== JSON.stringify(before.groupKeys)) throw new Error("household_purge_scope_changed");
       for (const userId of current.userIds) {
         assertFresh();
         // Actual members and server-confirmed provisional candidates are explicitly retired.
         await markKakaoChatFirstHistory(env, userId);
       }
+      for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
       assertFresh();
       const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
         method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ p_household_id: hid }),
@@ -19172,7 +19182,7 @@ async function purgeHouseholdData(env, householdId = "") {
       const summary = Array.isArray(result) ? result[0] : result;
       if (!summary?.deleted) throw new Error("household_delete_not_confirmed");
       return { summary, affectedMembers: current.members };
-    });
+    }));
     try {
       purge = before.userIds.length ? await withKakaoUserLifecycleLease(env, before.userIds, work) : await work({ assertFresh() {} });
       break;
@@ -19278,6 +19288,8 @@ async function handleMyHouseholdLeave(request, env) {
       if (freshRole === "blocked") throw new Error("household_blocked_member_cannot_leave");
       assertFresh();
       await markKakaoChatFirstHistory(env, userId);
+      assertFresh();
+      await markKakaoGroupDeparture(env, userId, householdId, assertFresh);
       assertFresh();
       return supabase(env, "/rest/v1/rpc/accountbook_leave_household_v227", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ p_household_id: householdId, p_user_id: userId }) });
     }));
@@ -29590,6 +29602,7 @@ function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {})
   const writeRejected = options?.writeRejected === true;
   return [
     "👥 이 단톡방에 연결된 가계부가 없습니다.",
+    !writeRejected ? "처음 사용하는 방에서는 ‘커피 4500’처럼 봇에게 기록을 보내면 웹 로그인 없이 이 방의 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 되고, 함께 기록하는 방 참여자들은 같은 가계부를 사용해요." : "",
     "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 상태일 수 있습니다.",
     writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
     "",
@@ -29852,7 +29865,8 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
 
 async function getHouseholdById(env, householdId = "") {
   if (!householdId) return null;
-  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}&select=id,name,invite_code&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}&select=id,name,invite_code&limit=1`, { method: "GET" });
+  if (!Array.isArray(rows) || rows.some(row => !row || String(row.id || "") !== String(householdId))) throw new Error("household_source_invalid");
   return rows[0] || null;
 }
 
@@ -30346,6 +30360,17 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
+  // Automatic room access requires real Skill authentication even when the legacy
+  // diagnostic mode is observe/off. Check before repeat caches and every command.
+  const authenticatedGroupKey = getKakaoBotGroupKey(payload);
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && authenticatedGroupKey &&
+      !(trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, userKey))) {
+    const scope = await readKakaoGroupFirstSnapshot(env, authenticatedGroupKey);
+    if ((scope.done || scope.marker)?.candidate_id === scope.link?.household_id && scope.link) {
+      return kakaoGroupCompatibleResponse(kakaoText("이 방의 공동 가계부는 인증된 카카오 요청에서만 사용할 수 있어요. 이 요청으로 기록을 읽거나 저장하지 않았어요. 카카오톡에서 봇을 다시 호출해 주세요."), payload, origin);
+    }
+  }
+
   const skillStartedAt = Date.now();
   const requestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") ? globalThis.crypto.randomUUID() : randomEntityId("req");
   const intentMatch = detectKakaoNaturalIntent(utterance);
@@ -30437,7 +30462,10 @@ async function handleKakaoSkill(request, env) {
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
-  const seedChatFirst = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
+  const botGroupKey = getKakaoBotGroupKey(payload);
+  const trustedIdentity = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
+  const seedChatFirst = !botGroupKey && trustedIdentity;
+  const groupFirstRecord = !!botGroupKey && trustedIdentity && strongTransactionInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
@@ -30473,13 +30501,12 @@ async function handleKakaoSkill(request, env) {
   if (earlyUser?.error) throw earlyUser.error;
   const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) });
   if (!user?.id) return kakaoText("skill_identity_untrusted: \uC778\uC99D\uB41C \uCE74\uCE74\uC624 \uC694\uCCAD\uC5D0\uC11C \uCC98\uC74C \uAE30\uB85D\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
-  const botGroupKey = getKakaoBotGroupKey(payload);
 
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
   // 조회와 나란히 던져 두고 필요한 자리에서 받는다. 가계부를 바꾸는 길(만들기·참여·연결)은
   // 전부 아래 사용 지점 전에 응답하고 끝나므로 미리 읽은 값이 낡을 일이 없다.
   const householdsPromise = fetchUserHouseholds(env, user.id).then((rows) => ({ value: rows }), (error) => ({ error }));
-  const linkedGroupPromise = botGroupKey
+  const linkedGroupPromise = botGroupKey && !groupFirstRecord
     ? getLinkedKakaoGroupHousehold(env, botGroupKey).then((value) => ({ value }), (error) => ({ error }))
     : Promise.resolve({ value: null });
   const selectedHouseholdIdPromise = botGroupKey
@@ -30604,6 +30631,16 @@ async function handleKakaoSkill(request, env) {
     } catch (err) {
       return kakaoText("초대코드 확인이 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }
+  }
+
+  // V22.9.31: a trusted, explicit room record is its own lifecycle operation. Public
+  // conversation and manual creation/join/bind flows above never grant automatic membership.
+  if (groupFirstRecord) {
+    const limit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
+    if (preParsedList.length > limit) return kakaoText(`한 번에 ${limit}건까지 입력할 수 있어요. ${preParsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
+    const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
+    if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
+    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, groupKey: botGroupKey });
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -31577,6 +31614,290 @@ function kakaoGroupLinksSettingsKey() {
   return "kakao_group_links";
 }
 
+// V22.9.31: only an explicit botGroupKey can authorize a new shared room ledger.
+// Legacy groupKey/chat.id remain read/bind compatibility inputs, never provisioning proof.
+function getExplicitKakaoBotGroupKey(payload = {}) {
+  const req = payload?.userRequest || {};
+  const props = req.user?.properties || payload?.user?.properties || {};
+  const keys = [...new Set([props.botGroupKey, req.botGroupKey, req.chat?.botGroupKey, payload?.botGroupKey]
+    .map(value => String(value || "").trim()).filter(Boolean))];
+  return keys.length === 1 && keys[0] !== "unknown-group" && keys[0].length <= 160 ? keys[0] : "";
+}
+
+async function kakaoGroupFirstKeys(groupKey, userId = "") {
+  const hash = await sha256Hex(String(groupKey));
+  const userHash = userId ? await sha256Hex(String(userId)) : "";
+  return {
+    hash, marker: `kakao_group_first_v22931:${hash}`, done: `kakao_group_first_done_v22931:${hash}`,
+    retired: `kakao_group_first_retired_v22931:${hash}`,
+    departure: userHash ? `kakao_group_departed_v22931:${userHash}` : "",
+    member: userHash ? `kakao_group_member_attempt_v22931:${hash}:${userHash}` : "",
+  };
+}
+
+function parseKakaoGroupFirstMarker(value, groupKey, complete = false) {
+  const marker = parseStrictSettingsObject(value, "kakao_group_first");
+  if (!Object.keys(marker).length) return null;
+  if (marker.version !== 1 || typeof marker.group_key !== "string" || !marker.group_key.trim() || marker.group_key.length > 160 || marker.group_key !== groupKey || !marker.owner_id || typeof marker.owner_id !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(marker.candidate_id || "")) ||
+      !Number.isFinite(Date.parse(String(marker.created_at || ""))) ||
+      !(complete ? marker.phase === "complete" : ["reserved", "create_sent", "owner_sent", "link_sent", "complete"].includes(marker.phase))) {
+    throw settingsDataError("kakao_group_first", "invalid_shape");
+  }
+  return marker;
+}
+
+function parseKakaoGroupDepartures(value) {
+  const item = parseStrictSettingsObject(value, "kakao_group_departed");
+  if (!Object.keys(item).length) return { version: 1, households: {} };
+  if (item.version !== 1 || !item.households || typeof item.households !== "object" || Array.isArray(item.households) ||
+      Object.entries(item.households).some(([key, flag]) => !/^[0-9a-f]{64}$/.test(key) || flag !== true)) {
+    throw settingsDataError("kakao_group_departed", "invalid_shape");
+  }
+  return item;
+}
+
+async function readKakaoGroupFirstSnapshot(env, groupKey, userId = "") {
+  const keys = await kakaoGroupFirstKeys(groupKey, userId);
+  const primaryKey = kakaoGroupLinkItemSettingsKey(groupKey);
+  const wanted = [keys.marker, keys.done, keys.retired, primaryKey, kakaoGroupLinksSettingsKey(), keys.departure, keys.member].filter(Boolean);
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${wanted.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" });
+  if (!Array.isArray(rows) || rows.some(row => !row || typeof row.key !== "string") || new Set(rows.map(row => row.key)).size !== rows.length) throw settingsDataError("kakao_group_first", "invalid_rows");
+  const value = key => rows.find(row => row.key === key)?.value;
+  const primary = normalizeKakaoGroupLinkItem(value(primaryKey), groupKey);
+  if (value(primaryKey) && !primary) throw settingsDataError("kakao_group_link", "invalid_shape");
+  const legacyMap = parseStrictSettingsObject(value(kakaoGroupLinksSettingsKey()), "kakao_group_links");
+  const legacy = legacyMap[groupKey] ? normalizeKakaoGroupLinkItem({ ...legacyMap[groupKey], group_key: groupKey }, groupKey) : null;
+  if (legacyMap[groupKey] && !legacy) throw settingsDataError("kakao_group_links", "invalid_shape");
+  const retired = parseStrictSettingsObject(value(keys.retired), "kakao_group_first_retired");
+  if (Object.keys(retired).length && (retired.version !== 1 || retired.group_hash !== keys.hash)) throw settingsDataError("kakao_group_first_retired", "invalid_shape");
+  const member = parseStrictSettingsObject(value(keys.member), "kakao_group_member_attempt");
+  if (Object.keys(member).length && (member.version !== 1 || member.user_id !== userId || !member.household_id || member.phase !== "member_sent")) throw settingsDataError("kakao_group_member_attempt", "invalid_shape");
+  const marker = parseKakaoGroupFirstMarker(value(keys.marker), groupKey);
+  const done = parseKakaoGroupFirstMarker(value(keys.done), groupKey, true);
+  if (marker && done && (marker.candidate_id !== done.candidate_id || marker.owner_id !== done.owner_id)) throw settingsDataError("kakao_group_first", "completion_conflict");
+  return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member };
+}
+
+function kakaoGroupPreparationUnknown(cause) {
+  const err = new Error("kakao_group_preparation_result_unknown", { cause });
+  err.uncertain_write = true;
+  return err;
+}
+
+function strictKakaoGroupMembershipRows(rows, full = false) {
+  if (!Array.isArray(rows) || rows.some(row => !row || !["owner", "admin", "member", "viewer", "pending", "blocked"].includes(row.role) || full && !String(row.user_id || ""))) throw settingsDataError("kakao_group_membership", "invalid_rows");
+  return rows;
+}
+
+async function insertKakaoGroupFirstSetting(env, key, item, options = {}) {
+  let rows;
+  try {
+    rows = await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+      body: JSON.stringify({ key, value: JSON.stringify(item) }),
+    });
+    if (!Array.isArray(rows)) throw kakaoGroupPreparationUnknown();
+    if (rows[0]?.key === key && rows[0]?.value) return rows[0].value;
+  } catch (err) {
+    if (isDefiniteStorageFailure(err)) throw err;
+    // Reservation and sent rows are immutable INSERTs. A lost response can only be
+    // recovered from that exact key; a missing reread is never permission for another POST.
+    try { const recovered = await getSettingValueStrict(env, key); if (recovered && !options.requireInserted) return recovered; }
+    catch (_) {}
+    throw kakaoGroupPreparationUnknown(err);
+  }
+  const existing = await getSettingValueStrict(env, key);
+  if (!existing || options.requireInserted) throw kakaoGroupPreparationUnknown();
+  return existing;
+}
+
+async function withKakaoGroupLifecycleLease(env, groupKeys, task) {
+  const keys = [...new Set((Array.isArray(groupKeys) ? groupKeys : [groupKeys]).map(String).filter(Boolean))].sort();
+  const guards = [];
+  const run = async index => index === keys.length
+    ? task({ roomLeaseHeld: true, assertFresh: () => guards.forEach(guard => guard()) })
+    : withSettingsRmwLease(env, `kakao-group-lifecycle:v22931:${await sha256Hex(keys[index])}`, async ({ assertFresh }) => { guards.push(assertFresh); return run(index + 1); });
+  return run(0);
+}
+
+async function markKakaoGroupRetired(env, groupKey, assertFresh = () => {}) {
+  const keys = await kakaoGroupFirstKeys(groupKey);
+  assertFresh();
+  await insertKakaoGroupFirstSetting(env, keys.retired, { version: 1, group_hash: keys.hash });
+}
+
+async function markKakaoGroupDeparture(env, userId, householdId, assertFresh = () => {}) {
+  const key = `kakao_group_departed_v22931:${await sha256Hex(String(userId))}`;
+  const departures = parseKakaoGroupDepartures(await getSettingValueStrict(env, key));
+  departures.households[await sha256Hex(String(householdId))] = true;
+  assertFresh();
+  // The user lifecycle lease serializes the set. Only digests survive household purge.
+  await saveSettingValue(env, key, JSON.stringify(departures));
+}
+
+async function preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId, assertFresh = () => {}) {
+  const primaryKey = `kakao_group_departed_v22931:${await sha256Hex(String(primaryId))}`;
+  const secondaryKey = `kakao_group_departed_v22931:${await sha256Hex(String(secondaryId))}`;
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${encodeURIComponent(primaryKey)},${encodeURIComponent(secondaryKey)})&select=key,value`, { method: "GET" });
+  const wanted = [primaryKey, secondaryKey];
+  if (!Array.isArray(rows) || rows.some(row => !row || !wanted.includes(row.key) || typeof row.value !== "string" || !row.value.trim()) || new Set(rows.map(row => row.key)).size !== rows.length) throw settingsDataError("kakao_group_departed", "invalid_rows");
+  const primary = parseKakaoGroupDepartures(rows.find(row => row.key === primaryKey)?.value);
+  const secondary = parseKakaoGroupDepartures(rows.find(row => row.key === secondaryKey)?.value);
+  if (Object.keys(secondary.households).every(hash => primary.households[hash] === true)) return;
+  assertFresh();
+  // Both user lifecycle leases are held by the supported merge handler. Preserve
+  // the union before its possibly unknown RPC; never erase the secondary source.
+  await saveSettingValue(env, primaryKey, JSON.stringify({ version: 1, households: { ...primary.households, ...secondary.households } }));
+}
+
+async function tryKakaoGroupFirstRecord(env, context = {}) {
+  const { user, groupKey, parsedList } = context;
+  let recordSaved = false;
+  try {
+    const observed = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
+    const userIds = [...new Set([String(user.id), ...(!observed.done && observed.marker ? [observed.marker.owner_id] : [])])].sort();
+    return await withKakaoUserLifecycleLease(env, userIds, async ({ assertFresh: userFresh }) => {
+      userFresh();
+      env.__AB_REQUEST_USER_ROWS?.delete(String(user.id));
+      if (!(await kakaoClaimUserUnmerged(env, user.id))) throw new Error("kakao_group_identity_scope_changed");
+      return withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh: roomFresh }) => {
+        const roomGuard = () => { userFresh(); roomFresh(); };
+        let snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
+        let marker = snapshot.done || snapshot.marker;
+        let firstNotice = "";
+        if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {
+          return kakaoText("이 단톡방의 이전 연결이 해제되거나 가계부가 삭제되어 자동으로 다시 준비하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+        }
+        if (!snapshot.link && !marker) {
+          // A namespace-derived UUID stays fixed even if the reservation response is lost.
+          // The UUID identifies a ledger; all access still requires verified membership.
+          const digest = await sha256Hex(`kakao-shared-room:v22931:${groupKey}`);
+          const hex = digest.slice(0, 12) + "5" + digest.slice(13, 16) + "8" + digest.slice(17, 32);
+          const candidate_id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+          roomGuard();
+          marker = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.marker, {
+            version: 1, group_key: groupKey, candidate_id, owner_id: String(user.id), phase: "reserved", created_at: new Date().toISOString(),
+          }), groupKey);
+        }
+        const preparing = !snapshot.link && !!marker && !snapshot.done;
+        if (preparing && !userIds.includes(marker.owner_id)) throw new Error("kakao_group_preparation_scope_changed");
+        if (!snapshot.done && marker && marker.phase !== "complete" && marker.owner_id !== String(user.id)) {
+          if (!userIds.includes(marker.owner_id)) throw new Error("kakao_group_preparation_scope_changed");
+          roomGuard();
+          env.__AB_REQUEST_USER_ROWS?.delete(marker.owner_id);
+          if (!(await kakaoClaimUserUnmerged(env, marker.owner_id))) throw new Error("kakao_group_identity_scope_changed");
+        }
+        const householdId = snapshot.link?.household_id || marker?.candidate_id;
+        if (!householdId) throw new Error("kakao_group_household_missing");
+        // Same order in create/bind/unbind/purge/leave: users -> rooms -> households.
+        return await withSettingsRmwLease(env, `household-settings-rmw:${householdId}`, async ({ assertFresh: householdFresh }) => {
+          const assertFresh = () => { roomGuard(); householdFresh(); };
+          let household = await getHouseholdById(env, householdId);
+          const phase = async next => {
+            marker = { ...marker, phase: next };
+            assertFresh();
+            await saveSettingValue(env, snapshot.keys.marker, JSON.stringify(marker));
+          };
+          if (preparing) {
+            if (!household) {
+              if (marker.phase !== "reserved") throw kakaoGroupPreparationUnknown();
+              await phase("create_sent");
+              assertFresh();
+              try {
+                const created = await supabase(env, "/rest/v1/households", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ id: householdId, name: "이 방의 공동 가계부", invite_code: makeInviteCode() }) });
+                household = Array.isArray(created) ? created[0] : null;
+                if (household?.id !== householdId) throw kakaoGroupPreparationUnknown();
+              } catch (err) {
+                if (isDefiniteStorageFailure(err)) throw err;
+                assertFresh();
+                try { household = await getHouseholdById(env, householdId); }
+                catch (_) { throw kakaoGroupPreparationUnknown(err); }
+                if (!household) throw kakaoGroupPreparationUnknown(err);
+              }
+            }
+            let members = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true);
+            let ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
+            if (ownerRole && ownerRole !== "owner" || members.some(row => row.role === "owner" && String(row.user_id) !== marker.owner_id)) throw new Error("kakao_group_first_owner_conflict");
+            if (!ownerRole) {
+              if (marker.phase !== "create_sent") throw kakaoGroupPreparationUnknown();
+              await phase("owner_sent");
+              assertFresh();
+              let writeError;
+              try { await supabase(env, "/rest/v1/household_members?on_conflict=household_id,user_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ household_id: householdId, user_id: marker.owner_id, role: "owner" }) }); }
+              catch (err) { writeError = err; }
+              assertFresh();
+              try { members = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true); }
+              catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+              ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
+              if (ownerRole !== "owner") throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+            }
+            if (marker.phase === "link_sent") throw kakaoGroupPreparationUnknown();
+            await phase("link_sent");
+            assertFresh();
+            const linkedValue = await insertKakaoGroupFirstSetting(env, kakaoGroupLinkItemSettingsKey(groupKey), {
+              group_key: groupKey, household_id: householdId, household_name: household.name, invite_code: household.invite_code,
+              linked_by: marker.owner_id, linked_at: new Date().toISOString(),
+            });
+            const link = normalizeKakaoGroupLinkItem(linkedValue, groupKey);
+            if (link?.household_id !== householdId || link.linked_by !== marker.owner_id) throw new Error("kakao_group_first_link_conflict");
+            snapshot.link = link;
+          }
+          if (!household) {
+            assertFresh();
+            await markKakaoGroupRetired(env, groupKey, assertFresh);
+            return kakaoText("이 단톡방에 연결된 가계부가 없어 기록을 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+          }
+          // Recover a confirmed link_sent write by its fixed ledger, never by repeating POST.
+          if (!snapshot.retired && !snapshot.done && marker && snapshot.link.household_id === marker.candidate_id && marker.phase === "link_sent") {
+            if (snapshot.link.linked_by !== marker.owner_id) throw new Error("kakao_group_first_link_conflict");
+            const ownerRows = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true);
+            if (bestRoleFromRows(ownerRows.filter(row => String(row.user_id) === marker.owner_id)) !== "owner") throw new Error("kakao_group_first_owner_conflict");
+            assertFresh();
+            snapshot.done = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.done, { ...marker, phase: "complete" }), groupKey, true);
+            await phase("complete");
+            if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n\n";
+          }
+          let roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" });
+          strictKakaoGroupMembershipRows(roleRows);
+          let role = bestRoleFromRows(roleRows);
+          const automaticRoom = !snapshot.retired && snapshot.done?.candidate_id === householdId && snapshot.link.household_id === snapshot.done.candidate_id;
+          if (!role && automaticRoom) {
+            if (snapshot.departures.households[await sha256Hex(householdId)]) return kakaoText("이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
+            if (Object.keys(snapshot.member).length && snapshot.member.household_id === householdId) throw kakaoGroupPreparationUnknown();
+            assertFresh();
+            const attempt = parseStrictSettingsObject(await insertKakaoGroupFirstSetting(env, snapshot.keys.member, { version: 1, user_id: String(user.id), household_id: householdId, phase: "member_sent" }, { requireInserted: true }), "kakao_group_member_attempt");
+            if (attempt.household_id !== householdId || attempt.user_id !== String(user.id)) throw new Error("kakao_group_member_attempt_conflict");
+            assertFresh();
+            let writeError;
+            try { await supabase(env, "/rest/v1/household_members?on_conflict=household_id,user_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ household_id: householdId, user_id: user.id, role: "member" }) }); }
+            catch (err) { writeError = err; }
+            assertFresh();
+            try { roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" }); }
+            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+            strictKakaoGroupMembershipRows(roleRows);
+            role = bestRoleFromRows(roleRows);
+            if (!role) throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+            firstNotice = "이 방의 공동 가계부에 참여했어요.\n같은 방의 참여자들이 함께 기록을 사용해요.\n\n";
+          }
+          if (!role) return kakaoText("이 방의 가계부에 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 개인 대화에서 초대코드로 참여해 주세요.");
+          if (!["owner", "admin", "member"].includes(role)) return kakaoText(roleBlockedMessage(role, household.name));
+          if (firstNotice) { assertFresh(); await markKakaoChatFirstHistory(env, user.id); }
+          return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, assertFresh, onSaved: async () => { recordSaved = true; } });
+        });
+      });
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "kakao_group_first_record_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
+    if (recordSaved) return kakaoText("공동 가계부에 기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘 기록 보기’에서 확인해 주세요.");
+    if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 카카오톡에서 봇을 다시 호출해 주세요.");
+    if (isUncertainStorageWrite(err)) return kakaoText("공동 가계부 준비 결과를 아직 확정하지 못했어요. 이 요청의 거래 기록은 아직 보내지 않았어요. 같은 준비 요청을 반복하지 않고 고정된 가계부의 결과를 확인합니다. 잠시 후 ‘시작’으로 연결 상태를 확인해 주세요.");
+    return kakaoText(/settings_rmw_busy|scope_changed/.test(safeError(err))
+      ? "이 방의 공동 가계부를 준비하거나 변경하는 요청이 처리 중이에요. 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요."
+      : "이 방의 공동 가계부를 확인하지 못했어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 잠시 후 연결 상태를 확인해 주세요.");
+  }
+}
+
 function kakaoGroupLinkItemSettingsKey(groupKey = "") {
   const key = String(groupKey || "").trim();
   const reversed = Array.from(key).reverse().join("");
@@ -31608,12 +31929,13 @@ async function fetchLegacyKakaoGroupLinkMap(env, strict = false) {
     : await getSettingValue(env, kakaoGroupLinksSettingsKey());
   try {
     if (!value) return {};
-    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
+    const parsed = strict ? parseStrictSettingsObject(value, "kakao_group_links") : typeof value === "string" ? JSON.parse(value || "{}") : value;
     const out = {};
     for (const [k, v] of Object.entries(safeObject(parsed))) {
       const groupKey = String(k || "").trim();
       const item = normalizeKakaoGroupLinkItem({ ...safeObject(v), group_key: groupKey }, groupKey);
       if (item) out[groupKey] = item;
+      else if (strict) throw settingsDataError("kakao_group_links", "invalid_shape");
     }
     return out;
   } catch (err) {
@@ -31659,27 +31981,34 @@ async function removeKakaoGroupLinksForHousehold(env, householdId = "") {
   if (!householdId) return 0;
   const map = await fetchKakaoGroupLinkMap(env);
   const targets = Object.entries(map).filter(([, item]) => String(item?.household_id || "") === String(householdId));
-  for (const [groupKey] of targets) await removeKakaoGroupLink(env, groupKey);
+  for (const [groupKey] of targets) await removeKakaoGroupLink(env, groupKey, { expectedHouseholdId: String(householdId) });
   return targets.length;
 }
 
-async function removeKakaoGroupLink(env, groupKey = "") {
+async function removeKakaoGroupLink(env, groupKey = "", options = {}) {
   const key = String(groupKey || "").trim();
   if (!key) return;
+  if (!options.roomLeaseHeld) return withKakaoGroupLifecycleLease(env, key, guard => removeKakaoGroupLink(env, key, { ...options, ...guard }));
+  // A separate immutable row survives purge and late pending/link writes.
+  const snapshot = await readKakaoGroupFirstSnapshot(env, key);
+  // A missing-household read or purge cleanup may predate a successful manual rebind.
+  if (options.expectedHouseholdId && snapshot.link?.household_id !== String(options.expectedHouseholdId)) return false;
+  await markKakaoGroupRetired(env, key, options.assertFresh);
+  options.assertFresh?.();
   // Per-group row is authoritative. Deleting one row cannot overwrite another room's link.
-  await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(kakaoGroupLinkItemSettingsKey(key))}`, {
+  await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(kakaoGroupLinkItemSettingsKey(key))}`, {
     method: "DELETE",
     headers: { Prefer: "return=minimal" },
-  }, null);
+  });
   // Keep the legacy map as a compatibility mirror for older admin pages/packages.
-  const map = await fetchLegacyKakaoGroupLinkMap(env);
-  if (key in map) {
-    delete map[key];
-    await optionalSupabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-      method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: kakaoGroupLinksSettingsKey(), value: JSON.stringify(map) }),
-    }, null);
-  }
+  return withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh }) => {
+    const map = await fetchLegacyKakaoGroupLinkMap(env, true);
+    if (key in map) {
+      delete map[key];
+      options.assertFresh?.(); assertFresh();
+      await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
+    }
+  });
 }
 
 async function saveKakaoGroupLink(env, groupKey = "", household = {}, userId = "") {
@@ -31697,18 +32026,17 @@ async function saveKakaoGroupLink(env, groupKey = "", household = {}, userId = "
   const saved = await saveKakaoGroupLinkItem(env, key, item);
   // Best-effort compatibility mirror. Runtime reads the per-room row first.
   try {
-    const map = await fetchLegacyKakaoGroupLinkMap(env);
-    map[key] = item;
-    await optionalSupabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: kakaoGroupLinksSettingsKey(), value: JSON.stringify(map) }),
-    }, null);
+    await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh }) => {
+      const map = await fetchLegacyKakaoGroupLinkMap(env, true);
+      map[key] = item;
+      assertFresh();
+      await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
+    });
   } catch (err) {}
   return saved || item;
 }
 
-async function getLinkedKakaoGroupHousehold(env, groupKey = "") {
+async function getLinkedKakaoGroupHousehold(env, groupKey = "", options = {}) {
   const key = String(groupKey || "").trim();
   if (!key) return null;
   // Only a successful empty primary read may fall back to the legacy mirror.
@@ -31721,7 +32049,7 @@ async function getLinkedKakaoGroupHousehold(env, groupKey = "") {
   // A failed lookup does not prove deletion. Preserve the link and propagate the error.
   const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(linked.household_id)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" }) || [];
   if (!rows?.[0]) {
-    await removeKakaoGroupLink(env, key);
+    await removeKakaoGroupLink(env, key, { ...options, expectedHouseholdId: String(linked.household_id) });
     return null;
   }
   return rows[0];
@@ -31747,12 +32075,15 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
   const normalized = String(code || "").trim().toUpperCase();
   if (!groupKey) return { ok: false, error: "no_group_key" };
   if (!normalized) return { ok: false, error: "no_code" };
+  if (!options.lifecycleLeaseHeld) return withKakaoUserLifecycleLease(env, user.id, guard => bindKakaoGroupByInviteCode(env, user, groupKey, normalized, { ...options, ...guard }));
+  if (!options.roomLeaseHeld) return withKakaoGroupLifecycleLease(env, groupKey, guard => bindKakaoGroupByInviteCode(env, user, groupKey, normalized, { ...options, ...guard, assertFresh: () => { options.assertFresh?.(); guard.assertFresh(); } }));
+  options.assertFresh?.();
   const householdRows = await supabase(env, `/rest/v1/households?invite_code=eq.${encodeURIComponent(normalized)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" });
   const household = householdRows?.[0];
   if (!household) return { ok: false, error: "not_found", code: normalized };
   const role = await getHouseholdMemberRole(env, user.id, household.id);
   if (!["owner", "admin"].includes(role)) return { ok: false, error: "not_allowed", role: role || "none", household };
-  const current = await getLinkedKakaoGroupHousehold(env, groupKey);
+  const current = await getLinkedKakaoGroupHousehold(env, groupKey, options);
   if (current?.id && String(current.id) === String(household.id)) return { ok: true, already_linked: true, role, household: current, linked: null };
   if (current?.id && String(current.id) !== String(household.id)) {
     const currentRole = await getHouseholdMemberRole(env, user.id, current.id);
@@ -31761,8 +32092,21 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
     }
     if (!options?.allowReplace) return { ok: false, error: "replace_confirmation_required", role, current_role: currentRole, current, household };
   }
-  const linked = await saveKakaoGroupLink(env, groupKey, household, user.id);
-  return { ok: true, role, household, linked };
+  const ids = [...new Set([String(household.id), ...(current?.id ? [String(current.id)] : [])])].sort();
+  const guards = [];
+  const run = async index => {
+    if (index < ids.length) return withHouseholdDatabaseLease(env, ids[index], async ({ assertFresh }) => { guards.push(assertFresh); return run(index + 1); });
+    const assertFresh = () => { options.assertFresh?.(); guards.forEach(guard => guard()); };
+    const freshRoles = await Promise.all(ids.map(id => supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" })));
+    if (freshRoles.some(rows => !Array.isArray(rows) || !["owner", "admin"].includes(bestRoleFromRows(rows)))) return { ok: false, error: "not_allowed", household };
+    const snapshot = await readKakaoGroupFirstSnapshot(env, groupKey);
+    if (String(snapshot.link?.household_id || "") !== String(current?.id || "")) throw new Error("kakao_group_bind_scope_changed");
+    await markKakaoGroupRetired(env, groupKey, assertFresh);
+    assertFresh();
+    const linked = await saveKakaoGroupLink(env, groupKey, household, user.id);
+    return { ok: true, role, household, linked };
+  };
+  return run(0);
 }
 
 async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
@@ -31863,6 +32207,7 @@ async function handleIdentityMerge(request, env) {
 
   let aliasHouseholdIds = [];
   let mergeRpcStarted = false;
+  let departurePreservationStarted = false;
   try {
     await withKakaoUserLifecycleLease(env, [primaryId, secondaryId], async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { lifecycleFresh(); householdFresh(); };
@@ -31873,6 +32218,9 @@ async function handleIdentityMerge(request, env) {
       ]);
       if (!selectedMembers.some((m) => String(m.user_id) === primaryId) || !selectedMembers.some((m) => String(m.user_id) === secondaryId)) throw new Error("identity_merge_scope_changed");
       aliasHouseholdIds = [...new Set(secondaryMemberships.map((item) => String(item.household_id || "").trim()).filter(Boolean))];
+      assertFresh();
+      departurePreservationStarted = true;
+      await preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId, assertFresh);
       assertFresh();
       let result;
       try {
@@ -31903,7 +32251,9 @@ async function handleIdentityMerge(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "identity_atomic_merge_failed", severity: "error", path: "/admin/identity/merge", method: "POST", detail: safeError(err) });
     const message = /identity_merge_scope_changed/.test(safeError(err)) ? "선택한 두 계정이 모두 이 가계부의 참여자인지 다시 확인하세요."
-      : (!mergeRpcStarted || isDefiniteStorageFailure(err) || /identity_merge_not_confirmed/.test(safeError(err))) ? "계정 통합을 완료하지 못했습니다. 기존 계정과 거래는 변경하지 않았습니다."
+      : (!mergeRpcStarted || isDefiniteStorageFailure(err) || /identity_merge_not_confirmed/.test(safeError(err))) ? (departurePreservationStarted
+        ? "계정 통합을 완료하지 못했습니다. 기존 계정과 거래는 변경하지 않았습니다. 나가기 이력을 먼저 보존했을 수 있어 자동 참여가 제한될 수 있습니다."
+        : "계정 통합을 완료하지 못했습니다. 기존 계정과 거래는 변경하지 않았습니다.")
       : "계정 통합 결과를 확인하지 못했습니다. 같은 요청을 다시 제출하지 말고 통합 목록에서 현재 상태를 확인하세요.";
     return redirectResponse(`${base}&err=${encodeURIComponent(message)}`);
   }
@@ -33895,3 +34245,5 @@ export { runRecurringAutoApply, runAutomaticReports, buildBudgetAlertPolishModel
 export { budgetExpenseRows };
 
 export { explicitDateIntent };
+
+export { kakaoGroupFirstKeys, kakaoGroupLinkItemSettingsKey, getExplicitKakaoBotGroupKey, readKakaoGroupFirstSnapshot, removeKakaoGroupLink, bindKakaoGroupByInviteCode };

@@ -1,3 +1,13 @@
+## V22.9.31의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`의 199개 파일을 사용하고 자동 검사 하한은 8,000개입니다. 이전 7,079개 기준을 낮추지 않고 승인된 그룹 정책 단언 1개와 새 공동방 runtime 859개를 추가했습니다. 과거 manifest와 불변 자산 바이트는 보존합니다.
+
+`npm run validate:group-first`는 실제 합성 Skill 요청과 PostgREST/작업 임대 모사로 같은 사용자의 A/B/C 동일 발화, 같은 방의 두 사용자·동시 첫 입력·실제 거래 저장, 역할 관리·수동 승인, 무인증/legacy 경계, strict/malformed/null 읽기, 단계별 unknown/late write, 저장 중 bind/unbind/leave/purge 경합과 나가기·삭제 후 차단을 확인합니다. 첫1·3·25건은 NLU background를 수집하여 실제 fetch를 세고 50회를 넘으면 거절합니다.
+
+그룹·보안·UX·성능·개인 첫 기록·개인 호출 예산을 먼저 실행한 뒤 `node .codex/scripts/verify-repository.mjs`를 실행합니다. `node monitoring/test-d1.mjs`의 SQLite 45개는 Node.js 22에서 별도로 실행하고 실제 버전을 기록합니다. 최종 결과·동결 hash·운영 미확인 항목은 `VERIFICATION_V22_9_31.md`에 기록합니다. 실제 Supabase·카카오·5초 latency·엣지 CPU와 만료 후 원격 commit은 합성 통과로 주장하지 않습니다.
+
+아래에는 이전 버전의 검증 기록을 보존합니다.
+
 ## V22.9.27의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_27.sha256`의 174개 파일을 사용하며 자동 검사 하한은 5,662개입니다.

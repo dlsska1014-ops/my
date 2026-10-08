@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.30",
+  "version": "22.9.31",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
@@ -8,6 +8,7 @@
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:audit-corrections": "node validation/validate-audit-corrections-v22930.mjs",
     "validate:startup-budget": "node validation/validate-startup-budget-v22930.mjs",
+    "validate:group-first": "node validation/validate-group-first-v22931.mjs",
     "validate:import-cron": "node validation/validate-import-cron-v22930.mjs",
     "validate:kakao-group": "node validation/validate-kakao-group.mjs",
     "validate:household-security": "node validation/validate-household-security.mjs",

@@ -7,7 +7,8 @@ function wildcardRegex(pattern = "") {
 
 function matchesFilter(row, key, expression) {
   if (key === "or" || key === "and") return true;
-  const decoded = decodeURIComponent(String(expression || ""));
+  // URL.searchParams has already decoded the query once, as PostgREST receives it.
+  const decoded = String(expression || "");
   const dot = decoded.indexOf(".");
   const operator = dot >= 0 ? decoded.slice(0, dot) : "eq";
   const expected = dot >= 0 ? decoded.slice(dot + 1) : decoded;
@@ -363,11 +364,22 @@ export async function createV2265QaFixture() {
         const householdId = String(data?.p_household_id || "");
         const household = db.households.find((item) => item.id === householdId);
         if (!household) return new Response(JSON.stringify({ deleted: false }), { status: 200, headers: { "content-type": "application/json" } });
+        const memberIds = db.household_members.filter(item => item.household_id === householdId).map(item => String(item.user_id));
         db.households = db.households.filter((item) => item.id !== householdId);
-        for (const table of ["household_members", "transactions", "accountbook_budgets", "accountbook_categories", "accountbook_recurring", "accountbook_meme_cards"]) {
+        for (const table of ["household_members", "transactions", "accountbook_budgets", "accountbook_categories", "accountbook_recurring", "accountbook_meme_cards", "accountbook_transaction_audit"]) {
           db[table] = (db[table] || []).filter((item) => item.household_id !== householdId);
         }
-        db.accountbook_settings = db.accountbook_settings.filter((item) => !String(item.key || "").includes(householdId));
+        // Match 02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql's explicit keys/prefixes. An
+        // arbitrary household-id substring must not delete durable lifecycle metadata.
+        const exactKeys = new Set(["custom_categories", "category_keywords", "payment_assets", "asset_history", "reserve_plans", "member_aliases", "transaction_edit_history", "settlement_history", "free_report_preference", "report_challenge", "goals:v5"].map(prefix => `${prefix}:${householdId}`));
+        const prefixes = ["budgets", "favorites:v5", "free_report_snapshot", "kakao_edit_v2254"].map(prefix => `${prefix}:${householdId}:`);
+        db.accountbook_settings = db.accountbook_settings.filter(item => {
+          const key = String(item.key || "");
+          return !exactKeys.has(key) && !prefixes.some(prefix => key.startsWith(prefix)) &&
+            !(key.startsWith("kakao_cta_v215:") && key.includes(`:${householdId}:`)) &&
+            !(key.startsWith("kakao_selected_household_v2251:") && String(item.value || "").trim() === householdId) &&
+            !memberIds.some(id => key.startsWith(`kakao_flow_v215:${id}:`));
+        });
         return new Response(JSON.stringify({ deleted: true, household_id: householdId }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_update_transaction_v227") {
@@ -426,7 +438,10 @@ export async function createV2265QaFixture() {
       if (table === "transactions" && items.some((item) => transactionUniqueConflict(db.transactions, item))) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }
-      const saved = items.map((item) => {
+      const ignoreDuplicates = new Headers(init.headers || {}).get("Prefer")?.includes("resolution=ignore-duplicates");
+      const saved = items.flatMap((item) => {
+        const conflictKeys = table === "users" ? ["kakao_user_key"] : table === "household_members" ? ["household_id", "user_id"] : table === "accountbook_settings" ? ["key"] : table === "accountbook_budgets" ? ["household_id", "month", "category"] : ["id"];
+        if (ignoreDuplicates && db[table].some(row => conflictKeys.every(key => String(row[key] ?? "") === String(item[key] ?? "")))) return [];
         if (table === "users") return upsert(db, table, item, ["kakao_user_key"], sequence);
         if (table === "household_members") return upsert(db, table, item, ["household_id", "user_id"], sequence);
         if (table === "accountbook_settings") return upsert(db, table, item, ["key"], sequence);

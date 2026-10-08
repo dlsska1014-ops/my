@@ -1,3 +1,15 @@
+## V22.9.31 공동방 첫 기록
+
+- [x] 신규 공동방 runtime 859개와 기존 개인 첫 기록 260개, 개인 invocation50 40개, 그룹 22개·보안 89개·UX 59개·성능 165개 집중 검사를 통과했습니다.
+- [x] 같은 사용자의 동일 발화 A/B/C 방 분리, 두 사용자의 동일 발화 실제 저장, 역할 변경, strict 읽기 실패, unknown/late commit과 bind/unbind/leave/purge 경합을 합성 데이터로 확인했습니다.
+- [x] 새 manifest 199개·전체 하네스 8,000개·ESM·공백·Node.js v22.23.1 SQLite 45개가 통과했습니다. 최종 결과는 `VERIFICATION_V22_9_31.md`에 기록했습니다.
+- [ ] 이전 V22.9.30 aside와 새 V22.9.31 checkout·version·SHA-256을 구분하고 검증된 Worker 전체를 별도 승인으로 교체합니다.
+- [ ] 기존 V22.9.29 정기 forward 함수 적용 여부와 SQL-first 순서를 확인합니다. 신규 SQL은 없습니다.
+- [ ] 실제 카카오 payload의 botGroupKey·강한 사용자 식별과 정확한 스킬 Secret 전달을 확인합니다.
+- [ ] 실제 A/B/C 방·첫 두 사용자 기록, pending/blocked/viewer 변경, 연결 해제/나가기/삭제·직접 재연결 후 이전 기록 보존을 확인합니다.
+- [ ] 개인 기록·1회용 웹 코드와 그룹 QuickReplies·CommerceCard·Carousel이 실제 그룹 응답에 포함되지 않는지 확인합니다.
+- [ ] 5초 응답·엣지 CPU·실제 OAuth·실기기와 도입 전 무표식 해제 방·미확정 sent 단계 복구를 별도로 점검합니다.
+
 ## V22.9.29 준비
 
 - [x] 남은 결함 감사와 코드/가이드/대상 SQL·롤백 준비.
@@ -250,3 +262,5 @@ SQL·Secrets·환경변수·바인딩·Cron·도메인·관제 Worker·Kakao Dev
 - [ ] 신규 로컬 가입의 운영 CPU/PBKDF2·실제 Kakao/OAuth/인앱 외부 브라우저·실기기를 확인합니다.
 - [ ] 실제 backup/off-site/restore, legacy-only 복구, Cron cursor 소진 시간을 확인합니다.
 - [x] 구현 `e71c2a3`을 push하고 PR54를 main의 `cc628d7`로 병합했습니다. 브랜치/PR의 Ubuntu·Windows CI 네 작업이 전체7,079개와 SQLite45를 통과했습니다. 최종 기록 문서의 원격 일치는 Git 로그에서 별도로 확인합니다.
+
+- [x] 독립 검토의 계정 통합·나가기 이력·정본 문서 세 발견을 보완하고 한정 재검토에서 추가 조치가 필요한 문제를 찾지 못했습니다.

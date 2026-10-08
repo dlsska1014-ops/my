@@ -343,6 +343,19 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.31 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.31 `src/index.js` 전체 교체가 필요합니다. 이 저장소 작업에서 운영에 배포하지 않습니다. |
+| 공동방 데이터 | 기존 `accountbook_settings`·`households`·`household_members`와 기존 claim/release RPC를 사용합니다. 신규 테이블·컬럼·인덱스·RLS·ACL·RPC·SQL이 없습니다. |
+| 기존 정기 SQL | V22.9.29 forward 함수의 적용 여부를 먼저 확인합니다. 미적용이면 별도 승인으로 SQL-first 순서를 완료한 뒤 Worker를 교체합니다. 이미 적용을 확인했다면 재실행하지 않습니다. 기존 rollback 파일을 보존합니다. |
+| immutable 자산 | V22.9.30 이하의 기존 경로·바이트·ETag를 보존합니다. 새 정적 자산 주소는 추가하지 않습니다. |
+| 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·관제 Worker·Kakao Developers·OpenBuilder를 변경하지 않습니다. 실제 Skill Secret과 botGroupKey 전달을 배포 후 확인합니다. |
+| 수동 점검 | 실제 첫 두 사용자와 A/B/C 기록·권한 변경·연결 해제/나가기/삭제·재연결, 5초 응답·CPU·OAuth·실기기를 별도로 확인합니다. 도입 전 무표식 해제 방과 만료 후 commit의 한계는 알려진 제한으로 남깁니다. |
+
+버전·checkout·동결 소스 해시와 이전 전달 지시의 구분은 `docs/ASIDE_V22_9_31.md`를 따릅니다. 저장소 검증을 운영 성공으로 기록하지 않습니다.
+
 ## V22.9.30 저장소 준비
 
 | 작업 | 적용 판단 |
