@@ -34,9 +34,10 @@
 //   SHA-256 as the current src/index.js, the same commit and an unchanged server etag. No API
 //   returns the source of a stored version, so the bytes are proven again after promotion.
 // - After promotion the active deployment must be that version at 100%, the deployed script
-//   (content/v2) must hash to the local SHA-256, /health must report APP_VERSION and the public
-//   checks (tools/verify-deployment-v22920.mjs) must pass. A failure prints the rollback command;
-//   the script never rolls back, retries a write or uses force on its own.
+//   (content/v2) must hash to the local SHA-256, and /health must report APP_VERSION in
+//   HEALTH_CONSECUTIVE responses in a row (a mismatch restarts the count). Only then do the public
+//   checks (tools/verify-deployment-v22920.mjs) run, and they must pass. A failure prints the
+//   rollback command; the script never rolls back, retries a write or uses force on its own.
 // - Snapshots go to <out-dir>/<APP_VERSION>/ (untracked). Binding fields other than identifiers
 //   are stored as SHA-256 digests; the API never returns Secret values.
 import { spawnSync } from "node:child_process";
@@ -284,20 +285,40 @@ export async function deployedScriptSha256(response) {
   return { error: `알 수 없는 content-type: ${type || "(없음)"}` };
 }
 
-export async function checkHealth({ fetch, origin, expectedVersion, sleep, attempts = 10, delayMs = 3000 }) {
+// While a deployment propagates, requests can still reach the previous version for a few seconds,
+// so one matching /health response is not enough: the public checks that follow make their own
+// single /health request (first real promotion, 2026-10-09: 115/116 for exactly that reason).
+// Wait for HEALTH_CONSECUTIVE matching responses in a row; any mismatch starts the count again.
+export const HEALTH_CONSECUTIVE = 5;
+export const HEALTH_MAX_ATTEMPTS = 40;
+export const HEALTH_DELAY_MS = 2000;
+
+export async function checkHealth({ fetch, origin, expectedVersion, sleep, attempts = HEALTH_MAX_ATTEMPTS, delayMs = HEALTH_DELAY_MS, consecutive = HEALTH_CONSECUTIVE }) {
   let last = {};
+  let streak = 0;
+  let mismatches = 0;
+  let firstMatch = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let matched = false;
     try {
-      const response = await fetch(`${origin}/health`, { headers: { accept: "application/json", "user-agent": "MalhaebookDeploy" }, signal: AbortSignal.timeout(15000) });
+      const response = await fetch(`${origin}/health`, { headers: { accept: "application/json", "cache-control": "no-cache", "user-agent": "MalhaebookDeploy" }, signal: AbortSignal.timeout(15000) });
       const data = await response.json();
       last = { status: response.status, alive: data?.alive, version: data?.version, missing_count: data?.missing_count };
-      if (response.status === 200 && data?.alive === true && (!expectedVersion || data?.version === expectedVersion)) return { ok: true, attempts: attempt, ...last };
+      matched = response.status === 200 && data?.alive === true && (!expectedVersion || data?.version === expectedVersion);
     } catch (error) {
       last = { error: error.message };
     }
+    if (matched) {
+      streak += 1;
+      firstMatch ??= attempt;
+      if (streak >= consecutive) return { ok: true, attempts: attempt, consecutive: streak, first_match_attempt: firstMatch, mismatches, ...last };
+    } else {
+      streak = 0;
+      mismatches += 1;
+    }
     if (attempt < attempts) await sleep(delayMs);
   }
-  return { ok: false, attempts, ...last };
+  return { ok: false, attempts, consecutive: streak, first_match_attempt: firstMatch, mismatches, ...last };
 }
 
 const IDENTIFIER_FIELDS = new Set(["name", "type", "service", "environment", "entrypoint", "namespace_id", "database_id", "id", "bucket_name", "jurisdiction", "queue_name", "class_name", "script_name", "dataset", "index_name", "workflow_name", "store_id", "secret_name", "certificate_id", "namespace", "pipeline", "format", "algorithm", "usages"]);
@@ -410,7 +431,9 @@ async function deployAndVerify(options, deps, client, { targetId, previousId, ex
     if (checks.content.sha256 !== expectedSha256) failures.push(`배포된 소스가 로컬 SHA-256 과 같음을 확인하지 못했습니다 (${checks.content.sha256 ?? checks.content.error})`);
   }
   checks.health = await checkHealth({ fetch: deps.fetch, origin: options.origin, expectedVersion, sleep: deps.sleep });
-  if (!checks.health.ok) failures.push(`/health 가 ${expectedVersion ?? "alive"} 를 알리지 않습니다 (${checks.health.version ?? checks.health.error ?? checks.health.status})`);
+  const healthSummary = `시도 ${checks.health.attempts}회, 불일치 ${checks.health.mismatches}회, 마지막 ${checks.health.version ?? checks.health.error ?? checks.health.status}`;
+  if (checks.health.ok) deps.log(`/health: ${expectedVersion ?? "alive"} ${checks.health.consecutive}번 연속 확인 (${healthSummary})`);
+  else failures.push(`/health 가 ${HEALTH_CONSECUTIVE}번 연속 ${expectedVersion ?? "alive"} 를 알리지 않습니다 (${healthSummary}, 마지막 연속 ${checks.health.consecutive}번)`);
   if (runPublic && !failures.length) {
     checks.public_checks_exit = deps.runPublicChecks({ origin: options.origin, legacyOrigin: options.legacyOrigin, appVersion: expectedVersion });
     if (checks.public_checks_exit !== 0) failures.push(`공개 검사 실패 (종료 코드 ${checks.public_checks_exit})`);

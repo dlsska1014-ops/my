@@ -591,5 +591,6 @@ Worker 크기 64 MiB(비압축, 압축 한도 없음), 시작 1초, Free CPU 10m
 | 6 | PR #57 | `tools/deploy-worker-version.mjs`. 버전 조회 응답에 annotations가 문서상 없어, 업로드 기록(소스 SHA-256·HEAD·etag)으로 버전과 커밋을 잇는다. 바인딩 0개·배열 아님이면 업로드 거부. 되돌림 뒤 공개 검사는 하지 않음 |
 | 2·3 | V22.9.32 판 | T3 결과 1,609/1,610 동일(`APP_VERSION`만 변경). `build:worker`가 annotate를 먼저 실행. import 2,722·export 1,024 이름, 모듈 간 `let` 대입 10건은 4단계 대상 |
 | 6 보완 | 2026-10-09 첫 실제 업로드 뒤 | 실제 업로드 API는 inherit의 `version_id`로 `latest`만 받는다(버전 ID는 10057, 문서와 다름). `latest`로 보내고, 업로드 전 `GET /versions`의 최신 버전이 현재 배포 버전(또는 이 스크립트가 그 버전에서 올린 버전)인지 확인한다. `compatibility_flags` 키 없음 = 빈 목록. 버전 조회 응답에는 `annotations`가 있고, etag는 소스 SHA-256과 다르다. 검사 178 → 197 |
+| 6 보완 2 | 2026-10-09 첫 승격 뒤 | 승격 뒤 공개 검사의 `/health` 한 번이 전파 중 이전 판을 만나 115/116. 공개 검사 전에 `/health` 5번 연속 일치(2초 간격, 최대 40번, 불일치면 처음부터)를 기다린다. 검사 197 → 207 |
 
 측정값 정정: `split-manifest.txt`의 `bytes` 열과 3장 표의 KB는 UTF-16 문자 수 기준이다. 실제 UTF-8 파일은 10% 안팎 더 크다. 분석 스크립트는 `tools/vendor/acorn.mjs`를 쓰므로 `--expose-internals` 없이 실행한다.
