@@ -1,3 +1,27 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { getCookie, htmlResponse, redirectResponse } from "../runtime/http.js";
+import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "../my/access-control.js";
+import { budgetSummary, fetchBudgets, optionalSupabase } from "../domain/budgets.js";
+import {
+  lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
+  memeCountByRegex, todayExpense,
+} from "../my/home-sections.js";
+import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function memeCollectionFor(rows = [], stats = calculateStats([]), budget = null, month = currentMonthKst()) {
   const expense = Number(stats.totals.expense || 0);
@@ -542,3 +566,11 @@ async function handleMemeLabPage(request, env, url) {
   const title = escapeHtml(appName(env));
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 소비 카드 만들기</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{width:100%;max-width:980px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.top a{color:#111827;text-decoration:none;background:#fff;border:1px solid #d1d5db;padding:10px 12px;border-radius:14px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px}.card{min-width:0;border-radius:24px;padding:16px;min-height:250px;background:linear-gradient(135deg,#111827,#7c3aed,#ec4899);color:#fff;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}.card:after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:999px;background:rgba(255,255,255,.18)}.row{display:flex;gap:8px;position:relative;z-index:1}.pill{font-size:12px;border-radius:999px;background:rgba(255,255,255,.18);padding:6px 9px;font-weight:1000}.emoji{font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif!important;font-size:44px;position:relative;z-index:1}.wrap .card h2{margin:0;font-size:22px;line-height:1.1;position:relative;z-index:1;color:#fff!important}.card p{line-height:1.45;font-weight:800;position:relative;z-index:1;word-break:keep-all}.card small{opacity:.82;font-weight:900;position:relative;z-index:1}.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:auto;position:relative;z-index:1}.actions button,.actions a{min-width:0;height:38px;border:0;border-radius:13px;background:#fff;color:#111827;text-decoration:none;font-weight:1000;display:flex;align-items:center;justify-content:center}@media(max-width:420px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.top>div{min-width:0}.top h1{font-size:26px}}</style></head><body>${renderUnifiedNav("meme-lab", { month, householdId: selectedHousehold?.id || "" })}<main class="wrap"><div class="top"><div><h1>소비 카드 만들기</h1><p>이번 달 소비 데이터를 가볍고 재미있는 카드로 정리합니다.</p></div><nav><a href="/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}#meme">가계부로</a></nav></div><section class="grid">${cards.map((c, idx) => `<article class="card"><div class="row"><span class="pill">${escapeHtml(c.rarity || 'R')}</span><span class="pill">${escapeHtml(c.level)}</span></div><div class="emoji">${escapeHtml(c.emoji)}</div><h2>${escapeHtml(c.title)}</h2><p>${escapeHtml(c.line)}</p><small>${escapeHtml(c.subtitle || '')}</small><div class="actions"><button type="button" data-share="${escapeHtml(memeShareText(c, month))}" onclick="copyLab(this)">복사</button><a href="/meme?month=${encodeURIComponent(month)}&card=${encodeURIComponent(c.id || idx)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}">공유</a><a href="/meme-image?month=${encodeURIComponent(month)}&card=${encodeURIComponent(c.id || idx)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ''}">이미지</a></div></article>`).join('')}</section></main><script>function copyLab(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{prompt('복사하세요',text);}}</script></body></html>`);
 }
+// @build:exports-start
+export {
+  handleMemeArchivePage, handleMemeDelete, handleMemeImage, handleMemeLabPage,
+  handleMemePublicStatsPage, handleMemeRankPage, handleMemeReact, handleMemeSave,
+  handleMemeSharePage, handlePublicMemeImage, handlePublicMemeLike, handlePublicMemeShareCount,
+  handlePublicMemeSharePage, memeCollectionFor,
+};
+// @build:exports-end

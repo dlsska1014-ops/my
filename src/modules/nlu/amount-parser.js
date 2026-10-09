@@ -1,3 +1,6 @@
+// @build:imports-start
+import { moneyTokenSpans, transactionTypeFromText } from "../client/shared-input-parsers.js";
+// @build:imports-end
 
 function normalizeText(text) {
   return String(text || "")
@@ -179,3 +182,6 @@ function koreanSimpleNumber(s, digit) {
   }
   return out;
 }
+// @build:exports-start
+export { detectType, extractAmount, normalizeText, normalizeType, parseAmountValue };
+// @build:exports-end

@@ -1,3 +1,9 @@
+// @build:imports-start
+import {
+  parseMobileAmountText, quickInputDate, transactionTypeFromText,
+} from "./shared-input-parsers.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function mobileUiUxClientMain() {
   "use strict";
@@ -1147,3 +1153,12 @@ function deferHeavyBrowserTools(html = "") {
   }
   return source;
 }
+// @build:exports-start
+export {
+  KAKAO_LOGIN_PROGRESS_TIPS, UIUX_RUNTIME_STYLE, V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE,
+  V2281_GUIDED_UIUX_STYLE, V2284_UI_REVALIDATION_STYLE, V2285_LOGIN_STYLE, V2285_MENU_STYLE,
+  approximateWonLabel, attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
+  inlineActionResultClientMain, kakaoLoginProgressClientMain, mobileShellUiClientMain,
+  mobileUiUxClientMain, passwordMatchFeedbackClientMain, v2284UiStyleFor, v2285NavStyleFor,
+};
+// @build:exports-end

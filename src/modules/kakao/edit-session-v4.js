@@ -1,3 +1,15 @@
+// @build:imports-start
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { SESSION_TTL_MS } from "./edit-state-machine.js";
+import { getKakaoBotGroupKey } from "./group-links-first-record.js";
+import { stableShortHash } from "./identity-chat-first.js";
+import { supabase } from "../data/supabase-client.js";
+import { hasDateHint } from "../nlu/transaction-parser.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { extractDate, formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function kakaoEditConversationScope(payload = {}) {
   return getKakaoBotGroupKey(payload) || "direct";
@@ -319,3 +331,15 @@ function kakaoEditGuideText(origin = "") {
     origin ? `자세한 가이드\n${origin}/chatbot-edit-guide` : "",
   ].filter(Boolean).join("\n");
 }
+// @build:exports-start
+export {
+  clearKakaoEditUndoV4, dailySeqForKakaoRow, deleteKakaoRowById, findDailyKakaoRowBySeq,
+  getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
+  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
+  isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
+  kakaoEditConversationScope, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoRowLabel,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  parseKakaoSpenderChoiceValue, saveKakaoEditSessionV4, saveKakaoEditUndoV4, takeKakaoEditUndoV4,
+  twoDigitSeq,
+};
+// @build:exports-end

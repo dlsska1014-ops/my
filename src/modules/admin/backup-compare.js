@@ -1,3 +1,20 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { APP_VERSION } from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { normalizeTransactionType } from "./transactions-households.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
+import {
+  fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function backupJsonResponse(data, filename) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -383,3 +400,10 @@ async function handleBackupComparePost(request, env) {
     return htmlResponse(renderBackupCompareHtml({ households, error: "백업 비교를 완료하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
   }
 }
+// @build:exports-start
+export {
+  compareBackupTransactions, handleAdminExportJson, handleBackupCenterPage, handleBackupComparePage,
+  handleBackupComparePost, handleBackupPreviewPage, handleBackupPreviewPost, safeArray, safeObject,
+  transactionComparable, transactionSignature, validateBackupPayloadShape,
+};
+// @build:exports-end

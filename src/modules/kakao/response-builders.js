@@ -1,3 +1,9 @@
+// @build:imports-start
+import { safeError } from "../runtime/leases.js";
+import { jsonResponse } from "../runtime/http.js";
+import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
+import { getKakaoBotGroupKey } from "./group-links-first-record.js";
+// @build:imports-end
 
 // V22.9.26: 저장소가 상태 코드로 거절한 경우(Supabase 4xx·5xx)는 저장된 행이 없다.
 function isUncertainStorageWrite(err) {
@@ -149,3 +155,9 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 }
+// @build:exports-start
+export {
+  dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
+  kakaoGroupCompatibleResponse, kakaoQr, kakaoSaveFailedText, kakaoText,
+};
+// @build:exports-end

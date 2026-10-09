@@ -1,3 +1,38 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { readOptionalFormAmount } from "./transactions-households.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { safeArray } from "./backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  computeFairMoM, renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
+} from "../my/analysis-page.js";
+import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import {
+  budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurring,
+} from "../domain/budgets.js";
+import { addQueryToUrl } from "../auth/local-login-pages.js";
+import {
+  addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, deltaClass,
+  formatSignedPercent, percentChange, renderCategoryCompareTable, renderMonthlyTrendTable,
+  renderStrategyCards,
+} from "../domain/analytics.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import {
+  addDays, currentMonthKst, formatDate, nowKstDate, validMonth, weekdayIndexOfYmd,
+} from "../nlu/date-payment.js";
+import {
+  calculateStats, escapeHtml, getCalendar, nextMonthStart, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleBudgetSave(request, env) {
   const form = await request.formData();
@@ -365,3 +400,11 @@ async function handlePcCalendarPage(request, env, url) {
   if (ctx.restricted) return myAccessStatusResponse({ env, user: ctx.user, household: ctx.restricted, role: ctx.restricted.role, month: ctx.month });
   return htmlResponse(renderPcCalendarHtml(ctx));
 }
+// @build:exports-start
+export {
+  buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, handleBudgetDelete,
+  handleBudgetSave, handlePcAnalysisPage, handlePcCalendarPage, normalizeRecurringKey,
+  renderAnomalyList, renderDonutChart, renderMonthlySeriesChart, renderRecurringInsightList,
+  renderWeeklyReportCard,
+};
+// @build:exports-end

@@ -1,3 +1,24 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { parseStrictSettingsObject, safeError } from "../runtime/leases.js";
+import {
+  base64UrlDecodeText, base64UrlEncodeText, constantTimeTextEqual, getCookie, redirectResponse,
+} from "../runtime/http.js";
+import {
+  PASSWORD_KDF_ITERATIONS, hmacSha256, newPasswordSalt, pbkdf2PasswordHash, recordAuthAttempt,
+} from "./crypto-admin-session.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeObject } from "../admin/backup-compare.js";
+import {
+  getUserSessionVersion, kakaoLoginUserKey, stripMergedMarkerSuffix, userSessionSecret,
+  verifyUserSession,
+} from "./user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 function userIdentityLinksSettingsKey() {
   return "user_identity_links";
@@ -324,3 +345,14 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
   }
   return user;
 }
+// @build:exports-start
+export {
+  boundedFormRequest, clearHouseholdDeleteReauthCookie, ensureKakaoLoginUser,
+  fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
+  handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
+  householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
+  linkKakaoLoginToUser, makeCredentialProof, makeHouseholdDeleteReauthToken,
+  normalizeLocalLoginName, readPurposeToken, replaceLocalLoginForUser, saveUserIdentityLinks,
+  signedPurposeToken, verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
+};
+// @build:exports-end

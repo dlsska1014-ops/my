@@ -95,3 +95,6 @@ export function stop() {
   canvas = null; ctx = null; pos = null; target = null; hide = false;
 }
 `;
+// @build:exports-start
+export { AB_CURSOR_ASSET_PATH, AB_CURSOR_ASSET_SOURCE };
+// @build:exports-end

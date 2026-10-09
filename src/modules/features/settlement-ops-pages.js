@@ -1,3 +1,38 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, buildOpsSnapshot, getSkillOpsSnapshot, getTrafficOpsSnapshot,
+  rememberOpsEvent,
+} from "../runtime/ops-telemetry.js";
+import { APP_VERSION, appName } from "../public/site-config.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectPublicAwayFromAdmin, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchHouseholdMembers, memberNameMap,
+} from "../data/households-members-rows.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { maskKey, userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { renderDuplicateSafetyHtml } from "../admin/meme-content-pages.js";
+import {
+  budgetAlertKakaoHint, buildBudgetAlertPolishModel, renderBudgetAlertRows,
+  renderBudgetAlertStatusPill, renderPendingRecurringList,
+} from "./budget-alerts-annual-goals.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
+import {
+  parseJsonArraySettingStrict, parseJsonSetting, saveSettingValue,
+} from "../my/reports-premium.js";
+import {
+  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "../my/access-control.js";
+import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleBudgetAlertPolishPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -367,3 +402,12 @@ async function handleDataPolicyPage(request, env, url) {
   const title = escapeHtml(appName(env));
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 개인정보 안내</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#d1fae5}.muted{color:#667085;line-height:1.7}li{margin:8px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.65}</style></head><body><main class="wrap"><section class="hero"><h1>개인정보·데이터 안내</h1><p>${title}는 봇에게 직접 보낸 명령어와 가계부 기록에 필요한 데이터만 처리합니다.</p></section><section class="card"><h2>처리하는 데이터</h2><ul><li>사용자가 입력한 수입·지출 기록</li><li>가계부 이름, 참여자 권한, 초대코드</li><li>가계부 안 표시명, 예산, 분류 키워드, 정기지출 설정</li><li>카카오 봇 사용자키, 그룹방 연결키 같은 식별키</li></ul></section><section class="card"><h2>하지 않는 것</h2><div class="ok">단톡방 전체 대화를 읽거나 학습하지 않습니다.<br/>봇에게 전달된 명령어와 기록 요청만 처리합니다.<br/>카카오 공식 서비스로 오인되도록 표현하지 않습니다.</div></section><section class="card"><h2>보관 기간과 삭제</h2><p class="muted">입력한 기록과 설정값은 <b>가계부를 이용하는 동안 보관</b>합니다. 사용자가 웹 화면에서 직접 수정·삭제할 수 있고, 삭제한 기록은 서비스에서 제거됩니다. 가계부 나가기는 참여 권한을 종료하고 공동 거래 이력은 보존합니다. 가계부 소유자의 영구 삭제는 해당 가계부의 거래·관련 설정을 삭제합니다. 계정 자체 탈퇴·삭제는 온라인에서 제공하지 않으며 문의 경로를 통해 요청해야 합니다. 카카오 발화 원문은 기록 처리에 필요한 범위에서만 저장하며 같은 기준으로 관리합니다. 백업으로 내려받은 파일은 사용자가 직접 보관·관리합니다. 참여자 권한과 표시명은 관리자 또는 가계부 설정 화면에서 관리합니다.</p></section></main></body></html>`);
 }
+// @build:exports-start
+export {
+  buildSettlementModel, handleBrandKitPage, handleBudgetAlertGuidePage, handleBudgetAlertPolishPage,
+  handleDuplicateSafetyPage, handleHouseholdCreateJoinGuidePage, handleMeetingArchiveGuidePage,
+  handleMeetingHouseholdTemplatePage, handleOpsDashboardPage, handleReleaseCandidateCheckPage,
+  handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
+  settlementHistoryKey,
+};
+// @build:exports-end

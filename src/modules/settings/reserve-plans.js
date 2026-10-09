@@ -1,3 +1,31 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  parseStrictSettingsArray, safeError, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { randomEntityId, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { fetchCustomCategories } from "./categories-keywords.js";
+import { fetchPaymentAssets } from "./payment-assets.js";
+import {
+  fetchHouseholdMembers, getScopedHouseholdsForPage, renderSpenderOptions,
+  selectRequestedScopedHousehold,
+} from "../data/households-members-rows.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchRecurring } from "../domain/budgets.js";
+import { moneyPlanTabsCss, renderMoneyPlanTabs } from "../my/money-plan-home-layout.js";
+import { renderRecurringEditForm } from "../admin/budget-center-recurring.js";
+import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
+import { formatMessage, mergedOptions } from "../kakao/reply-texts.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function reservePlansKey(householdId = "") {
   return `reserve_plans:${String(householdId || "default").trim() || "default"}`;
@@ -398,3 +426,10 @@ async function handleReservePlanDelete(request, env) {
     return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.")}`);
   }
 }
+// @build:exports-start
+export {
+  addReservePlan, deleteReservePlan, fetchReservePlans, handleReservePlanCreate,
+  handleReservePlanDelete, handleReservePlanUpdate, handleReservePlansPage, kakaoReserveAlert,
+  normalizeReservePlanList, reserveDashboard, reservePlansKey, updateReservePlan,
+};
+// @build:exports-end

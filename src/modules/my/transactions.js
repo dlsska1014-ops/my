@@ -1,3 +1,28 @@
+// @build:imports-start
+import {
+  duplicateSkippedReturnLocation, isDatabaseBusyError, rememberOpsEvent, userSafeErrorCode,
+} from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { redirectResponse } from "../runtime/http.js";
+import {
+  MAX_TRANSACTION_AMOUNT, isValidTransactionDateString, normalizeTransactionType,
+  parseFormAmountValue,
+} from "../admin/transactions-households.js";
+import { resolveManualInputClassification } from "../settings/payment-assets.js";
+import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import {
+  canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, myReturnLocation,
+} from "./access-control.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import {
+  createManualTransaction, deleteTransactionWithAudit, updateTransaction,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 function transactionEditHistoryKey(householdId = "") {
   return `transaction_edit_history:${String(householdId || "default").trim() || "default"}`;
@@ -215,3 +240,9 @@ async function handleMyDeleteTransaction(request, env) {
     return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
   }
 }
+// @build:exports-start
+export {
+  activeSpenderExists, handleMyAddTransaction, handleMyDeleteTransaction, handleMyUpdateTransaction,
+  memberCanBeSpender, transactionEditHistoryKey,
+};
+// @build:exports-end

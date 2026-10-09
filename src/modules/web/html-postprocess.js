@@ -1,3 +1,25 @@
+// @build:imports-start
+import { renderBusinessInfoFooter } from "../public/site-config.js";
+import {
+  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickInputDate,
+  transactionTypeFromText,
+} from "../client/shared-input-parsers.js";
+import {
+  V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE, approximateWonLabel,
+  attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
+  inlineActionResultClientMain, mobileShellUiClientMain, mobileUiUxClientMain, v2285NavStyleFor,
+} from "../client/legacy-ui-runtime.js";
+import { renderUnifiedNav } from "./unified-nav.js";
+import {
+  AB_UIUX_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH,
+  ACCOUNTBOOK_THEME_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH,
+  MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH,
+} from "../assets/asset-registry.js";
+import { AB_MANIFEST_LINK, AB_SPECULATION_RULES_TAG } from "../assets/icons-manifest.js";
+import { currentMonthKst, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { AB_CATEGORY_RULES_SCRIPT_TAG } from "../nlu/category-rules.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 const SKIP_TO_CONTENT_TARGET_ID = "abMainContent";
 
@@ -463,3 +485,6 @@ function attachBusinessInfoFooter(html = "") {
   if (source.includes("</body></html>")) return source.replace("</body></html>", `${footer}</body></html>`);
   return source;
 }
+// @build:exports-start
+export { attachBusinessInfoFooter, attachUiUxRuntime };
+// @build:exports-end

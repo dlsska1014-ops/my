@@ -1,3 +1,6 @@
+// @build:imports-start
+import { detectType, normalizeText } from "./amount-parser.js";
+// @build:imports-end
 
 const CATEGORY_RULES = [
   // 수입 5(+기타수입 폴백) — recommendCategory 에는 "용돈"이 없었다. 갈래가 나뉜 게 아니라
@@ -158,3 +161,9 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
 function escapeRegExp(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+// @build:exports-start
+export {
+  AB_CATEGORY_RULES_ASSET_PATH, AB_CATEGORY_RULES_SCRIPT_TAG, abCategoryRulesJsAsset, cleanMemo,
+  inferCategory, normalizeCategoryName,
+};
+// @build:exports-end

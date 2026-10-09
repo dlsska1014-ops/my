@@ -1,3 +1,11 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { normalizeImportedRecordDetailed } from "./flexible-import-parser.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 // Excel·Google Sheets는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 셀을 수식으로
 // 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
@@ -134,3 +142,6 @@ async function findExactDuplicateTransaction(env, row = {}, options = {}) {
     return true;
   }) || null;
 }
+// @build:exports-start
+export { buildReadableTransactionsCsv, csvSafeText, findExactDuplicateTransaction };
+// @build:exports-end

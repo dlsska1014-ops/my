@@ -1,3 +1,14 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, rememberOpsEvent, trafficClientKey,
+} from "../runtime/ops-telemetry.js";
+import {
+  base64UrlDecodeBytes, base64UrlDecodeText, base64UrlEncode, base64UrlEncodeText,
+  constantTimeTextEqual, getCookie,
+} from "../runtime/http.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 const PASSWORD_KDF_ITERATIONS = 210000;
 
@@ -283,3 +294,13 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
     return fallback;
   }
 }
+// @build:exports-start
+export {
+  PASSWORD_KDF_ITERATIONS, checkAdminPassword, getAdminSecurityState, hmacSha256,
+  kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized, kakaoSkillSecretMatches, makeAdminSession,
+  makeMyImportPreviewToken, newPasswordSalt, pbkdf2PasswordHash, randomEntityId, randomHex,
+  recordAuthAttempt, rememberSkillLatency, requiredSecret, safeAdminReturnPath, sha256Hex,
+  skillLatencySnapshot, trafficClientIp, verifyAdminSession, verifyCronExecutionAuth,
+  verifyMyImportPreviewToken,
+};
+// @build:exports-end

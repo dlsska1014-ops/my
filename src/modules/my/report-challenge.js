@@ -1,3 +1,32 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+} from "../runtime/leases.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
+import {
+  MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
+} from "../admin/transactions-households.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { handleMyLogout } from "../auth/kakao-oauth.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { parseJsonSetting, saveSettingValue } from "./reports-premium.js";
+import { shiftMonthString } from "./analysis-page.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { budgetSummary, fetchBudgets } from "../domain/budgets.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { calculateDashboardAnalysis } from "../domain/analytics.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import {
+  calculateStats, calendarDaysFromRows, escapeHtml, nextMonthStart, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function getMyPageContext(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -324,3 +353,11 @@ async function handleReportChallengeSave(request, env) {
     return jsonResponse({ ok: true, saved: true, refresh_required: true, message: "설정은 저장했습니다. 다음 화면 이동 때 최신 진행률이 표시됩니다." });
   }
 }
+// @build:exports-start
+export {
+  buildReportChallenge, buildReportChallengeForHousehold, buildReportDashboardSummary,
+  challengePeriodDays, getMyPageContext, handleReportChallengeSave, normalizeReportChallenge,
+  renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
+  reportChallengeSettingsKey, reportMonthHref, reportUxCss, shiftChallengeDate,
+};
+// @build:exports-end

@@ -1,3 +1,49 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { quickSmartInputController } from "../client/shared-input-parsers.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { isValidTransactionDateString } from "../admin/transactions-households.js";
+import { reserveDashboard } from "../settings/reserve-plans.js";
+import {
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+  fetchPostgrestRows, memberNameMap, renderSpenderOptions,
+} from "../data/households-members-rows.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { buildReportChallengeForHousehold, renderReportChallenge } from "./report-challenge.js";
+import {
+  renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
+} from "./analysis-page.js";
+import {
+  canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { activeSpenderExists, memberCanBeSpender } from "./transactions.js";
+import {
+  budgetCenterSummary, budgetSummary, fetchBudgets, fetchMobileHomeSettings,
+} from "../domain/budgets.js";
+import {
+  applyHomeLayoutSection, homeLayoutKey, lastNDaysExpense, normalizeHomeLayout,
+  renderHomeReportCards, renderHomeWeekStrip, renderV8TxCards, renderV8TxDayGroups, todayExpense,
+} from "./home-sections.js";
+import { categoryInitial } from "../web/quick-chip-icons.js";
+import { MOBILE_HOME_CSS_ASSET_PATH } from "../assets/asset-registry.js";
+import { renderMonthlySeriesChart } from "../admin/pc-analysis-calendar.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { addMonthsYm, percentChange } from "../domain/analytics.js";
+import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
+import {
+  formatMessage, isMissingCategory, isMissingPayment, mergedOptions,
+} from "../kakao/reply-texts.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import {
+  calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") {
   const prevMonth = shiftMonthString(month, -1);
@@ -562,3 +608,6 @@ async function handleMobileV8Page(request, env, url) {
   const calendarRows = rows;
   return htmlResponse(renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill }));
 }
+// @build:exports-start
+export { handleMobileV8Page, renderMobileV81Html };
+// @build:exports-end

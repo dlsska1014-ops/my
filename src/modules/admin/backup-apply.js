@@ -1,3 +1,21 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { checkAdminPassword, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { isValidTransactionDateString } from "./transactions-households.js";
+import { fetchAdminHouseholds, fetchAdminRows } from "../data/households-members-rows.js";
+import {
+  compareBackupTransactions, safeArray, safeObject, transactionComparable, transactionSignature,
+  validateBackupPayloadShape,
+} from "./backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { stableShortHash } from "../kakao/identity-chat-first.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import {
+  createManualTransaction, escapeHtml, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderImportCandidateRows(rows = []) {
   const arr = safeArray(rows).slice(0, 200);
@@ -287,3 +305,9 @@ async function handleImportApplyPost(request, env) {
     return htmlResponse(renderImportApplyHtml({ households, month, householdId, error: "가져오기를 완료하지 못했습니다. 적용 결과를 확인한 뒤 같은 파일을 반복 제출하지 마세요." }), 400);
   }
 }
+// @build:exports-start
+export {
+  handleBackupCandidateSelectPage, handleBackupCandidateSelectPost, handleImportApplyPage,
+  handleImportApplyPost, handleImportFinalCheckPage, handleImportFinalCheckPost,
+};
+// @build:exports-end

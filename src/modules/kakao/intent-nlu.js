@@ -1,3 +1,24 @@
+// @build:imports-start
+import { boundedRuntimeNumber, nluOpsConfig } from "../runtime/ops-telemetry.js";
+import {
+  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, memeCardsEnabled,
+} from "../public/site-config.js";
+import { safeObject } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { fetchUserHouseholds } from "../data/users-household-create.js";
+import {
+  kakaoBrandGuideText, kakaoDataPolicyText, kakaoEditSimpleGuideText, kakaoInputExampleText,
+  kakaoKeywordGuideText, kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText,
+} from "./reply-texts.js";
+import { stripKakaoBotMention } from "./request-guards.js";
+import {
+  isBrandGuideCommand, isDataPolicyCommand, isEditGuideSimpleCommand, isHelpCommand,
+  isInputExampleCommand, isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand,
+  isReserveGuideCommand,
+} from "./simple-commands.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { helpText, linkText } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // V22.1: 외부 LLM 호출 없이 동작하는 저비용 한국어 의도 정규화·명확화 계층.
 // OpenBuilder는 대표 명령 라우팅만 담당하고, 롱테일 자연어와 모호한 표현은 이 Registry/명확화 엔진에서 판별합니다.
@@ -310,3 +331,11 @@ function kakaoSaveDelayText(origin = "") {
     "중복될 수 있으니 같은 내용을 다시 보내지 말고 잠시 후 ‘오늘 기록 보기’로 확인해 주세요.",
   ].join("\n");
 }
+// @build:exports-start
+export {
+  detectKakaoNaturalIntent, hasKakaoImageAttachment, isCommandMenuCommand, isHouseholdSwitchCommand,
+  kakaoCommandMenuText, kakaoImageNotSupportedText, kakaoNluRegistrySummary, kakaoNluRuntimeConfig,
+  kakaoPublicCommandReply, kakaoSaveDelayText, normalizeKakaoIntentText,
+  parseCreateHouseholdCommand,
+};
+// @build:exports-end

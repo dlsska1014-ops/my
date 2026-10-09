@@ -1,3 +1,19 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  APP_MODE, APP_VERSION, cardPerformanceEnabled, memeCardsEnabled, premiumBetaEnabled,
+} from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { dashboardQuery } from "./transactions-households.js";
+import { fetchAdminHouseholds } from "../data/households-members-rows.js";
+import { safeArray } from "./backup-compare.js";
+import { buildProductionOpsAudit } from "./ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleFilterPagingAuditPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -317,3 +333,10 @@ async function handleDeployRunbookPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>배포 런북</title><style>${finalReleaseBaseStyle()}</style></head><body>${renderUnifiedNav("deploy-runbook")}<main class="wrap"><section class="hero"><h1>실제 배포 런북</h1><p>운영 서버에 최종본을 적용하고 운영 확인까지 진행하는 순서입니다.</p><p>버전: <b>${FINAL_RELEASE_VERSION}</b></p></section><section class="card"><h2>1. 배포 전</h2><ol><li>현재 Worker 코드와 Supabase 데이터를 각각 백업합니다.</li><li><code>schema_v22_6_8_operations_integrity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_7_0_auth_atomicity.sql</code> 적용 여부를 확인합니다.</li><li><code>schema_v22_8_0_asset_dashboard_complete.sql</code>을 Worker보다 먼저 적용합니다.</li><li>SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ADMIN_SESSION_SECRET, USER_SESSION_SECRET, ADMIN_API_TOKEN, MY_IMPORT_TOKEN_SECRET를 설정합니다.</li><li>DB 관리자 비밀번호가 아직 없을 때만 ADMIN_PASSWORD를 초기 설정용으로 유지합니다.</li></ol></section><section class="card"><h2>2. 배포</h2><ol><li>ZIP 압축 해제</li><li>V22.8.0 자산 마이그레이션 적용 결과 확인</li><li><code>src/index.js</code>를 Worker에 반영</li><li>저장 후 배포</li></ol></section><section class="card"><h2>3. 배포 후 확인</h2><div class="routeGrid">${renderFinalRouteLinks(["/health","/ready","/final-release","/ops-audit","/diagnostics","/menu","/app","/?legacy=1&tab=transactions","/smart-tools","/reports","/settlement-summary","/payment-methods","/backup"])}</div></section><section class="card"><h2>4. 운영 원칙</h2><p class="warnBox">백업/가져오기/되돌리기 기능은 실제 데이터에 영향을 줄 수 있으므로 항상 JSON 백업 후 진행하세요. 자산에는 계좌·카드 번호 전체, 비밀번호, 인증번호를 입력하지 말고 별칭만 사용하세요. 소비 카드/밈과 카드 실적/혜택은 완성도 검증 전까지 메뉴와 직접 URL에서 숨긴 상태를 유지하세요.</p></section></main></body></html>`);
 }
+// @build:exports-start
+export {
+  handleDeployRunbookPage, handleFeatureMapPage, handleFilterPagingAuditPage,
+  handleFinalReleasePage, handleOperationCenterPage, handleUiAuditPage, handleUserReadyCheckPage,
+  handleUserReleaseCheckPage,
+};
+// @build:exports-end

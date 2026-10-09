@@ -1,3 +1,47 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import {
+  safeError, withHouseholdDatabaseLease, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  MAX_TRANSACTION_AMOUNT, normalizeTransactionType, readOptionalFormAmount,
+} from "../admin/transactions-households.js";
+import {
+  categoryKeywordKey, fetchCategoryKeywordMap, fetchCustomCategories, normalizeCategoryKeywords,
+  saveCategoryKeywordMap, setCategoryKeywords,
+} from "../settings/categories-keywords.js";
+import { fetchAdminRows } from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  categorySpentMap, defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows,
+  incomeBudgetRows, keywordEditorLocation, mySettingsLocation, recurringSummary, sumBudgetAmounts,
+} from "./groups-budget-bulk.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import {
+  budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurring, fetchRecurringRuleByIdStrict,
+  fetchRecurringStrict,
+} from "../domain/budgets.js";
+import { normalizeRecurringKey } from "../admin/pc-analysis-calendar.js";
+import { moneyPlanTabsCss, renderMoneyPlanTabs } from "./money-plan-home-layout.js";
+import {
+  normalizeRecurringDay, renderRecurringEditForm,
+} from "../admin/budget-center-recurring.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { supabase } from "../data/supabase-client.js";
+import { parseAmountValue } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleMySettingsPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -279,3 +323,10 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
 })();
 </script></body></html>`;
 }
+// @build:exports-start
+export {
+  handleMyBudgetSave, handleMyCategoryKeywordsBulkSave, handleMyCategoryKeywordsSave,
+  handleMyRecurringDelete, handleMyRecurringSave, handleMySettingsPage,
+  handleRecurringCandidateConfirm,
+};
+// @build:exports-end

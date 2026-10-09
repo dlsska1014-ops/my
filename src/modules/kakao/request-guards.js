@@ -1,3 +1,33 @@
+// @build:imports-start
+import {
+  AB_KAKAO_INFLIGHT, AB_KAKAO_REPEAT_GUARD, boundedRuntimeNumber, pruneTimestampMap,
+} from "../runtime/ops-telemetry.js";
+import { incompleteFeatureQaEnabled } from "../public/site-config.js";
+import { jsonResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
+import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js";
+import { kakaoText } from "./response-builders.js";
+import {
+  hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+} from "./edit-session-v4.js";
+import {
+  isKakaoFlowCancelCommand, isKakaoGuidedCommand, isKakaoStartCommand,
+} from "./guided-flow-state.js";
+import {
+  isKakaoReservedCreateFlowReply, parseKakaoSummaryRange,
+} from "./household-budget-commands.js";
+import { getKakaoBotGroupKey } from "./group-links-first-record.js";
+import { getKakaoUserKey, stableShortHash } from "./identity-chat-first.js";
+import {
+  isBudgetCommand, isEditGuideSimpleCommand, isGroupLinkInfoCommand, isHelpCommand,
+  isInputExampleCommand, isInviteCommand, isLinkCommand, isRecentCommand, isSettlementCommand,
+  isSummaryCommand, isUndoCommand, parseGroupBindCommand,
+} from "./simple-commands.js";
+import { extractLeadingDateHint } from "../nlu/transaction-parser.js";
+import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 function stripKakaoBotMention(text = "") {
   let t = String(text || "").trim();
@@ -160,3 +190,10 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 }
+// @build:exports-start
+export {
+  armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
+  normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention, stripLeadingCommand,
+};
+// @build:exports-end

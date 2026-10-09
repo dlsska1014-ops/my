@@ -1,3 +1,9 @@
+// @build:imports-start
+import { AB_OPERATION_MUTEXES } from "./global-state.js";
+import { boundedRuntimeNumber, rememberOpsEvent } from "./ops-telemetry.js";
+import { randomHex } from "../auth/crypto-admin-session.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 function safeError(err) {
   if (!err) return "unknown";
@@ -164,3 +170,11 @@ function withHouseholdSettingsRmw(env, householdId = "", task, options = {}) {
 function withGlobalIdentitySettingsRmw(env, task) {
   return withSettingsRmwLease(env, "settings-rmw:user_identity_links", task);
 }
+// @build:exports-start
+export {
+  assertSettingsLeaseFresh, claimOperationLease, isUniqueConstraintError, logWorkerError,
+  operationLeaseOwner, parseStrictSettingsArray, parseStrictSettingsObject, releaseOperationLease,
+  safeError, settingsDataError, withGlobalIdentitySettingsRmw, withHouseholdDatabaseLease,
+  withHouseholdSettingsRmw, withOperationMutex, withSettingsRmwLease,
+};
+// @build:exports-end

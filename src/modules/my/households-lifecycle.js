@@ -1,3 +1,62 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import {
+  parseStrictSettingsObject, safeError, settingsDataError, withHouseholdDatabaseLease,
+  withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
+import {
+  categoryKeywordsSettingsKey, categorySettingsKey,
+} from "../settings/categories-keywords.js";
+import { assetHistoryKey, paymentAssetsKey } from "../settings/payment-assets.js";
+import { reservePlansKey } from "../settings/reserve-plans.js";
+import { returnLocation, safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
+import {
+  fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, memberAliasSettingsKey,
+} from "../data/households-members-rows.js";
+import { safeObject } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { settlementHistoryKey } from "../features/settlement-ops-pages.js";
+import { stripMergedMarkerSuffix, verifyUserSession } from "../auth/user-session.js";
+import {
+  clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
+  verifyHouseholdDeleteReauth, verifyPasswordReauth,
+} from "../auth/identity-reauth.js";
+import { handleMyLogout } from "../auth/kakao-oauth.js";
+import {
+  createUserHousehold, fetchUserById, fetchUserHouseholds, withHouseholdCreateLock,
+  withKakaoUserLifecycleLease,
+} from "../data/users-household-create.js";
+import { reportChallengeSettingsKey } from "./report-challenge.js";
+import { freeReportPreferenceKey } from "./reports-premium.js";
+import {
+  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { transactionEditHistoryKey } from "./transactions.js";
+import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import {
+  clearKakaoSelectedHousehold, findExistingKakaoHouseholdByNameV2254, getKakaoSelectedHouseholdId,
+  sanitizeWebHouseholdNameInput,
+} from "../kakao/household-budget-commands.js";
+import { goalsKey } from "../api/user-api.js";
+import {
+  fetchLegacyKakaoGroupLinkMap, markKakaoGroupDeparture, markKakaoGroupRetired,
+  normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, removeKakaoGroupLinksForHousehold,
+  withKakaoGroupLifecycleLease,
+} from "../kakao/group-links-first-record.js";
+import {
+  markKakaoChatFirstHistory, parseKakaoChatFirstMarker,
+} from "../kakao/identity-chat-first.js";
+import { getHouseholdMemberRole, joinHouseholdByCode } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function householdTemplatePreset(key = "") {
   const presets = {
@@ -473,3 +532,10 @@ async function handleMyPage(request, env, url) {
   if (!user) return handleMyLogout();
   return htmlResponse(renderMyStartChoiceHtml({ env, user, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
+// @build:exports-start
+export {
+  handleMyCreate, handleMyHouseholdDelete, handleMyHouseholdLeave, handleMyHouseholdUpdate,
+  handleMyHouseholdsPage, handleMyJoin, handleMyPage, householdJoinFeedback, householdPageMessage,
+  purgeHouseholdData, removeMemberAlias,
+};
+// @build:exports-end

@@ -1,3 +1,26 @@
+// @build:imports-start
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { canWriteMyHousehold } from "../my/access-control.js";
+import { kakaoText } from "./response-builders.js";
+import {
+  clearKakaoEditUndoV4, dailySeqForKakaoRow, deleteKakaoRowById, findDailyKakaoRowBySeq,
+  getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
+  isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
+  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditConversationScope,
+  kakaoEditGuideText, kakaoEditMenuTextV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
+  saveKakaoEditSessionV4, saveKakaoEditUndoV4, takeKakaoEditUndoV4, twoDigitSeq,
+} from "./edit-session-v4.js";
+import { MAX_FAILS, compact, handleEditMessage, josa } from "./edit-state-machine.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { extractDate, formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { updateTransaction } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // =====================================================================
 // V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
@@ -342,3 +365,6 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   return null;
 }
+// @build:exports-start
+export { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 };
+// @build:exports-end

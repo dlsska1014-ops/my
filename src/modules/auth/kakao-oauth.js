@@ -1,3 +1,28 @@
+// @build:imports-start
+import { kakaoClientSecret, kakaoRestApiKey } from "../runtime/global-state.js";
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { logWorkerError, safeError } from "../runtime/leases.js";
+import {
+  constantTimeTextEqual, getCookie, htmlResponse, htmlResponseWithCookies, redirectResponse,
+  redirectResponseWithCookies,
+} from "../runtime/http.js";
+import { recordAuthAttempt } from "./crypto-admin-session.js";
+import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
+import {
+  getKakaoRedirectUri, inspectKakaoLoginConfig, makeUserSession, randomState, verifyUserSession,
+} from "./user-session.js";
+import {
+  ensureKakaoLoginUser, hasKakaoLoginIdentity, householdDeleteReauthCookieName,
+  isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser, linkKakaoLoginToUser,
+  makeCredentialProof, makeHouseholdDeleteReauthToken, readPurposeToken, signedPurposeToken,
+  verifyCredentialProof,
+} from "./identity-reauth.js";
+import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
+import { addQueryToUrl } from "./local-login-pages.js";
+import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 async function handleKakaoLoginStart(request, env, url) {
   const reauthPurpose = ["household-delete", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
@@ -237,3 +262,6 @@ function handleMyLogout() {
     "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
   });
 }
+// @build:exports-start
+export { handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout };
+// @build:exports-end

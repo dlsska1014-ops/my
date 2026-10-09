@@ -1,3 +1,17 @@
+// @build:imports-start
+import { parseStrictSettingsObject, withHouseholdSettingsRmw } from "../runtime/leases.js";
+import { randomEntityId } from "../auth/crypto-admin-session.js";
+import { CATEGORY_KEYWORD_GUIDE, keywordGuideForCategory } from "../admin/category-guide-pages.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { defaultExpenseBudgetNames } from "../my/groups-budget-bulk.js";
+import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
+import { mergedOptions } from "../kakao/reply-texts.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function categorySettingsKey(householdId = "") {
   return `custom_categories:${String(householdId || "default").trim() || "default"}`;
@@ -337,3 +351,12 @@ async function fetchCustomCategories(env, householdId = "") {
     return [...attached, ...defaultCategoryKeywordRows(keywordMap, householdId)];
   }
 }
+// @build:exports-start
+export {
+  addSettingsCategory, attachCategoryKeywords, categoryKeywordDisplayRows, categoryKeywordKey,
+  categoryKeywordsSettingsKey, categorySettingsKey, defaultCategoryKeywordRows,
+  deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories, keywordEditorCss,
+  normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor,
+  saveCategoryKeywordMap, setCategoryKeywords,
+};
+// @build:exports-end

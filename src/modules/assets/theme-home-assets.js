@@ -1,3 +1,20 @@
+// @build:imports-start
+import {
+  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickInputDate,
+  transactionTypeFromText,
+} from "../client/shared-input-parsers.js";
+import {
+  UIUX_RUNTIME_STYLE, V2281_GUIDED_UIUX_STYLE, V2284_UI_REVALIDATION_STYLE, V2285_LOGIN_STYLE,
+  V2285_MENU_STYLE, guidedUiUxClientMain, mobileShellUiClientMain, v2284UiStyleFor,
+} from "../client/legacy-ui-runtime.js";
+import { budgetSummary } from "../domain/budgets.js";
+import { MOBILE_V81_CSS } from "./mobile-v81-css.js";
+import {
+  AB_ACCOUNTBOOK_THEME_JS_CACHE, AB_MOBILE_HOME_CSS_CACHE, AB_MOBILE_HOME_JS_CACHE,
+} from "./asset-registry.js";
+import { renderMobileV81Html } from "../my/mobile-home.js";
+import { calculateStats } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function accountbookThemeClientMain() {
   var root = document.documentElement;
@@ -206,3 +223,6 @@ function mobileHomeJsAsset() {
   }
   return AB_MOBILE_HOME_JS_CACHE;
 }
+// @build:exports-start
+export { abUiuxCssAsset, accountbookThemeJsAsset, mobileHomeCssAsset, mobileHomeJsAsset };
+// @build:exports-end

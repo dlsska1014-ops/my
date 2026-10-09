@@ -1,3 +1,16 @@
+// @build:imports-start
+import { parseStrictSettingsObject, withHouseholdSettingsRmw } from "../runtime/leases.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserHouseholds, supabaseWithEmbedFallback } from "./users-household-create.js";
+import { canReadMyHousehold } from "../my/access-control.js";
+import { memberCanBeSpender } from "../my/transactions.js";
+import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
+import { supabase } from "./supabase-client.js";
+import { escapeHtml, nextMonthStart } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function fetchAdminHouseholds(env) {
   return (await supabase(env, "/rest/v1/households?select=id,name,invite_code,created_at&order=created_at.asc", { method: "GET" })) || [];
@@ -322,3 +335,13 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   const rowLimit = Math.max(100, Math.min(Number(limit || 6000), 100000));
   return fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`, { limit: rowLimit, maxRows: rowLimit });
 }
+// @build:exports-start
+export {
+  attachSpenderNames, bestRoleFromRows, countHouseholdTransactions, fetchAdminHouseholds,
+  fetchAdminRows, fetchAdminRowsRange, fetchAllHouseholdMembersMap, fetchHouseholdMembers,
+  fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds, getScopedHouseholdsForPage,
+  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist,
+  renderSpenderOptions, roleRank, saveMemberAlias, selectRequestedScopedHousehold,
+  selectScopedHousehold, supabaseExactCount,
+};
+// @build:exports-end

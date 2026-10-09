@@ -1,0 +1,33 @@
+# V22.9.32 모듈 소스 적용 안내
+
+이 문서는 `V22.9.32-MODULAR-SOURCE` 적용 준비본입니다. 기준 운영은 V22.9.31입니다(버전 `e0442e83-3179-491f-aed4-d4c8eaf1f2a0`, 배포 `dd301015-b04a-43d4-842a-ffc241e01387`, 소스 SHA-256 `bbcd1756a622e4892c2811644c503fb28f2091aac19cbf89f0261daeac6d4c15`, `docs/deployments/V22_9_31_2026_10_08.md`). 새 동결 `src/index.js`는 **3,151,305 bytes**, SHA-256 `a361b2f6e87cddd2b283ce9fadf8ac8ee0b3622057d41c8191e3d1b05105fcb7`입니다.
+
+## 변경 결과
+
+- 기능·라우트·API·카카오 응답·DB 접근·쿠키·헤더는 바뀌지 않습니다. V22.9.31 대비 최상위 문장 1,610개 중 1,609개가 구문 트리까지 같고 `APP_VERSION`만 바뀝니다.
+- 바이트 변화는 세 곳입니다. 머리 주석의 생성 파일 안내 한 줄, `AB_HISTORICAL_RUNTIME_ASSETS`의 항목별 줄바꿈(값과 내려가는 자산 바이트는 같음), 판 번호입니다. 불변 자산 주소와 해시는 모두 그대로입니다.
+- 소스는 `src/modules/`의 모듈 108개와 연결 순서 `MANIFEST.txt`입니다. 모듈을 고친 뒤 `npm run build:worker`를 실행하면 import/export 표시와 `src/index.js`가 함께 갱신됩니다. 하네스는 두 가지가 어긋나면 실패합니다.
+
+## 현재 운영 기준
+
+V22.9.31이 100% 배포돼 있습니다. 그 직전에 Secret 갱신으로 생긴 버전이 있었고, V22.9.31은 그 최신 버전의 바인딩을 이어받았습니다. 배포 스크립트는 업로드하는 순간 **100% 배포 중인 버전**의 바인딩 전부를 그 버전 ID에 고정한 `inherit`로 넘깁니다. 그래서 그사이 바뀐 Secret도 그대로 이어받고 값은 읽지 않습니다.
+
+## 적용 순서 (배포 스크립트의 첫 실제 사용)
+
+1. PR #56 → #57 → 이 판의 PR 순서로 main에 병합합니다. 깨끗한 main checkout에서 `VERSION.txt`와 위 SHA-256을 확인하고 `npm test`(전체 하네스)를 통과시킵니다.
+2. `node tools/deploy-worker-version.mjs --dry-run`으로 네트워크 없이 로컬 해시·커밋·요청 순서를 확인합니다.
+3. 사용자가 Cloudflare API 토큰을 만듭니다(Workers Scripts Write, 이 계정만, 만료일 지정). `CLOUDFLARE_API_TOKEN`과 `CLOUDFLARE_ACCOUNT_ID=58e7954ad3d92f0d39a7492ad4689165`는 환경변수로만 넘기고, 저장소·기록·대화에 남기지 않습니다.
+4. `node tools/deploy-worker-version.mjs`를 실행합니다. 이 단계는 버전만 저장하고 배포하지 않습니다. 출력과 `output/deploy/V22.9.32-MODULAR-SOURCE/upload-<버전ID>.json`에서 바인딩 30개·`script_runtime`·handlers의 깊은 비교 결과와 시작 시간을 확인합니다. 차이가 하나라도 있으면 승격하지 않습니다.
+5. 승인 후 `node tools/deploy-worker-version.mjs --promote <버전ID> --legacy-origin https://ttokttok-accountbook.com`을 실행합니다. 스크립트는 같은 업로드 기록·HEAD·etag를 확인하고 다시 대조한 뒤 100%로 배포합니다. 이어서 현재 배포, `content/v2` 소스 해시(`a361b2f6…`), `/health`의 V22.9.32, 공개 검사를 확인합니다.
+6. 문제가 있으면 승인 후 `node tools/deploy-worker-version.mjs --rollback <이전 버전ID>`로 되돌립니다. 스크립트가 이전 버전 ID를 출력하며, 지금 기준으로는 `e0442e83-3179-491f-aed4-d4c8eaf1f2a0`입니다. 스크립트는 스스로 되돌리거나 다시 배포하지 않습니다.
+7. 결과는 `docs/deployments/V22_9_32_<날짜>.md`에 기록합니다. Git push는 운영 배포로 간주하지 않습니다.
+
+저장소에서는 가짜 API로만 검증했으므로, 첫 실제 실행에서 다음 세 가지를 확인합니다. `content/v2`의 응답 형식(공식 문서에 없음), inherit로 올린 버전을 조회할 때 바인딩이 실제 값으로 풀려 나오는지, 서버 etag와 소스 SHA-256의 관계입니다. 어긋나면 스크립트는 성공으로 세지 않고 멈춥니다. 그때는 기존 대시보드 절차(버전 저장 → 저장 소스·바인딩·런타임 대조 → 승격)로 돌아갑니다.
+
+신규 SQL·테이블·컬럼·인덱스·RLS·ACL·환경변수·Secrets·바인딩·Cron·도메인·관제·Kakao Developers·OpenBuilder·요금제 변경은 없습니다. 이 저장소 작업에서는 SQL·운영 배포·실제 Cloudflare API 호출·외부 콘솔 편집을 실행하지 않았습니다.
+
+## 자동 검증과 수동 확인
+
+자동 검증 결과는 `VERIFICATION_V22_9_32.md`에 있습니다. 빌드 동일성 19개, 모듈 문법·표시 117개, 클라이언트 직렬화 38개, 초기화 순서 13개, 배포 스크립트 178개와 전체 하네스, SQLite 45개를 확인했습니다.
+
+배포 뒤에는 기존과 같이 `/health`·`/ready`·불변 자산과 실제 카카오·웹 동작을 확인합니다. 기능 변화가 없는 판이라 실제 금융 쓰기 검증은 필요하지 않습니다. 실제 카카오·OAuth·실기기는 이전 판과 같은 수동 확인 대상으로 남습니다.

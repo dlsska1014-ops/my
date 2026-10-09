@@ -1,3 +1,20 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { constantTimeTextEqual, jsonResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  MAX_TRANSACTION_AMOUNT, fetchTransactionRowById, fetchTransactionRowsByIds,
+  isValidTransactionDateString,
+} from "../admin/transactions-households.js";
+import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { activeSpenderExists } from "../my/transactions.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import {
+  bulkTransactionsAtomic, createManualTransaction, deleteTransactionWithAudit, getCalendar,
+  getStats, listTransactions, numberWithCommas, updateTransaction,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
@@ -158,3 +175,6 @@ async function readJson(request) {
     return {};
   }
 }
+// @build:exports-start
+export { handleApi, readJson };
+// @build:exports-end

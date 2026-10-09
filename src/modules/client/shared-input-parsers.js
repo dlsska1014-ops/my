@@ -140,3 +140,9 @@ function quickSmartInputController(config) {
   form?.addEventListener("submit",event=>{if(invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();preview();}});
   return {apply,preview};
 }
+// @build:exports-start
+export {
+  explicitDateIntent, moneyTokenSpans, quickInputDate, quickSmartInputController,
+  transactionTypeFromText,
+};
+// @build:exports-end

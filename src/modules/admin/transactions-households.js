@@ -1,3 +1,44 @@
+// @build:imports-start
+import { boundedRuntimeNumber, rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { HTML_HEADERS } from "../runtime/config-readiness.js";
+import { appName } from "../public/site-config.js";
+import { explicitDateIntent } from "../client/shared-input-parsers.js";
+import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  checkAdminPassword, makeAdminSession, recordAuthAttempt, safeAdminReturnPath, trafficClientIp,
+  verifyAdminSession,
+} from "../auth/crypto-admin-session.js";
+import { resolveManualInputClassification } from "../settings/payment-assets.js";
+import { returnLocation, safeUserReturnPath } from "./bulk-and-return-paths.js";
+import {
+  bestRoleFromRows, fetchAdminRows, fetchHouseholdMembers, saveMemberAlias,
+} from "../data/households-members-rows.js";
+import { renderServerDashboardHtml, renderServerLoginHtml } from "./dashboard-page.js";
+import { safeArray } from "./backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import {
+  fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
+} from "../data/users-household-create.js";
+import { canWriteMyHousehold } from "../my/access-control.js";
+import { activeSpenderExists } from "../my/transactions.js";
+import { purgeHouseholdData } from "../my/households-lifecycle.js";
+import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
+import { renderV8TxEditForm } from "../my/home-sections.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
+import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import {
+  currentMonthKst, extractDate, formatDate, nowKstDate, validMonth,
+} from "../nlu/date-payment.js";
+import {
+  createManualTransaction, deleteTransactionWithAudit, escapeHtml, makeInviteCode, numberWithCommas,
+  updateTransaction,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleAdminLogin(request, env) {
   const form = await request.formData();
@@ -534,3 +575,14 @@ async function handleAdminMemberNickname(request, env) {
   await saveMemberAlias(env, householdId, userId, nickname);
   return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_alias_updated" }));
 }
+// @build:exports-start
+export {
+  MAX_TRANSACTION_AMOUNT, dashboardQuery, fetchTransactionRowById, fetchTransactionRowsByIds,
+  handleAdminAddTransaction, handleAdminDeleteTransaction, handleAdminHouseholdCreate,
+  handleAdminHouseholdDelete, handleAdminHouseholdRegenerate, handleAdminHouseholdUpdate,
+  handleAdminLogin, handleAdminLogout, handleAdminMemberNickname, handleAdminMemberRemove,
+  handleAdminMemberUpdate, handleAdminPage, handleAdminUpdateTransaction, handleTransactionEditPage,
+  isValidTransactionDateString, normalizeTransactionType, parseFormAmountValue,
+  readOptionalFormAmount, resolveTransactionAccess, transactionReturnFallback,
+};
+// @build:exports-end

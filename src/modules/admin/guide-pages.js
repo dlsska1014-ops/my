@@ -1,3 +1,23 @@
+// @build:imports-start
+import { APP_VERSION, appName, publicBaseUrl } from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
+import { fetchAdminHouseholds, fetchAdminRows } from "../data/households-members-rows.js";
+import { userHouseholdRoleLabel } from "./ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { inspectKakaoLoginConfig, verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
+import {
+  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "../my/access-control.js";
+import { fetchBudgets } from "../domain/budgets.js";
+import { fetchKakaoGroupLinkMap } from "../kakao/group-links-first-record.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleUiPolishCheckPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -397,3 +417,13 @@ async function handleMemeCardContentPage(request, env, url) {
   ].map(x=>`<li>${escapeHtml(x)}</li>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 밈 카드 콘텐츠</title><style>${userPolishBaseStyle()}.policy{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.policy li{margin:6px 0}.badge{display:inline-flex;background:#dcfce7;color:#166534;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:1000}.tableWrap table{min-width:760px}</style></head><body>${renderUnifiedNav("meme-card-content")}<main class="wrap"><section class="hero"><span class="tag">밈 카드 콘텐츠</span><h1>Nano Banana 2용 안전한 피식 밈 기준</h1><p>병맛은 살짝만, 문구는 전체이용가로, 카카오 심사에서 걸릴 수 있는 단어 없이 표정과 상황으로 웃기는 방향입니다.</p>${userPolishNav()}</section><section class="card"><h2>우선 제작 카드 4종</h2><div class="tableWrap"><table><thead><tr><th>#</th><th>문구</th><th>캐릭터</th><th>짧은 움직임 아이디어</th><th>등급</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>콘텐츠 안전 규칙</h2><ul class="policy">${rules}</ul></section><section class="card"><h2>앱 반영 기준</h2><p><span class="badge">추천</span> 밈 이미지는 먼저 /meme-lab에서 검수하고, 공개/숨김 상태를 둔 뒤 /meme-archive와 공유 화면에 노출합니다. 자동 재생 GIF/WebP는 용량을 작게 유지하고, 정지 이미지 대체본도 같이 보관합니다.</p></section></main></body></html>`);
 }
+// @build:exports-start
+export {
+  handleBackupSafetyGuidePage, handleBetaChecklistPage, handleBetaStartPage,
+  handleDeploymentCheckPage, handleHouseholdFlowGuidePage, handleKakaoGroupFlowPage,
+  handleKakaoGroupLinksPage, handleKakaoLoginRecoveryGuidePage, handleMemeCardContentPage,
+  handleMenuPolishGuidePage, handleMobileFirstFlowGuidePage, handleOpenBuilderFinalUtterancePage,
+  handleQuickInputHelpPage, handleQuickInputQaPage, handleRealUserQaPage, handleReviewReadyPage,
+  handleUiPolishCheckPage, handleUserPolishFinalPage, userPolishBaseStyle,
+};
+// @build:exports-end

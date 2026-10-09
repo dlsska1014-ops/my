@@ -1,3 +1,22 @@
+// @build:imports-start
+import {
+  duplicateGuardSeconds, isDuplicateGuardSource, rememberDuplicateEvent, rememberOpsEvent,
+} from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease,
+} from "../runtime/leases.js";
+import { jsonResponse } from "../runtime/http.js";
+import { sha256Hex } from "../auth/crypto-admin-session.js";
+import { fetchTransactionRowById } from "../admin/transactions-households.js";
+import { fetchPostgrestRows } from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { findExactDuplicateTransaction } from "../import/csv-duplicates.js";
+import { isMissingCategory } from "../kakao/reply-texts.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { inferCategory } from "../nlu/category-rules.js";
+// @build:imports-end
 
 function numberWithCommas(n) {
   return Number(n || 0).toLocaleString("ko-KR");
@@ -330,3 +349,11 @@ function jsonForInlineScript(value) {
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
+// @build:exports-start
+export {
+  bulkTransactionsAtomic, calculateStats, calendarDaysFromRows, createManualTransaction,
+  deleteTransactionWithAudit, escapeHtml, formatRecentTransactions, formatSummary, getCalendar,
+  getMonthSummary, getStats, helpText, jsonForInlineScript, linkText, listTransactions,
+  makeInviteCode, nextMonthStart, numberWithCommas, updateTransaction,
+};
+// @build:exports-end

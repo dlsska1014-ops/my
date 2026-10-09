@@ -131,3 +131,6 @@ html[data-ab-resolved-theme="dark"] .filterAdvanced summary{color:var(--ab12-mut
 @media(max-width:640px){.topLine{align-items:flex-start}.topLine h1,.topLine b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.selectLine{grid-template-columns:1fr!important}.filterAdvancedGrid{grid-template-columns:1fr}.wrap{padding:12px 10px 42px!important}.panel{overflow:hidden}.topActions a{padding:0 9px;font-size:12px}}
 @media(max-width:360px){.topActions{gap:4px}.topActions a{padding:0 7px}.filterQuick{grid-template-columns:1fr}}
 `;
+// @build:exports-start
+export { MOBILE_V81_CSS };
+// @build:exports-end

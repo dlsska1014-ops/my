@@ -1,3 +1,18 @@
+// @build:imports-start
+import { normalizePaymentAssetList, paymentAssetsKey } from "../settings/payment-assets.js";
+import { normalizeReservePlanList, reservePlansKey } from "../settings/reserve-plans.js";
+import {
+  fetchAdminRows, memberAliasSettingsKey, normalizeMemberAliasMap,
+} from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { isIncomeBudgetCategory } from "../my/groups-budget-bulk.js";
+import { reportChallengeSettingsKey } from "../my/report-challenge.js";
+import { parseJsonSetting } from "../my/reports-premium.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst } from "../nlu/date-payment.js";
+import { calculateStats, escapeHtml, numberWithCommas } from "./transactions-core.js";
+// @build:imports-end
 
 async function optionalSupabase(env, path, init = {}, fallback = []) {
   try {
@@ -322,3 +337,11 @@ async function kakaoBudgetFeedback(env, householdId, month, category) {
     return "";
   }
 }
+// @build:exports-start
+export {
+  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetStageInfo, budgetStatusLabel,
+  budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchRecurring,
+  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusText, optionalSupabase,
+  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
+};
+// @build:exports-end

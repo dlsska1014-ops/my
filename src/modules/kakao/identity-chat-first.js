@@ -1,3 +1,29 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  parseStrictSettingsObject, safeError, settingsDataError, withGlobalIdentitySettingsRmw,
+  withSettingsRmwLease,
+} from "../runtime/leases.js";
+import { kakaoSkillSecretMatches, sha256Hex } from "../auth/crypto-admin-session.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { kakaoLoginUserKey, resolveEffectiveUserId } from "../auth/user-session.js";
+import { fetchUserIdentityLinks, saveUserIdentityLinks } from "../auth/identity-reauth.js";
+import {
+  createUserHousehold, ensureOwnerMembership, fetchUserById, fetchUserHouseholds,
+  withKakaoUserLifecycleLease,
+} from "../data/users-household-create.js";
+import { saveSettingValue } from "../my/reports-premium.js";
+import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
+import { kakaoText } from "./response-builders.js";
+import {
+  getHouseholdById, getKakaoSelectedHouseholdId, setKakaoSelectedHousehold,
+} from "./household-budget-commands.js";
+import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
+import { getKakaoBotGroupKey } from "./group-links-first-record.js";
+import { ensureUser } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 function eligibleKakaoUserId(payload = {}) {
   const user = safeObject(payload?.userRequest?.user || payload?.user || {});
@@ -263,3 +289,11 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
       : "개인 가계부 준비를 완료하지 못했어요. 이 요청의 기록은 저장하지 않았어요. 잠시 후 같은 내용을 다시 보내 주세요.");
   }
 }
+// @build:exports-start
+export {
+  getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
+  markKakaoChatFirstHistory, parseKakaoChatFirstMarker, persistIdentityAliases,
+  resolveLinkedIdentityUser, seedKakaoChatFirstUser, stableShortHash, trustedChatFirstSkillCaller,
+  tryKakaoChatFirstRecord,
+};
+// @build:exports-end

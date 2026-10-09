@@ -1,3 +1,19 @@
+// @build:imports-start
+import {
+  AB_EFFECTIVE_USER_CACHE, AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_USER_CACHE, kakaoClientSecret,
+  kakaoRestApiKey,
+} from "../runtime/global-state.js";
+import { pruneExpiringMap, rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { envFlagEnabled, normalizeBaseUrl } from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { constantTimeTextEqual, getCookie, redirectResponse } from "../runtime/http.js";
+import { hmacSha256, requiredSecret } from "./crypto-admin-session.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeObject } from "../admin/backup-compare.js";
+import { fetchUserById, supabaseWithEmbedFallback } from "../data/users-household-create.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 function userSessionSecret(env) {
   return requiredSecret(env, "USER_SESSION_SECRET");
@@ -350,3 +366,11 @@ function kakaoLoginAvailable(env = {}) {
 function kakaoLoginUserKey(kakaoId = "") {
   return `kakao_login:${String(kakaoId || "").trim()}`;
 }
+// @build:exports-start
+export {
+  getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
+  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedUserSessionRecoveryResponse,
+  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
+  stripMergedMarkerSuffix, userSessionSecret, verifyUserSession,
+};
+// @build:exports-end

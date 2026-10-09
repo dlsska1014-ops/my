@@ -1,3 +1,34 @@
+// @build:imports-start
+import { APP_VERSION, appName } from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { handleMyLogout } from "../auth/kakao-oauth.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  buildReportChallengeForHousehold, buildReportDashboardSummary, getMyPageContext,
+  renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
+  reportChallengeSettingsKey, reportUxCss,
+} from "./report-challenge.js";
+import { budgetExpenseRows, insightClientMain } from "../client/insight-main.js";
+import { computeFairMoM, renderMyAnalysisHtml } from "./analysis-page.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { budgetSummary, fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import {
+  buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
+} from "../admin/pc-analysis-calendar.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { addMonthsYm, calculateExtendedAnalytics } from "../domain/analytics.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, nextMonthStart } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleMyAnalysisPage(request, env, url) {
   const ctx = await getMyPageContext(request, env, url);
@@ -257,3 +288,6 @@ ${renderReportChallenge(challenge, { householdId: selected.id, canManage: canMan
 <script src="/my/analysis/app.js?v=${encodeURIComponent(APP_VERSION)}" onerror="(function(){var e=document.getElementById('insightLoadErr');if(e)e.hidden=false;})()"></script>
 </body></html>`;
 }
+// @build:exports-start
+export { handleMyAnalysisPage, handleMyInsightPage, insightAppJsResponse };
+// @build:exports-end

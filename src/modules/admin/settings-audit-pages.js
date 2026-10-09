@@ -1,3 +1,22 @@
+// @build:imports-start
+import { READINESS_RPC_PROBE_BODIES } from "../runtime/config-readiness.js";
+import { appName } from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  PASSWORD_KDF_ITERATIONS, checkAdminPassword, getAdminSecurityState, makeAdminSession,
+  newPasswordSalt, pbkdf2PasswordHash, verifyAdminSession,
+} from "../auth/crypto-admin-session.js";
+import { dashboardQuery } from "./transactions-households.js";
+import { fetchAdminHouseholds } from "../data/households-members-rows.js";
+import { renderServerLoginHtml } from "./dashboard-page.js";
+import { safeNavHouseholdId } from "./ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function checkTableAvailable(env, table) {
   try {
@@ -167,3 +186,10 @@ async function handleRecordFlowAuditPage(request, env, url) {
   const body = rows.map(([name, route, method, check]) => `<tr><td><b>${escapeHtml(name)}</b></td><td><code>${escapeHtml(route)}</code></td><td>${escapeHtml(method)}</td><td>${escapeHtml(check)}</td><td><span class="ok">점검대상</span></td></tr>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 흐름 점검</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:14px 0}.note{color:#64748b;line-height:1.6}table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;font-size:14px}code{background:#f1f5f9;border-radius:8px;padding:3px 7px}.ok{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 9px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900;padding:0 12px}</style></head><body>${renderUnifiedNav("flow-audit")}<main class="wrap"><section class="hero"><h1>기록 흐름 점검</h1><p class="note">입력·수정·삭제·일괄변경의 저장 경로와 검증 기준입니다. 실제 DB 변경은 하지 않는 점검 화면입니다.</p><p><a class="btn" href="/?legacy=1&tab=transactions">기록 관리로 이동</a></p></section><table><thead><tr><th>흐름</th><th>경로</th><th>방식</th><th>검증</th><th>상태</th></tr></thead><tbody>${body}</tbody></table></main></body></html>`);
 }
+// @build:exports-start
+export {
+  checkRpcAvailable, checkTableAvailable, getSettingValue, getSettingValueStrict,
+  handleRecordFlowAuditPage, handleRouteAuditPage, handleSettingsPage, handleSettingsPasswordUpdate,
+  handleTopTabAuditPage, tableCheckPair,
+};
+// @build:exports-end

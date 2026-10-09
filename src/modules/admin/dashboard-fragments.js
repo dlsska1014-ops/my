@@ -1,3 +1,10 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { dashboardQuery } from "./transactions-households.js";
+import { renderSpenderOptions } from "../data/households-members-rows.js";
+import { formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderPublicShareCardHtml(url, env) {
   const p = url.searchParams;
@@ -115,3 +122,11 @@ function renderDesktopTransactionTable(rows, filterHidden = "") {
 
 const DEFAULT_CATEGORIES = ["식비","외식","배달","카페/간식","장보기","편의점","교통","택시","주유/충전","차량관리","쇼핑","의류/잡화","생활용품","주거/월세","관리비","공과금","통신비","보험","의료/병원","약국","건강","교육/학습","도서","육아/자녀","문화/여가","여행","운동","구독","경조사/선물","반려동물","미용","세금/수수료","가족/용돈","저축/투자","대출/이자","급여","상여/보너스","용돈수입","환급","이자배당","부업/매출","기타"];
 const DEFAULT_PAYMENTS = ["카드","신용카드","체크카드","현금","계좌이체","자동이체","삼성페이","카카오페이","네이버페이","토스","신한카드","현대카드","삼성카드","국민카드","우리카드","롯데카드","하나카드","농협카드"];
+// @build:exports-start
+export {
+  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, renderCustomStats,
+  renderDesktopTransactionTable, renderInsightCards, renderPublicShareCardHtml,
+  renderServerCalendar, renderTransactionEditModal, renderTransactionPager,
+  renderTransactionTurboScript,
+};
+// @build:exports-end

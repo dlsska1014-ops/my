@@ -1,3 +1,24 @@
+// @build:imports-start
+import {
+  APP_VERSION, appName, cardPerformanceEnabled, memeCardsEnabled, premiumBetaEnabled,
+} from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { getAdminSecurityState, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  countHouseholdTransactions, fetchAdminHouseholds, fetchAllHouseholdMembersMap,
+  fetchHouseholdMembers, selectRequestedScopedHousehold,
+} from "../data/households-members-rows.js";
+import { tableCheckPair } from "./settings-audit-pages.js";
+import { safeArray } from "./backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { inspectKakaoLoginConfig } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function buildProductionOpsAudit(env) {
   const adminSecurity = await getAdminSecurityState(env);
@@ -227,3 +248,10 @@ function renderNavMiniCalendar(month = "", householdId = "", rows = []) {
   const activeDays = buildNavMonthSummary(rows, safeNavMonth(month)).join(",");
   return `<section class="abNavCalendar" data-ab-nav-calendar data-month="${escapeHtml(safeNavMonth(month))}" data-household-id="${escapeHtml(householdId)}" data-active-days="${escapeHtml(activeDays)}"></section>`;
 }
+// @build:exports-start
+export {
+  buildProductionOpsAudit, handleDiagnosticsPage, handleHouseholdAdminPage, handleHouseholdUserPage,
+  handleProductionOpsAuditPage, identityTypeLabel, maskKey, renderNavMiniCalendar,
+  safeNavHouseholdId, safeNavMonth, userHouseholdRoleLabel,
+};
+// @build:exports-end

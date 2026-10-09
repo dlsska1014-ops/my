@@ -582,3 +582,13 @@ Worker 크기 64 MiB(비압축, 압축 한도 없음), 시작 1초, Free CPU 10m
 | 4 | acorn 사용 | Phase 0~2는 acorn 불필요. Phase 3에서 `tools/vendor/acorn.mjs`를 벤더링(MIT, 판·SHA-256을 `tools/bundle-number-flow.mjs`처럼 기록). 분석 스크립트는 그때 벤더 파일로 전환 | 하네스는 자식 Node에 플래그를 넘기지 않으므로 검사 스크립트가 `--expose-internals`에 기댈 수 없다. 벤더링은 number-flow 전례와 같다 |
 | 5 | 분석 폴더 | `docs/refactor/modularization-v1/` 전체를 커밋(기준 해시 `bbcd1756…` 스냅샷). `src/index.js`가 바뀌면 `scripts/`로 재생산 | 명세와 재생산 도구가 함께 있어야 다음 세션이 자족적이다. 크기 0.8MB는 허용 범위 |
 | 6 | 체크섬 범위 | 다음 판 manifest에 `src/modules/**`, `src/modules/MANIFEST.txt`, `tools/build-worker.mjs`, `tools/split-worker.mjs`, 새 검증 파일, `docs/refactor/modularization-v1/PLAN.md`·`HANDOFF_PROMPT.md`·`split-manifest.txt`·`scripts/*`를 추가. 재생산 가능한 데이터 `*.txt`(간선·목록)는 제외 | 현재 manifest가 검증·도구·핵심 문서를 담는 범위와 같게 맞춘다 |
+
+## 11. 진행 기록
+
+| 단계 | 상태 (2026-10-08) | 비고 |
+|---|---|---|
+| 0·1 | PR #56 | 모듈 108개, 재조립 SHA-256 동일(`bbcd1756…`). 계획에 없던 V22_9_31 체크섬 목록 세 줄 재고정(같은 판 문서 커밋 선례) |
+| 6 | PR #57 | `tools/deploy-worker-version.mjs`. 버전 조회 응답에 annotations가 문서상 없어, 업로드 기록(소스 SHA-256·HEAD·etag)으로 버전과 커밋을 잇는다. 바인딩 0개·배열 아님이면 업로드 거부. 되돌림 뒤 공개 검사는 하지 않음 |
+| 2·3 | V22.9.32 판 | T3 결과 1,609/1,610 동일(`APP_VERSION`만 변경). `build:worker`가 annotate를 먼저 실행. import 2,722·export 1,024 이름, 모듈 간 `let` 대입 10건은 4단계 대상 |
+
+측정값 정정: `split-manifest.txt`의 `bytes` 열과 3장 표의 KB는 UTF-16 문자 수 기준이다. 실제 UTF-8 파일은 10% 안팎 더 크다. 분석 스크립트는 `tools/vendor/acorn.mjs`를 쓰므로 `--expose-internals` 없이 실행한다.

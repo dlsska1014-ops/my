@@ -1,3 +1,40 @@
+// @build:imports-start
+import { appName, publicBaseUrl } from "../public/site-config.js";
+import { safeAdminReturnPath } from "../auth/crypto-admin-session.js";
+import { dashboardQuery } from "./transactions-households.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import {
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange,
+  fetchHouseholdMembers, renderSpenderDatalist, renderSpenderOptions,
+} from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import {
+  renderAutoRefreshScript, renderCalendarFilterScript, renderGuideTab, renderImportTab,
+  renderMobileBottomNav, renderPcSidebar, renderQuickStartPanel, renderTabs,
+} from "../web/menu-and-guides.js";
+import {
+  addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, formatSignedPercent,
+  renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
+  renderMonthlyTrendTable, renderStrategyCards, renderWeekdayStats, renderYearlyMonthSummary,
+} from "../domain/analytics.js";
+import {
+  buildAffiliateState, buildPremiumState, renderAffiliateTab, renderInlineAffiliateZone,
+  renderInlinePremiumTeaser, renderPremiumTab,
+} from "../features/meme-engine-premium.js";
+import {
+  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, renderCustomStats,
+  renderDesktopTransactionTable, renderInsightCards, renderServerCalendar,
+  renderTransactionEditModal, renderTransactionPager, renderTransactionTurboScript,
+} from "./dashboard-fragments.js";
+import {
+  formatMessage, groupLabel, mergedOptions, renderGroupOptions, renderQualityOptions,
+} from "../kakao/reply-texts.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import {
+  calculateStats, escapeHtml, getCalendar, nextMonthStart, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderServerLoginHtml(env, error = "", returnTo = "/?legacy=1") {
   const title = escapeHtml(appName(env));
@@ -360,3 +397,6 @@ ${renderMobileBottomNav(tab, month, householdValue)}
 <div class="footerNote">관리자 웹과 모바일 입력 화면을 분리해 더 빠르게 사용할 수 있습니다.</div>
 </main>${renderCalendarFilterScript(date)}${renderAutoRefreshScript()}</body></html>`;
 }
+// @build:exports-start
+export { renderServerDashboardHtml, renderServerLoginHtml };
+// @build:exports-end

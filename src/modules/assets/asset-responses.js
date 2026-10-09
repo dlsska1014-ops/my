@@ -1,3 +1,28 @@
+// @build:imports-start
+import {
+  accountbookFavRowsJsAsset, accountbookGoalsJsAsset, accountbookV5BundleJsAsset,
+} from "../client/v5-bundle-mains.js";
+import { AB_CURSOR_ASSET_PATH, AB_CURSOR_ASSET_SOURCE } from "./ab-cursor.js";
+import { NUMBER_FLOW_ASSET_PATH, NUMBER_FLOW_ASSET_SOURCE } from "./number-flow.js";
+import {
+  AB_UIUX_CSS_ASSET_PATH, ACCOUNTBOOK_EXPERIENCE_CSS, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH,
+  ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH,
+  ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_V22811_CSS,
+  ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH,
+  ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH,
+  MOBILE_HOME_CSS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH,
+} from "./asset-registry.js";
+import { ACCOUNTBOOK_SHELL_CSS } from "./accountbook-shell-css.js";
+import {
+  abUiuxCssAsset, accountbookThemeJsAsset, mobileHomeCssAsset, mobileHomeJsAsset,
+} from "./theme-home-assets.js";
+import {
+  accountbookNotifJsAsset, accountbookSearchJsAsset, accountbookStage4NavJsAsset,
+  mobileHomeShellJsAsset,
+} from "../client/nav-search-notif-mains.js";
+import { AB_HISTORICAL_RUNTIME_ASSETS } from "./historical-runtime-assets.js";
+import { AB_CATEGORY_RULES_ASSET_PATH, abCategoryRulesJsAsset } from "../nlu/category-rules.js";
+// @build:imports-end
 
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
@@ -77,3 +102,6 @@ function mobileHomePerformanceAssetResponse(request, url) {
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
+// @build:exports-start
+export { mobileHomePerformanceAssetResponse };
+// @build:exports-end

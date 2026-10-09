@@ -1,3 +1,20 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { householdPageMessage } from "./households-lifecycle.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, jsonForInlineScript, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleMyMembersPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -34,3 +51,6 @@ function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, memb
   const rows = safeArray(members).map((m) => `<tr><td>${escapeHtml(m.nickname || "구성원")}</td><td>${escapeHtml(m.role || "member")}</td><td>${escapeHtml(String(m.created_at || "").slice(0,10))}</td></tr>`).join("") || `<tr><td colspan="3">참여자가 없습니다.</td></tr>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자/초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.muted{color:#667085;line-height:1.6}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.code{font-size:24px;font-weight:1000;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:14px;display:inline-block}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자/초대 관리</h1><p>가족이나 모임 구성원에게 초대코드를 공유하고, 참여자를 확인합니다.</p></section><section class="card"><form method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="code">${escapeHtml(selected.invite_code || "")}</div><p class="muted">구성원은 /my에서 이름과 개인 접속코드를 입력한 뒤 이 초대코드로 참여할 수 있습니다. 승인/권한 세부 변경이 필요하면 관리자 화면에서 처리하세요.</p></section><section class="card"><h2>참여자 목록</h2><table><thead><tr><th>이름</th><th>권한</th><th>참여일</th></tr></thead><tbody>${rows}</tbody></table></section></div></div></main></body></html>`;
 }
+// @build:exports-start
+export { handleMyMembersPage };
+// @build:exports-end

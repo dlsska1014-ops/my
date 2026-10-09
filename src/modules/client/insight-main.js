@@ -1086,3 +1086,6 @@ function insightClientMain() {
   }
   renderAll();
 }
+// @build:exports-start
+export { budgetExpenseRows, insightClientMain };
+// @build:exports-end
