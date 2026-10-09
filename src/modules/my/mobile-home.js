@@ -438,8 +438,12 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 흡수하고 이 카드를 남겨 뒀다. 남은 내용은 이미 두 곳에 그대로 있다 —
   // 지출·수입과 전월 대비는 homeMetrics 가, 남은 예산은 P0 헤드라인이 말한다.
   // 같은 이야기를 세 번 하던 것을 한 번으로 줄인다.
-  const homeChallengeHtml = reportChallenge ? renderReportChallenge(reportChallenge, { householdId, canManage: appIsManager, home: true }) : "";
-  if (reportChallenge && budget && typeof budget === "object") budget.reportChallenge = reportChallenge;
+  // "챌린지 표시"를 끈 챌린지는 홈에 그리지 않는다(QA B07). 기간이 끝난 챌린지의 상태는 리포트의
+  // 챌린지 화면이 기간과 함께 알린다. 설정이 없을 때 쓰는 기본 챌린지(그 달 1~4일)는 매달 5일부터
+  // 끝난 상태가 되므로, 끝났다는 이유만으로 홈에서 빼지는 않는다.
+  const showHomeChallenge = !!reportChallenge && reportChallenge.enabled !== false;
+  const homeChallengeHtml = showHomeChallenge ? renderReportChallenge(reportChallenge, { householdId, canManage: appIsManager, home: true }) : "";
+  if (showHomeChallenge && budget && typeof budget === "object") budget.reportChallenge = reportChallenge;
   // The remaining template uses rows.length only for the feed's "view all"
   // affordance. Dashboard summaries above have already been built from all
   // monthly rows, so switch that final count to the filtered feed source.

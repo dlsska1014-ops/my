@@ -2,15 +2,19 @@
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import {
   claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+  withHouseholdSettingsRmw,
 } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
-import { isValidTransactionDateString } from "../admin/transactions-households.js";
+import {
+  MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
+} from "../admin/transactions-households.js";
 import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
-  fetchPostgrestRows, getScopedHouseholdsForPage, selectRequestedScopedHousehold,
+  fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
+  selectRequestedScopedHousehold,
 } from "../data/households-members-rows.js";
-import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { buildBudgetAlertPolishModel } from "../features/budget-alerts-annual-goals.js";
 import { parseJsonArraySettingStrict, saveSettingValue } from "../my/reports-premium.js";
@@ -45,7 +49,14 @@ async function handleUserTxSearch(request, env, url) {
     return jsonResponse({ ok: true, q: "", household_id: household.id, count: 0, results: [] });
   }
   const members = await fetchHouseholdMembers(env, household.id);
-  const rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 100000 });
+  let rowsRaw;
+  try {
+    rowsRaw = await fetchAdminRowsRange(env, { householdId: household.id, type: "all", limit: 40000 });
+  } catch (err) {
+    if (!isRowLimitExceededError(err)) throw err;
+    // 일부 기록만 훑으면 오래된 기록이 조용히 빠진다(QA B05).
+    return jsonResponse({ ok: false, error: "too_many_rows", reason: "search_row_limit", message: "기록이 너무 많아 전체 기간을 한 번에 검색하지 못했습니다. 거래 화면에서 월을 골라 찾아 주세요." }, 422);
+  }
   const rows = attachSpenderNames(rowsRaw, members);
   const needle = q.toLowerCase();
   const digits = q.replace(/[^0-9]/g, "");
@@ -271,7 +282,7 @@ async function handleUserNotifications(request, env, url) {
   // 4b) 반복 지출 자동감지 (§3.4): 최근 3개월 반복 메모 → 정기지출 후보 추천 (기존 detectRecurringCandidates 재사용)
   const detectStart = `${addMonthsYm(month, -2)}-01`;
   const detectEnd = nextMonthStart(month);
-  const historyRows = await fetchAdminRowsRange(env, { householdId: household.id, start: detectStart, end: detectEnd, limit: 8000 }).catch(() => []);
+  const historyRows = await fetchAdminRowsRange(env, { householdId: household.id, start: detectStart, end: detectEnd, limit: 8000, complete: false }).catch(() => []);
   const candidates = detectRecurringCandidates(historyRows, month, recurring);
   if (candidates.length) {
     const names = candidates.slice(0, 3).map((c) => String(c.memo || "").trim()).filter(Boolean).join(", ");
@@ -339,26 +350,72 @@ async function handleUserFavorites(request, env, url) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
   const key = favoritesKey(household.id, scope.userId || "shared");
-  let list = normalizeFavoriteList(await getSettingValue(env, key).catch(() => ""));
-  if (method === "POST") {
-    const id = String(body.id || (body.tx && body.tx.id) || "").trim();
-    if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
-    if (body.remove) {
-      list = list.filter((f) => f.id !== id);
-    } else {
-      const snap = normalizeFavoriteSnapshot(body.tx || body);
-      if (!snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
-      list = [snap, ...list.filter((f) => f.id !== snap.id)].slice(0, 100);
+  const payload = (list) => jsonResponse({ ok: true, household_id: household.id, count: list.length, ids: list.map((f) => f.id), favorites: list });
+  // 읽기 실패나 깨진 JSON 을 빈 목록으로 보고 새 항목만 저장하면 기존 즐겨찾기가 통째로 사라진다(QA B02).
+  // 그래서 엄격하게 읽고, 바꾸는 요청은 가계부 설정 잠금 안에서 읽기·병합·쓰기를 한다.
+  const readFavorites = async () => normalizeFavoriteList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "favorite_settings_json_invalid"));
+  if (method !== "POST") {
+    try {
+      return payload(await readFavorites());
+    } catch (err) {
+      rememberOpsEvent({ kind: "favorite_settings_read_failed", severity: "warn", path: "/u/api/favorites", method: "GET", detail: `${household.id}:${safeError(err)}` });
+      return jsonResponse({ ok: false, error: "read_failed", reason: "favorite_read_failed", message: "즐겨찾기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." }, 503);
     }
-    await saveSettingValue(env, key, JSON.stringify(list));
   }
-  return jsonResponse({ ok: true, household_id: household.id, count: list.length, ids: list.map((f) => f.id), favorites: list });
+  const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+  if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
+  const snap = body.remove ? null : normalizeFavoriteSnapshot(body.tx || body);
+  if (!body.remove && !snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
+  try {
+    const list = await withHouseholdSettingsRmw(env, household.id, async ({ assertFresh }) => {
+      const current = await readFavorites();
+      const next = body.remove ? current.filter((f) => f.id !== id) : [snap, ...current.filter((f) => f.id !== snap.id)].slice(0, 100);
+      assertFresh();
+      await saveSettingValue(env, key, JSON.stringify(next));
+      return next;
+    });
+    return payload(list);
+  } catch (err) {
+    rememberOpsEvent({ kind: "favorite_settings_write_failed", severity: "warn", path: "/u/api/favorites", method: "POST", detail: `${household.id}:${safeError(err)}` });
+    if (String(err?.message || "") === "settings_rmw_busy") return jsonResponse({ ok: false, error: "busy", reason: "favorite_write_in_progress", message: "다른 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." }, 409);
+    if (isUncertainStorageWrite(err)) return jsonResponse({ ok: false, error: "db_write_unknown", reason: "db_write_unknown", uncertain: true, message: formatMessage("db_write_unknown") }, 503);
+    return jsonResponse({ ok: false, error: "save_failed", reason: "favorite_save_failed", message: "즐겨찾기를 바꾸지 못했습니다. 기존 즐겨찾기는 그대로입니다. 잠시 후 다시 시도해 주세요." }, 503);
+  }
 }
 
 // V22.8.31 V5 저축·목표(§3.7) — 스키마 없이 accountbook_settings 키-값 저장소에 가계부별 목표 보관.
 function goalsKey(householdId) {
   return `goals:v5:${String(householdId || "default").trim() || "default"}`;
 }
+// 목표 금액·모은 금액은 0 이상 정수 원이며 1,000억 원을 넘지 않는다. Number("1e309") 는 Infinity 라
+// "> 0" 검사를 통과한 뒤 JSON 에서 null 이 되어 다음 조회 때 0원이 된다(QA B01). 그래서 입력은 숫자
+// 문자열(쉼표·공백·끝의 "원" 허용)이나 안전한 정수만 받고, 지수·소수·음수·상한 초과는 저장 전에 거부한다.
+const MAX_GOAL_AMOUNT = 100_000_000_000;
+function parseGoalAmountInput(value, { allowZero = true, max = MAX_GOAL_AMOUNT } = {}) {
+  if (value === undefined || value === null || value === "") return allowZero ? 0 : null;
+  let amount;
+  if (typeof value === "number") amount = value;
+  else {
+    const text = String(value).replace(/[,\s]/g, "").replace(/원$/, "");
+    if (!/^\d{1,15}$/.test(text)) return null;
+    amount = Number(text);
+  }
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > max) return null;
+  if (!allowZero && amount === 0) return null;
+  return amount;
+}
+function storedGoalAmount(value) {
+  const amount = Math.round(Number(value || 0));
+  return Number.isFinite(amount) && amount > 0 ? Math.min(amount, MAX_GOAL_AMOUNT) : 0;
+}
+function goalAmountsFromInput(source = {}, fallback = {}) {
+  const pick = (key) => (source[key] == null ? fallback[key] : source[key]);
+  const target = parseGoalAmountInput(pick("target"), { allowZero: false });
+  const saved = parseGoalAmountInput(pick("saved"));
+  const monthly = parseGoalAmountInput(pick("monthly"));
+  return target === null || saved === null || monthly === null ? null : { target, saved, monthly };
+}
+const GOAL_AMOUNT_INVALID = { ok: false, error: "invalid_amount", reason: "invalid_amount", message: "금액은 0 이상 1,000억 원 이하의 숫자로 입력해 주세요." };
 function normalizeGoal(x) {
   const o = safeObject(x);
   const name = String(o.name || "").trim().slice(0, 60);
@@ -367,9 +424,9 @@ function normalizeGoal(x) {
     id: String(o.id || `goal_${crypto.randomUUID()}`).replace(/[^\w가-힣:-]/g, "_").slice(0, 64),
     name,
     emoji: String(o.emoji || "🎯").slice(0, 8),
-    target: Math.max(0, Math.round(Number(o.target || 0))),
-    saved: Math.max(0, Math.round(Number(o.saved || 0))),
-    monthly: Math.max(0, Math.round(Number(o.monthly || 0))),
+    target: storedGoalAmount(o.target),
+    saved: storedGoalAmount(o.saved),
+    monthly: storedGoalAmount(o.monthly),
     deadline: /^\d{4}-\d{2}$/.test(String(o.deadline || "")) ? String(o.deadline) : "",
     created_at: o.created_at || new Date().toISOString(),
   };
@@ -455,12 +512,16 @@ async function handleUserGoals(request, env, url) {
     let list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
     const action = String(body.action || "").trim();
     if (action === "create") {
-      const g = normalizeGoal({ name: body.name, emoji: body.emoji, target: body.target, saved: body.saved, monthly: body.monthly, deadline: body.deadline });
+      const amounts = goalAmountsFromInput(body);
+      if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+      const g = normalizeGoal({ name: body.name, emoji: body.emoji, ...amounts, deadline: body.deadline });
       if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
       if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
       list = [...list, g];
     } else if (action === "restore") {
-      const g = normalizeGoal(body.goal);
+      const amounts = goalAmountsFromInput(safeObject(body.goal));
+      if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+      const g = normalizeGoal({ ...safeObject(body.goal), ...amounts });
       if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
       const remaining = list.filter(x=>x.id!==g.id);
       if (remaining.length >= 50) return jsonResponse({ok:false,error:"goal_limit"},400);
@@ -472,11 +533,15 @@ async function handleUserGoals(request, env, url) {
       if (action === "delete") {
         list = list.filter((x) => x.id !== id);
       } else if (action === "fund") {
-        const delta = Math.round(Number(body.amount || 0));
-        if (!(delta > 0)) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
-        list[idx] = normalizeGoal({ ...list[idx], saved: Math.max(0, list[idx].saved + delta) });
+        const delta = parseGoalAmountInput(body.amount, { allowZero: false, max: MAX_TRANSACTION_AMOUNT });
+        if (delta === null) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
+        const nextSaved = list[idx].saved + delta;
+        if (!Number.isSafeInteger(nextSaved) || nextSaved > MAX_GOAL_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "goal_saved_limit", message: "모은 금액이 1,000억 원을 넘을 수 없습니다." }, 400);
+        list[idx] = normalizeGoal({ ...list[idx], saved: nextSaved });
       } else {
-        const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: body.target ?? list[idx].target, monthly: body.monthly ?? list[idx].monthly, deadline: body.deadline ?? list[idx].deadline });
+        const amounts = goalAmountsFromInput({ target: body.target, monthly: body.monthly }, list[idx]);
+        if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+        const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: amounts.target, monthly: amounts.monthly, deadline: body.deadline ?? list[idx].deadline });
         if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
         list[idx] = updated;
       }

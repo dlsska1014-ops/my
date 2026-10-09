@@ -42,9 +42,13 @@ function calculateExtendedAnalytics({ month, allRows, prevRows, historyRows, yea
   const weekdayStats = buildWeekdayStats(yearRows.length ? yearRows : historyRows);
   const topIncrease = categoryCompare.find((x) => x.diff > 0 && x.current > 0) || { name: "없음", diff: 0, rate: 0 };
   const topDecrease = categoryCompare.find((x) => x.diff < 0) || { name: "없음", diff: 0, rate: 0 };
-  const avg3 = Math.round(threeMonthTrend.reduce((s, x) => s + x.expense, 0) / Math.max(1, threeMonthTrend.filter((x) => x.expense > 0).length || 3));
+  // 3개월 가운데 수입이든 지출이든 기록이 있는 달은 모두 분모에 넣는다. 지출 0원인 달도 기록이 있으면
+  // 0원으로 센다(QA B03: [0, 0, 30000] 은 10,000원). 기록이 하나도 없는 달은 쓰기 전 기간이라 빼고,
+  // 화면에는 몇 개월 평균인지 적는다.
+  const recordedMonths = threeMonthTrend.filter((x) => x.count > 0);
+  const avg3 = recordedMonths.length ? Math.round(recordedMonths.reduce((s, x) => s + x.expense, 0) / recordedMonths.length) : 0;
   const cleanupCount = rowsBase.filter((r) => isMissingCategory(r.category) || (r.type === "expense" && isMissingPayment(r.payment_method))).length;
-  return { current, prev, expenseMoMRate, monthlyTrend, threeMonthTrend, categoryCompare, categoryTrend3, yearMonthSummary: yearMonths, weekdayStats, topIncrease, topDecrease, avg3Expense: avg3, cleanupCount };
+  return { current, prev, expenseMoMRate, monthlyTrend, threeMonthTrend, categoryCompare, categoryTrend3, yearMonthSummary: yearMonths, weekdayStats, topIncrease, topDecrease, avg3Expense: avg3, avg3Months: recordedMonths.length, cleanupCount };
 }
 
 function categoryExpenseMap(rows) {
@@ -88,8 +92,10 @@ function buildWeekdayStats(rows) {
 
 function renderStrategyCards(ext, a) {
   const cards = [
+    // 분석 기간 기록이 한도를 넘어 일부만 읽었으면 먼저 알린다(QA B05).
+    ...(ext.historyTruncated ? [{ cls: "danger", title: "분석 범위", value: "일부만 분석", desc: "기간 기록이 6,000건을 넘어 최신 6,000건으로 계산했습니다. 정확한 합계는 월별 화면과 CSV에서 확인하세요." }] : []),
     { cls: ext.expenseMoMRate > 20 ? "danger" : ext.expenseMoMRate > 5 ? "warn" : "good", title: "전월 대비 지출", value: formatSignedPercent(ext.expenseMoMRate), desc: `전월 ${numberWithCommas(ext.prev.totals.expense)}원 → 이번 달 ${numberWithCommas(ext.current.totals.expense)}원` },
-    { cls: ext.avg3Expense > 0 && ext.current.totals.expense > ext.avg3Expense * 1.2 ? "warn" : "good", title: "3개월 평균 대비", value: `${numberWithCommas(ext.avg3Expense)}원`, desc: `최근 3개월 평균과 이번 달 속도를 비교하세요.` },
+    { cls: ext.avg3Expense > 0 && ext.current.totals.expense > ext.avg3Expense * 1.2 ? "warn" : "good", title: "3개월 평균 대비", value: `${numberWithCommas(ext.avg3Expense)}원`, desc: `최근 3개월 중 기록이 있는 ${ext.avg3Months ?? 3}개월의 평균입니다(지출 0원인 달 포함). 이번 달 속도와 비교하세요.` },
     { cls: ext.cleanupCount > 0 ? "danger" : "good", title: "분석 신뢰도", value: `${ext.cleanupCount}건`, desc: "미정리 데이터가 적을수록 고급 분석이 정확해집니다." },
     { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatSignedPercent(ext.topIncrease.rate)}` },
     { cls: a.weekendRate >= 45 ? "warn" : "good", title: "주말 소비", value: `${a.weekendRate}%`, desc: "주말 외식·여가성 소비 비중을 점검하세요." },

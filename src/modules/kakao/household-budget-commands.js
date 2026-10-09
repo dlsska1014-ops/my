@@ -2,7 +2,7 @@
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import {
-  fetchAdminRowsRange, fetchHouseholdMembers, memberNameMap,
+  fetchAdminRowsRange, fetchHouseholdMembers, isRowLimitExceededError, memberNameMap,
 } from "../data/households-members-rows.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -479,7 +479,14 @@ function kakaoInviteManagementText(household = {}, origin = "") {
 }
 
 async function kakaoDateSummaryText(env, household = {}, user = {}, range = null, origin = "") {
-  const rows = await fetchAdminRowsRange(env, { householdId: household.id, start: range.start, end: range.end, type: "all", limit: 6000 });
+  let rows;
+  try {
+    rows = await fetchAdminRowsRange(env, { householdId: household.id, start: range.start, end: range.end, type: "all", limit: 6000 });
+  } catch (err) {
+    if (!isRowLimitExceededError(err)) throw err;
+    // 일부 기록만으로 합계를 말하지 않는다(QA B05).
+    return "이 기간에는 기록이 너무 많아 합계를 정확히 계산하지 못했어요. 기간을 줄여(예: 이번주, 9월) 다시 물어봐 주세요.";
+  }
   const members = await fetchHouseholdMembers(env, household.id);
   const names = memberNameMap(members);
   const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);

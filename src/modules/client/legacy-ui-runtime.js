@@ -1002,7 +1002,7 @@ function passwordMatchFeedbackClientMain(config) {
 
 function accessibleFieldLabel(name = "", placeholder = "") {
   const labels = {
-    nickname: "내 이름", access_code: "개인 접속코드", access_code_confirm: "개인 접속코드 확인",
+    nickname: "내 이름", access_code: "비밀번호", access_code_confirm: "비밀번호 확인",
     invite_code: "초대코드", household_name: "가계부 이름", household_id: "가계부", display_name: "가계부에서 보일 내 이름",
     confirm_name: "삭제 확인용 가계부 이름", income_name: "수입 종류", income_amount: "예상 수입 금액",
     budget_category: "지출 예산 분류", budget_amount: "지출 예산 금액",
@@ -1014,9 +1014,22 @@ function accessibleFieldLabel(name = "", placeholder = "") {
   return String(labels[String(name || "")] || placeholder || String(name || "").replace(/_/g, " ") || "입력 항목").trim();
 }
 
+// 화면에 연결된 <label>(for=id 로 가리키거나 컨트롤을 감싼 label)이 있는 컨트롤에는 aria-label 을 붙이지 않는다.
+// aria-label 은 연결된 라벨보다 우선하므로 "비밀번호" 칸이 "개인 접속코드"로 읽히는 식으로 화면 라벨을
+// 덮어쓴다(QA B08, WCAG 2.2 2.5.3 Label in Name). 라벨이 없는 컨트롤만 이름을 채운다.
 function attachAccessibleControlNames(html = "") {
-  return String(html || "").replace(/<(input|select|textarea)\b([^>]*)>/gi, function(full, tag, attrs) {
+  const source = String(html || "");
+  const labelledIds = new Set([...source.matchAll(/<label\b[^>]*\bfor\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1]));
+  let labelDepth = 0;
+  return source.replace(/<\/?label\b[^>]*>|<(input|select|textarea)\b([^>]*)>/gi, function(full, tag, attrs) {
+    if (!tag) {
+      labelDepth = Math.max(0, labelDepth + (full[1] === "/" ? -1 : 1));
+      return full;
+    }
+    if (labelDepth > 0) return full;
     if (/\baria-label(?:ledby)?\s*=/i.test(attrs) || /\btitle\s*=/i.test(attrs)) return full;
+    const idMatch = attrs.match(/\bid\s*=\s*["']([^"']+)["']/i);
+    if (idMatch && labelledIds.has(idMatch[1])) return full;
     const typeMatch = attrs.match(/\btype\s*=\s*["']?([^"'\s>]+)/i);
     const type = String(typeMatch?.[1] || "").toLowerCase();
     if (["hidden", "radio", "checkbox", "submit", "button", "image"].includes(type)) return full;

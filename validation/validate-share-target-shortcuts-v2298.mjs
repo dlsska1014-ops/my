@@ -95,7 +95,7 @@ try {
   // 여기가 이 기능의 값어치다. 입력칸에 글자만 들어가고 금액·분류가 안 붙으면
   // 사용자는 어차피 손으로 다시 쳐야 한다.
   const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22926.js`), {}, {})).text();
-  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22930.js`), {}, {})).text();
+  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22933.js`), {}, {})).text();
   const win = {};
   new Function("window", rulesJs)(win);
   const end = shellJs.indexOf("\n(function mobileShellUiClientMain");

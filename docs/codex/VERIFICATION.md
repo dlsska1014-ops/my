@@ -1,3 +1,11 @@
+## V22.9.33의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_33.sha256`의 337개 파일을 사용하고, 자동 검사 하한은 8,452개입니다.
+
+새 검사 `validate-qa-fixes-v22933.mjs`(52개)는 보고서 결함 B01~B09 와 웹 수정 폼(T1)을 실제 경로로 재현합니다. T1 부분은 픽스처의 `db.__honor_select = true`로 운영 PostgREST 처럼 select 한 칸만 돌려받습니다.
+
+소스 바이트를 바꾼 판이므로 `node tools/compare-worker-statements.mjs <V22.9.32 src/index.js> src/index.js`로 바뀐 최상위 문장을 확인합니다.
+
 ## V22.9.32의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_32.sha256`의 332개 파일을 사용하고 자동 검사 하한은 8,394개입니다. 이전 199개 경로를 보존하고 모듈·도구·검증·계획 문서 133개를 더했습니다. 하네스는 먼저 빌드 동일성(모듈 → `src/index.js`)을 보고, 이어서 모듈 단독 문법·import/export 표시, 클라이언트 직렬화 자체 완결, 초기화 순서, 배포 스크립트(가짜 Cloudflare API)를 확인합니다.

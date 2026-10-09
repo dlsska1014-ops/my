@@ -85,6 +85,29 @@ function embedRelatedRows(db, rows, select = "") {
   });
 }
 
+// V22.9.33: 실제 PostgREST 는 select 에 적은 칸만 돌려준다. db.__honor_select = true 이면 픽스처도 그렇게 한다.
+// 세 칸만 읽은 행으로 수정 폼을 그려 운영에서만 빈 폼이 되던 결함(감사 T1)을 검사가 잡도록 둔다. 기본은 꺼 둔다.
+function projectSelectedColumns(rows, select = "") {
+  const text = String(select || "").trim();
+  if (!text) return rows;
+  const columns = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of text) {
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) { columns.push(current.trim()); current = ""; } else current += ch;
+  }
+  if (current.trim()) columns.push(current.trim());
+  if (columns.includes("*")) return rows;
+  const pairs = columns.map((column) => {
+    const name = column.replace(/\(.*$/s, "").trim();
+    const [alias, source] = name.includes(":") ? name.split(":").map((part) => part.trim()) : [name, name];
+    return [alias, source];
+  }).filter(([alias]) => alias);
+  return rows.map((row) => Object.fromEntries(pairs.filter(([, source]) => source in row).map(([alias, source]) => [alias, row[source]])));
+}
+
 function upsert(db, table, item, keys, sequence) {
   const rows = db[table] || (db[table] = []);
   const index = rows.findIndex((row) => keys.every((key) => String(row?.[key] ?? "") === String(item?.[key] ?? "")));
@@ -414,7 +437,8 @@ export async function createV2265QaFixture() {
       if ((table === "accountbook_user_security" || String(url.searchParams.get("select") || "").includes("accountbook_user_security(")) && db.__fail_user_security_reads) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
-      return new Response(JSON.stringify(embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"))), { status: 200, headers: { "content-type": "application/json" } });
+      const selectedRows = embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"));
+      return new Response(JSON.stringify(db.__honor_select ? projectSelectedColumns(selectedRows, url.searchParams.get("select")) : selectedRows), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];

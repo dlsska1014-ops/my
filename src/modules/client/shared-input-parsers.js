@@ -49,6 +49,9 @@ function transactionTypeFromText(text = "") {
   return "expense";
 }
 
+// 함수 본문은 그대로 브라우저 자산에 실리므로 설명은 여기 둔다. 마지막의 요일 표현(QA B04)은 명시 날짜보다
+// 뒤에 본다. 주는 월요일에 시작하고, 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
+// 카카오 resolveWeekdayPhrase 와 같은 규칙이며 validate-qa-fixes-v22933 이 둘을 대조한다.
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -67,12 +70,24 @@ function quickInputDate(text = "", today = "") {
   m = raw.match(/(?:^|\s)(\d{1,2})\s*(?:월\s*|[./])(\d{1,2})\s*일?(?=\s|$|[.,!?])/);
   if (m) return valid(parts[0], Number(m[1]), Number(m[2]));
   m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
-  return m ? valid(parts[0], parts[1], Number(m[1])) : "";
+  if (m) return valid(parts[0], parts[1], Number(m[1]));
+  m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
+  if (!m) return "";
+  const monday = (index) => (index + 6) % 7;
+  const target = monday("일월화수목금토".indexOf(m[2])), current = monday(now.getUTCDay());
+  const scope = String(m[1] || "").replace(/\s+/g, "");
+  const offset = scope === "이번주" || scope === "금주" ? target - current
+    : scope === "다음주" || scope === "내주" ? target - current + 7
+      : scope ? target - current - 7
+        : -((current - target + 7) % 7);
+  now.setUTCDate(now.getUTCDate() + offset);
+  return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
 }
 
 function explicitDateIntent(text = "") {
   const raw = String(text || "");
   if (/(?:^|\s)\d{1,2}\s*(?:일|주)\s*(?:전|후)(?=\s|$)/.test(raw)) return true;
+  if (/[월화수목금토일]요일/.test(raw)) return true;
   return /(?:^|\s)(?:그저께|그제|어제|전날|오늘|금일|지금|방금|내일|모레)(?=\s|$)|(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*\d{1,2}|(?:^|\s)20\d{2}(?:[.\-/년]\s*\d{1,2}|\d{4}(?=\s|$))|(?:^|\s)\d{1,2}\s*월\s*\d{1,2}|(?:^|\s)\d{1,2}[./]\d{1,2}(?!\d|\s*[억만천백십원])|(?:^|\s)\d{1,2}일(?=\s|$)/.test(raw);
 }
 

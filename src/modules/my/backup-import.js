@@ -13,6 +13,7 @@ import {
 } from "../import/flexible-import-parser.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
@@ -63,9 +64,17 @@ async function handleMyBackupCsv(request, env, url) {
   const members = await fetchHouseholdMembers(env, selected.id);
   // V22.9.26: `range=all` 이면 전 기간을 내보낸다. 영구 삭제 전 백업이 한 달치뿐이면 나머지를 잃는다.
   const allRange = url.searchParams.get("range") === "all";
-  const rawRows = allRange
-    ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 200000 })
-    : await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
+  // 한도를 넘으면 일부만 담긴 파일을 전체 백업처럼 내려보내지 않고 백업 화면에서 이유를 알린다(QA B05).
+  // 전 기간 4만 건은 요청당 DB 호출 예산(50회) 안에서 끝까지 읽을 수 있는 크기다.
+  let rawRows;
+  try {
+    rawRows = allRange
+      ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 40000 })
+      : await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
+  } catch (err) {
+    if (!isRowLimitExceededError(err)) throw err;
+    return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=backup_too_large`);
+  }
   const rows = attachSpenderNames(rawRows, members);
   const csv = buildReadableTransactionsCsv(rows);
   const file = `accountbook_${allRange ? "all" : month}_${String(selected.name || "backup").replace(/[^\w가-힣-]+/g, "_")}.csv`;
