@@ -15,6 +15,40 @@ V22.9.33 에서 고친 것은 B01~B09 와 T1 입니다. T13 은 B02 와 같은 �
 - **P2:** 잘못된 결과, 기능 고장
 - **P3:** 작은 문제
 
+## T1 영향 확인(읽기 전용 조회)
+
+T1 은 V22.8.86(2026-08-11 커밋)부터 V22.9.33 배포 전까지 운영에 있었습니다. 빈 폼은 금액이 0 이라 금액을 다시 입력해야 저장됐습니다. 그래서 저장된 수정은 분류·메모·결제수단이 비거나, 날짜가 저장한 날로, 수입이 지출로 바뀌었을 수 있습니다.
+
+웹 수정은 `accountbook_update_transaction_v227` RPC 로 저장되고, 이 RPC 는 수정 전후 행 전체를 `accountbook_transaction_audit`에 남깁니다. 아래 조회는 후보를 찾기만 하고 아무것도 바꾸지 않습니다. 사용자가 일부러 바꾼 수정도 섞이므로 전후 값을 보고 판단합니다. 웹 수정의 `actor_kind`는 `user`·`admin`이고 카카오 수정은 `system`입니다.
+
+```sql
+select a.created_at at time zone 'Asia/Seoul' as edited_kst,
+       a.household_id, a.transaction_id, a.actor_kind,
+       a.before_value->>'transaction_date' as before_date, a.after_value->>'transaction_date' as after_date,
+       a.before_value->>'type' as before_type, a.after_value->>'type' as after_type,
+       a.before_value->>'amount' as before_amount, a.after_value->>'amount' as after_amount,
+       a.before_value->>'category' as before_category, a.after_value->>'category' as after_category,
+       a.before_value->>'memo' as before_memo, a.after_value->>'memo' as after_memo,
+       a.before_value->>'payment_method' as before_payment, a.after_value->>'payment_method' as after_payment
+from public.accountbook_transaction_audit a
+where a.action = 'update'
+  and a.actor_kind in ('user', 'admin')
+  and a.created_at >= '2026-08-11 00:00:00+09'
+  and (
+       (coalesce(a.before_value->>'category', '') <> '' and coalesce(a.after_value->>'category', '') = '')
+    or (coalesce(a.before_value->>'payment_method', '') <> '' and coalesce(a.after_value->>'payment_method', '') = '')
+    or (coalesce(a.before_value->>'memo', '') <> '' and coalesce(a.after_value->>'memo', '') = '')
+    or (a.before_value->>'type' = 'income' and a.after_value->>'type' = 'expense')
+    or (a.before_value->>'transaction_date' <> a.after_value->>'transaction_date'
+        and a.after_value->>'transaction_date' = to_char(a.created_at at time zone 'Asia/Seoul', 'YYYY-MM-DD'))
+  )
+order by a.created_at desc;
+```
+
+되돌릴 때는 기록마다 `before_value`를 확인하고 수정 화면에서 다시 입력합니다. 자동으로 되돌리는 SQL 은 사용자가 일부러 바꾼 수정까지 되돌릴 수 있어 만들지 않았습니다.
+
+남은 작은 문제가 하나 있습니다. 수정 화면을 조각이 아닌 전체 페이지로 열면 제목 아래에 메모 대신 "기록"이 나옵니다(`handleTransactionEditPage`의 `memo`가 아직 좁은 조회 행을 씁니다). 폼 값은 맞고, 다음 판에서 전체 행을 쓰게 고칩니다.
+
 ## 1. 카카오 수정·삭제·복구 (가장 먼저)
 
 | ID | 등급 | 내용 | 위치 | 고칠 방향 |
@@ -107,7 +141,24 @@ D11~D14 의 내용은 이렇습니다.
 
 ## 7. 화면·접근성
 
-감사 결과가 오면 이 절에 덧붙입니다.
+헤드리스 Chrome 이 모든 요청을 `app.fetch`와 메모리 픽스처로 받아 화면을 그렸습니다. 서버를 띄우지 않았고 외부 요청은 막았습니다. 로그인 화면 96개와 로그아웃 화면 27개를 390px·1280px, 밝게·어둡게 확인했고, 24개 화면의 버튼을 모두 눌러 봤습니다. 감사는 V22.9.32 에서 시작했고, 14건 모두 V22.9.33(`0eb6ed0`)에서 다시 재현했습니다. 줄 번호는 V22.9.33 기준입니다.
+
+| ID | 등급 | 내용 | 위치 | 고칠 방향 |
+|---|---|---|---|---|
+| U1 | P1 | 일반 사용자 화면 어디에도 로그아웃이 없습니다. 로그인은 14일 유지되므로 공용 PC 에서는 다음 사람이 그대로 들어옵니다. `POST /my/logout` 자체는 동작합니다. | `worker/router.js` 451, `auth/user-session.js` 281 | 내 계정·보안(`/my/backup-login`)과 전체 메뉴에 POST 로그아웃 버튼을 둡니다. |
+| U2 | P2 | 알림 센터의 읽지 않은 수 배지가 나타나지 않습니다. 내비게이션이 배지를 만들기 전에 배지를 한 번만 찾아 둡니다. | `client/nav-search-notif-mains.js` 808·834(배지 생성 263·276) | `setBadge()`가 부를 때마다 배지를 찾고, 내비게이션을 그린 뒤 다시 부릅니다. |
+| U3 | P2 | 주소에 가계부가 없는 화면(설치 앱 `/app`, 예산 바로가기 등)에서 전체 검색·알림·즐겨찾기가 화면의 가계부가 아니라 첫 가계부를 씁니다. 화면의 기록은 "검색 결과가 없어요"가 되고 다른 가계부 기록이 검색됩니다. H1 과 원인이 같습니다. | `client/nav-search-notif-mains.js` 592·691·814, `client/v5-bundle-mains.js` 202, `data/households-members-rows.js` 62 | H1 과 함께 고칩니다. 서버가 고른 가계부 id 를 화면에 싣고 클라이언트가 그것을 씁니다. |
+| U4 | P2 | 다크 모드로 둔 채 로그아웃하면 로그인·시작 화면 글자가 거의 보이지 않습니다. 글자색만 밝게 바뀌고 미리보기·인증 카드는 흰 배경으로 남아 대비가 1.05~1.90:1 입니다(9곳). | `assets/accountbook-shell-css.js` 165~167, `web/login-page-side-nav.js` 23 | 그 표면에도 다크 배경을 주거나, 글자색 변경을 `.hero`·`.card` 안으로 한정합니다. |
+| U5 | P2 | 한 번 닫은 알림은 다음 달에 다시 생겨도 보이지 않습니다. 알림 키에 월이 없습니다. | `api/user-api.js` 248~297, `client/nav-search-notif-mains.js` 817·829 | 키에 월(또는 기간·기한)을 넣거나, 닫은 기록에 월을 두고 만료시킵니다. |
+| U6 | P2 | 전체 메뉴에서 "마우스 따라오는 표시"를 꺼도 주소에 가계부가 없는 화면이나 다른 가계부 화면에서는 다시 켜집니다. 설정이 가계부별로 저장됩니다. | `my/money-plan-home-layout.js` 60~71, `client/nav-search-notif-mains.js` 537, `web/menu-and-guides.js` 239 | 사용자별 설정으로 저장하고 가계부 없이 읽습니다. |
+| U7 | P2 | 지난달 홈에서 "카테고리 비율 · 월간 리포트 →"를 누르면 이번 달 분석이 열립니다. `/analysis` 리다이렉트가 주소의 조회 조건을 버립니다. | `worker/router.js` 505, `my/mobile-home.js` 476 | 링크를 `/my/analysis?month=…&household_id=…`로 바로 걸고, 리다이렉트는 `url.search`를 유지합니다. |
+| U8 | P3 | 다크 모드의 스마트 입력 도움말에서 입력 예시가 보이지 않습니다(1.05:1). `/kakao-commands`, `/budget-alert-guide`는 테마 스크립트가 없어 다크에서도 밝게 그려집니다. | `admin/guide-pages.js` 278~279 | `code`에 글자색과 다크 규칙을 줍니다. |
+| U9 | P3 | 포커스된 본문 바로가기 링크(2.65:1)와 수정 폼의 11px 라벨(4.35:1)이 대비 기준에 못 미칩니다. | `web/login-page-side-nav.js` 23~24, `assets/accountbook-shell-css.js` 50, `assets/mobile-v81-css.js` 6 | 바로가기 글자색이 우선하게 하고 라벨을 더 진하게 합니다. |
+| U10 | P3 | 보이는 글자와 다른 고정 aria-label 이 남아 있습니다(WCAG 2.5.3). 브랜드 링크, 챌린지 "‹ 이전 달", 검색·알림의 "Esc", 인사이트 막대(비율이 빠짐)입니다. | `web/unified-nav.js` 243, `my/report-challenge.js` 207, `assets/asset-registry.js` 116~117, `client/insight-main.js` 578·687 | 접근성 이름에 보이는 글자를 넣습니다. |
+| U11 | P3 | 가계부 이름이 길면 390px 화면의 `/annual`·`/goals`에서 조회 버튼이 화면 밖으로 밀립니다. 21자면 "조"만 보이고 40자면 누를 수 없습니다. | `features/budget-alerts-annual-goals.js` 174·200 | `admin/budget-center-recurring.js` 117 처럼 `minmax(0,1fr)`와 `select{min-width:0;width:100%}`를 씁니다. |
+| U12 | P3 | 로그아웃 상태 화면 6곳이 알림·즐겨찾기 API 를 불러 401 이 두 번 납니다. 콘솔 오류 2개와 Worker 요청 2회가 늘어납니다. | `web/html-postprocess.js` 260, `client/nav-search-notif-mains.js` 691·912 | 사용자 내비게이션이 없으면 부르지 않습니다. |
+| U13 | P3 | 사용자 도움말이 운영자 화면으로 연결됩니다. `/quick-input-help`의 베타 체크·운영센터와 `/kakao-commands`의 오픈빌더 설정·베타 시작입니다. | `admin/guide-pages.js` 282~283, `admin/meme-content-pages.js` 168 | 관리자 세션일 때만 보입니다. |
+| U14 | P3 | 일반 참여자에게도 "참여자·초대", "단톡방 연결" 메뉴가 보이고, 누르면 403 화면입니다. | `web/unified-nav.js` 51, `my/access-control.js` 38 | 역할을 내비게이션에 넘겨 숨기거나 "관리자 전용"으로 표시합니다. |
 
 ## 확인했고 문제가 없던 것
 
@@ -119,3 +170,8 @@ D11~D14 의 내용은 이렇습니다.
 - **초대코드:** 40비트 무작위이고 고유 색인이 있습니다. 참여는 대기로 시작합니다.
 - **KST 처리:** 서버 "오늘"·이번 달 계산이 KST 를 씁니다. 주는 월요일에 시작합니다. 윤년·말일 처리도 맞습니다.
 - **예산 기준:** 홈·카카오 "남은 예산"·`/budgets`가 같은 `budgetSummary` 기준을 씁니다(2026-10-07 지적 사항은 해결됨).
+- **화면 결함 B07·B08·B09:** V22.9.33 화면에서 고쳐진 것을 확인했습니다. B08 과 같은 원인으로 V22.9.32 에서는 다른 12개 화면의 41칸도 다른 이름으로 읽혔습니다(수입 수정 칸이 "지출자"로 읽히는 등). V22.9.33 에서는 0칸입니다.
+- **화면 구조:** 123개 화면에서 실행 오류·콘솔 오류가 없었습니다(U12 제외). 중복 id, 없는 id 를 가리키는 라벨·aria 참조, 이름 없는 컨트롤, `aria-hidden` 안의 포커스 요소가 모두 0개입니다.
+- **링크·폼:** 로그인 화면 114개와 로그아웃 화면 22개 주소를 따라가 봤고, 404·500 링크와 빠진 자산이 없었습니다. 모든 폼이 있는 경로로 맞는 방식을 써서 보냅니다.
+- **배치·버튼:** 픽스처 데이터로 390px·1280px 에서 가로 넘침·잘림·겹침이 없었습니다. 반응 없는 버튼이 없었고, 빠른 입력 시트·검색·알림·화면 설정·서랍·달력 상세가 제대로 열리고 닫힙니다.
+- **설정 반영:** 홈 배치, 리포트 자동 생성, 자산 포함 여부, 역할별 가져오기·키워드·빠른 입력 제한, 숨긴 기능이 화면에 맞게 반영됩니다.

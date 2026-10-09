@@ -4,7 +4,7 @@
 - [x] 홈 자산 두 개를 v22933 으로 올리고 v22930 바이트·ETag 를 보존했습니다. 불변 자산 검사가 통과합니다.
 - [x] V22.9.32 대비 바뀐 최상위 문장 36개와 새 문장 9개가 모두 의도한 수정입니다(`tools/compare-worker-statements.mjs`).
 - [x] 새 manifest 337개, 전체 하네스 8,452개, ESM·공백 검사, Node.js v22.23.1 SQLite 45개가 통과했습니다(`VERIFICATION_V22_9_33.md`).
-- [ ] PR 을 main 에 병합하고 main CI(Ubuntu·Windows)를 확인합니다.
+- [x] PR #61 을 main 에 병합했고(`0eb6ed0`), main CI(Ubuntu·Windows)가 체크섬 337개, 자동 검사 8,452개, SQLite 45개로 통과했습니다.
 - [ ] 업로드·대조 → 승인 후 승격을 하고, 승격 뒤 `/health` 연속 확인과 공개 검사가 통과하는지 봅니다.
 - [ ] 운영에서 기록 카드의 "수정하기" 폼에 금액·날짜·분류가 채워지는지 확인하고 `docs/deployments/`에 기록합니다.
 
