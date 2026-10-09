@@ -3,7 +3,8 @@
 - [x] V22.9.31 대비 최상위 문장 구문 트리가 `APP_VERSION` 하나만 다르고 순서가 같음을 `tools/compare-worker-statements.mjs`로 확인했습니다. 불변 자산 32개 해시가 같습니다.
 - [x] 빌드 동일성 19개, 모듈 문법·표시 117개, 클라이언트 직렬화 38개, 초기화 순서 13개, 배포 스크립트(가짜 API) 178개와 각 실패 경로를 확인했습니다.
 - [x] 새 manifest 332개·전체 하네스 8,365개·ESM·공백·Node.js v22.23.1 SQLite 45개가 통과했습니다. 결과는 `VERIFICATION_V22_9_32.md`에 기록했습니다.
-- [ ] PR #56 → #57 → 이 판의 PR 순서로 병합하고 main CI(Ubuntu·Windows)를 확인합니다.
+- [x] PR #56 → #57 → #58 순서로 main `08f772b`에 병합하고 브랜치·main CI(Ubuntu·Windows)를 확인했습니다.
+- [x] 병합 뒤 공개 GET `/health`의 V22.9.31·alive=true와 현재 운영 공개 검사 116개 통과를 확인했습니다. V22.9.32 배포는 아직 실행하지 않았습니다.
 - [ ] 사용자가 Workers Scripts Write 권한의 계정 한정·만료일 API 토큰을 만들고 환경변수로만 전달합니다.
 - [ ] `--dry-run` → 업로드·대조 → 승인 후 `--promote` 순서로 적용하고, 첫 실행에서 `content/v2` 형식·inherit 바인딩 조회·etag 관계를 기록합니다.
 - [ ] `/health` V22.9.32·`/ready`·공개 검사·불변 자산과 바인딩 30개·런타임 보존을 확인하고 `docs/deployments/`에 기록합니다.

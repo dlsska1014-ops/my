@@ -10,11 +10,11 @@
 
 ## 현재 운영 기준
 
-V22.9.31이 100% 배포돼 있습니다. 그 직전에 Secret 갱신으로 생긴 버전이 있었고, V22.9.31은 그 최신 버전의 바인딩을 이어받았습니다. 배포 스크립트는 업로드하는 순간 **100% 배포 중인 버전**의 바인딩 전부를 그 버전 ID에 고정한 `inherit`로 넘깁니다. 그래서 그사이 바뀐 Secret도 그대로 이어받고 값은 읽지 않습니다.
+V22.9.31이 100% 배포돼 있습니다. 그 직전에 Secret 갱신으로 생긴 버전이 있었고, V22.9.31은 그 최신 버전의 바인딩을 이어받았습니다. 배포 스크립트는 업로드하는 순간 **100% 배포 중인 버전**의 바인딩 전부를 그 버전 ID에 고정한 `inherit`로 넘깁니다. 그래서 그사이 바뀐 Secret도 그대로 이어받고 값은 읽지 않습니다. 2026-10-09 병합 뒤 공개 GET `/health`는 V22.9.31·alive=true였습니다. 승격 뒤 실행할 공개 검사도 현재 운영에서 116개 모두 통과했습니다.
 
 ## 적용 순서 (배포 스크립트의 첫 실제 사용)
 
-1. PR #56 → #57 → 이 판의 PR 순서로 main에 병합합니다. 깨끗한 main checkout에서 `VERSION.txt`와 위 SHA-256을 확인하고 `npm test`(전체 하네스)를 통과시킵니다.
+1. (2026-10-09 완료) PR #56 → #57 → #58 순서로 main에 병합했습니다. #58의 구현 커밋은 `a56a85f`, 병합 커밋은 `08f772b`입니다. 깨끗한 main checkout에서 `VERSION.txt`와 위 SHA-256을 확인했고 `npm test`(전체 하네스)가 통과했습니다. 기록은 `VERIFICATION_V22_9_32.md`의 "GitHub 통합과 운영 기준"에 있습니다. 업로드와 승격은 이 기록을 포함한 main 최신 커밋에서 실행합니다. 승격은 업로드 때와 같은 커밋을 요구합니다.
 2. `node tools/deploy-worker-version.mjs --dry-run`으로 네트워크 없이 로컬 해시·커밋·요청 순서를 확인합니다.
 3. 사용자가 Cloudflare API 토큰을 만듭니다(Workers Scripts Write, 이 계정만, 만료일 지정). `CLOUDFLARE_API_TOKEN`과 `CLOUDFLARE_ACCOUNT_ID=58e7954ad3d92f0d39a7492ad4689165`는 환경변수로만 넘기고, 저장소·기록·대화에 남기지 않습니다.
 4. `node tools/deploy-worker-version.mjs`를 실행합니다. 이 단계는 버전만 저장하고 배포하지 않습니다. 출력과 `output/deploy/V22.9.32-MODULAR-SOURCE/upload-<버전ID>.json`에서 바인딩 30개·`script_runtime`·handlers의 깊은 비교 결과와 시작 시간을 확인합니다. 차이가 하나라도 있으면 승격하지 않습니다.
