@@ -1,3 +1,28 @@
+// Cloudflare Workers 운영 런타임(workerd)은 PBKDF2 반복 횟수가 100,000 을 넘는 deriveBits·deriveKey 를
+// NotSupportedError 로 거절한다. Node 에는 이 상한이 없어 210,000 회 해시가 모든 검사를 통과했고 운영 가입만
+// 실패했다(V22.9.35). 이 픽스처를 쓰는 검사 프로세스에도 같은 상한을 둔다.
+export const WORKERS_PBKDF2_MAX_ITERATIONS = 100000;
+(function installWorkersPbkdf2Cap() {
+  const proto = globalThis.crypto?.subtle && Object.getPrototypeOf(globalThis.crypto.subtle);
+  if (!proto || Object.prototype.hasOwnProperty.call(proto, "__abWorkersPbkdf2Cap")) return;
+  for (const method of ["deriveBits", "deriveKey"]) {
+    const original = proto[method];
+    Object.defineProperty(proto, method, {
+      configurable: true,
+      writable: true,
+      value: function cappedPbkdf2(algorithm, ...rest) {
+        const name = String(algorithm?.name || algorithm || "").toUpperCase();
+        const iterations = Number(algorithm?.iterations);
+        if (name === "PBKDF2" && iterations > WORKERS_PBKDF2_MAX_ITERATIONS) {
+          return Promise.reject(new DOMException(`Pbkdf2 failed: iteration counts above ${WORKERS_PBKDF2_MAX_ITERATIONS} are not supported (requested ${iterations}).`, "NotSupportedError"));
+        }
+        return original.call(this, algorithm, ...rest);
+      },
+    });
+  }
+  Object.defineProperty(proto, "__abWorkersPbkdf2Cap", { value: WORKERS_PBKDF2_MAX_ITERATIONS });
+})();
+
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function wildcardRegex(pattern = "") {

@@ -10,10 +10,16 @@ import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
 
-const PASSWORD_KDF_ITERATIONS = 210000;
+// V22.9.35: Cloudflare Workers 운영 런타임은 PBKDF2 반복 횟수가 100,000 을 넘으면 deriveBits 를
+// NotSupportedError 로 거절한다(workerd 기본 상한, 이슈 #1346). Node 와 공개 workerd 에는 이 상한이 없어
+// 검사가 통과했고, 210,000 회로는 운영 가입·ID 설정·관리자 비밀번호 변경이 모두 실패했다(2026-10-09 가입 500).
+// 새 해시는 상한 그대로 만들고, 상한을 넘는 저장값은 엉뚱한 해시를 만들지 않도록 분명한 오류로 알린다.
+const PASSWORD_KDF_MAX_ITERATIONS = 100000;
+const PASSWORD_KDF_ITERATIONS = PASSWORD_KDF_MAX_ITERATIONS;
 
 async function pbkdf2PasswordHash(password = "", salt = "", iterations = PASSWORD_KDF_ITERATIONS) {
-  const rounds = Math.max(100000, Math.min(600000, Math.round(Number(iterations || PASSWORD_KDF_ITERATIONS))));
+  const rounds = Math.max(100000, Math.round(Number(iterations || PASSWORD_KDF_ITERATIONS)));
+  if (!(rounds <= PASSWORD_KDF_MAX_ITERATIONS)) throw new Error("password_kdf_iterations_unsupported");
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(String(password || "")),

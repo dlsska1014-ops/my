@@ -145,6 +145,8 @@ async function handleMyLocalLogin(request, env) {
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));
+    // V22.9.35: 로그인 처리 오류는 운영 이벤트에 남지 않아 원인을 볼 자리가 없었다(가입 오류는 local_signup_failed).
+    rememberOpsEvent({ kind: "local_login_failed", severity: "error", path: "/my/local-login", method: "POST", detail: safeError(err) });
     return htmlResponse(renderUserLoginHtml(env, missingSecret ? "운영 보안키가 설정되지 않아 로그인할 수 없습니다." : "로그인을 처리하지 못했습니다. 잠시 후 다시 시도하세요."), missingSecret ? 503 : 500);
   }
 }

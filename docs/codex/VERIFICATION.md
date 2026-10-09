@@ -1,3 +1,11 @@
+## V22.9.35의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_35.sha256`의 352개 파일을 사용하고, 자동 검사 하한은 8,769개입니다.
+
+- **운영 런타임 상한:** `validation/qa-fixture.mjs`는 불러오는 순간 `SubtleCrypto`의 `deriveBits`·`deriveKey`에 Cloudflare Workers 와 같은 PBKDF2 상한(100,000)을 겁니다. 상한을 넘는 요청은 `NotSupportedError`로 거절됩니다.
+- **새 검사:** `npm run validate:signup-kdf`가 상한 아래의 가입·로그인·관리자 비밀번호 변경과 소스의 반복 횟수를 확인합니다.
+- **교훈:** Node 에서 통과한 런타임 동작(암호화 상한, CPU 시간)은 Workers 운영의 근거가 되지 않습니다. 운영 런타임에만 있는 제한은 픽스처에 흉내를 넣어 검사합니다.
+
 ## V22.9.34의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_34.sha256`의 348개 파일을 사용하고, 자동 검사 하한은 8,744개입니다.

@@ -343,6 +343,18 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.35 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.35 `src/index.js` 전체 교체가 필요합니다(SHA-256 `636cab5c…`). 운영에서 새 계정 가입이 되지 않으므로 빨리 적용하는 것이 좋습니다. |
+| 배포 방식 | `tools/deploy-worker-version.mjs`로 업로드(배포 아님), 대조, 승인 후 `--promote` 순서로 적용합니다. 토큰은 `Read-Host -AsSecureString`으로 받습니다. Worker 내보내기 목록이 같아 `named_handlers` 대조도 같습니다. |
+| SQL·스키마 | 없습니다. 배포 전후 읽기 전용 조회 2개(A 계정 생성 여부, 반복 횟수 분포)가 있습니다. |
+| immutable 자산 | 바뀌지 않습니다. |
+| 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·Kakao Developers·OpenBuilder 를 바꾸지 않습니다. 가입이 1102(CPU 한도)로 실패하면 요금제 판단이 필요합니다(ASIDE 5절). |
+| 운영 확인 | `docs/ASIDE_V22_9_35.md` 4절(가입·로그인)을 하고, 이어서 V22.9.34 운영 확인(W1~W13)을 합니다. |
+| 롤백 | `node tools/deploy-worker-version.mjs --rollback 04da3a9e-ef12-48ec-be2c-4367114d0d18`(V22.9.34)입니다. 되돌리면 가입이 다시 실패합니다. |
+
 ## V22.9.34 저장소 준비
 
 | 작업 | 적용 판단 |
