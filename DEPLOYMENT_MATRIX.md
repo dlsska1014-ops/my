@@ -343,6 +343,18 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.36 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.36 `src/index.js` 전체 교체가 필요합니다(SHA-256 `b8b93790…`). 운영에서 카카오 새 기록 저장이 되지 않는 것으로 보이므로 바로 적용하는 것이 좋습니다. |
+| 배포 방식 | `tools/deploy-worker-version.mjs`로 업로드(배포 아님), 대조, 승인 후 `--promote` 순서로 적용합니다. 토큰은 `Read-Host -AsSecureString`으로 받습니다. Worker 내보내기 목록이 같아 `named_handlers` 대조도 같습니다. |
+| SQL·스키마 | 없습니다. `accountbook_categories` 표를 만들지 않습니다. 배포 전후 읽기 전용 조회 2개(표 존재 여부, 날짜별 카카오 기록 수)가 있습니다. |
+| immutable 자산 | 바뀌지 않습니다. |
+| 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·Kakao Developers·OpenBuilder 를 바꾸지 않습니다. |
+| 운영 확인 | `docs/ASIDE_V22_9_36.md` 4절(카카오 저장 C1~C4)을 하고, 이어서 V22.9.35 S1~S4 와 V22.9.34 K1~K10·W1~W13 을 합니다. |
+| 롤백 | `node tools/deploy-worker-version.mjs --rollback 4f9da854-c185-40f0-8d0f-7bac9a3c9dc4`(V22.9.35)입니다. 되돌리면 카카오 새 기록 저장이 다시 실패합니다. |
+
 ## V22.9.35 저장소 준비
 
 | 작업 | 적용 판단 |
