@@ -26,10 +26,11 @@
 3. 사용자가 토큰을 만들어 업로드합니다. 토큰 권한은 Workers Scripts Edit, 이 계정 한정, 만료일 지정입니다. 사용자가 직접 연 PowerShell 창에서 실행하며, 토큰은 환경변수로만 넘기고 대화·저장소에 남기지 않습니다.
    ```powershell
    cd D:\Github_Kakao_Account\my
-   $env:CLOUDFLARE_API_TOKEN = Read-Host "Cloudflare token"
+   $env:CLOUDFLARE_API_TOKEN = [System.Net.NetworkCredential]::new("", (Read-Host "Cloudflare token" -AsSecureString)).Password
    $env:CLOUDFLARE_ACCOUNT_ID = "58e7954ad3d92f0d39a7492ad4689165"
    node tools/deploy-worker-version.mjs
    ```
+   토큰 입력은 `*`로 가려집니다. 그냥 `Read-Host`를 쓰면 입력한 토큰이 화면에 그대로 남아, 출력을 복사할 때 함께 복사됩니다(2026-10-09 배포에서 실제로 대화에 노출됨).
    업로드는 버전만 저장하고 배포하지 않습니다. `output/deploy/V22.9.33-QA-FIXES/upload-<버전ID>.json`에서 바인딩 30개·`script_runtime`·handlers 대조 결과를 확인합니다.
 4. 승인 후 같은 창에서 `node tools/deploy-worker-version.mjs --promote <버전ID> --legacy-origin https://ttokttok-accountbook.com`을 실행합니다.
    - 승격 뒤 스크립트는 현재 배포, `content/v2` 소스 해시, `/health`를 확인합니다. `/health`는 V22.9.33 이 5번 연속 나와야 합니다.
