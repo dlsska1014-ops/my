@@ -1,6 +1,6 @@
 # V22.9.34 감사 결함 수정 적용 안내와 운영 확인 지시문
 
-이 문서는 `V22.9.34-AUDIT-FIXES` 적용 준비본이며 두 부분으로 되어 있습니다.
+이 문서는 `V22.9.34-AUDIT-FIXES` 적용 안내이며 두 부분으로 되어 있습니다. 이 판은 2026-10-09 22:09 KST 에 운영에 배포했습니다(버전 `04da3a9e-ef12-48ec-be2c-4367114d0d18`, 배포 `7f7432d1-3c65-49fb-9741-c9b20ae695e0`, 기록 `docs/deployments/V22_9_34_2026_10_09.md`). 남은 일은 4절의 운영 확인입니다.
 - **배포 담당자용 적용 순서**
 - **운영 확인 지시문:** 자동 검사로 확인할 수 없는 운영 확인을 사용자나 외부 점검자에게 그대로 맡길 수 있게 쓴 것
 
@@ -142,6 +142,7 @@ select a.created_at at time zone 'Asia/Seoul' as edited_kst, a.household_id, a.t
 from public.accountbook_transaction_audit a
 where a.action = 'update' and a.actor_kind = 'admin'
   and a.before_value->>'type' is distinct from a.after_value->>'type'
+  and a.created_at < '2026-10-09 22:10:00+09'
 order by a.created_at desc;
 ```
 관리자가 일부러 구분을 바꾼 경우도 섞여 있으니, 메모만 바뀌고 구분이 바뀐 행을 골라 확인합니다.
@@ -153,6 +154,7 @@ select household_id, count(*) as rows
 from public.transactions
 where category in ('__proto__', 'constructor', 'prototype')
    or payment_method in ('__proto__', 'constructor', 'prototype')
+   or memo in ('__proto__', 'constructor', 'prototype')
 group by household_id;
 ```
 행이 있으면 알려 주세요. V22.9.34 는 그런 기록을 그려도 안전하지만, 누가 언제 넣었는지 확인이 필요합니다.
@@ -180,7 +182,7 @@ DB② 행 수 / DB③ 행 수 / ops-events 정리 이벤트 수
 
 ## 5. 남은 위험
 
-- **명시적 id:** 운영 DB 의 명시적 id·`on_conflict=id` 처리를 픽스처에서만 확인했습니다(2절에서 확인).
+- **명시적 id:** 배포 전 2절 첫 조회로 `transactions.id`가 `uuid`이고 `is_identity = NO`임을 확인했습니다. `on_conflict=id`에 필요한 기본 키는 배포 뒤 첫 웹·카카오 저장으로 확인합니다. 저장이 실패하면 2절 두 번째 조회를 실행하고 되돌립니다.
 - **잠금:** 잠금은 기다리지 않습니다. 같은 가계부의 가져오기·같은 기록의 수정이 겹치면 늦은 쪽에 "잠시 뒤 다시"가 나옵니다. 놓친 잠금은 가져오기 60초, 수정 30초 뒤 풀립니다.
 - **카카오 재전송 표시:** 결과를 모르는 카카오 새 기록은 같은 문장을 24시간 안에 다시 보내면 같은 기록으로 봅니다. 일부러 같은 지출을 하루에 두 번 보내는 경우는 두 번째 답장에 "이미 저장돼 있어요"가 나올 수 있습니다.
 - **Worker 크기:** 보존 자산이 늘어 `src/index.js`가 약 3.5MB 입니다. 오래된 보존 자산 정리는 V22.9.35 에서 검토합니다.

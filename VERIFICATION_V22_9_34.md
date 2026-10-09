@@ -1,6 +1,6 @@
 # V22.9.34 검증 기록
 
-저장소 자동 검증을 마쳤습니다. 운영 적용, 운영 배포, 실제 Cloudflare API 호출은 아직 하지 않았습니다.
+저장소 자동 검증을 마쳤고, 2026-10-09 22:09 KST 에 운영에 배포했습니다(버전 `04da3a9e…`, 배포 `7f7432d1…`). 배포 확인은 `docs/deployments/V22_9_34_2026_10_09.md`에 있습니다.
 
 - **작업 위치:** git worktree `D:\Github_Kakao_Account\my-v22934`, 브랜치 `codex/v22934-audit-fixes`
 - **기준:** V22.9.33 main `1a31796`, 운영 버전 `e24b4219…`
@@ -59,7 +59,7 @@ Worker 내보내기 목록은 바뀌지 않았습니다(`ACCOUNTBOOK_WORKER`의 
   - ESM `default.fetch`
   - 작업 트리와 스테이징 공백 검사
 - **SQLite:** Node.js v22.23.1 에서 `node monitoring/test-d1.mjs`의 45개를 별도로 통과했습니다.
-- **CI:** Ubuntu·Windows 결과는 병합 뒤 이 기록에 덧붙입니다.
+- **CI:** PR #64 의 CI 와 병합 커밋 `4ee99cf`의 main CI(run 37933692055)가 Ubuntu·Windows 에서 통과했습니다(체크섬 348개, 자동 검사 8,744개, SQLite 45개, `src/index.js` SHA-256 `f74f729a…`).
 
 ## 함께 한 조사
 
