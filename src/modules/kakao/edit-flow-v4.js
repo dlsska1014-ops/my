@@ -8,8 +8,8 @@ import { safeArray } from "../admin/backup-compare.js";
 import { canManageMyHousehold, canWriteMyHousehold } from "../my/access-control.js";
 import { isUncertainStorageWrite, kakaoText } from "./response-builders.js";
 import {
-  dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq, getDailyKakaoRows,
-  getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
+  KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
+  getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
   isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditConversationScope,
   kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
@@ -198,7 +198,8 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   }
   try {
     // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
-    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId });
+    // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
+    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
   } catch (err) {
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
@@ -242,7 +243,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     }
     const seq = Number(session.entryNo) || 0;
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "" }, row, seq);
+      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
@@ -400,7 +401,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name }, row, seq);
+      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }

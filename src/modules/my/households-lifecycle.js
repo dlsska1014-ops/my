@@ -14,6 +14,7 @@ import { reservePlansKey } from "../settings/reserve-plans.js";
 import { returnLocation, safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import {
   fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, memberAliasSettingsKey,
+  saveMemberAlias,
 } from "../data/households-members-rows.js";
 import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
@@ -41,7 +42,7 @@ import { formatMessage } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import {
   clearKakaoSelectedHousehold, findExistingKakaoHouseholdByNameV2254, getKakaoSelectedHouseholdId,
-  sanitizeWebHouseholdNameInput,
+  parseBareInviteCode, sanitizeWebHouseholdNameInput,
 } from "../kakao/household-budget-commands.js";
 import { goalsKey } from "../api/user-api.js";
 import {
@@ -50,10 +51,13 @@ import {
   withKakaoGroupLifecycleLease,
 } from "../kakao/group-links-first-record.js";
 import {
-  markKakaoChatFirstHistory, parseKakaoChatFirstMarker,
+  markKakaoChatFirstHistory, markKakaoChatFirstHistoryBatch, parseKakaoChatFirstMarker,
 } from "../kakao/identity-chat-first.js";
-import { getHouseholdMemberRole, joinHouseholdByCode } from "../domain/users-households.js";
+import {
+  cancelPendingHouseholdJoin, getHouseholdMemberRole, joinHouseholdByCode,
+} from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
+import { parseJoinCode } from "../kakao/simple-commands.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -104,6 +108,8 @@ function householdPageMessage(code = "") {
     household_leave_failed: "가계부에서 나오지 못했습니다. 참여 상태는 그대로 유지됩니다.",
     household_create_failed: "가계부를 만들지 못했습니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 다시 시도하세요.",
     household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.",
+    join_request_cancelled: "참여 요청을 취소했습니다. 다시 참여하려면 초대코드를 다시 입력하세요.",
+    join_cancel_failed: "참여 요청을 취소하지 못했습니다. 승인 대기 상태는 그대로입니다.",
   };
   return map[String(code || "")] || formatMessage(code || "");
 }
@@ -137,9 +143,13 @@ async function handleMyHouseholdsPage(request, env, url) {
     const readable = canReadMyHousehold(h.role);
     const manageable = canManageMyHousehold(h.role);
     const status = h.role === "pending" ? "승인 대기" : h.role === "blocked" ? "이용 제한" : userHouseholdRoleLabel(h.role || "member");
+    // V22.9.37 감사 H15: 승인 대기 중인 사람은 자기 참여 요청을 거둘 수 있다(내 pending 행만 지운다).
+    const cancelJoin = h.role === "pending"
+      ? `<form method="post" action="/my/household/leave" class="cancelJoin" onsubmit="return confirm('이 가계부 참여 요청을 취소할까요? 다시 참여하려면 초대코드를 다시 입력해야 합니다.')"><input type="hidden" name="household_id" value="${escapeHtml(h.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="cancel_pending" value="1"/><button class="cancelJoinButton" type="submit">참여 요청 취소</button></form>`
+      : "";
     const actions = readable
       ? `<a class="primary" href="/app?${qsFor(h)}">열기</a><a href="/my/households?${qsFor(h)}&manage=${encodeURIComponent(h.id)}#manage">옵션</a>${manageable ? `<a href="/my/members?${qsFor(h)}">멤버</a>` : ""}`
-      : `<a href="/my?household_id=${encodeURIComponent(h.id)}">상태 확인</a>`;
+      : `<a href="/my?household_id=${encodeURIComponent(h.id)}">상태 확인</a>${cancelJoin}`;
     const invite = manageable && h.invite_code
       ? `<details class="inviteFold"><summary>초대코드 보기</summary><div><code>${escapeHtml(h.invite_code)}</code><button type="button" data-copy="가계부 참여 ${escapeHtml(h.invite_code)}">복사</button></div></details>`
       : "";
@@ -184,7 +194,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       ${leaveForm}
     </section>` : "";
 
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.hhActions .cancelJoin{display:contents}.hhActions .cancelJoinButton{background:#fee2e2;color:#991b1b!important;min-height:39px}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
 }
 
 async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
@@ -230,20 +240,18 @@ async function handleMyCreate(request, env) {
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
   try {
-    if (displayName !== String(user.nickname || "")) {
-      await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ nickname: displayName }),
-      });
-      user = { ...user, nickname: displayName };
-    }
     const result = await withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
       const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
       if (existing) return { household: existing, existed: true };
       return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
     });
     const household = result.household;
+    // V22.9.37 감사 H14: 폼의 "이 가계부에서 보일 내 이름"은 새 가계부의 내 이름표(member_aliases)다. 계정 전체 닉네임
+    // (users.nickname)과 다른 가계부의 이름표는 바꾸지 않는다. 이름표 저장 실패는 생성 결과를 뒤집지 않는다.
+    if (!result.existed && displayName !== String(user.nickname || "")) {
+      try { await saveMemberAlias(env, household.id, userId, displayName); }
+      catch (aliasErr) { rememberOpsEvent({ kind: "household_create_alias_pending", severity: "warn", path: "/my/create", method: "POST", detail: safeError(aliasErr) }); }
+    }
     const msg = result.existed ? "household_duplicate_selected" : "created";
     const step = result.existed ? "manage" : "invite";
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(household.id)}&manage=${encodeURIComponent(household.id)}&step=${step}&msg=${msg}#${result.existed ? "manage" : "top"}`);
@@ -330,7 +338,12 @@ async function purgeHouseholdData(env, householdId = "") {
     const links = linkRows.map(row => { const link = normalizeKakaoGroupLinkItem(row.value); if (!link) throw settingsDataError("kakao_group_link", "invalid_shape"); return link; });
     const groupKeys = [...new Set([...roomMarkers.map(item => item.group_key), ...links.filter(item => item.household_id === hid).map(item => item.group_key), ...Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key)])].sort();
     if (groupKeys.length > 1000) throw new Error("household_purge_scope_too_large");
-    return { members, groupKeys, userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort() };
+    return {
+      members, groupKeys,
+      userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort(),
+      // V22.9.37 감사 H5: 사용자 잠금은 자동 준비 흐름이 잡는 사용자(개인 첫 기록 후보·방 표식 소유자)에만 잡는다.
+      leaseUserIds: [...new Set([...candidateUsers, ...roomMarkers.map(item => String(item.owner_id || ""))].filter(Boolean))].sort(),
+    };
   };
   let purge;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -339,11 +352,10 @@ async function purgeHouseholdData(env, householdId = "") {
       const assertFresh = () => { lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
       if (JSON.stringify(current.userIds) !== JSON.stringify(before.userIds) || JSON.stringify(current.groupKeys) !== JSON.stringify(before.groupKeys)) throw new Error("household_purge_scope_changed");
-      for (const userId of current.userIds) {
-        assertFresh();
-        // Actual members and server-confirmed provisional candidates are explicitly retired.
-        await markKakaoChatFirstHistory(env, userId);
-      }
+      assertFresh();
+      // Actual members and server-confirmed provisional candidates are explicitly retired.
+      // V22.9.37 감사 H5: 표식은 한 번의 upsert 로 쓴다. 참여자마다 한 건씩 쓰면 하위 요청이 참여자 수에 비례해 늘어난다.
+      await markKakaoChatFirstHistoryBatch(env, current.userIds);
       for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
       assertFresh();
       const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
@@ -354,7 +366,10 @@ async function purgeHouseholdData(env, householdId = "") {
       return { summary, affectedMembers: current.members };
     }));
     try {
-      purge = before.userIds.length ? await withKakaoUserLifecycleLease(env, before.userIds, work) : await work({ assertFresh() {} });
+      // V22.9.37 감사 H5: 참여자 한 명마다 사용자 잠금을 잡고 풀면 저장소 요청이 둘씩 늘어 17명부터 삭제가 되지 않고
+      // 15명부터 잠금이 남았다. 일반 참여자는 가계부 잠금 하나 안에서 표식만 한 번에 쓰고, 사용자 잠금은 자동 준비
+      // 후보(개인 첫 기록 표식의 사용자·방 표식 소유자)에만 잡아 진행 중인 첫 기록과 계속 직렬화한다.
+      purge = before.leaseUserIds.length ? await withKakaoUserLifecycleLease(env, before.leaseUserIds, work) : await work({ assertFresh() {} });
       break;
     } catch (err) {
       if (!/household_purge_scope_changed/.test(safeError(err)) || attempt === 2) throw err;
@@ -373,13 +388,19 @@ async function purgeHouseholdData(env, householdId = "") {
   try { await removeKakaoGroupLinksForHousehold(env, hid); } catch (err) {
     rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
   }
-  for (const member of purge.affectedMembers) {
-    try {
-      const selectedId = await getKakaoSelectedHouseholdId(env, member.user_id || "");
-      if (String(selectedId) === hid) await clearKakaoSelectedHousehold(env, member.user_id || "");
-    } catch (err) {
-      rememberOpsEvent({ kind: "household_selection_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household selection cleanup pending" });
+  // V22.9.37 감사 H5: 참여자마다 선택 상태를 읽고 지우던 왕복(참여자 수에 비례)을 조회 한 번·upsert 한 번으로 줄인다.
+  // purge RPC 가 같은 행을 지우므로 여기서는 늦게 남은 행만 비운다.
+  try {
+    const selections = await fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_selected_household_v2251:*")}&value=eq.${encodeURIComponent(hid)}&select=key&order=key.asc`, { maxRows: 1000 });
+    if (selections.length) {
+      await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(selections.map((row) => ({ key: String(row.key || ""), value: "" }))),
+      });
     }
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_selection_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household selection cleanup pending" });
   }
   return { ...safeObject(purge.summary), affectedMembers: purge.affectedMembers.length };
 }
@@ -448,6 +469,17 @@ async function handleMyHouseholdLeave(request, env) {
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
   if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
+  if (role === "pending") {
+    // V22.9.37 감사 H15: 승인 대기 중인 사람은 기록도 이력도 없다. 확인 항목 없이 자기 요청 행만 거둔다.
+    try {
+      const result = await cancelPendingHouseholdJoin(env, userId, householdId);
+      if (!result.cancelled) return redirectResponse(addQueryToUrl(back, { err: "join_cancel_failed" }));
+      return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=join_request_cancelled`);
+    } catch (err) {
+      rememberOpsEvent({ kind: "household_join_cancel_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
+      return redirectResponse(addQueryToUrl(back, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "join_cancel_failed" }));
+    }
+  }
   if (!understood) return redirectResponse(addQueryToUrl(back, { err: "household_leave_ack_required" }));
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
@@ -491,7 +523,9 @@ async function handleMyJoin(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const code = String(form.get("invite_code") || "").trim().toUpperCase();
+  // V22.9.37 감사 H3: 앱이 복사해 주는 "가계부 참여 CODE"·"초대코드 CODE"를 그대로 붙여 넣어도 코드만 읽는다.
+  const rawCode = String(form.get("invite_code") || "").trim();
+  const code = String(parseJoinCode(rawCode) || parseBareInviteCode(rawCode) || rawCode).toUpperCase();
   if (!code) return redirectResponse(returnLocation(form, "/my/households", { err: "invite_code_missing" }));
   try {
     const joined = await joinHouseholdByCode(env, userId, code);

@@ -1,5 +1,6 @@
 // @build:imports-start
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import {
   fetchAdminRowsRange, fetchHouseholdMembers, isRowLimitExceededError, memberNameMap,
@@ -12,6 +13,7 @@ import { upsertMyBudgetRow, withBudgetPlanLease } from "../my/groups-budget-bulk
 import { shiftMonthString } from "../my/analysis-page.js";
 import { fetchBudgets, optionalSupabase } from "../domain/budgets.js";
 import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
+import { normalizeHouseholdNameText } from "./intent-nlu.js";
 import { dedupeQuickReplies, kakaoQr } from "./response-builders.js";
 import { normalizeKakaoEditAmountValue } from "./edit-state-machine.js";
 import {
@@ -94,7 +96,8 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
 }
 
 async function beginKakaoHouseholdChoice(env, { user, payload, households = [], action = "select", origin = "", groupKey = "", forceChoice = false } = {}) {
-  const candidates = action === "bind" ? kakaoManageableHouseholds(households) : kakaoActiveHouseholds(households);
+  // V22.9.37 감사 H10: 초대코드는 웹 참여자 화면처럼 소유자·관리자만 본다. 참여만 한 가계부는 초대 후보에서 뺀다.
+  const candidates = ["bind", "invite"].includes(action) ? kakaoManageableHouseholds(households) : kakaoActiveHouseholds(households);
   if (!candidates.length) {
     if (action === "bind") return {
       text: [
@@ -103,6 +106,7 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
       ].join("\n"),
       quickReplies: dedupeQuickReplies([["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]),
     };
+    if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말", "도움말"]] };
     return { text: kakaoStartText(false), quickReplies: kakaoStartQuickReplies(false) };
   }
   if (candidates.length === 1 && !forceChoice) {
@@ -269,9 +273,14 @@ function inferKakaoCreateKind(text = "") {
   return "";
 }
 
+// H13: 이름은 기호를 지우지 않되, 글자·숫자가 둘은 있어야 "의미 있는 2~40자"다(예전에는 기호를 지운 뒤 길이를 봤다).
+function hasMeaningfulHouseholdName(text = "") {
+  return String(text || "").replace(/[^\p{L}\p{N}]/gu, "").length >= 2;
+}
+
 function plausibleHouseholdNameAtKindStep(text = "") {
-  const t = normalizeText(text).trim();
-  if (!t || isKakaoCreateKindOptionsRequest(t) || isKakaoReservedCreateFlowReply(t) || isUnsafeKakaoNameInputV2254(t)) return "";
+  const t = normalizeHouseholdNameText(text);
+  if (!t || !hasMeaningfulHouseholdName(t) || isKakaoCreateKindOptionsRequest(t) || isKakaoReservedCreateFlowReply(t) || isUnsafeKakaoNameInputV2254(t)) return "";
   if (/^(선택|종류|가계부|그냥|아무거나|모르겠어|모름|다시|\d{1,2}\s*번?)$/.test(t)) return "";
   if (parseKakaoCreateKind(t)) return "";
   if (parseAmountValue(t) > 0 || isKakaoFlowCancelCommand(t)) return "";
@@ -289,8 +298,9 @@ function suggestedHouseholdName(kind = "", nickname = "") {
 }
 
 function sanitizeHouseholdNameInput(text = "") {
-  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
-  if (t.length < 2 || t.length > 40) return "";
+  // V22.9.37 감사 H13: 이름은 거래 문장 정규화를 거치지 않는다("원정대"→"원대"). 판정 함수들은 스스로 정규화한다.
+  const t = normalizeHouseholdNameText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40 || !hasMeaningfulHouseholdName(t)) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t) || isUnsafeKakaoNameInputV2254(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
@@ -301,8 +311,8 @@ function sanitizeHouseholdNameInput(text = "") {
 // 없다. 이 둘을 그대로 적용하면 `가족 생활비`, `생활비`, `모임`, `여행` 같은
 // 가장 자연스러운 이름이 거부된다. 봇 명령어 충돌과 안전성 검사는 유지한다.
 function sanitizeWebHouseholdNameInput(text = "") {
-  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
-  if (t.length < 2 || t.length > 40) return "";
+  const t = normalizeHouseholdNameText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40 || !hasMeaningfulHouseholdName(t)) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || /https?:|[<>\r\n]/i.test(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
@@ -468,6 +478,22 @@ async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", ki
   }
 }
 
+// V22.9.37 감사 H10: 일반 참여자·조회 전용에게는 초대코드를 보여 주지 않는다. 웹 참여자 화면과 같은 기준이다.
+function kakaoInviteNotAllowedText(household = null) {
+  return [
+    "👥 초대코드는 가계부 소유자·관리자만 확인할 수 있어요.",
+    household?.name ? `가계부: ${household.name}` : "",
+    "",
+    "구성원을 초대하려면 소유자나 관리자에게 초대코드를 요청해 주세요.",
+  ].filter(Boolean).join("\n");
+}
+
+// V22.9.37 감사 NEW-8: 예산도 기록·수정과 같은 20억 상한을 둔다(웹 예산 일괄 저장과 같은 기준). "50억"이
+// 예산으로 저장되면 예산 사용률과 알림이 통째로 어긋난다.
+function kakaoBudgetAmountTooLargeText(amount = 0) {
+  return `금액이 너무 커서 예산을 설정하지 않았어요.\n입력 금액: ${numberWithCommas(amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 설정할 수 있어요. 금액을 다시 보내 주세요.`;
+}
+
 function kakaoInviteManagementText(household = {}, origin = "") {
   const code = String(household?.invite_code || "-").trim() || "-";
   // P1-1: 초대 응답 메시지에는 내부 household_id(UUID)를 노출하지 않는다. 참여는 초대코드만으로 충분하며,
@@ -521,11 +547,13 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
   ].filter(Boolean).join("\n") + cta;
 }
 
+// V22.9.37 감사 H7·H13: "같은 이름의 가계부"는 내가 소유한 가계부와만 비교한다. 참여만 한(조회 전용 포함) 가계부와
+// 이름이 같다고 새로 만들지 않으면 같은 이름의 내 가계부를 만들 길이 없다. 비교는 공백·대소문자만 고른다.
 async function findExistingKakaoHouseholdByNameV2254(env, userId = "", name = "") {
-  const target = normalizeText(name).replace(/\s+/g, " ").trim().toLowerCase();
+  const target = normalizeHouseholdNameText(name).toLowerCase();
   if (!target) return null;
-  const rows = kakaoActiveHouseholds(await fetchUserHouseholds(env, userId));
-  return rows.find((h) => normalizeText(h?.name || "").replace(/\s+/g, " ").trim().toLowerCase() === target) || null;
+  const rows = safeArray(await fetchUserHouseholds(env, userId)).filter((h) => String(h?.role || "") === "owner");
+  return rows.find((h) => normalizeHouseholdNameText(h?.name || "").toLowerCase() === target) || null;
 }
 // @build:exports-start
 export {
@@ -533,12 +561,12 @@ export {
   findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
   guidedHelpText, inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
-  kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
-  kakaoManageableHouseholds, kakaoStartText, kakaoUnlinkedGroupStartText, maybeKakaoCta,
-  parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
-  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
+  kakaoDirectStartText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoStartText,
+  kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand,
+  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end
