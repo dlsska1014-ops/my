@@ -17,7 +17,7 @@ V22.9.33 에서 고친 것은 B01~B09 와 T1 입니다. T13 은 B02 와 같은 �
 
 ## T1 영향 확인(읽기 전용 조회)
 
-T1 은 V22.8.86(2026-08-11 커밋)부터 V22.9.33 배포 전까지 운영에 있었습니다. 빈 폼은 금액이 0 이라 금액을 다시 입력해야 저장됐습니다. 그래서 저장된 수정은 분류·메모·결제수단이 비거나, 날짜가 저장한 날로, 수입이 지출로 바뀌었을 수 있습니다.
+T1 은 V22.8.86(2026-08-11 커밋)부터 V22.9.33 배포(2026-10-09 20:10 KST) 전까지 운영에 있었습니다. 빈 폼은 금액이 0 이라 금액을 다시 입력해야 저장됐습니다. 그래서 저장된 수정은 분류·메모·결제수단이 비거나, 날짜가 저장한 날로, 수입이 지출로 바뀌었을 수 있습니다.
 
 웹 수정은 `accountbook_update_transaction_v227` RPC 로 저장되고, 이 RPC 는 수정 전후 행 전체를 `accountbook_transaction_audit`에 남깁니다. 아래 조회는 후보를 찾기만 하고 아무것도 바꾸지 않습니다. 사용자가 일부러 바꾼 수정도 섞이므로 전후 값을 보고 판단합니다. 웹 수정의 `actor_kind`는 `user`·`admin`이고 카카오 수정은 `system`입니다.
 
@@ -34,6 +34,7 @@ from public.accountbook_transaction_audit a
 where a.action = 'update'
   and a.actor_kind in ('user', 'admin')
   and a.created_at >= '2026-08-11 00:00:00+09'
+  and a.created_at < '2026-10-09 20:11:00+09'
   and (
        (coalesce(a.before_value->>'category', '') <> '' and coalesce(a.after_value->>'category', '') = '')
     or (coalesce(a.before_value->>'payment_method', '') <> '' and coalesce(a.after_value->>'payment_method', '') = '')
