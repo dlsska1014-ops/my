@@ -49,7 +49,7 @@ async function readBounded(response,max=262144) {
   return new TextDecoder().decode(all);
 }
 async function requestJson(request,max=16384) { return JSON.parse(await readBounded(request,max)); }
-const failureCode = error => /not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
+const failureCode = error => /not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|delivery_failed|metrics_unavailable|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
 
 async function writeCollector(env,name,task,now) {
   const at=now.toISOString();
@@ -138,10 +138,21 @@ export async function collectUptime(env,now) {
 async function collectDatabase(env) {
   if(!env.ACCOUNTBOOK || !env.OPS_MONITOR_TOKEN) throw new Error("not_connected");
   const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-metrics",{headers:{authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`},signal:AbortSignal.timeout(10000)});
-  if(!response.ok) throw new Error(`http_${response.status}`);
-  const body=JSON.parse(await readBounded(response,32768));
-  if(!body.ok) throw new Error(body.error_code || "collection_failed");
+  const text=await readBounded(response,32768);
+  // 1.1.0: 앱의 503 본문에는 실제 원인(not_connected·invalid_origin·metrics_unavailable 등)이 있다. 상태 코드만 던지면 그 원인이 사라진다.
+  let body=null; try { body=JSON.parse(text); } catch(_) { body=null; }
+  if(!response.ok) throw new Error(body?.error_code ? `${body.error_code}` : `http_${response.status}`);
+  if(!body||!body.ok) throw new Error(body?.error_code || "collection_failed");
   return body.metrics;
+}
+
+// 1.1.0: 분석 토큰의 만료일. README 4단계는 1년 만료 토큰을 권하지만 아무도 만료일을 보지 않았다.
+async function collectToken(env) {
+  if(!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
+  const body=await fetchJson("https://api.cloudflare.com/client/v4/user/tokens/verify",{headers:{authorization:`Bearer ${env.CF_ANALYTICS_TOKEN}`}});
+  const result=body?.result;
+  if(!body?.success||!result||typeof result.status!=="string") throw new Error("unsupported_fields");
+  return {status:result.status,expires_on:typeof result.expires_on==="string"?result.expires_on:null};
 }
 
 async function collectSupabasePlan(env) {
@@ -160,6 +171,7 @@ export async function collect(env,now=new Date()) {
     writeCollector(env,"d1",()=>collectD1(env,now),now)
   ]);
   if(now.getUTCMinutes()<5) await writeCollector(env,"supabase_plan",()=>collectSupabasePlan(env),now);
+  if(now.getUTCMinutes()<5) await writeCollector(env,"token",()=>collectToken(env),now);
   // Indexed bounded deletion: retention 30 days for aggregates, 7 days for diagnostic samples.
   if(now.getUTCMinutes()<5) await env.MONITOR_DB.batch([
     env.MONITOR_DB.prepare("DELETE FROM telemetry WHERE id IN (SELECT id FROM telemetry WHERE at < ? ORDER BY at LIMIT 1000)").bind(now.getTime()-7*DAY),
@@ -175,8 +187,11 @@ export async function summary(env,now=Date.now()) {
   const states=Object.fromEntries(rows.map(row=>[row.name,{...freshState(row,row.name==="supabase_plan"?2*3600000:20*60000,now),data:row.payload?JSON.parse(row.payload):null}]));
   for(const name of ["cloudflare","database","uptime","supabase_plan","d1"]) if(!states[name]) states[name]={...freshState(null,0,now),data:null};
   const planFresh=Number.isFinite(Date.parse(plans.verified_at))&&now-Date.parse(plans.verified_at)>=-60000&&now-Date.parse(plans.verified_at)<7*DAY;
-  const cfPlan=planFresh?plans.cloudflare:"unknown";
-  const sbPlan=states.supabase_plan.fresh?states.supabase_plan.data.plan:planFresh?plans.supabase:"unknown";
+  // 1.1.0: 확인 기록이 7일을 넘어도 마지막으로 확인한 요금제의 한도는 계속 비교한다. 예전에는 8일째부터 모든 한도가
+  // null 이 되어 한도 경고가 전부 꺼졌다(2026-10-08 부터 운영이 그 상태였다). 대신 "재확인 필요"를 참고와 주의로 알린다.
+  const planStale=!planFresh&&(plans.cloudflare!=="unknown"||plans.supabase!=="unknown");
+  const cfPlan=plans.cloudflare||"unknown";
+  const sbPlan=states.supabase_plan.fresh?states.supabase_plan.data.plan:(plans.supabase||"unknown");
   const quotas=[];
   const cf=states.cloudflare;
   const cfFresh=cf.fresh&&cf.data?.period_start?.slice(0,10)===new Date(now).toISOString().slice(0,10);
@@ -217,6 +232,8 @@ export async function summary(env,now=Date.now()) {
   const telemetryStatus=lastObserved===null?"not_connected":now-lastObserved>3600000?"stale":"ok";
   const alerts=quotas.filter(q=>["warning","upgrade","critical"].includes(q.status)).map(q=>({status:q.status,title:q.name,message:q.status==="upgrade"?"증가 추세와 한도를 확인하고 해당 서비스의 요금제 전환을 검토하세요.":q.status==="critical"?"한도에 근접했습니다. 요청 제한과 용량 확보를 함께 검토하세요.":"사용량 증가 추세를 확인하세요."}));
   if(cf.fresh&&cf.data.hour.requests>=100&&cf.data.hour.errors/cf.data.hour.requests>=0.01) alerts.push({status:cf.data.hour.errors/cf.data.hour.requests>=0.05?"critical":"warning",title:"Workers 런타임 오류 증가",message:"최근 1시간의 계정 전체 런타임 오류입니다. 앱이 반환한 HTTP 오류 및 카카오 처리 실패와 별도로 확인하세요."});
+  // 1.1.0: 계정 전체 요청 100건 미만이면 오류율 경고가 영영 꺼져 있었다. 앱 Worker 의 오늘 런타임 오류는 건수로 본다.
+  if(cfFresh&&numberOrNull(cf.data.app?.errors)!==null&&cf.data.app.errors>=3) alerts.push({status:cf.data.app.errors>=20?"critical":"warning",title:"앱 Worker 런타임 오류(오늘)",message:`오늘 앱 Worker 런타임 오류가 ${cf.data.app.errors}건입니다. Workers Logs 와 /ops-events 에서 원인을 확인하세요.`});
   if(cf.fresh&&cf.data.app.cpu_limit_errors>0) alerts.push({status:"upgrade",title:"앱 Worker의 CPU 제한 초과",message:"CPU 한도와 코드 처리량을 확인하세요. 유료 전환 또는 처리량 축소가 필요한 근거입니다."});
   if(cf.fresh&&cf.data.app.resource_limit_errors>0) alerts.push({status:"upgrade",title:"앱 Worker의 리소스 제한 초과",message:"CPU·시작 시간·무료 한도 등 리소스 제한이 관측됐습니다. 제한 종류와 코드 처리량을 확인한 뒤 요금제 전환을 검토하세요."});
   if(states.uptime.fresh&&states.uptime.data.checks.some(c=>!c.ok)) alerts.unshift({status:"critical",title:"서비스 접속 또는 DB 준비 상태 실패",message:"최근 접속 검사 결과를 확인하세요. 요금제 한도와 앱 오류를 구분해야 합니다."});
@@ -230,11 +247,23 @@ export async function summary(env,now=Date.now()) {
   if(!db.fresh||numberOrNull(db.data?.connections)===null||!(numberOrNull(db.data?.max_connections)>0)) unknown.push("DB 연결 수 또는 최대 연결 수 미관측");
   if(!db.fresh||numberOrNull(db.data?.memory_available_bytes)===null||!(numberOrNull(db.data?.memory_total_bytes)>0)) unknown.push("DB 메모리 지표 미관측");
   if(telemetryStatus!=="ok") unknown.push("앱 요청 표본 미관측 또는 갱신 지연");
-  if(skillP95===null) unknown.push("카카오 p95 표본 부족");
-  if(percentile(random.filter(e=>e.route==="web").map(e=>e.duration_ms))===null) unknown.push("웹 p95 표본 부족");
+  // 1.1.0: p95 표본 부족은 낮은 트래픽에서 정상이다. "확인 불가"가 아니라 참고 사항으로 둔다(예전에는 이 둘 때문에 전체 상태가 늘 확인 불가였다).
+  const notes=[];
+  if(skillP95===null) notes.push("카카오 p95 표본 부족(하루 무작위 표본 30건 미만)");
+  if(percentile(random.filter(e=>e.route==="web").map(e=>e.duration_ms))===null) notes.push("웹 p95 표본 부족(하루 무작위 표본 30건 미만)");
+  if(planStale) { notes.push(`요금제 확인 기록이 7일을 넘었습니다(마지막 확인 ${String(plans.verified_at||"").slice(0,10)||"없음"}). 마지막 확인 요금제의 한도로 비교합니다.`); alerts.push({status:"warning",title:"요금제 확인 기록 만료",message:"공식 Billing 에서 Workers·Supabase 요금제를 다시 확인하고 관제 화면에 저장하세요. 그동안은 마지막 확인 요금제의 한도로 비교합니다."}); }
   if(!cfFresh||numberOrNull(cf.data?.app.requests)===null) unknown.push("앱 Worker 공급자 지표 미관측");
-  for(const [name,state] of Object.entries(states)) if(!state.fresh&&!(name==="supabase_plan"&&sbPlan!=="unknown"&&planFresh)) unknown.push(({cloudflare:"Cloudflare 수집",database:"DB 수집",uptime:"접속 검사",supabase_plan:"요금제 자동 확인",d1:"관제 저장소 사용량 수집"})[name]);
-  return {version:MONITOR_VERSION,generated_at:new Date(now).toISOString(),status:alerts.some(a=>a.status==="critical")?"critical":alerts.some(a=>a.status==="upgrade")?"upgrade":alerts.length?"warning":unknown.length?"unknown":"normal",plans:{cloudflare:cfPlan,supabase:sbPlan,verified_at:plans.verified_at},states,quotas,alerts,unknown,
+  // 1.1.0: 알림 발송·토큰 만료 상태. 두 수집기는 행이 없으면(아직 한 번도 돌지 않음) 조용히 넘기고, 있으면 다른 수집기와 같이 본다.
+  const delivery=states.alerts?{status:states.alerts.status,error_code:states.alerts.error_code,last_success_at:states.alerts.last_success_at,last_attempt_at:states.alerts.last_attempt_at,data:states.alerts.data}:{status:"not_connected",error_code:null,last_success_at:null,last_attempt_at:null,data:null};
+  const tokenData=states.token?.data||null;
+  const tokenDaysLeft=tokenData?.expires_on&&Number.isFinite(Date.parse(tokenData.expires_on))?Math.floor((Date.parse(tokenData.expires_on)-now)/DAY):null;
+  if(tokenData&&tokenData.status!=="active") alerts.push({status:"critical",title:"Cloudflare 분석 토큰 비활성",message:`토큰 상태가 ${tokenData.status}입니다. 새 토큰(Account Analytics Read)을 만들어 CF_ANALYTICS_TOKEN 을 교체하세요.`});
+  else if(tokenDaysLeft!==null&&tokenDaysLeft<=30) alerts.push({status:tokenDaysLeft<=7?"critical":"warning",title:"Cloudflare 분석 토큰 만료 임박",message:`${String(tokenData.expires_on).slice(0,10)} 만료(D-${Math.max(0,tokenDaysLeft)})입니다. 새 토큰을 만들어 CF_ANALYTICS_TOKEN 을 교체하세요.`});
+  const stateLabels={cloudflare:"Cloudflare 수집",database:"DB 수집",uptime:"접속 검사",supabase_plan:"요금제 자동 확인",d1:"관제 저장소 사용량 수집",token:"분석 토큰 만료 확인",alerts:"알림 발송"};
+  for(const [name,state] of Object.entries(states)) if(!state.fresh&&!(name==="supabase_plan"&&sbPlan!=="unknown")&&!(name==="token"&&state.status==="stale"&&tokenData)) unknown.push(name==="alerts"&&state.error_code==="not_connected"?"알림 발송 채널 미연결(ALERT_TO 또는 ALERT_WEBHOOK_URL)":`${stateLabels[name]||name}${state.error_code?`(${state.error_code})`:""}`);
+  return {version:MONITOR_VERSION,generated_at:new Date(now).toISOString(),status:alerts.some(a=>a.status==="critical")?"critical":alerts.some(a=>a.status==="upgrade")?"upgrade":alerts.length?"warning":unknown.length?"unknown":"normal",plans:{cloudflare:cfPlan,supabase:sbPlan,verified_at:plans.verified_at,stale:planStale},states,quotas,alerts,unknown,notes,
+    delivery:{...delivery,channels:[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean)},
+    token:{status:tokenData?.status||null,expires_on:tokenData?.expires_on||null,days_left:tokenDaysLeft,checked_at:states.token?.last_success_at||null},
     database:{cpu_percent:cpu,connections:db.fresh?numberOrNull(db.data?.connections):null,max_connections:db.fresh?numberOrNull(db.data?.max_connections):null,memory_used_percent:db.fresh&&numberOrNull(db.data?.memory_available_bytes)!==null&&db.data?.memory_total_bytes?100*(1-db.data.memory_available_bytes/db.data.memory_total_bytes):null},
     application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:random.length,skill_random_samples:skillRandom.length,skill_p95_ms:skillP95,web_p95_ms:percentile(random.filter(e=>e.route==="web").map(e=>e.duration_ms)),incident_count:incidents.length,recent:events.slice(0,30),truncated:events.length===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null},
     database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.collected_at,value:JSON.parse(r.payload).database_bytes})),
@@ -253,8 +282,70 @@ async function manualUsage(request,env) {
   return json({ok:true});
 }
 
+// ── 1.1.0 알림 발송 ────────────────────────────────────────────────────────────
+// 경고는 그동안 관리자가 화면을 열 때만 계산됐다. 이제 매 수집 뒤 summary() 를 돌려 새 경고를 이메일(send_email 바인딩)과
+// 웹훅으로 보낸다. 같은 경고는 등급별 간격 안에서 다시 보내지 않고, 긴급 경고가 사라지면 "해소"를 한 번 보낸다.
+// 발송 기록은 D1 settings 의 alert:* 행이며, 발송에 실패하면 기록을 남기지 않아 다음 수집 때 다시 시도한다.
+const ALERT_RESEND_MS={critical:6*3600000,upgrade:12*3600000,warning:24*3600000};
+const ALERT_LABELS={critical:"긴급",upgrade:"전환 검토",warning:"주의"};
+function alertKey(title) { let hash=2166136261; for(const c of String(title)) hash=Math.imul(hash^c.charCodeAt(0),16777619); return `alert:${(hash>>>0).toString(16)}`; }
+function base64Utf8(text) { const bytes=new TextEncoder().encode(text); let binary=""; for(let i=0;i<bytes.length;i+=0x4000) binary+=String.fromCharCode(...bytes.subarray(i,i+0x4000)); return btoa(binary); }
+export function rawAlertEmail({from,to,subject,text,now}) {
+  const domain=String(from).split("@")[1]||"localhost";
+  return [`From: ${from}`,`To: ${to}`,`Subject: =?UTF-8?B?${base64Utf8(subject)}?=`,`Date: ${now.toUTCString()}`,`Message-ID: <${crypto.randomUUID()}@${domain}>`,"MIME-Version: 1.0","Content-Type: text/plain; charset=utf-8","Content-Transfer-Encoding: base64","",base64Utf8(text).replace(/.{76}/g,"$&\r\n"),""].join("\r\n");
+}
+export function renderAlertText(result,due,recovered,now,origin="") {
+  const kst=new Date(now.getTime()+9*3600000).toISOString().replace("T"," ").slice(0,16)+" KST";
+  const lines=[`말해가계부 관제 ${kst} · 전체 상태 ${ALERT_LABELS[result.status]||result.status}`,""];
+  for(const alert of due) lines.push(`[${ALERT_LABELS[alert.status]||alert.status}] ${alert.title}`,`  ${alert.message}`);
+  for(const prev of recovered) lines.push(`[해소] ${prev.title}`);
+  if(result.unknown?.length) lines.push("",`확인되지 않은 항목: ${result.unknown.join(", ")}`);
+  lines.push("",`관제 화면: ${origin?`${origin}/ops-monitor`:"/ops-monitor"}`,"이 메일은 5분 수집마다 새 경고가 있을 때만 발송되며, 같은 경고는 긴급 6시간·전환 검토 12시간·주의 24시간 안에 다시 보내지 않습니다.");
+  return lines.join("\n");
+}
+async function sendAlertEmail(env,subject,text,now) {
+  const from=env.ALERT_FROM||`monitor@${new URL(env.APP_ORIGIN).hostname}`;
+  const raw=rawAlertEmail({from,to:env.ALERT_TO,subject,text,now});
+  let message={from,to:env.ALERT_TO,raw};
+  try { const mod=await import("cloudflare:email"); message=new mod.EmailMessage(from,env.ALERT_TO,raw); } catch(_) { /* Node 검사: 바인딩 흉내가 평범한 객체를 받는다 */ }
+  await env.ALERT_EMAIL.send(message);
+}
+export async function deliverAlerts(env,now=new Date()) {
+  const channels=[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean);
+  if(!channels.length) throw new Error("not_connected");
+  const result=await summary(env,now.getTime());
+  const active=result.alerts.filter(alert=>ALERT_RESEND_MS[alert.status]);
+  const rows=(await env.MONITOR_DB.prepare("SELECT key,value FROM settings WHERE key LIKE 'alert:%'").all()).results;
+  const remembered=new Map(rows.map(row=>{ try { return [row.key,JSON.parse(row.value)]; } catch(_) { return [row.key,{}]; } }));
+  const due=[];const statements=[];
+  for(const alert of active) {
+    const key=alertKey(alert.title);
+    const previous=remembered.get(key);
+    remembered.delete(key);
+    const sentAt=Date.parse(previous?.sent_at||"");
+    if(previous&&previous.status===alert.status&&Number.isFinite(sentAt)&&now.getTime()-sentAt<ALERT_RESEND_MS[alert.status]) continue;
+    due.push(alert);
+    statements.push(env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,JSON.stringify({title:alert.title,status:alert.status,sent_at:now.toISOString()})));
+  }
+  const recovered=[];
+  for(const [key,previous] of remembered) { statements.push(env.MONITOR_DB.prepare("DELETE FROM settings WHERE key=?").bind(key)); if(previous?.status==="critical") recovered.push(previous); }
+  if(!due.length&&!recovered.length) { if(statements.length) await env.MONITOR_DB.batch(statements); return {channels,sent:0,recovered:0,active:active.length,status:result.status}; }
+  const counts=["critical","upgrade","warning"].map(status=>`${ALERT_LABELS[status]} ${due.filter(a=>a.status===status).length}`).join(" · ");
+  const subject=`[말해가계부 관제] ${due.length?counts:"해소 "+recovered.length}`;
+  const text=renderAlertText(result,due,recovered,now,env.APP_ORIGIN||"");
+  const delivered=[];const failures=[];
+  if(channels.includes("email")) { try { await sendAlertEmail(env,subject,text,now); delivered.push("email"); } catch(error) { failures.push(`email:${failureCode(error)}`); } }
+  if(channels.includes("webhook")) { try { const response=await fetch(env.ALERT_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:`${subject}\n${text}`}),signal:AbortSignal.timeout(8000)}); if(!response.ok) throw new Error(`http_${response.status}`); delivered.push("webhook"); } catch(error) { failures.push(`webhook:${failureCode(error)}`); } }
+  if(!delivered.length) throw new Error(`delivery_failed ${failures.join(" ")}`);
+  if(statements.length) await env.MONITOR_DB.batch(statements);
+  return {channels,delivered,failures,sent:due.length,recovered:recovered.length,active:active.length,status:result.status,titles:due.map(alert=>alert.title).slice(0,10)};
+}
+
 export default {
-  async scheduled(controller,env,ctx) { ctx.waitUntil(collect(env)); },
+  async scheduled(controller,env,ctx) {
+    const now=new Date(Number.isFinite(Number(controller?.scheduledTime))?Number(controller.scheduledTime):Date.now());
+    ctx.waitUntil((async()=>{ await collect(env,now); await writeCollector(env,"alerts",()=>deliverAlerts(env,now),now); })());
+  },
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
     if(url.pathname==="/health"&&request.method==="GET") return json({ok:true,version:MONITOR_VERSION,storage_configured:Boolean(env.MONITOR_DB)});

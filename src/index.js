@@ -110,7 +110,15 @@ function nluOutcomeFromKakaoResponse(responseText = "") {
   if (/(정확히 이해하지 못했|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(text)) {
     return { result: "fallback", reason: "generic_fallback", text, quick_reply_count: quickReplyCount };
   }
-  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생)/.test(text)) {
+  // V22.9.37(관제): 저장소가 거절한 저장("저장하지 못했어요")과 결과를 모르는 저장("저장 확인이 지연")은 관제에 "ok"로
+  // 집계되고 있었다. 실패·불확실로 나눠 센다.
+  if (/(저장하지 못했어요|기록되지 않았어요)/.test(text)) {
+    return { result: "error", reason: "save_failed", text, quick_reply_count: quickReplyCount };
+  }
+  if (/저장 확인이 지연/.test(text)) {
+    return { result: "error", reason: "save_uncertain", text, quick_reply_count: quickReplyCount };
+  }
+  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(text)) {
     return { result: "error", reason: "safe_error_response", text, quick_reply_count: quickReplyCount };
   }
   if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(text)) {
@@ -827,12 +835,23 @@ async function withRememberedHouseholdCookie(routed, response) {
 }
 
 const AB_MONITOR_SEND_BUDGET = { minute: 0, count: 0 };
+// V22.9.37(관제): 전송 실패는 조용히 사라졌다. 인스턴스마다 분당 한 번만 운영 이벤트로 남긴다(220개 버퍼를 채우지 않는다).
+const AB_MONITOR_SEND_FAILURE = { minute: 0 };
+// V22.9.37(관제): 설정·백업·정산·예산 알림·목표·연간·정기·자산 화면은 표본에서 빠져 있었다. 로그인 사용자 화면을 모두 포함한다.
+const AB_MONITOR_ROUTE_PREFIXES = ["/skill", "/app", "/m", "/my", "/api", "/admin", "/admin-view", "/auth", "/u/api", "/login", "/menu", "/budgets", "/reports", "/annual", "/annual-report", "/analysis", "/settlement-summary", "/budget-alerts", "/today-budget", "/monthly-forecast", "/fixed-preview", "/goals", "/savings-goals", "/payment-methods", "/reserve-plans", "/settings", "/backup", "/transactions", "/keyword-guide", "/categories", "/smart-tools", "/home-layout", "/start-guide", "/households", "/card-benefits"];
+
+function abMonitorSendFailed(error) {
+  const minute = Math.floor(Date.now() / 60000);
+  if (AB_MONITOR_SEND_FAILURE.minute === minute) return;
+  AB_MONITOR_SEND_FAILURE.minute = minute;
+  try { rememberOpsEvent({ kind: "monitor_send_failed", severity: "warn", path: "/internal/telemetry", method: "POST", detail: String(error?.message || error || "").slice(0, 160) }); } catch (_) { /* never interrupt */ }
+}
 
 function abMonitorRequestContext(request, env = {}) {
   if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return null;
   const path = new URL(request.url).pathname;
   if (/^\/(?:health|ready|internal|ops-|assets|icon-|favicon|apple-touch|manifest|ads\.txt|robots|sitemap)/.test(path)) return null;
-  if (!["/skill", "/app", "/my", "/api", "/admin", "/auth", "/u/api", "/login"].some(prefix => path === prefix || path.startsWith(prefix + "/"))) return null;
+  if (!AB_MONITOR_ROUTE_PREFIXES.some(prefix => path === prefix || path.startsWith(prefix + "/"))) return null;
   const route = path === "/skill" ? "skill" : /login|signup|auth/.test(path) ? "auth" : /import/.test(path) ? "import" : /^\/(?:u\/api|api|admin)\//.test(path) ? "api" : "web";
   return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, outcome: "unknown" };
 }
@@ -861,7 +880,8 @@ function abMonitorCompleted(env, ctx, response) {
     try {
       const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
       if (result.body) await result.body.cancel();
-    } catch (_) { /* Monitoring failure never changes the user's response or retries a write. */ }
+      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
+    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
   })();
   try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ }
   } catch (_) { /* Telemetry must never interrupt application handling. */ }

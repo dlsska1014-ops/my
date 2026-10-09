@@ -4,17 +4,26 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
-  "observability": { "enabled": false },
+  // 1.1.0: Workers Logs(무료 20만 건/일, 3일)를 켠다. cron 실패와 알림 발송 실패가 로그에 남는다.
+  "observability": { "enabled": true },
   "triggers": { "crons": ["*/5 * * * *"] },
   "d1_databases": [{ "binding": "MONITOR_DB", "database_name": "malhaebook-monitor", "database_id": "9cb13eee-5c2b-43d8-994e-1316300c9222" }],
   "services": [{ "binding": "ACCOUNTBOOK", "service": "kakao-accountbook" }],
+  // 1.1.0 알림 이메일: Email Routing 에서 수신 주소(ALERT_TO)를 "대상 주소"로 인증한 뒤 아래 주석을 풀고 배포한다.
+  // 발신 주소(ALERT_FROM)는 malhaebook.com 의 주소여야 한다. 인증되지 않은 대상 주소로는 배포가 거부된다.
+  // "send_email": [{ "name": "ALERT_EMAIL", "destination_address": "<ALERT_TO 와 같은 인증된 주소>" }],
   "vars": {
     "APP_ORIGIN": "https://malhaebook.com",
     "CF_ACCOUNT_ID": "58e7954ad3d92f0d39a7492ad4689165",
     "APP_WORKER_NAME": "kakao-accountbook",
     "SUPABASE_PROJECT_REF": "hlftopwrwmpskbdaognv",
     "SUPABASE_ORG_ID": "psyrhahxemnxoixfndcn",
+    // 1.1.0: 요금제 확인 기록이 만료돼도 마지막 확인 요금제의 한도로 비교한다. 유료 전환 뒤에는 paid/pro 로 바꾼다.
+    "CF_PLAN": "free",
     "SUPABASE_PLAN": "free",
-    "PLAN_VERIFIED_AT": "2026-10-01T00:00:00.000Z"
+    "PLAN_VERIFIED_AT": "2026-10-10T00:00:00.000Z",
+    // 1.1.0 알림: 이메일(send_email 바인딩 + ALERT_TO) 또는 웹훅(Secret ALERT_WEBHOOK_URL, Slack/Discord 호환 {"text":…}) 가운데 하나 이상.
+    "ALERT_FROM": "monitor@malhaebook.com",
+    "ALERT_TO": ""
   }
 }
