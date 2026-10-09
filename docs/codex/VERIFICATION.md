@@ -1,3 +1,10 @@
+## V22.9.36의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_36.sha256`의 357개 파일을 사용하고, 자동 검사 하한은 8,795개입니다.
+
+- **운영 조건 흉내:** 새 검사 `validate-kakao-category-fallback-v22936`는 `intercept`로 `accountbook_categories` 조회에 PostgREST 404(PGRST205)·503 을 돌려주어, 운영처럼 표가 없는 조건에서 카카오 새 기록이 저장되는지 봅니다. `npm run validate:kakao-category-fallback`.
+- **교훈:** `/ready`가 "선택 표 없음"을 알려 왔는데도 픽스처에는 표가 있어 아무 검사도 그 조건을 보지 않았습니다. 운영과 픽스처가 다른 점은 목록으로 두고 검사에서 흉내 냅니다.
+
 ## V22.9.35의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_35.sha256`의 352개 파일을 사용하고, 자동 검사 하한은 8,769개입니다.

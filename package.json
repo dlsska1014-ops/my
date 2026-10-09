@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.35",
+  "version": "22.9.36",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
@@ -92,6 +92,7 @@
     "validate:chat-first": "node --preserve-symlinks --preserve-symlinks-main validation/validate-chat-first-v22928.mjs",
     "validate:sister-link": "node validation/validate-sister-link-v22926.mjs",
     "validate:remaining-ops": "node --preserve-symlinks --preserve-symlinks-main validation/validate-remaining-ops-v22929.mjs",
-    "validate:signup-kdf": "node validation/validate-signup-kdf-v22935.mjs"
+    "validate:signup-kdf": "node validation/validate-signup-kdf-v22935.mjs",
+    "validate:kakao-category-fallback": "node validation/validate-kakao-category-fallback-v22936.mjs"
   }
 }

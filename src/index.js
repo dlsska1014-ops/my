@@ -2196,7 +2196,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.35-SIGNUP-KDF-FIX";
+const APP_VERSION = "V22.9.36-KAKAO-CATEGORY-FALLBACK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -31568,6 +31568,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   // V22.9.16: 지출자 이름표는 저장 뒤 응답 문구에만 쓰지만, 읽는 데 저장 결과가 필요 없다.
   // 분류·결제수단과 같이 던져 두고 응답을 만들 때 받는다(왕복 한 단계 절감).
   const inputSettingsPromise = fetchKakaoInputSettings(env, household.id, user.id);
+  // V22.9.36: 아래 allSettled 가 붙기 전에(sha256 을 기다리는 사이) 거절되면 "처리되지 않은 거절"이 된다. 결과는
+  // allSettled 가 그대로 받으므로 여기서는 거절을 표시만 해 둔다.
+  inputSettingsPromise.catch(() => {});
   const messageKey = "kakao-message:" + await sha256Hex(JSON.stringify([household.id,user.id,parsedList]));
   const messageLeasePromise = claimOperationLease(env, {key:messageKey,owner:operationLeaseOwner("kakao-message"),leaseSeconds:90});
   let messageLease = null, releasePromise = null;
@@ -31650,9 +31653,14 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
 async function fetchKakaoInputSettings(env, householdId, userId = "") {
   const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
   const settingsPromise=supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, {method:"GET"});
-  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"});
+  // V22.9.36: 분류 표(accountbook_categories)는 운영 DB 에 없는 선택 표다(/ready 의 unavailable_optional_tables).
+  // 웹 경로(fetchCustomCategories)는 표 조회 실패를 설정에 저장된 분류로 대체하지만, V22.9.30 부터 이 함수는
+  // 두 조회를 함께 기다리며 실패를 그대로 던졌다. 그래서 운영에서는 카카오 새 기록 저장이 전부 실패했다.
+  // 표 조회 실패는 빈 목록으로 보고 설정 저장 분류(keys[1])·기본 분류·키워드만 쓴다. 실패 이유는 인스턴스마다 한 번만 남긴다.
+  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"})
+    .catch((err) => { if (!globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED) { globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED = true; rememberOpsEvent({ kind: "kakao_category_table_unavailable", severity: "warn", path: "/skill", method: "GET", detail: safeError(err) }); } return []; });
   const [settings,categories]=await Promise.all([settingsPromise,categoryPromise]);
-  if (!Array.isArray(settings) || !Array.isArray(categories)) throw new Error("kakao_input_settings_invalid");
+  if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
   const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];

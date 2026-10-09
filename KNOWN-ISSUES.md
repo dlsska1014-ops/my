@@ -1,3 +1,10 @@
+## V22.9.36 카카오 분류 표 대체의 확인 경계
+
+- **운영 확인 전:** 카카오 새 기록 저장 실패는 코드와 `/ready`의 `unavailable_optional_tables`로 찾았고, 운영 카카오 대화에서 직접 본 것은 아닙니다. 배포 뒤 `docs/ASIDE_V22_9_36.md` 4절의 C1 로 확인합니다. 2절 ②(날짜별 카카오 기록 수)가 10-08 이후에도 행을 보이면 원인을 다시 봅니다.
+- **픽스처 격차:** 메모리 픽스처에는 `accountbook_categories` 표가 있어 운영보다 너그럽습니다. 표를 쓰는 검사 3개(`validate-settings-safety-v22934`, `validate-skill-auth-purge-v22873`, 픽스처 자체)가 있어 이 판에서는 기본값을 바꾸지 않았습니다. V22.9.37 에서 표 없는 모드로 하네스를 한 번 더 도는 검사를 더합니다.
+- **표를 만들지 않습니다:** 설정 저장 분류로 충분합니다. 관리자 `/categories`의 표 생성·삭제(`admin/category-guide-pages.js`)는 운영에서 계속 실패하며, 일반 사용자는 `/keyword-guide`로 보내므로 영향이 없습니다.
+- **운영 이벤트는 메모리:** `kakao_category_table_unavailable`은 인스턴스마다 한 번 남고 배포·재시작 때 사라집니다.
+
 ## V22.9.35 가입 해시 수정의 확인 경계
 
 - **무료 요금제 CPU:** PBKDF2 100,000회는 이 PC에서 약 35ms 의 CPU 를 씁니다. Workers 무료 요금제 한도(요청당 10ms)를 넘을 수 있습니다.
