@@ -92,14 +92,21 @@ async function handleKeywordGuidePage(request, env, url) {
   const selected = access.selected;
   let keywordMap = {};
   let customCategories = [];
+  let keywordReadFailed = false;
   if (selected) {
-    keywordMap = await fetchCategoryKeywordMap(env, selected.id);
+    // V22.9.34 감사 S4: 편집기는 엄격하게 읽는다. 못 읽으면 예시 키워드로 채운 편집기를 그리지 않는다.
+    try {
+      keywordMap = await fetchCategoryKeywordMap(env, selected.id, { strict: true });
+    } catch (err) {
+      keywordReadFailed = true;
+      rememberOpsEvent({ kind: "category_keywords_read_failed", severity: "warn", path: "/keyword-guide", method: "GET", detail: safeError(err) });
+    }
     customCategories = await fetchCustomCategories(env, selected.id);
   }
   const householdId = selected?.id || "";
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const keywordWritable = canManageMyHousehold(selected?.role || "");
-  const keywordEditor = selected ? renderKeywordBulkEditor({ selected, month, keywordMap, customCategories, writable: keywordWritable, returnTo: "guide" }) : "";
+  const keywordEditor = selected ? renderKeywordBulkEditor({ selected, month, keywordMap, customCategories, writable: keywordWritable, returnTo: "guide", readFailed: keywordReadFailed }) : "";
   const keywordMsg = String(url.searchParams.get("msg") || "");
   const keywordErr = String(url.searchParams.get("err") || "");
   const keywordResult = keywordMsg ? `<div class="kwResult ok">${formatMessage(keywordMsg)}</div>` : keywordErr ? `<div class="kwResult bad">${formatMessage(keywordErr)}</div>` : "";

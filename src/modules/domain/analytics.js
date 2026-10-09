@@ -1,7 +1,7 @@
 // @build:imports-start
 import { chooseMemeCard } from "../features/meme-engine-premium.js";
 import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
-import { currentMonthKst, nowKstDate } from "../nlu/date-payment.js";
+import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { calculateStats, escapeHtml, numberWithCommas } from "./transactions-core.js";
 // @build:imports-end
 
@@ -52,7 +52,7 @@ function calculateExtendedAnalytics({ month, allRows, prevRows, historyRows, yea
 }
 
 function categoryExpenseMap(rows) {
-  const map = {};
+  const map = Object.create(null);
   for (const r of rows || []) {
     if (r.type === "income") continue;
     const k = r.category || "미분류";
@@ -144,10 +144,15 @@ function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
   const stats = calculateStats(allRows);
   const expense = stats.totals.expense;
   const income = stats.totals.income;
-  const days = Math.max(1, calendar.length || 30);
-  const avgExpense = Math.round(expense / days);
-  const noSpendDays = calendar.filter((d) => Number(d.expense || 0) === 0).length;
-  const expenseDays = calendar.filter((d) => Number(d.expense || 0) > 0).length;
+  // V22.9.34 2차 점검 U01: 하루 평균·무지출일은 이번 달이면 오늘까지, 지난 달이면 그 달 전체, 앞으로 올 달이면
+  // 0일을 기준으로 센다. 예전에는 이번 달도 아직 오지 않은 날까지 세어 무지출일이 부풀고 하루 평균이 낮아졌다.
+  const todayStr = formatDate(nowKstDate());
+  const basisCalendar = calendar.filter((d) => String(d.date || "") <= todayStr);
+  const basisDays = basisCalendar.length;
+  const avgExpense = basisDays ? Math.round(expense / basisDays) : 0;
+  const noSpendDays = basisCalendar.filter((d) => Number(d.expense || 0) === 0).length;
+  const expenseDays = basisCalendar.filter((d) => Number(d.expense || 0) > 0).length;
+  const basisEnd = basisCalendar.length ? String(basisCalendar[basisCalendar.length - 1].date || "") : "";
   const topCategory = stats.categories.find((c) => c.expense > 0) || { category: "없음", expense: 0 };
   const maxDay = calendar.reduce((a, d) => Number(d.expense || 0) > Number(a.expense || 0) ? d : a, { date: "", expense: 0 });
   const missingCategory = allRows.filter((r) => isMissingCategory(r.category)).length;
@@ -194,7 +199,7 @@ function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
   const taxAmount = sumAmount(taxRows);
   const burnForecast = forecastMonthlyExpense(expense, month);
   const riskScore = Math.min(100, Math.round((fixedRate * 0.24) + (concentration * 0.22) + (maxDayRate * 0.18) + (weekendRate * 0.14) + (missingAny * 2.2) + (income > 0 && burnForecast > income ? 20 : 0)));
-  const analysisBase = { stats, income, expense, avgExpense, noSpendDays, expenseDays, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, riskScore };
+  const analysisBase = { stats, income, expense, avgExpense, noSpendDays, expenseDays, basisDays, basisEnd, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, riskScore };
   return { ...analysisBase, meme: chooseMemeCard(analysisBase) };
 }
 

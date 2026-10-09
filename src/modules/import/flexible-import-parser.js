@@ -124,7 +124,8 @@ const IMPORT_REJECTION_GUIDE = Object.freeze({
   unsupported_row: ["거래로 판단할 정보가 부족함", "날짜와 금액을 넣거나 ‘어제 점심 12000원 카드’처럼 한 문장으로 적어 주세요."],
   duplicate: ["기존 기록과 중복", "중복 건너뛰기가 켜져 있어 저장하지 않았습니다. 의도한 중복이면 옵션을 끄고 다시 가져오세요."],
   over_limit: ["한 번에 처리할 수 있는 행 수 초과", "파일을 나누거나 MY_IMPORT_LIMIT을 안전 범위에서 조정한 뒤 다시 가져오세요."],
-  write_failed: ["저장 중 오류", "해당 행의 원본은 바뀌지 않았습니다. 잠시 후 이 행만 다시 가져오세요."],
+  write_failed: ["저장 안 됨", "이 행은 저장되지 않았어요. 원인을 확인한 뒤 이 행만 다시 가져와 주세요."],
+  write_unknown: ["저장 여부 확인 필요", "저장됐는지 확인하지 못했어요. 다시 가져오기 전에 ‘가져온 기록 확인’에서 이 행이 있는지 먼저 확인해 주세요."],
 });
 
 function normalizeImportHeader(value) {
@@ -358,7 +359,7 @@ function parseImportJsonTable(text = "") {
     records = records.filter((record) => record && typeof record === "object" && !Array.isArray(record)).slice(0, 10000);
     if (!records.length) return null;
     const flatRecords = records.map((record) => {
-      const out = {};
+      const out = Object.create(null);
       for (const [key, value] of Object.entries(record)) {
         if (value && typeof value === "object" && !Array.isArray(value)) {
           for (const [childKey, childValue] of Object.entries(value)) out[`${key}.${childKey}`] = childValue;

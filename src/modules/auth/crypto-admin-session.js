@@ -6,7 +6,7 @@ import {
   base64UrlDecodeBytes, base64UrlDecodeText, base64UrlEncode, base64UrlEncodeText,
   constantTimeTextEqual, getCookie,
 } from "../runtime/http.js";
-import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
 
@@ -227,7 +227,14 @@ async function checkAdminPassword(env, password) {
     const actual = await pbkdf2PasswordHash(plain, state.password_salt, state.password_iterations);
     return constantTimeTextEqual(actual, state.password_hash);
   }
-  const setting = await getSettingValue(env, "admin_password_hash");
+  // V22.9.34 감사 S8: 바꾼 관리자 비밀번호(설정의 해시)를 못 읽었다고 환경변수의 옛 비밀번호로
+  // 넘어가면 이미 바꾼 비밀번호가 다시 통한다. 읽기 실패는 로그인 보호 기능 장애로 닫는다.
+  let setting;
+  try {
+    setting = await getSettingValueStrict(env, "admin_password_hash");
+  } catch (err) {
+    throw new Error("admin_session_security_unavailable", { cause: err });
+  }
   if (setting && String(setting).includes(":")) {
     const [salt, expectedHash] = String(setting).split(":", 2);
     const actual = await sha256Hex(`${salt}:${plain}`);

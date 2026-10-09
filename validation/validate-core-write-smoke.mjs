@@ -390,10 +390,13 @@ try {
 
 const budgetReplaceFixture = await createV2265QaFixture();
 try {
+  // V22.9.34 감사 S3: 일괄 예산 저장은 폼이 그려질 때의 계획 지문을 함께 보낸다.
+  const replacePage = await (await request(budgetReplaceFixture, "/budgets?month=2026-07&household_id=house-home")).text();
+  const replaceFingerprint = (replacePage.match(/name="plan_fingerprint" value="([^"]+)"/) || [])[1] || "";
   budgetReplaceFixture.db.accountbook_settings.push({ id: "setting-budget-removed", key: "budgets:house-home:2026-07", value: JSON.stringify([{ household_id: "house-home", month: "2026-07", category: "삭제대상", amount: 333000 }]) });
   const replaceResponse = await request(budgetReplaceFixture, "/my/budget-bulk/save", {
     method: "POST",
-    body: form({ household_id: "house-home", month: "2026-07", budget_return: "budgets", income_name: "급여", income_amount: "3200000", budget_category: "식비", budget_amount: "700000" }),
+    body: form({ household_id: "house-home", month: "2026-07", budget_return: "budgets", plan_fingerprint: replaceFingerprint, income_name: "급여", income_amount: "3200000", budget_category: "식비", budget_amount: "700000" }),
   });
   ok(String(replaceResponse.headers.get("location") || "").includes("msg=budget_saved"), "atomic budget-plan replacement reports success");
   ok(!budgetReplaceFixture.db.accountbook_settings.some((row) => row.key === "budgets:house-home:2026-07"), "atomic budget-plan replacement removes the entire legacy settings fallback");
@@ -476,8 +479,10 @@ try {
       request(settlementConcurrencyFixture, "/my/settlement/save", { method: "POST", body: settlementBody }),
     ]);
     const locations = responses.map((response) => String(response.headers.get("location") || ""));
+    // V22.9.34 감사 S9·2차 점검 B11: 정산 저장은 가계부 설정 잠금(withHouseholdSettingsRmw)을 쓴다. 같은 인스턴스의
+    // 동시 요청은 차례대로 처리되고, 뒤의 같은 요청은 중복 완료로 알아본다(다른 인스턴스와의 경합은 DB 잠금이 막는다).
     eq(locations.filter((location) => location.includes("msg=settlement_completed")).length, 1, "one concurrent settlement completion owns the settings write");
-    eq(locations.filter((location) => location.includes("err=settlement_busy")).length, 1, "the contending settlement request receives a retryable busy result");
+    eq(locations.filter((location) => location.includes("msg=settlement_already_completed")).length, 1, "the serialized contending settlement request is recognized as the same completion");
     eq(JSON.parse(settlementConcurrencyFixture.db.accountbook_settings.find((row) => row.key === "settlement_history:house-home")?.value || "[]").length, 1, "concurrent settlement submissions persist one history entry");
   } finally {
     globalThis.fetch = fixtureFetch;
@@ -561,13 +566,11 @@ try {
       { household: "house-home", action: "create", name: "동시 목표 B", target: 500000 },
     ];
     const responses = await Promise.all(goalBodies.map((body) => requestJson(goalConcurrencyFixture, "/u/api/goals", { method: "POST", body })));
-    eq(responses.filter((item) => item.response.status === 200).length, 1, "one concurrent goal mutation owns the household settings write");
-    eq(responses.filter((item) => item.response.status === 409 && item.data?.reason === "goal_write_in_progress").length, 1, "the contending goal mutation receives a retryable busy response");
-    eq(JSON.parse(goalConcurrencyFixture.db.accountbook_settings.find((row) => row.key === "goals:v5:house-home")?.value || "[]").length, 1, "concurrent goal creates persist one item before retry");
-    const retryBody = goalBodies[responses.findIndex((item) => item.response.status === 409)];
-    const retry = await requestJson(goalConcurrencyFixture, "/u/api/goals", { method: "POST", body: retryBody });
-    eq(retry.response.status, 200, "the contending goal mutation succeeds after retry");
-    eq(retry.data?.goals?.length, 2, "goal retry preserves both independently requested goals");
+    // V22.9.34 감사 S9: 목표 저장은 가계부 설정 잠금(withHouseholdSettingsRmw)을 쓴다. 같은 인스턴스 안의 동시 요청은
+    // 그 잠금의 로컬 순서 대기로 차례대로 처리되고, 다른 인스턴스와의 경합은 DB 잠금이 409 로 막는다
+    // (validate-v5-stabilization 이 잡힌 잠금으로 확인한다). 어느 쪽이든 한쪽 목표가 사라지지 않는다.
+    eq(responses.filter((item) => item.response.status === 200).length, 2, "same-isolate concurrent goal mutations are serialized by the household settings lease");
+    eq(JSON.parse(goalConcurrencyFixture.db.accountbook_settings.find((row) => row.key === "goals:v5:house-home")?.value || "[]").length, 2, "serialized concurrent goal creates preserve both independently requested goals");
   } finally {
     globalThis.fetch = fixtureFetch;
   }

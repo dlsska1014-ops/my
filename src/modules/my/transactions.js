@@ -35,7 +35,7 @@ function transactionEditHistoryKey(householdId = "") {
 // 쓰지 않는다. 거래 수정 자체는 이미 원자적 RPC 와 DB 감사에 반영됐으므로 호출부가 이력 실패만 따로 기록한다.
 async function fetchTransactionEditHistoryMap(env, householdId = "") {
   const parsed = parseStrictSettingsObject(await getSettingValueStrict(env, transactionEditHistoryKey(householdId)), "transaction_edit_history");
-  const out = {};
+  const out = Object.create(null);
   for (const [id, list] of Object.entries(parsed)) {
     if (id && Array.isArray(list)) out[id] = list.slice(-20);
   }
@@ -163,7 +163,7 @@ async function handleMyAddTransaction(request, env) {
     raw_text: rawText,
   };
   try {
-    const created = await createManualTransaction(env, body);
+    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || "") });
     if (created?.__duplicate_skipped) {
       return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
     }

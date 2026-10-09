@@ -49,7 +49,7 @@ function paymentAssetFreshness(a = {}) {
 
 function computeCardUsageMap(assets = [], rows = []) {
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
-  const usage = {};
+  const usage = Object.create(null);
   for (const c of cards) usage[c.id] = { count: 0, amount: 0 };
   if (!cards.length) return usage;
   for (const r of safeArray(rows)) {
@@ -260,7 +260,7 @@ async function handlePaymentMethodsPage(request, env, url) {
   const cardUsageTotal = Object.values(usageMap).reduce((s, u) => s + Number(u.amount || 0), 0);
   const creditCardUsageTotal = assets.filter((asset) => asset.kind === "credit_card").reduce((sum, asset) => sum + Number(usageMap[asset.id]?.amount || 0), 0);
   const nowMonth = currentMonthKst();
-  const methods = {};
+  const methods = Object.create(null);
   for (const r of rows) {
     const key = String(r.payment_method || "미지정").trim() || "미지정";
     if (!methods[key]) methods[key] = { name: key, count: 0, expense: 0, income: 0 };

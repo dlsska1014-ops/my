@@ -200,7 +200,7 @@ function accountbookGoalsJsAsset() {
 // 콘텐츠 기반 키(date|type|amount|memo)로 검색 오버레이와 일관.
 function accountbookFavRowsClientMain() {
   function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
-  var favSet = {};
+  var favSet = Object.create(null);
   var loaded = false;
   function apiUrl() { var u = "/u/api/favorites"; var h = hh(); if (h) u += "?household=" + encodeURIComponent(h); return u; }
   function markAll() {
@@ -281,7 +281,7 @@ function accountbookSidebarDashboardClientMain() {
     var p = month.split("-");
     var year = Number(p[0]), mon = Number(p[1]);
     if (!year || !mon) return;
-    var active = {};
+    var active = Object.create(null);
     String(root.getAttribute("data-active-days") || "").split(",").forEach(function (v) { var d = Number(v); if (d) active[d] = true; });
     var firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
     var days = new Date(Date.UTC(year, mon, 0)).getUTCDate();
@@ -724,7 +724,7 @@ function accountbookActivityRailClientMain() {
       list.innerHTML = '<div class="abActivityEmpty"><b>표시할 기록이 없습니다.</b><span>빠른 입력으로 첫 기록을 남겨보세요.</span></div>';
       return;
     }
-    var groups = {};
+    var groups = Object.create(null);
     rows.slice(0, 40).forEach(function(row) {
       var date = String(row.transaction_date || "");
       if (!groups[date]) groups[date] = [];
@@ -853,10 +853,15 @@ function accountbookDayDetailClientMain() {
     var date = String(item.transaction_date || activeDate || "");
     var householdId = String(data && data.household_id || activeHouseholdId || "");
     var hidden = '<input type="hidden" name="id" value="' + esc(item.id) + '"/><input type="hidden" name="month" value="' + esc(date.slice(0, 7)) + '"/><input type="hidden" name="household_id" value="' + esc(householdId) + '"/><input type="hidden" name="return_to" value="' + esc(returnTo(date, householdId)) + '"/>';
+    var rawMemo = item.memo_raw != null ? String(item.memo_raw) : String(item.memo || "");
+    var orig = ["type", "transaction_date", "amount", "category", "memo", "payment_method", "user_id"].map(function (key) {
+      var value = key === "type" ? (item.type === "income" ? "income" : "expense") : key === "memo" ? rawMemo : (item[key] == null ? "" : String(item[key]));
+      return '<input type="hidden" name="orig_' + key + '" value="' + esc(value) + '"/>';
+    }).join("");
     var spender = data && data.can_manage_spender
       ? '<label><span>' + (item.type === "income" ? "수입자" : "지출자") + '</span><select name="user_id" required>' + memberOptions(data.members, item.user_id) + "</select></label>"
       : '<input type="hidden" name="user_id" value="' + esc(item.user_id || "") + '"/><p class="abDayDetailSpender">' + (item.type === "income" ? "수입자" : "지출자") + " " + esc(item.member || "미지정") + "</p>";
-    var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category" value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method" value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(item.memo || "") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
+    var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + orig + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category" value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method" value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(rawMemo) + '" placeholder="' + esc(item.memo || "메모") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
     var description = (item.memo || "내용 없음") + " · " + fmt(item.amount) + "원";
     var remove = item.can_delete ? '<form method="post" action="/admin/delete" class="abDayDetailDelete" data-ab-day-write data-ab-day-delete data-confirm="' + esc(description + " 기록을 삭제할까요?") + '">' + hidden + '<button type="submit">삭제</button></form>' : "";
     return '<div class="abDayDetailActions">' + edit + remove + "</div>";

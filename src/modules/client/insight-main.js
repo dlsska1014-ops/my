@@ -95,10 +95,10 @@ function insightClientMain() {
   // 분류 색상: 현재 조회 결과의 금액 순위 기준으로 배정.
   // 전체 기간 고정 배정은 이번 달 상위 분류가 장기 순위 밖이면 전부 회색이 되는 문제가 있어,
   // 화면 안에서 항상 구분되는 것을 우선한다 (범례가 항상 붙어 있어 식별은 범례가 담당).
-  var viewCatColors = {};
+  var viewCatColors = Object.create(null);
   function rebuildViewColors() {
     viewCatColors = {};
-    var by = {};
+    var by = Object.create(null);
     compRows(viewRows()).forEach(function (r) { by[r.cat] = (by[r.cat] || 0) + r.amount; });
     Object.keys(by).sort(function (a, b) { return by[b] - by[a]; }).forEach(function (c2, i) {
       viewCatColors[c2] = i < C.cat.length ? C.cat[i] : C.other;
@@ -107,7 +107,7 @@ function insightClientMain() {
   function catColor(c) { return viewCatColors[c] || C.other; }
 
   function dimValues(field, incomeToo) {
-    var m = {};
+    var m = Object.create(null);
     ROWS.forEach(function (r) {
       if (!incomeToo && r.income) return;
       m[r[field]] = (m[r[field]] || 0) + 1;
@@ -323,11 +323,11 @@ function insightClientMain() {
         box.appendChild(el("span", "iChip " + (bad ? "bad" : "good"), pw.label + "보다 " + compLabel() + " " + Math.abs(d) + "% " + (d > 0 ? "증가" : "감소")));
       }
     }
-    var byCat = {};
+    var byCat = Object.create(null);
     comp.forEach(function (r) { byCat[r.cat] = (byCat[r.cat] || 0) + r.amount; });
     var top = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; })[0];
     if (top && !state.cats.length) box.appendChild(el("span", "iChip", top + " " + Math.round(byCat[top] / total * 100) + "%"));
-    var byDay = {};
+    var byDay = Object.create(null);
     comp.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
     var maxDay = Object.keys(byDay).sort(function (a, b) { return byDay[b] - byDay[a]; })[0];
     if (maxDay) box.appendChild(el("span", "iChip", "최대 " + compLabel() + "일 " + fmtMD(maxDay) + " · " + shortWon(byDay[maxDay]) + "원"));
@@ -369,7 +369,7 @@ function insightClientMain() {
       list.push({ start: b < state.start ? state.start : b, end: addDays(nb, -1) > state.end ? state.end : addDays(nb, -1), key: b, ex: 0, in_: 0, n: 0 });
       b = nb;
     }
-    var idx = {};
+    var idx = Object.create(null);
     list.forEach(function (x, i) { idx[x.key] = i; });
     rangeRows().forEach(function (r) {
       var k = bucketStart(r.date, gran);
@@ -518,7 +518,7 @@ function insightClientMain() {
     var total = sumAmt(comp);
     $("catSub").textContent = total ? "합계 " + won(total) : "";
     if (!comp.length) { box.appendChild(el("div", "emptyBox", "조건에 맞는 " + compLabel() + " 기록이 없어요.")); return; }
-    var byCat = {};
+    var byCat = Object.create(null);
     comp.forEach(function (r) { byCat[r.cat] = (byCat[r.cat] || 0) + r.amount; });
     var names = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; });
     var segs = [];
@@ -647,7 +647,7 @@ function insightClientMain() {
     if (titleId) $(titleId).textContent = titleText;
     var comp = compRows(viewRows());
     if (!comp.length) { box.appendChild(el("div", "emptyBox", "기록이 없어요.")); return; }
-    var by = {};
+    var by = Object.create(null);
     comp.forEach(function (r) { by[r[field]] = (by[r[field]] || 0) + r.amount; });
     var names = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; });
     var total = sumAmt(comp);
@@ -733,7 +733,7 @@ function insightClientMain() {
   function renderPaceChart(host, monthRows, total) {
     var daysIn = Number(monthEnd(MONTH).slice(8, 10));
     if (daysIn < 2 || total <= 0) return;
-    var byDay = {};
+    var byDay = Object.create(null);
     monthRows.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
     var cum = [], run = 0;
     for (var d = 1; d <= daysIn; d++) {

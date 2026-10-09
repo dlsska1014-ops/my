@@ -166,16 +166,18 @@ try {
   ok((await say(fixture, "수정 99번 금액 1000")).includes("찾지 못했어요"), "없는 번호 수정을 알린다");
   ok((await say(fixture, "삭제 99번")).includes("찾지 못했어요"), "없는 번호 삭제를 알린다");
 
-  // ── 수정 세션에 갇히지 않는다 ─────────────────────────────────
+  // ── 수정 세션에 갇히지 않는다 (V22.9.34 T6) ───────────────────
+  // 세션 중 보낸 분명한 새 지출(금액+내용)은 세션을 끝내고 저장한다. 항목 이름으로 시작하는 말만 수정 값이다.
   const stuckBase = fixture.db.transactions.length;
   await say(fixture, "수정 01번");
-  await say(fixture, "라면 3300");
-  const declined = await say(fixture, "아니오");
-  ok(declined.includes("취소"), "확인을 거절하면 빠져나가는 방법을 알려 준다");
-  eq(fixture.db.transactions.length, stuckBase, "수정 세션 중에는 새 지출이 저장되지 않는다");
-  await say(fixture, "취소");
-  await say(fixture, "라면 3300");
-  eq(fixture.db.transactions.length, stuckBase + 1, "취소 뒤에는 새 지출이 저장된다");
+  const passed = await say(fixture, "라면 3300");
+  ok(passed.includes("01번 수정은 끝내고") && passed.includes("저장했어요"), "세션 중 새 지출은 세션을 끝내고 저장한다");
+  eq(fixture.db.transactions.length, stuckBase + 1, "세션 중 보낸 새 지출이 한 건 저장된다");
+  ok(!String(fixture.db.accountbook_settings.find((row) => String(row.key).startsWith("kakao_edit_v4:"))?.value || "").trim(), "새 지출을 저장하면 수정 세션이 끝난다");
+  await say(fixture, "수정 01번");
+  const fieldEdit = await say(fixture, "금액 3300");
+  ok(fieldEdit.includes("변경했어요"), "항목 이름으로 시작하는 말은 여전히 수정 값이다");
+  eq(fixture.db.transactions.length, stuckBase + 1, "항목 수정은 새 기록을 만들지 않는다");
 } finally {
   fixture.restore();
 }

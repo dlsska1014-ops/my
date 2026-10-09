@@ -459,6 +459,16 @@ export async function createV2265QaFixture() {
       if (table === "transactions" && items.some((item) => !item.household_id || !item.user_id)) {
         return new Response(JSON.stringify({ code: "23502", message: "null value in column violates not-null constraint" }), { status: 400, headers: { "content-type": "application/json" } });
       }
+      // V22.9.34 감사 B13: PostgREST answers a duplicate primary key with 409/23505 unless Prefer asks for
+      // merge-duplicates or ignore-duplicates. The fixture used to upsert silently, which hid PK-based idempotency bugs.
+      if (table === "transactions" && db.__strict_primary_keys !== false) {
+        const preferHeader = new Headers(init.headers || {}).get("Prefer") || "";
+        if (!/resolution=(?:merge|ignore)-duplicates/.test(preferHeader)) {
+          const ids = items.map((item) => item && item.id).filter(Boolean).map(String);
+          const clash = ids.find((id, index) => ids.indexOf(id) !== index || db.transactions.some((row) => String(row.id) === id));
+          if (clash) return new Response(JSON.stringify({ code: "23505", details: `Key (id)=(${clash}) already exists.`, hint: null, message: "duplicate key value violates unique constraint \"transactions_pkey\"" }), { status: 409, headers: { "content-type": "application/json" } });
+        }
+      }
       if (table === "transactions" && items.some((item) => transactionUniqueConflict(db.transactions, item))) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }
@@ -472,6 +482,10 @@ export async function createV2265QaFixture() {
         if (table === "accountbook_budgets") return upsert(db, table, item, ["household_id", "month", "category"], sequence);
         return upsert(db, table, item, ["id"], sequence);
       });
+      if (table === "transactions" && Number(db.__lose_next_transaction_response || 0) > 0) {
+        db.__lose_next_transaction_response = Number(db.__lose_next_transaction_response) - 1;
+        return new Response(JSON.stringify({ code: "QA_RESPONSE_LOST", message: "simulated lost response after commit" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
       return new Response(JSON.stringify(saved), { status: 201, headers: { "content-type": "application/json" } });
     }
     if (method === "PATCH") {

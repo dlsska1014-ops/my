@@ -23,8 +23,7 @@ import {
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
 import {
-  fetchKakaoGroupLinkMap, kakaoGroupLinksSettingsKey, preserveKakaoGroupDeparturesForMerge,
-  saveKakaoGroupLinkItem,
+  preserveKakaoGroupDeparturesForMerge, reassignKakaoGroupLinkOwner,
 } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
@@ -53,7 +52,7 @@ async function buildIdentityAudit(env, householdId = "") {
     rows.push({ ...member, transaction_count: await countUserTransactionsInHousehold(env, selected.id, member.user_id) });
   }
   const owners = rows.filter((m) => String(m.role || "") === "owner");
-  const nicknameGroups = {};
+  const nicknameGroups = Object.create(null);
   for (const row of rows) {
     const key = normalizeText(row.nickname || row.base_nickname || "");
     if (!key) continue;
@@ -175,15 +174,9 @@ async function handleIdentityMerge(request, env) {
     rememberOpsEvent({ kind: "identity_legacy_link_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "legacy identity cleanup pending" });
   }
   try {
-    const groupLinks = await fetchKakaoGroupLinkMap(env);
-    let groupChanged = false;
-    for (const [groupKey, item] of Object.entries(groupLinks)) {
-      if (String(item.linked_by || "") !== secondaryId) continue;
-      item.linked_by = primaryId;
-      groupChanged = true;
-      await saveKakaoGroupLinkItem(env, groupKey, item);
-    }
-    if (groupChanged) await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: kakaoGroupLinksSettingsKey(), value: JSON.stringify(groupLinks) }) });
+    // V22.9.34 감사 S2: 방 연결은 linked_by 만 바꾼다. 예전에는 관대하게 읽은 합친 맵으로 옛 통합 맵 전체를
+    // 다시 써서, 옛 맵 읽기가 실패하면 옛 맵에만 있던 방 연결이 사라지고 그 방의 다음 기록이 새 가계부로 갔다.
+    await reassignKakaoGroupLinkOwner(env, secondaryId, primaryId);
   } catch (err) {
     rememberOpsEvent({ kind: "identity_group_link_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "group link cleanup pending" });
   }

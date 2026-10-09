@@ -1,5 +1,7 @@
 // @build:imports-start
-import { parseStrictSettingsObject, withHouseholdSettingsRmw } from "../runtime/leases.js";
+import {
+  parseStrictSettingsArray, parseStrictSettingsObject, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
 import { randomEntityId } from "../auth/crypto-admin-session.js";
 import { CATEGORY_KEYWORD_GUIDE, keywordGuideForCategory } from "../admin/category-guide-pages.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
@@ -49,7 +51,7 @@ async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
     const parsed = strict
       ? parseStrictSettingsObject(value, "category_keywords")
       : (typeof value === "string" ? JSON.parse(value || "{}") : value || {});
-    const out = {};
+    const out = Object.create(null);
     for (const [k, v] of Object.entries(safeObject(parsed))) out[k] = normalizeCategoryKeywords(v);
     return out;
   } catch (err) {
@@ -59,10 +61,12 @@ async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
 }
 
 async function saveCategoryKeywordMap(env, householdId = "", keywordMap = {}) {
-  const obj = {};
+  const obj = Object.create(null);
   for (const [k, v] of Object.entries(safeObject(keywordMap))) {
-    const list = normalizeCategoryKeywords(v);
-    if (list.length) obj[k] = list;
+    if (v === undefined || v === null) continue;
+    // V22.9.34 감사 S4: 빈 목록은 "사용자가 직접 비움"으로 남긴다. 키를 지우면 편집기가 예시 키워드를
+    // 다시 그리고, 다음 저장 때 그 예시가 되살아났다.
+    obj[k] = normalizeCategoryKeywords(v);
   }
   await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
     method: "POST",
@@ -103,18 +107,35 @@ function keywordEditorCategories(keywordMap = {}, customCategories = []) {
   return mergedOptions([...guideNames, ...defaultExpenseBudgetNames(customCategories), ...customNames, ...mappedNames], []).slice(0, 48);
 }
 
-function keywordEditorCard(name = "", keywordMap = {}, initiallyOpen = false, writable = true) {
+// V22.9.34 감사 S4: 카드에 보이는 키워드와 저장 때 "원래 값"으로 비교하는 목록은 같은 규칙으로 만든다.
+// 저장된 키가 있으면(빈 목록 포함) 그 값을, 없으면 안내 예시를 보여 준다. 저장된 키워드는 30개까지 모두 그린다.
+// 예전에는 16개만 그려 편집 한 번에 17번째부터가 사라졌다.
+function keywordEditorCardKeywords(name = "", keywordMap = {}) {
   const guide = keywordGuideForCategory(name, "expense");
   const type = guide?.type === "income" ? "income" : "expense";
-  const stored = normalizeCategoryKeywords(keywordMap[categoryKeywordKey(type, name)] || []);
-  const defaults = normalizeCategoryKeywords(stored.length ? stored : guide?.examples || []);
-  const keywords = defaults.slice(0, 16);
-  const kwDisabled = writable ? "" : " disabled";
-  const chips = keywords.map((kw) => `<span class="kwChip" data-kw="${escapeHtml(kw)}">${escapeHtml(kw)}<button type="button" class="kwRemove" aria-label="${escapeHtml(kw)} 키워드 삭제"${kwDisabled}>×</button></span>`).join("");
-  return `<details class="kwBox" data-type="${escapeHtml(type)}" data-name="${escapeHtml(name)}" ${initiallyOpen ? "open" : ""}><summary class="kwHead"><span><b>${escapeHtml(name)}</b><small class="kwCount">${keywords.length}개</small></span><span class="kwToggle" aria-hidden="true">펼치기</span></summary><div class="kwBody"><div class="kwChips">${chips}<span class="kwHint">등록된 키워드가 없습니다.</span></div><div class="kwAddRow"${writable ? "" : ` hidden`}><input type="text" class="kwNewInput" maxlength="40" placeholder="새 키워드" aria-label="${escapeHtml(name)} 새 키워드"${kwDisabled}/><button type="button" class="kwAdd"${kwDisabled}>추가</button></div><input type="hidden" class="kwHidden" value="${escapeHtml(keywords.join(","))}"/></div></details>`;
+  const key = categoryKeywordKey(type, name);
+  const map = safeObject(keywordMap);
+  const hasStored = Object.prototype.hasOwnProperty.call(map, key);
+  const keywords = hasStored ? normalizeCategoryKeywords(map[key] || []) : normalizeCategoryKeywords(guide?.examples || []).slice(0, 16);
+  return { type, key, keywords, hasStored };
 }
 
-function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCategories = [], compact = false, writable = true, returnTo = "" }) {
+function sameKeywordList(a = [], b = []) {
+  const canon = (list) => normalizeCategoryKeywords(list).map((kw) => normalizeText(kw)).sort().join("\u0000");
+  return canon(a) === canon(b);
+}
+
+function keywordEditorCard(name = "", keywordMap = {}, initiallyOpen = false, writable = true) {
+  const { type, keywords } = keywordEditorCardKeywords(name, keywordMap);
+  const kwDisabled = writable ? "" : " disabled";
+  const chips = keywords.map((kw) => `<span class="kwChip" data-kw="${escapeHtml(kw)}">${escapeHtml(kw)}<button type="button" class="kwRemove" aria-label="${escapeHtml(kw)} 키워드 삭제"${kwDisabled}>×</button></span>`).join("");
+  return `<details class="kwBox" data-type="${escapeHtml(type)}" data-name="${escapeHtml(name)}" data-orig="${escapeHtml(keywords.join(","))}" ${initiallyOpen ? "open" : ""}><summary class="kwHead"><span><b>${escapeHtml(name)}</b><small class="kwCount">${keywords.length}개</small></span><span class="kwToggle" aria-hidden="true">펼치기</span></summary><div class="kwBody"><div class="kwChips">${chips}<span class="kwHint">등록된 키워드가 없습니다.</span></div><div class="kwAddRow"${writable ? "" : ` hidden`}><input type="text" class="kwNewInput" maxlength="40" placeholder="새 키워드" aria-label="${escapeHtml(name)} 새 키워드"${kwDisabled}/><button type="button" class="kwAdd"${kwDisabled}>추가</button></div><input type="hidden" class="kwHidden" value="${escapeHtml(keywords.join(","))}"/></div></details>`;
+}
+
+function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCategories = [], compact = false, writable = true, returnTo = "", readFailed = false }) {
+  // V22.9.34 감사 S4: 저장된 키워드를 못 읽었으면 예시 키워드로 채운 편집기를 그리지 않는다.
+  // 그 화면에서 저장하면 모든 분류의 키워드가 예시로 바뀌었다.
+  if (readFailed) return `<style>${keywordEditorCss()}</style><div class="kwLocked" role="alert"><b>키워드를 불러오지 못했습니다</b><br/>저장된 키워드는 그대로입니다. 잠시 뒤 새로고침하면 다시 편집할 수 있습니다.</div>`;
   const cats = keywordEditorCategories(keywordMap, customCategories);
   const cards = cats.map((name, index) => keywordEditorCard(name, keywordMap, index < 2, writable)).join("");
   // 키워드 저장은 소유자·관리자만 가능하다. 권한이 없는 사람에게 살아 있는 저장 버튼을 보여 주면
@@ -188,13 +209,13 @@ function renderKeywordBulkEditor({ selected, month, keywordMap = {}, customCateg
   const form = document.getElementById('keywordBulkForm');
   if (form) {
     form.addEventListener('submit', function(){
-      form.querySelectorAll('input[name="kw_type"],input[name="kw_name"],input[name="kw_keywords"]').forEach(function(x){ x.remove(); });
+      form.querySelectorAll('input[name="kw_type"],input[name="kw_name"],input[name="kw_keywords"],input[name="kw_orig"]').forEach(function(x){ x.remove(); });
       form.querySelectorAll('.kwBox').forEach(function(box){
         syncBox(box);
         const type = box.getAttribute('data-type') || 'expense';
         const name = box.getAttribute('data-name') || '';
         const val = box.querySelector('.kwHidden')?.value || '';
-        [['kw_type',type],['kw_name',name],['kw_keywords',val]].forEach(function(pair){
+        [['kw_type',type],['kw_name',name],['kw_keywords',val],['kw_orig',box.getAttribute('data-orig') || '']].forEach(function(pair){
           const input = document.createElement('input');
           input.type = 'hidden';
           input.name = pair[0];
@@ -278,7 +299,12 @@ function normalizeStoredCategoryList(value, householdId = "") {
     .filter(Boolean);
 }
 
-async function fetchSettingsCategories(env, householdId = "") {
+async function fetchSettingsCategories(env, householdId = "", options = {}) {
+  if (options.strict) {
+    // V22.9.34 감사 S7: 분류 목록을 바꾸는 경로는 읽기 실패·깨진 값을 빈 목록으로 보지 않는다.
+    const value = await getSettingValueStrict(env, categorySettingsKey(householdId));
+    return normalizeStoredCategoryList(parseStrictSettingsArray(value, "categories", { allowItemsObject: true }), householdId);
+  }
   try {
     const value = await getSettingValue(env, categorySettingsKey(householdId));
     return normalizeStoredCategoryList(value, householdId);
@@ -309,28 +335,37 @@ async function addSettingsCategory(env, householdId = "", name = "", type = "exp
   const cleanName = String(name || "").trim().slice(0, 80);
   if (!cleanName) return { ok: false, error: "분류명을 입력해주세요." };
   const cleanType = type === "income" ? "income" : "expense";
-  const current = await fetchSettingsCategories(env, householdId);
-  if (current.some((c) => normalizeText(c.name) === normalizeText(cleanName) && c.type === cleanType)) {
-    return { ok: true, duplicate: true, categories: current };
-  }
-  const item = {
-    id: randomEntityId("settings"),
-    household_id: householdId || "",
-    name: cleanName,
-    type: cleanType,
-    sort_order: 100,
-    keywords: normalizeCategoryKeywords(keywords),
-    created_at: new Date().toISOString(),
-  };
-  const saved = await saveSettingsCategories(env, householdId, [...current, item]);
-  return { ok: true, categories: saved };
+  // V22.9.34 감사 S7: 가계부 설정 잠금 안에서 엄격하게 읽고 바꾼다. 동시 추가 하나가 사라지거나
+  // 읽기 실패로 기존 분류가 지워지지 않는다.
+  return withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+    const current = await fetchSettingsCategories(env, householdId, { strict: true });
+    if (current.some((c) => normalizeText(c.name) === normalizeText(cleanName) && c.type === cleanType)) {
+      return { ok: true, duplicate: true, categories: current };
+    }
+    const item = {
+      id: randomEntityId("settings"),
+      household_id: householdId || "",
+      name: cleanName,
+      type: cleanType,
+      sort_order: 100,
+      keywords: normalizeCategoryKeywords(keywords),
+      created_at: new Date().toISOString(),
+    };
+    assertFresh();
+    const saved = await saveSettingsCategories(env, householdId, [...current, item]);
+    return { ok: true, categories: saved };
+  });
 }
 
 async function deleteSettingsCategory(env, householdId = "", id = "") {
-  const current = await fetchSettingsCategories(env, householdId);
-  const next = current.filter((c) => String(c.id) !== String(id));
-  await saveSettingsCategories(env, householdId, next);
-  return { ok: true, deleted: next.length !== current.length };
+  return withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+    const current = await fetchSettingsCategories(env, householdId, { strict: true });
+    const next = current.filter((c) => String(c.id) !== String(id));
+    if (next.length === current.length) return { ok: true, deleted: false };
+    assertFresh();
+    await saveSettingsCategories(env, householdId, next);
+    return { ok: true, deleted: true };
+  });
 }
 
 async function fetchCustomCategories(env, householdId = "") {
@@ -353,10 +388,10 @@ async function fetchCustomCategories(env, householdId = "") {
 }
 // @build:exports-start
 export {
-  addSettingsCategory, attachCategoryKeywords, categoryKeywordDisplayRows, categoryKeywordKey,
+  addSettingsCategory, attachCategoryKeywords, categoryKeywordDisplayRows,
   categoryKeywordsSettingsKey, categorySettingsKey, defaultCategoryKeywordRows,
-  deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories, keywordEditorCss,
-  normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor,
-  saveCategoryKeywordMap, setCategoryKeywords,
+  deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories, keywordEditorCardKeywords,
+  keywordEditorCss, normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor,
+  sameKeywordList, saveCategoryKeywordMap, setCategoryKeywords,
 };
 // @build:exports-end

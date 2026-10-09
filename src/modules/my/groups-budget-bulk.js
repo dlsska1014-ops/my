@@ -2,7 +2,7 @@
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { appName } from "../public/site-config.js";
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
-import { safeError } from "../runtime/leases.js";
+import { safeError, withSettingsRmwLease } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -12,11 +12,12 @@ import { fetchUserById } from "../data/users-household-create.js";
 import {
   canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
-import { optionalSupabase } from "../domain/budgets.js";
+import { budgetPlanFingerprint, fetchBudgets, optionalSupabase } from "../domain/budgets.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
 import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
 import { mergedOptions } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { fetchKakaoGroupLinkMap } from "../kakao/group-links-first-record.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
@@ -121,7 +122,7 @@ function sumBudgetAmounts(rows = []) {
 }
 
 function categorySpentMap(rows = []) {
-  const map = {};
+  const map = Object.create(null);
   for (const r of safeArray(rows)) {
     if (r.type === "income") continue;
     const c = r.category || "기타";
@@ -195,6 +196,10 @@ async function handleMyBudgetBulkSave(request, env) {
   const expenseNames = form.getAll("budget_category").map((v) => String(v || "").trim().slice(0, 80));
   const expenseAmounts = form.getAll("budget_amount").map((v) => parseBudgetFormAmount(v));
   if ([...incomeAmounts,...expenseAmounts].some(amount => !Number.isFinite(amount) || amount < 0 || amount > MAX_TRANSACTION_AMOUNT)) return redirectResponse(addQueryToUrl(returnTo, {err:"invalid_budget_amount"}));
+  // V22.9.34 감사 S3: 이 저장은 그 달 계획 전체를 바꾼다. 폼이 그려질 때의 계획 지문이 없거나
+  // (읽기 실패로 빈 폼이 그려졌거나 배포 전에 열어 둔 화면) 지금 계획과 다르면 덮어쓰지 않는다.
+  const submittedFingerprint = String(form.get("plan_fingerprint") || "").trim();
+  if (!/^p1-\d+-[0-9a-f]{8}$/.test(submittedFingerprint)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_form_stale" }));
 
   try {
     const plan = new Map();
@@ -213,22 +218,43 @@ async function handleMyBudgetBulkSave(request, env) {
     }
     const rows = [...plan.values()];
     if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }));
-    await supabase(env, "/rest/v1/rpc/accountbook_replace_budget_plan_v227", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ p_household_id: selected.id, p_month: month, p_rows: rows }),
+    const outcome = await withBudgetPlanLease(env, selected.id, month, async ({ assertFresh }) => {
+      let current;
+      try {
+        current = await fetchBudgets(env, selected.id, month, { strict: true });
+      } catch (readErr) {
+        rememberOpsEvent({ kind: "my_budget_bulk_read_failed", severity: "warn", path: "/my/budget-bulk/save", method: "POST", detail: safeError(readErr) });
+        return "read_failed";
+      }
+      if (budgetPlanFingerprint(current) !== submittedFingerprint) return "changed";
+      assertFresh();
+      await supabase(env, "/rest/v1/rpc/accountbook_replace_budget_plan_v227", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ p_household_id: selected.id, p_month: month, p_rows: rows }),
+      });
+      return "saved";
     });
+    if (outcome === "read_failed") return redirectResponse(addQueryToUrl(returnTo, { err: "budget_read_failed" }));
+    if (outcome === "changed") return redirectResponse(addQueryToUrl(returnTo, { err: "budget_changed" }));
     return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_budget_bulk_save_failed", severity: "warn", path: "/my/budget-bulk/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: "budget_save_failed" }));
+    if (/settings_rmw_busy/.test(safeError(err))) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_busy" }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "budget_save_failed" }));
   }
+}
+
+// V22.9.34 감사 S3·S6: 그 달 예산 계획을 통째로 바꾸는 쓰기(웹 일괄 저장, 카카오 "지난달 예산 복사")는
+// 같은 가계부·같은 달 잠금 안에서 지금 계획을 다시 읽고 바꾼다.
+function withBudgetPlanLease(env, householdId, month, task) {
+  return withSettingsRmwLease(env, `budget-plan:${householdId}:${month}`, task, { householdId });
 }
 // @build:exports-start
 export {
   categorySpentMap, defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows,
   handleMyBudgetBulkSave, handleMyGroupsPage, incomeBudgetRows, isIncomeBudgetCategory,
   keywordEditorLocation, mySettingsLocation, parseBudgetFormAmount, recurringSummary,
-  sumBudgetAmounts, upsertMyBudgetRow,
+  sumBudgetAmounts, upsertMyBudgetRow, withBudgetPlanLease,
 };
 // @build:exports-end

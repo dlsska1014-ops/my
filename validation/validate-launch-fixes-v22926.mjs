@@ -283,7 +283,9 @@ try {
   html = await response.text();
   eq(renderedBudgetInputs(html), 15, "예산 화면도 분류 15개를 모두 입력란으로 그린다");
 
-  response = await form("/my/budget-bulk/save", { household_id: "house-home", month: "2026-09", budget_category: "식비", budget_amount: "999" });
+  // V22.9.34 감사 S3: 일괄 예산 저장은 폼이 그려질 때의 계획 지문을 함께 보낸다.
+  const septemberFingerprint = ((await (await get("/budgets?household_id=house-home&month=2026-09")).text()).match(/name="plan_fingerprint" value="([^"]+)"/) || [])[1] || "";
+  response = await form("/my/budget-bulk/save", { household_id: "house-home", month: "2026-09", plan_fingerprint: septemberFingerprint, budget_category: "식비", budget_amount: "999" });
   eq(Number(fixture.db.accountbook_budgets.find((b) => b.month === "2026-09" && b.category === "식비")?.amount), 999, "1,000원 미만 예산도 그대로 저장된다");
   const sepRows = fixture.db.accountbook_budgets.filter((b) => b.month === "2026-09").length;
   response = await form("/my/budget-bulk/save", { household_id: "house-home", month: "2026-13", budget_category: "유일", budget_amount: "1000" });
@@ -327,7 +329,7 @@ try {
   ok((source.match(/xlsxPromise = null;/g) || []).length >= 4, "엑셀 변환 모듈 로더는 실패한 약속을 캐시하지 않는다");
   ok(source.includes("event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;"), "카카오 대기 화면은 새 탭 열기 클릭을 건너뛴다");
   ok(source.includes('querySelectorAll(".v8-tx .v8-tx-main")'), "거래 상세 키보드 진입 선택자가 실제 마크업과 맞는다");
-  ok(source.includes('"/assets/accountbook-v5-v22930.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
+  ok(source.includes('"/assets/accountbook-v5-v22934.js"'), "V5 번들 내용이 바뀌어 새 불변 주소를 쓴다");
 } finally {
   globalThis.fetch = mockFetch;
   fixture.restore();

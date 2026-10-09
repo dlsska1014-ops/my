@@ -2,8 +2,11 @@
 import { boundedRuntimeNumber, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { HTML_HEADERS } from "../runtime/config-readiness.js";
 import { appName } from "../public/site-config.js";
-import { explicitDateIntent } from "../client/shared-input-parsers.js";
-import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
+import { explicitDateIntent, moneyTokenSpans } from "../client/shared-input-parsers.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+  withHouseholdDatabaseLease,
+} from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import {
   checkAdminPassword, makeAdminSession, recordAuthAttempt, safeAdminReturnPath, trafficClientIp,
@@ -35,8 +38,8 @@ import {
   currentMonthKst, extractDate, formatDate, nowKstDate, validMonth,
 } from "../nlu/date-payment.js";
 import {
-  createManualTransaction, deleteTransactionWithAudit, escapeHtml, makeInviteCode, numberWithCommas,
-  updateTransaction,
+  abTransactionRequestId, createManualTransaction, deleteTransactionWithAudit, escapeHtml,
+  makeInviteCode, numberWithCommas, updateTransaction,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -57,7 +60,15 @@ async function handleAdminLogin(request, env) {
   if (!adminAttempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
-  if (!(await checkAdminPassword(env, password))) {
+  let passwordOk = false;
+  try {
+    passwordOk = await checkAdminPassword(env, password);
+  } catch (err) {
+    // V22.9.34 감사 S8: 비밀번호 상태를 확인하지 못하면 열지 않고 잠시 뒤 다시 시도하게 한다.
+    rememberOpsEvent({ kind: "admin_login_security_unavailable", severity: "error", path: "/login", method: "POST", detail: safeError(err) });
+    return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
+  }
+  if (!passwordOk) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
   await recordAuthAttempt(env, request, "/login", true);
@@ -219,10 +230,15 @@ async function handleAdminAddTransaction(request, env) {
   // 문장 속 날짜를 서버에서도 다시 풀어, 날짜를 직접 고치지 않았는데 폼 날짜와 다르면 저장하지 않는다(QA B04).
   // 배포 전에 열어 둔 화면처럼 요일 표현을 못 읽는 옛 스크립트가 오늘 날짜를 보내도 다른 날로 집계되지 않는다.
   if (explicitDateIntent(smartText) && form.get("quick_manual_date")!=="1" && extractDate(smartText) && extractDate(smartText)!==transactionDate) return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"invalid_date"}),transactionAddRedirectExtras(form,{err:"invalid_date"},"error")));
+  // V22.9.34 감사 N11: 문장 속 금액이 단위 없는 한 자리 숫자("택시 7")뿐이면 7원으로 저장하지 않는다.
+  // 정말 그 금액이면 "7원"처럼 원을 붙이거나 금액 칸을 직접 고치면 저장된다.
+  const smartSpans = smartText ? moneyTokenSpans(smartText) : [];
+  if (smartSpans.length === 1 && smartSpans[0].amount < 10 && !/[원십백천만억]/.test(smartSpans[0].raw) && form.get("quick_manual_amount") !== "1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"amount_unit_required"}),transactionAddRedirectExtras(form,{err:"amount_unit_required"},"error")));
   const validationError = validateRecordFormFields({ householdId, amount, transactionDate, mode: "add" });
   if (validationError) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), transactionAddRedirectExtras(form, { err: validationError }, "error")));
   }
+  const requestId = abTransactionRequestId(form.get("request_id")) || crypto.randomUUID();
   try {
     const isManager = access.admin || ["owner", "admin"].includes(access.role);
     const requestedUserId = String(form.get("user_id") || "").trim();
@@ -256,8 +272,8 @@ async function handleAdminAddTransaction(request, env) {
       user_id: isManager ? (requestedUserId || access.userId) : access.userId,
       source: access.admin ? "web_admin" : "web_user",
       raw_text: rawText,
-    });
-    const msg = savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
+    }, { requestId });
+    const msg = savedTransaction?.__idempotent_replay ? "already_saved" : savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
     let balert = "";
     try {
       if (txType !== "income" && householdId) {
@@ -270,8 +286,8 @@ async function handleAdminAddTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, balert ? { msg, balert } : { msg }, "success")));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_create_failed", severity: "warn", path: "/admin/transactions", method: "POST", detail: safeError(err) });
-    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.";
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), transactionAddRedirectExtras(form, { err: message }, "error")));
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : err?.code === "transaction_request_conflict" ? "request_conflict" : "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.";
+    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message, rid: requestId }), transactionAddRedirectExtras(form, { err: message, rid: requestId }, "error")));
   }
 }
 
@@ -358,7 +374,8 @@ async function handleTransactionEditPage(request, env, url) {
     });
   }
 
-  const memo = targetRow.memo || targetRow.raw_text || "기록";
+  // V22.9.34 감사 T1b: 제목 아래 설명도 권한 판정용 좁은 행이 아니라 전체 행으로 쓴다(예전에는 늘 "기록").
+  const memo = editRow.memo || editRow.raw_text || "기록";
   const title = escapeHtml(appName(env));
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
 }
@@ -378,6 +395,8 @@ async function handleAdminUpdateTransaction(request, env) {
     return redirectResponse(signedOutWriteRedirect(form));
   }
   const typeValues = form.getAll("type").map((v) => String(v || "").trim()).filter(Boolean);
+  // V22.9.34 감사 SIM-1: 같은 폼에 서로 다른 type 이 함께 오면(필터 hidden 칸 등) 어느 쪽도 고르지 않고 저장하지 않는다.
+  if (new Set(typeValues.map(normalizeTransactionType)).size > 1) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "ambiguous_field" }), { err: "ambiguous_field" }));
   const transactionDate = String(form.get("transaction_date") || formatDate(nowKstDate())).trim();
   const amount = readTransactionAmount(form);
   const validationError = validateRecordFormFields({ id, householdId, amount, transactionDate, mode: "update" });
@@ -389,30 +408,84 @@ async function handleAdminUpdateTransaction(request, env) {
     const error = "지출자를 선택하세요. 기존 지출자를 유지하려면 현재 참여자를 다시 선택하세요.";
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: error }), { err: error }));
   }
+  let members = [];
   if (isManager && requestedUserId) {
-    const members = await fetchHouseholdMembers(env, rowHousehold);
+    members = await fetchHouseholdMembers(env, rowHousehold);
     if (!activeSpenderExists(members, requestedUserId)) {
       const error = "선택한 지출자가 이 가계부의 참여자가 아닙니다.";
       return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: error }), { err: error }));
     }
   }
-  const patch = {
-    type: typeValues.length ? normalizeTransactionType(typeValues[typeValues.length - 1]) : "expense",
-    transaction_date: transactionDate,
-    amount,
-    category: String(form.get("category") || "").trim(),
-    memo: String(form.get("memo") || "").trim(),
-    payment_method: String(form.get("payment_method") || "").trim(),
-    user_id: isManager ? (requestedUserId || String(targetRow.user_id || access.userId || "")) : String(targetRow.user_id || access.userId || ""),
-  };
+  // V22.9.34 proto (B14): only the fields present in the form are candidates, and with orig_* only the ones the user changed.
+  const submitted = Object.create(null);
+  if (typeValues.length) submitted.type = typeValues[typeValues.length - 1];
+  if (form.has("transaction_date")) submitted.transaction_date = transactionDate;
+  submitted.amount = amount;
+  for (const key of ["category", "memo", "payment_method"]) if (form.has(key)) submitted[key] = String(form.get(key) || "").trim();
+  if (isManager && requestedUserId) submitted.user_id = requestedUserId;
+  const original = form.has("orig_amount") ? Object.fromEntries(AB_EDIT_FIELDS.filter((key) => form.has(`orig_${key}`)).map((key) => [key, String(form.get(`orig_${key}`) || "")])) : null;
+  let lease = null;
   try {
-    await updateTransaction(env, id, patch, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    lease = await claimOperationLease(env, { key: `transaction-edit:${id}`, owner: operationLeaseOwner("transaction-edit"), leaseSeconds: 30 });
+    if (!lease.acquired) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "edit_busy" }), { err: "edit_busy" }));
+    const current = await getTransactionForUserEdit(env, id, rowHousehold);
+    if (!current) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_not_found" }), { err: "record_not_found" }));
+    const plan = planTransactionEdit(current, submitted, original);
+    if (plan.conflicts.length) {
+      if (!members.length) members = await fetchHouseholdMembers(env, rowHousehold);
+      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+      return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
+    }
+    if (Object.keys(plan.patch).length) {
+      await updateTransaction(env, id, plan.patch, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    }
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "updated" }), { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
-    const message = "거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
+    const message = isUncertainStorageWrite(err) ? "edit_unknown" : "record_update_failed";
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
+  } finally {
+    if (lease) await releaseOperationLease(env, lease);
   }
+}
+
+const AB_EDIT_FIELDS = ["type", "transaction_date", "amount", "category", "memo", "payment_method", "user_id"];
+const AB_EDIT_LABELS = { type: "구분", transaction_date: "날짜", amount: "금액", category: "분류", memo: "내용", payment_method: "결제수단", user_id: "지출자" };
+
+function abEditValue(field, value) {
+  if (field === "amount") return parseFormAmountValue(value);
+  if (field === "type") return normalizeTransactionType(value);
+  return String(value ?? "").trim();
+}
+
+function planTransactionEdit(current = {}, submitted = {}, original = null) {
+  const patch = Object.create(null);
+  const conflicts = [];
+  for (const field of AB_EDIT_FIELDS) {
+    if (!Object.hasOwn(submitted, field)) continue;
+    const next = abEditValue(field, submitted[field]);
+    const now = abEditValue(field, current[field]);
+    if (original && Object.hasOwn(original, field)) {
+      const before = abEditValue(field, original[field]);
+      if (next === before) continue;
+      if (now !== before && now !== next) { conflicts.push({ field, label: AB_EDIT_LABELS[field], now, before, next }); continue; }
+      if (now !== next) patch[field] = next;
+    } else if (now !== next) {
+      patch[field] = next;
+    }
+  }
+  return { patch, conflicts };
+}
+
+function abEditOriginalFields(t = {}) {
+  return AB_EDIT_FIELDS.map((field) => `<input type="hidden" name="orig_${field}" value="${escapeHtml(field === "type" ? (t.type === "income" ? "income" : "expense") : String(t[field] ?? ""))}"/>`).join("");
+}
+
+function renderTransactionEditConflictHtml(env, current, conflicts, backTo, members, isManager) {
+  const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.now)}원` : c.field === "type" ? (c.now === "income" ? "수입" : "지출") : (c.now || "(비어 있음)");
+  const typed = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
+  const rows = conflicts.map((c) => `<li><b>${escapeHtml(c.label)}</b> 지금 값 ${escapeHtml(shown(c))} · 내가 입력한 값 ${escapeHtml(typed(c))}</li>`).join("");
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert"><b>다른 곳에서 이 기록이 먼저 바뀌었어요.</b> 저장하지 않았어요. 지금 값을 확인하고 다시 저장해 주세요.<ul>${rows}</ul></div></section><section class="card">${renderV8TxEditForm(current, backTo, members, isManager)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 async function handleAdminHouseholdCreate(request, env) {
@@ -591,12 +664,12 @@ async function handleAdminMemberNickname(request, env) {
 }
 // @build:exports-start
 export {
-  MAX_TRANSACTION_AMOUNT, dashboardQuery, fetchTransactionRowById, fetchTransactionRowsByIds,
-  handleAdminAddTransaction, handleAdminDeleteTransaction, handleAdminHouseholdCreate,
-  handleAdminHouseholdDelete, handleAdminHouseholdRegenerate, handleAdminHouseholdUpdate,
-  handleAdminLogin, handleAdminLogout, handleAdminMemberNickname, handleAdminMemberRemove,
-  handleAdminMemberUpdate, handleAdminPage, handleAdminUpdateTransaction, handleTransactionEditPage,
-  isValidTransactionDateString, normalizeTransactionType, parseFormAmountValue,
-  readOptionalFormAmount, resolveTransactionAccess, transactionReturnFallback,
+  MAX_TRANSACTION_AMOUNT, abEditOriginalFields, dashboardQuery, fetchTransactionRowById,
+  fetchTransactionRowsByIds, handleAdminAddTransaction, handleAdminDeleteTransaction,
+  handleAdminHouseholdCreate, handleAdminHouseholdDelete, handleAdminHouseholdRegenerate,
+  handleAdminHouseholdUpdate, handleAdminLogin, handleAdminLogout, handleAdminMemberNickname,
+  handleAdminMemberRemove, handleAdminMemberUpdate, handleAdminPage, handleAdminUpdateTransaction,
+  handleTransactionEditPage, isValidTransactionDateString, normalizeTransactionType,
+  parseFormAmountValue, readOptionalFormAmount, resolveTransactionAccess, transactionReturnFallback,
 };
 // @build:exports-end

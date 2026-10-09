@@ -4,11 +4,9 @@ import {
   rememberOpsEvent,
 } from "../runtime/ops-telemetry.js";
 import { APP_VERSION, appName } from "../public/site-config.js";
-import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
-} from "../runtime/leases.js";
+import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { htmlResponse, redirectPublicAwayFromAdmin, redirectResponse } from "../runtime/http.js";
-import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { sha256Hex, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchHouseholdMembers, memberNameMap,
 } from "../data/households-members-rows.js";
@@ -80,7 +78,7 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     const role = String(m.role || "member").toLowerCase();
     if (m.user_id && settlementRoleAllowed(role) && role !== "pending") participantIds.add(m.user_id);
   }
-  const paidBy = {};
+  const paidBy = Object.create(null);
   const expenseRows = [];
   let totalExpense = 0;
   let unknownPaid = 0;
@@ -98,7 +96,7 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   const ids = [...participantIds];
   const participantCount = Math.max(1, ids.length || 1);
   const mode = ["equal", "ratio", "headcount", "item"].includes(String(options.mode || "")) ? String(options.mode) : "equal";
-  const weights = {};
+  const weights = Object.create(null);
   for (const id of ids) {
     const raw = mode === "equal" || mode === "item" ? 1 : Number(options.weights?.[id] || 1);
     weights[id] = Math.max(0.1, Math.min(1000, Number.isFinite(raw) ? raw : 1));
@@ -250,36 +248,99 @@ async function handleSettlementHistorySave(request, env) {
   if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=manage_required`);
   if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
   if (rawMode !== mode) return redirectResponse(`${returnTo}&err=invalid_mode`);
-  let lease = null;
+  let backTo = returnTo;
   try {
     const rows = await fetchAdminRows(env, { month, householdId: selected.id, type: "expense" });
     const members = await fetchHouseholdMembers(env, selected.id);
-    const model = buildSettlementModel(rows, members, { mode });
+    // V22.9.34 2차 점검 B11: 완료 폼이 실어 온 비율·인원수·품목별 조건으로 다시 계산한다. 예전에는 조건 없이
+    // 다시 계산해 2:1 비율·품목별 부담이 모두 1:1 로 저장됐다. 화면을 연 뒤 기록이 바뀌었으면 저장하지 않는다.
+    const conditions = parseSettlementConditions(form, members, rows);
+    backTo = `${returnTo}${settlementConditionQuery(mode, conditions)}`;
+    const model = buildSettlementModel(rows, members, { mode, ...conditions });
+    const digest = await settlementPreviewDigest({ month, mode, conditions, rows });
+    const submittedDigest = String(form.get("preview_digest") || "").trim();
+    if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
     const note = String(form.get("note") || "").trim().slice(0, 160);
-    // 정산 이력은 JSON 한 행을 읽고 다시 쓰므로 가계부 단위 잠금으로
-    // 서로 다른 완료 요청까지 직렬화해 이력 유실과 중복을 함께 막습니다.
-    lease = await claimOperationLease(env, {
-      key: `settlement-history:${selected.id}`,
-      owner: operationLeaseOwner("settlement"),
-      leaseSeconds: Number(env.SETTLEMENT_LEASE_SECONDS || 60),
+    // 정산 이력은 JSON 한 행을 읽고 다시 쓴다. 가계부 설정 잠금(가계부 삭제와 같은 잠금, 감사 S9)으로
+    // 서로 다른 완료 요청까지 직렬화해 이력 유실과 중복을 함께 막고, 지운 가계부에 이력을 되살리지 않는다.
+    const outcome = await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
+      const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
+      const duplicate = history.some((item) => {
+        const completedAt = Date.parse(String(item.completed_at || ""));
+        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+      });
+      if (duplicate) return "duplicate";
+      history.push({
+        id: crypto.randomUUID(),
+        schema_version: 2,
+        month,
+        mode,
+        conditions,
+        total_expense: model.totalExpense,
+        participant_count: model.participantCount,
+        shares: model.people.map((person) => ({ user_id: person.user_id, name: person.name, paid: person.paid, share: person.share, balance: person.balance })),
+        transfers: model.transfers,
+        rows_digest: digest,
+        note,
+        completed_by: userId,
+        completed_at: new Date().toISOString(),
+        status: "completed",
+      });
+      assertFresh();
+      await saveSettingValue(env, settlementHistoryKey(selected.id), history.slice(-30));
+      return "saved";
     });
-    if (!lease.acquired) return redirectResponse(`${returnTo}&err=settlement_busy`);
-    const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
-    const duplicate = history.some((item) => {
-      const completedAt = Date.parse(String(item.completed_at || ""));
-      const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-      return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId);
-    });
-    if (duplicate) return redirectResponse(`${returnTo}&msg=settlement_already_completed`);
-    history.push({ id: crypto.randomUUID(), month, mode, total_expense: model.totalExpense, participant_count: model.participantCount, note, completed_by: userId, completed_at: new Date().toISOString(), status: "completed" });
-    await saveSettingValue(env, settlementHistoryKey(selected.id), history.slice(-30));
-    return redirectResponse(`${returnTo}&msg=settlement_completed`);
+    return redirectResponse(`${backTo}&msg=${outcome === "duplicate" ? "settlement_already_completed" : "settlement_completed"}`);
   } catch (err) {
     rememberOpsEvent({ kind: "settlement_history_save_failed", severity: "warn", path: "/my/settlement/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(`${returnTo}&err=settlement_save_failed`);
-  } finally {
-    if (lease?.acquired) await releaseOperationLease(env, lease);
+    if (/settings_rmw_busy/.test(safeError(err))) return redirectResponse(`${backTo}&err=settlement_busy`);
+    return redirectResponse(`${backTo}&err=settlement_save_failed`);
   }
+}
+
+// V22.9.34 2차 점검 B11: 미리보기 화면과 완료 저장이 같은 규칙으로 비율·인원수(weight_<참여자>)와
+// 품목별 참여자(item_<기록>)를 읽는다. 값이 없는 참여자는 1, 고른 사람이 없는 품목은 전체 참여자다.
+function parseSettlementConditions(params, members = [], rows = []) {
+  const weights = Object.create(null);
+  for (const member of safeArray(members)) {
+    const raw = params.get(`weight_${member.user_id}`);
+    if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) weights[member.user_id] = Math.max(0.1, Math.min(1000, value));
+  }
+  const itemParticipants = Object.create(null);
+  for (const row of safeArray(rows).slice(0, 40)) {
+    const picked = params.getAll(`item_${row.id}`).map((value) => String(value || "").trim()).filter(Boolean);
+    if (picked.length) itemParticipants[row.id] = picked;
+  }
+  return { weights, itemParticipants };
+}
+
+function settlementConditionPairs(mode, conditions = {}) {
+  const pairs = [];
+  if (mode === "ratio" || mode === "headcount") {
+    for (const [id, weight] of Object.entries(conditions.weights || {})) pairs.push([`weight_${id}`, String(weight)]);
+  }
+  if (mode === "item") {
+    for (const [rowId, ids] of Object.entries(conditions.itemParticipants || {})) for (const id of ids) pairs.push([`item_${rowId}`, String(id)]);
+  }
+  return pairs;
+}
+
+function settlementConditionQuery(mode, conditions = {}) {
+  return settlementConditionPairs(mode, conditions).map(([key, value]) => `&${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("");
+}
+
+// 화면을 그릴 때와 완료할 때의 조건·기록이 같은지 대조하는 지문이다.
+async function settlementPreviewDigest({ month, mode, conditions = {}, rows = [] }) {
+  const canonical = JSON.stringify([
+    month,
+    mode,
+    settlementConditionPairs(mode, conditions).sort(),
+    safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
+  ]);
+  return (await sha256Hex(canonical)).slice(0, 32);
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "" }) {
@@ -304,7 +365,7 @@ function renderSettlementConfig({ mode = "equal", members = [], rows = [], weigh
 function renderSettlementHistory(history = []) {
   const rows = safeArray(history).slice().reverse().slice(0, 8);
   if (!rows.length) return `<p class="muted">완료 처리한 정산이 아직 없습니다.</p>`;
-  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(String(item.completed_at || "").slice(0, 10))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(String(item.completed_at || "").slice(0, 10))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 async function handleSettlementSummaryPage(request, env, url) {
@@ -318,11 +379,12 @@ async function handleSettlementSummaryPage(request, env, url) {
   const selected = access.selected;
   const [members, rows, historyValue] = await Promise.all([fetchHouseholdMembers(env, selected.id), fetchAdminRows(env, { month, householdId: selected.id, type: "expense" }), getSettingValue(env, settlementHistoryKey(selected.id))]);
   const mode = ["equal", "ratio", "headcount", "item"].includes(String(url.searchParams.get("mode") || "")) ? String(url.searchParams.get("mode")) : "equal";
-  const weights = {};
-  for (const member of safeArray(members)) weights[member.user_id] = Math.max(0.1, Number(url.searchParams.get(`weight_${member.user_id}`) || 1));
-  const itemParticipants = {};
-  for (const row of safeArray(rows).slice(0, 40)) itemParticipants[row.id] = url.searchParams.getAll(`item_${row.id}`).map(String);
+  // V22.9.34 2차 점검 B11: 완료 저장과 같은 규칙으로 조건을 읽고, 완료 폼에 조건과 미리보기 지문을 싣는다.
+  const conditions = parseSettlementConditions(url.searchParams, members, rows);
+  const { weights, itemParticipants } = conditions;
   const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants });
+  const previewDigest = await settlementPreviewDigest({ month, mode, conditions, rows });
+  const completionHidden = [...settlementConditionPairs(mode, conditions), ["preview_digest", previewDigest]].map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}"/>`).join("");
   const history = parseJsonSetting(historyValue, []);
   const opts = access.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const modeOptions = [["equal", "동일 분배"], ["ratio", "비율 분배"], ["headcount", "인원수 분배"], ["item", "품목별 참여자"]].map(([value, label]) => `<option value="${value}"${mode === value ? " selected" : ""}>${label}</option>`).join("");
@@ -339,12 +401,14 @@ async function handleSettlementSummaryPage(request, env, url) {
   const settlementError = url.searchParams.get("err") || "";
   const error = settlementError === "settlement_busy"
     ? `<div class="error">다른 정산 저장이 진행 중입니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 이력을 확인해 주세요.</div>`
+    : settlementError === "settlement_changed"
+      ? `<div class="error">화면을 연 뒤 이 달 지출 기록이 바뀌어 저장하지 않았습니다. 바뀐 기록으로 다시 계산된 금액을 확인한 뒤 완료해 주세요.</div>`
     : settlementError === "settlement_save_failed"
       ? `<div class="error">정산 완료 이력을 저장하지 못했습니다. 기존 이력은 유지됩니다. 같은 버튼을 반복하지 말고 잠시 후 다시 시도해 주세요.</div>`
     : settlementError
       ? `<div class="error">정산 상태를 저장하지 못했습니다. 확인 체크와 관리 권한을 확인해 주세요.</div>`
       : "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 고급 정산</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.filters{display:grid;grid-template-columns:1fr 150px 160px 100px;gap:8px}.filters select,.filters input,.filters button,.weight input{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 11px;font:inherit}.filters button,button{background:#111827;color:#fff;border:0;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:19px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.plus{color:#166534;font-weight:1000}.minus{color:#b91c1c;font-weight:1000}.zero{color:#64748b;font-weight:1000}.weightGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}.weight{display:grid;gap:5px;border:1px solid #e5e7eb;border-radius:16px;padding:11px}.weight span{font-weight:1000}.weight small{color:#64748b}.itemGrid{display:grid;gap:9px;margin:10px 0}.itemSplit{border:1px solid #e5e7eb;border-radius:17px;padding:13px}.itemSplit span{display:block;color:#64748b;font-size:12px;margin-top:4px}.checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.checks label{background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;padding:0 13px;text-decoration:none;color:#fff!important;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.note,.copy,.ok,.error{border-radius:16px;padding:13px;line-height:1.6}.note,.copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475569}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.muted{color:#64748b;line-height:1.6}.complete{display:grid;gap:9px}.complete input[type=text]{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit}@media(max-width:760px){.wrap{padding:12px}.filters{grid-template-columns:1fr}.btn,button{width:100%;margin:4px 0}.checks{display:grid}.hero h1{font-size:25px}}</style></head><body>${renderUnifiedNav("settlement", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${message}${error}<section class="hero"><h1>고급 정산</h1><p>${escapeHtml(selected.name || "가계부")} · 동일, 비율, 인원수, 품목별 참여자 중 실제 모임 규칙에 맞는 방식을 선택하세요.</p><form class="filters" method="get" action="/settlement-summary"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="mode">${modeOptions}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(modeLabel)} 설정</h2>${renderSettlementConfig({ mode, members, rows, weights, itemParticipants, month, householdId: selected.id })}</section><section class="grid"><div class="metric"><span>정산 대상 지출</span><b>${numberWithCommas(model.totalExpense)}원</b></div><div class="metric"><span>참여자</span><b>${numberWithCommas(model.participantCount)}명</b></div><div class="metric"><span>평균 부담</span><b>${numberWithCommas(model.share)}원</b></div><div class="metric"><span>지출 건수</span><b>${numberWithCommas(model.itemCount)}건</b></div><div class="metric"><span>최소 송금 제안</span><b>${numberWithCommas(model.transfers.length)}건</b></div></section>${model.unknownPaid ? `<section class="card"><div class="error">지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했습니다. 기록 화면에서 지출자를 지정한 뒤 다시 계산하세요.</div></section>` : ""}<section class="card"><h2>참여자별 정산</h2><div class="tableWrap"><table><thead><tr><th>참여자</th><th>낸 금액</th><th>부담액</th><th>정산 상태</th></tr></thead><tbody>${renderSettlementRows(model)}</tbody></table></div></section><section class="card"><h2>송금 횟수를 줄인 제안</h2><div class="tableWrap"><table><thead><tr><th>보낼 사람</th><th>받을 사람</th><th>금액</th></tr></thead><tbody>${renderTransferRows(model.transfers)}</tbody></table></div><p class="muted">받을 금액과 보낼 금액을 큰 순서로 맞춰 불필요한 교차 송금을 줄였습니다. 실제 송금 전에 참여자와 금액을 확인하세요.</p></section><section class="card"><h2>공유 문구</h2><div class="copy" id="settlementCopy">${escapeHtml(selected.name || "가계부")} ${escapeHtml(month)} 정산<br/>방식: ${escapeHtml(modeLabel)}<br/>총 지출: ${numberWithCommas(model.totalExpense)}원<br/>참여자: ${numberWithCommas(model.participantCount)}명<br/><br/>${escapeHtml(transferText).replace(/\n/g, "<br/>")}<br/><br/>초대/참여 문구: ${escapeHtml(inviteText)}</div><p><button type="button" id="copySettlement">문구 복사</button><a class="btn light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}#quick">기록 추가</a></p></section><section class="card"><h2>정산 완료·이력</h2>${canComplete ? `<form class="complete" method="post" action="/my/settlement/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/><input type="text" name="note" placeholder="예: 7월 여행 정산 완료" maxlength="160"/><label><input type="checkbox" name="confirmed" value="yes" required/> 참여자와 금액을 확인했고 완료 이력으로 저장합니다.</label><button type="submit">정산 완료로 저장</button></form>` : `<p class="note">소유자·관리자가 완료 상태를 저장할 수 있습니다.</p>`}${renderSettlementHistory(history)}</section></main><script>(function(){var b=document.getElementById('copySettlement'),box=document.getElementById('settlementCopy');if(!b||!box)return;b.addEventListener('click',function(){var text=box.innerText;var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done);else{window.prompt('복사하세요',text);}});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 고급 정산</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.filters{display:grid;grid-template-columns:1fr 150px 160px 100px;gap:8px}.filters select,.filters input,.filters button,.weight input{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 11px;font:inherit}.filters button,button{background:#111827;color:#fff;border:0;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:19px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.plus{color:#166534;font-weight:1000}.minus{color:#b91c1c;font-weight:1000}.zero{color:#64748b;font-weight:1000}.weightGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}.weight{display:grid;gap:5px;border:1px solid #e5e7eb;border-radius:16px;padding:11px}.weight span{font-weight:1000}.weight small{color:#64748b}.itemGrid{display:grid;gap:9px;margin:10px 0}.itemSplit{border:1px solid #e5e7eb;border-radius:17px;padding:13px}.itemSplit span{display:block;color:#64748b;font-size:12px;margin-top:4px}.checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.checks label{background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;padding:0 13px;text-decoration:none;color:#fff!important;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.note,.copy,.ok,.error{border-radius:16px;padding:13px;line-height:1.6}.note,.copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475569}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.muted{color:#64748b;line-height:1.6}.complete{display:grid;gap:9px}.complete input[type=text]{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit}@media(max-width:760px){.wrap{padding:12px}.filters{grid-template-columns:1fr}.btn,button{width:100%;margin:4px 0}.checks{display:grid}.hero h1{font-size:25px}}</style></head><body>${renderUnifiedNav("settlement", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${message}${error}<section class="hero"><h1>고급 정산</h1><p>${escapeHtml(selected.name || "가계부")} · 동일, 비율, 인원수, 품목별 참여자 중 실제 모임 규칙에 맞는 방식을 선택하세요.</p><form class="filters" method="get" action="/settlement-summary"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="mode">${modeOptions}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(modeLabel)} 설정</h2>${renderSettlementConfig({ mode, members, rows, weights, itemParticipants, month, householdId: selected.id })}</section><section class="grid"><div class="metric"><span>정산 대상 지출</span><b>${numberWithCommas(model.totalExpense)}원</b></div><div class="metric"><span>참여자</span><b>${numberWithCommas(model.participantCount)}명</b></div><div class="metric"><span>평균 부담</span><b>${numberWithCommas(model.share)}원</b></div><div class="metric"><span>지출 건수</span><b>${numberWithCommas(model.itemCount)}건</b></div><div class="metric"><span>최소 송금 제안</span><b>${numberWithCommas(model.transfers.length)}건</b></div></section>${model.unknownPaid ? `<section class="card"><div class="error">지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했습니다. 기록 화면에서 지출자를 지정한 뒤 다시 계산하세요.</div></section>` : ""}<section class="card"><h2>참여자별 정산</h2><div class="tableWrap"><table><thead><tr><th>참여자</th><th>낸 금액</th><th>부담액</th><th>정산 상태</th></tr></thead><tbody>${renderSettlementRows(model)}</tbody></table></div></section><section class="card"><h2>송금 횟수를 줄인 제안</h2><div class="tableWrap"><table><thead><tr><th>보낼 사람</th><th>받을 사람</th><th>금액</th></tr></thead><tbody>${renderTransferRows(model.transfers)}</tbody></table></div><p class="muted">받을 금액과 보낼 금액을 큰 순서로 맞춰 불필요한 교차 송금을 줄였습니다. 실제 송금 전에 참여자와 금액을 확인하세요.</p></section><section class="card"><h2>공유 문구</h2><div class="copy" id="settlementCopy">${escapeHtml(selected.name || "가계부")} ${escapeHtml(month)} 정산<br/>방식: ${escapeHtml(modeLabel)}<br/>총 지출: ${numberWithCommas(model.totalExpense)}원<br/>참여자: ${numberWithCommas(model.participantCount)}명<br/><br/>${escapeHtml(transferText).replace(/\n/g, "<br/>")}<br/><br/>초대/참여 문구: ${escapeHtml(inviteText)}</div><p><button type="button" id="copySettlement">문구 복사</button><a class="btn light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}#quick">기록 추가</a></p></section><section class="card"><h2>정산 완료·이력</h2>${canComplete ? `<form class="complete" method="post" action="/my/settlement/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/>${completionHidden}<input type="text" name="note" placeholder="예: 7월 여행 정산 완료" maxlength="160"/><label><input type="checkbox" name="confirmed" value="yes" required/> 참여자와 금액을 확인했고 완료 이력으로 저장합니다.</label><button type="submit">정산 완료로 저장</button></form>` : `<p class="note">소유자·관리자가 완료 상태를 저장할 수 있습니다.</p>`}${renderSettlementHistory(history)}</section></main><script>(function(){var b=document.getElementById('copySettlement'),box=document.getElementById('settlementCopy');if(!b||!box)return;b.addEventListener('click',function(){var text=box.innerText;var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done);else{window.prompt('복사하세요',text);}});})();</script></body></html>`);
 }
 
 async function handleMeetingArchiveGuidePage(request, env, url) {

@@ -8,7 +8,7 @@ import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-
 import { safeArray } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
-import { upsertMyBudgetRow } from "../my/groups-budget-bulk.js";
+import { upsertMyBudgetRow, withBudgetPlanLease } from "../my/groups-budget-bulk.js";
 import { shiftMonthString } from "../my/analysis-page.js";
 import { fetchBudgets, optionalSupabase } from "../domain/budgets.js";
 import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
@@ -392,11 +392,19 @@ async function saveKakaoBudget(env, householdId = "", month = currentMonthKst(),
 
 async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = currentMonthKst()) {
   const previous = shiftMonthString(month, -1);
-  if ((await fetchBudgets(env, householdId, month)).some(row => Number(row.amount || 0) > 0)) throw new Error("budget_copy_current_configured");
-  const rows = await fetchBudgets(env, householdId, previous);
-  const copyRows = safeArray(rows).filter((r) => Number(r.amount || 0) > 0);
-  for (const row of copyRows) await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
-  return { previous, count: copyRows.length };
+  // V22.9.34 감사 S6: 이번 달 예산을 못 읽었을 때 "없음"으로 보고 지난달 예산을 덮어쓰지 않는다.
+  // 웹 일괄 저장과 같은 잠금 안에서 다시 읽고 복사한다.
+  return withBudgetPlanLease(env, householdId, month, async ({ assertFresh }) => {
+    const current = await fetchBudgets(env, householdId, month, { strict: true });
+    if (current.some(row => Number(row.amount || 0) > 0)) throw new Error("budget_copy_current_configured");
+    const rows = await fetchBudgets(env, householdId, previous, { strict: true });
+    const copyRows = rows.filter((r) => Number(r.amount || 0) > 0);
+    for (const row of copyRows) {
+      assertFresh();
+      await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
+    }
+    return { previous, count: copyRows.length };
+  });
 }
 
 async function getHouseholdById(env, householdId = "") {
@@ -492,8 +500,8 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
   const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
-  const byCategory = {};
-  const byUser = {};
+  const byCategory = Object.create(null);
+  const byUser = Object.create(null);
   for (const row of expenses) {
     const c = row.category || "기타"; byCategory[c] = (byCategory[c] || 0) + Number(row.amount || 0);
     const name = names[row.user_id] || "미지정"; byUser[name] = (byUser[name] || 0) + Number(row.amount || 0);

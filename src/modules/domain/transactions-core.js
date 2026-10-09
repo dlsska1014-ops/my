@@ -7,11 +7,14 @@ import {
 } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
-import { fetchTransactionRowById } from "../admin/transactions-households.js";
+import {
+  MAX_TRANSACTION_AMOUNT, fetchTransactionRowById, isValidTransactionDateString,
+} from "../admin/transactions-households.js";
 import { fetchPostgrestRows } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { findExactDuplicateTransaction } from "../import/csv-duplicates.js";
 import { isMissingCategory } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
@@ -108,10 +111,43 @@ async function listTransactions(env, url) {
   return jsonResponse({ ok: true, month, all: showAll, items });
 }
 
-async function createManualTransaction(env, body) {
+async function createManualTransaction(env, body, options = {}) {
   const row = sanitizeTransactionBody(body);
+  // V22.9.34 proto (B13): a client-chosen UUID v4 becomes the primary key, so a retry hits the PK instead of a time window.
+  const requestId = abTransactionRequestId(options.requestId);
+  if (requestId) row.id = requestId;
   const source = String(row.source || body.source || "web_admin");
   const dedupSeconds = duplicateGuardSeconds(env, source);
+  const insertRow = async () => {
+    if (!row.id) {
+      const created = await supabase(env, "/rest/v1/transactions", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(row),
+      });
+      return Array.isArray(created) ? created[0] : created;
+    }
+    let created;
+    try {
+      created = await supabase(env, "/rest/v1/transactions?on_conflict=id", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+        body: JSON.stringify(row),
+      });
+    } catch (err) {
+      if (isUncertainStorageWrite(err)) {
+        let found = null;
+        try { found = await findTransactionForRequest(env, row); } catch (_) {}
+        if (found) return { ...found, __reconciled: true };
+      }
+      throw err;
+    }
+    const inserted = Array.isArray(created) ? created[0] : created;
+    if (inserted) return inserted;
+    const existing = await findTransactionForRequest(env, row);
+    if (!existing) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
+    return { ...existing, __idempotent_replay: true, __replay_same: sameTransactionCore(existing, row) };
+  };
   if (dedupSeconds > 0 && isDuplicateGuardSource(source) && env.DUPLICATE_GUARD_DISABLED !== "1") {
     const fingerprint = await sha256Hex([
       source,
@@ -136,26 +172,33 @@ async function createManualTransaction(env, body) {
     }
     try {
       const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
+      if (dup && row.id && String(dup.id) === row.id) return { ...dup, __idempotent_replay: true, __replay_same: true };
       if (dup) {
         rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
         return { ...dup, __duplicate_skipped: true };
       }
-      const created = await supabase(env, "/rest/v1/transactions", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify(row),
-      });
-      return Array.isArray(created) ? created[0] : created;
+      return await insertRow();
     } finally {
       await releaseOperationLease(env, lease);
     }
   }
-  const created = await supabase(env, "/rest/v1/transactions", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(row),
-  });
-  return Array.isArray(created) ? created[0] : created;
+  return insertRow();
+}
+
+function abTransactionRequestId(value) {
+  const v = String(value || "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v) ? v : "";
+}
+
+async function findTransactionForRequest(env, row) {
+  const params = new URLSearchParams({ select: "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,created_at", id: `eq.${row.id}`, household_id: `eq.${row.household_id}`, limit: "1" });
+  const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("transaction_request_lookup_invalid");
+  return rows[0] || null;
+}
+
+function sameTransactionCore(a = {}, b = {}) {
+  return String(a.user_id) === String(b.user_id) && String(a.type) === String(b.type) && Number(a.amount) === Number(b.amount) && String(a.transaction_date) === String(b.transaction_date);
 }
 
 async function updateTransaction(env, id, body, options = {}) {
@@ -220,22 +263,39 @@ function recommendCategory(text = "", type = "expense") {
   return inferCategory(text, type === "income" ? "income" : "expense");
 }
 
+// V22.9.34 감사 SIM-10: 분류·결제수단 이름은 집계 맵의 키가 된다. "__proto__" 같은 이름은 받지 않는다.
+function isPrototypeKeyName(value) {
+  return ["__proto__", "constructor", "prototype"].includes(String(value ?? "").trim());
+}
+
+// V22.9.34 감사 SIM-10·N3: 입력의 칸은 자기 속성만 본다. 원형이 오염됐을 때 상속된 값이 부분 수정의 칸으로
+// 들어가 금액이 0원이 되던 길을 막는다. 금액 상한(20억)은 카카오 수정처럼 다른 검증을 거치지 않는 경로를 위해
+// 저장 직전에도 지킨다.
 function sanitizeTransactionBody(body, partial = false) {
+  const src = body && typeof body === "object" ? body : {};
+  const own = (key) => Object.prototype.hasOwnProperty.call(src, key) ? src[key] : undefined;
   const out = {};
-  if (!partial && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(body.id || ""))) out.id = String(body.id);
-  if (!partial || body.household_id) out.household_id = String(body.household_id || "");
-  if (body.user_id) out.user_id = String(body.user_id);
-  if (!partial || body.type) out.type = body.type === "income" ? "income" : "expense";
-  if (!partial || body.amount !== undefined) out.amount = Math.max(0, Math.round(Number(body.amount || 0)));
-  if (!partial || body.category !== undefined) out.category = String(body.category || "").slice(0, 80);
-  if (!partial || body.memo !== undefined) out.memo = String(body.memo || "").slice(0, 160);
-  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${body.raw_text || ""} ${body.payment_method || ""}`, out.type);
+  if (!partial && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(own("id") || ""))) out.id = String(own("id"));
+  if (!partial || own("household_id")) out.household_id = String(own("household_id") || "");
+  if (own("user_id")) out.user_id = String(own("user_id"));
+  if (!partial || own("type")) out.type = own("type") === "income" ? "income" : "expense";
+  if (!partial || own("amount") !== undefined) out.amount = Math.max(0, Math.round(Number(own("amount") || 0)));
+  if (!partial || own("category") !== undefined) out.category = String(own("category") || "").slice(0, 80);
+  if (!partial || own("memo") !== undefined) out.memo = String(own("memo") || "").slice(0, 160);
+  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${own("raw_text") || ""} ${own("payment_method") || ""}`, out.type);
   if (!partial && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
-  if (!partial || body.payment_method !== undefined) out.payment_method = String(body.payment_method || "").slice(0, 40);
-  if (!partial || body.transaction_date !== undefined) out.transaction_date = /^20\d{2}-\d{2}-\d{2}$/.test(String(body.transaction_date || "")) ? String(body.transaction_date) : formatDate(nowKstDate());
-  if (!partial) out.source = body.source || "web_admin";
-  if (!partial && body.source_user_key) out.source_user_key = String(body.source_user_key).slice(0, 180);
-  if (!partial && body.raw_text) out.raw_text = String(body.raw_text).slice(0, 500);
+  if (!partial || own("payment_method") !== undefined) out.payment_method = String(own("payment_method") || "").slice(0, 40);
+  if (!partial || own("transaction_date") !== undefined) {
+    // V22.9.34 감사 N4·D5: 달력에 없는 날짜를 오늘로 바꿔 저장하지 않는다. 비어 있을 때만 오늘이다.
+    const date = String(own("transaction_date") || "").trim();
+    if (date && !isValidTransactionDateString(date)) throw new Error("invalid_transaction_date");
+    out.transaction_date = date || formatDate(nowKstDate());
+  }
+  if (!partial) out.source = own("source") || "web_admin";
+  if (!partial && own("source_user_key")) out.source_user_key = String(own("source_user_key")).slice(0, 180);
+  if (!partial && own("raw_text")) out.raw_text = String(own("raw_text")).slice(0, 500);
+  if (isPrototypeKeyName(out.category) || isPrototypeKeyName(out.payment_method)) throw new Error("reserved_name");
+  if (out.amount !== undefined && out.amount > MAX_TRANSACTION_AMOUNT) throw new Error("amount_too_large");
   if (!partial && !out.household_id) throw new Error("household_id is required");
   if (!partial && !out.user_id) throw new Error("spender user_id is required");
   if (!partial && !out.amount) throw new Error("amount is required");
@@ -266,8 +326,8 @@ async function fetchMonthRows(env, householdId, month) {
 
 function calculateStats(rows) {
   const totals = { income: 0, expense: 0, balance: 0 };
-  const categories = {};
-  const daily = {};
+  const categories = Object.create(null);
+  const daily = Object.create(null);
 
   for (const row of rows || []) {
     const amount = Number(row.amount || 0);
@@ -351,9 +411,9 @@ function escapeHtml(s) {
 }
 // @build:exports-start
 export {
-  bulkTransactionsAtomic, calculateStats, calendarDaysFromRows, createManualTransaction,
-  deleteTransactionWithAudit, escapeHtml, formatRecentTransactions, formatSummary, getCalendar,
-  getMonthSummary, getStats, helpText, jsonForInlineScript, linkText, listTransactions,
-  makeInviteCode, nextMonthStart, numberWithCommas, updateTransaction,
+  abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
+  createManualTransaction, deleteTransactionWithAudit, escapeHtml, formatRecentTransactions,
+  formatSummary, getCalendar, getMonthSummary, getStats, helpText, jsonForInlineScript, linkText,
+  listTransactions, makeInviteCode, nextMonthStart, numberWithCommas, updateTransaction,
 };
 // @build:exports-end

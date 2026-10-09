@@ -354,6 +354,14 @@ V22.9.23에서 적용한 관제 D1 스키마는 재실행할 필요가 없습니
 | V22.8.0 | 있음 | 자산·결제수단 기반 스키마 |
 
 과거 SQL 원본은 과거 배포본의 신규 설치·장애 복구 자료입니다. V22.8.20 적용을 위해 실행하지 않습니다. 성능 인덱스는 운영 행 수와 실행 계획에서 병목이 확인될 때만 별도 버전으로 검토합니다.
+## V22.9.34 판단
+
+감사 결함 수정은 Worker 코드와 1년 캐시 자산 주소만 바꿉니다. 새 SQL·스키마·인덱스·RLS·GRANT·RPC 는 없습니다.
+
+- 웹 빠른 입력과 카카오 새 기록은 서버가 정한 UUID 를 `transactions.id`로 넣고 `on_conflict=id`(ignore-duplicates)로 중복을 무시합니다. 운영 표가 명시적 id 를 받는지 배포 전에 읽기 전용으로 확인합니다(`docs/ASIDE_V22_9_34.md` 2절).
+- 가져오기·기록 수정·예산 계획의 잠금은 기존 `accountbook_operation_locks`를 씁니다(`transaction-import:<가계부>`, `transaction-edit:<기록>`, `budget-plan:<가계부>:<월>`).
+- SQL 이 있으면 더 나은 방식(수정 RPC 의 비교 후 저장, `client_request_id` 칸, 가져오기 RPC 안의 잠금)은 `docs/codex/AUDIT_FINDINGS_V22_9_34.md`에 기록만 했습니다.
+
 ## V22.9.33 판단
 
 QA 결함 수정은 Worker 코드와 1년 캐시 자산 주소만 바꿉니다. 새 SQL·스키마·인덱스·RLS·GRANT·RPC 가 없고 기존 SQL 파일을 그대로 보존합니다. 즐겨찾기·거래 수정 이력의 읽기-수정-쓰기는 기존 `accountbook_operation_locks` 기반 가계부 설정 잠금(`withHouseholdSettingsRmw`)을 씁니다.

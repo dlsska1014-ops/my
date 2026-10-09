@@ -582,7 +582,7 @@ function accountbookSearchClientMain() {
   var resultsBox = document.getElementById("abV5SearchResults");
   var timer = null;
   var lastQ = null;
-  var favIds = {};
+  var favIds = Object.create(null);
   var favList = [];
   var returnFocus = null;
   var panel = overlay.querySelector(".abV5SearchPanel");
@@ -808,7 +808,7 @@ function accountbookNotifClientMain() {
   var badges = document.querySelectorAll(".abV5NotifBadge");
   if (!overlay || !listBox) return;
   var data = [];
-  var dismissed = {};
+  var dismissed = Object.create(null);
   var returnFocus = null;
   var panel = overlay.querySelector(".abV5NotifPanel");
   function currentHousehold() {

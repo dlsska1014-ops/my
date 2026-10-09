@@ -85,7 +85,7 @@ function normalizeMemberAliasMap(value = {}, options = {}) {
   else if (typeof parsed === "string") {
     try { parsed = parsed ? JSON.parse(parsed) : {}; } catch (_) { parsed = {}; }
   }
-  const out = {};
+  const out = Object.create(null);
   for (const [k, v] of Object.entries(safeObject(parsed))) {
     const uid = String(k || "").trim();
     const name = String(v || "").trim().slice(0, 80);
@@ -194,7 +194,7 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
 }
 
 async function fetchAllHouseholdMembersMap(env, households = []) {
-  const out = {};
+  const out = Object.create(null);
   for (const h of households || []) {
     out[h.id] = await fetchHouseholdMembers(env, h.id);
   }
@@ -285,7 +285,7 @@ async function countHouseholdTransactions(env, householdId) {
 }
 
 function memberNameMap(members = []) {
-  const map = {};
+  const map = Object.create(null);
   for (const m of members) if (m.user_id) map[m.user_id] = m.nickname || "구성원";
   return map;
 }

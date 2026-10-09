@@ -10,7 +10,7 @@ import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js"
 import { kakaoText } from "./response-builders.js";
 import {
   hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, stripKakaoEditDatePrefixV4,
 } from "./edit-session-v4.js";
 import {
   isKakaoFlowCancelCommand, isKakaoGuidedCommand, isKakaoStartCommand,
@@ -52,13 +52,27 @@ function stripLeadingCommand(text = "") {
   return t.replace(/^\/+\s*/, "").trim();
 }
 
+// D3: 날짜를 앞에 붙인 수정·삭제·복구 명령("어제 01번 금액 5000", "7/10 01번 삭제")은 날짜를 뗀 본문으로 판정한다.
+// 기록 입력의 날짜 접두(요일 등)와 수정 명령의 날짜 접두(엊그제·M-D 등)를 모두 떼어 낸다.
+function kakaoEditControlTextV4(text = "") {
+  const raw = normalizeText(stripLeadingCommand(text));
+  const afterHint = raw.slice(extractLeadingDateHint(raw).length).trim();
+  return stripKakaoEditDatePrefixV4(afterHint).replace(/^\d{1,2}\s*(?:일|주)\s*전\s+/, "").trim();
+}
+
+function looksLikeKakaoEditCommandV4(text = "") {
+  const control = kakaoEditControlTextV4(text);
+  return /^(?:수정|삭제|복구)\s*\d+/.test(control)
+    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
+    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
+}
+
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
-  const control = raw.slice(extractLeadingDateHint(raw).length).trim();
-  if (/^(?:수정|삭제|복구)\s*\d+/.test(control)) return false;
-  if (/^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출)(?=\s|$)/.test(raw)) return false;
-  if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)|^(?:수정|삭제|복구)\s*\d|^(?:\d+\s*번)\s*(?:수정|삭제|복구)/.test(raw)) return false;
+  if (looksLikeKakaoEditCommandV4(raw)) return false;
+  if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
   const remainder = raw
@@ -194,6 +208,7 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
   isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
-  normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention, stripLeadingCommand,
+  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention,
+  stripLeadingCommand,
 };
 // @build:exports-end

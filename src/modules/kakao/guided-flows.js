@@ -1,4 +1,6 @@
 // @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import {
@@ -278,7 +280,20 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
         return { text: "예산을 설정할 카테고리를 선택해 주세요.", quickReplies: kakaoBudgetCategoryQuickReplies() };
       }
       if (t === "지난달 예산 복사") {
-        const copied = await copyKakaoBudgetsFromPreviousMonth(env, household.id, month);
+        let copied;
+        try {
+          copied = await copyKakaoBudgetsFromPreviousMonth(env, household.id, month);
+        } catch (err) {
+          // V22.9.34 감사 S6: 이미 정한 이번 달 예산은 덮어쓰지 않고, 확인하지 못했을 때도 복사하지 않는다.
+          const configured = /budget_copy_current_configured/.test(safeError(err));
+          if (!configured) rememberOpsEvent({ kind: "kakao_budget_copy_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+          return {
+            text: configured
+              ? `${month} 예산이 이미 있어 지난달 예산을 복사하지 않았어요. 바꾸려면 웹의 예산 화면에서 고쳐 주세요.`
+              : "지금 예산을 확인하지 못해 복사하지 않았어요. 잠시 뒤 다시 시도해 주세요.",
+            quickReplies: kakaoBudgetRootQuickReplies(),
+          };
+        }
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
         return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]] };
       }

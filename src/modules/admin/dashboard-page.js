@@ -13,6 +13,7 @@ import {
   renderAutoRefreshScript, renderCalendarFilterScript, renderGuideTab, renderImportTab,
   renderMobileBottomNav, renderPcSidebar, renderQuickStartPanel, renderTabs,
 } from "../web/menu-and-guides.js";
+import { lastNonEmptyParam } from "../my/mobile-home.js";
 import {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, formatSignedPercent,
   renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
@@ -299,7 +300,7 @@ async function renderServerDashboardHtml(env, url) {
   const date = url.searchParams.get("date") || "";
   const q = url.searchParams.get("q") || "";
   const quality = url.searchParams.get("quality") || "all";
-  const categoryFilter = url.searchParams.get("category") || "";
+  const categoryFilter = lastNonEmptyParam(url.searchParams, "category");
   const paymentFilter = url.searchParams.get("payment_method") || "";
   const groupBy = url.searchParams.get("group_by") || "category";
   const allowedTabs = new Set(["overview", "guide", "import", "calendar", "analysis", "transactions", "cleanup", "partners", "premium"]);

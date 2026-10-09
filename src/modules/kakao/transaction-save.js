@@ -23,7 +23,9 @@ import { maskKey } from "../admin/ops-diagnostics-pages.js";
 import { kakaoNoMatchGuide } from "./reply-texts.js";
 import { kakaoSaveDelayText } from "./intent-nlu.js";
 import { isUncertainStorageWrite, kakaoSaveFailedText, kakaoText } from "./response-builders.js";
-import { dailySeqForKakaoRow, kakaoRowLabel, twoDigitSeq } from "./edit-session-v4.js";
+import {
+  dailySeqForKakaoRow, kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
+} from "./edit-session-v4.js";
 import { optionalWithin } from "./request-guards.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
@@ -39,7 +41,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
 
   // V22.9.16: 지출자 이름표는 저장 뒤 응답 문구에만 쓰지만, 읽는 데 저장 결과가 필요 없다.
   // 분류·결제수단과 같이 던져 두고 응답을 만들 때 받는다(왕복 한 단계 절감).
-  const inputSettingsPromise = fetchKakaoInputSettings(env, household.id);
+  const inputSettingsPromise = fetchKakaoInputSettings(env, household.id, user.id);
   const messageKey = "kakao-message:" + await sha256Hex(JSON.stringify([household.id,user.id,parsedList]));
   const messageLeasePromise = claimOperationLease(env, {key:messageKey,owner:operationLeaseOwner("kakao-message"),leaseSeconds:90});
   let messageLease = null, releasePromise = null;
@@ -49,7 +51,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (settled[0].status === "rejected") throw settled[0].reason;
   if (settled[1].status === "rejected") throw settled[1].reason;
   if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
-  const {customCategoryRows, paymentAssetRows, aliases: inputAliases} = settled[0].value;
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, pendingWrite} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
@@ -70,7 +72,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (Date.now() - handlerStartedAt >= 3500) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
   let savedRows = [];
-  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
+  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
   catch (err) {
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
@@ -112,13 +114,15 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   ]);
   const payerName = aliases?.[user.id] || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
-  const editGuide = seq ? `\n\n수정: "수정 ${twoDigitSeq(seq)}번" 또는 "수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.`;
+  // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
+  const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);
+  const editGuide = seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
   return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
-async function fetchKakaoInputSettings(env, householdId) {
-  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId)];
+async function fetchKakaoInputSettings(env, householdId, userId = "") {
+  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
   const settingsPromise=supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, {method:"GET"});
   const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"});
   const [settings,categories]=await Promise.all([settingsPromise,categoryPromise]);
@@ -126,7 +130,7 @@ async function fetchKakaoInputSettings(env, householdId) {
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
   const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
-  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3]))};
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),pendingWrite:keys[4] ? parseKakaoPendingWrite(values.get(keys[4])) : null};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
@@ -173,6 +177,11 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   })).filter((r) => r.household_id && r.user_id && r.amount > 0);
 
   if (!cleanRows.length) return [];
+  // V22.9.34 proto (B13 Kakao): row ids are chosen here. When the same message (same fingerprint) had an UNKNOWN result
+  // before, its ids were parked in a pending marker and are reused now, so a late-landing first write collides on the PK.
+  const pending = options.pendingWrite;
+  const reuse = !!(pending && options.fingerprint && pending.fp === options.fingerprint && Array.isArray(pending.ids) && pending.ids.length === cleanRows.length);
+  cleanRows.forEach((row, index) => { row.id = reuse ? String(pending.ids[index]) : crypto.randomUUID(); });
 
   options.assertFresh?.();
   const { existing, fresh } = await dedupeKakaoRowsBeforeInsert(env, cleanRows);
@@ -180,16 +189,63 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   let insertedRows = [];
   if (fresh.length) {
     options.assertFresh?.();
-    const inserted = await supabase(env, "/rest/v1/transactions", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify(fresh),
-    });
-    insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
+    try {
+      const inserted = await supabase(env, "/rest/v1/transactions?on_conflict=id", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+        body: JSON.stringify(fresh),
+      });
+      insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
+    } catch (err) {
+      if (!isUncertainStorageWrite(err)) throw err;
+      let found = [];
+      try { found = await kakaoRowsByIds(env, fresh[0].household_id, fresh.map((row) => row.id)); } catch (_) { found = null; }
+      if (!found || found.length < fresh.length) {
+        await writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, { fp: options.fingerprint || "", ids: cleanRows.map((row) => row.id), at: Date.now() }).catch(() => {});
+        throw err;
+      }
+      insertedRows = found;
+    }
+    if (insertedRows.length < fresh.length) {
+      const got = new Set(insertedRows.map((row) => String(row.id)));
+      const missing = fresh.filter((row) => !got.has(String(row.id)));
+      const already = await kakaoRowsByIds(env, missing[0].household_id, missing.map((row) => row.id));
+      for (const row of already) existing.push({ ...row, __duplicate_skipped: true, __pending_replay: true });
+    }
   }
+  if (reuse) await writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, null).catch(() => {});
 
   options.onConfirmed?.();
   return [...existing, ...insertedRows];
+}
+
+function kakaoPendingWriteKey(householdId, userId) {
+  // Lives under a prefix that 02_APPLY_HOUSEHOLD_PURGE_V22_8_71.sql already deletes with the household.
+  return `kakao_edit_v2254:${householdId}:pending_write:${userId}`;
+}
+
+async function writeKakaoPendingWrite(env, householdId, userId, marker) {
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key: kakaoPendingWriteKey(householdId, userId), value: marker ? JSON.stringify(marker) : "" }),
+  });
+}
+
+function parseKakaoPendingWrite(value) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value || "null") : value;
+    if (!parsed || !parsed.fp || !Array.isArray(parsed.ids)) return null;
+    if (Date.now() - Number(parsed.at || 0) > 24 * 60 * 60 * 1000) return null;
+    return parsed;
+  } catch (_) { return null; }
+}
+
+async function kakaoRowsByIds(env, householdId, ids = []) {
+  const params = new URLSearchParams({ select: "*", household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
+  const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("kakao_reconcile_invalid");
+  return rows;
 }
 
 async function handleKakaoRecentDebug(request, env, url) {

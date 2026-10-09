@@ -170,7 +170,7 @@ function normalizeRecurringKey(row = {}) {
 function detectRecurringCandidates(historyRows = [], month = currentMonthKst(), registered = []) {
   const windowMonths = [addMonthsYm(month, -2), addMonthsYm(month, -1), month];
   const registeredKeys = new Set(safeArray(registered).map((x) => normalizeRecurringKey(x)).filter(Boolean));
-  const byKey = {};
+  const byKey = Object.create(null);
   for (const r of safeArray(historyRows)) {
     if (r.type === "income" || ["recurring", "recurring_auto"].includes(String(r.source || ""))) continue;
     const ym = String(r.transaction_date || "").slice(0, 7);
@@ -198,8 +198,8 @@ function findAnomalousExpenses(rows = [], historyRows = [], month = currentMonth
   const expenses = safeArray(rows).filter((r) => r.type !== "income" && Number(r.amount || 0) > 0);
   if (!expenses.length) return [];
   const past = safeArray(historyRows).filter((r) => r.type !== "income" && Number(r.amount || 0) > 0 && String(r.transaction_date || "").slice(0, 7) !== month);
-  const catSum = {};
-  const catCount = {};
+  const catSum = Object.create(null);
+  const catCount = Object.create(null);
   for (const r of past) {
     const k = r.category || "미분류";
     catSum[k] = (catSum[k] || 0) + Number(r.amount || 0);
@@ -235,7 +235,7 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
   let thisWeek = 0;
   let lastWeekToPoint = 0;
   let lastWeekTotal = 0;
-  const catMap = {};
+  const catMap = Object.create(null);
   for (const r of safeArray(historyRows)) {
     if (r.type === "income") continue;
     const d = String(r.transaction_date || "");
@@ -289,7 +289,8 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
     ["주말 지출 비중", `${analysis.weekendRate || 0}%`, `${numberWithCommas(analysis.weekendExpense || 0)}원`],
     ["카테고리 집중도", `${analysis.concentration || 0}%`, `${escapeHtml(analysis.topCategory?.category || "없음")} 중심`],
     ["소비 위험도", `${analysis.riskScore || 0}점`, (analysis.riskScore || 0) >= 70 ? "주의" : "정상"],
-    ["무지출일", `${analysis.noSpendDays || 0}일`, "이번 달 소비 없는 날짜"],
+    // V22.9.34 2차 점검 U01: 이번 달은 오늘까지, 앞으로 올 달은 세지 않는다.
+    ["무지출일", analysis.basisDays === 0 ? "-" : `${analysis.noSpendDays || 0}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "그 달 소비 없는 날짜"],
   ].map(([a,b,c]) => `<div class="metric"><span>${a}</span><b>${b}</b><small>${c}</small></div>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(selected.name || "가계부")} · 분석</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff}.hero h1{margin:0;font-size:30px}.hero p{opacity:.9}.filters{display:grid;grid-template-columns:1fr 200px 140px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin:5px 0}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.btn{display:inline-flex;background:#111827;color:#fff!important;border-radius:14px;text-decoration:none;padding:10px 14px;font-weight:1000}.soft{background:#eef2f7!important;color:#111827!important}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.filters{grid-template-columns:1fr}.filters select,.filters input,.filters button{width:100%;font-size:16px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.metricGrid{grid-template-columns:1fr 1fr;gap:8px}.metric{padding:13px;border-radius:18px}.metric b{font-size:20px}.card{border-radius:20px;padding:16px}.trendChart{min-height:150px}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:680px}}
 .muted{color:#64748b;font-size:13px;line-height:1.5}
@@ -373,7 +374,7 @@ function renderPcCalendarHtml({ month, households, selectedHousehold, rows, stat
   const selected = selectedHousehold || {};
   const prevMonth = shiftMonthString(month, -1);
   const nextMonth = shiftMonthString(month, 1);
-  const daily = {};
+  const daily = Object.create(null);
   for (const r of safeArray(rows)) {
     const d = String(r.transaction_date || "");
     if (!daily[d]) daily[d] = { expense: 0, income: 0, count: 0, rows: [] };

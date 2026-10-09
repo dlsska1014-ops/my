@@ -102,7 +102,7 @@ function buildAnnualReportModel(rows, year) {
   const monthsExp = new Array(12).fill(0);
   const monthsInc = new Array(12).fill(0);
   let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
-  const catExp = {};
+  const catExp = Object.create(null);
   for (const r of safeArray(rows)) {
     const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
     const amt = Number(r.amount || 0);
