@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_34.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_35.sha256",
 );
 const validationScripts = [
   // 모든 검사가 src/index.js 를 읽으므로 그 파일이 모듈과 같은지부터 본다.
@@ -26,6 +26,7 @@ const validationScripts = [
   ["V22.9.34 카카오 수정·삭제·복구 안전(감사 1절)", "validation/validate-kakao-edit-safety-v22934.mjs"],
   ["V22.9.34 저장 무결성(2차 점검 B12~B15, 감사 SIM-1)", "validation/validate-write-integrity-v22934.mjs"],
   ["V22.9.34 2차 점검 화면(B10·B11·U01·U02, 감사 T3)", "validation/validate-qa2-screens-v22934.mjs"],
+  ["V22.9.35 가입 해시(Workers PBKDF2 상한 100,000)", "validation/validate-signup-kdf-v22935.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
@@ -192,7 +193,8 @@ function run(command, args, label) {
 // V22.9.33 QA 결함 수정: 보고서 결함 B01~B09 와 웹 수정 폼(T1) 검사 52개, 새 v22933 자산 고정 6개가 들어왔다.
 // V22.9.34 감사 결함 수정: 설정·계정 안전 49, 금액·날짜 해석 95, 원형 오염 방지 18, 카카오 수정·삭제·복구 66,
 // 저장 무결성 28, 2차 점검 화면 28 개 검사와 새 v22934 자산 고정이 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 8744;
+// V22.9.35 가입 해시 수정: Workers PBKDF2 상한(100,000) 아래의 가입·로그인·관리자 비밀번호 변경 검사 25개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 8769;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -2196,7 +2196,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.34-AUDIT-FIXES";
+const APP_VERSION = "V22.9.35-SIGNUP-KDF-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4923,10 +4923,16 @@ function constantTimeTextEqual(a = "", b = "") {
   return diff === 0;
 }
 
-const PASSWORD_KDF_ITERATIONS = 210000;
+// V22.9.35: Cloudflare Workers 운영 런타임은 PBKDF2 반복 횟수가 100,000 을 넘으면 deriveBits 를
+// NotSupportedError 로 거절한다(workerd 기본 상한, 이슈 #1346). Node 와 공개 workerd 에는 이 상한이 없어
+// 검사가 통과했고, 210,000 회로는 운영 가입·ID 설정·관리자 비밀번호 변경이 모두 실패했다(2026-10-09 가입 500).
+// 새 해시는 상한 그대로 만들고, 상한을 넘는 저장값은 엉뚱한 해시를 만들지 않도록 분명한 오류로 알린다.
+const PASSWORD_KDF_MAX_ITERATIONS = 100000;
+const PASSWORD_KDF_ITERATIONS = PASSWORD_KDF_MAX_ITERATIONS;
 
 async function pbkdf2PasswordHash(password = "", salt = "", iterations = PASSWORD_KDF_ITERATIONS) {
-  const rounds = Math.max(100000, Math.min(600000, Math.round(Number(iterations || PASSWORD_KDF_ITERATIONS))));
+  const rounds = Math.max(100000, Math.round(Number(iterations || PASSWORD_KDF_ITERATIONS)));
+  if (!(rounds <= PASSWORD_KDF_MAX_ITERATIONS)) throw new Error("password_kdf_iterations_unsupported");
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(String(password || "")),
@@ -26394,6 +26400,8 @@ async function handleMyLocalLogin(request, env) {
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));
+    // V22.9.35: 로그인 처리 오류는 운영 이벤트에 남지 않아 원인을 볼 자리가 없었다(가입 오류는 local_signup_failed).
+    rememberOpsEvent({ kind: "local_login_failed", severity: "error", path: "/my/local-login", method: "POST", detail: safeError(err) });
     return htmlResponse(renderUserLoginHtml(env, missingSecret ? "운영 보안키가 설정되지 않아 로그인할 수 없습니다." : "로그인을 처리하지 못했습니다. 잠시 후 다시 시도하세요."), missingSecret ? 503 : 500);
   }
 }

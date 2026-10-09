@@ -84,7 +84,7 @@ for(let i=0;i<40;i++) {
    ok(cookies(completed).includes("ab_credential_reauth="),"current linked Kakao identity grants scoped credential proof");
    const changed=await call(f,"POST","/my/backup-login",{login_name:"audit-current",access_code:"AuditPassword123",access_code_confirm:"AuditPassword123"},{cookie:f.cookie+"; "+cookies(completed)});
    eq(changed.status,303,"scoped Kakao proof permits first strong credential setup");
-   const identity=f.db.accountbook_user_identities.find(row=>row.user_id==="user-bin"&&row.provider==="local");eq(identity.credential_iterations,210000,"KDF strength retained");
+   const identity=f.db.accountbook_user_identities.find(row=>row.user_id==="user-bin"&&row.provider==="local");eq(identity.credential_iterations,100000,"KDF uses the Workers PBKDF2 cap");
    const stale=await call(f,"POST","/my/backup-login",{login_name:"audit-stale",access_code:"NewPassword123",access_code_confirm:"NewPassword123"},{cookie:cookies(changed)+"; "+cookies(completed)});eq(stale.status,403,"credential proof cannot be reused after session-version change");
    const normal=await call(f,"POST","/my/backup-login",{login_name:"audit-current",access_code:"NewPassword123",access_code_confirm:"NewPassword123",current_password:"AuditPassword123"},{cookie:cookies(changed)});eq(normal.status,303,"current strong password permits normal credential replacement");
    const next=await call(f,"GET","/app?household_id=house-home",{},{cookie:cookies(normal)});eq(next.status,200,"new session version opens next authenticated request");
