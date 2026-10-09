@@ -1,3 +1,9 @@
+// @build:imports-start
+import { chooseMemeCard } from "../features/meme-engine-premium.js";
+import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
+import { currentMonthKst, nowKstDate } from "../nlu/date-payment.js";
+import { calculateStats, escapeHtml, numberWithCommas } from "./transactions-core.js";
+// @build:imports-end
 
 function addMonthsYm(month, delta) {
   const d = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1);
@@ -193,3 +199,11 @@ function forecastMonthlyExpense(currentExpense, month) {
   const elapsed = month === currentMonth ? Math.max(1, today.getDate()) : daysInMonth;
   return Math.round(currentExpense / elapsed * daysInMonth);
 }
+// @build:exports-start
+export {
+  addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, categoryExpenseMap,
+  deltaClass, formatSignedPercent, percentChange, renderCategoryCompareTable,
+  renderCategoryTrendTable, renderMonthlyTrendMini, renderMonthlyTrendTable, renderStrategyCards,
+  renderWeekdayStats, renderYearlyMonthSummary,
+};
+// @build:exports-end

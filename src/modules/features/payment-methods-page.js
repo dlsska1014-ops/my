@@ -1,3 +1,21 @@
+// @build:imports-start
+import { cardPerformanceEnabled } from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  PAYMENT_ASSET_GROUP_CATALOG, PAYMENT_ASSET_KIND_CATALOG, computePaymentAssetTotals,
+  fetchAssetHistory, fetchPaymentAssets, isValidPaymentAssetKind, normalizePaymentAssetAmount,
+  paymentAssetGroupMeta, paymentAssetKindMeta, paymentMethodsLocation,
+} from "../settings/payment-assets.js";
+import {
+  fetchAdminRows, getScopedHouseholdsForPage, selectRequestedScopedHousehold,
+} from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function shiftMonthKey(month = "", delta = 0) {
   const m = validMonth(month) || currentMonthKst();
@@ -296,3 +314,6 @@ async function handlePaymentMethodsPage(request, env, url) {
     : `<section class="card assetEmptyState"><div class="assetEmptyMain"><span class="assetEmptyMark" aria-hidden="true">＋</span><div><h2>아직 등록된 자산이 없어요</h2><p class="note">통장이나 카드 하나만 등록해도 순자산과 월별 변화를 확인할 수 있습니다.</p></div>${canManage ? `<a class="emptyCta" href="#add">첫 자산 등록하기</a>` : ""}</div>${canManage ? `<div class="presetRow compactPresets"><span>예시로 시작</span>${renderAssetQuickPresets(month, householdId, 3)}</div>` : `<p class="note">자산 등록은 가계부 소유자/관리자만 할 수 있습니다.</p>`}</section>`;
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>자산·결제수단</title><style>${PAYMENT_METHODS_PAGE_STYLE}</style></head><body>${renderUnifiedNav("payment-methods", { month, householdId, householdName: (households.find((h) => h.id === householdId) || {}).name })}<main class="wrap"><section class="hero"><p class="heroLabel">현재 순자산</p><div class="heroNet">${numberWithCommas(totals.netWorth)}원</div>${deltaHtml}<div class="heroChips"><span>자산 ${numberWithCommas(totals.assetTotal)}원</span><span>부채 ${numberWithCommas(totals.liabilityTotal)}원</span><span>${escapeHtml(monthLabel)} 카드 결제 ${numberWithCommas(cardUsageTotal)}원</span>${creditCardUsageTotal > 0 ? `<span class="dim">미결제 신용카드 반영 시 약 ${numberWithCommas(totals.netWorth - creditCardUsageTotal)}원</span>` : ""}</div><form class="filters" method="get" action="/payment-methods"><label class="srOnly" for="assetHousehold">가계부</label><select id="assetHousehold" name="household_id">${householdOptions}</select><label class="srOnly" for="assetMonth">조회 월</label><input id="assetMonth" type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="ok" role="status">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${escapeHtml(err)}</div>` : ""}${summarySections}${renderAssetAddSection(ctx)}<section class="card"><h2>${escapeHtml(monthLabel)} 결제수단별 흐름</h2>${unregChips ? `<div class="unregBox"><b>미등록 결제수단 ${numberWithCommas(unregistered.length)}개</b><p>거래에 나온 결제수단을 자산으로 등록하면 카드 사용액 계산과 자산 요약이 더 정확해집니다.</p><div class="presetRow">${unregChips}</div></div>` : ""}<div class="tableWrap" tabindex="0" aria-label="결제수단별 흐름 표"><table><thead><tr><th>결제수단</th><th>지출 건수</th><th>지출</th><th>수입</th><th>상태</th></tr></thead><tbody>${methodRows}</tbody></table></div></section></main></body></html>`);
 }
+// @build:exports-start
+export { handlePaymentMethodsPage };
+// @build:exports-end

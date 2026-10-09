@@ -1,3 +1,18 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError, withOperationMutex,
+  withSettingsRmwLease,
+} from "../runtime/leases.js";
+import { sha256Hex } from "../auth/crypto-admin-session.js";
+import { bestRoleFromRows, fetchRowsByPlainIds, roleRank } from "./households-members-rows.js";
+import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { getHouseholdById } from "../kakao/household-budget-commands.js";
+import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
+import { supabase } from "./supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { makeInviteCode } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function fetchUserById(env, userId) {
   if (env.__AB_REQUEST_USER_ROWS?.has(String(userId))) return env.__AB_REQUEST_USER_ROWS.get(String(userId));
@@ -172,3 +187,10 @@ async function withHouseholdCreateLock(env, userId = "", name = "", task) {
     }
   });
 }
+// @build:exports-start
+export {
+  createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers, fetchUserById,
+  fetchUserHouseholds, supabaseWithEmbedFallback, withHouseholdCreateLock,
+  withKakaoUserLifecycleLease,
+};
+// @build:exports-end

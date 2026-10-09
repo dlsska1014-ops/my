@@ -1,3 +1,11 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { htmlResponse } from "../runtime/http.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { fetchUserHouseholds } from "../data/users-household-create.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 function myReturnLocation(month = currentMonthKst(), householdId = "", extra = {}) {
   const qs = new URLSearchParams();
   qs.set("month", validMonth(month) || currentMonthKst());
@@ -67,3 +75,9 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
   const selected = (requested && canReadMyHousehold(requested.role) ? requested : null) || households[0] || null;
   return { households, memberships, selected, restricted: null, invalidRequested: "" };
 }
+// @build:exports-start
+export {
+  canManageMyHousehold, canManageMyRecord, canReadMyHousehold, canWriteMyHousehold,
+  getMySelectedHousehold, myAccessStatusResponse, myReturnLocation, renderMyAccessStatusHtml,
+};
+// @build:exports-end

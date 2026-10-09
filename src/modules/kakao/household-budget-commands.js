@@ -1,3 +1,31 @@
+// @build:imports-start
+import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import {
+  fetchAdminRowsRange, fetchHouseholdMembers, memberNameMap,
+} from "../data/households-members-rows.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { fetchUserHouseholds } from "../data/users-household-create.js";
+import { upsertMyBudgetRow } from "../my/groups-budget-bulk.js";
+import { shiftMonthString } from "../my/analysis-page.js";
+import { fetchBudgets, optionalSupabase } from "../domain/budgets.js";
+import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
+import { dedupeQuickReplies, kakaoQr } from "./response-builders.js";
+import { normalizeKakaoEditAmountValue } from "./edit-state-machine.js";
+import {
+  isExplicitKakaoTopLevelCommandV2254, isKakaoFlowCancelCommand, isUnsafeKakaoNameInputV2254,
+  kakaoStartQuickReplies, saveKakaoFlowState,
+} from "./guided-flow-state.js";
+import { bindKakaoGroupByInviteCode } from "./group-links-first-record.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import {
+  addDays, currentMonthKst, formatDate, nowKstDate, validMonth,
+} from "../nlu/date-payment.js";
+import { numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // -----------------------------------------------------------------------------
 // V22.5.1 household context safety
@@ -484,3 +512,18 @@ async function findExistingKakaoHouseholdByNameV2254(env, userId = "", name = ""
   const rows = kakaoActiveHouseholds(await fetchUserHouseholds(env, userId));
   return rows.find((h) => normalizeText(h?.name || "").replace(/\s+/g, " ").trim().toLowerCase() === target) || null;
 }
+// @build:exports-start
+export {
+  beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
+  findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
+  guidedHelpText, inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
+  isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
+  kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText,
+  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
+  kakaoManageableHouseholds, kakaoStartText, kakaoUnlinkedGroupStartText, maybeKakaoCta,
+  parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
+  setKakaoSelectedHousehold, suggestedHouseholdName,
+};
+// @build:exports-end

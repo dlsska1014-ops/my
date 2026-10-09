@@ -1,3 +1,37 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, rememberOpsEvent, trafficClientKey,
+} from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import { passwordMatchFeedbackClientMain } from "../client/legacy-ui-runtime.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash, recordAuthAttempt, trafficClientIp,
+} from "./crypto-admin-session.js";
+import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
+import { safeObject } from "../admin/backup-compare.js";
+import {
+  inspectKakaoLoginConfig, makeUserSession, stripMergedMarkerSuffix, verifyUserSession,
+} from "./user-session.js";
+import {
+  fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
+  hasBackupLoginIdentity, normalizeLocalLoginName, replaceLocalLoginForUser, verifyCredentialProof,
+  verifyPasswordReauth,
+} from "./identity-reauth.js";
+import { handleMyLogout } from "./kakao-oauth.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { householdJoinFeedback } from "../my/households-lifecycle.js";
+import { renderKakaoClaimForm } from "./kakao-web-claim.js";
+import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { stableShortHash } from "../kakao/identity-chat-first.js";
+import { joinHouseholdByCode } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function addQueryToUrl(path, params = {}) {
   const u = new URL(path, "https://local");
@@ -254,3 +288,9 @@ function renderKakaoLoginCheckHtml(env, url) {
   const row = (name, ok, detail) => `<tr><td><b>${escapeHtml(name)}</b></td><td><span class="${ok ? "ok" : "bad"}">${ok ? "정상" : "확인"}</span></td><td>${detail}</td></tr>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 카카오 로그인 점검</title><style>body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:900px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:12px;text-align:left;vertical-align:top}.ok{color:#166534;background:#dcfce7;border-radius:999px;padding:5px 9px;font-weight:1000}.bad{color:#991b1b;background:#fee2e2;border-radius:999px;padding:5px 9px;font-weight:1000}code{background:#f1f5f9;border-radius:8px;padding:2px 6px;overflow-wrap:anywhere}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:13px;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>카카오 로그인 점검</h1><p>카카오 로그인은 명시적으로 켜고, 공개 주소와 Redirect URI가 정확히 일치할 때만 사용자에게 표시됩니다.</p><table><tbody>${row("KAKAO_LOGIN_ENABLED", config.enabled, "명시적으로 <code>1</code> 설정")}${row("KAKAO_REST_API_KEY", config.apiKeyConfigured, "카카오 앱의 REST API 키 설정")}${row("PUBLIC_BASE_URL", !!config.publicBase && !config.issues.includes("public_base_url_invalid"), `<code>${escapeHtml(config.publicBase || "미설정")}</code>`)}${row("Redirect URI 형식", redirectFormatOk, `<code>${escapeHtml(config.redirectUri || "미설정")}</code>`)}${row("공개 주소와 호스트 일치", originMatch, originMatch ? "같은 HTTPS 호스트" : "PUBLIC_BASE_URL과 Redirect URI의 호스트를 같게 설정")}${row("Client Secret", !config.clientSecretRequired || config.clientSecretConfigured, config.clientSecretRequired ? "필수 모드: Secret 설정 필요" : "카카오 앱에서 Client Secret을 켰을 때만 설정")}${row("사용 가능 상태", config.ready, config.ready ? "로컬 설정 일치 · 로그인 버튼 표시" : escapeHtml(issues || "기능이 꺼져 있음"))}</tbody></table><p class="warn"><b>마지막 외부 확인</b><br/>위 Redirect URI와 완전히 같은 주소를 동일한 카카오 앱의 Redirect URI 목록에 등록해야 합니다. 이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.</p><p><a class="btn" href="/my">로그인 화면으로 돌아가기</a></p></section></main></body></html>`;
 }
+// @build:exports-start
+export {
+  addQueryToUrl, handleMyBackupLoginPage, handleMyBackupLoginSave, handleMyLocalLogin,
+  handleMyLocalSignup, kakaoLoginStatusBlock, renderKakaoLoginCheckHtml, renderMyStartChoiceHtml,
+};
+// @build:exports-end

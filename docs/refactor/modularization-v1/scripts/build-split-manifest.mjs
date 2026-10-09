@@ -1,9 +1,9 @@
 // Build a positional split manifest from proposed module boundaries, compute module-level
 // dependency map, cycles, relocation candidates, and run a split -> concat byte-identity dry run.
-// Run: node --expose-internals build-split-manifest.mjs <index.js> <ast-out-dir> <dryrun-dir>
+// Run: node build-split-manifest.mjs <index.js> <ast-out-dir> <dryrun-dir>
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const acorn = require("internal/deps/acorn/acorn/dist/acorn");
+import * as acorn from "../../../../tools/vendor/acorn.mjs";
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");

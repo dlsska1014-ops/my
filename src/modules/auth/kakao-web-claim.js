@@ -1,3 +1,28 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, parseStrictSettingsObject, safeError, settingsDataError,
+  withSettingsRmwLease,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { recordAuthAttempt, sha256Hex } from "./crypto-admin-session.js";
+import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import {
+  identityMergeRedirectSettingsKey, makeUserSession, userSessionSecret,
+} from "./user-session.js";
+import { makeCredentialProof } from "./identity-reauth.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { saveSettingValue } from "../my/reports-premium.js";
+import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { getKakaoBotGroupKey } from "../kakao/group-links-first-record.js";
+import {
+  getKakaoIdentityAliases, hasChatFirstKakaoIdentity, trustedChatFirstSkillCaller,
+} from "../kakao/identity-chat-first.js";
+import { ensureUser } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { linkText } from "../domain/transactions-core.js";
+// @build:imports-end
 
 const KAKAO_WEB_CLAIM_KEY = "kakao_web_claims_v22928";
 const KAKAO_WEB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -176,3 +201,9 @@ function loginEntryAnchorClientMain() {
     link.addEventListener("click",function() { const panel=document.getElementById("signup-start"); if (panel) panel.open=true; });
   });
 }
+// @build:exports-start
+export {
+  handleMyKakaoClaim, kakaoClaimUserUnmerged, kakaoPrivateWebLinkReply, loginEntryAnchorClientMain,
+  renderKakaoClaimForm,
+};
+// @build:exports-end

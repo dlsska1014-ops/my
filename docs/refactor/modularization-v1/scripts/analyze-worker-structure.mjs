@@ -1,8 +1,8 @@
-// Read-only structural analysis of src/index.js using Node's bundled acorn.
-// Run: node --expose-internals analyze-worker-structure.mjs <path-to-index.js> <out-dir>
+// Read-only structural analysis of src/index.js using the vendored acorn (tools/vendor/acorn.mjs, same 8.16.0 as Node 22).
+// Run: node analyze-worker-structure.mjs <path-to-index.js> <out-dir>
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const acorn = require("internal/deps/acorn/acorn/dist/acorn");
+import * as acorn from "../../../../tools/vendor/acorn.mjs";
 const fs = require("fs");
 const path = require("path");
 

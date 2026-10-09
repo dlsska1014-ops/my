@@ -1,3 +1,7 @@
+// @build:imports-start
+import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
+import { numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // =====================================================================
 // 말해가계부 — 수정(edit) 파서 V4 (동봉 모듈 edit-parser-v4.js 이식본)
@@ -568,3 +572,10 @@ function loopFuzzTest(config = {}, rounds = 200) {
   }
   return `loopFuzzTest OK — ${rounds}회 시퀀스에서 중복응답 0건, 미종료 세션 0건, 예외 0건`;
 }
+// @build:exports-start
+export {
+  FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, MAX_FAILS, MAX_TOTAL_TURNS, SESSION_TTL_MS,
+  buildValuePrompt, compact, handleEditMessage, isSessionExpired, josa, loopFuzzTest,
+  normalizeKakaoEditAmountValue, parseEditInput, selfTest,
+};
+// @build:exports-end

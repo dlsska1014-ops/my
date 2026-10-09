@@ -1,3 +1,13 @@
+// @build:imports-start
+import { rememberOpsEvent } from "./ops-telemetry.js";
+import { CORS_HEADERS, HTML_HEADERS, JSON_HEADERS } from "./config-readiness.js";
+import { attachBusinessInfoFooter, attachUiUxRuntime } from "../web/html-postprocess.js";
+import { logWorkerError, safeError } from "./leases.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 전환했어요") {
   const safePath = escapeHtml(`${url?.pathname || "/"}${url?.search || ""}`);
@@ -197,3 +207,12 @@ function constantTimeTextEqual(a = "", b = "") {
   for (let i = 0; i < size; i++) diff |= (left[i] || 0) ^ (right[i] || 0);
   return diff === 0;
 }
+// @build:exports-start
+export {
+  base64UrlDecodeBytes, base64UrlDecodeText, base64UrlEncode, base64UrlEncodeText,
+  browserFormRequestFailed, constantTimeTextEqual, csvResponse, emergencyReturnUrl, getCookie,
+  headOnlyResponse, htmlResponse, htmlResponseWithCookies, isExplicitAdminUrl, isJsonApiPath,
+  isMobileRequest, jsonResponse, mobileAppLocation, redirectPublicAwayFromAdmin, redirectResponse,
+  redirectResponseWithCookies, renderEmergencyErrorHtml, safeHtmlRoute,
+};
+// @build:exports-end

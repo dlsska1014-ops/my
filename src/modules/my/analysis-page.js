@@ -1,3 +1,26 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import {
+  renderReportChallenge, renderReportMonthNavigator, reportUxCss,
+} from "./report-challenge.js";
+import { renderMiniCategoryRows } from "./reports-premium.js";
+import { canManageMyHousehold } from "./access-control.js";
+import {
+  renderAnomalyList, renderDonutChart, renderMonthlySeriesChart, renderRecurringInsightList,
+  renderWeeklyReportCard,
+} from "../admin/pc-analysis-calendar.js";
+import { myNavCss } from "../web/login-page-side-nav.js";
+import {
+  calculateExtendedAnalytics, deltaClass, formatSignedPercent, percentChange,
+  renderCategoryCompareTable, renderMonthlyTrendTable, renderStrategyCards,
+} from "../domain/analytics.js";
+import {
+  currentMonthKst, formatDate, nowKstDate, validMonth, weekdayIndexOfYmd,
+} from "../nlu/date-payment.js";
+import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // 진행 중인 달은 지난달 "같은 날짜 범위"와 비교해야 증감률이 공정하다.
 // (예: 13일 시점에 지난달 전체와 비교하면 항상 -90%대로 왜곡)
@@ -207,3 +230,9 @@ function shiftMonthString(month = currentMonthKst(), delta = 0) {
   const d = new Date(y, mm - 1 + Number(delta || 0), 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+// @build:exports-start
+export {
+  computeFairMoM, renderMyAnalysisHtml, renderReadableDailyTrend, renderWeekdayTrend,
+  shiftMonthString, shortWonLabel,
+};
+// @build:exports-end

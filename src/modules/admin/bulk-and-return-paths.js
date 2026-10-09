@@ -1,3 +1,17 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  fetchTransactionRowsByIds, isValidTransactionDateString, transactionReturnFallback,
+} from "./transactions-households.js";
+import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { activeSpenderExists } from "../my/transactions.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { bulkTransactionsAtomic } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleAdminBulkUpdate(request, env) {
   let form = null;
@@ -124,3 +138,6 @@ function safeUserReturnPath(raw = "", fallback = "/my/households") {
   const ok = allowed.some((prefix) => parsed.pathname === prefix || parsed.pathname.startsWith(prefix + "/"));
   return ok ? `${parsed.pathname}${parsed.search}${parsed.hash}` : fallback;
 }
+// @build:exports-start
+export { handleAdminBulkUpdate, returnLocation, safeUserReturnPath };
+// @build:exports-end

@@ -1,7 +1,13 @@
+// @build:imports-start
+import { HTML_HEADERS } from "../runtime/config-readiness.js";
+import { htmlResponse } from "../runtime/http.js";
+import { kakaoDefaultQuickReplies } from "../kakao/response-builders.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.31-GROUP-FIRST-RECORD";
+const APP_VERSION = "V22.9.32-MODULAR-SOURCE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -228,3 +234,15 @@ function publicSiteNav(active = "home") {
 function publicSiteFooter() {
   return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://everyday-tools-ko.pages.dev" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
 }
+// @build:exports-start
+export {
+  APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
+  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, PUBLIC_CONTENT_PATHS,
+  adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
+  currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
+  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
+  kakaoRepresentativeCommands, memeCardsEnabled, normalizeBaseUrl, premiumBetaEnabled,
+  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
+  renderBusinessInfoFooter, renderSkillGetHealthHtml,
+};
+// @build:exports-end

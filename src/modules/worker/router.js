@@ -1,3 +1,186 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed,
+  csrfRejectedResponse, csrfSignalSummary, rememberOpsEvent, trafficLimitedResponse,
+} from "../runtime/ops-telemetry.js";
+import {
+  CORS_HEADERS, READINESS_ALTERNATIVE_RPC_GROUPS, READINESS_CORE_RPCS, READINESS_OPTIONAL_TABLES,
+  READINESS_REQUIRED_TABLES, missingRuntimeConfiguration, rememberedHouseholdRequest,
+  withRememberedHouseholdCookie,
+} from "../runtime/config-readiness.js";
+import {
+  abMonitorCompleted, abMonitorDatabaseProbe, abMonitorRequestContext, handleComprehensiveMonitor,
+} from "../runtime/ops-monitor.js";
+import {
+  APP_MODE, APP_VERSION, KAKAO_SECONDARY_COMMANDS, appName, canonicalRedirectResponse,
+  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, kakaoChatCommandCatalog,
+  kakaoRepresentativeCommands, publicBaseUrl, renderSkillGetHealthHtml,
+} from "../public/site-config.js";
+import {
+  handleAdsTxt, handlePublicContentPage, handlePublicRobots, handlePublicSitemap,
+  handlePublicSitemapStylesheet,
+} from "../public/content-pages.js";
+import { logWorkerError, safeError } from "../runtime/leases.js";
+import {
+  browserFormRequestFailed, emergencyReturnUrl, headOnlyResponse, htmlResponse, isExplicitAdminUrl,
+  isJsonApiPath, isMobileRequest, jsonResponse, mobileAppLocation, redirectPublicAwayFromAdmin,
+  redirectResponse, renderEmergencyErrorHtml, safeHtmlRoute,
+} from "../runtime/http.js";
+import {
+  kakaoSkillAuthSnapshot, skillLatencySnapshot, verifyAdminSession,
+} from "../auth/crypto-admin-session.js";
+import {
+  handleAdminAddTransaction, handleAdminDeleteTransaction, handleAdminHouseholdCreate,
+  handleAdminHouseholdDelete, handleAdminHouseholdRegenerate, handleAdminHouseholdUpdate,
+  handleAdminLogin, handleAdminLogout, handleAdminMemberNickname, handleAdminMemberRemove,
+  handleAdminMemberUpdate, handleAdminPage, handleAdminUpdateTransaction, handleTransactionEditPage,
+} from "../admin/transactions-households.js";
+import {
+  handlePaymentAssetCreate, handlePaymentAssetDelete, handlePaymentAssetUpdate,
+} from "../settings/payment-assets.js";
+import {
+  handleReservePlanCreate, handleReservePlanDelete, handleReservePlanUpdate, handleReservePlansPage,
+} from "../settings/reserve-plans.js";
+import {
+  handleCategoryAdminPage, handleCategoryCreate, handleCategoryDelete, handleCategoryKeywordsSave,
+  handleChatbotEditGuidePage, handleKeywordGuidePage, handleMyProfilePage, handleMyProfileUpdate,
+} from "../admin/category-guide-pages.js";
+import { handleAdminBulkUpdate, safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
+import {
+  handleAdminCsv, handleAdminImportJson, handleImportTemplateCsv, handleImportTemplateXls,
+} from "../import/flexible-import-parser.js";
+import { getScopedHouseholdsForPage } from "../data/households-members-rows.js";
+import {
+  checkRpcAvailable, checkTableAvailable, handleRecordFlowAuditPage, handleRouteAuditPage,
+  handleSettingsPage, handleSettingsPasswordUpdate, handleTopTabAuditPage,
+} from "../admin/settings-audit-pages.js";
+import {
+  handleAdminExportJson, handleBackupCenterPage, handleBackupComparePage, handleBackupComparePost,
+  handleBackupPreviewPage, handleBackupPreviewPost,
+} from "../admin/backup-compare.js";
+import {
+  handleBackupCandidateSelectPage, handleBackupCandidateSelectPost, handleImportApplyPage,
+  handleImportApplyPost, handleImportFinalCheckPage, handleImportFinalCheckPost,
+} from "../admin/backup-apply.js";
+import {
+  handleImportHistoryCsv, handleImportHistoryPage, handleRollbackCandidatePage,
+  handleRollbackFinalCheckPage, handleRollbackFinalCheckPost,
+} from "../admin/import-history-rollback.js";
+import {
+  handleDeployRunbookPage, handleFeatureMapPage, handleFilterPagingAuditPage,
+  handleFinalReleasePage, handleOperationCenterPage, handleUiAuditPage, handleUserReadyCheckPage,
+  handleUserReleaseCheckPage,
+} from "../admin/release-audit-pages.js";
+import { handleCardBenefitsPage } from "../features/card-benefits.js";
+import { handlePaymentMethodsPage } from "../features/payment-methods-page.js";
+import {
+  handleDiagnosticsPage, handleHouseholdAdminPage, handleHouseholdUserPage,
+  handleProductionOpsAuditPage,
+} from "../admin/ops-diagnostics-pages.js";
+import {
+  handleBackupSafetyGuidePage, handleBetaChecklistPage, handleBetaStartPage,
+  handleDeploymentCheckPage, handleHouseholdFlowGuidePage, handleKakaoGroupFlowPage,
+  handleKakaoGroupLinksPage, handleKakaoLoginRecoveryGuidePage, handleMemeCardContentPage,
+  handleMenuPolishGuidePage, handleMobileFirstFlowGuidePage, handleOpenBuilderFinalUtterancePage,
+  handleQuickInputHelpPage, handleQuickInputQaPage, handleRealUserQaPage, handleReviewReadyPage,
+  handleUiPolishCheckPage, handleUserPolishFinalPage,
+} from "../admin/guide-pages.js";
+import {
+  MEME_CONTENT_LIBRARY, handleKakaoCommandsPage, handleMemeContentCenterPage,
+  handleMemeMotionGuidePage, handleMemeReviewCheckPage, handleMemeShareKitPage,
+  handleOpsSnapshotJson, handleReleaseDryRunPage, memeMotionPromptList, memeSafePolicyList,
+} from "../admin/meme-content-pages.js";
+import { handleAnnualReportPage, handleGoalsPage } from "../features/budget-alerts-annual-goals.js";
+import {
+  handleBrandKitPage, handleBudgetAlertGuidePage, handleBudgetAlertPolishPage,
+  handleDuplicateSafetyPage, handleHouseholdCreateJoinGuidePage, handleMeetingArchiveGuidePage,
+  handleMeetingHouseholdTemplatePage, handleOpsDashboardPage, handleReleaseCandidateCheckPage,
+  handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
+} from "../features/settlement-ops-pages.js";
+import {
+  handleKakaoStabilityGuidePage, handleNluFailuresCsv, handleNluOpsJson, handleNluOpsPage,
+  handleOpenBuilderGuidePage, handleOpenBuilderReportPage, handleSkillOpsPage,
+  handleWelcomeLinkGuidePage,
+} from "../admin/nlu-openbuilder-ops.js";
+import { handleBeginnerGuidePage, handleUnifiedMenuPage } from "../web/menu-and-guides.js";
+import { mergedUserSessionRecoveryResponse, verifyUserSession } from "../auth/user-session.js";
+import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth.js";
+import {
+  handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
+} from "../auth/kakao-oauth.js";
+import { handleMyMembersPage } from "../my/members-page.js";
+import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
+import { handleRecurringCronApply, runRecurringAutoApply } from "../cron/recurring-auto-apply.js";
+import { handleMyBudgetBulkSave, handleMyGroupsPage } from "../my/groups-budget-bulk.js";
+import { handleReportChallengeSave } from "../my/report-challenge.js";
+import {
+  handleAutomaticReportCron, handleFreeReportsPage, handleMyPremiumPage, handleReportPreferenceSave,
+  runAutomaticReports,
+} from "../my/reports-premium.js";
+import {
+  handleMyAnalysisPage, handleMyInsightPage, insightAppJsResponse,
+} from "../my/insight-page.js";
+import {
+  handleMyBudgetSave, handleMyCategoryKeywordsBulkSave, handleMyCategoryKeywordsSave,
+  handleMyRecurringDelete, handleMyRecurringSave, handleMySettingsPage,
+  handleRecurringCandidateConfirm,
+} from "../my/settings-page.js";
+import {
+  handleMyAddTransaction, handleMyDeleteTransaction, handleMyUpdateTransaction,
+} from "../my/transactions.js";
+import {
+  handleMyCreate, handleMyHouseholdDelete, handleMyHouseholdLeave, handleMyHouseholdUpdate,
+  handleMyHouseholdsPage, handleMyJoin, handleMyPage,
+} from "../my/households-lifecycle.js";
+import {
+  handleMemeArchivePage, handleMemeDelete, handleMemeImage, handleMemeLabPage,
+  handleMemePublicStatsPage, handleMemeRankPage, handleMemeReact, handleMemeSave,
+  handleMemeSharePage, handlePublicMemeImage, handlePublicMemeLike, handlePublicMemeShareCount,
+  handlePublicMemeSharePage,
+} from "../features/meme-cards.js";
+import { appIconAssetResponse } from "../assets/icons-manifest.js";
+import { mobileHomePerformanceAssetResponse } from "../assets/asset-responses.js";
+import { handleMobileV8Page } from "../my/mobile-home.js";
+import {
+  handleBudgetDelete, handleBudgetSave, handlePcAnalysisPage, handlePcCalendarPage,
+} from "../admin/pc-analysis-calendar.js";
+import {
+  handleCursorPreference, handleCursorPreferenceSave, handleHomeLayoutPage, handleHomeLayoutSave,
+} from "../my/money-plan-home-layout.js";
+import {
+  handleBudgetCenterPage, handleRecurringApply, handleRecurringDelete, handleRecurringSave,
+} from "../admin/budget-center-recurring.js";
+import {
+  handleMyBackupLoginPage, handleMyBackupLoginSave, handleMyLocalLogin, handleMyLocalSignup,
+  renderKakaoLoginCheckHtml,
+} from "../auth/local-login-pages.js";
+import { handleMyKakaoClaim } from "../auth/kakao-web-claim.js";
+import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
+import {
+  detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
+} from "../kakao/reply-texts.js";
+import {
+  detectKakaoNaturalIntent, kakaoNluRegistrySummary, kakaoNluRuntimeConfig,
+} from "../kakao/intent-nlu.js";
+import {
+  isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoText,
+} from "../kakao/response-builders.js";
+import { buildKakaoSkillTestPayload, kakaoQaRequestAllowed } from "../kakao/request-guards.js";
+import { handleKakaoSkillStable } from "../kakao/skill-handler.js";
+import { handleKakaoRecentDebug } from "../kakao/transaction-save.js";
+import {
+  handleUserDayTransactions, handleUserFavorites, handleUserGoals, handleUserNotifications,
+  handleUserRecentTransactions, handleUserTxSearch,
+} from "../api/user-api.js";
+import { handleApi } from "../api/admin-api.js";
+import { handleIdentityAuditPage, handleIdentityMerge } from "../admin/identity-merge.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import {
+  handleBetaReleaseCandidateFinalPage, handleDomainMigrationGuidePage,
+  handleGroupChatbotLaunchGuidePage, handleGroupChatbotTrafficScalePage, handlePersonalUrlAuditPage,
+} from "../admin/launch-guide-pages.js";
+// @build:imports-end
 
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {

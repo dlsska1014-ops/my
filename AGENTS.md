@@ -23,6 +23,9 @@
   검사)와 1회용 위치 분할 도구.
 - `tools/deploy-worker-version.mjs`: Versions API 업로드·대조·승격·되돌림 스크립트. 토큰은
   환경변수로만 받고, 업로드는 배포하지 않으며 승격은 `--promote`와 사용자 승인 뒤에만 한다.
+- `tools/annotate-modules.mjs`, `tools/worker-analysis.mjs`, `tools/compare-worker-statements.mjs`:
+  모듈 import/export 표시 생성, 스코프 분석, 두 빌드의 최상위 문장 구문 트리 비교.
+- `tools/vendor/`: 분석에 쓰는 acorn 8.16.0 원본과 라이선스·출처 기록.
 - `docs/refactor/modularization-v1/`: 모듈 분리 설계·분할 명세와 재생산 스크립트.
 - `validation/`: 현재 릴리스의 독립 회귀 검증.
 - `docs/kakao-manual/`: 카카오 1:1·그룹 응답과 가계부 규칙.
@@ -51,14 +54,15 @@
 ## 변경 원칙
 
 - 변경 전 관련 코드를 검색하고 가장 작은 범위로 수정한다.
-- Worker 코드는 `src/modules/`에서 고치고 `npm run build:worker`로 `src/index.js`를
-  다시 만들어 함께 커밋한다. `src/index.js`는 생성 파일이므로 직접 수정하지 않는다.
+- Worker 코드는 `src/modules/`에서 고치고 `npm run build:worker`로 모듈의 import/export
+  표시와 `src/index.js`를 다시 만들어 함께 커밋한다. `src/index.js`는 생성 파일이므로 직접 수정하지 않는다.
   하네스의 빌드 동일성 검사는 다시 이은 결과와 커밋된 `src/index.js`의 SHA-256이
   다르면 실패한다. 운영 배포는 지금처럼 검증된 `src/index.js` 파일 전체 교체 방식이다.
 - 모듈 파일은 UTF-8(BOM 없음)·LF이고 마지막 줄바꿈이 정확히 하나다. 연결 순서는
   `src/modules/MANIFEST.txt`가 정하고 선언 순서가 곧 초기화 순서이므로 임의로 바꾸지
   않는다. 모듈 사이 선언 이동은 `docs/refactor/modularization-v1/PLAN.md` 4단계의
-  절차와 검사를 따른다.
+  절차와 검사를 따르고, `node tools/compare-worker-statements.mjs`로 의도한 문장만 바뀌었는지
+  확인한다. `.toString()`으로 내려보내는 클라이언트 함수에는 Worker 최상위 이름을 새로 넣지 않는다.
 - 현재 V22.8.46은 `household_members.role`에 `admin`을 허용하는
   `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql` 적용이 필요하다. 기존 참여자 행,
   RLS, GRANT, RPC, 인덱스, 환경변수, Kakao Developers, OpenBuilder는 변경하지 않는다.
@@ -91,11 +95,16 @@ npm run validate:audit-corrections
 npm run validate:startup-budget
 npm run validate:group-first
 npm run validate:import-cron
+npm run validate:build-identity
+npm run validate:module-syntax
+npm run validate:client-serialization
+npm run validate:init-order
+npm run validate:deploy-script
 node .codex/scripts/verify-repository.mjs
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`로 확인하며 자동 검사의 최소 기준은 8,197개이다. ESM `default.fetch`, 작업 트리와
+현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_32.sha256`로 확인하며 자동 검사의 최소 기준은 8,365개이다. ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 여기에는 V22.9.24의 설정 범위·취소·관제 SSO·부분 지표 검사 121개, V22.9.25의 UI/UX 회귀 검사 42개, V22.9.26의 라우터 await·안전 실패 검사 47개, 출시 점검 수정 검사 83개, 코드리뷰 후속 검사 125개와 cold/warm 직렬 깊이 보호 6개가 포함된다.
 설정 JSON(키워드·적립계획·별칭·식별 링크)을 읽고-고쳐-쓰는 경로는 `{ strict: true }` 읽기를 쓴다. 읽기 실패를 빈 값으로 보면 기존 값이 통째로 사라진다.
 라우터 `route()` 안에서 핸들러는 반드시 `return await handleX(...)` 로 돌려준다. `await` 가 빠지면 핸들러의 오류가 라우터의 안전모드 catch 를 건너뛴다.

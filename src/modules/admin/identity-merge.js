@@ -1,3 +1,36 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  safeError, withGlobalIdentitySettingsRmw, withHouseholdDatabaseLease, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  fetchAdminHouseholds, fetchHouseholdMembers, fetchMemberAliasMap, memberAliasSettingsKey,
+  selectRequestedScopedHousehold, supabaseExactCount,
+} from "../data/households-members-rows.js";
+import { getSettingValueStrict } from "./settings-audit-pages.js";
+import { safeObject } from "./backup-compare.js";
+import { identityTypeLabel, userHouseholdRoleLabel } from "./ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import {
+  identityMergeRedirectSettingsKey, parseIdentityMergeRedirectValue, rewireEffectiveUserCache,
+} from "../auth/user-session.js";
+import { fetchUserIdentityLinks, saveUserIdentityLinks } from "../auth/identity-reauth.js";
+import {
+  fetchRawHouseholdMembers, fetchUserById, withKakaoUserLifecycleLease,
+} from "../data/users-household-create.js";
+import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
+import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
+import {
+  fetchKakaoGroupLinkMap, kakaoGroupLinksSettingsKey, preserveKakaoGroupDeparturesForMerge,
+  saveKakaoGroupLinkItem,
+} from "../kakao/group-links-first-record.js";
+import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function maskIdentityKey(value = "") {
   const text = String(value || "");
@@ -156,3 +189,6 @@ async function handleIdentityMerge(request, env) {
   }
   return redirectResponse(`${base}&msg=${encodeURIComponent("계정 통합이 완료됐습니다. 거래와 참여 권한은 한 번에 이동됐습니다.")}`);
 }
+// @build:exports-start
+export { handleIdentityAuditPage, handleIdentityMerge };
+// @build:exports-end

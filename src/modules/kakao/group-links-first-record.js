@@ -1,3 +1,31 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  parseStrictSettingsObject, safeError, settingsDataError, withHouseholdDatabaseLease,
+  withSettingsRmwLease,
+} from "../runtime/leases.js";
+import { sha256Hex } from "../auth/crypto-admin-session.js";
+import { bestRoleFromRows } from "../data/households-members-rows.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeObject } from "../admin/backup-compare.js";
+import {
+  fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
+} from "../data/users-household-create.js";
+import { saveSettingValue } from "../my/reports-premium.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
+import {
+  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoText,
+} from "./response-builders.js";
+import { getHouseholdById } from "./household-budget-commands.js";
+import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
+import { markKakaoChatFirstHistory, stableShortHash } from "./identity-chat-first.js";
+import {
+  ensurePrimaryHousehold, getHouseholdMemberRole, roleBlockedMessage,
+} from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { makeInviteCode } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function getKakaoBotGroupKey(payload) {
   const props = payload?.userRequest?.user?.properties || {};
@@ -556,3 +584,14 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     "예: 점심 12000원 국민카드",
   ].filter(Boolean).join("\n");
 }
+// @build:exports-start
+export {
+  bindKakaoGroupByInviteCode, fetchKakaoGroupLinkMap, fetchLegacyKakaoGroupLinkMap,
+  getExplicitKakaoBotGroupKey, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
+  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey,
+  kakaoGroupLinksSettingsKey, markKakaoGroupDeparture, markKakaoGroupRetired,
+  normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
+  readKakaoGroupFirstSnapshot, removeKakaoGroupLink, removeKakaoGroupLinksForHousehold,
+  saveKakaoGroupLinkItem, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
+};
+// @build:exports-end

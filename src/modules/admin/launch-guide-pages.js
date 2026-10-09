@@ -1,3 +1,14 @@
+// @build:imports-start
+import { boundedRuntimeNumber, skillIpGuardLimit } from "../runtime/ops-telemetry.js";
+import {
+  APP_VERSION, DEFAULT_PUBLIC_BASE_URL, appName, currentRequestBaseUrl, normalizeBaseUrl,
+  publicBaseUrl,
+} from "../public/site-config.js";
+import { htmlResponse } from "../runtime/http.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { inspectKakaoLoginConfig } from "../auth/user-session.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderDomainStatusRows(env = {}, url = null) {
   const requestBase = currentRequestBaseUrl(url);
@@ -209,3 +220,9 @@ async function handlePersonalUrlAuditPage(request, env, url) {
 function releaseCandidateDomainStyle() {
   return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.tag,.badge{display:inline-flex;border-radius:999px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000;padding:6px 10px}.hero .tag{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.25)}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:18px}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}th{width:210px;background:#f8fafc}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.tile{display:block;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.tile b{display:block}.tile span{display:block;color:#64748b;margin-top:6px;word-break:break-all}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}.note{color:#64748b;line-height:1.6}pre{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;border-radius:18px;padding:15px;overflow:auto}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:640px}}`;
 }
+// @build:exports-start
+export {
+  handleBetaReleaseCandidateFinalPage, handleDomainMigrationGuidePage,
+  handleGroupChatbotLaunchGuidePage, handleGroupChatbotTrafficScalePage, handlePersonalUrlAuditPage,
+};
+// @build:exports-end

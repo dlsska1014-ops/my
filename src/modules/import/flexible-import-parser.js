@@ -1,3 +1,23 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { jsonResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
+import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { csvCell } from "../admin/import-history-rollback.js";
+import { activeSpenderExists } from "../my/transactions.js";
+import { readJson } from "../api/admin-api.js";
+import { supabase } from "../data/supabase-client.js";
+import { parseTransaction } from "../nlu/transaction-parser.js";
+import { detectType, normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import {
+  currentMonthKst, detectPaymentMethod, formatDate, normalizePaymentMethod, nowKstDate,
+  parseDateStrict, parseExplicitDateFromText, safeYmd, validMonth,
+} from "../nlu/date-payment.js";
+import { cleanMemo, inferCategory } from "../nlu/category-rules.js";
+// @build:imports-end
 
 async function handleImportTemplateCsv(request, env) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
@@ -564,3 +584,10 @@ async function handleAdminCsv(request, env, url) {
     },
   });
 }
+// @build:exports-start
+export {
+  IMPORT_REJECTION_GUIDE, alignImportCells, canonicalImportField, cleanImportedRowsForInsert,
+  handleAdminCsv, handleAdminImportJson, handleImportTemplateCsv, handleImportTemplateXls,
+  importRejection, normalizeImportedRecordDetailed, parseFlexibleImportRecords,
+};
+// @build:exports-end

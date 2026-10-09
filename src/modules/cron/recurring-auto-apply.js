@@ -1,3 +1,21 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, isUniqueConstraintError, operationLeaseOwner, parseStrictSettingsObject,
+  releaseOperationLease, safeError,
+} from "../runtime/leases.js";
+import { jsonResponse } from "../runtime/http.js";
+import { verifyCronExecutionAuth } from "../auth/crypto-admin-session.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { fetchRawHouseholdMembers } from "../data/users-household-create.js";
+import { saveSettingValue } from "../my/reports-premium.js";
+import { fetchRecurringStrict } from "../domain/budgets.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { createManualTransaction } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function recurringDateForMonth(month = currentMonthKst(), day = 1) {
   const ym = validMonth(month) || currentMonthKst();
@@ -141,3 +159,6 @@ async function handleRecurringCronApply(request, env, url) {
   const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || "", today: url.searchParams.get("today") || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
+// @build:exports-start
+export { handleRecurringCronApply, runRecurringAutoApply };
+// @build:exports-end

@@ -1,3 +1,11 @@
+// @build:imports-start
+import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { buildSettlementModel } from "../features/settlement-ops-pages.js";
+import { detectKakaoNaturalIntent } from "./intent-nlu.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst } from "../nlu/date-payment.js";
+import { numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function parseJoinCode(text) {
   const m = text.match(/(?:가계부\s*)?(?:참여|연결|join)\s+([A-Z0-9]{5,12})/i);
@@ -99,3 +107,12 @@ function parseGroupBindCommand(text = "") {
   const m = String(text || "").trim().match(/^(?:단톡방\s*연결|그룹\s*연결|방\s*연결|이방\s*연결)\s+([A-Za-z0-9가-힣_-]{4,40})$/i);
   return m ? m[1].trim().toUpperCase() : "";
 }
+// @build:exports-start
+export {
+  isBrandGuideCommand, isBudgetCommand, isDataPolicyCommand, isEditGuideSimpleCommand,
+  isGroupLinkInfoCommand, isHelpCommand, isInputExampleCommand, isInviteCommand,
+  isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand, isRecentCommand,
+  isReserveGuideCommand, isSettlementCommand, isSummaryCommand, isUndoCommand, kakaoSettlementText,
+  parseGroupBindCommand, parseJoinCode,
+};
+// @build:exports-end

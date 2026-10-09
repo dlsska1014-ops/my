@@ -1,3 +1,9 @@
+// @build:imports-start
+import { HTML_HEADERS } from "./config-readiness.js";
+import { constantTimeTextEqual, htmlResponse, jsonResponse, redirectResponse } from "./http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 const AB_MONITOR_SEND_BUDGET = { minute: 0, count: 0 };
 
@@ -115,3 +121,9 @@ async function handleComprehensiveMonitor(request, env, url) {
     });
   } catch (_) { return jsonResponse({ ok: false, error: "monitor_unavailable" }, 503); }
 }
+// @build:exports-start
+export {
+  abMonitorCompleted, abMonitorDatabaseProbe, abMonitorOutcome, abMonitorRequestContext,
+  handleComprehensiveMonitor,
+};
+// @build:exports-end

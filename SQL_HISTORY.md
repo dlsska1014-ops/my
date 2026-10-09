@@ -354,6 +354,10 @@ V22.9.23에서 적용한 관제 D1 스키마는 재실행할 필요가 없습니
 | V22.8.0 | 있음 | 자산·결제수단 기반 스키마 |
 
 과거 SQL 원본은 과거 배포본의 신규 설치·장애 복구 자료입니다. V22.8.20 적용을 위해 실행하지 않습니다. 성능 인덱스는 운영 행 수와 실행 계획에서 병목이 확인될 때만 별도 버전으로 검토합니다.
+## V22.9.32 판단
+
+모듈 분리와 배포 스크립트는 저장소 구조와 배포 절차만 바꿉니다. 새 SQL·스키마·인덱스·RLS·GRANT·RPC가 없고, 기존 `01_FIX_RECURRING_MONTH_END_V22_9_29.sql`과 rollback 파일을 그대로 보존합니다. 배포 스크립트는 Cloudflare Workers API만 호출하며 Supabase에 접근하지 않습니다.
+
 ## V22.9.31 판단
 
 공동방 첫 기록은 기존 settings의 UNIQUE key, household_members의 UNIQUE(household_id,user_id)와 작업 임대 RPC를 재사용하므로 새 SQL·스키마·인덱스·RLS·GRANT·RPC 변경을 추가하지 않습니다. 자동 참여의 ignore-duplicates INSERT는 기존 제한 역할을 덮어쓰지 않습니다. done/retired/나가기 표식은 기존 V22.8.71 purge의 명시적 설정 prefix 밖에 있으므로 삭제 이후에도 보존합니다. 합성 fixture는 이 실제 prefix 규칙을 모사하며 임의 household ID substring 전체를 삭제하지 않습니다.

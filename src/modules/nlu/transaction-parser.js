@@ -1,3 +1,13 @@
+// @build:imports-start
+import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import {
+  detectType, extractAmount, normalizeText, normalizeType, parseAmountValue,
+} from "./amount-parser.js";
+import {
+  detectPaymentMethod, extractDate, normalizeDateValue, normalizePaymentMethod,
+} from "./date-payment.js";
+import { cleanMemo, inferCategory, normalizeCategoryName } from "./category-rules.js";
+// @build:imports-end
 
 function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
@@ -144,3 +154,6 @@ function unwrapKakaoParam(value) {
   }
   return String(value);
 }
+// @build:exports-start
+export { extractLeadingDateHint, hasDateHint, parseMultipleTransactions, parseTransaction };
+// @build:exports-end

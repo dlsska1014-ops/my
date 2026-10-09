@@ -1,3 +1,14 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import {
+  KAKAO_LOGIN_PROGRESS_TIPS, kakaoLoginProgressClientMain, passwordMatchFeedbackClientMain,
+} from "../client/legacy-ui-runtime.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { kakaoLoginStatusBlock } from "../auth/local-login-pages.js";
+import { loginEntryAnchorClientMain, renderKakaoClaimForm } from "../auth/kakao-web-claim.js";
+import { currentMonthKst } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login") {
   const title = escapeHtml(appName(env));
@@ -54,3 +65,6 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
 function renderMemberOptions(members = [], selected = "") {
   return safeArray(members).filter((m) => m.user_id && !["blocked","pending"].includes(String(m.role || ""))).map((m) => `<option value="${escapeHtml(m.user_id)}"${String(selected || "") === String(m.user_id) ? " selected" : ""}>${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(m.role || "member")}</option>`).join("");
 }
+// @build:exports-start
+export { myNavCss, renderMySideNav, renderUserLoginHtml };
+// @build:exports-end

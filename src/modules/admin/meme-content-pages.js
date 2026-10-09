@@ -1,3 +1,18 @@
+// @build:imports-start
+import { buildOpsSnapshot, rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  APP_VERSION, BUSINESS_FOOTER_INFO, appName, cardPerformanceEnabled, memeCardsEnabled,
+  publicBaseUrl,
+} from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { fetchAdminHouseholds } from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { userPolishBaseStyle } from "./guide-pages.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 const MEME_CONTENT_LIBRARY = Object.freeze([
   {
@@ -167,3 +182,11 @@ function renderDuplicateSafetyHtml(env = {}) {
   const kindCards = Object.entries(d.byKind || {}).map(([k,v]) => `<div class="metric"><span>${escapeHtml(k)}</span><b>${numberWithCommas(v)}</b></div>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>중복 저장 방어</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.metric{background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:14px}.metric span{display:block;color:#64748b}.metric b{font-size:23px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:9px;text-align:left;font-size:13px;vertical-align:top}.tableWrap{overflow:auto}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.note{color:#64748b;line-height:1.6}code{font-size:11px;word-break:break-all}</style></head><body><main class="wrap"><section class="hero"><h1>중복 저장·대량 입력 안전센터</h1><p>카카오 재전송, 같은 폼 반복 제출, CSV 대량 가져오기에서 데이터 중복과 과부하를 막는 운영 현황입니다.</p><p><a class="btn" href="/operation-center">운영센터</a> <a class="btn" href="/ops-dashboard">운영 대시보드</a> <a class="btn" href="/ops-duplicates">중복 방어</a></p></section><section class="grid"><div class="metric"><span>중복 방어 시간</span><b>${numberWithCommas(limits.duplicate_guard_seconds || 0)}초</b></div><div class="metric"><span>카카오 재전송 방어</span><b>${numberWithCommas(limits.kakao_retry_dedup_seconds || 0)}초</b></div><div class="metric"><span>카카오 반복 발화</span><b>${numberWithCommas(limits.kakao_repeat_guard_seconds || 0)}초</b></div><div class="metric"><span>CSV 1회 처리 제한</span><b>${numberWithCommas(limits.my_import_limit || 0)}건</b></div><div class="metric"><span>카카오 1회 처리 제한</span><b>${numberWithCommas(limits.kakao_bulk_limit || 0)}건</b></div></section><section class="card"><h2>이벤트 요약</h2><div class="grid">${kindCards || `<div class="metric"><span>최근 이벤트</span><b>0</b></div>`}</div><p class="note">이 목록은 Worker 인스턴스 메모리 기준입니다. 배포/재시작/인스턴스 변경 시 초기화될 수 있습니다.</p></section><section class="card"><h2>최근 이벤트</h2><div class="tableWrap"><table><thead><tr><th>시간</th><th>종류</th><th>입력경로</th><th>날짜</th><th>금액</th><th>가계부</th><th>내용</th></tr></thead><tbody>${rows}</tbody></table></div></section></main></body></html>`;
 }
+// @build:exports-start
+export {
+  MEME_CONTENT_LIBRARY, handleKakaoCommandsPage, handleMemeContentCenterPage,
+  handleMemeMotionGuidePage, handleMemeReviewCheckPage, handleMemeShareKitPage,
+  handleOpsSnapshotJson, handleReleaseDryRunPage, memeMotionPromptList, memeSafePolicyList,
+  renderDuplicateSafetyHtml,
+};
+// @build:exports-end

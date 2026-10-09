@@ -1,3 +1,32 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+} from "../runtime/leases.js";
+import { jsonResponse } from "../runtime/http.js";
+import { isValidTransactionDateString } from "../admin/transactions-households.js";
+import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  fetchPostgrestRows, getScopedHouseholdsForPage, selectRequestedScopedHousehold,
+} from "../data/households-members-rows.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { buildBudgetAlertPolishModel } from "../features/budget-alerts-annual-goals.js";
+import { parseJsonArraySettingStrict, saveSettingValue } from "../my/reports-premium.js";
+import {
+  canManageMyHousehold, canManageMyRecord, canWriteMyHousehold,
+} from "../my/access-control.js";
+import { memberCanBeSpender } from "../my/transactions.js";
+import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import { detectRecurringCandidates } from "../admin/pc-analysis-calendar.js";
+import { addMonthsYm } from "../domain/analytics.js";
+import { formatMessage, isMissingCategory } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { readJson } from "./admin-api.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // V22.8.25 V5 통합 검색: user 세션 스코프로 활성 가계부의 전 기간 거래를 검색한다.
 // 기존 admin 전용 /api/* 와 분리된 user 스코프 엔드포인트.
@@ -464,3 +493,9 @@ async function handleUserGoals(request, env, url) {
     await releaseOperationLease(env, lease);
   }
 }
+// @build:exports-start
+export {
+  goalsKey, handleUserDayTransactions, handleUserFavorites, handleUserGoals,
+  handleUserNotifications, handleUserRecentTransactions, handleUserTxSearch,
+};
+// @build:exports-end

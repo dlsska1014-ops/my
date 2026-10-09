@@ -1,3 +1,9 @@
+## V22.9.32의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_32.sha256`의 332개 파일을 사용하고 자동 검사 하한은 8,365개입니다. 이전 199개 경로를 보존하고 모듈·도구·검증·계획 문서 133개를 더했습니다. 하네스는 먼저 빌드 동일성(모듈 → `src/index.js`)을 보고, 이어서 모듈 단독 문법·import/export 표시, 클라이언트 직렬화 자체 완결, 초기화 순서, 배포 스크립트(가짜 Cloudflare API)를 확인합니다.
+
+모듈을 고친 뒤에는 `npm run build:worker`로 표시와 `src/index.js`를 함께 갱신합니다. 소스 바이트를 바꾸는 정리라면 `node tools/compare-worker-statements.mjs <이전 src/index.js> src/index.js --allow-changed <이름>`으로 의도한 문장만 바뀌었는지 PR에서 확인합니다. `node monitoring/test-d1.mjs`의 SQLite 45개는 Node.js 22에서 별도로 실행합니다. 배포 스크립트의 실제 API 동작은 하네스가 아니라 운영 적용 기록에서 확인합니다.
+
 ## V22.9.31의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_31.sha256`의 199개 파일을 사용하고 자동 검사 하한은 8,000개입니다. 이전 7,079개 기준을 낮추지 않고 승인된 그룹 정책 단언 1개와 새 공동방 runtime 859개를 추가했습니다. 과거 manifest와 불변 자산 바이트는 보존합니다.

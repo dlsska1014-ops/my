@@ -1,3 +1,20 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+} from "../runtime/leases.js";
+import { redirectResponse } from "../runtime/http.js";
+import { randomEntityId, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { fetchCustomCategories, normalizeCategoryKeywords } from "./categories-keywords.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { currentMonthKst, detectPaymentMethod, validMonth } from "../nlu/date-payment.js";
+import { inferCategory } from "../nlu/category-rules.js";
+// @build:imports-end
 
 function paymentAssetsKey(householdId = "") {
   return `payment_assets:${String(householdId || "default").trim() || "default"}`;
@@ -494,3 +511,13 @@ async function handlePaymentAssetDelete(request, env) {
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
 }
+// @build:exports-start
+export {
+  PAYMENT_ASSET_GROUP_CATALOG, PAYMENT_ASSET_KIND_CATALOG, applyUserSettingsToParsedTransactions,
+  assetHistoryKey, computePaymentAssetTotals, fetchAssetHistory, fetchPaymentAssets,
+  handlePaymentAssetCreate, handlePaymentAssetDelete, handlePaymentAssetUpdate,
+  isValidPaymentAssetKind, normalizePaymentAssetAmount, normalizePaymentAssetList,
+  paymentAssetGroupMeta, paymentAssetKindMeta, paymentAssetsKey, paymentMethodsLocation,
+  resolveManualInputClassification,
+};
+// @build:exports-end

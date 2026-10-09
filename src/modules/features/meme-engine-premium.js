@@ -1,3 +1,9 @@
+// @build:imports-start
+import { premiumBetaEnabled } from "../public/site-config.js";
+import { dashboardQuery } from "../admin/transactions-households.js";
+import { categoryExpenseMap } from "../domain/analytics.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function chooseMemeCard(a) {
   const key = detectMonthlyCardKey(a);
@@ -442,3 +448,9 @@ function buildCardShareUrl(origin, month, card, type) {
   qs.set("power", String(card.power || 0));
   return `${origin || ""}/share?${qs.toString()}`;
 }
+// @build:exports-start
+export {
+  buildAffiliateState, buildPremiumState, chooseMemeCard, renderAffiliateTab,
+  renderInlineAffiliateZone, renderInlinePremiumTeaser, renderPremiumTab,
+};
+// @build:exports-end

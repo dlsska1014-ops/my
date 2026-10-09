@@ -1,3 +1,11 @@
+// @build:imports-start
+import {
+  AB_ACCOUNTBOOK_NOTIF_JS_CACHE, AB_ACCOUNTBOOK_SEARCH_JS_CACHE, AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE,
+  AB_MOBILE_HOME_SHELL_JS_CACHE,
+} from "../assets/asset-registry.js";
+import { mobileHomeJsAsset } from "../assets/theme-home-assets.js";
+import { abCategoryRulesJsAsset } from "../nlu/category-rules.js";
+// @build:imports-end
 
 function mobileHomeNavStateClientMain() {
   var mobileLinks = Array.from(document.querySelectorAll(".bottom a.tab"));
@@ -943,3 +951,9 @@ function accountbookNotifJsAsset() {
   }
   return AB_ACCOUNTBOOK_NOTIF_JS_CACHE;
 }
+// @build:exports-start
+export {
+  accountbookNotifClientMain, accountbookNotifJsAsset, accountbookSearchClientMain,
+  accountbookSearchJsAsset, accountbookStage4NavJsAsset, mobileHomeShellJsAsset,
+};
+// @build:exports-end

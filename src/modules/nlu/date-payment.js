@@ -1,3 +1,8 @@
+// @build:imports-start
+import { explicitDateIntent, quickInputDate } from "../client/shared-input-parsers.js";
+import { hasDateHint } from "./transaction-parser.js";
+import { normalizeText } from "./amount-parser.js";
+// @build:imports-end
 
 function normalizeDateValue(value) {
   const strict = parseDateStrict(value);
@@ -211,3 +216,10 @@ function detectPaymentMethod(text) {
   if (/(계좌|이체|송금|자동이체|무통장)/.test(raw)) return "계좌이체";
   return "";
 }
+// @build:exports-start
+export {
+  addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
+  normalizePaymentMethod, nowKstDate, parseDateStrict, parseExplicitDateFromText,
+  resolveWeekdayPhrase, safeYmd, validMonth, weekdayIndexOfYmd,
+};
+// @build:exports-end

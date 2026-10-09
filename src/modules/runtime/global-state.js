@@ -1,5 +1,6 @@
 /*
   Kakao Household Account Book - 운영 서버 MVP
+  src/index.js 는 src/modules/ 를 npm run build:worker 로 이어 만든 생성 파일이다. 고칠 때는 src/modules/ 를 고친다.
   -----------------------------------------------------
   Routes
   - GET  /              : Admin web page
@@ -46,3 +47,10 @@ const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalT
 const AB_OPERATION_MUTEXES = globalThis.__AB_OPERATION_MUTEXES || (globalThis.__AB_OPERATION_MUTEXES = new Map());
 const AB_REQUEST_RAW_USER_CACHE = new WeakMap();
 const AB_REQUEST_USER_CACHE = new WeakMap();
+// @build:exports-start
+export {
+  AB_EFFECTIVE_USER_CACHE, AB_NLU_RUNTIME_EVENTS, AB_NLU_RUNTIME_METRICS, AB_OPERATION_MUTEXES,
+  AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_USER_CACHE, AB_SKILL_EVENTS, AB_SKILL_RATE_BUCKETS,
+  kakaoClientSecret, kakaoRestApiKey,
+};
+// @build:exports-end

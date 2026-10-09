@@ -1,3 +1,40 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { MAX_TRANSACTION_AMOUNT, resolveTransactionAccess } from "./transactions-households.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { CATEGORY_KEYWORD_GUIDE } from "./category-guide-pages.js";
+import {
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+  renderSpenderOptions, selectRequestedScopedHousehold, selectScopedHousehold,
+} from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
+  parseBudgetFormAmount,
+} from "../my/groups-budget-bulk.js";
+import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import { activeSpenderExists } from "../my/transactions.js";
+import { householdPageMessage } from "../my/households-lifecycle.js";
+import {
+  budgetCenterSummary, budgetStatusLabel, fetchBudgets, fetchRecurringRuleByIdStrict,
+  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
+} from "../domain/budgets.js";
+import { moneyPlanTabsCss, renderMoneyPlanTabs } from "../my/money-plan-home-layout.js";
+import { addQueryToUrl } from "../auth/local-login-pages.js";
+import { DEFAULT_CATEGORIES } from "./dashboard-fragments.js";
+import { formatMessage, mergedOptions } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleBudgetCenterPage(request, env, url) {
   // V22.9.16: 세션 두 종류, 사용자 행과 가계부 목록, 화면 데이터 네 가지를 각각 함께 던진다.
@@ -225,3 +262,9 @@ async function handleRecurringApply(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }
 }
+// @build:exports-start
+export {
+  handleBudgetCenterPage, handleRecurringApply, handleRecurringDelete, handleRecurringSave,
+  normalizeRecurringDay, renderRecurringEditForm,
+};
+// @build:exports-end

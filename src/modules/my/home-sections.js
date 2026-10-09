@@ -1,3 +1,10 @@
+// @build:imports-start
+import { memberNameMap, renderSpenderOptions } from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { memeCollectionFor } from "../features/meme-cards.js";
+import { addDays, currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function memeHash(input = "") {
   let h = 0;
@@ -325,3 +332,11 @@ function todayExpense(rows = []) {
   const today = formatDate(nowKstDate());
   return rows.filter((r) => r.type !== "income" && r.transaction_date === today).reduce((a, r) => a + Number(r.amount || 0), 0);
 }
+// @build:exports-start
+export {
+  HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
+  lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
+  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
+  renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm, todayExpense,
+};
+// @build:exports-end

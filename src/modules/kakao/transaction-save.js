@@ -1,3 +1,35 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, rememberDuplicateEvent, rememberOpsEvent,
+} from "../runtime/ops-telemetry.js";
+import {
+  assertSettingsLeaseFresh, claimOperationLease, operationLeaseOwner, parseStrictSettingsObject,
+  releaseOperationLease, safeError, withSettingsRmwLease,
+} from "../runtime/leases.js";
+import { htmlResponse } from "../runtime/http.js";
+import { sha256Hex } from "../auth/crypto-admin-session.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
+import {
+  attachCategoryKeywords, categoryKeywordsSettingsKey, categorySettingsKey,
+  defaultCategoryKeywordRows, normalizeStoredCategoryList,
+} from "../settings/categories-keywords.js";
+import {
+  applyUserSettingsToParsedTransactions, normalizePaymentAssetList, paymentAssetsKey,
+} from "../settings/payment-assets.js";
+import {
+  memberAliasSettingsKey, normalizeMemberAliasMap,
+} from "../data/households-members-rows.js";
+import { maskKey } from "../admin/ops-diagnostics-pages.js";
+import { kakaoNoMatchGuide } from "./reply-texts.js";
+import { kakaoSaveDelayText } from "./intent-nlu.js";
+import { isUncertainStorageWrite, kakaoSaveFailedText, kakaoText } from "./response-builders.js";
+import { dailySeqForKakaoRow, kakaoRowLabel, twoDigitSeq } from "./edit-session-v4.js";
+import { optionalWithin } from "./request-guards.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
@@ -170,3 +202,6 @@ async function handleKakaoRecentDebug(request, env, url) {
   const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>Kakao Recent</title><style>body{font-family:system-ui,sans-serif;background:#f6f7f9;margin:0;padding:20px}table{width:100%;border-collapse:collapse;background:#fff}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f1f5f9}code{font-size:12px}</style></head><body><h2>최근 카카오 저장 내역</h2><p>최근 ${rows.length}건 · <a href="/ledger?all=1">기록 전체 보기</a></p><table><thead><tr><th>created</th><th>date</th><th>type</th><th>amount</th><th>category</th><th>memo</th><th>household</th><th>user key(마스킹)</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${escapeHtml(r.created_at || "")}</td><td>${escapeHtml(r.transaction_date || "")}</td><td>${escapeHtml(r.type || "")}</td><td>${numberWithCommas(r.amount)}</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td><code>${escapeHtml(r.household_id || "")}</code></td><td><code>${escapeHtml(maskKey(r.source_user_key || ""))}</code></td></tr>`).join("")}</tbody></table></body></html>`);
 }
+// @build:exports-start
+export { KAKAO_RETRY_DEDUP_SECONDS, handleKakaoRecentDebug, saveKakaoParsedTransactionsReply };
+// @build:exports-end

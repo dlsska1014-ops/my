@@ -1,3 +1,10 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { detectKakaoNaturalIntent, normalizeKakaoIntentText } from "./intent-nlu.js";
+import { stripKakaoBotMention } from "./request-guards.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function mergedOptions(base, extra) {
   const seen = new Set();
@@ -372,3 +379,12 @@ function kakaoDataPolicyText(origin = "") {
     origin ? `자세히 보기\n${origin}/privacy` : "",
   ].filter(Boolean).join("\n");
 }
+// @build:exports-start
+export {
+  detectKakaoAmbiguity, formatMessage, groupLabel, isMissingCategory, isMissingPayment,
+  kakaoAmbiguityGuide, kakaoBrandGuideText, kakaoBudgetGuideText, kakaoDataPolicyText,
+  kakaoEditSimpleGuideText, kakaoInputExampleText, kakaoKeywordGuideText, kakaoNoMatchGuide,
+  kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText, kakaoSkillSafeFallbackText, mergedOptions,
+  renderGroupOptions, renderQualityOptions,
+};
+// @build:exports-end

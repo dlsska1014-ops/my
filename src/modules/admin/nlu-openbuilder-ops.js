@@ -1,3 +1,17 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, getNluOpsSnapshot, getSkillOpsSnapshot, nluOpsConfig,
+} from "../runtime/ops-telemetry.js";
+import { APP_VERSION, appName, publicBaseUrl } from "../public/site-config.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { safeArray } from "./backup-compare.js";
+import { csvCell } from "./import-history-rollback.js";
+import { maskKey } from "./ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function expectedOpenBuilderRows() {
   return [
@@ -181,3 +195,10 @@ async function handleWelcomeLinkGuidePage(request, env, url) {
   ].map(([label, href, desc]) => `<div class="linkBox"><b>${escapeHtml(label)}</b><code>${escapeHtml(href)}</code><span>${escapeHtml(desc)}</span></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 웰컴링크</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1040px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;padding:26px;margin:16px 0;box-shadow:0 22px 54px rgba(15,23,42,.09)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-weight:1000;font-size:13px}.hero h1{font-size:32px;letter-spacing:-.06em;margin:14px 0 10px}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;box-shadow:0 14px 34px rgba(15,23,42,.055)}pre{white-space:pre-wrap;background:#111827;color:#f9fafb;border-radius:18px;padding:16px;line-height:1.6;font-family:inherit}.linkBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:20px;padding:14px;margin:9px 0}.linkBox b{display:block}.linkBox code{display:block;background:#eef2ff;color:#3730a3;border-radius:12px;padding:9px;margin:8px 0;font-family:inherit;word-break:break-all}.linkBox span{display:block;color:#667085;font-size:13px}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6;margin:12px 0}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">웰컴블록 안전 링크</span><h1>웰컴블록에는 관리자 링크를 넣지 마세요.</h1><p class="muted">아래 링크들은 일반 사용자가 눌러도 관리자 비밀번호 화면으로 가지 않는 공개/사용자용 링크입니다.</p></section><section class="grid"><div class="card"><h2>웰컴문구</h2><pre>${escapeHtml(welcomeText)}</pre></div><div class="card"><h2>버튼 링크</h2>${safeLinks}</div></section><div class="warn"><b>사용 금지</b><br/>웰컴블록에는 관리자/운영 화면 링크를 넣지 마세요. 대신 <code>/my</code>, <code>/start-guide</code>, <code>/keyword-guide</code>, <code>/chatbot-edit-guide</code>를 사용하세요.</div></main></body></html>`);
 }
+// @build:exports-start
+export {
+  handleKakaoStabilityGuidePage, handleNluFailuresCsv, handleNluOpsJson, handleNluOpsPage,
+  handleOpenBuilderGuidePage, handleOpenBuilderReportPage, handleSkillOpsPage,
+  handleWelcomeLinkGuidePage,
+};
+// @build:exports-end

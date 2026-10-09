@@ -1,3 +1,12 @@
+// @build:imports-start
+import {
+  AB_ACCOUNTBOOK_FAVROWS_JS_CACHE, AB_ACCOUNTBOOK_GOALS_JS_CACHE, AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE,
+  ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML, ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML,
+} from "../assets/asset-registry.js";
+import {
+  accountbookNotifClientMain, accountbookSearchClientMain,
+} from "./nav-search-notif-mains.js";
+// @build:imports-end
 function accountbookGoalsClientMain() {
   var root = document.getElementById("goalsRoot");
   if (!root) return;
@@ -1287,3 +1296,6 @@ function accountbookV5BundleJsAsset() {
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }
+// @build:exports-start
+export { accountbookFavRowsJsAsset, accountbookGoalsJsAsset, accountbookV5BundleJsAsset };
+// @build:exports-end

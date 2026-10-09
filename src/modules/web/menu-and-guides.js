@@ -1,3 +1,31 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { dashboardQuery } from "../admin/transactions-households.js";
+import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
+import {
+  countHouseholdTransactions, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+  renderSpenderOptions,
+} from "../data/households-members-rows.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { safeNavHouseholdId, safeNavMonth } from "../admin/ops-diagnostics-pages.js";
+import { renderUnifiedNav } from "./unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { handleMyLogout } from "../auth/kakao-oauth.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import { fetchBudgets } from "../domain/budgets.js";
+import { cursorPrefKey } from "../my/money-plan-home-layout.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderMySideNav } from "./login-page-side-nav.js";
+import { fetchKakaoGroupLinkMap } from "../kakao/group-links-first-record.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function renderPublicStartGuideHtml({ env, url }) {
   const title = escapeHtml(appName(env));
@@ -317,3 +345,10 @@ function renderCalendarFilterScript(selectedDate) {
 function renderAutoRefreshScript() {
   return `<script>(function(){try{document.documentElement.setAttribute('data-autorefresh','off');}catch(e){}})();</script>`;
 }
+// @build:exports-start
+export {
+  handleBeginnerGuidePage, handleUnifiedMenuPage, renderAutoRefreshScript,
+  renderCalendarFilterScript, renderGuideTab, renderImportTab, renderMobileBottomNav,
+  renderPcSidebar, renderQuickStartPanel, renderTabs,
+};
+// @build:exports-end

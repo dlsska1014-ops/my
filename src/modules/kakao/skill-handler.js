@@ -1,3 +1,83 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, checkSkillRateLimit, nluOutcomeFromKakaoResponse, rateLimitedKakaoText,
+  rememberDuplicateEvent, rememberNluRuntimeEvent, rememberSkillEvent, scheduleNluOpsPersistence,
+} from "../runtime/ops-telemetry.js";
+import { abMonitorOutcome } from "../runtime/ops-monitor.js";
+import { APP_VERSION, publicBaseUrl } from "../public/site-config.js";
+import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { safeError } from "../runtime/leases.js";
+import {
+  kakaoSkillCallerAuthorized, randomEntityId, rememberSkillLatency,
+} from "../auth/crypto-admin-session.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
+import { kakaoReserveAlert } from "../settings/reserve-plans.js";
+import { saveMemberAlias } from "../data/households-members-rows.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { fetchUserHouseholds } from "../data/users-household-create.js";
+import { kakaoBudgetStatusText } from "../domain/budgets.js";
+import { kakaoPrivateWebLinkReply } from "../auth/kakao-web-claim.js";
+import {
+  kakaoAmbiguityGuide, kakaoBudgetGuideText, kakaoSkillSafeFallbackText,
+} from "./reply-texts.js";
+import {
+  detectKakaoNaturalIntent, hasKakaoImageAttachment, isCommandMenuCommand, isHouseholdSwitchCommand,
+  kakaoCommandMenuText, kakaoImageNotSupportedText, kakaoPublicCommandReply,
+  parseCreateHouseholdCommand,
+} from "./intent-nlu.js";
+import {
+  dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoText,
+} from "./response-builders.js";
+import {
+  getRecentKakaoOwnedTransactionsV2254, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  parseKakaoRestoreCommandV4,
+} from "./edit-session-v4.js";
+import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
+import {
+  armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoQaPayload,
+  isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
+  normalizeKakaoSkillResponse, stripLeadingCommand,
+} from "./request-guards.js";
+import {
+  clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
+  isKakaoCreateFlowCommand, isKakaoJoinFlowCommand, isKakaoMemberAliasCommand, isKakaoStartCommand,
+  kakaoBudgetRootQuickReplies, kakaoCreateKindQuickReplies, kakaoStartQuickReplies,
+  parseDirectMemberAliasCommand, saveKakaoFlowState, shouldInterruptKakaoFlowV2254,
+} from "./guided-flow-state.js";
+import {
+  beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
+  guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoCreateKindPromptText,
+  kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText, kakaoStartText,
+  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+} from "./household-budget-commands.js";
+import {
+  KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
+  readRequestTextBounded,
+} from "./guided-flows.js";
+import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
+import { readJson } from "../api/admin-api.js";
+import {
+  bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
+  getLinkedKakaoGroupHousehold, kakaoGroupInfoText, readKakaoGroupFirstSnapshot,
+  tryKakaoGroupFirstRecord,
+} from "./group-links-first-record.js";
+import {
+  getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
+  trustedChatFirstSkillCaller, tryKakaoChatFirstRecord,
+} from "./identity-chat-first.js";
+import { ensureUser, joinHouseholdByCode, roleBlockedMessage } from "../domain/users-households.js";
+import {
+  isBudgetCommand, isGroupLinkInfoCommand, isHelpCommand, isInviteCommand, isLinkCommand,
+  isRecentCommand, isSettlementCommand, isSummaryCommand, isUndoCommand, kakaoSettlementText,
+  parseGroupBindCommand, parseJoinCode,
+} from "./simple-commands.js";
+import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-parser.js";
+import { currentMonthKst } from "../nlu/date-payment.js";
+import {
+  formatRecentTransactions, formatSummary, getMonthSummary, linkText, numberWithCommas,
+} from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -485,3 +565,6 @@ ${formatRecentTransactions(rows)}`);
 
   return await saveKakaoParsedTransactionsReply(env, { household, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt });
 }
+// @build:exports-start
+export { handleKakaoSkillStable };
+// @build:exports-end

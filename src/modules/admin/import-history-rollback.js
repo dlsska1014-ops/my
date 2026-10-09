@@ -1,3 +1,16 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { checkAdminPassword, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { fetchAdminHouseholds, fetchAdminRows } from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "./backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { csvSafeText } from "../import/csv-duplicates.js";
+import { supabase } from "../data/supabase-client.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function isBackupImportSource(value) {
   return String(value || "").includes("backup_import_");
@@ -305,3 +318,9 @@ async function handleRollbackFinalCheckPost(request, env) {
     return htmlResponse(renderRollbackFinalCheckHtml({ households, error: "되돌리기 최종 확인을 완료하지 못했습니다. 계획 파일을 다시 생성해 주세요." }), 400);
   }
 }
+// @build:exports-start
+export {
+  csvCell, handleImportHistoryCsv, handleImportHistoryPage, handleRollbackCandidatePage,
+  handleRollbackFinalCheckPage, handleRollbackFinalCheckPost,
+};
+// @build:exports-end

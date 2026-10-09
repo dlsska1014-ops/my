@@ -1,3 +1,6 @@
+// @build:imports-start
+import { normalizeText } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 // 이름이 "Emoji" 지만 돌려주는 것은 **한글 한 글자**다. 그 이름 때문에 홈 카테고리
 // 비율 목록이 이 값을 아이콘인 줄 알고 이름 앞에 그대로 붙였고, 화면에는
@@ -89,3 +92,6 @@ function quickChipIconCss() {
     paymentRules,
   ].join("\n");
 }
+// @build:exports-start
+export { categoryInitial, quickChipIconCss, resolveQuickChipIcon, resolveQuickPaymentIcon };
+// @build:exports-end

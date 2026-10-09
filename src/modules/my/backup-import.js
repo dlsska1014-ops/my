@@ -1,3 +1,38 @@
+// @build:imports-start
+import {
+  boundedRuntimeNumber, rememberDuplicateEvent, rememberOpsEvent,
+} from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { csvResponse, htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  makeMyImportPreviewToken, randomHex, sha256Hex, verifyMyImportPreviewToken,
+} from "../auth/crypto-admin-session.js";
+import {
+  IMPORT_REJECTION_GUIDE, cleanImportedRowsForInsert, importRejection, parseFlexibleImportRecords,
+} from "../import/flexible-import-parser.js";
+import {
+  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { buildReadableTransactionsCsv } from "../import/csv-duplicates.js";
+import {
+  cardImportClientMain, cardImportCss, renderCardImportSection,
+} from "./card-import-guide.js";
+import {
+  canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handleMyBackupPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
@@ -457,3 +492,10 @@ function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [],
   const back = `/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 결과</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.ok b{color:#166534}.warn b{color:#9a3412}.bad b{color:#b91c1c}.meta{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.6}.reasonList{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.reasonList li{display:flex;justify-content:space-between;gap:8px;border:1px solid #e5e7eb;border-radius:15px;padding:11px}.reasonList span{color:#64748b}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small,td span{display:block;color:#64748b;line-height:1.5;margin-top:4px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}.soft{background:#eef2f7;color:#111827}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}table{min-width:680px}.btn{width:100%;margin:4px 0}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>가져오기 결과</h1><p>${escapeHtml(selected.name || "가계부")} · ${escapeHtml(parsed.format === "table" ? "제목이 있는 표" : parsed.format === "headerless_table" ? "제목 없는 표" : "자연어 목록")} · ${escapeHtml(parsed.delimiter || "자연어")}로 인식했습니다.</p><p><a class="btn soft" href="${escapeHtml(back)}">백업·가져오기로 돌아가기</a></p></section><section class="metrics"><div class="metric"><span>선택한 행</span><b>${numberWithCommas(selectedCount || imported + duplicate + failed)}</b></div><div class="metric ok"><span>저장 완료</span><b>${numberWithCommas(imported)}</b></div><div class="metric warn"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>설명·합계 제외</span><b>${numberWithCommas(ignored)}</b></div><div class="metric bad"><span>미인식</span><b>${numberWithCommas(notRecognized)}</b></div><div class="metric bad"><span>저장 오류</span><b>${numberWithCommas(failed)}</b></div><div class="metric warn"><span>처리 한도 초과</span><b>${numberWithCommas(limited)}</b></div></section><section class="card"><h2>분석 기준</h2><div class="meta">원본 ${numberWithCommas(parsed.total_rows || 0)}행 · 인식 가능 ${numberWithCommas(parsed.accepted_count || parsed.accepted?.length || 0)}행 · 1회 저장 한도 ${numberWithCommas(importLimit)}행${parsed.header_row ? ` · 제목 행 ${numberWithCommas(parsed.header_row)}번째` : " · 제목 행 없음"}</div><p class="notice"><b>원본 파일은 수정하지 않았습니다.</b><br/>저장하지 못한 행은 아래 원인과 수정 방법을 확인한 뒤 해당 행만 다시 가져오면 됩니다. 중복 제외 행도 새 기록으로 만들지 않았습니다.</p></section><section class="card"><h2>인식한 행 제목</h2><div class="tableWrap"><table><thead><tr><th>원본 제목</th><th></th><th>인식 필드</th></tr></thead><tbody>${mappingRows}</tbody></table></div></section><section class="card"><h2>제외·미인식 사유 요약</h2><ul class="reasonList">${reasonSummary}</ul></section><section class="card"><h2>행별 원인과 수정 방법</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${outcomeRows}</tbody></table></div>${outcomes.length > 160 ? `<p class="notice">화면에는 처음 160행만 표시했습니다. 같은 사유 ${numberWithCommas(outcomes.length - 160)}행은 요약에 포함되어 있습니다.</p>` : ""}</section><section class="card"><h2>저장했지만 자동 보정한 행</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>보정 내용</th><th>원본 미리보기</th></tr></thead><tbody>${warningRows}</tbody></table></div></section><section class="card"><a class="btn" href="${escapeHtml(back)}">다른 파일 가져오기</a> <a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}&feed=all#feed">가져온 기록 확인</a></section></div></div></main><script>try{history.replaceState(null,"",${JSON.stringify(back)});}catch(e){}</script></body></html>`;
 }
+// @build:exports-start
+export {
+  decodeImportUploadBytes, handleMyBackupCsv, handleMyBackupPage, handleMyImport,
+  myImportDeterministicTransactionId, myImportReasonCounts, prepareMyImportEntry,
+  renderMyImportPreviewHtml, renderMyImportResultHtml,
+};
+// @build:exports-end

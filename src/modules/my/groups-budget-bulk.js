@@ -1,3 +1,28 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { maskKey } from "../admin/ops-diagnostics-pages.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "./access-control.js";
+import { optionalSupabase } from "../domain/budgets.js";
+import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
+import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
+import { mergedOptions } from "../kakao/reply-texts.js";
+import { fetchKakaoGroupLinkMap } from "../kakao/group-links-first-record.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // 키워드 편집기는 설정 화면과 분류·키워드 화면 두 곳에서 쓴다. 결과를 항상 설정 화면으로 돌려보내면
 // 설정 화면을 볼 수 없는 구성원·조회 전용 사용자가 403 화면에 갇히므로, 온 화면으로 되돌린다.
@@ -199,3 +224,11 @@ async function handleMyBudgetBulkSave(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { err: "budget_save_failed" }));
   }
 }
+// @build:exports-start
+export {
+  categorySpentMap, defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows,
+  handleMyBudgetBulkSave, handleMyGroupsPage, incomeBudgetRows, isIncomeBudgetCategory,
+  keywordEditorLocation, mySettingsLocation, parseBudgetFormAmount, recurringSummary,
+  sumBudgetAmounts, upsertMyBudgetRow,
+};
+// @build:exports-end

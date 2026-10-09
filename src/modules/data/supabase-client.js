@@ -65,3 +65,6 @@ async function supabase(env, path, init = {}) {
     }
   }
 }
+// @build:exports-start
+export { supabase };
+// @build:exports-end

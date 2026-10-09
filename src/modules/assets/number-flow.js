@@ -568,3 +568,6 @@ return {
 export default __nf.index.default;
 export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit } = __nf.index;
 `;
+// @build:exports-start
+export { NUMBER_FLOW_ASSET_PATH, NUMBER_FLOW_ASSET_SOURCE };
+// @build:exports-end

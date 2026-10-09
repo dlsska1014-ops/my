@@ -1,3 +1,18 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
+import { bestRoleFromRows } from "../data/households-members-rows.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { resolveEffectiveUserId, stripMergedMarkerSuffix } from "../auth/user-session.js";
+import { fetchUserById, withKakaoUserLifecycleLease } from "../data/users-household-create.js";
+import { optionalSupabase } from "./budgets.js";
+import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
+import {
+  markKakaoChatFirstHistory, persistIdentityAliases, resolveLinkedIdentityUser,
+  seedKakaoChatFirstUser,
+} from "../kakao/identity-chat-first.js";
+import { supabase } from "../data/supabase-client.js";
+// @build:imports-end
 
 async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options = {}) {
   const rawKey = String(kakaoUserKey || "").trim();
@@ -173,3 +188,9 @@ function roleBlockedMessage(role, householdName = "") {
   if (role === "pending") return `🕒 아직 승인 대기 중입니다.\n가계부: ${householdName || "-"}\n\n관리자가 /households 화면에서 참여자를 승인해야 기록할 수 있습니다.`;
   return "";
 }
+// @build:exports-start
+export {
+  ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole, joinHouseholdByCode,
+  roleBlockedMessage,
+};
+// @build:exports-end

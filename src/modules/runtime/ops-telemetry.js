@@ -1,3 +1,16 @@
+// @build:imports-start
+import {
+  AB_NLU_RUNTIME_EVENTS, AB_NLU_RUNTIME_METRICS, AB_SKILL_EVENTS, AB_SKILL_RATE_BUCKETS,
+} from "./global-state.js";
+import { APP_MODE, APP_VERSION, publicBaseUrl } from "../public/site-config.js";
+import { safeError } from "./leases.js";
+import { getCookie, htmlResponse, jsonResponse } from "./http.js";
+import { myReturnLocation } from "../my/access-control.js";
+import { isUncertainStorageWrite, kakaoText } from "../kakao/response-builders.js";
+import { KAKAO_RETRY_DEDUP_SECONDS } from "../kakao/transaction-save.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 function nluOpsConfig(env = {}) {
   return {
@@ -592,3 +605,15 @@ function rateLimitedKakaoText(origin = "") {
     origin ? `가계부 확인\n${origin}/my` : "",
   ].filter(Boolean).join("\n"));
 }
+// @build:exports-start
+export {
+  AB_KAKAO_INFLIGHT, AB_KAKAO_REPEAT_GUARD, boundedRuntimeNumber, buildOpsSnapshot,
+  checkSkillRateLimit, checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed,
+  csrfRejectedResponse, csrfSignalSummary, duplicateGuardSeconds, duplicateSkippedReturnLocation,
+  getNluOpsSnapshot, getSkillOpsSnapshot, getTrafficOpsSnapshot, isDatabaseBusyError,
+  isDuplicateGuardSource, nluOpsConfig, nluOutcomeFromKakaoResponse, pruneExpiringMap,
+  pruneTimestampMap, rateLimitedKakaoText, rememberDuplicateEvent, rememberNluRuntimeEvent,
+  rememberOpsEvent, rememberSkillEvent, scheduleNluOpsPersistence, skillIpGuardLimit,
+  trafficClientKey, trafficLimitedResponse, userSafeErrorCode,
+};
+// @build:exports-end

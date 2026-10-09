@@ -1,3 +1,24 @@
+// @build:imports-start
+import { appName } from "../public/site-config.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  fetchAdminHouseholds, selectRequestedScopedHousehold,
+} from "../data/households-members-rows.js";
+import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import { saveSettingValue } from "./reports-premium.js";
+import { getMySelectedHousehold, myAccessStatusResponse } from "./access-control.js";
+import {
+  HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, homeLayoutKey, normalizeHomeLayout,
+} from "./home-sections.js";
+import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 // V22.8.81: 예산(/budgets)·정기(/reserve-plans)·설정(/my/settings) 세 화면이 서로를
 //   몰라서 진입점이 흩어져 있었다. 특히 /my/settings 는 좌측 사이드바에서만 열려
@@ -141,3 +162,9 @@ async function handleHomeLayoutSave(request, env) {
   await saveSettingValue(env, homeLayoutKey(householdId, userId || "shared"), JSON.stringify(layout));
   return redirectResponse(`${back}&msg=saved`);
 }
+// @build:exports-start
+export {
+  cursorPrefKey, handleCursorPreference, handleCursorPreferenceSave, handleHomeLayoutPage,
+  handleHomeLayoutSave, moneyPlanTabsCss, renderMoneyPlanTabs,
+};
+// @build:exports-end

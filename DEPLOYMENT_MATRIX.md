@@ -343,6 +343,19 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.32 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.32 `src/index.js` 전체 교체가 필요합니다(SHA-256 `a361b2f6…`). 기능 변화는 없고 `APP_VERSION`·주석·과거 자산 줄바꿈만 바뀝니다. 이 저장소 작업에서 운영에 배포하지 않습니다. |
+| 배포 방식 | 새 `tools/deploy-worker-version.mjs`의 첫 실제 사용입니다. 업로드(배포 아님) → 저장 버전 깊은 비교 → 사용자 승인 후 `--promote` 순서입니다. 첫 실행에서 `content/v2` 형식·inherit 바인딩 조회·etag를 확인하고, 어긋나면 기존 대시보드 절차를 씁니다. |
+| SQL·스키마 | 없습니다. 기존 V22.9.29 정기 SQL과 rollback을 재실행하지 않고 보존합니다. |
+| immutable 자산 | 모든 기존 경로·바이트·ETag를 유지합니다. 새 정적 자산 주소는 없습니다. |
+| 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·관제 Worker·Kakao Developers·OpenBuilder를 바꾸지 않습니다. 배포 스크립트용 API 토큰(Workers Scripts Write, 이 계정, 만료일)은 사용자가 만들고 환경변수로만 씁니다. |
+| 롤백 | `node tools/deploy-worker-version.mjs --rollback <이전 버전>`(현재 기준 V22.9.31 `e0442e83-3179-491f-aed4-d4c8eaf1f2a0`), 또는 대시보드에서 직전 버전 100%. |
+
+적용 순서와 확인 항목은 `docs/ASIDE_V22_9_32.md`를 따릅니다. 저장소 검증을 운영 성공으로 기록하지 않습니다.
+
 ## V22.9.31 저장소 준비
 
 | 작업 | 적용 판단 |

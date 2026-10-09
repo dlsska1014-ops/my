@@ -1,3 +1,38 @@
+// @build:imports-start
+import { saveMemberAlias } from "../data/households-members-rows.js";
+import { safeArray, safeObject } from "../admin/backup-compare.js";
+import {
+  createUserHousehold, fetchUserHouseholds, withHouseholdCreateLock,
+} from "../data/users-household-create.js";
+import { isHouseholdSwitchCommand } from "./intent-nlu.js";
+import { dedupeQuickReplies, kakaoQr } from "./response-builders.js";
+import {
+  clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState,
+  isExplicitKakaoFlowCancelCommandV2254, isKakaoGuidedCommand, isUnsafeKakaoNameInputV2254,
+  kakaoBudgetAmountQuickReplies, kakaoBudgetCategoryQuickReplies, kakaoBudgetRootQuickReplies,
+  kakaoCreateKindQuickReplies, kakaoStartQuickReplies, saveKakaoFlowState,
+  shouldInterruptKakaoFlowV2254,
+} from "./guided-flow-state.js";
+import {
+  copyKakaoBudgetsFromPreviousMonth, findExistingKakaoHouseholdByNameV2254, getHouseholdById,
+  inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
+  isKakaoCreateKindOptionsRequest, kakaoCreateKindPromptText, kakaoHouseholdChoiceQuickReplies,
+  kakaoHouseholdListLines, kakaoInviteManagementText, kakaoManageableHouseholds, maybeKakaoCta,
+  parseBareInviteCode, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+} from "./household-budget-commands.js";
+import {
+  bindKakaoGroupByInviteCode, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
+} from "./group-links-first-record.js";
+import {
+  getHouseholdMemberRole, joinHouseholdByCode, roleBlockedMessage,
+} from "../domain/users-households.js";
+import { isInviteCommand, parseJoinCode } from "./simple-commands.js";
+import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { numberWithCommas } from "../domain/transactions-core.js";
+// @build:imports-end
 
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
@@ -327,3 +362,9 @@ async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_B
   }
   return new TextDecoder().decode(merged);
 }
+// @build:exports-start
+export {
+  KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
+  readRequestTextBounded,
+};
+// @build:exports-end

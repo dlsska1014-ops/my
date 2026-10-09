@@ -1,3 +1,29 @@
+// @build:imports-start
+import { KAKAO_REPRESENTATIVE_COMMANDS } from "../public/site-config.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeObject } from "../admin/backup-compare.js";
+import {
+  detectKakaoNaturalIntent, isCommandMenuCommand, isHouseholdSwitchCommand,
+} from "./intent-nlu.js";
+import { dedupeQuickReplies } from "./response-builders.js";
+import {
+  isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand,
+} from "./edit-session-v4.js";
+import {
+  isKakaoCreateConfirmNo, isKakaoCreateConfirmYes, isKakaoCreateKindOptionsRequest,
+  isKakaoReservedCreateFlowReply, parseBareInviteCode, parseKakaoCreateKind, parseKakaoSummaryRange,
+  plausibleHouseholdNameAtKindStep, sanitizeHouseholdNameInput,
+} from "./household-budget-commands.js";
+import { getKakaoBotGroupKey } from "./group-links-first-record.js";
+import { stableShortHash } from "./identity-chat-first.js";
+import { supabase } from "../data/supabase-client.js";
+import {
+  isBudgetCommand, isGroupLinkInfoCommand, isHelpCommand, isInputExampleCommand, isInviteCommand,
+  isLinkCommand, isRecentCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
+  parseGroupBindCommand, parseJoinCode,
+} from "./simple-commands.js";
+import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+// @build:imports-end
 
 // -----------------------------------------------------------------------------
 // V21.5 guided onboarding / budget setup / date summary
@@ -281,3 +307,14 @@ async function completeKakaoFlowState(env, userId = "", payload = {}) {
     return "\n\n진행 상태 정리가 지연됐어요. 변경 사항을 다시 입력하지 말고 ‘시작’을 입력해 상태를 확인해 주세요.";
   }
 }
+// @build:exports-start
+export {
+  clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState,
+  isExplicitKakaoFlowCancelCommandV2254, isExplicitKakaoTopLevelCommandV2254,
+  isKakaoBudgetSetupCommand, isKakaoCreateFlowCommand, isKakaoFlowCancelCommand,
+  isKakaoGuidedCommand, isKakaoJoinFlowCommand, isKakaoMemberAliasCommand, isKakaoStartCommand,
+  isUnsafeKakaoNameInputV2254, kakaoBudgetAmountQuickReplies, kakaoBudgetCategoryQuickReplies,
+  kakaoBudgetRootQuickReplies, kakaoCreateKindQuickReplies, kakaoStartQuickReplies,
+  parseDirectMemberAliasCommand, saveKakaoFlowState, shouldInterruptKakaoFlowV2254,
+};
+// @build:exports-end

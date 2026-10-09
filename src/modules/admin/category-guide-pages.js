@@ -1,3 +1,28 @@
+// @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { appName } from "../public/site-config.js";
+import { safeError } from "../runtime/leases.js";
+import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import {
+  addSettingsCategory, categoryKeywordDisplayRows, deleteSettingsCategory, fetchCategoryKeywordMap,
+  fetchCustomCategories, keywordEditorCss, normalizeCategoryKeywords, renderKeywordBulkEditor,
+  setCategoryKeywords,
+} from "../settings/categories-keywords.js";
+import { fetchAdminHouseholds } from "../data/households-members-rows.js";
+import { renderUnifiedNav } from "../web/unified-nav.js";
+import { stripMergedMarkerSuffix, verifyUserSession } from "../auth/user-session.js";
+import { fetchUserById } from "../data/users-household-create.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+} from "../my/access-control.js";
+import { DEFAULT_CATEGORIES } from "./dashboard-fragments.js";
+import { formatMessage } from "../kakao/reply-texts.js";
+import { supabase } from "../data/supabase-client.js";
+import { normalizeText } from "../nlu/amount-parser.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 const CATEGORY_KEYWORD_GUIDE = [
   { category: "식비", type: "expense", why: "식사·장보기·배달처럼 먹는 돈", examples: ["점심","저녁","아침","김밥","도시락","배달","치킨","피자","마트","장보기","편의점","반찬","외식"] },
@@ -216,3 +241,10 @@ function renderCategoryAdminHtml({ env, households, selected, householdId, custo
   }).join("") : `<p class="muted">분류를 선택하거나 내 분류를 추가하면 키워드를 관리할 수 있습니다.</p>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분류 설정</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.filters,.formGrid,.kwForm{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}.filters select,.filters button,.formGrid input,.formGrid select,.formGrid button,.kwForm input,.kwForm button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button,.formGrid button,.kwForm button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.catCard{background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px}.catHead{display:flex;align-items:center;justify-content:space-between;gap:10px}.catHead b{display:block;font-size:17px}.catHead span,.muted{color:#64748b;font-size:13px;line-height:1.45}.pill,.kw,.emptyKw,.baseBadge,.kwSuggest{display:inline-flex;border-radius:999px;padding:6px 10px;margin:3px;font-size:12px;font-weight:900}.pill{background:#f1f5f9;border:1px solid #e2e8f0}.kw{background:#e0f2fe;color:#075985}.kwSuggest{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer}.emptyKw{background:#f1f5f9;color:#64748b}.baseBadge{background:#ecfdf5;color:#065f46}.danger{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 10px}.ok{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px}.error{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.filters,.formGrid,.kwForm{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("categories", { householdId })}<main class="wrap"><section class="hero"><h1>분류·키워드 설정</h1><p>같은 단어라도 집마다 분류 기준이 다를 수 있습니다. 예를 들어 “커피”를 식비로 볼 수도 있고, 용돈으로 볼 수도 있습니다. 우리집 기준에 맞게 키워드를 연결하세요.</p><form class="filters" method="get" action="/categories"><select name="household_id"><option value="">가계부 선택</option>${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><button type="submit">조회</button></form></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}<section class="card"><h2>내 분류 추가</h2><div class="guideLine">키워드는 순서와 상관없이 동작합니다. 대신 “가족이 실제로 입력할 말”을 넣어야 자동분류가 잘 됩니다. 예: 커피, 스벅, 스타벅스, 점심, 주유, 자동차보험 <a href="/keyword-guide" style="font-weight:1000;color:#1d4ed8">키워드 안내 보기</a></div><form class="formGrid" method="post" action="/admin/category/create"><input type="hidden" name="household_id" value="${escapeHtml(householdId || selected?.id || "")}"/><input name="name" placeholder="예: 용돈, 아이간식, 렌즈소모품"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="keywords" placeholder="키워드 예: 커피, 스벅, 편의점"/><button type="submit">추가</button></form><p class="tip">키워드는 쉼표로 여러 개 입력할 수 있습니다. 챗봇 입력과 카드/문자 내역 분류에 우선 반영됩니다.</p></section><section class="card"><h2>기본 분류</h2><p class="muted">기본 분류도 키워드를 연결할 수 있습니다.</p><div>${presets}</div></section><section class="card"><h2>키워드 관리</h2><div class="grid">${categoryCards}</div></section><script>function addKeywordToInput(btn){var form=btn.closest(".catCard")?.querySelector(".kwForm");if(!form)return;var input=form.querySelector('input[name="keywords"]');if(!input)return;var kw=btn.getAttribute("data-kw")||btn.textContent.trim();var parts=input.value.split(/[,\n|/]+/).map(function(x){return x.trim()}).filter(Boolean);if(!parts.some(function(x){return x.toLowerCase()===kw.toLowerCase()})){parts.push(kw)}input.value=parts.join(", ");input.focus()}</script></main></body></html>`;
 }
+// @build:exports-start
+export {
+  CATEGORY_KEYWORD_GUIDE, handleCategoryAdminPage, handleCategoryCreate, handleCategoryDelete,
+  handleCategoryKeywordsSave, handleChatbotEditGuidePage, handleKeywordGuidePage,
+  handleMyProfilePage, handleMyProfileUpdate, keywordGuideForCategory,
+};
+// @build:exports-end

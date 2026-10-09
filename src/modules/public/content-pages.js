@@ -1,3 +1,12 @@
+// @build:imports-start
+import {
+  BUSINESS_FOOTER_INFO, PUBLIC_CONTENT_PATHS, adsensePublisherIdForTxt, appName, publicAdsenseHead,
+  publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
+} from "./site-config.js";
+import { htmlResponse } from "../runtime/http.js";
+import { safeArray } from "../admin/backup-compare.js";
+import { escapeHtml } from "../domain/transactions-core.js";
+// @build:imports-end
 
 function publicPageCatalog(env = {}, url = null) {
   const support = publicSupportEmail(env);
@@ -303,3 +312,9 @@ function renderBusinessInfoReviewCard(variant = "") {
   // V19.8.4: 카카오 심사용 본문 카드는 제거하고, 하단 사업자 푸터만 유지합니다.
   return "";
 }
+// @build:exports-start
+export {
+  handleAdsTxt, handlePublicContentPage, handlePublicRobots, handlePublicSitemap,
+  handlePublicSitemapStylesheet,
+};
+// @build:exports-end

@@ -1,3 +1,7 @@
+// @build:imports-start
+import { quickChipIconCss } from "../web/quick-chip-icons.js";
+import { ACCOUNTBOOK_SHELL_V22811_CSS } from "./asset-registry.js";
+// @build:imports-end
 
 const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replaceAll("abV22811Shell", "abV22812Shell")
@@ -1301,3 +1305,6 @@ body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
   body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
 }
 `;
+// @build:exports-start
+export { ACCOUNTBOOK_SHELL_CSS };
+// @build:exports-end
