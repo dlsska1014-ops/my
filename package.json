@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.32",
+  "version": "22.9.33",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
@@ -12,6 +12,7 @@
     "validate:module-syntax": "node validation/validate-module-syntax-v22932.mjs",
     "validate:client-serialization": "node validation/validate-client-serialization-v22932.mjs",
     "validate:init-order": "node validation/validate-init-order-v22932.mjs",
+    "validate:qa-fixes": "node validation/validate-qa-fixes-v22933.mjs",
     "validate:audit-corrections": "node validation/validate-audit-corrections-v22930.mjs",
     "validate:startup-budget": "node validation/validate-startup-budget-v22930.mjs",
     "validate:group-first": "node validation/validate-group-first-v22931.mjs",

@@ -1,6 +1,6 @@
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22930.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22933.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
@@ -95,7 +95,7 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v2299.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22930.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22933.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22930.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22929.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22836.js";

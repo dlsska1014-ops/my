@@ -5,7 +5,7 @@ import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { readOptionalFormAmount } from "./transactions-households.js";
 import {
-  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  attachSpenderNames, fetchAdminRows, fetchAnalysisRowsRange, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
@@ -355,10 +355,13 @@ async function handlePcAnalysisPage(request, env, url) {
   const householdId = ctx.selectedHousehold?.id || "";
   const month = ctx.month;
   const prevRows = householdId ? await fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [];
-  const historyRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month) }) : [];
-  const yearRows = householdId ? await fetchAdminRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : [];
+  const historyResult = householdId ? await fetchAnalysisRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month) }) : { rows: [], truncated: false };
+  const yearResult = householdId ? await fetchAnalysisRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : { rows: [], truncated: false };
+  const historyRows = historyResult.rows;
+  const yearRows = yearResult.rows;
   const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
+  extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);

@@ -176,7 +176,9 @@ try {
   // 상세 조건은 접어 두되 사라지지는 않는다.
   ok(tx.text.includes('<details class="txFilterMore"'), "상세 필터는 접힌 채로 남아 있다");
   ok(tx.text.includes('name="payment_method"'), "접힌 폼 안에 결제수단 조건이 그대로 있다");
-  ok(tx.text.includes(`<select name="category" aria-label="분류">`), "접힌 폼 안에 분류 조건이 그대로 있다");
+  // V22.9.33(QA B08): 화면 라벨로 감싼 컨트롤에는 aria-label 을 덧붙이지 않는다. 덧붙이면 보이는
+  // "분류로 보기" 대신 "분류"로 읽혀 라벨과 이름이 어긋난다(WCAG 2.5.3).
+  ok(tx.text.includes(`<label class="txPickLabel"><span>분류로 보기</span><select name="category">`), "접힌 폼 안에 분류 조건이 그대로 있고 보이는 라벨이 이름이 된다");
 
   // 칩을 실제로 눌러 본다 — 링크가 조건을 걸고, 켜진 칩이 따라 움직여야 한다.
   const missingHref = chips.find(([, , , label]) => label === "미분류")[2].replace(/&amp;/g, "&");

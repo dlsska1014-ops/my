@@ -201,6 +201,15 @@ async function fetchAllHouseholdMembersMap(env, households = []) {
   return out;
 }
 
+// 조회 결과가 한도를 넘었다는 오류. 일부 행만으로 합계·리포트·백업을 만들지 않도록 호출부가 이 코드로 구분한다(QA B05).
+function rowLimitExceededError(limit) {
+  return Object.assign(new Error(`조회 결과가 안전 한도 ${limit}건을 넘었습니다. 기간을 나눠 조회해 주세요.`), { name: "RowLimitExceededError", code: "row_limit_exceeded", limit });
+}
+
+function isRowLimitExceededError(error) {
+  return error?.code === "row_limit_exceeded";
+}
+
 // pageSize를 서버의 PostgREST `max-rows`보다 크게 잡으면 페이지가 짧게 돌아오고
 // 아래 `page.length < remaining` 판정이 이를 데이터 끝으로 오인해 조용히 잘린다.
 // 그래서 기존 클램프 상한(1000)을 넘기지 않는 범위에서만 기본값을 올린다.
@@ -230,11 +239,17 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
       parsed.searchParams.set("limit", "1");
       parsed.searchParams.set("offset", String(offset));
       const probe = await supabase(env, `${parsed.pathname}${parsed.search}`, { method: "GET" });
-      if (Array.isArray(probe) && probe.length) throw new Error(`조회 결과가 안전 한도 ${hardMax}건을 넘었습니다. 기간을 나눠 조회해 주세요.`);
+      if (Array.isArray(probe) && probe.length) throw rowLimitExceededError(hardMax);
       break;
     }
   }
   return wanted === null ? rows : rows.slice(0, wanted);
+}
+
+// 분석 화면용 범위 조회. 한도+1건을 받아 잘렸는지 함께 돌려준다. 합계·리포트·백업에는 쓰지 않는다(QA B05).
+async function fetchAnalysisRowsRange(env, options = {}, limit = 6000) {
+  const rows = await fetchAdminRowsRange(env, { ...options, limit: limit + 1, complete: false });
+  return rows.length > limit ? { rows: rows.slice(0, limit), truncated: true } : { rows, truncated: false };
 }
 
 async function supabaseExactCount(env, path, { timeoutMs } = {}) {
@@ -324,7 +339,10 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
   return rows;
 }
 
-async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000 }) {
+// complete(기본)는 한도를 넘는 기록이 있으면 조용히 자르지 않고 row_limit_exceeded 오류를 낸다(QA B05).
+// 합계·리포트·백업·검색은 이 방식이어야 한다. complete:false 는 호출부가 한도+1건을 받아 잘림을 직접
+// 감지하고 화면에 알리는 경우(분석 화면)나 일부여도 되는 추정(반복 거래 후보)에만 쓴다.
+async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true }) {
   const params = new URLSearchParams();
   params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
   if (start) params.set("transaction_date", `gte.${start}`);
@@ -333,15 +351,18 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   if (type === "income" || type === "expense") params.set("type", `eq.${type}`);
   params.set("order", "transaction_date.desc,created_at.desc,id.desc");
   const rowLimit = Math.max(100, Math.min(Number(limit || 6000), 100000));
-  return fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`, { limit: rowLimit, maxRows: rowLimit });
+  const path = `/rest/v1/transactions?${params.toString()}`;
+  return complete
+    ? fetchPostgrestRows(env, path, { maxRows: rowLimit })
+    : fetchPostgrestRows(env, path, { limit: rowLimit, maxRows: rowLimit });
 }
 // @build:exports-start
 export {
   attachSpenderNames, bestRoleFromRows, countHouseholdTransactions, fetchAdminHouseholds,
-  fetchAdminRows, fetchAdminRowsRange, fetchAllHouseholdMembersMap, fetchHouseholdMembers,
-  fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds, getScopedHouseholdsForPage,
-  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist,
-  renderSpenderOptions, roleRank, saveMemberAlias, selectRequestedScopedHousehold,
-  selectScopedHousehold, supabaseExactCount,
+  fetchAdminRows, fetchAdminRowsRange, fetchAllHouseholdMembersMap, fetchAnalysisRowsRange,
+  fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds,
+  getScopedHouseholdsForPage, isRowLimitExceededError, memberAliasSettingsKey, memberNameMap,
+  normalizeMemberAliasMap, renderSpenderDatalist, renderSpenderOptions, roleRank, saveMemberAlias,
+  selectRequestedScopedHousehold, selectScopedHousehold, supabaseExactCount,
 };
 // @build:exports-end

@@ -22,7 +22,7 @@ import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { canWriteMyHousehold } from "../my/access-control.js";
-import { activeSpenderExists } from "../my/transactions.js";
+import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
 import { purgeHouseholdData } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
 import { renderV8TxEditForm } from "../my/home-sections.js";
@@ -216,6 +216,9 @@ async function handleAdminAddTransaction(request, env) {
   const smartText=String(form.get("raw_text") || "");
   if (/\d+,\d{1,2}(?!\d)/.test(smartText) && form.get("quick_manual_amount")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"amount_required"}),transactionAddRedirectExtras(form,{err:"amount_required"},"error")));
   if (explicitDateIntent(smartText) && !extractDate(smartText) && form.get("quick_manual_date")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"invalid_date"}),transactionAddRedirectExtras(form,{err:"invalid_date"},"error")));
+  // 문장 속 날짜를 서버에서도 다시 풀어, 날짜를 직접 고치지 않았는데 폼 날짜와 다르면 저장하지 않는다(QA B04).
+  // 배포 전에 열어 둔 화면처럼 요일 표현을 못 읽는 옛 스크립트가 오늘 날짜를 보내도 다른 날로 집계되지 않는다.
+  if (explicitDateIntent(smartText) && form.get("quick_manual_date")!=="1" && extractDate(smartText) && extractDate(smartText)!==transactionDate) return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"invalid_date"}),transactionAddRedirectExtras(form,{err:"invalid_date"},"error")));
   const validationError = validateRecordFormFields({ householdId, amount, transactionDate, mode: "add" });
   if (validationError) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), transactionAddRedirectExtras(form, { err: validationError }, "error")));
@@ -334,8 +337,19 @@ async function handleTransactionEditPage(request, env, url) {
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
   }
 
-  const members = await fetchHouseholdMembers(env, rowHousehold);
-  const formHtml = renderV8TxEditForm(targetRow, backTo, members, isManager);
+  // 권한 판정용 조회(fetchTransactionRowById)는 id·가계부·지출자 세 칸만 가져온다. 운영 DB 는 요청한 칸만
+  // 돌려주므로 그 행으로 폼을 그리면 금액·날짜·분류가 빈 폼이 되고, 그대로 저장하면 기록을 덮어쓴다.
+  // 그래서 폼은 같은 가계부 범위의 전체 행으로 그린다(V22.9.33 감사 T1).
+  const [members, editRow] = await Promise.all([
+    fetchHouseholdMembers(env, rowHousehold),
+    getTransactionForUserEdit(env, id, rowHousehold),
+  ]);
+  if (!editRow) {
+    const missing = "기록을 찾지 못했습니다. 화면을 새로고침해 주세요.";
+    if (wantsFragment) return new Response(`<p class="v8-editError">${escapeHtml(missing)}</p>`, { status: 404, headers: { ...HTML_HEADERS } });
+    return redirectResponse(backTo);
+  }
+  const formHtml = renderV8TxEditForm(editRow, backTo, members, isManager);
   if (wantsFragment) {
     // 개인 기록이므로 캐시에 남기지 않는다.
     return new Response(formHtml, {

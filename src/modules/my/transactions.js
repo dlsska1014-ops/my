@@ -2,7 +2,9 @@
 import {
   duplicateSkippedReturnLocation, isDatabaseBusyError, rememberOpsEvent, userSafeErrorCode,
 } from "../runtime/ops-telemetry.js";
-import { safeError } from "../runtime/leases.js";
+import {
+  parseStrictSettingsObject, safeError, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
 import { redirectResponse } from "../runtime/http.js";
 import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString, normalizeTransactionType,
@@ -10,8 +12,8 @@ import {
 } from "../admin/transactions-households.js";
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
 import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
-import { getSettingValue } from "../admin/settings-audit-pages.js";
-import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { safeArray } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import {
   canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, myReturnLocation,
@@ -28,19 +30,16 @@ function transactionEditHistoryKey(householdId = "") {
   return `transaction_edit_history:${String(householdId || "default").trim() || "default"}`;
 }
 
+// 표시용 수정 이력은 가계부마다 설정 JSON 하나에 모인다. 읽기 실패나 깨진 JSON 을 빈 값으로 보고 새 항목만
+// 저장하면 가계부 전체의 이력이 사라진다(QA B06). 그래서 잠금 안에서 엄격하게 읽어 병합하고, 읽지 못하면
+// 쓰지 않는다. 거래 수정 자체는 이미 원자적 RPC 와 DB 감사에 반영됐으므로 호출부가 이력 실패만 따로 기록한다.
 async function fetchTransactionEditHistoryMap(env, householdId = "") {
-  try {
-    const value = await getSettingValue(env, transactionEditHistoryKey(householdId));
-    if (!value) return {};
-    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
-    const out = {};
-    for (const [id, list] of Object.entries(safeObject(parsed))) {
-      if (id && Array.isArray(list)) out[id] = list.slice(-20);
-    }
-    return out;
-  } catch (err) {
-    return {};
+  const parsed = parseStrictSettingsObject(await getSettingValueStrict(env, transactionEditHistoryKey(householdId)), "transaction_edit_history");
+  const out = {};
+  for (const [id, list] of Object.entries(parsed)) {
+    if (id && Array.isArray(list)) out[id] = list.slice(-20);
   }
+  return out;
 }
 
 function transactionAuditFields() {
@@ -78,16 +77,19 @@ async function appendTransactionEditHistory(env, householdId = "", transactionId
   const memberMap = memberNameMap(members || []);
   const changes = buildTransactionChanges(before, after, memberMap);
   if (!changes.length) return [];
-  const map = await fetchTransactionEditHistoryMap(env, householdId);
-  const list = Array.isArray(map[transactionId]) ? map[transactionId] : [];
-  list.push({ at: new Date().toISOString(), edited_by: editedBy || "", edited_by_name: memberMap[String(editedBy || "")] || "", changes });
-  map[transactionId] = list.slice(-20);
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: transactionEditHistoryKey(householdId), value: JSON.stringify(map) }),
+  return withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+    const map = await fetchTransactionEditHistoryMap(env, householdId);
+    const list = Array.isArray(map[transactionId]) ? map[transactionId] : [];
+    list.push({ at: new Date().toISOString(), edited_by: editedBy || "", edited_by_name: memberMap[String(editedBy || "")] || "", changes });
+    map[transactionId] = list.slice(-20);
+    assertFresh();
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: transactionEditHistoryKey(householdId), value: JSON.stringify(map) }),
+    });
+    return map[transactionId];
   });
-  return map[transactionId];
 }
 
 function memberExists(members = [], userId = "") {
@@ -242,7 +244,7 @@ async function handleMyDeleteTransaction(request, env) {
 }
 // @build:exports-start
 export {
-  activeSpenderExists, handleMyAddTransaction, handleMyDeleteTransaction, handleMyUpdateTransaction,
-  memberCanBeSpender, transactionEditHistoryKey,
+  activeSpenderExists, getTransactionForUserEdit, handleMyAddTransaction, handleMyDeleteTransaction,
+  handleMyUpdateTransaction, memberCanBeSpender, transactionEditHistoryKey,
 };
 // @build:exports-end

@@ -53,6 +53,7 @@ function formatMessage(msg) {
     settlement_already_completed: "같은 조건의 정산 완료 이력이 이미 있습니다.",
     settlement_busy: "다른 정산 저장이 진행 중입니다. 잠시 후 한 번만 다시 시도해 주세요.",
     settlement_completed: "정산 완료 이력을 저장했습니다.",
+    backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
     payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",

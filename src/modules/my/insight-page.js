@@ -37,7 +37,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const month = ctx.month;
   const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
     householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
-    householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001 }) : [],
+    householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
     householdId ? fetchRecurring(env, householdId) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
@@ -75,7 +75,7 @@ async function handleMyInsightPage(request, env, url) {
   const [members, budgets, rawRows, challengeValue] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
-    fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001 }),
+    fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
   ]);
   const truncated = rawRows.length > 9000;

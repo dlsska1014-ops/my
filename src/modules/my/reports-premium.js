@@ -8,7 +8,9 @@ import {
 import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
 import { verifyCronExecutionAuth } from "../auth/crypto-admin-session.js";
 import { isValidTransactionDateString } from "../admin/transactions-households.js";
-import { fetchAdminRows, fetchAdminRowsRange } from "../data/households-members-rows.js";
+import {
+  fetchAdminRows, fetchAdminRowsRange, isRowLimitExceededError,
+} from "../data/households-members-rows.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
@@ -191,6 +193,12 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         await saveSettingValue(env, snapshotKey, report);
         generated++;
       } catch (err) {
+        if (isRowLimitExceededError(err)) {
+          // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
+          failed++;
+          rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${job.period}` });
+          continue;
+        }
         failed++; after = previousAfter; partial = true;
         rememberOpsEvent({ kind: "free_report_generate_failed", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${safeError(err)}` });
         break scan;

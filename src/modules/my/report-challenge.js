@@ -9,6 +9,7 @@ import {
 } from "../admin/transactions-households.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
@@ -174,13 +175,19 @@ async function buildReportChallengeForHousehold(env, { householdId = "", month =
   // 아직 끝나지 않은 오늘과 미래 날짜에는 기록이 없으므로 조회할 필요가 없다.
   // 완료 판정 범위가 현재 월을 실제로 벗어날 때만 추가 범위 조회를 수행한다.
   if (householdId && evaluationEnd >= settings.startDate && (settings.startDate < monthStart || evaluationEnd >= monthEnd)) {
-    challengeRows = await fetchAdminRowsRange(env, {
-      householdId,
-      start: settings.startDate,
-      end: shiftChallengeDate(settings.targetDate, 1),
-      type: "all",
-      limit: 10000,
-    });
+    try {
+      challengeRows = await fetchAdminRowsRange(env, {
+        householdId,
+        start: settings.startDate,
+        end: shiftChallengeDate(settings.targetDate, 1),
+        type: "all",
+        limit: 10000,
+      });
+    } catch (err) {
+      if (!isRowLimitExceededError(err)) throw err;
+      // 기간 기록을 다 읽지 못하면 빠진 날을 지출 없는 날로 세게 된다. 챌린지를 그리지 않는다(QA B05).
+      return null;
+    }
   }
   return buildReportChallenge(challengeRows, safeMonth, value);
 }
@@ -267,9 +274,11 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
     ? "챌린지가 꺼져 있습니다."
     : safe.phase === "scheduled"
       ? `${safe.startDate}부터 시작합니다.`
-      : safe.remaining
-        ? `${dayPosition}이며 목표까지 ${safe.remaining}일 남았습니다.`
-        : `${safe.typeLabel || "챌린지"} 목표를 달성했습니다.`;
+      : safe.phase === "ended"
+        ? `${safe.targetDate}에 끝난 챌린지입니다. ${safe.remaining ? `목표까지 ${safe.remaining}일을 남기고 끝났습니다.` : "목표를 달성했습니다."}`
+        : safe.remaining
+          ? `${dayPosition}이며 목표까지 ${safe.remaining}일 남았습니다.`
+          : `${safe.typeLabel || "챌린지"} 목표를 달성했습니다.`;
   const action = home
     ? `<a class="reportChallengeManage" href="/my/analysis?view=report&${qs}#reportChallenge">${canManage ? "날짜·목표 설정" : "챌린지 자세히"}</a>`
     : canManage

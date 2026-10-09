@@ -35,6 +35,10 @@ const PINNED = {
   "/assets/mobile-home-v22915.js": "38b828923a12319cd8b6055b3c7cf8c6bec9c7bcfaf0f77759ca14712d7ae290",
   "/assets/mobile-home-v22930.js": "ff513d9d5936fe1393489b98170ca7f7681ed8500d6edfe3f0eb4c9d10e1c416",
   "/assets/mobile-home-shell-v22930.js": "ba1c9fc28e05a228fe47a8fa052c843d34964aa03be53e38b7cf068518bd4239",
+  // V22.9.33(QA B04): 웹 날짜 해석이 요일 표현을 읽으면서 두 자산이 바뀌어 주소를 올렸다. v22930 바이트는
+  // AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 위 해시로 계속 내려간다.
+  "/assets/mobile-home-v22933.js": "d294d13bbc7f45d07fcc6466229af2bb64bd087ca25c391ca72971524eec2ab6",
+  "/assets/mobile-home-shell-v22933.js": "4aeb9097cd6a84056a6077e4e2856077f5ddc09ec623a527363145a6980e926e",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",
   "/assets/mobile-home-v22919.css": "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7",
 };

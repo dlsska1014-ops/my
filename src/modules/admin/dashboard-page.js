@@ -5,7 +5,7 @@ import { dashboardQuery } from "./transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchPaymentAssets } from "../settings/payment-assets.js";
 import {
-  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange,
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchAnalysisRowsRange,
   fetchHouseholdMembers, renderSpenderDatalist, renderSpenderOptions,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
@@ -319,10 +319,12 @@ async function renderServerDashboardHtml(env, url) {
   const prevRows = attachSpenderNames(needsDeepAnalytics ? await fetchAdminRows(env, { month: prevMonth, householdId: activeHouseholdId, type: "all" }) : [], householdMembers);
   const historyStart = `${addMonthsYm(month, -11)}-01`;
   const historyEnd = nextMonthStart(month);
-  const historyRows = attachSpenderNames(needsDeepAnalytics ? await fetchAdminRowsRange(env, { householdId: activeHouseholdId, start: historyStart, end: historyEnd }) : [], householdMembers);
+  const historyResult = needsDeepAnalytics ? await fetchAnalysisRowsRange(env, { householdId: activeHouseholdId, start: historyStart, end: historyEnd }) : { rows: [], truncated: false };
+  const historyRows = attachSpenderNames(historyResult.rows, householdMembers);
   const yearStart = `${month.slice(0, 4)}-01-01`;
   const yearEnd = `${Number(month.slice(0, 4)) + 1}-01-01`;
-  const yearRows = attachSpenderNames(needsDeepAnalytics ? await fetchAdminRowsRange(env, { householdId: activeHouseholdId, start: yearStart, end: yearEnd }) : [], householdMembers);
+  const yearResult = needsDeepAnalytics ? await fetchAnalysisRowsRange(env, { householdId: activeHouseholdId, start: yearStart, end: yearEnd }) : { rows: [], truncated: false };
+  const yearRows = attachSpenderNames(yearResult.rows, householdMembers);
 
   const stats = calculateStats(rows);
   const allStats = calculateStats(allRows);
@@ -336,6 +338,7 @@ async function renderServerDashboardHtml(env, url) {
   const spenderOptionsHtml = renderSpenderOptions(householdMembers, "", "지출자 선택");
   const analysis = calculateDashboardAnalysis(allRows, rows, calendar, month);
   const extended = calculateExtendedAnalytics({ month, allRows, prevRows, historyRows, yearRows, rowsBase });
+  extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   const customStats = buildCustomStats(rows, groupBy);
   const affiliateState = buildAffiliateState({ env, month, allRows, analysis, extended, origin: publicBaseUrl(env, url) });
   const premiumState = buildPremiumState({ env, month, allRows, analysis, extended });

@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_32.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_33.sha256",
 );
 const validationScripts = [
   // 모든 검사가 src/index.js 를 읽으므로 그 파일이 모듈과 같은지부터 본다.
@@ -19,6 +19,7 @@ const validationScripts = [
   ["클라이언트 직렬화 자체 완결", "validation/validate-client-serialization-v22932.mjs"],
   ["초기화 순서 — 모듈 연결 순서", "validation/validate-init-order-v22932.mjs"],
   ["배포 스크립트 — 업로드·대조·승격 (가짜 API)", "validation/validate-deploy-worker-v22932.mjs"],
+  ["V22.9.33 QA 결함 수정(B01~B09)과 웹 수정 폼(T1)", "validation/validate-qa-fixes-v22933.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
@@ -182,7 +183,8 @@ function run(command, args, label) {
 // V22.9.32 모듈 분리 2·3단계: 모듈 단독 문법·표시 117개, 클라이언트 직렬화 38개, 초기화 순서 13개가 들어왔다.
 // V22.9.32 첫 실제 업로드 뒤: inherit latest·최신 버전 출처·호환 플래그 비교 검사 19개로 배포 스크립트 검사가 197개가 됐다.
 // V22.9.32 배포 뒤: 승격 후 /health 5번 연속 일치를 기다린 뒤 공개 검사를 하는 검사 10개로 207개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 8394;
+// V22.9.33 QA 결함 수정: 보고서 결함 B01~B09 와 웹 수정 폼(T1) 검사 52개, 새 v22933 자산 고정 6개가 들어왔다.
+const EXPECTED_MINIMUM_CHECKS = 8452;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
