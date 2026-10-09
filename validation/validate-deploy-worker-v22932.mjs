@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256 } from "../tools/build-worker.mjs";
-import { canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, runDeploy } from "../tools/deploy-worker-version.mjs";
+import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, runDeploy } from "../tools/deploy-worker-version.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -57,6 +57,7 @@ function fakeCloudflare(options = {}) {
   const contents = new Map();
   const calls = [];
   let counter = 0;
+  let healthCalls = 0;
   versions.set(LIVE_ID, {
     id: LIVE_ID,
     number: 40,
@@ -95,7 +96,12 @@ function fakeCloudflare(options = {}) {
     const call = { method: request.method, origin: target.origin, path: isApi ? target.pathname.slice(API_PREFIX.length) : target.pathname, query: target.search, authorization: request.headers.get("authorization") };
     calls.push(call);
     if (target.origin === ORIGIN && target.pathname === "/health") {
-      const version = options.healthVersion ?? (deployments[0].versions[0].version_id === LIVE_ID ? "V-OLD" : APP_VERSION);
+      // healthSequence: 배포가 퍼지는 동안처럼 이전 판("old")과 새 판("new")이 섞여 나오는 응답 순서
+      const scripted = options.healthSequence?.[healthCalls];
+      healthCalls += 1;
+      const current = deployments[0].versions[0].version_id === LIVE_ID ? "V-OLD" : APP_VERSION;
+      const version = scripted ? (scripted === "old" ? "V-OLD" : APP_VERSION) : options.healthVersion ?? current;
+      call.version = version;
       return json(200, { alive: true, version, missing_count: 0 });
     }
     if (!isApi) throw new Error(`fake: unexpected request ${request.method} ${target.href}`);
@@ -438,7 +444,32 @@ for (const [label, fakeOptions, harnessOptions, pattern, publicRuns] of [
 {
   const ctx = await upload({ healthVersion: "V-STALE" });
   await runDeploy(["--promote", ctx.newId], ctx.h.deps);
-  eq(ctx.fake.calls.filter((c) => c.path === "/health").length, 10, "/health 는 전파 지연을 고려해 10번까지 다시 본다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/health").length, HEALTH_MAX_ATTEMPTS, `/health 는 전파 지연을 고려해 ${HEALTH_MAX_ATTEMPTS}번까지 다시 본다`);
+}
+
+// ---------------------------------------------------------------------------
+// 6-1. 전파 중 /health 안정 대기 — 첫 일치가 아니라 연속 일치 뒤에 공개 검사를 한다
+//      (첫 실제 승격 2026-10-09: 첫 일치 직후 공개 검사의 /health 한 번이 이전 판을 만나 115/116)
+// ---------------------------------------------------------------------------
+eq(`${HEALTH_CONSECUTIVE}/${HEALTH_MAX_ATTEMPTS}/${HEALTH_DELAY_MS}`, "5/40/2000", "안정 기준은 5번 연속 일치, 2초 간격 최대 40번이다");
+{
+  const ctx = await upload({ healthSequence: ["old", "new", "old", "new", "new", "new", "new", "new"] });
+  let healthBeforePublic = null;
+  ctx.h.deps.runPublicChecks = (args) => { healthBeforePublic = ctx.fake.calls.filter((c) => c.path === "/health").map((c) => c.version); ctx.h.publicRuns.push(args); return 0; };
+  eq(await runDeploy(["--promote", ctx.newId], ctx.h.deps), 0, "전파 중 이전 판 응답이 섞여도 5번 연속 새 판이면 승격을 마친다");
+  eq(healthBeforePublic?.length, 8, "공개 검사 전에 /health 를 8번 본다 — 2번째의 첫 일치에서 멈추지 않는다");
+  ok(healthBeforePublic?.slice(-HEALTH_CONSECUTIVE).every((v) => v === APP_VERSION), "공개 검사 직전 /health 5번이 모두 새 판이다");
+  const record = recordOf(ctx.h, `promote-${ctx.newId}`);
+  ok(record.data.health.ok && record.data.health.consecutive === 5 && record.data.health.mismatches === 2 && record.data.health.first_match_attempt === 2, "승격 기록에 연속 횟수·불일치 횟수·첫 일치 시도가 남는다");
+  ok(/5번 연속 확인 [(]시도 8회, 불일치 2회/.test(ctx.h.output()), "몇 번 만에 안정됐는지 알린다");
+}
+{
+  const flapping = Array.from({ length: 60 }, (_, i) => (i % 2 ? "new" : "old"));
+  const ctx = await upload({ healthSequence: flapping });
+  eq(await runDeploy(["--promote", ctx.newId], ctx.h.deps), 1, "새 판과 이전 판이 번갈아 나오기만 하면 실패로 센다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/health").length, HEALTH_MAX_ATTEMPTS, `안정되지 않으면 /health 를 ${HEALTH_MAX_ATTEMPTS}번까지만 본다`);
+  eq(ctx.h.publicRuns.length, 0, "안정되지 않으면 공개 검사로 넘어가지 않는다");
+  ok(/5번 연속/.test(ctx.h.output()) && ctx.h.output().includes(`--rollback ${LIVE_ID}`), "안정되지 않은 이유와 되돌리기 명령을 알린다");
 }
 
 // ---------------------------------------------------------------------------
