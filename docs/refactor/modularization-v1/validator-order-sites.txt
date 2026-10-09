@@ -1,0 +1,27 @@
+file:line	pattern
+validate-category-rules-single-source-v2296.mjs:57	indexOf("\nfunction ", mainStart
+validate-category-rules-single-source-v2296.mjs:68	indexOf("\n}\n", recStart
+validate-deferred-edit-forms-v22886.mjs:131	indexOf("</form>", at
+validate-desktop-cursor-v22895.mjs:25	indexOf("\nfunction accountbookStage4NavJsAsset", navStart
+validate-desktop-cursor-v22895.mjs:27	indexOf("\n// V22.8.93 (9.4)", assetStart
+validate-home-layout-v22894.mjs:41	indexOf("\nasync function handleBudgetCenterPage(", saveStart
+validate-home-tab-stops-v22896.mjs:81	indexOf("</nav>", bottomStart
+validate-home-tab-stops-v22896.mjs:127	indexOf("</nav>", heavyBottomStart
+validate-home-tab-stops-v22896.mjs:148	indexOf("</details>", html
+validate-home-tab-stops-v22896.mjs:195	indexOf("</ol>", stripStart
+validate-kakao-group.mjs:90	indexOf("function getKakaoIdentityAliases", userKeyStart
+validate-kakao-memo-repeat-v22869.mjs:25	indexOf("\n}\n", guardStart
+validate-launch-hardening-v22926.mjs:26	indexOf("  async scheduled(controller, env, ctx) {", routeStart
+validate-menu-leads-with-menu-v22910.mjs:38	indexOf("</main>", mainStart
+validate-mobile-surface-repair-v22861.mjs:24	indexOf("\nconst MOBILE_HOME_CSS_ASSET_PATH", vendorStart
+validate-nav-information-architecture-v2295.mjs:59	indexOf("</nav>", navAt
+validate-nav-information-architecture-v2295.mjs:110	indexOf("</nav>", start
+validate-number-transitions-v22893.mjs:45	indexOf("\nfunction accountbookStage4NavJsAsset", navStart
+validate-prelogin-preview-v22927.mjs:190	indexOf("\nfunction myNavCss(", renderStart
+validate-role-surface-v22867.mjs:25	indexOf("\n}\n", start
+validate-screen-cleanup-v22892.mjs:75	indexOf("\nfunction accountbookChallengeClientMain", dayDetailStart
+validate-shared-stylesheet-v2291.mjs:61	indexOf("`;", start
+validate-sister-link-v22926.mjs:36	indexOf("\nfunction ", start
+validate-theme-duo-nav-tier-v22879.mjs:14	indexOf("\nfunction ", themeStart
+validate-transaction-delete-v22866.mjs:57	indexOf("</form>", fragment
+validate-ux-principles.mjs:16	indexOf("\nfunction ", start

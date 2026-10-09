@@ -1,0 +1,1611 @@
+i	kind	varKind	names	start	end	lines	bytes	exported	fanIn	fanOut
+0	FunctionDeclaration		kakaoRestApiKey	32	34	3	96		3	0
+1	FunctionDeclaration		kakaoClientSecret	36	38	3	99		2	0
+2	VariableDeclaration	const	AB_SKILL_RATE_BUCKETS	40	40	1	117		2	0
+3	VariableDeclaration	const	AB_SKILL_EVENTS	41	41	1	92		2	0
+4	VariableDeclaration	const	AB_NLU_RUNTIME_EVENTS	43	43	1	110		2	0
+5	VariableDeclaration	const	AB_NLU_RUNTIME_METRICS	44	44	1	120		2	0
+6	VariableDeclaration	const	AB_EFFECTIVE_USER_CACHE	45	45	1	123		3	0
+7	VariableDeclaration	const	AB_OPERATION_MUTEXES	46	46	1	114		1	0
+8	VariableDeclaration	const	AB_REQUEST_RAW_USER_CACHE	47	47	1	48		2	0
+9	VariableDeclaration	const	AB_REQUEST_USER_CACHE	48	48	1	44		1	0
+10	FunctionDeclaration		nluOpsConfig	50	59	10	552		10	1
+11	FunctionDeclaration		redactNluOpsSample	61	73	13	482		4	0
+12	FunctionDeclaration		nluOpsFingerprint	75	83	9	270		5	0
+13	FunctionDeclaration		redactOpsDetail	85	97	13	656		3	0
+14	FunctionDeclaration		nluOutcomeFromKakaoResponse	99	119	21	1035		1	0
+15	FunctionDeclaration		nluPercentile	121	126	6	260		1	0
+16	FunctionDeclaration		rememberNluRuntimeEvent	128	159	32	1696		1	7
+17	FunctionDeclaration		getNluOpsSnapshot	161	185	25	1495		3	4
+18	FunctionDeclaration		persistNluMetricAggregate	187	201	15	723		1	3
+19	FunctionDeclaration		persistNluFailureSample	203	220	18	983		1	6
+20	FunctionDeclaration		scheduleNluOpsPersistence	222	231	10	499		1	4
+21	FunctionDeclaration		cleanupNluOpsRetention	233	239	7	476		1	2
+22	FunctionDeclaration		rememberSkillEvent	241	254	14	605		2	4
+23	FunctionDeclaration		getSkillOpsSnapshot	256	269	14	483		3	2
+24	FunctionDeclaration		boundedRuntimeNumber	271	275	5	205		21	0
+25	FunctionDeclaration		pruneRateBucketMap	277	287	11	407		2	0
+26	FunctionDeclaration		pruneExpiringMap	289	299	11	391		2	0
+27	FunctionDeclaration		pruneTimestampMap	301	311	11	425		1	0
+28	FunctionDeclaration		checkSkillRateLimit	313	327	15	745		1	3
+29	VariableDeclaration	const	AB_TRAFFIC_BUCKETS	329	329	1	108		2	0
+30	VariableDeclaration	const	AB_TRAFFIC_EVENTS	330	330	1	98		2	0
+31	VariableDeclaration	const	AB_OPS_EVENTS	331	331	1	86		2	0
+32	VariableDeclaration	const	AB_DUPLICATE_EVENTS	332	332	1	104		2	0
+33	VariableDeclaration	const	AB_KAKAO_REPEAT_GUARD	333	333	1	117		2	0
+34	VariableDeclaration	const	AB_KAKAO_INFLIGHT	334	334	1	105		2	0
+35	FunctionDeclaration		rememberOpsEvent	336	349	14	528		87	2
+36	FunctionDeclaration		getOpsEventsSnapshot	351	363	13	508		1	1
+37	FunctionDeclaration		rememberDuplicateEvent	365	386	22	1148		4	5
+38	FunctionDeclaration		getDuplicateOpsSnapshot	388	393	6	374		1	1
+39	FunctionDeclaration		duplicateGuardSeconds	395	400	6	337		1	2
+40	FunctionDeclaration		isDuplicateGuardSource	402	405	4	177		1	0
+41	FunctionDeclaration		isDatabaseBusyError	407	410	4	202		2	0
+42	FunctionDeclaration		userSafeErrorCode	412	420	9	465		1	3
+43	FunctionDeclaration		duplicateSkippedReturnLocation	422	424	3	162		1	1
+44	FunctionDeclaration		getOperationIntegritySnapshot	426	433	8	238		1	0
+45	FunctionDeclaration		buildOpsSnapshot	435	462	28	1348		3	10
+46	FunctionDeclaration		rememberTrafficEvent	464	477	14	686		1	4
+47	FunctionDeclaration		trafficClientKey	479	487	9	347		3	0
+48	FunctionDeclaration		skillIpGuardLimit	492	494	3	115		2	1
+49	FunctionDeclaration		isTrafficGuardedPath	496	503	8	462		1	0
+50	FunctionDeclaration		checkTrafficGuard	505	526	22	1312		1	7
+51	FunctionDeclaration		httpOriginFromHeader	528	537	10	299		2	0
+52	FunctionDeclaration		hasBrowserSessionCookie	539	542	4	163		2	1
+53	FunctionDeclaration		isTrustedKakaoTransitionUrl	544	551	8	234		1	0
+54	FunctionDeclaration		csrfSignalSummary	553	561	9	710		1	2
+55	FunctionDeclaration		csrfOriginAllowed	563	597	35	1882		1	3
+56	FunctionDeclaration		csrfRejectedResponse	599	604	6	705		1	2
+57	FunctionDeclaration		getTrafficOpsSnapshot	606	619	14	481		2	2
+58	FunctionDeclaration		trafficLimitedResponse	621	626	6	1467		1	4
+59	FunctionDeclaration		rateLimitedKakaoText	628	642	15	324		2	1
+60	VariableDeclaration	const	JSON_HEADERS	644	651	8	334		1	0
+61	VariableDeclaration	const	REQUIRED_RUNTIME_CONFIG	653	660	8	185		1	0
+62	FunctionDeclaration		missingRuntimeConfiguration	662	668	7	315		1	1
+63	VariableDeclaration	const	READINESS_REQUIRED_TABLES	670	681	12	316		1	0
+64	VariableDeclaration	const	READINESS_OPTIONAL_TABLES	686	688	3	66		1	0
+65	VariableDeclaration	const	READINESS_CORE_RPCS	693	709	17	607		1	0
+66	VariableDeclaration	const	READINESS_ALTERNATIVE_RPC_GROUPS	711	713	3	135		1	0
+67	VariableDeclaration	const	READINESS_RPC_PROBE_BODIES	719	737	19	2330		1	0
+68	VariableDeclaration	const	HTML_HEADERS	739	748	10	862		5	0
+69	VariableDeclaration	const	CORS_HEADERS	750	754	5	225		3	0
+70	VariableDeclaration	const	AB_HOUSEHOLD_MEMORY_COOKIE	768	768	1	43		2	0
+71	VariableDeclaration	const	AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS	769	769	1	100		1	0
+72	VariableDeclaration	const	AB_HOUSEHOLD_MEMORY_PATHS	770	776	7	468		1	0
+73	FunctionDeclaration		isRememberableHouseholdId	778	780	3	110		2	0
+74	FunctionDeclaration		rememberedHouseholdRequest	782	796	15	814		1	4
+75	FunctionDeclaration		withSetCookie	798	802	5	155		1	0
+76	FunctionDeclaration		withRememberedHouseholdCookie	804	826	23	1196		1	4
+77	VariableDeclaration	const	AB_MONITOR_SEND_BUDGET	828	828	1	55		1	0
+78	FunctionDeclaration		abMonitorRequestContext	830	837	8	760		1	0
+79	FunctionDeclaration		abMonitorOutcome	839	841	3	119		1	0
+80	FunctionDeclaration		abMonitorCompleted	843	867	25	1931		1	1
+81	FunctionDeclaration		abMonitorReadBounded	869	887	19	669		2	0
+82	FunctionDeclaration		abMonitorParseDatabaseMetrics	889	909	21	1575		1	0
+83	FunctionDeclaration		abMonitorDatabaseProbe	911	923	13	1346		1	4
+84	FunctionDeclaration		handleComprehensiveMonitor	925	943	19	2818		1	7
+85	VariableDeclaration	const	ACCOUNTBOOK_WORKER	945	2174	1230	59609		0	286
+86	ExportDefault		ACCOUNTBOOK_WORKER	2176	2176	1	34		0	0
+87	VariableDeclaration	const	APP_VERSION	2180	2180	1	50		23	0
+88	VariableDeclaration	const	APP_MODE	2181	2181	1	54		3	0
+89	VariableDeclaration	const	HIDDEN_MEME_PATHS	2183	2190	8	632		1	0
+90	VariableDeclaration	const	HIDDEN_CARD_PERFORMANCE_PATHS	2191	2191	1	66		1	0
+91	VariableDeclaration	const	INTERNAL_MEME_OPERATIONS_PATHS	2192	2196	5	406		1	0
+92	FunctionDeclaration		envFlagEnabled	2198	2201	4	198		6	0
+93	FunctionDeclaration		incompleteFeatureQaEnabled	2203	2207	5	229		3	1
+94	FunctionDeclaration		memeCardsEnabled	2209	2213	5	220		6	2
+95	FunctionDeclaration		cardPerformanceEnabled	2215	2218	4	189		6	2
+96	FunctionDeclaration		premiumBetaEnabled	2220	2225	6	200		4	0
+97	FunctionDeclaration		hiddenFeature404	2227	2230	4	807		1	1
+98	FunctionDeclaration		hiddenIncompleteFeatureResponse	2232	2238	7	454		1	7
+99	FunctionDeclaration		normalizeBaseUrl	2240	2245	6	209		5	0
+100	VariableDeclaration	const	DEFAULT_PUBLIC_BASE_URL	2247	2247	1	57		2	0
+101	FunctionDeclaration		publicBaseUrl	2249	2251	3	214		27	2
+102	FunctionDeclaration		currentRequestBaseUrl	2253	2255	3	92		5	1
+103	VariableDeclaration	const	KAKAO_REPRESENTATIVE_COMMANDS	2257	2269	13	1194		4	0
+104	VariableDeclaration	const	KAKAO_SECONDARY_COMMANDS	2271	2275	5	288		3	0
+105	FunctionDeclaration		kakaoRepresentativeCommands	2277	2279	3	111		1	1
+106	FunctionDeclaration		kakaoChatCommandCatalog	2281	2288	8	844		2	2
+107	FunctionDeclaration		handleKakaoCommandSystemPage	2290	2295	6	2957		1	6
+108	FunctionDeclaration		renderSkillGetHealthHtml	2297	2301	5	1771		1	3
+109	FunctionDeclaration		canonicalRedirectResponse	2303	2319	17	936		1	2
+110	FunctionDeclaration		appName	2321	2323	3	77		83	0
+111	VariableDeclaration	const	BUSINESS_FOOTER_INFO	2325	2332	8	216		5	0
+112	FunctionDeclaration		businessFooterText	2334	2336	3	92		1	1
+113	FunctionDeclaration		renderBusinessInfoFooter	2338	2356	19	1454		1	2
+114	FunctionDeclaration		publicSupportEmail	2358	2361	4	189		1	0
+115	VariableDeclaration	const	DEFAULT_ADSENSE_PUBLISHER_ID	2363	2363	1	63		1	0
+116	FunctionDeclaration		adsensePublisherId	2365	2369	5	242		2	1
+117	FunctionDeclaration		adsensePublisherIdForTxt	2371	2373	3	101		1	1
+118	FunctionDeclaration		publicAdsenseHead	2375	2381	7	346		1	2
+119	VariableDeclaration	const	PUBLIC_CONTENT_PATHS	2383	2387	5	239		1	0
+120	FunctionDeclaration		publicSiteNav	2389	2402	14	1018		1	1
+121	FunctionDeclaration		publicSiteFooter	2404	2406	3	443		1	0
+122	FunctionDeclaration		publicPageCatalog	2408	2609	202	19529		1	2
+123	FunctionDeclaration		renderPublicContentPage	2611	2635	25	8423		1	9
+124	FunctionDeclaration		handlePublicContentPage	2637	2639	3	215		1	2
+125	FunctionDeclaration		handlePublicRobots	2641	2671	31	924		1	1
+126	FunctionDeclaration		handlePublicSitemap	2673	2689	17	797		1	3
+127	FunctionDeclaration		handlePublicSitemapStylesheet	2691	2700	10	2168		1	2
+128	FunctionDeclaration		handleAdsTxt	2702	2706	5	471		1	1
+129	FunctionDeclaration		renderBusinessInfoReviewCard	2708	2711	4	121		0	0
+130	Export+FunctionDeclaration		parseMobileAmountText	2713	2715	3	150	Y	3	1
+131	FunctionDeclaration		moneyTokenSpans	2718	2751	34	2626	Y	10	0
+132	FunctionDeclaration		transactionTypeFromText	2753	2761	9	493	Y	4	0
+133	FunctionDeclaration		quickInputDate	2763	2782	20	1739	Y	4	0
+134	FunctionDeclaration		explicitDateIntent	2784	2788	5	424	Y	5	0
+135	FunctionDeclaration		quickSmartInputController	2790	2853	64	5398		1	2
+136	FunctionDeclaration		mobileUiUxClientMain	2855	3091	237	10307		1	3
+137	FunctionDeclaration		mobileShellUiClientMain	3093	3196	104	4917		2	0
+138	VariableDeclaration	const	UIUX_RUNTIME_STYLE	3198	3198	1	2466		2	0
+139	VariableDeclaration	const	V2281_GUIDED_UIUX_STYLE	3200	3237	38	15258		2	0
+140	VariableDeclaration	const	V2284_UI_REVALIDATION_STYLE	3239	3277	39	9536		2	0
+141	FunctionDeclaration		v2284UiStyleFor	3279	3291	13	613		1	1
+142	VariableDeclaration	const	V2285_MENU_STYLE	3293	3303	11	7230		1	0
+143	VariableDeclaration	const	V2285_LOGIN_STYLE	3305	3310	6	3584		1	0
+144	VariableDeclaration	const	V2285_NAV_STYLE	3312	3315	4	2009		1	0
+145	FunctionDeclaration		v2285NavStyleFor	3322	3325	4	193		1	1
+146	VariableDeclaration	const	V2281_GUIDED_NAV_STYLE	3327	3336	10	3957		1	0
+147	FunctionDeclaration		guidedUiUxClientMain	3338	3640	303	13750		2	0
+148	FunctionDeclaration		inlineActionResultClientMain	3649	3737	89	3607		1	0
+149	VariableDeclaration	const	V22818_INLINE_RESULT_STYLE	3739	3739	1	382		1	0
+150	VariableDeclaration	const	KAKAO_LOGIN_PROGRESS_TIPS	3741	3749	9	347		1	0
+151	FunctionDeclaration		kakaoLoginProgressClientMain	3751	3800	50	1812		1	0
+152	FunctionDeclaration		passwordMatchFeedbackClientMain	3802	3848	47	1883		2	0
+153	FunctionDeclaration		accessibleFieldLabel	3850	3862	13	786		1	0
+154	FunctionDeclaration		attachAccessibleControlNames	3864	3877	14	956		1	2
+155	FunctionDeclaration		approximateWonLabel	3879	3885	7	380		1	0
+156	FunctionDeclaration		myBackupImportClientMain	3887	3977	91	3458		1	0
+157	FunctionDeclaration		deferHeavyBrowserTools	3979	4002	24	2150		1	1
+158	VariableDeclaration	const	SKIP_TO_CONTENT_TARGET_ID	4004	4004	1	50		1	0
+159	FunctionDeclaration		addSkipToContentLink	4009	4024	16	913		1	2
+160	FunctionDeclaration		normalizeUserFacingUi	4026	4245	220	17060		1	13
+161	FunctionDeclaration		legacyUiV5ActiveKey	4247	4259	13	619		1	0
+162	FunctionDeclaration		decodeUiV5QueryPart	4261	4263	3	149		1	0
+163	FunctionDeclaration		decodeUiV5HtmlText	4265	4272	8	220		1	0
+164	FunctionDeclaration		promoteLegacyUserLayoutToV5	4274	4293	20	1497		1	6
+165	FunctionDeclaration		normalizeUiV5RemainingPages	4295	4323	29	2168		1	1
+166	FunctionDeclaration		attachUiUxRuntime	4325	4453	129	8456		2	23
+167	FunctionDeclaration		attachBusinessInfoFooter	4455	4467	13	797		2	1
+168	FunctionDeclaration		safeError	4469	4472	4	108		90	0
+169	FunctionDeclaration		logWorkerError	4474	4485	12	435		3	1
+170	FunctionDeclaration		isUniqueConstraintError	4487	4489	3	136		1	1
+171	FunctionDeclaration		isOperationLockRpcUnavailable	4491	4493	3	261		1	1
+172	FunctionDeclaration		withOperationMutex	4495	4509	15	552		2	1
+173	FunctionDeclaration		operationLeaseOwner	4511	4514	4	218		12	1
+174	FunctionDeclaration		claimOperationLease	4516	4535	20	1277		11	5
+175	FunctionDeclaration		releaseOperationLease	4537	4550	14	609		10	3
+176	FunctionDeclaration		settingsDataError	4552	4557	6	271		12	0
+177	FunctionDeclaration		parseStrictSettingsObject	4559	4568	10	441		15	1
+178	FunctionDeclaration		parseStrictSettingsArray	4570	4580	11	545		1	1
+179	FunctionDeclaration		assertSettingsLeaseFresh	4582	4585	4	223		2	0
+180	FunctionDeclaration		householdExistsForSettingsMutation	4587	4592	6	305		1	1
+181	FunctionDeclaration		withSettingsRmwLease	4594	4617	24	1049		13	6
+182	FunctionDeclaration		withHouseholdDatabaseLease	4619	4623	5	312		12	1
+183	FunctionDeclaration		withHouseholdSettingsRmw	4625	4629	5	291		9	1
+184	FunctionDeclaration		withGlobalIdentitySettingsRmw	4631	4633	3	131		2	1
+185	FunctionDeclaration		renderEmergencyErrorHtml	4635	4642	8	2005		2	4
+186	FunctionDeclaration		isJsonApiPath	4646	4649	4	204		2	0
+187	FunctionDeclaration		browserFormRequestFailed	4651	4656	6	345		1	1
+188	FunctionDeclaration		emergencyReturnUrl	4658	4666	9	331		1	0
+189	FunctionDeclaration		safeHtmlRoute	4668	4676	9	512		1	5
+190	FunctionDeclaration		jsonResponse	4678	4683	6	160		25	2
+191	FunctionDeclaration		headOnlyResponse	4685	4692	8	267		1	0
+192	FunctionDeclaration		htmlResponse	4694	4702	9	436	Y	138	3
+193	FunctionDeclaration		responseHeadersWithCookies	4704	4710	7	225		2	0
+194	FunctionDeclaration		htmlResponseWithCookies	4712	4717	6	260		1	4
+195	FunctionDeclaration		csvResponse	4719	4732	14	603		1	1
+196	FunctionDeclaration		redirectResponse	4734	4743	10	197		143	0
+197	FunctionDeclaration		redirectResponseWithCookies	4745	4754	10	259		3	1
+198	FunctionDeclaration		getCookie	4756	4770	15	423		9	0
+199	FunctionDeclaration		isMobileRequest	4772	4775	4	160		1	0
+200	FunctionDeclaration		isExplicitAdminUrl	4777	4779	3	162		1	0
+201	FunctionDeclaration		redirectPublicAwayFromAdmin	4781	4783	3	165		2	2
+202	FunctionDeclaration		mobileAppLocation	4785	4794	10	518		1	0
+203	FunctionDeclaration		base64UrlEncode	4796	4801	6	260		4	0
+204	FunctionDeclaration		base64UrlEncodeText	4803	4805	3	117		3	1
+205	FunctionDeclaration		base64UrlDecodeText	4807	4814	8	394		3	0
+206	FunctionDeclaration		base64UrlDecodeBytes	4816	4823	8	369		1	0
+207	FunctionDeclaration		constantTimeTextEqual	4825	4832	8	356		14	0
+208	VariableDeclaration	const	PASSWORD_KDF_ITERATIONS	4834	4834	1	39		5	0
+209	FunctionDeclaration		pbkdf2PasswordHash	4836	4851	16	590		6	3
+210	FunctionDeclaration		newPasswordSalt	4853	4857	5	132		3	1
+211	FunctionDeclaration		hmacSha256	4859	4863	5	283		10	1
+212	FunctionDeclaration		importPreviewTokenSecret	4865	4867	3	103		2	1
+213	FunctionDeclaration		makeMyImportPreviewToken	4869	4873	5	231	Y	1	3
+214	FunctionDeclaration		verifyMyImportPreviewToken	4875	4893	19	863	Y	1	4
+215	FunctionDeclaration		requiredSecret	4895	4899	5	168		3	0
+216	FunctionDeclaration		adminSessionSecret	4901	4903	3	90		2	1
+217	FunctionDeclaration		sha256Hex	4905	4909	5	234		15	0
+218	FunctionDeclaration		randomHex	4911	4915	5	174		3	0
+219	FunctionDeclaration		randomEntityId	4917	4919	3	179		5	1
+220	VariableDeclaration	const	AB_SKILL_AUTH_STATS	4926	4926	1	97		2	0
+221	VariableDeclaration	const	AB_SKILL_LATENCY	4931	4931	1	148		2	0
+222	VariableDeclaration	const	AB_SKILL_SLOW_MS	4932	4932	1	30		2	0
+223	FunctionDeclaration		rememberSkillLatency	4934	4945	12	651		1	3
+224	FunctionDeclaration		skillLatencySnapshot	4947	4960	14	492		1	2
+225	VariableDeclaration	const	KAKAO_SKILL_AUTH_OBSERVE	4961	4961	1	93		1	0
+226	FunctionDeclaration		kakaoSkillAuthMode	4963	4967	5	267		2	1
+227	FunctionDeclaration		kakaoSkillSecretMatches	4969	4973	5	392		2	1
+228	FunctionDeclaration		kakaoSkillCallerAuthorized	4975	4990	16	587		1	3
+229	FunctionDeclaration		kakaoSkillAuthSnapshot	4992	5004	13	506		1	2
+230	FunctionDeclaration		makeAdminSession	5006	5012	7	316		2	3
+231	FunctionDeclaration		verifyAdminSession	5014	5031	18	901		87	5
+232	FunctionDeclaration		verifyCronExecutionAuth	5033	5041	9	581		2	1
+233	FunctionDeclaration		checkAdminPassword	5043	5058	16	786		5	5
+234	FunctionDeclaration		getAdminSecurityState	5060	5067	8	430		7	1
+235	FunctionDeclaration		trafficClientIp	5071	5078	8	270		3	0
+236	FunctionDeclaration		recordAuthAttempt	5080	5105	26	1504		6	6
+237	FunctionDeclaration		safeAdminReturnPath	5107	5117	11	523		10	0
+238	FunctionDeclaration		handleAdminLogin	5119	5149	31	2107		1	9
+239	FunctionDeclaration		handleAdminLogout	5151	5155	5	153		1	1
+240	FunctionDeclaration		handleAdminPage	5157	5163	7	340		1	5
+241	FunctionDeclaration		dashboardQuery	5165	5175	11	420		12	0
+242	FunctionDeclaration		isValidTransactionDateString	5177	5182	6	257		14	0
+243	FunctionDeclaration		normalizeTransactionType	5184	5186	3	124		6	0
+244	VariableDeclaration	const	MAX_TRANSACTION_AMOUNT	5190	5190	1	45		13	0
+245	FunctionDeclaration		parseFormAmountValue	5197	5202	6	232		3	0
+246	FunctionDeclaration		readTransactionAmount	5204	5206	3	91		2	1
+247	FunctionDeclaration		readOptionalFormAmount	5211	5214	4	199		2	1
+248	FunctionDeclaration		validateRecordFormFields	5216	5223	8	660		3	3
+249	FunctionDeclaration		signedOutWriteRedirect	5227	5236	10	487		3	1
+250	FunctionDeclaration		transactionReturnFallback	5238	5240	3	150		4	1
+251	FunctionDeclaration		resolveTransactionAccess	5242	5249	8	604		7	4
+252	FunctionDeclaration		fetchTransactionRowById	5251	5255	5	258		5	1
+253	FunctionDeclaration		fetchTransactionRowsByIds	5257	5269	13	624		2	2
+254	FunctionDeclaration		transactionAddRedirectExtras	5271	5278	8	309		1	0
+255	FunctionDeclaration		handleAdminAddTransaction	5280	5349	70	4614		1	25
+256	FunctionDeclaration		handleAdminDeleteTransaction	5351	5377	27	1935		1	12
+257	FunctionDeclaration		handleTransactionEditPage	5384	5426	43	2729		1	13
+258	FunctionDeclaration		handleAdminUpdateTransaction	5428	5478	51	3386		1	18
+259	FunctionDeclaration		handleAdminHouseholdCreate	5480	5490	11	503		1	4
+260	FunctionDeclaration		handleAdminHouseholdUpdate	5492	5504	13	655		1	3
+261	FunctionDeclaration		handleAdminHouseholdRegenerate	5506	5517	12	612		1	4
+262	FunctionDeclaration		handleAdminHouseholdDelete	5519	5527	9	540		1	3
+263	FunctionDeclaration		handleAdminMemberUpdate	5529	5586	58	4515		1	13
+264	FunctionDeclaration		handleAdminMemberRemove	5588	5632	45	3551		1	14
+265	FunctionDeclaration		normalizeHouseholdRole	5634	5637	4	214		0	0
+266	FunctionDeclaration		handleAdminMemberNickname	5639	5653	15	1115		1	6
+267	FunctionDeclaration		categorySettingsKey	5655	5657	3	136		4	0
+268	FunctionDeclaration		categoryKeywordsSettingsKey	5659	5661	3	144		4	0
+269	FunctionDeclaration		categoryKeywordKey	5663	5665	3	140		6	1
+270	FunctionDeclaration		normalizeCategoryKeywords	5667	5679	13	405		18	1
+271	FunctionDeclaration		fetchCategoryKeywordMap	5683	5698	16	654	Y	5	6
+272	FunctionDeclaration		saveCategoryKeywordMap	5700	5712	13	540		2	4
+273	FunctionDeclaration		setCategoryKeywords	5714	5726	13	556	Y	3	5
+274	FunctionDeclaration		attachCategoryKeywords	5728	5736	9	453		3	3
+275	FunctionDeclaration		keywordEditorCategories	5738	5743	6	536		1	5
+276	FunctionDeclaration		keywordEditorCard	5745	5754	10	1466		1	4
+277	FunctionDeclaration		renderKeywordBulkEditor	5756	5848	93	5297		1	5
+278	FunctionDeclaration		keywordEditorCss	5850	5852	3	3392		2	0
+279	FunctionDeclaration		defaultCategoryKeywordRows	5854	5871	18	560		2	3
+280	FunctionDeclaration		categoryKeywordDisplayRows	5873	5886	14	809		1	5
+281	FunctionDeclaration		normalizeStoredCategoryList	5888	5918	31	1088		3	2
+282	FunctionDeclaration		fetchSettingsCategories	5920	5927	8	250		3	3
+283	FunctionDeclaration		saveSettingsCategories	5929	5945	17	808		2	5
+284	FunctionDeclaration		addSettingsCategory	5947	5966	20	906		1	5
+285	FunctionDeclaration		deleteSettingsCategory	5968	5973	6	327		1	2
+286	FunctionDeclaration		fetchCustomCategories	5975	5992	18	1031		14	5
+287	FunctionDeclaration		paymentAssetsKey	5994	5996	3	130		5	0
+288	VariableDeclaration	const	PAYMENT_ASSET_KIND_CATALOG	5998	6012	15	1119		5	0
+289	VariableDeclaration	const	PAYMENT_ASSET_GROUP_CATALOG	6014	6023	10	463		3	0
+290	FunctionDeclaration		paymentAssetKindMeta	6025	6027	3	184		9	1
+291	FunctionDeclaration		paymentAssetGroupMeta	6029	6031	3	177		1	1
+292	FunctionDeclaration		isValidPaymentAssetKind	6033	6035	3	119		4	1
+293	FunctionDeclaration		assetHistoryKey	6037	6039	3	128		3	0
+294	FunctionDeclaration		normalizePaymentAssetAmount	6041	6045	5	201		7	0
+295	FunctionDeclaration		computePaymentAssetTotals	6047	6067	21	870		2	3
+296	FunctionDeclaration		containsSensitiveFinancialNumber	6069	6072	4	148		2	0
+297	FunctionDeclaration		paymentAssetNameKey	6074	6076	3	109		2	1
+298	FunctionDeclaration		normalizePaymentAssetList	6078	6104	27	1287		5	4
+299	FunctionDeclaration		paymentKindLabel	6106	6108	3	94		0	1
+300	FunctionDeclaration		normalizeAssetHistory	6110	6128	19	843		3	3
+301	FunctionDeclaration		fetchAssetHistory	6130	6136	7	196		2	3
+302	FunctionDeclaration		recordAssetSnapshot	6138	6155	18	799		1	7
+303	FunctionDeclaration		recordAssetSnapshotBestEffort	6157	6165	9	381		3	4
+304	FunctionDeclaration		fetchPaymentAssets	6167	6174	8	240		11	3
+305	FunctionDeclaration		savePaymentAssets	6176	6196	21	986		3	5
+306	FunctionDeclaration		isMissingPaymentAssetRpc	6198	6201	4	190		1	0
+307	FunctionDeclaration		mutatePaymentAssetsAtomically	6203	6242	40	2004		3	8
+308	FunctionDeclaration		withPaymentAssetWriteLease	6244	6256	13	469		3	3
+309	FunctionDeclaration		addPaymentAsset	6258	6287	30	1721		1	11
+310	FunctionDeclaration		updatePaymentAsset	6289	6316	28	2377		1	10
+311	FunctionDeclaration		deletePaymentAsset	6318	6327	10	710		1	5
+312	FunctionDeclaration		inferPaymentAssetFromText	6329	6340	12	520		1	2
+313	FunctionDeclaration		inferCustomCategoryFromText	6342	6359	18	854		1	3
+314	FunctionDeclaration		applyUserSettingsToParsedTransactions	6361	6372	12	559		2	3
+315	FunctionDeclaration		resolveManualInputClassification	6374	6394	21	1342		2	6
+316	FunctionDeclaration		paymentMethodsLocation	6396	6404	9	437		6	2
+317	FunctionDeclaration		resolvePaymentAssetManage	6406	6414	9	668		3	4
+318	FunctionDeclaration		handlePaymentAssetCreate	6416	6439	24	1533		1	8
+319	FunctionDeclaration		handlePaymentAssetUpdate	6441	6469	29	2126		1	8
+320	FunctionDeclaration		handlePaymentAssetDelete	6471	6488	18	1326		1	7
+321	FunctionDeclaration		reservePlansKey	6490	6492	3	128		4	0
+322	FunctionDeclaration		normalizeReservePlanList	6494	6537	44	2458		3	2
+323	FunctionDeclaration		fetchReservePlans	6539	6549	11	402	Y	10	4
+324	FunctionDeclaration		saveReservePlans	6551	6559	9	419		3	3
+325	FunctionDeclaration		addReservePlan	6561	6594	34	1775	Y	1	6
+326	FunctionDeclaration		updateReservePlan	6596	6631	36	2177	Y	1	5
+327	FunctionDeclaration		deleteReservePlan	6633	6643	11	508	Y	1	3
+328	FunctionDeclaration		recurrenceLabel	6645	6647	3	128		1	0
+329	FunctionDeclaration		reserveCycleMonths	6649	6654	6	201		1	0
+330	FunctionDeclaration		dateOnly	6656	6658	3	87		2	0
+331	FunctionDeclaration		daysBetween	6660	6662	3	110		1	1
+332	FunctionDeclaration		nextReserveDue	6664	6677	14	552		1	3
+333	FunctionDeclaration		reservePlanStatus	6679	6704	26	1176		1	6
+334	FunctionDeclaration		reserveDashboard	6706	6714	9	709		4	3
+335	FunctionDeclaration		reserveAlertText	6716	6728	13	589		1	2
+336	FunctionDeclaration		kakaoReserveAlert	6730	6737	8	199		1	2
+337	FunctionDeclaration		reservePlanTypeRadios	6739	6742	4	418		2	1
+338	FunctionDeclaration		renderReservePlanEditForm	6744	6751	8	2212		1	4
+339	FunctionDeclaration		renderReserveStatusCards	6753	6761	9	1724		1	4
+340	FunctionDeclaration		handleReservePlansPage	6763	6800	38	16092		1	26
+341	FunctionDeclaration		handleReservePlanCreate	6802	6833	32	1850		1	8
+342	FunctionDeclaration		handleReservePlanUpdate	6835	6868	34	1853		1	9
+343	FunctionDeclaration		handleReservePlanDelete	6870	6888	19	1286		1	7
+344	VariableDeclaration	const	CATEGORY_KEYWORD_GUIDE	6890	6907	18	2108		4	0
+345	FunctionDeclaration		keywordGuideForCategory	6909	6915	7	477		2	2
+346	FunctionDeclaration		suggestedKeywordsForCategory	6917	6919	3	159		1	2
+347	FunctionDeclaration		keywordGuideChips	6921	6926	6	542		1	4
+348	FunctionDeclaration		handleChatbotEditGuidePage	6928	6945	18	3377		1	7
+349	FunctionDeclaration		handleKeywordGuidePage	6947	6972	26	5548		1	17
+350	FunctionDeclaration		handleCategoryAdminPage	6974	6985	12	792		1	8
+351	FunctionDeclaration		handleCategoryCreate	6987	7020	34	1918		1	8
+352	FunctionDeclaration		handleCategoryDelete	7022	7050	29	1510		1	4
+353	FunctionDeclaration		handleCategoryKeywordsSave	7052	7066	15	995		1	4
+354	FunctionDeclaration		handleMyProfilePage	7068	7073	6	348		1	5
+355	FunctionDeclaration		handleMyProfileUpdate	7075	7087	13	611		1	4
+356	FunctionDeclaration		renderMyProfileHtml	7089	7092	4	1877		1	3
+357	FunctionDeclaration		renderCategoryAdminHtml	7094	7106	13	6610		1	7
+358	FunctionDeclaration		handleAdminBulkUpdate	7108	7170	63	3725		1	13
+359	FunctionDeclaration		bulkDeleteTransactions	7172	7207	36	1204		0	2
+360	FunctionDeclaration		returnLocation	7209	7218	10	475		9	0
+361	FunctionDeclaration		safeUserReturnPath	7220	7232	13	707		11	0
+362	FunctionDeclaration		handleImportTemplateCsv	7234	7250	17	704		1	3
+363	FunctionDeclaration		handleImportTemplateXls	7252	7262	11	923		1	2
+364	FunctionDeclaration		handleAdminImportJson	7264	7291	28	2272		1	10
+365	FunctionDeclaration		cleanImportedRowsForInsert	7293	7305	13	745		2	0
+366	VariableDeclaration	const	IMPORT_FIELD_ALIASES	7307	7320	14	1695		2	0
+367	VariableDeclaration	const	IMPORT_FIELD_LABELS	7322	7322	1	210		1	0
+368	VariableDeclaration	const	IMPORT_REJECTION_GUIDE	7324	7340	17	1328		2	0
+369	FunctionDeclaration		normalizeImportHeader	7342	7344	3	155		6	0
+370	FunctionDeclaration		canonicalImportField	7346	7361	16	735	Y	4	2
+371	FunctionDeclaration		canonicalImportHeaderField	7363	7372	10	591		2	2
+372	FunctionDeclaration		importHeaderScore	7374	7392	19	985		1	3
+373	FunctionDeclaration		detectImportDelimiter	7394	7409	16	739		3	1
+374	FunctionDeclaration		parseDelimitedText	7411	7431	21	848		3	1
+375	FunctionDeclaration		splitDelimitedLine	7433	7435	3	149		0	2
+376	FunctionDeclaration		looksLikeImportHeader	7437	7439	3	81		1	1
+377	FunctionDeclaration		getImportValue	7441	7449	9	370		0	1
+378	FunctionDeclaration		canonicalImportValue	7451	7460	10	526		1	2
+379	FunctionDeclaration		findImportDateInValues	7462	7468	7	157		3	1
+380	FunctionDeclaration		parseImportAmountCell	7470	7479	10	728		1	1
+381	FunctionDeclaration		normalizeImportTypeValue	7481	7487	7	340		1	1
+382	FunctionDeclaration		importRejection	7489	7492	4	323		3	1
+383	FunctionDeclaration		importObjectFromHeaders	7494	7514	21	1144		1	2
+384	FunctionDeclaration		alignImportCells	7516	7539	24	1479	Y	1	2
+385	FunctionDeclaration		importKeyValueObject	7541	7556	16	696		1	2
+386	FunctionDeclaration		parseImportJsonTable	7558	7586	29	1456		1	0
+387	FunctionDeclaration		normalizeImportedRecordDetailed	7588	7685	98	6656	Y	4	18
+388	FunctionDeclaration		parseFlexibleImportRecords	7687	7760	74	4570	Y	2	15
+389	FunctionDeclaration		parseImportedRecords	7762	7764	3	192		1	1
+390	FunctionDeclaration		normalizeImportedArray	7766	7768	3	279		0	1
+391	FunctionDeclaration		normalizeImportedObject	7770	7772	3	240		0	1
+392	FunctionDeclaration		handleAdminCsv	7774	7798	25	1332		1	6
+393	FunctionDeclaration		fetchAdminHouseholds	7800	7802	3	183		36	1
+394	FunctionDeclaration		fetchRowsByPlainIds	7804	7828	25	1337		2	2
+395	FunctionDeclaration		getScopedHouseholdsForPage	7830	7839	10	573		12	5
+396	FunctionDeclaration		selectScopedHousehold	7841	7843	3	193		1	1
+397	FunctionDeclaration		selectRequestedScopedHousehold	7845	7849	5	271		15	1
+398	FunctionDeclaration		memberAliasSettingsKey	7851	7853	3	136		7	0
+399	FunctionDeclaration		fetchMemberAliasMap	7855	7865	11	397	Y	4	4
+400	FunctionDeclaration		normalizeMemberAliasMap	7867	7880	14	533		4	2
+401	FunctionDeclaration		saveMemberAlias	7882	7903	22	1185	Y	3	4
+402	FunctionDeclaration		roleRank	7905	7914	10	295		3	0
+403	FunctionDeclaration		bestMemberRow	7916	7924	9	329		1	2
+404	FunctionDeclaration		bestRoleFromRows	7926	7928	3	90		8	1
+405	FunctionDeclaration		dedupeMemberRowsByKey	7930	7941	12	559		1	2
+406	FunctionDeclaration		fetchHouseholdMembers	7943	7979	37	1833		39	5
+407	FunctionDeclaration		fetchAllHouseholdMembersMap	7981	7987	7	198		1	1
+408	FunctionDeclaration		fetchPostgrestRows	7993	8023	31	1584		7	1
+409	FunctionDeclaration		supabaseExactCount	8025	8050	26	1223	Y	2	2
+410	FunctionDeclaration		countHouseholdTransactions	8052	8055	4	213		3	1
+411	FunctionDeclaration		memberNameMap	8057	8061	5	152		8	0
+412	FunctionDeclaration		attachSpenderNames	8063	8069	7	215		14	1
+413	FunctionDeclaration		renderSpenderOptions	8071	8078	8	471		7	2
+414	FunctionDeclaration		renderSpenderDatalist	8080	8082	3	194		1	1
+415	FunctionDeclaration		fetchAdminRows	8084	8110	27	2000		37	4
+416	FunctionDeclaration		fetchAdminRowsRange	8112	8122	11	827		12	1
+417	FunctionDeclaration		renderServerLoginHtml	8124	8132	9	1727		4	3
+418	VariableDeclaration	const	SERVER_DASHBOARD_CSS	8134	8375	242	62427		1	0
+419	FunctionDeclaration		renderServerDashboardHtml	8377	8484	108	24561		1	63
+420	FunctionDeclaration		checkTableAvailable	8486	8493	8	266		2	2
+421	FunctionDeclaration		tableCheckPair	8495	8498	4	123		2	1
+422	FunctionDeclaration		checkRpcAvailable	8504	8517	14	580		1	3
+423	FunctionDeclaration		getSettingValue	8519	8522	4	232		23	1
+424	FunctionDeclaration		getSettingValueStrict	8524	8527	4	226		21	1
+425	FunctionDeclaration		handleSettingsPasswordUpdate	8529	8566	38	2097		1	12
+426	FunctionDeclaration		handleSettingsPage	8568	8577	10	549		1	6
+427	FunctionDeclaration		renderSettingsHtml	8579	8592	14	3479		1	3
+428	FunctionDeclaration		canonicalRouteRows	8594	8614	21	1295		1	3
+429	FunctionDeclaration		handleRouteAuditPage	8616	8625	10	2720		1	9
+430	FunctionDeclaration		handleTopTabAuditPage	8627	8639	13	2195		1	5
+431	FunctionDeclaration		handleRecordFlowAuditPage	8641	8653	13	2315		1	5
+432	FunctionDeclaration		backupJsonResponse	8655	8663	9	289		1	0
+433	FunctionDeclaration		backupScopeParams	8665	8670	6	192		1	0
+434	FunctionDeclaration		buildBackupPayload	8672	8715	44	2056		1	8
+435	FunctionDeclaration		handleAdminExportJson	8717	8724	8	515		1	6
+436	FunctionDeclaration		handleBackupCenterPage	8726	8748	23	5334		1	15
+437	FunctionDeclaration		safeArray	8750	8752	3	73		158	0
+438	FunctionDeclaration		safeObject	8754	8756	3	113		68	0
+439	FunctionDeclaration		countObjectArrays	8758	8761	4	150		1	1
+440	FunctionDeclaration		validateBackupPayloadShape	8763	8796	34	1886		3	3
+441	FunctionDeclaration		summarizeBackupPayload	8798	8828	31	1243		2	2
+442	FunctionDeclaration		renderBackupPreviewHtml	8830	8847	18	5006		2	3
+443	FunctionDeclaration		handleBackupPreviewPage	8849	8852	4	199		1	4
+444	FunctionDeclaration		handleBackupPreviewPost	8854	8874	21	1114		1	8
+445	FunctionDeclaration		normalizeComparableText	8876	8878	3	80		1	0
+446	FunctionDeclaration		transactionComparable	8880	8891	12	452		5	3
+447	FunctionDeclaration		transactionSignature	8893	8896	4	175		3	1
+448	FunctionDeclaration		transactionDiffFields	8898	8903	6	288		1	1
+449	FunctionDeclaration		compareBackupTransactions	8905	8968	64	1982		2	4
+450	FunctionDeclaration		renderBackupCompareRows	8970	8978	9	695		1	4
+451	FunctionDeclaration		renderBackupCompareHtml	8980	8998	19	5839		2	4
+452	FunctionDeclaration		handleBackupComparePage	9000	9005	6	393		1	6
+453	FunctionDeclaration		handleBackupComparePost	9007	9038	32	1855		1	15
+454	FunctionDeclaration		renderImportCandidateRows	9040	9048	9	863		1	6
+455	FunctionDeclaration		renderImportCandidateHiddenJson	9050	9053	4	189		1	3
+456	FunctionDeclaration		renderBackupCandidateSelectHtml	9055	9066	12	8022		2	6
+457	FunctionDeclaration		handleBackupCandidateSelectPage	9068	9073	6	409		1	6
+458	FunctionDeclaration		handleBackupCandidateSelectPost	9075	9105	31	1846		1	14
+459	FunctionDeclaration		safeCandidatePlanRows	9107	9111	5	271		1	2
+460	FunctionDeclaration		validateImportCandidatePlan	9113	9132	20	1429		2	3
+461	FunctionDeclaration		finalCheckAgainstCurrent	9134	9151	18	853		2	2
+462	FunctionDeclaration		renderFinalCheckRows	9153	9160	8	554		1	4
+463	FunctionDeclaration		renderImportFinalCheckHtml	9162	9168	7	5966		2	5
+464	FunctionDeclaration		handleImportFinalCheckPage	9170	9176	7	460		1	7
+465	FunctionDeclaration		handleImportFinalCheckPost	9178	9210	33	2007		1	13
+466	VariableDeclaration	const	IMPORT_APPLY_LIMIT	9212	9212	1	30		2	0
+467	VariableDeclaration	const	IMPORT_CONFIRM_TEXT	9213	9213	1	38		2	0
+468	FunctionDeclaration		renderImportApplyRows	9215	9223	9	729		1	4
+469	FunctionDeclaration		renderImportApplyHtml	9225	9232	8	6916		2	7
+470	FunctionDeclaration		handleImportApplyPage	9234	9240	7	450		1	7
+471	FunctionDeclaration		handleImportApplyPost	9242	9327	86	4318		1	17
+472	FunctionDeclaration		isBackupImportSource	9329	9331	3	97		3	0
+473	FunctionDeclaration		importHistoryBatchKey	9333	9339	7	283		1	1
+474	FunctionDeclaration		fetchImportHistoryRows	9341	9344	4	210		3	2
+475	FunctionDeclaration		summarizeImportHistory	9346	9363	18	1234		1	2
+476	FunctionDeclaration		renderImportHistoryRows	9365	9369	5	647		1	3
+477	FunctionDeclaration		renderImportHistoryBatchRows	9371	9375	5	530		1	3
+478	FunctionDeclaration		handleImportHistoryPage	9377	9391	15	4639		1	13
+479	FunctionDeclaration		csvCell	9393	9395	3	83		4	1
+480	FunctionDeclaration		handleImportHistoryCsv	9397	9414	18	1001		1	6
+481	FunctionDeclaration		renderRollbackCandidateRows	9416	9435	20	1460		1	4
+482	FunctionDeclaration		summarizeRollbackCandidates	9437	9447	11	514		1	1
+483	FunctionDeclaration		renderRollbackSourceRows	9449	9453	5	336		1	2
+484	FunctionDeclaration		handleRollbackCandidatePage	9455	9473	19	7621		1	13
+485	FunctionDeclaration		safeRollbackPlanRows	9475	9493	19	871		1	1
+486	FunctionDeclaration		validateRollbackCandidatePlan	9495	9516	22	1548		1	3
+487	FunctionDeclaration		fetchTransactionsByIds	9518	9527	10	415		1	2
+488	FunctionDeclaration		compareRollbackPlanToCurrent	9529	9574	46	1909		1	3
+489	FunctionDeclaration		renderRollbackFinalRows	9576	9584	9	772		1	4
+490	FunctionDeclaration		renderRollbackFinalCheckHtml	9586	9592	7	6250		2	5
+491	FunctionDeclaration		handleRollbackFinalCheckPage	9594	9600	7	464		1	7
+492	FunctionDeclaration		handleRollbackFinalCheckPost	9602	9634	33	2031		1	13
+493	FunctionDeclaration		handleFilterPagingAuditPage	9636	9648	13	2357		1	5
+494	FunctionDeclaration		handleUiAuditPage	9650	9665	16	2329		1	5
+495	FunctionDeclaration		handleUserReadyCheckPage	9667	9688	22	3011		1	10
+496	FunctionDeclaration		handleUserReleaseCheckPage	9690	9707	18	3689		1	9
+497	FunctionDeclaration		handleOperationCenterPage	9709	9778	70	7160		1	11
+498	VariableDeclaration	const	FINAL_RELEASE_VERSION	9780	9780	1	42		3	1
+499	VariableDeclaration	const	FINAL_FEATURE_MATRIX	9782	9819	38	4177		4	0
+500	FunctionDeclaration		releaseStatusClass	9821	9825	5	203		1	0
+501	FunctionDeclaration		finalReleaseRoutes	9827	9869	43	940		1	0
+502	FunctionDeclaration		buildFinalFeatureSummary	9871	9881	11	336		2	1
+503	FunctionDeclaration		buildFinalReleaseAudit	9883	9915	33	1760		1	9
+504	FunctionDeclaration		renderFinalGates	9917	9919	3	263		1	2
+505	FunctionDeclaration		renderFinalFeatureRows	9921	9927	7	546		2	4
+506	FunctionDeclaration		renderFinalRouteLinks	9929	9931	3	173		2	2
+507	FunctionDeclaration		finalReleaseBaseStyle	9933	9935	3	2160		3	0
+508	FunctionDeclaration		handleFinalReleasePage	9937	9941	5	2135		1	11
+509	FunctionDeclaration		handleFeatureMapPage	9943	9948	6	1195		1	10
+510	FunctionDeclaration		handleDeployRunbookPage	9950	9953	4	1840		1	7
+511	VariableDeclaration	const	NAVER_CARD_SOURCE_NOTE	9955	9955	1	108		1	0
+512	VariableDeclaration	const	NAVER_CARD_ISSUERS	9956	9956	1	130		0	0
+513	VariableDeclaration	const	NAVER_BENEFIT_CATEGORIES	9957	9957	1	189		0	0
+514	VariableDeclaration	const	CARD_BENEFIT_CATALOG	9958	10209	252	11381		4	0
+515	FunctionDeclaration		allCardIssuers	10211	10211	1	93		1	1
+516	FunctionDeclaration		findCardBenefit	10212	10212	1	110		1	1
+517	FunctionDeclaration		normalizeCardText	10213	10213	1	111		1	1
+518	FunctionDeclaration		cardMatchesRow	10214	10214	1	286		1	2
+519	FunctionDeclaration		benefitMatchesRow	10215	10215	1	365		1	3
+520	FunctionDeclaration		calculateCardBenefitUsage	10216	10216	1	1344		1	3
+521	FunctionDeclaration		renderCardOptions	10217	10217	1	266		1	2
+522	FunctionDeclaration		renderIssuerOptions	10218	10218	1	215		1	2
+523	FunctionDeclaration		formatBenefitLimit	10219	10219	1	208		1	2
+524	FunctionDeclaration		formatBenefitValue	10220	10220	1	126		2	1
+525	FunctionDeclaration		renderBenefitRows	10221	10221	1	550		1	5
+526	FunctionDeclaration		renderMatchedCardRows	10222	10222	1	522		1	3
+527	FunctionDeclaration		buildCardBenefitsPayload	10223	10236	14	1078		1	8
+528	FunctionDeclaration		handleCardBenefitsPage	10237	10237	1	5629		1	13
+529	FunctionDeclaration		shiftMonthKey	10239	10244	6	281		1	2
+530	FunctionDeclaration		formatMoneyShortKo	10246	10257	12	471		2	0
+531	FunctionDeclaration		paymentAssetFreshness	10259	10267	9	543		1	0
+532	FunctionDeclaration		computeCardUsageMap	10269	10292	24	936		1	3
+533	FunctionDeclaration		findPaymentAssetForMethod	10294	10307	14	747		1	2
+534	FunctionDeclaration		guessAssetKindFromMethodName	10309	10317	9	332		1	1
+535	VariableDeclaration	const	ASSET_QUICK_PRESETS	10319	10329	11	505		1	0
+536	VariableDeclaration	const	ASSET_ISSUER_SUGGESTIONS	10331	10331	1	296		1	0
+537	FunctionDeclaration		renderAssetTrendSvg	10333	10365	33	1873		1	1
+538	FunctionDeclaration		renderAssetDonutHtml	10367	10380	14	1070		1	5
+539	FunctionDeclaration		renderPaymentAssetRow	10382	10413	32	3666		1	8
+540	FunctionDeclaration		renderAssetGroupCards	10415	10434	20	1586		1	8
+541	FunctionDeclaration		renderAssetQuickPresets	10436	10438	3	372		1	3
+542	FunctionDeclaration		renderAssetAddSection	10440	10451	12	3067		1	5
+543	VariableDeclaration	const	PAYMENT_METHODS_PAGE_STYLE	10453	10453	1	9016		1	0
+544	FunctionDeclaration		handlePaymentMethodsPage	10455	10535	81	8252		1	27
+545	FunctionDeclaration		buildProductionOpsAudit	10537	10601	65	4580		2	8
+546	FunctionDeclaration		renderOpsAuditRows	10603	10605	3	252		1	1
+547	FunctionDeclaration		renderOpsRouteLinks	10607	10609	3	160		1	1
+548	FunctionDeclaration		handleProductionOpsAuditPage	10611	10624	14	5294		1	9
+549	FunctionDeclaration		handleDiagnosticsPage	10626	10663	38	2564		1	11
+550	FunctionDeclaration		renderDiagnosticsHtml	10665	10668	4	3153		1	2
+551	FunctionDeclaration		userHouseholdRoleLabel	10670	10673	4	221		19	0
+552	FunctionDeclaration		identityTypeLabel	10675	10683	9	381		2	0
+553	FunctionDeclaration		handleHouseholdUserPage	10685	10709	25	6956		1	14
+554	FunctionDeclaration		handleHouseholdAdminPage	10711	10722	12	751		1	8
+555	FunctionDeclaration		renderHouseholdAdminHtml	10724	10735	12	6885		1	4
+556	FunctionDeclaration		maskKey	10737	10742	6	167		4	0
+557	FunctionDeclaration		safeNavMonth	10744	10746	3	95		3	2
+558	FunctionDeclaration		safeNavHouseholdId	10748	10750	3	87		3	0
+559	FunctionDeclaration		buildNavMonthSummary	10752	10759	8	360		1	1
+560	FunctionDeclaration		renderNavMiniCalendar	10761	10764	4	370		1	3
+561	FunctionDeclaration		renderAccountbookBrandIcon	10766	10768	3	287		1	1
+562	FunctionDeclaration		renderUnifiedNav	10770	11001	232	24963		88	6
+563	FunctionDeclaration		handleUiPolishCheckPage	11003	11018	16	3041		1	8
+564	FunctionDeclaration		handleDeploymentCheckPage	11020	11057	38	5735		1	15
+565	FunctionDeclaration		handleTermsPage	11059	11070	12	2358		0	3
+566	FunctionDeclaration		handleReviewReadyPage	11072	11088	17	2993		1	5
+567	FunctionDeclaration		betaInfoCard	11090	11093	4	257		2	1
+568	FunctionDeclaration		handleBetaStartPage	11095	11139	45	5029		1	16
+569	FunctionDeclaration		handleHouseholdFlowGuidePage	11141	11153	13	2795		1	8
+570	FunctionDeclaration		handleBackupSafetyGuidePage	11155	11165	11	2224		1	3
+571	FunctionDeclaration		kakaoGroupFlowBaseStyle	11167	11169	3	2567		4	0
+572	FunctionDeclaration		kakaoFlowCard	11171	11173	3	300		1	1
+573	FunctionDeclaration		maskKakaoGroupKey	11175	11180	6	209		1	0
+574	FunctionDeclaration		handleKakaoGroupFlowPage	11182	11200	19	2902		1	13
+575	FunctionDeclaration		handleKakaoGroupLinksPage	11202	11208	7	1641		1	8
+576	FunctionDeclaration		handleKakaoLoginRecoveryGuidePage	11210	11223	14	2050		1	6
+577	FunctionDeclaration		openBuilderFinalRows	11225	11239	15	878		1	1
+578	FunctionDeclaration		handleOpenBuilderFinalUtterancePage	11241	11257	17	1552		1	6
+579	FunctionDeclaration		userPolishBaseStyle	11259	11261	3	2394		10	0
+580	FunctionDeclaration		userPolishNav	11263	11265	3	296		8	0
+581	FunctionDeclaration		handleUserPolishFinalPage	11267	11278	12	1382		1	6
+582	FunctionDeclaration		handleMobileFirstFlowGuidePage	11280	11292	13	1450		1	6
+583	FunctionDeclaration		handleQuickInputHelpPage	11294	11308	15	1488		1	6
+584	FunctionDeclaration		handleMenuPolishGuidePage	11310	11319	10	1143		1	6
+585	FunctionDeclaration		handleBetaChecklistPage	11321	11335	15	1537		1	6
+586	FunctionDeclaration		handleRealUserQaPage	11337	11359	23	3578		1	8
+587	FunctionDeclaration		handleQuickInputQaPage	11361	11383	23	2441		1	6
+588	FunctionDeclaration		handleMemeCardContentPage	11385	11400	16	2170		1	6
+589	VariableDeclaration	const	MEME_CONTENT_LIBRARY	11402	11451	50	1256		6	0
+590	FunctionDeclaration		memeSafePolicyList	11453	11461	9	306		2	0
+591	FunctionDeclaration		memeMotionPromptList	11463	11471	9	513		3	1
+592	FunctionDeclaration		renderMemeContentRows	11473	11475	3	580		2	3
+593	FunctionDeclaration		memeContentBaseStyle	11477	11479	3	1130		4	1
+594	FunctionDeclaration		memeContentNav	11481	11483	3	369		4	0
+595	FunctionDeclaration		handleMemeContentCenterPage	11485	11489	5	1510		1	8
+596	FunctionDeclaration		handleMemeMotionGuidePage	11491	11496	6	1162		1	9
+597	FunctionDeclaration		handleMemeReviewCheckPage	11498	11503	6	1512		1	8
+598	FunctionDeclaration		handleMemeShareKitPage	11505	11512	8	1367		1	8
+599	FunctionDeclaration		handleReleaseDryRunPage	11514	11538	25	2778		1	16
+600	FunctionDeclaration		handleKakaoCommandsPage	11540	11554	15	2693		1	4
+601	FunctionDeclaration		handleOpsSnapshotJson	11556	11560	5	322		1	3
+602	FunctionDeclaration		renderDuplicateSafetyHtml	11562	11569	8	3503		1	3
+603	FunctionDeclaration		buildBudgetAlertPolishModel	11571	11614	44	3530	Y	2	5
+604	FunctionDeclaration		renderBudgetAlertStatusPill	11616	11620	5	363		1	1
+605	FunctionDeclaration		renderBudgetAlertRows	11622	11631	10	1162		1	4
+606	FunctionDeclaration		renderPendingRecurringList	11633	11637	5	468		1	3
+607	FunctionDeclaration		budgetAlertKakaoHint	11639	11644	6	531		1	1
+608	FunctionDeclaration		classifyDeductionPay	11647	11654	8	259		1	0
+609	FunctionDeclaration		buildAnnualReportModel	11655	11684	30	1188		1	2
+610	FunctionDeclaration		handleAnnualReportPage	11685	11699	15	989		1	8
+611	FunctionDeclaration		renderAnnualReportHtml	11700	11721	22	7453		1	5
+612	FunctionDeclaration		handleGoalsPage	11724	11740	17	910		1	8
+613	FunctionDeclaration		renderGoalsHtml	11741	11747	7	6144		1	5
+614	FunctionDeclaration		accountbookGoalsClientMain	11748	11929	182	9483		1	0
+615	FunctionDeclaration		accountbookGoalsJsAsset	11930	11935	6	207		1	2
+616	FunctionDeclaration		accountbookFavRowsClientMain	11939	11996	58	3367		2	0
+617	FunctionDeclaration		accountbookFavRowsJsAsset	11997	12002	6	217		1	2
+618	FunctionDeclaration		accountbookSidebarDashboardClientMain	12004	12084	81	5184		1	0
+619	FunctionDeclaration		accountbookQuickInputClientMain	12086	12318	233	11654		1	0
+620	FunctionDeclaration		accountbookActivityRailClientMain	12320	12526	207	13447		1	0
+621	FunctionDeclaration		accountbookSaveFeedbackClientMain	12528	12558	31	1543		1	0
+622	FunctionDeclaration		accountbookDayDetailClientMain	12560	12766	207	15182		1	0
+623	FunctionDeclaration		accountbookChallengeClientMain	12768	12861	94	4208		1	0
+624	FunctionDeclaration		accountbookDetailExperienceClientMain	12865	13028	164	9054		1	0
+625	FunctionDeclaration		accountbookV5BundleJsAsset	13030	13036	7	1041		1	13
+626	FunctionDeclaration		handleBudgetAlertPolishPage	13038	13055	18	1254		1	15
+627	FunctionDeclaration		renderBudgetAlertPolishHtml	13057	13067	11	7232		1	9
+628	FunctionDeclaration		handleBudgetAlertGuidePage	13069	13071	3	1901		1	3
+629	FunctionDeclaration		settlementRoleAllowed	13073	13075	3	111		2	0
+630	FunctionDeclaration		buildSettlementModel	13077	13147	71	3566	Y	4	3
+631	FunctionDeclaration		renderTemplateCreateForm	13149	13152	4	505		1	1
+632	FunctionDeclaration		handleReleaseCandidateCheckPage	13154	13172	19	3787		1	6
+633	FunctionDeclaration		handleHouseholdCreateJoinGuidePage	13174	13185	12	3737		1	8
+634	FunctionDeclaration		handleMeetingHouseholdTemplatePage	13187	13200	14	4137		1	11
+635	FunctionDeclaration		renderSettlementRows	13202	13209	8	578		2	2
+636	FunctionDeclaration		renderTransferRows	13211	13214	4	305		2	2
+637	FunctionDeclaration		handleSettlementSummaryPageLegacyV2265	13216	13234	19	5643		0	19
+638	FunctionDeclaration		settlementHistoryKey	13236	13238	3	132		3	0
+639	FunctionDeclaration		handleSettlementHistorySave	13240	13284	45	3300		1	18
+640	FunctionDeclaration		renderSettlementConfig	13286	13303	18	2389		1	6
+641	FunctionDeclaration		renderSettlementHistory	13305	13309	5	697		1	3
+642	FunctionDeclaration		handleSettlementSummaryPage	13311	13349	39	9931		1	25
+643	FunctionDeclaration		handleMeetingArchiveGuidePage	13351	13353	3	2128		1	3
+644	FunctionDeclaration		handleDuplicateSafetyPage	13355	13359	5	232		1	4
+645	FunctionDeclaration		handleOpsDashboardPage	13361	13377	17	5280		1	10
+646	FunctionDeclaration		handleTrafficOpsPage	13379	13388	10	3452		1	9
+647	FunctionDeclaration		handleBrandKitPage	13390	13400	11	2926		1	3
+648	FunctionDeclaration		handleDataPolicyPage	13402	13405	4	1826		0	3
+649	FunctionDeclaration		expectedOpenBuilderRows	13407	13422	16	680		1	0
+650	FunctionDeclaration		handleOpenBuilderReportPage	13424	13437	14	4019		1	5
+651	FunctionDeclaration		fetchPersistentNluMetrics	13439	13444	6	523		2	2
+652	FunctionDeclaration		fetchPersistentNluFailures	13446	13451	6	590		3	2
+653	FunctionDeclaration		summarizePersistentNluMetrics	13453	13471	19	1320		2	1
+654	FunctionDeclaration		nluAdminAuthorized	13473	13475	3	109		3	1
+655	FunctionDeclaration		handleNluOpsJson	13477	13488	12	774		1	8
+656	FunctionDeclaration		handleNluFailuresCsv	13490	13497	8	1020		1	4
+657	FunctionDeclaration		handleNluOpsPage	13499	13513	15	6460		1	11
+658	FunctionDeclaration		handleSkillOpsPage	13515	13523	9	3128		1	9
+659	FunctionDeclaration		handleOpenBuilderGuidePage	13525	13545	21	4023		1	4
+660	FunctionDeclaration		handleKakaoStabilityGuidePage	13547	13559	13	1833		1	3
+661	FunctionDeclaration		handleWelcomeLinkGuidePage	13561	13588	28	3160		1	4
+662	FunctionDeclaration		renderPublicStartGuideHtml	13590	13593	4	1970		1	2
+663	FunctionDeclaration		renderUserStartGuideHtml	13595	13653	59	8972		1	8
+664	FunctionDeclaration		handleBeginnerGuidePage	13655	13726	72	8591		1	23
+665	FunctionDeclaration		handleUnifiedMenuPage	13728	13802	75	8607		1	14
+666	FunctionDeclaration		renderPcSidebar	13804	13826	23	1450		1	4
+667	FunctionDeclaration		renderMobileBottomNav	13828	13837	10	545		1	2
+668	FunctionDeclaration		onboardingExamples	13839	13850	12	171		1	0
+669	FunctionDeclaration		renderQuickStartPanel	13852	13855	4	628		1	2
+670	FunctionDeclaration		renderGuideTab	13857	13860	4	1722		1	2
+671	FunctionDeclaration		renderImportTab	13862	13883	22	7402		1	2
+672	FunctionDeclaration		renderTabs	13885	13899	15	932		1	2
+673	FunctionDeclaration		renderCalendarFilterScript	13901	13903	3	1347		1	0
+674	FunctionDeclaration		renderAutoRefreshScript	13905	13907	3	164		1	0
+675	FunctionDeclaration		userSessionSecret	13909	13911	3	88		7	1
+676	FunctionDeclaration		getUserSessionVersion	13913	13926	14	798		5	3
+677	FunctionDeclaration		makeUserSession	13928	13935	8	380		6	3
+678	FunctionDeclaration		parseUserSessionToken	13939	13955	17	737		2	4
+679	FunctionDeclaration		userSessionVersionMatches	13957	13959	3	143		2	0
+680	FunctionDeclaration		verifyRawUserSessionUncached	13961	13967	7	327		1	3
+681	FunctionDeclaration		verifyRawUserSession	13969	13984	16	507		2	2
+682	FunctionDeclaration		identityMergeRedirectSettingsKey	13986	13988	3	157		3	0
+683	FunctionDeclaration		parseIdentityMergeRedirectValue	13990	14003	14	746		3	1
+684	FunctionDeclaration		stripMergedMarkerSuffix	14007	14011	5	183		6	0
+685	FunctionDeclaration		cacheEffectiveUserId	14013	14021	9	513		1	2
+686	FunctionDeclaration		cachedEffectiveUserId	14023	14032	10	326		1	1
+687	FunctionDeclaration		rewireEffectiveUserCache	14034	14047	14	756		1	2
+688	FunctionDeclaration		fetchLegacyIdentityMergePrimaryId	14049	14067	19	1021		1	2
+689	FunctionDeclaration		resolveEffectiveUserId	14069	14099	31	1359	Y	3	7
+690	FunctionDeclaration		verifyUserSession	14101	14143	43	2887		70	10
+691	FunctionDeclaration		isMergedSessionRecoveryPath	14145	14156	12	630		1	0
+692	FunctionDeclaration		mergedUserSessionRecoveryResponse	14158	14179	22	1285		1	7
+693	FunctionDeclaration		configuredPublicBaseUrl	14181	14183	3	170		1	1
+694	FunctionDeclaration		getKakaoRedirectUri	14185	14189	5	270		2	0
+695	FunctionDeclaration		inspectKakaoLoginConfig	14191	14238	48	1816		9	5
+696	FunctionDeclaration		randomState	14240	14247	8	258		2	0
+697	FunctionDeclaration		kakaoLoginEnabled	14249	14251	3	97		0	1
+698	FunctionDeclaration		kakaoLoginAvailable	14253	14255	3	87		0	1
+699	FunctionDeclaration		kakaoLoginUserKey	14257	14259	3	100		4	0
+700	FunctionDeclaration		userIdentityLinksSettingsKey	14261	14263	3	75		2	0
+701	FunctionDeclaration		fetchUserIdentityLinks	14267	14270	4	194	Y	8	3
+702	FunctionDeclaration		saveUserIdentityLinks	14272	14280	9	375		2	3
+703	FunctionDeclaration		normalizeLocalLoginName	14282	14284	3	151		5	0
+704	FunctionDeclaration		fetchStrongIdentityBySubject	14286	14296	11	633		3	1
+705	FunctionDeclaration		fetchStrongIdentityForUser	14298	14308	11	593		5	1
+706	FunctionDeclaration		linkKakaoLoginToUser	14310	14320	11	505		3	2
+707	FunctionDeclaration		linkLocalLoginToUser	14322	14324	3	186		0	1
+708	FunctionDeclaration		replaceLocalLoginForUser	14326	14346	21	889		2	4
+709	FunctionDeclaration		verifyLocalLoginForUser	14348	14358	11	534		1	3
+710	FunctionDeclaration		isPlaceholderUserNickname	14360	14363	4	213		1	1
+711	FunctionDeclaration		findUserByLocalLoginIdentity	14365	14378	14	735		1	6
+712	FunctionDeclaration		hasBackupLoginIdentity	14380	14394	15	884		4	5
+713	FunctionDeclaration		hasKakaoLoginIdentity	14396	14408	13	736		2	5
+714	FunctionDeclaration		kakaoLoginIdentityMatchesUser	14410	14424	15	839		1	7
+715	FunctionDeclaration		boundedFormRequest	14426	14445	20	1296	Y	1	0
+716	FunctionDeclaration		signedPurposeToken	14447	14450	4	283	Y	2	3
+717	FunctionDeclaration		readPurposeToken	14452	14458	7	529	Y	2	4
+718	FunctionDeclaration		makeCredentialProof	14460	14464	5	267	Y	3	2
+719	FunctionDeclaration		verifyCredentialProof	14466	14469	4	326	Y	3	3
+720	FunctionDeclaration		verifyPasswordReauth	14471	14481	11	631		3	2
+721	FunctionDeclaration		handleAccountReauth	14483	14489	7	623		1	4
+722	FunctionDeclaration		householdDeleteReauthCookieName	14491	14493	3	85		3	0
+723	FunctionDeclaration		clearHouseholdDeleteReauthCookie	14495	14497	3	148		1	1
+724	FunctionDeclaration		makeHouseholdDeleteReauthToken	14499	14511	13	589		1	3
+725	FunctionDeclaration		verifyHouseholdDeleteReauth	14513	14532	20	972		2	6
+726	FunctionDeclaration		findUserByKakaoLoginId	14534	14558	25	1416		1	8
+727	FunctionDeclaration		ensureKakaoLoginUser	14560	14585	26	1314	Y	1	7
+728	FunctionDeclaration		handleKakaoLoginStart	14587	14639	53	4006		1	16
+729	FunctionDeclaration		fetchKakaoProfileByCode	14641	14680	40	1736		1	4
+730	FunctionDeclaration		kakaoStageError	14682	14686	5	118		2	0
+731	FunctionDeclaration		kakaoLoginTraceId	14688	14690	3	88		1	1
+732	FunctionDeclaration		kakaoCallbackErrorMessage	14692	14704	13	788		1	0
+733	FunctionDeclaration		handleKakaoLoginCallback	14706	14818	113	7340		1	30
+734	FunctionDeclaration		handleMyLogout	14820	14824	5	151		10	1
+735	FunctionDeclaration		fetchUserById	14826	14831	6	446		41	1
+736	FunctionDeclaration		fetchRawHouseholdMembers	14833	14838	6	380		7	1
+737	FunctionDeclaration		ensureOwnerMembership	14840	14855	16	854		2	3
+738	VariableDeclaration	const	AB_POSTGREST_EMBED_SUPPORT	14860	14860	1	192		1	0
+739	FunctionDeclaration		isPostgrestEmbedRejection	14862	14864	3	125		1	0
+740	FunctionDeclaration		supabaseWithEmbedFallback	14866	14877	12	656		3	5
+741	FunctionDeclaration		fetchUserHouseholds	14879	14903	25	1643		15	3
+742	FunctionDeclaration		withKakaoUserLifecycleLease	14905	14917	13	666		11	1
+743	FunctionDeclaration		createUserHousehold	14919	14971	53	3033	Y	4	12
+744	FunctionDeclaration		withHouseholdCreateLock	14973	14998	26	1120		3	8
+745	FunctionDeclaration		csvSafeText	15004	15009	6	200		2	0
+746	FunctionDeclaration		readableCsvCell	15011	15015	5	159		1	1
+747	FunctionDeclaration		buildReadableTransactionsCsv	15017	15034	18	569		1	1
+748	FunctionDeclaration		parseCsvRows	15036	15058	23	748		1	0
+749	FunctionDeclaration		normalizeHeaderName	15060	15062	3	101		2	1
+750	FunctionDeclaration		csvRowsToObjects	15064	15073	10	386		0	2
+751	FunctionDeclaration		pickImportValue	15075	15081	7	238		0	1
+752	FunctionDeclaration		normalizeImportTransaction	15083	15092	10	565		0	2
+753	FunctionDeclaration		findExactDuplicateTransaction	15094	15134	41	2199		1	4
+754	FunctionDeclaration		handleMyMembersPage	15136	15147	12	1038		1	12
+755	FunctionDeclaration		renderMyMembersHtml	15149	15162	14	7643		1	9
+756	FunctionDeclaration		renderMyMembersHtmlLegacyV2264	15164	15170	7	2990		0	6
+757	VariableDeclaration	const	CARD_IMPORT_GUIDES	15174	15185	12	1493		1	0
+758	FunctionDeclaration		cardGuideFigure	15187	15207	21	3573		1	1
+759	FunctionDeclaration		renderCardGuideSteps	15209	15217	9	753		1	2
+760	FunctionDeclaration		renderCardImportSection	15219	15223	5	1839		1	3
+761	FunctionDeclaration		cardImportClientMain	15225	15351	127	5553		1	0
+762	FunctionDeclaration		cardImportCss	15353	15355	3	2404		1	0
+763	FunctionDeclaration		handleMyBackupPage	15357	15373	17	9180		1	21
+764	FunctionDeclaration		handleMyBackupCsv	15375	15393	19	1297		1	13
+765	FunctionDeclaration		decodeImportUploadBytes	15395	15421	27	1294	Y	1	0
+766	FunctionDeclaration		readImportUploadText	15423	15431	9	318		1	1
+767	FunctionDeclaration		buildMyImportMemberLookup	15433	15442	10	339		1	2
+768	FunctionDeclaration		prepareMyImportEntry	15444	15468	25	1406	Y	1	4
+769	FunctionDeclaration		myImportDeterministicTransactionId	15470	15477	8	460	Y	1	1
+770	FunctionDeclaration		findMyImportIdempotencyDuplicate	15479	15497	19	950		0	3
+771	FunctionDeclaration		importDuplicateCandidates	15499	15512	14	733		1	1
+772	FunctionDeclaration		importedRowDuplicate	15514	15517	4	565		1	1
+773	FunctionDeclaration		myImportReasonCounts	15519	15526	8	256	Y	1	1
+774	FunctionDeclaration		rememberMyImportSummary	15528	15541	14	649		1	2
+775	FunctionDeclaration		handleMyImport	15543	15732	190	9968		1	33
+776	FunctionDeclaration		importPreviewClientMain	15734	15778	45	2618		1	0
+777	FunctionDeclaration		renderMyImportPreviewHtml	15780	15797	18	8008	Y	1	8
+778	FunctionDeclaration		renderMyImportResultHtml	15799	15814	16	7105	Y	1	7
+779	FunctionDeclaration		recurringDateForMonth	15816	15823	8	346		1	2
+780	FunctionDeclaration		findRecurringAutoDuplicate	15825	15846	22	1179		1	4
+781	FunctionDeclaration		runRecurringAutoApplyUnlocked	15848	15931	84	4972		1	17
+782	FunctionDeclaration		runRecurringAutoApply	15933	15951	19	1137	Y	2	9
+783	FunctionDeclaration		handleRecurringCronApply	15953	15957	5	456		1	6
+784	FunctionDeclaration		keywordEditorLocation	15961	15968	8	526		2	3
+785	FunctionDeclaration		mySettingsLocation	15970	15976	7	410		5	2
+786	FunctionDeclaration		handleMyGroupsPage	15978	15993	16	3931		1	16
+787	FunctionDeclaration		incomeBudgetCategory	15995	15998	4	156		2	0
+788	FunctionDeclaration		isIncomeBudgetCategory	16000	16002	3	107		7	0
+789	FunctionDeclaration		incomeBudgetName	16004	16006	3	113		1	0
+790	FunctionDeclaration		defaultIncomeBudgetNames	16008	16010	3	81		4	0
+791	FunctionDeclaration		defaultExpenseBudgetNames	16012	16014	3	166		4	3
+792	FunctionDeclaration		amountOfBudget	16016	16019	4	192		1	2
+793	FunctionDeclaration		incomeBudgetRows	16021	16030	10	503		2	6
+794	FunctionDeclaration		expenseBudgetRows	16032	16049	18	704		2	5
+795	FunctionDeclaration		sumBudgetAmounts	16051	16053	3	113		1	1
+796	FunctionDeclaration		categorySpentMap	16055	16063	9	238		1	1
+797	FunctionDeclaration		recurringSummary	16065	16070	6	449		1	1
+798	FunctionDeclaration		upsertMyBudgetRow	16072	16086	15	721		1	4
+799	FunctionDeclaration		clearMyBudgetPlan	16088	16096	9	424		0	3
+800	FunctionDeclaration		parseBudgetFormAmount	16101	16107	7	343		2	1
+801	FunctionDeclaration		handleMyBudgetBulkSave	16109	16158	50	3111		1	16
+802	FunctionDeclaration		getMyPageContext	16160	16185	26	1474		3	18
+803	FunctionDeclaration		reportChallengeSettingsKey	16187	16189	3	136	Y	5	0
+804	FunctionDeclaration		shiftChallengeDate	16191	16196	6	256	Y	3	1
+805	FunctionDeclaration		challengePeriodDays	16198	16204	7	419	Y	3	1
+806	VariableDeclaration	const	REPORT_CHALLENGE_TYPES	16206	16206	1	119		2	0
+807	FunctionDeclaration		normalizeReportChallengeType	16208	16211	4	169		2	1
+808	FunctionDeclaration		reportChallengeTypeMeta	16213	16222	10	746		1	2
+809	FunctionDeclaration		normalizeReportChallenge	16224	16241	18	1546	Y	2	11
+810	FunctionDeclaration		buildReportChallenge	16243	16293	51	3142	Y	2	8
+811	FunctionDeclaration		buildReportChallengeForHousehold	16295	16315	21	1050		4	10
+812	FunctionDeclaration		reportMonthHref	16317	16322	6	351	Y	1	2
+813	FunctionDeclaration		renderReportMonthNavigator	16324	16330	7	1278	Y	3	5
+814	FunctionDeclaration		buildReportDashboardSummary	16332	16356	25	1972	Y	1	6
+815	FunctionDeclaration		renderReportDashboard	16358	16366	9	2125	Y	1	4
+816	FunctionDeclaration		renderChallengeProgress	16368	16389	22	1911		1	2
+817	FunctionDeclaration		renderReportChallenge	16391	16410	20	3777	Y	4	7
+818	FunctionDeclaration		reportUxCss	16412	16430	19	12149		3	0
+819	FunctionDeclaration		handleReportChallengeSave	16432	16484	53	4512		1	20
+820	FunctionDeclaration		freeReportPreferenceKey	16486	16488	3	139		3	0
+821	FunctionDeclaration		freeReportSnapshotKey	16490	16492	3	183		2	0
+822	FunctionDeclaration		parseJsonSetting	16494	16497	4	203		5	0
+823	FunctionDeclaration		parseJsonArraySettingStrict	16499	16509	11	386		2	0
+824	FunctionDeclaration		saveSettingValue	16511	16517	7	350		19	1
+825	FunctionDeclaration		isoWeekPeriod	16519	16526	8	373		2	1
+826	FunctionDeclaration		buildFreeReportSnapshot	16528	16550	23	1393		2	2
+827	FunctionDeclaration		freeReportShareText	16552	16556	5	694		1	2
+828	FunctionDeclaration		handleReportPreferenceSave	16558	16588	31	1638		1	10
+829	FunctionDeclaration		runAutomaticReportsUnlocked	16590	16659	70	5198		1	16
+830	FunctionDeclaration		runAutomaticReports	16661	16679	19	1014	Y	2	7
+831	FunctionDeclaration		handleAutomaticReportCron	16681	16687	7	582		1	4
+832	FunctionDeclaration		handleFreeReportsPage	16689	16704	16	1144		1	10
+833	FunctionDeclaration		renderReportTopRows	16706	16710	5	354		1	3
+834	FunctionDeclaration		renderFreeReportsHtml	16712	16718	7	5919		1	9
+835	FunctionDeclaration		renderMiniCategoryRows	16720	16723	4	390		1	3
+836	FunctionDeclaration		handleMyPremiumPage	16725	16743	19	1352		1	13
+837	FunctionDeclaration		renderRecurringCandidateCards	16745	16753	9	1500		1	4
+838	FunctionDeclaration		renderMyPremiumHtml	16755	16766	12	6284		1	7
+839	FunctionDeclaration		handleMyAnalysisPage	16768	16790	23	1748		1	16
+840	FunctionDeclaration		handleMyInsightPage	16797	16825	29	1967		1	22
+841	FunctionDeclaration		insightAppJsResponse	16827	16833	7	327		1	2
+842	FunctionDeclaration		renderMyInsightHtml	16835	17025	191	15960		1	12
+843	FunctionDeclaration		budgetExpenseRows	17029	17032	4	302	Y	2	0
+844	FunctionDeclaration		insightClientMain	17034	18113	1080	49846		1	1
+845	FunctionDeclaration		computeFairMoM	18118	18130	13	600		2	5
+846	FunctionDeclaration		renderPatternBoxes	18132	18144	13	1086		1	2
+847	FunctionDeclaration		renderBudgetGaugeCards	18146	18153	8	881		1	1
+848	FunctionDeclaration		renderBudgetGaugeRows	18155	18162	8	688		1	3
+849	FunctionDeclaration		shortWonLabel	18164	18175	12	461		6	0
+850	FunctionDeclaration		renderReadableDailyTrend	18177	18202	26	1616		3	5
+851	FunctionDeclaration		renderWeekdayTrend	18204	18223	20	1717		3	5
+852	FunctionDeclaration		renderAnalysisToolCards	18225	18243	19	1420		1	3
+853	FunctionDeclaration		renderMyAnalysisHtml	18245	18314	70	15317		1	30
+854	FunctionDeclaration		shiftMonthString	18316	18322	7	323		6	2
+855	FunctionDeclaration		handleMySettingsPage	18324	18345	22	1489		1	16
+856	FunctionDeclaration		handleMyBudgetSave	18347	18370	24	1530		1	11
+857	FunctionDeclaration		handleMyCategoryKeywordsSave	18372	18393	22	1574		1	11
+858	FunctionDeclaration		handleMyCategoryKeywordsBulkSave	18395	18429	35	2084		1	14
+859	FunctionDeclaration		handleMyRecurringSave	18431	18470	40	2358		1	15
+860	FunctionDeclaration		handleMyRecurringDelete	18472	18492	21	1439		1	12
+861	FunctionDeclaration		handleRecurringCandidateConfirm	18494	18537	44	2486		1	16
+862	FunctionDeclaration		renderMySettingsHtml	18539	18603	65	13938		1	19
+863	FunctionDeclaration		myReturnLocation	18604	18610	7	407		4	2
+864	FunctionDeclaration		canWriteMyHousehold	18612	18615	4	140	Y	14	0
+865	FunctionDeclaration		canReadMyHousehold	18617	18619	3	134	Y	8	0
+866	FunctionDeclaration		canManageMyHousehold	18621	18623	3	116		29	0
+867	FunctionDeclaration		householdAccessTitle	18625	18629	5	167		1	0
+868	FunctionDeclaration		renderMyAccessStatusHtml	18631	18649	19	3684	Y	1	6
+869	FunctionDeclaration		myAccessStatusResponse	18651	18653	3	123		24	2
+870	FunctionDeclaration		canManageMyRecord	18655	18659	5	248		3	1
+871	FunctionDeclaration		getMySelectedHousehold	18661	18672	12	1136	Y	36	2
+872	FunctionDeclaration		transactionEditHistoryKey	18674	18676	3	149		3	0
+873	FunctionDeclaration		fetchTransactionEditHistoryMap	18678	18691	14	485		1	3
+874	FunctionDeclaration		transactionAuditFields	18693	18703	11	227		1	0
+875	FunctionDeclaration		valueForAudit	18705	18710	6	341		1	0
+876	FunctionDeclaration		buildTransactionChanges	18712	18721	10	562		1	2
+877	FunctionDeclaration		appendTransactionEditHistory	18723	18738	16	974		1	5
+878	FunctionDeclaration		memberExists	18740	18742	3	143		0	1
+879	FunctionDeclaration		memberCanBeSpender	18744	18746	3	177		4	0
+880	FunctionDeclaration		activeSpenderExists	18748	18750	3	190		9	2
+881	FunctionDeclaration		canManageAllRecords	18752	18754	3	101		2	0
+882	FunctionDeclaration		getTransactionForUserEdit	18756	18765	10	526		2	1
+883	FunctionDeclaration		parseMyAmount	18767	18769	3	83		2	1
+884	FunctionDeclaration		handleMyAddTransaction	18771	18820	50	3022		1	23
+885	FunctionDeclaration		handleMyUpdateTransaction	18822	18867	46	3445		1	23
+886	FunctionDeclaration		handleMyDeleteTransaction	18869	18889	21	1510		1	13
+887	FunctionDeclaration		householdTemplatePreset	18891	18899	9	321		1	0
+888	FunctionDeclaration		householdPageMessage	18901	18939	39	2463		3	1
+889	FunctionDeclaration		handleMyHouseholdsPage	18941	19018	78	17090		1	23
+890	FunctionDeclaration		handleMyHouseholdsPageLegacyV2264	19020	19043	24	6618		0	16
+891	FunctionDeclaration		formatDateKorean	19045	19048	4	144		2	0
+892	FunctionDeclaration		handleMyCreate	19050	19087	38	2588		1	14
+893	FunctionDeclaration		handleMyCreateLegacyV2264	19089	19112	24	1619		0	10
+894	FunctionDeclaration		handleMyHouseholdUpdate	19114	19136	23	1461		1	11
+895	FunctionDeclaration		householdSettingsKeys	19138	19145	8	421		0	11
+896	FunctionDeclaration		purgeHouseholdData	19147	19215	69	5574	Y	2	19
+897	FunctionDeclaration		handleMyHouseholdDelete	19217	19249	33	2352		1	16
+898	FunctionDeclaration		removeMemberAlias	19251	19267	17	815	Y	1	4
+899	FunctionDeclaration		handleMyHouseholdLeave	19269	19311	43	3194		1	17
+900	FunctionDeclaration		householdJoinFeedback	19313	19318	6	399	Y	3	0
+901	FunctionDeclaration		handleMyJoin	19320	19336	17	1050		1	9
+902	FunctionDeclaration		handleMyPage	19338	19364	27	1479		1	12
+903	FunctionDeclaration		optionalSupabase	19366	19373	8	196		17	1
+904	FunctionDeclaration		fetchBudgets	19387	19399	13	596		20	1
+905	FunctionDeclaration		fetchMobileHomeSettings	19401	19418	18	1329		1	11
+906	FunctionDeclaration		fetchRecurring	19420	19427	8	492		9	1
+907	FunctionDeclaration		fetchRecurringStrict	19429	19436	8	494		2	1
+908	FunctionDeclaration		fetchRecurringRuleByIdStrict	19438	19443	6	401		3	1
+909	FunctionDeclaration		budgetSummary	19445	19486	42	2199	Y	13	1
+910	FunctionDeclaration		budgetCenterSummary	19488	19508	21	1500		6	4
+911	FunctionDeclaration		budgetStatusLabel	19510	19516	7	410		3	0
+912	FunctionDeclaration		renderBudgetCategoryUsageTree	19518	19532	15	1191		1	4
+913	FunctionDeclaration		renderBudgetBasisRows	19534	19545	12	1242		1	4
+914	FunctionDeclaration		budgetCategoryTotal	19547	19552	6	270		1	2
+915	FunctionDeclaration		renderBudgetConsistencyAlert	19554	19571	18	1183		1	4
+916	FunctionDeclaration		renderBudgetRows	19573	19585	13	1763		1	8
+917	FunctionDeclaration		budgetStageInfo	19587	19597	11	403	Y	2	0
+918	FunctionDeclaration		budgetAlertText	19599	19617	19	1205	Y	1	5
+919	FunctionDeclaration		budgetFeedbackLine	19619	19645	27	1687	Y	1	5
+920	FunctionDeclaration		kakaoBudgetStatusText	19647	19677	31	1898		1	6
+921	FunctionDeclaration		kakaoBudgetFeedback	19679	19688	10	356		0	3
+922	FunctionDeclaration		memeHash	19690	19695	6	189		1	0
+923	FunctionDeclaration		memePick	19697	19700	4	118		1	0
+924	FunctionDeclaration		memeTpl	19702	19704	3	126		1	0
+925	FunctionDeclaration		memeAmountByRegex	19706	19708	3	198		1	0
+926	FunctionDeclaration		memeCountByRegex	19710	19712	3	157		1	0
+927	FunctionDeclaration		longestNoSpendStreak	19714	19726	13	610		1	1
+928	FunctionDeclaration		makeMemeCard	19728	19742	15	650		1	3
+929	FunctionDeclaration		memeCardFor	19744	19747	4	343		1	3
+930	FunctionDeclaration		txEditPath	19755	19760	6	245		1	0
+931	FunctionDeclaration		renderV8TxEditForm	19762	19771	10	1991		1	4
+932	VariableDeclaration	const	HOME_LAYOUT_REPORTS	19787	19792	6	126		2	0
+933	VariableDeclaration	const	HOME_LAYOUT_SHORTCUTS	19793	19800	8	173		2	0
+934	FunctionDeclaration		homeLayoutKey	19801	19803	3	181		3	0
+935	FunctionDeclaration		normalizeHomeLayoutSection	19806	19820	15	662		1	2
+936	FunctionDeclaration		normalizeHomeLayout	19821	19829	9	375		4	4
+937	FunctionDeclaration		defaultHomeLayout	19830	19832	3	66		1	1
+938	FunctionDeclaration		applyHomeLayoutSection	19834	19839	6	197		2	1
+939	FunctionDeclaration		renderHomeReportCards	19841	19925	85	5968		1	8
+940	FunctionDeclaration		renderV8TxCards	19927	19943	17	1663		2	5
+941	FunctionDeclaration		txDayHeadLabel	19947	19952	6	308		1	0
+942	FunctionDeclaration		renderHomeWeekStrip	19962	19984	23	1220		1	4
+943	FunctionDeclaration		renderV8TxDayGroups	19986	20003	18	1086		1	4
+944	FunctionDeclaration		lastNDaysExpense	20005	20010	6	308		2	3
+945	FunctionDeclaration		todayExpense	20012	20015	4	207		2	2
+946	FunctionDeclaration		memeCollectionFor	20017	20089	73	10916		3	11
+947	FunctionDeclaration		memeShareText	20091	20093	3	253		5	2
+948	FunctionDeclaration		renderV81MemeCards	20095	20097	3	924		0	3
+949	FunctionDeclaration		memeThemeCss	20099	20110	12	942		2	0
+950	FunctionDeclaration		memeSvgColors	20112	20123	12	670		1	0
+951	FunctionDeclaration		wrapSvgText	20125	20142	18	541		1	0
+952	FunctionDeclaration		resolveMemeScope	20144	20172	29	2730		9	13
+953	FunctionDeclaration		loadMemeCardForRequest	20174	20188	15	1144		3	9
+954	FunctionDeclaration		renderMemeSvg	20190	20214	25	2089		2	4
+955	FunctionDeclaration		handleMemeImage	20216	20230	15	605		1	3
+956	FunctionDeclaration		fetchSavedMemeCards	20232	20264	33	1604		3	2
+957	FunctionDeclaration		incrementMemeMetric	20266	20280	15	900		2	1
+958	FunctionDeclaration		safeIncrementMemeMetric	20282	20289	8	170		3	1
+959	FunctionDeclaration		handleMemeReact	20291	20310	20	1146		1	8
+960	FunctionDeclaration		handleMemeSave	20312	20350	39	1958		1	7
+961	FunctionDeclaration		handleMemeDelete	20352	20370	19	1232		1	8
+962	FunctionDeclaration		handleMemeRankPage	20372	20382	11	5464		1	6
+963	FunctionDeclaration		handleMemeArchivePage	20384	20394	11	7459		1	7
+964	FunctionDeclaration		loadSavedMemeCardById	20396	20413	18	1214		4	2
+965	FunctionDeclaration		publicMemeCardFromRow	20415	20436	22	713		2	1
+966	FunctionDeclaration		publicShareUrl	20438	20441	4	144		1	0
+967	FunctionDeclaration		handlePublicMemeImage	20443	20457	15	662		1	4
+968	FunctionDeclaration		publicMemeCookieName	20459	20462	4	170		2	0
+969	FunctionDeclaration		publicMemeSetCookie	20464	20466	3	127		2	0
+970	FunctionDeclaration		handlePublicMemeLike	20468	20480	13	674		1	5
+971	FunctionDeclaration		handlePublicMemeShareCount	20482	20487	6	295		1	2
+972	FunctionDeclaration		handlePublicMemeSharePage	20489	20510	22	7551		1	12
+973	FunctionDeclaration		handleMemePublicStatsPage	20512	20533	22	5845		1	6
+974	FunctionDeclaration		handleMemeSharePage	20535	20544	10	5756		1	7
+975	FunctionDeclaration		handleMemeLabPage	20546	20559	14	4437		1	13
+976	FunctionDeclaration		categoryInitial	20567	20578	12	453		1	1
+977	VariableDeclaration	const	QUICK_CHIP_ICON_RULES	20584	20599	16	922		2	0
+978	VariableDeclaration	const	QUICK_CHIP_DEFAULT_ICON	20600	20600	1	38		1	0
+979	VariableDeclaration	const	QUICK_PAYMENT_ICON_RULES	20603	20608	6	225		2	0
+980	VariableDeclaration	const	QUICK_PAYMENT_DEFAULT_ICON	20609	20609	1	40		2	0
+981	FunctionDeclaration		resolveQuickChipIcon	20612	20618	7	369	Y	1	3
+982	FunctionDeclaration		resolveQuickPaymentIcon	20620	20622	3	160	Y	0	3
+983	FunctionDeclaration		quickChipIconCss	20624	20650	27	1344	Y	1	3
+984	VariableDeclaration	const	MOBILE_V81_CSS	20652	20783	132	35432		1	0
+985	VariableDeclaration	const	AB_CURSOR_ASSET_PATH	20804	20804	1	60		1	0
+986	VariableDeclaration	const	AB_CURSOR_ASSET_SOURCE	20805	20880	76	2883		1	0
+987	VariableDeclaration	const	NUMBER_FLOW_ASSET_PATH	20886	20886	1	64		1	0
+988	VariableDeclaration	const	NUMBER_FLOW_ASSET_SOURCE	20887	21450	564	23332		1	0
+989	VariableDeclaration	const	MOBILE_HOME_CSS_ASSET_PATH	21451	21451	1	68		4	0
+990	VariableDeclaration	const	AB_UIUX_CSS_ASSET_PATH	21452	21452	1	60		2	0
+991	VariableDeclaration	const	MOBILE_HOME_JS_ASSET_PATH	21453	21453	1	66		2	0
+992	VariableDeclaration	const	LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH	21454	21454	1	87		1	0
+993	VariableDeclaration	const	ACCOUNTBOOK_SHELL_CSS_ASSET_PATH	21455	21455	1	80		3	0
+994	VariableDeclaration	const	ACCOUNTBOOK_EXPERIENCE_CSS	21456	21546	91	10588		1	0
+995	VariableDeclaration	const	ACCOUNTBOOK_THEME_JS_ASSET_PATH	21547	21547	1	77		2	0
+996	VariableDeclaration	const	MOBILE_HOME_SHELL_JS_ASSET_PATH	21548	21548	1	78		3	0
+997	VariableDeclaration	const	ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH	21549	21549	1	81		2	0
+998	VariableDeclaration	const	ACCOUNTBOOK_SEARCH_JS_ASSET_PATH	21550	21550	1	80		1	0
+999	VariableDeclaration	const	ACCOUNTBOOK_NOTIF_JS_ASSET_PATH	21551	21551	1	78		1	0
+1000	VariableDeclaration	const	ACCOUNTBOOK_GOALS_JS_ASSET_PATH	21552	21552	1	78		2	0
+1001	VariableDeclaration	const	ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH	21553	21553	1	82		1	0
+1002	VariableDeclaration	const	ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH	21554	21554	1	79		2	0
+1003	VariableDeclaration	let	AB_MOBILE_HOME_CSS_CACHE	21555	21555	1	34		1	0
+1004	VariableDeclaration	let	AB_MOBILE_HOME_JS_CACHE	21556	21556	1	33		1	0
+1005	VariableDeclaration	let	AB_MOBILE_HOME_SHELL_JS_CACHE	21557	21557	1	39		1	0
+1006	VariableDeclaration	let	AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE	21558	21558	1	44		1	0
+1007	VariableDeclaration	let	AB_ACCOUNTBOOK_SEARCH_JS_CACHE	21559	21559	1	40		1	0
+1008	VariableDeclaration	let	AB_ACCOUNTBOOK_NOTIF_JS_CACHE	21560	21560	1	39		1	0
+1009	VariableDeclaration	let	AB_ACCOUNTBOOK_GOALS_JS_CACHE	21561	21561	1	39		1	0
+1010	VariableDeclaration	let	AB_ACCOUNTBOOK_FAVROWS_JS_CACHE	21562	21562	1	41		1	0
+1011	VariableDeclaration	let	AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE	21563	21563	1	43		1	0
+1012	VariableDeclaration	let	AB_ACCOUNTBOOK_THEME_JS_CACHE	21564	21564	1	39		1	0
+1013	VariableDeclaration	const	ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML	21566	21566	1	855		1	0
+1014	VariableDeclaration	const	ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML	21567	21567	1	522		1	0
+1015	VariableDeclaration	const	ACCOUNTBOOK_SHELL_V22811_CSS	21569	21616	48	7118		2	0
+1016	VariableDeclaration	const	ACCOUNTBOOK_SHELL_CSS	21618	22919	1302	159367		1	2
+1017	FunctionDeclaration		accountbookThemeClientMain	22921	23028	108	4760		1	0
+1018	FunctionDeclaration		accountbookThemeJsAsset	23030	23035	6	207		1	2
+1019	FunctionDeclaration		unwrapStyleElement	23037	23041	5	148		2	0
+1020	VariableDeclaration	let	AB_UIUX_CSS_CACHE	23056	23056	1	27		1	0
+1021	FunctionDeclaration		abUiuxCssAsset	23057	23071	15	533		1	7
+1022	FunctionDeclaration		mobileHomeCssAsset	23073	23084	12	454		1	6
+1023	FunctionDeclaration		rawMobileHomeInlineRuntime	23086	23115	30	963		1	3
+1024	FunctionDeclaration		mobileHomeJsAsset	23117	23127	11	453		2	9
+1025	FunctionDeclaration		mobileHomeNavStateClientMain	23129	23180	52	2451		1	0
+1026	FunctionDeclaration		mobileHomeShellJsAsset	23182	23193	12	384		1	4
+1027	FunctionDeclaration		accountbookStage4NavClientMain	23195	23688	494	29061		1	0
+1028	FunctionDeclaration		accountbookStage4NavJsAsset	23690	23695	6	230		1	2
+1029	FunctionDeclaration		accountbookSearchClientMain	23697	23915	219	10067		2	0
+1030	FunctionDeclaration		accountbookSearchJsAsset	23917	23922	6	212		1	2
+1031	FunctionDeclaration		accountbookNotifClientMain	23924	24065	142	6476		2	0
+1032	FunctionDeclaration		accountbookNotifJsAsset	24067	24072	6	207		1	2
+1033	VariableDeclaration	const	AB_ICON_BRAND_RGB	24078	24078	1	45		2	0
+1034	VariableDeclaration	const	AB_ICON_MARK_RGB	24079	24079	1	44		2	0
+1035	VariableDeclaration	let	AB_ICON_ICO_CACHE	24080	24080	1	29		1	0
+1036	VariableDeclaration	const	AB_ICON_PNG_CACHE	24081	24081	1	36		1	0
+1037	FunctionDeclaration		abIconMarkAt	24085	24092	8	333		1	0
+1038	FunctionDeclaration		abIconInsideRoundedSquare	24095	24100	6	254		1	0
+1039	FunctionDeclaration		abIconIndexedPixels	24105	24116	12	399		2	2
+1040	FunctionDeclaration		abIconCrc32	24118	24125	8	249		1	0
+1041	FunctionDeclaration		abIconAdler32	24127	24135	9	198		1	0
+1042	FunctionDeclaration		abIconPngChunk	24137	24146	10	375		1	1
+1043	FunctionDeclaration		abIconStoredDeflate	24150	24170	21	797		1	1
+1044	FunctionDeclaration		abIconDeflate	24174	24184	11	378		1	1
+1045	FunctionDeclaration		abIconPngBytes	24186	24214	29	1124		1	5
+1046	FunctionDeclaration		abIconIcoBytes	24216	24258	43	1561		1	3
+1047	FunctionDeclaration		abIconIco	24260	24263	4	118		1	2
+1048	FunctionDeclaration		abIconPng	24265	24268	4	171		1	2
+1049	VariableDeclaration	const	AB_WEB_MANIFEST	24272	24306	35	1185		1	0
+1050	VariableDeclaration	const	AB_WEB_MANIFEST_JSON	24307	24307	1	61		1	1
+1051	VariableDeclaration	const	AB_MANIFEST_PATH	24308	24308	1	42		2	0
+1052	VariableDeclaration	const	AB_MANIFEST_LINK	24309	24309	1	77		1	1
+1053	VariableDeclaration	const	AB_SPECULATION_RULES_TAG	24310	24310	1	314		1	0
+1054	VariableDeclaration	const	AB_ICON_ROUTES	24312	24319	8	360		1	1
+1055	FunctionDeclaration		appIconAssetResponse	24321	24347	27	1040		1	4
+1056	VariableDeclaration	const	AB_HISTORICAL_RUNTIME_ASSETS	24349	24349	1	186315		1	0
+1057	FunctionDeclaration		mobileHomePerformanceAssetResponse	24351	24428	78	4350		1	34
+1058	FunctionDeclaration		renderHomeCalendarSection	24430	24467	38	3416		1	7
+1059	FunctionDeclaration		renderMobileV81Html	24469	24857	389	48813		2	34
+1060	FunctionDeclaration		fetchMonthAmountRows	24859	24868	10	494		1	2
+1061	FunctionDeclaration		filterMobileTransactionRows	24870	24890	21	1636		1	3
+1062	FunctionDeclaration		handleMobileV8Page	24892	24992	101	6990		1	33
+1063	FunctionDeclaration		handleBudgetSave	24994	25023	30	1907		1	12
+1064	FunctionDeclaration		handleBudgetDelete	25025	25056	32	1899		1	11
+1065	FunctionDeclaration		pcScopedContext	25058	25080	23	1372		2	12
+1066	FunctionDeclaration		pcHouseholdMonthFilters	25082	25085	4	555		1	3
+1067	VariableDeclaration	const	ANALYSIS_DONUT_COLORS	25087	25087	1	108		1	0
+1068	FunctionDeclaration		renderDonutChart	25089	25106	18	1702		2	5
+1069	FunctionDeclaration		renderMonthlySeriesChart	25108	25118	11	1044		3	4
+1070	FunctionDeclaration		normalizeRecurringKey	25120	25125	6	272		2	0
+1071	FunctionDeclaration		detectRecurringCandidates	25127	25147	21	1487		4	4
+1072	FunctionDeclaration		renderRecurringInsightList	25149	25152	4	444		2	2
+1073	FunctionDeclaration		findAnomalousExpenses	25154	25175	22	1206		3	2
+1074	FunctionDeclaration		renderAnomalyList	25177	25180	4	528		3	2
+1075	FunctionDeclaration		buildWeeklyReport	25182	25219	38	1489		3	6
+1076	FunctionDeclaration		renderWeeklyReportCard	25221	25227	7	1329		2	3
+1077	FunctionDeclaration		renderPcAnalysisHtml	25229	25306	78	13040		1	23
+1078	FunctionDeclaration		handlePcAnalysisPage	25308	25324	17	1474		1	15
+1079	FunctionDeclaration		renderPcCalendarHtml	25326	25352	27	7689		1	7
+1080	FunctionDeclaration		handlePcCalendarPage	25354	25359	6	358		1	5
+1081	VariableDeclaration	const	MONEY_PLAN_TABS	25366	25370	5	197		1	0
+1082	FunctionDeclaration		renderMoneyPlanTabs	25372	25379	8	621		3	4
+1083	FunctionDeclaration		moneyPlanTabsCss	25381	25393	13	1245		3	0
+1084	FunctionDeclaration		cursorPrefKey	25398	25400	3	176		3	0
+1085	FunctionDeclaration		handleCursorPreference	25401	25409	9	542		1	5
+1086	FunctionDeclaration		handleCursorPreferenceSave	25410	25425	16	982		1	8
+1087	FunctionDeclaration		renderHomeLayoutSection	25430	25438	9	1090		1	2
+1088	FunctionDeclaration		handleHomeLayoutPage	25440	25464	25	4524		1	20
+1089	FunctionDeclaration		handleHomeLayoutSave	25466	25502	37	1836		1	9
+1090	FunctionDeclaration		handleBudgetCenterPage	25504	25583	80	18143		1	30
+1091	FunctionDeclaration		handleBudgetCenterPageLegacyV2264	25585	25619	35	13844		0	27
+1092	FunctionDeclaration		normalizeRecurringDay	25621	25624	4	150	Y	4	0
+1093	FunctionDeclaration		renderRecurringEditForm	25626	25628	3	1475		2	3
+1094	FunctionDeclaration		handleRecurringSave	25630	25669	40	2946		1	17
+1095	FunctionDeclaration		handleRecurringDelete	25671	25696	26	1905		1	12
+1096	FunctionDeclaration		handleRecurringApply	25698	25729	32	2127		1	11
+1097	FunctionDeclaration		addQueryToUrl	25731	25735	5	249		17	0
+1098	FunctionDeclaration		renderMyStartChoiceHtml	25737	25742	6	3798	Y	10	3
+1099	FunctionDeclaration		localWebUserKey	25744	25747	4	187		0	2
+1100	FunctionDeclaration		ensureLocalLoginUser	25749	25751	3	148		1	1
+1101	FunctionDeclaration		createLocalLoginUser	25753	25777	25	1663		1	7
+1102	FunctionDeclaration		classifyLocalSignupError	25779	25800	22	1324		1	1
+1103	FunctionDeclaration		handleMyLocalLogin	25802	25845	44	3573		1	15
+1104	FunctionDeclaration		handleMyLocalSignup	25847	25900	54	3866		1	16
+1105	FunctionDeclaration		kakaoLoginStatusBlock	25902	25911	10	810		1	1
+1106	FunctionDeclaration		handleMyBackupLoginPage	25913	25923	11	825		1	9
+1107	FunctionDeclaration		handleMyBackupLoginSave	25925	25958	34	2591		1	16
+1108	FunctionDeclaration		renderMyBackupLoginHtml	25960	25966	7	5329		2	6
+1109	FunctionDeclaration		renderKakaoLoginCheckHtml	25968	25985	18	3354		1	3
+1110	VariableDeclaration	const	KAKAO_WEB_CLAIM_KEY	25987	25987	1	54		2	0
+1111	VariableDeclaration	const	KAKAO_WEB_CLAIM_TTL_MS	25988	25988	1	46		1	0
+1112	VariableDeclaration	const	KAKAO_WEB_CLAIM_CAPACITY	25989	25989	1	37		1	0
+1113	FunctionDeclaration		normalizeKakaoWebClaimCode	25991	25996	6	250		1	0
+1114	FunctionDeclaration		makeKakaoWebClaimCode	25998	26002	5	219		1	0
+1115	FunctionDeclaration		parseKakaoWebClaims	26004	26012	9	567		2	2
+1116	FunctionDeclaration		activeKakaoWebClaims	26014	26016	3	177		2	0
+1117	FunctionDeclaration		kakaoClaimUserUnmerged	26018	26024	7	448		5	3
+1118	FunctionDeclaration		kakaoClaimSecurityVersion	26026	26030	5	359		3	1
+1119	FunctionDeclaration		initializeKakaoClaimSecurity	26032	26049	18	741		1	3
+1120	FunctionDeclaration		retainKakaoClaimTombstone	26051	26062	12	734		2	2
+1121	FunctionDeclaration		issueKakaoWebClaim	26064	26087	24	1488		1	15
+1122	FunctionDeclaration		kakaoPrivateWebLinkReply	26089	26101	13	1009		1	9
+1123	FunctionDeclaration		handleMyKakaoClaim	26103	26153	51	3660		1	20
+1124	FunctionDeclaration		renderKakaoClaimForm	26155	26157	3	893		2	0
+1125	FunctionDeclaration		loginEntryAnchorClientMain	26159	26163	5	255		1	0
+1126	FunctionDeclaration		renderUserLoginHtml	26165	26177	13	21576		7	8
+1127	FunctionDeclaration		myNavCss	26178	26197	20	3236		10	0
+1128	FunctionDeclaration		renderMySideNav	26199	26215	17	2250		8	1
+1129	FunctionDeclaration		renderMemberOptions	26217	26219	3	382		0	2
+1130	FunctionDeclaration		addMonthsYm	26221	26224	4	205		9	0
+1131	FunctionDeclaration		calculateExtendedAnalytics	26226	26261	36	2832		6	7
+1132	FunctionDeclaration		categoryExpenseMap	26263	26271	9	231		3	0
+1133	FunctionDeclaration		percentChange	26273	26277	5	193		6	0
+1134	FunctionDeclaration		formatSignedPercent	26279	26283	5	109		6	0
+1135	FunctionDeclaration		deltaClass	26285	26287	3	90		3	0
+1136	FunctionDeclaration		buildWeekdayStats	26289	26300	12	515		1	0
+1137	FunctionDeclaration		renderStrategyCards	26302	26312	11	1434		3	3
+1138	FunctionDeclaration		renderMonthlyTrendMini	26314	26318	5	480		1	2
+1139	FunctionDeclaration		renderMonthlyTrendTable	26320	26324	5	697		4	2
+1140	FunctionDeclaration		renderCategoryCompareTable	26326	26330	5	687		3	4
+1141	FunctionDeclaration		renderCategoryTrendTable	26332	26336	5	722		1	2
+1142	FunctionDeclaration		renderYearlyMonthSummary	26338	26342	5	250		1	1
+1143	FunctionDeclaration		renderWeekdayStats	26344	26348	5	487		1	2
+1144	FunctionDeclaration		calculateDashboardAnalysis	26350	26406	57	5308		3	5
+1145	FunctionDeclaration		forecastMonthlyExpense	26408	26414	7	377		1	2
+1146	FunctionDeclaration		chooseMemeCard	26416	26419	4	133		2	2
+1147	FunctionDeclaration		detectMonthlyCardKey	26421	26452	32	1797		1	0
+1148	FunctionDeclaration		buildMemeCardFromKey	26454	26478	25	1084		1	5
+1149	FunctionDeclaration		getCoreCardPool	26480	26513	34	5455		1	0
+1150	FunctionDeclaration		getMemeVariantPool	26515	26530	16	1230		1	0
+1151	FunctionDeclaration		buildCardPower	26532	26535	4	406		1	0
+1152	FunctionDeclaration		formatTemplate	26537	26539	3	122		1	0
+1153	FunctionDeclaration		hashString	26541	26545	5	144		1	0
+1154	FunctionDeclaration		buildCollectionState	26547	26575	29	1114		0	6
+1155	FunctionDeclaration		cardGradeScore	26577	26577	1	135		2	0
+1156	FunctionDeclaration		buildDailyNoSpendCard	26579	26591	13	794		1	0
+1157	FunctionDeclaration		buildDailyNoRecordCard	26593	26595	3	268		1	0
+1158	FunctionDeclaration		buildDailySpendCard	26597	26618	22	2280		1	1
+1159	FunctionDeclaration		buildShareWall	26620	26631	12	464		1	1
+1160	FunctionDeclaration		isPremiumUnlocked	26633	26635	3	69		1	1
+1161	FunctionDeclaration		buildPremiumState	26637	26672	36	1249		2	4
+1162	FunctionDeclaration		estimateSavingPotential	26674	26681	8	496		1	0
+1163	FunctionDeclaration		buildPremiumMissions	26683	26692	10	1024		1	1
+1164	FunctionDeclaration		buildSmartBudgets	26694	26701	8	473		1	1
+1165	FunctionDeclaration		renderInlinePremiumTeaser	26703	26705	3	403		1	1
+1166	FunctionDeclaration		renderPremiumTab	26707	26709	3	1742		1	3
+1167	FunctionDeclaration		renderPremiumBudgetTable	26711	26714	4	514		1	2
+1168	FunctionDeclaration		buildAffiliateState	26716	26810	95	3388		1	3
+1169	FunctionDeclaration		affiliateLink	26812	26815	4	117		1	0
+1170	FunctionDeclaration		renderAffiliateCard	26817	26821	5	740		2	1
+1171	FunctionDeclaration		renderInlineAffiliateZone	26823	26826	4	496		1	3
+1172	FunctionDeclaration		renderAffiliateTab	26828	26830	3	665		1	1
+1173	FunctionDeclaration		renderCollectionTab	26832	26838	7	2401		0	4
+1174	FunctionDeclaration		renderDailyMiniCard	26840	26843	4	718		1	2
+1175	FunctionDeclaration		buildCardShareUrl	26845	26858	14	565		2	0
+1176	FunctionDeclaration		renderPublicShareCardHtml	26860	26876	17	5025		1	2
+1177	FunctionDeclaration		renderInsightCards	26878	26888	11	1646		1	2
+1178	FunctionDeclaration		buildCustomStats	26890	26906	17	1024		1	0
+1179	FunctionDeclaration		renderCustomStats	26908	26912	5	770		1	2
+1180	FunctionDeclaration		renderServerCalendar	26914	26932	19	1507		1	5
+1181	FunctionDeclaration		renderTransactionPager	26934	26951	18	1385		1	2
+1182	FunctionDeclaration		renderTransactionEditModal	26953	26955	3	1558		1	1
+1183	FunctionDeclaration		renderTransactionTurboScript	26957	26959	3	3409		1	0
+1184	FunctionDeclaration		renderDesktopTransactionTable	26961	26972	12	2203		1	2
+1185	VariableDeclaration	const	DEFAULT_CATEGORIES	26974	26974	1	302		9	0
+1186	VariableDeclaration	const	DEFAULT_PAYMENTS	26975	26975	1	149		3	0
+1187	FunctionDeclaration		mergedOptions	26977	26986	10	247		6	0
+1188	FunctionDeclaration		formatMessage	26988	27041	54	6982	Y	20	1
+1189	FunctionDeclaration		isMissingCategory	27043	27046	4	154		6	0
+1190	FunctionDeclaration		isMissingPayment	27048	27051	4	133		4	0
+1191	FunctionDeclaration		renderQualityOptions	27053	27056	4	326		1	0
+1192	FunctionDeclaration		renderGroupOptions	27058	27061	4	304		1	0
+1193	FunctionDeclaration		groupLabel	27063	27065	3	179		1	0
+1194	FunctionDeclaration		kakaoSkillSafeFallbackText	27067	27077	11	210		5	0
+1195	FunctionDeclaration		kakaoNoMatchGuideText	27079	27120	42	993		1	1
+1196	FunctionDeclaration		detectKakaoAmbiguity	27122	27146	25	887	Y	2	3
+1197	FunctionDeclaration		kakaoAmbiguityGuide	27148	27180	33	997		1	1
+1198	VariableDeclaration	const	KAKAO_GREETING_PATTERN	27184	27184	1	153		1	0
+1199	FunctionDeclaration		isKakaoGreetingUtterance	27186	27190	5	172		1	2
+1200	FunctionDeclaration		kakaoGreetingReply	27192	27199	8	398		1	1
+1201	FunctionDeclaration		kakaoNoMatchGuide	27201	27216	16	991		1	4
+1202	FunctionDeclaration		kakaoInputExampleText	27218	27237	20	337		1	0
+1203	FunctionDeclaration		kakaoKeywordGuideText	27239	27252	14	291		1	0
+1204	FunctionDeclaration		kakaoEditSimpleGuideText	27254	27266	13	252		1	0
+1205	FunctionDeclaration		kakaoReserveSimpleGuideText	27268	27278	11	223		1	0
+1206	FunctionDeclaration		kakaoBudgetGuideText	27280	27288	9	188		1	0
+1207	FunctionDeclaration		kakaoOpenBuilderGuideText	27290	27313	24	564		1	0
+1208	FunctionDeclaration		kakaoBrandGuideText	27315	27329	15	355		1	1
+1209	FunctionDeclaration		kakaoDataPolicyText	27331	27349	19	435		1	0
+1210	VariableDeclaration	const	KAKAO_INTENT_REGISTRY	27353	27375	23	2726		3	0
+1211	FunctionDeclaration		normalizeKakaoIntentText	27377	27408	32	1219	Y	3	1
+1212	FunctionDeclaration		compactKakaoIntentText	27410	27412	3	107		0	1
+1213	FunctionDeclaration		containsIntentTerm	27414	27418	5	226		1	0
+1214	FunctionDeclaration		detectKakaoNaturalIntent	27420	27505	86	4611	Y	21	3
+1215	FunctionDeclaration		kakaoNluRuntimeConfig	27506	27516	11	437		1	3
+1216	FunctionDeclaration		kakaoNluRegistrySummary	27518	27520	3	207	Y	1	1
+1217	FunctionDeclaration		isCommandMenuCommand	27522	27526	5	273		4	1
+1218	FunctionDeclaration		isMemeCommand	27528	27530	3	114		1	1
+1219	FunctionDeclaration		isHouseholdSwitchCommand	27532	27535	4	274		4	2
+1220	FunctionDeclaration		parseCreateHouseholdCommand	27537	27542	6	315		1	1
+1221	FunctionDeclaration		kakaoCommandMenuText	27544	27557	14	430		2	2
+1222	FunctionDeclaration		kakaoMemeGuideText	27559	27572	14	386		1	0
+1223	FunctionDeclaration		kakaoMemeUnavailableText	27574	27582	9	294		1	0
+1224	FunctionDeclaration		kakaoImageNotSupportedText	27584	27592	9	231		1	0
+1225	FunctionDeclaration		hasKakaoImageAttachment	27594	27606	13	569		1	1
+1226	FunctionDeclaration		kakaoHouseholdSwitchText	27608	27637	30	857		0	2
+1227	FunctionDeclaration		kakaoPublicCommandReply	27639	27652	14	975		1	24
+1228	FunctionDeclaration		kakaoSaveDelayText	27654	27661	8	190		1	0
+1229	FunctionDeclaration		isUncertainStorageWrite	27664	27670	7	345	Y	23	0
+1230	FunctionDeclaration		isDefiniteStorageFailure	27672	27675	4	198	Y	6	2
+1231	FunctionDeclaration		kakaoSaveFailedText	27677	27684	8	172		1	0
+1232	FunctionDeclaration		kakaoSafeText	27686	27690	5	281		2	0
+1233	FunctionDeclaration		kakaoQr	27692	27700	9	480		3	0
+1234	FunctionDeclaration		dedupeQuickReplies	27702	27715	14	423		12	1
+1235	FunctionDeclaration		kakaoDefaultQuickReplies	27717	27727	11	271		2	1
+1236	FunctionDeclaration		kakaoQuickRepliesForText	27729	27733	5	150		0	0
+1237	FunctionDeclaration		kakaoText	27735	27751	17	412		11	3
+1238	VariableDeclaration	const	KAKAO_GROUP_SUPPORTED_OUTPUTS	27753	27760	8	141		1	0
+1239	FunctionDeclaration		kakaoGroupTextChoices	27762	27771	10	512		1	1
+1240	FunctionDeclaration		kakaoGroupCompatibleResponse	27773	27812	40	1793		1	6
+1241	FunctionDeclaration		kakaoEditConversationScope	27814	27816	3	104		4	1
+1242	FunctionDeclaration		kakaoEditSessionKeyV4	27820	27822	3	193		2	2
+1243	VariableDeclaration	const	AB_KAKAO_EDIT_SESSION_HINTS	27826	27826	1	46		3	0
+1244	FunctionDeclaration		kakaoEditSessionHintKey	27828	27830	3	180		3	2
+1245	FunctionDeclaration		hasKakaoEditSessionHint	27832	27835	4	231		1	3
+1246	FunctionDeclaration		getKakaoEditSessionV4	27837	27849	13	580		2	4
+1247	FunctionDeclaration		saveKakaoEditSessionV4	27853	27862	10	580		2	4
+1248	FunctionDeclaration		kakaoEditUndoKeyV4	27864	27866	3	195		2	2
+1249	VariableDeclaration	const	KAKAO_EDIT_UNDO_TTL_MS	27868	27868	1	51		2	0
+1250	VariableDeclaration	const	KAKAO_EDIT_UNDO_MAX	27872	27872	1	31		1	0
+1251	FunctionDeclaration		kakaoEditUndoItemsV4	27875	27879	5	260		1	0
+1252	FunctionDeclaration		readKakaoEditUndoItemsV4	27881	27894	14	507		3	3
+1253	FunctionDeclaration		writeKakaoEditUndoItemsV4	27896	27905	10	462		2	3
+1254	FunctionDeclaration		saveKakaoEditUndoV4	27907	27915	9	633		2	4
+1255	FunctionDeclaration		takeKakaoEditUndoV4	27918	27923	6	309		1	1
+1256	FunctionDeclaration		clearKakaoEditUndoV4	27926	27933	8	414		1	2
+1257	FunctionDeclaration		twoDigitSeq	27935	27937	3	94		5	0
+1258	FunctionDeclaration		kakaoRowLabel	27939	27944	6	316		3	2
+1259	FunctionDeclaration		isKakaoRowOwnedByRequesterV2254	27946	27950	5	289		3	0
+1260	FunctionDeclaration		getDailyKakaoRows	27952	27961	10	631		3	2
+1261	FunctionDeclaration		getKakaoRowById	27963	27972	10	590		3	2
+1262	FunctionDeclaration		deleteKakaoRowById	27974	27979	6	198		2	1
+1263	FunctionDeclaration		findDailyKakaoRowBySeq	27981	27985	5	270		1	1
+1264	FunctionDeclaration		dailySeqForKakaoRow	27987	27991	5	321		3	3
+1265	FunctionDeclaration		getRecentKakaoOwnedTransactionsV2254	27993	28001	9	683		2	2
+1266	FunctionDeclaration		isKakaoDailyListCommand	28003	28006	4	320		1	1
+1267	FunctionDeclaration		isKakaoEditGuideCommand	28008	28010	3	125		2	1
+1268	FunctionDeclaration		isKakaoEditCancelCommand	28012	28014	3	124		1	1
+1269	FunctionDeclaration		stripKakaoEditDatePrefixV4	28020	28025	6	238		1	1
+1270	FunctionDeclaration		splitKakaoEditDatePrefixV4	28030	28035	6	314		2	4
+1271	FunctionDeclaration		parseKakaoDeleteCommandV4	28037	28047	11	583	Y	4	4
+1272	FunctionDeclaration		parseKakaoRestoreCommandV4	28049	28054	6	237	Y	4	1
+1273	FunctionDeclaration		parseKakaoEditCommandV4	28056	28076	21	921	Y	3	6
+1274	FunctionDeclaration		isKakaoTransactionSpenderChangeCommand	28078	28081	4	323		3	1
+1275	FunctionDeclaration		parseKakaoSpenderChoiceValue	28083	28090	8	385		1	1
+1276	FunctionDeclaration		kakaoActiveSpenderMembers	28092	28094	3	176		1	1
+1277	FunctionDeclaration		kakaoEditMenuTextV4	28097	28105	9	247	Y	1	1
+1278	FunctionDeclaration		kakaoEditGuideText	28107	28133	27	548		1	0
+1279	VariableDeclaration	const	FIELD_SYNONYMS	28154	28162	9	372	Y	3	0
+1280	VariableDeclaration	const	FIELD_BY_NUMBER	28164	28167	4	123	Y	1	0
+1281	VariableDeclaration	const	FIELD_LABEL	28169	28172	4	129	Y	3	0
+1282	VariableDeclaration	const	FILLER_TOKENS	28174	28177	4	122		1	0
+1283	VariableDeclaration	const	CANCEL_WORDS	28180	28180	1	91		1	0
+1284	VariableDeclaration	const	HELP_WORDS	28181	28181	1	71		1	0
+1285	VariableDeclaration	const	YES_WORDS	28182	28182	1	92		1	0
+1286	VariableDeclaration	const	NO_WORDS	28183	28183	1	78		1	0
+1287	VariableDeclaration	const	DATE_WORDS	28186	28186	1	73		1	0
+1288	VariableDeclaration	const	METHOD_WORDS	28187	28187	1	96		1	0
+1289	FunctionDeclaration		normalize	28190	28192	3	79		6	0
+1290	FunctionDeclaration		compact	28194	28196	3	79		6	1
+1291	FunctionDeclaration		josa	28200	28216	17	598		3	0
+1292	FunctionDeclaration		editDistance	28219	28234	16	475		2	0
+1293	FunctionDeclaration		tokenToField	28237	28246	10	362		1	4
+1294	FunctionDeclaration		tokenToFieldFuzzy	28250	28257	8	306		1	4
+1295	FunctionDeclaration		inferFieldFromValue	28260	28284	25	1216		1	4
+1296	VariableDeclaration	const	KAKAO_EDIT_AMOUNT_SHAPE	28292	28292	1	79		1	0
+1297	FunctionDeclaration		normalizeKakaoEditAmountValue	28294	28302	9	378		3	3
+1298	FunctionDeclaration		parseEditInput	28304	28336	33	1107	Y	2	6
+1299	FunctionDeclaration		failMessage	28340	28357	18	703		1	3
+1300	FunctionDeclaration		nearestField	28359	28371	13	434		1	3
+1301	FunctionDeclaration		exampleFor	28373	28378	6	186		1	0
+1302	FunctionDeclaration		buildValuePrompt	28384	28408	25	1071	Y	1	0
+1303	VariableDeclaration(fn)	const	HELP_TEXT	28410	28417	8	242		1	0
+1304	VariableDeclaration	const	SESSION_TTL_MS	28424	28424	1	37	Y	2	0
+1305	VariableDeclaration	const	MAX_FAILS	28425	28425	1	20	Y	2	0
+1306	VariableDeclaration	const	MAX_TOTAL_TURNS	28428	28428	1	26	Y	2	0
+1307	FunctionDeclaration		isSessionExpired	28430	28432	3	145	Y	1	1
+1308	FunctionDeclaration		expiredReply	28435	28443	9	223		1	0
+1309	FunctionDeclaration		handleEditMessage	28445	28568	124	4545	Y	3	19
+1310	FunctionDeclaration		editValueLabel	28571	28574	4	180		2	1
+1311	FunctionDeclaration		applyResult	28576	28585	10	341		1	4
+1312	FunctionDeclaration		fail	28588	28612	25	889		1	3
+1313	FunctionDeclaration		finish	28615	28621	7	260		3	0
+1314	VariableDeclaration	const	MENU_EXAMPLES	28625	28645	21	1428		1	0
+1315	FunctionDeclaration		selfTest	28647	28658	12	453	Y	0	2
+1316	FunctionDeclaration		loopFuzzTest	28663	28703	41	1579	Y	0	2
+1317	FunctionDeclaration		buildKakaoEditConfigV4	28710	28745	36	1466		2	5
+1318	FunctionDeclaration		logKakaoEditTelemetryV4	28748	28763	16	634		3	2
+1319	FunctionDeclaration		sendKakaoEditReplyV4	28767	28789	23	1034		2	3
+1320	FunctionDeclaration		applyKakaoEditFieldV4	28792	28856	65	2858		1	7
+1321	FunctionDeclaration		processKakaoEditResultV4	28859	28895	37	2170		2	8
+1322	FunctionDeclaration		handleKakaoEditSessionMessageV4	28898	28905	8	532		1	5
+1323	FunctionDeclaration		resolveKakaoEditTargetRowV4	28907	28917	11	607		1	3
+1324	FunctionDeclaration		kakaoEditRowNotFoundTextV4	28919	28923	5	256		1	3
+1325	FunctionDeclaration		startKakaoEditFlowV4	28927	28954	28	1096		1	7
+1326	FunctionDeclaration		handleKakaoEditCommandV4	28958	29047	90	4409		1	26
+1327	FunctionDeclaration		stripKakaoBotMention	29049	29056	8	308		3	0
+1328	FunctionDeclaration		stripLeadingCommand	29058	29070	13	504		3	1
+1329	FunctionDeclaration		isStrongKakaoTransactionInput	29072	29089	18	957		1	4
+1330	FunctionDeclaration		optionalWithin	29091	29103	13	359		1	0
+1331	FunctionDeclaration		checkKakaoRepeatGuard	29105	29128	24	2150		1	32
+1332	FunctionDeclaration		clearKakaoInFlight	29132	29134	3	83		1	1
+1333	VariableDeclaration	const	AB_KAKAO_PERSISTED_RESPONSE	29137	29137	1	87		1	0
+1334	FunctionDeclaration		armKakaoRepeatGuard	29139	29149	11	417		1	2
+1335	FunctionDeclaration		kakaoRepeatGuardText	29151	29157	7	171		1	0
+1336	FunctionDeclaration		buildKakaoSkillTestPayload	29159	29179	21	664		1	0
+1337	FunctionDeclaration		isKakaoQaPayload	29181	29188	8	395		1	1
+1338	FunctionDeclaration		kakaoQaRequestAllowed	29190	29192	3	138		2	2
+1339	FunctionDeclaration		normalizeKakaoSkillResponse	29194	29209	16	612		1	3
+1340	FunctionDeclaration		isKakaoStartCommand	29215	29217	3	178		4	2
+1341	FunctionDeclaration		isKakaoCreateFlowCommand	29219	29221	3	204		3	2
+1342	FunctionDeclaration		isKakaoJoinFlowCommand	29223	29225	3	194		3	2
+1343	FunctionDeclaration		isKakaoBudgetSetupCommand	29227	29229	3	217		3	1
+1344	FunctionDeclaration		isKakaoMemberAliasCommand	29231	29235	5	457		3	2
+1345	FunctionDeclaration		parseDirectMemberAliasCommand	29237	29254	18	923		1	1
+1346	FunctionDeclaration		isKakaoFlowCancelCommand	29256	29258	3	163		4	2
+1347	FunctionDeclaration		isExplicitKakaoFlowCancelCommandV2254	29260	29262	3	122		2	1
+1348	FunctionDeclaration		isKakaoGuidedCommand	29264	29271	8	529		2	7
+1349	FunctionDeclaration		kakaoStartQuickReplies	29273	29286	14	360		4	1
+1350	FunctionDeclaration		kakaoCreateKindQuickReplies	29288	29297	10	253		2	1
+1351	FunctionDeclaration		kakaoBudgetRootQuickReplies	29299	29307	9	204		2	1
+1352	FunctionDeclaration		kakaoBudgetCategoryQuickReplies	29309	29320	12	310		1	1
+1353	FunctionDeclaration		kakaoBudgetAmountQuickReplies	29322	29330	9	190		1	1
+1354	VariableDeclaration	const	KAKAO_FLOW_STEPS_V2254	29332	29338	7	359		2	0
+1355	FunctionDeclaration		normalizeKakaoFlowStateV2254	29340	29355	16	569		1	2
+1356	FunctionDeclaration		isKakaoTopLevelCommandV2254	29357	29366	10	691		1	22
+1357	FunctionDeclaration		isExplicitKakaoTopLevelCommandV2254	29368	29379	12	803		5	2
+1358	FunctionDeclaration		isKakaoFlowLocalReplyV2254	29381	29405	25	1652		1	13
+1359	FunctionDeclaration		shouldInterruptKakaoFlowV2254	29407	29409	3	180		2	2
+1360	FunctionDeclaration		isUnsafeHouseholdNameContent	29414	29423	10	568		1	2
+1361	FunctionDeclaration		isUnsafeKakaoNameInputV2254	29425	29430	6	279		3	5
+1362	FunctionDeclaration		kakaoFlowStateKey	29432	29435	4	215		3	2
+1363	FunctionDeclaration		getKakaoFlowState	29437	29455	19	749		3	5
+1364	FunctionDeclaration		saveKakaoFlowState	29457	29475	19	801		4	4
+1365	FunctionDeclaration		clearKakaoFlowState	29477	29483	7	324		5	2
+1366	FunctionDeclaration		completeKakaoFlowState	29485	29492	8	245		3	1
+1367	FunctionDeclaration		kakaoSelectedHouseholdKey	29499	29501	3	140		3	0
+1368	FunctionDeclaration		getKakaoSelectedHouseholdId	29503	29505	3	163		4	2
+1369	FunctionDeclaration		setKakaoSelectedHousehold	29507	29514	8	387		4	2
+1370	FunctionDeclaration		clearKakaoSelectedHousehold	29516	29523	8	352		3	2
+1371	FunctionDeclaration		kakaoActiveHouseholds	29525	29527	3	148		4	1
+1372	FunctionDeclaration		kakaoManageableHouseholds	29529	29531	3	159		3	1
+1373	FunctionDeclaration		kakaoHouseholdChoiceQuickReplies	29533	29538	6	250		2	2
+1374	FunctionDeclaration		kakaoHouseholdListLines	29540	29546	7	344		4	2
+1375	FunctionDeclaration		parseKakaoHouseholdChoice	29548	29558	11	500		1	1
+1376	FunctionDeclaration		beginKakaoHouseholdChoice	29560	29598	39	2275		1	12
+1377	FunctionDeclaration		kakaoUnlinkedGroupStartText	29600	29615	16	859		1	2
+1378	FunctionDeclaration		kakaoDirectStartText	29617	29628	12	499		1	3
+1379	FunctionDeclaration		kakaoStartText	29630	29646	17	472		3	0
+1380	FunctionDeclaration		guidedHelpText	29648	29667	20	574		1	0
+1381	FunctionDeclaration		parseKakaoCreateKind	29669	29688	20	1048		5	1
+1382	FunctionDeclaration		kakaoCreateKindPromptText	29690	29704	15	369		2	0
+1383	FunctionDeclaration		isKakaoCreateKindOptionsRequest	29706	29709	4	268		3	1
+1384	FunctionDeclaration		isKakaoCreateConfirmYes	29711	29714	4	284		4	1
+1385	FunctionDeclaration		isKakaoCreateConfirmNo	29716	29719	4	216		4	1
+1386	FunctionDeclaration		isKakaoReservedCreateFlowReply	29721	29724	4	269		4	3
+1387	FunctionDeclaration		inferKakaoCreateKind	29726	29734	9	403		2	1
+1388	FunctionDeclaration		plausibleHouseholdNameAtKindStep	29736	29745	10	532		2	7
+1389	FunctionDeclaration		suggestedHouseholdName	29747	29753	7	269		1	0
+1390	FunctionDeclaration		sanitizeHouseholdNameInput	29755	29761	7	395		3	5
+1391	FunctionDeclaration		sanitizeWebHouseholdNameInput	29767	29773	7	331		3	2
+1392	FunctionDeclaration		parseBareInviteCode	29775	29778	4	173		2	1
+1393	FunctionDeclaration		normalizeBudgetCategoryInput	29780	29796	17	659		2	1
+1394	FunctionDeclaration		parseBudgetMonthHint	29798	29809	12	533		1	3
+1395	FunctionDeclaration		parseDirectBudgetSetCommand	29811	29841	31	1895	Y	1	6
+1396	FunctionDeclaration		resolveBudgetCategoryName	29843	29851	9	563		2	4
+1397	FunctionDeclaration		saveKakaoBudget	29853	29855	3	215		3	3
+1398	FunctionDeclaration		copyKakaoBudgetsFromPreviousMonth	29857	29864	8	613		1	5
+1399	FunctionDeclaration		getHouseholdById	29866	29871	6	418		4	1
+1400	FunctionDeclaration		parseKakaoSummaryRange	29873	29907	35	2258		3	6
+1401	FunctionDeclaration		maybeKakaoCta	29909	29925	17	860		3	2
+1402	FunctionDeclaration		kakaoInviteManagementText	29927	29943	17	548		3	0
+1403	FunctionDeclaration		kakaoDateSummaryText	29945	29971	27	1677		1	5
+1404	FunctionDeclaration		findExistingKakaoHouseholdByNameV2254	29973	29978	6	389		3	3
+1405	FunctionDeclaration		handlePreHouseholdGuidedFlow	29980	30173	194	13394		1	41
+1406	FunctionDeclaration		handleHouseholdGuidedFlow	30175	30278	104	7272		1	26
+1407	VariableDeclaration	const	KAKAO_SKILL_MAX_BODY_BYTES	30280	30280	1	46		2	0
+1408	FunctionDeclaration		readRequestTextBounded	30282	30307	26	952		1	1
+1409	FunctionDeclaration		handleKakaoSkillStable	30309	30442	134	8129		1	33
+1410	FunctionDeclaration		handleKakaoSkill	30444	30794	351	23105		1	102
+1411	FunctionDeclaration		saveKakaoParsedTransactionsReply	30796	30880	85	6080		3	22
+1412	FunctionDeclaration		fetchKakaoInputSettings	30882	30892	11	1324		1	11
+1413	VariableDeclaration	const	KAKAO_RETRY_DEDUP_SECONDS	30894	30894	1	38		3	0
+1414	FunctionDeclaration		dedupeKakaoRowsBeforeInsert	30896	30911	16	1433		1	3
+1415	FunctionDeclaration		insertKakaoTransactions	30913	30955	43	2381		1	8
+1416	FunctionDeclaration		handleKakaoRecentDebug	30957	30966	10	1732		1	5
+1417	FunctionDeclaration		handleUserTxSearch	30970	31009	40	2097		1	7
+1418	FunctionDeclaration		fetchRecentTransactionRows	31011	31020	10	724		1	2
+1419	FunctionDeclaration		handleUserRecentTransactions	31024	31078	55	2514		1	11
+1420	FunctionDeclaration		handleUserDayTransactions	31084	31146	63	2874		1	12
+1421	FunctionDeclaration		handleUserNotifications	31150	31230	81	4765		1	20
+1422	FunctionDeclaration		favoritesKey	31233	31235	3	178		1	0
+1423	FunctionDeclaration		normalizeFavoriteSnapshot	31236	31250	15	608		2	1
+1424	FunctionDeclaration		normalizeFavoriteList	31251	31265	15	440		1	1
+1425	FunctionDeclaration		handleUserFavorites	31266	31293	28	1770		1	10
+1426	FunctionDeclaration		goalsKey	31296	31298	3	111		2	0
+1427	FunctionDeclaration		normalizeGoal	31299	31313	15	635		2	1
+1428	FunctionDeclaration		normalizeGoalList	31314	31328	15	423		1	1
+1429	FunctionDeclaration		enrichGoal	31329	31345	17	761		1	1
+1430	FunctionDeclaration		goalsPayload	31346	31356	11	456		1	1
+1431	FunctionDeclaration		handleUserGoals	31357	31432	76	5311		1	20
+1432	FunctionDeclaration		handleApi	31434	31529	96	6092		1	21
+1433	FunctionDeclaration		normalizeApiTransactionBody	31531	31549	19	597		1	0
+1434	FunctionDeclaration		readAdminApiJson	31551	31561	11	600		1	1
+1435	FunctionDeclaration		validateAdminApiTransactionBody	31563	31575	13	1574		1	4
+1436	FunctionDeclaration		isAdmin	31577	31582	6	245		1	1
+1437	FunctionDeclaration		readJson	31584	31592	9	169		4	0
+1438	FunctionDeclaration		getKakaoBotGroupKey	31594	31611	18	606		11	0
+1439	FunctionDeclaration		kakaoGroupLinksSettingsKey	31613	31615	3	71		5	0
+1440	FunctionDeclaration		getExplicitKakaoBotGroupKey	31619	31625	7	442	Y	1	0
+1441	FunctionDeclaration		kakaoGroupFirstKeys	31627	31636	10	510	Y	2	1
+1442	FunctionDeclaration		parseKakaoGroupFirstMarker	31638	31648	11	835		3	2
+1443	FunctionDeclaration		parseKakaoGroupDepartures	31650	31658	9	509		3	2
+1444	FunctionDeclaration		readKakaoGroupFirstSnapshot	31660	31680	21	2355	Y	4	9
+1445	FunctionDeclaration		kakaoGroupPreparationUnknown	31682	31686	5	170		2	0
+1446	FunctionDeclaration		strictKakaoGroupMembershipRows	31688	31691	4	321		1	1
+1447	FunctionDeclaration		insertKakaoGroupFirstSetting	31693	31713	21	1088		2	4
+1448	FunctionDeclaration		withKakaoGroupLifecycleLease	31715	31722	8	543		4	2
+1449	FunctionDeclaration		markKakaoGroupRetired	31724	31728	5	244		4	2
+1450	FunctionDeclaration		markKakaoGroupDeparture	31730	31737	8	498		2	4
+1451	FunctionDeclaration		preserveKakaoGroupDeparturesForMerge	31739	31752	14	1391		1	5
+1452	FunctionDeclaration		tryKakaoGroupFirstRecord	31754	31899	146	11854		1	28
+1453	FunctionDeclaration		kakaoGroupLinkItemSettingsKey	31901	31905	5	245	Y	5	1
+1454	FunctionDeclaration		normalizeKakaoGroupLinkItem	31907	31924	18	730		7	1
+1455	FunctionDeclaration		fetchLegacyKakaoGroupLinkMap	31926	31945	20	847		5	7
+1456	FunctionDeclaration		fetchKakaoGroupLinkItemRows	31947	31957	11	500		1	2
+1457	FunctionDeclaration		fetchKakaoGroupLinkMap	31959	31965	7	209		5	2
+1458	FunctionDeclaration		saveKakaoGroupLinkItem	31967	31978	12	578		2	3
+1459	FunctionDeclaration		removeKakaoGroupLinksForHousehold	31980	31986	7	422		1	2
+1460	FunctionDeclaration		removeKakaoGroupLink	31988	32012	25	1435	Y	2	9
+1461	FunctionDeclaration		saveKakaoGroupLink	32014	32037	24	996		1	5
+1462	FunctionDeclaration		getLinkedKakaoGroupHousehold	32039	32056	18	1108		5	6
+1463	FunctionDeclaration		ensurePendingMemberIfMissing	32058	32060	3	142		1	1
+1464	FunctionDeclaration		resolveKakaoHousehold	32062	32072	11	460		0	4
+1465	FunctionDeclaration		bindKakaoGroupByInviteCode	32074	32110	37	3168	Y	3	10
+1466	FunctionDeclaration		kakaoGroupInfoText	32112	32150	39	999		1	3
+1467	FunctionDeclaration		maskIdentityKey	32152	32157	6	211		1	0
+1468	FunctionDeclaration		countUserTransactionsInHousehold	32159	32162	4	289		1	1
+1469	FunctionDeclaration		buildIdentityAudit	32164	32181	18	893		1	5
+1470	FunctionDeclaration		handleIdentityAuditPage	32183	32194	12	5322		1	10
+1471	FunctionDeclaration		handleIdentityMerge	32196	32308	113	7556		1	27
+1472	FunctionDeclaration		eligibleKakaoUserId	32310	32317	8	430		3	1
+1473	FunctionDeclaration		getKakaoUserKey	32319	32332	14	875		3	2
+1474	FunctionDeclaration		getKakaoIdentityAliases	32334	32347	14	801		3	3
+1475	FunctionDeclaration		stableShortHash	32349	32357	9	222		8	0
+1476	FunctionDeclaration		getKakaoNickname	32359	32365	7	203		1	0
+1477	FunctionDeclaration		resolveLinkedIdentityUser	32367	32377	11	429		1	4
+1478	FunctionDeclaration		identityAliasPersistenceError	32379	32385	7	282		1	1
+1479	FunctionDeclaration		isSettingsRmwBusyError	32387	32389	3	95		1	1
+1480	FunctionDeclaration		persistIdentityAliases	32391	32433	43	2315	Y	2	11
+1481	FunctionDeclaration		hasChatFirstKakaoIdentity	32437	32441	5	490		4	1
+1482	FunctionDeclaration		trustedChatFirstSkillCaller	32443	32446	4	190		3	1
+1483	FunctionDeclaration		kakaoChatFirstSettingsKey	32448	32450	3	155		2	1
+1484	FunctionDeclaration		markKakaoChatFirstHistory	32452	32455	4	285		10	1
+1485	FunctionDeclaration		kakaoChatFirstCompleted	32457	32472	16	1286		1	3
+1486	FunctionDeclaration		parseKakaoChatFirstMarker	32474	32483	10	580		3	2
+1487	FunctionDeclaration		seedKakaoChatFirstUser	32485	32505	21	1258		1	6
+1488	FunctionDeclaration		tryKakaoChatFirstRecord	32507	32573	67	4531		1	23
+1489	FunctionDeclaration		ensureUser	32575	32648	74	4130	Y	3	11
+1490	FunctionDeclaration		ensurePrimaryHousehold	32650	32677	28	1531		1	2
+1491	FunctionDeclaration		joinHouseholdByCode	32679	32723	45	2640	Y	5	8
+1492	FunctionDeclaration		getPendingHousehold	32725	32735	11	687		0	2
+1493	FunctionDeclaration		getHouseholdMemberRole	32737	32741	5	382		23	2
+1494	FunctionDeclaration		roleBlockedMessage	32743	32748	6	460		3	0
+1495	FunctionDeclaration		supabase	32750	32815	66	3808	Y	127	0
+1496	FunctionDeclaration		parseJoinCode	32817	32820	4	145		3	0
+1497	FunctionDeclaration		isHelpCommand	32822	32824	3	280		4	2
+1498	FunctionDeclaration		isInviteCommand	32826	32830	5	323		4	2
+1499	FunctionDeclaration		isLinkCommand	32832	32834	3	276		4	2
+1500	FunctionDeclaration		isSettlementCommand	32836	32838	3	241		3	2
+1501	FunctionDeclaration		kakaoSettlementText	32840	32863	24	1147		1	5
+1502	FunctionDeclaration		isSummaryCommand	32865	32867	3	190		3	2
+1503	FunctionDeclaration		isBudgetCommand	32869	32871	3	396		3	2
+1504	FunctionDeclaration		isRecentCommand	32873	32875	3	293		3	2
+1505	FunctionDeclaration		isUndoCommand	32877	32879	3	151		3	1
+1506	FunctionDeclaration		isInputExampleCommand	32881	32883	3	235		3	2
+1507	FunctionDeclaration		isKeywordGuideCommand	32885	32887	3	186		1	2
+1508	FunctionDeclaration		isEditGuideSimpleCommand	32889	32891	3	204		2	2
+1509	FunctionDeclaration		isReserveGuideCommand	32893	32895	3	199		1	2
+1510	FunctionDeclaration		isOpenBuilderGuideCommand	32897	32899	3	198		1	1
+1511	FunctionDeclaration		isBrandGuideCommand	32901	32903	3	117		1	1
+1512	FunctionDeclaration		isDataPolicyCommand	32905	32907	3	187		1	2
+1513	FunctionDeclaration		isGroupLinkInfoCommand	32909	32911	3	203		3	1
+1514	FunctionDeclaration		parseGroupBindCommand	32913	32916	4	204		3	0
+1515	FunctionDeclaration		parseMultipleTransactions	32918	32931	14	486	Y	1	2
+1516	FunctionDeclaration		hasDateHint	32933	32936	4	226		3	1
+1517	FunctionDeclaration		extractLeadingDateHint	32938	32943	6	490		2	1
+1518	FunctionDeclaration		splitTransactionClauses	32945	32968	24	1008		1	4
+1519	FunctionDeclaration		splitByAmountEnds	32970	32988	19	529		1	2
+1520	FunctionDeclaration		findAmountTokenSpans	32990	32990	1	84		1	2
+1521	FunctionDeclaration		parseTransaction	32992	33022	31	1657	Y	3	14
+1522	FunctionDeclaration		amountFailText	33024	33035	12	208		1	0
+1523	FunctionDeclaration		extractKakaoParams	33037	33048	12	468		1	1
+1524	FunctionDeclaration		unwrapKakaoParam	33050	33062	13	638		1	0
+1525	FunctionDeclaration		normalizeText	33064	33081	18	479		132	0
+1526	FunctionDeclaration		normalizeType	33083	33091	9	357		1	1
+1527	FunctionDeclaration		detectType	33093	33093	1	82		3	2
+1528	FunctionDeclaration		parseAmountValue	33095	33099	5	176		13	1
+1529	FunctionDeclaration		extractAmount	33101	33101	1	151		4	2
+1530	FunctionDeclaration		collectCombinedNumericUnitCandidates	33103	33115	13	490		0	1
+1531	FunctionDeclaration		parseMixedNumericAmount	33117	33117	1	88		1	1
+1532	FunctionDeclaration		collectSimpleUnitCandidates	33119	33134	16	635		0	0
+1533	FunctionDeclaration		collectStandardNumberCandidates	33136	33145	10	356		0	0
+1534	FunctionDeclaration		collectKoreanNumberCandidates	33147	33160	14	629		0	1
+1535	FunctionDeclaration		isLikelyDateAround	33162	33173	12	614		0	0
+1536	FunctionDeclaration		isLikelyYearOrTime	33175	33183	9	440		0	0
+1537	FunctionDeclaration		parseKoreanAmount	33185	33201	17	517		1	2
+1538	FunctionDeclaration		normalizeKoreanNumerals	33203	33214	12	295		1	0
+1539	FunctionDeclaration		parseKoreanBelow10000	33216	33233	18	563		1	1
+1540	FunctionDeclaration		koreanSimpleNumber	33235	33243	9	193		1	0
+1541	FunctionDeclaration		normalizeDateValue	33245	33250	6	175		1	3
+1542	FunctionDeclaration		parseDateStrict	33252	33294	43	1671		4	3
+1543	FunctionDeclaration		parseExplicitDateFromText	33296	33323	28	1373		1	7
+1544	FunctionDeclaration		safeYmd	33325	33332	8	412		3	1
+1545	FunctionDeclaration		excelSerialDate	33334	33338	5	266		1	0
+1546	FunctionDeclaration		extractDate	33340	33350	11	463		6	7
+1547	FunctionDeclaration		ymd	33352	33355	4	102		0	1
+1548	FunctionDeclaration		qaFixedNowMs	33360	33363	4	151		1	0
+1549	FunctionDeclaration		nowKstDate	33365	33378	14	484		50	1
+1550	FunctionDeclaration		addDays	33380	33384	5	115		8	0
+1551	FunctionDeclaration		formatDate	33386	33391	6	199		46	0
+1552	FunctionDeclaration		currentMonthKst	33393	33395	3	77		162	2
+1553	FunctionDeclaration		weekdayIndexOfYmd	33400	33403	4	171		2	0
+1554	VariableDeclaration	const	AB_WEEKDAY_PHRASE	33407	33407	1	88		1	0
+1555	FunctionDeclaration		resolveWeekdayPhrase	33408	33421	14	735	Y	2	4
+1556	FunctionDeclaration		validMonth	33426	33428	3	119		123	0
+1557	FunctionDeclaration		normalizePaymentMethod	33430	33434	5	130		2	2
+1558	FunctionDeclaration		detectPaymentMethod	33436	33456	21	955		4	1
+1559	VariableDeclaration	const	CATEGORY_RULES	33458	33505	48	4401		2	0
+1560	VariableDeclaration	const	LEGACY_CATEGORY_SPLITS	33509	33515	7	206		0	0
+1561	VariableDeclaration	const	AB_TYPE_HINTS	33532	33536	5	292		1	0
+1562	VariableDeclaration	const	AB_CATEGORY_RULES_ASSET_PATH	33540	33540	1	75		2	0
+1563	VariableDeclaration	const	AB_CATEGORY_RULES_SCRIPT_TAG	33541	33541	1	95		1	1
+1564	FunctionDeclaration		abCategoryRulesJsAsset	33542	33544	3	163		2	2
+1565	FunctionDeclaration		normalizeCategoryName	33546	33552	7	243		1	3
+1566	FunctionDeclaration		inferCategory	33554	33573	20	824		5	2
+1567	FunctionDeclaration		cleanMemo	33575	33612	38	1755		2	2
+1568	FunctionDeclaration		escapeRegExp	33614	33616	3	87		1	0
+1569	FunctionDeclaration		numberWithCommas	33618	33620	3	81		132	0
+1570	FunctionDeclaration		makeInviteCode	33622	33629	8	230		4	0
+1571	FunctionDeclaration		linkText	33631	33637	7	142		3	0
+1572	FunctionDeclaration		helpText	33639	33651	13	327		1	0
+1573	FunctionDeclaration		getRecentTransactions	33653	33661	9	491		1	1
+1574	FunctionDeclaration		deleteLatestUserTransaction	33663	33672	10	383		0	2
+1575	FunctionDeclaration		formatRecentTransactions	33674	33682	9	456		1	1
+1576	FunctionDeclaration		listTransactions	33684	33706	23	1278		1	5
+1577	FunctionDeclaration		createManualTransaction	33708	33756	49	2128		5	12
+1578	FunctionDeclaration		updateTransaction	33758	33778	21	870		4	3
+1579	FunctionDeclaration		deleteTransactionWithAudit	33780	33792	13	527		3	1
+1580	FunctionDeclaration		bulkTransactionsAtomic	33794	33810	17	831		2	3
+1581	FunctionDeclaration		recommendCategory	33816	33818	3	131		1	1
+1582	FunctionDeclaration		sanitizeTransactionBody	33820	33840	21	1898		3	4
+1583	FunctionDeclaration		getStats	33842	33845	4	145		1	2
+1584	FunctionDeclaration		getMonthSummary	33847	33850	4	152		1	2
+1585	FunctionDeclaration		fetchMonthRows	33852	33862	11	543		3	2
+1586	FunctionDeclaration		calculateStats	33864	33892	29	1068		19	0
+1587	FunctionDeclaration		getCalendar	33894	33897	4	161		3	2
+1588	FunctionDeclaration		calendarDaysFromRows	33900	33909	10	489		2	2
+1589	FunctionDeclaration		nextMonthStart	33911	33916	6	167		12	1
+1590	FunctionDeclaration		formatSummary	33918	33935	18	525		1	1
+1591	FunctionDeclaration		jsonForInlineScript	33939	33944	6	237		1	0
+1592	FunctionDeclaration		escapeHtml	33946	33948	3	159		247	0
+1593	FunctionDeclaration		renderDomainStatusRows	33950	33967	18	1523		2	5
+1594	FunctionDeclaration		renderFinalCandidateRows	33969	33987	19	986		1	3
+1595	FunctionDeclaration		handleDomainMigrationGuidePage	33989	34011	23	2226		1	10
+1596	FunctionDeclaration		handleBetaReleaseCandidateFinalPage	34013	34031	19	1981		1	9
+1597	FunctionDeclaration		launchStatusBadge	34033	34035	3	166		1	0
+1598	FunctionDeclaration		renderGroupChatbotBlockRows	34037	34049	13	757		1	1
+1599	FunctionDeclaration		handleGroupChatbotLaunchGuidePage	34051	34084	34	2552		1	8
+1600	FunctionDeclaration		handleGroupChatbotTrafficScalePage	34086	34119	34	2846		1	9
+1601	FunctionDeclaration		personalUrlAuditRows	34121	34134	14	1115		1	5
+1602	FunctionDeclaration		handlePersonalUrlAuditPage	34136	34155	20	1613		1	9
+1603	FunctionDeclaration		releaseCandidateDomainStyle	34157	34159	3	1953		5	0
+1604	ExportList		parseEditInput,handleEditMessage,isSessionExpired,selfTest,loopFuzzTest,buildValuePrompt,SESSION_TTL_MS,MAX_FAILS,MAX_TOTAL_TURNS,FIELD_SYNONYMS,FIELD_BY_NUMBER,FIELD_LABEL,parseKakaoEditCommandV4,parseKakaoDeleteCommandV4,parseKakaoRestoreCommandV4,kakaoEditMenuTextV4,detectKakaoNaturalIntent,normalizeKakaoIntentText,detectKakaoAmbiguity,kakaoNluRegistrySummary,parseFlexibleImportRecords,canonicalImportField,normalizeImportedRecordDetailed,resolveWeekdayPhrase,formatMessage,fetchCategoryKeywordMap,setCategoryKeywords,fetchReservePlans,addReservePlan,updateReservePlan,deleteReservePlan,fetchMemberAliasMap,saveMemberAlias,removeMemberAlias,fetchUserIdentityLinks,persistIdentityAliases,ensureUser,resolveEffectiveUserId,purgeHouseholdData,alignImportCells,decodeImportUploadBytes,createUserHousehold,joinHouseholdByCode,normalizeRecurringDay,householdJoinFeedback,isUncertainStorageWrite,ensureKakaoLoginUser,supabase,supabaseExactCount,isDefiniteStorageFailure,getMySelectedHousehold,renderMyAccessStatusHtml,renderMyImportPreviewHtml,renderMyImportResultHtml,makeMyImportPreviewToken,verifyMyImportPreviewToken,prepareMyImportEntry,myImportDeterministicTransactionId,myImportReasonCounts,renderMyStartChoiceHtml,htmlResponse,canReadMyHousehold,canWriteMyHousehold,buildSettlementModel,reportChallengeSettingsKey,shiftChallengeDate,challengePeriodDays,normalizeReportChallenge,buildReportChallenge,renderReportChallenge,reportMonthHref,renderReportMonthNavigator,buildReportDashboardSummary,renderReportDashboard,resolveQuickChipIcon,resolveQuickPaymentIcon,quickChipIconCss	34161	34239	79	1825	Y	560	0
+1605	ExportList		moneyTokenSpans,transactionTypeFromText,quickInputDate,signedPurposeToken,readPurposeToken,makeCredentialProof,verifyCredentialProof,boundedFormRequest,parseMultipleTransactions,parseTransaction,budgetSummary	34241	34241	1	230	Y	46	0
+1606	ExportList		runRecurringAutoApply,runAutomaticReports,buildBudgetAlertPolishModel,budgetStageInfo,budgetAlertText,budgetFeedbackLine,parseDirectBudgetSetCommand	34243	34243	1	166	Y	11	0
+1607	ExportList		budgetExpenseRows	34245	34245	1	29	Y	2	0
+1608	ExportList		explicitDateIntent	34247	34247	1	30	Y	5	0
+1609	ExportList		kakaoGroupFirstKeys,kakaoGroupLinkItemSettingsKey,getExplicitKakaoBotGroupKey,readKakaoGroupFirstSnapshot,removeKakaoGroupLink,bindKakaoGroupByInviteCode	34249	34249	1	170	Y	17	0
