@@ -348,7 +348,7 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 | 작업 | 적용 판단 |
 |---|---|
 | 앱 Worker | 검증된 V22.9.32 `src/index.js` 전체 교체가 필요합니다(SHA-256 `a361b2f6…`). 기능 변화는 없고 `APP_VERSION`·주석·과거 자산 줄바꿈만 바뀝니다. 이 저장소 작업에서 운영에 배포하지 않습니다. |
-| 배포 방식 | 새 `tools/deploy-worker-version.mjs`의 첫 실제 사용입니다. 업로드(배포 아님) → 저장 버전 깊은 비교 → 사용자 승인 후 `--promote` 순서입니다. 첫 실행에서 `content/v2` 형식·inherit 바인딩 조회·etag를 확인하고, 어긋나면 기존 대시보드 절차를 씁니다. |
+| 배포 방식 | 새 `tools/deploy-worker-version.mjs`의 첫 실제 사용입니다. 업로드(배포 아님) → 저장 버전 깊은 비교 → 사용자 승인 후 `--promote` 순서입니다. 첫 실행에서 `content/v2` 형식·inherit 바인딩 조회·etag를 확인하고, 어긋나면 기존 대시보드 절차를 씁니다. 2026-10-09 첫 업로드 시도는 inherit 버전 ID 고정이 거부돼(10057) 버전 없이 멈췄습니다. `latest`와 최신 버전 출처 확인으로 고쳤습니다. |
 | SQL·스키마 | 없습니다. 기존 V22.9.29 정기 SQL과 rollback을 재실행하지 않고 보존합니다. |
 | immutable 자산 | 모든 기존 경로·바이트·ETag를 유지합니다. 새 정적 자산 주소는 없습니다. |
 | 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·관제 Worker·Kakao Developers·OpenBuilder를 바꾸지 않습니다. 배포 스크립트용 API 토큰(Workers Scripts Write, 이 계정, 만료일)은 사용자가 만들고 환경변수로만 씁니다. |

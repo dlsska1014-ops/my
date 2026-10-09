@@ -532,7 +532,7 @@ Phase 0·1·3은 High(기계적이지만 검증 하네스와 배포 기준선에
 
 1. 전제 검사: `git status` 깨끗함, `node tools/build-worker.mjs --check` 통과, `VERSION.txt`·`package.json`·`APP_VERSION` 일치, 로컬 `src/index.js` SHA-256 출력.
 2. 현재 상태 조회: `GET …/scripts/kakao-accountbook/settings`(바인딩 목록)와 현재 배포의 버전 ID(`GET …/scripts/kakao-accountbook/deployments`), 그 버전의 `compatibility_date`·`compatibility_flags`·`usage_model`. 저장소 밖(`output/deploy/<판>/`)에 보관 — 롤백 자료.
-3. 업로드(배포 아님): `POST …/versions?bindings_inherit=strict`, multipart `metadata`에 `main_module: "index.js"`, `compatibility_date`(2번에서 읽은 값 그대로), `compatibility_flags`(그대로), `bindings`(2번 목록 전부를 `inherit`로, `version_id`는 현재 배포 버전), `annotations: {"workers/message": "<판>", "workers/commit_sha": <HEAD>}`. 파일 part `index.js`, `Content-Type: application/javascript+module`.
+3. 업로드(배포 아님): `POST …/versions?bindings_inherit=strict`, multipart `metadata`에 `main_module: "index.js"`, `compatibility_date`(2번에서 읽은 값 그대로), `compatibility_flags`(그대로), `bindings`(2번 목록 전부를 `inherit`로, `version_id`는 현재 배포 버전. 실제 업로드 API는 `latest`만 받아서 2026-10-09 첫 실행 뒤 `latest`로 바꾸고, 업로드 전에 최신 버전이 현재 배포 버전인지 확인한다), `annotations: {"workers/message": "<판>", "workers/commit_sha": <HEAD>}`. 파일 part `index.js`, `Content-Type: application/javascript+module`.
 4. 대조: 응답의 버전 ID로 `GET …/versions/<id>`를 읽어 바인딩 이름·종류 집합과 compat 설정이 2번과 같은지 확인. 다르면 **승격하지 않고** 보고.
 5. 승격(`--promote`가 있고 사용자가 승인한 뒤에만): `POST …/deployments` 본문 `{"strategy":"percentage","versions":[{"version_id":"<id>","percentage":100}],"annotations":{"workers/message":"<판>"}}`.
 6. 사후 검증: `GET …/scripts/kakao-accountbook/content/v2` 해시 == 로컬, `GET https://malhaebook.com/health`의 `version` == `APP_VERSION`, `node tools/verify-deployment-v22920.mjs`.
@@ -590,5 +590,6 @@ Worker 크기 64 MiB(비압축, 압축 한도 없음), 시작 1초, Free CPU 10m
 | 0·1 | PR #56 | 모듈 108개, 재조립 SHA-256 동일(`bbcd1756…`). 계획에 없던 V22_9_31 체크섬 목록 세 줄 재고정(같은 판 문서 커밋 선례) |
 | 6 | PR #57 | `tools/deploy-worker-version.mjs`. 버전 조회 응답에 annotations가 문서상 없어, 업로드 기록(소스 SHA-256·HEAD·etag)으로 버전과 커밋을 잇는다. 바인딩 0개·배열 아님이면 업로드 거부. 되돌림 뒤 공개 검사는 하지 않음 |
 | 2·3 | V22.9.32 판 | T3 결과 1,609/1,610 동일(`APP_VERSION`만 변경). `build:worker`가 annotate를 먼저 실행. import 2,722·export 1,024 이름, 모듈 간 `let` 대입 10건은 4단계 대상 |
+| 6 보완 | 2026-10-09 첫 실제 업로드 뒤 | 실제 업로드 API는 inherit의 `version_id`로 `latest`만 받는다(버전 ID는 10057, 문서와 다름). `latest`로 보내고, 업로드 전 `GET /versions`의 최신 버전이 현재 배포 버전(또는 이 스크립트가 그 버전에서 올린 버전)인지 확인한다. `compatibility_flags` 키 없음 = 빈 목록. 버전 조회 응답에는 `annotations`가 있고, etag는 소스 SHA-256과 다르다. 검사 178 → 197 |
 
 측정값 정정: `split-manifest.txt`의 `bytes` 열과 3장 표의 KB는 UTF-16 문자 수 기준이다. 실제 UTF-8 파일은 10% 안팎 더 크다. 분석 스크립트는 `tools/vendor/acorn.mjs`를 쓰므로 `--expose-internals` 없이 실행한다.

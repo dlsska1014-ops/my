@@ -19,11 +19,15 @@
 //   src/modules build, and VERSION.txt, package.json and APP_VERSION agreeing. Rollback deploys
 //   old code and skips these.
 // - The live deployment must send 100% of traffic to one version (no gradual rollout).
-// - The live version must list at least one binding. Every binding is sent as {"type":"inherit"}
-//   pinned to the live version id with bindings_inherit=strict, so a binding that cannot be
-//   inherited fails the upload instead of being dropped. compatibility_date, compatibility_flags
-//   and usage_model are copied from the live version; Durable Object exports or migrations are
-//   refused (this Worker has none).
+// - The live version must list at least one binding. Every binding is sent as
+//   {"type":"inherit","version_id":"latest"} with bindings_inherit=strict, so a binding that
+//   cannot be inherited fails the upload instead of being dropped. The Versions API accepts only
+//   the literal "latest" there (a version id is refused with 10057; first real run, 2026-10-09),
+//   and "latest" is the newest uploaded version, not necessarily the deployed one. So the upload
+//   first requires the newest version to be the live version, or a version this script uploaded
+//   while that same version was live (its local upload record says so); otherwise it refuses.
+//   compatibility_date, compatibility_flags and usage_model are copied from the live version;
+//   Durable Object exports or migrations are refused (this Worker has none).
 // - The stored version is read back; its bindings, script_runtime and handlers must deep-equal
 //   those of the live version, otherwise nothing may be promoted.
 // - --promote needs the record written by the upload run for that version id, with the same
@@ -149,6 +153,7 @@ export function createCloudflareClient({ fetch, token, accountId, script }) {
   }
   return {
     listDeployments: async () => (await call("GET", "/deployments"))?.deployments ?? [],
+    listVersions: async () => (await call("GET", "/versions"))?.items,
     getVersion: (versionId) => call("GET", `/versions/${versionId}`),
     uploadVersion: (form) => call("POST", "/versions?bindings_inherit=strict", { body: form, timeoutMs: 120000 }),
     createDeployment: (payload) => call("POST", "/deployments", { json: payload }),
@@ -164,6 +169,23 @@ export function liveVersionOf(deployments) {
     throw new Error(`현재 배포 ${active.id} 가 버전 하나에 100% 가 아닙니다(점진 배포 중). 대시보드에서 먼저 정리합니다`);
   }
   return { deploymentId: active.id, versionId: versions[0].version_id };
+}
+
+// GET /versions lists the newest version first (API reference: "The first version in the list is
+// the latest version"). A list that does not look like that is not taken as an answer.
+export function latestVersionIdOf(items) {
+  const id = Array.isArray(items) ? items[0]?.id : undefined;
+  if (!UUID.test(String(id))) throw new Error("버전 목록에서 최신 버전을 읽지 못했습니다. 업로드하지 않습니다");
+  return id;
+}
+
+// inherit "latest" copies every binding, Secret values included, from the newest version. That is
+// the live configuration only when the newest version is the live one, or one this script uploaded
+// while the same version was live (that upload inherited from it in turn, under this same rule).
+export function inheritSourceCheck({ liveVersionId, latestVersionId, record }) {
+  if (latestVersionId === liveVersionId) return { ok: true, basis: "live" };
+  if (record?.mode === "upload" && record?.uploaded?.version_id === latestVersionId && record?.live?.version_id === liveVersionId) return { ok: true, basis: "recorded-upload" };
+  return { ok: false, reason: `최신 버전 ${latestVersionId} 이 현재 배포 버전 ${liveVersionId} 가 아닙니다. inherit 는 최신 버전의 바인딩·Secret 을 이어받으므로 업로드하지 않습니다. 대시보드에서 최신 버전이 무엇인지 확인합니다` };
 }
 
 // Key-sorted JSON, so two objects with the same content compare equal regardless of key order.
@@ -203,8 +225,14 @@ export function compareVersionResources(expected, actual) {
     }
   }
   for (const [name, binding] of after) if (!before.has(name)) differences.push(`바인딩 추가됨: ${name} (${binding?.type})`);
-  const runtimeBefore = expected?.resources?.script_runtime ?? {};
-  const runtimeAfter = actual?.resources?.script_runtime ?? {};
+  // No compatibility flags and an empty flag list mean the same; dashboard versions omit the key.
+  const runtimeOf = (version) => {
+    const runtime = { ...(version?.resources?.script_runtime ?? {}) };
+    if (runtime.compatibility_flags == null) runtime.compatibility_flags = [];
+    return runtime;
+  };
+  const runtimeBefore = runtimeOf(expected);
+  const runtimeAfter = runtimeOf(actual);
   for (const key of [...new Set([...Object.keys(runtimeBefore), ...Object.keys(runtimeAfter)])].sort()) {
     if (canonical(runtimeBefore[key]) !== canonical(runtimeAfter[key])) differences.push(`script_runtime.${key}: ${canonical(runtimeBefore[key])} → ${canonical(runtimeAfter[key])}`);
   }
@@ -215,7 +243,7 @@ export function compareVersionResources(expected, actual) {
   return differences;
 }
 
-export function buildUploadMetadata(liveVersion, { liveVersionId, appVersion, sha256: digest, commitSha }) {
+export function buildUploadMetadata(liveVersion, { appVersion, sha256: digest, commitSha }) {
   const runtime = liveVersion?.resources?.script_runtime ?? {};
   if (runtime.migration_tag) throw new Error("Durable Object 마이그레이션이 있는 Worker 는 이 스크립트로 올리지 않습니다");
   if (runtime.exports && Object.keys(runtime.exports).length) throw new Error("선언형 exports 가 있는 Worker 는 이 스크립트로 올리지 않습니다");
@@ -224,7 +252,7 @@ export function buildUploadMetadata(liveVersion, { liveVersionId, appVersion, sh
   const metadata = { main_module: MAIN_MODULE, compatibility_date: runtime.compatibility_date };
   if (Array.isArray(runtime.compatibility_flags)) metadata.compatibility_flags = [...runtime.compatibility_flags];
   if (runtime.usage_model) metadata.usage_model = runtime.usage_model;
-  metadata.bindings = bindings.map((binding) => ({ type: "inherit", name: binding.name, version_id: liveVersionId }));
+  metadata.bindings = bindings.map((binding) => ({ type: "inherit", name: binding.name, version_id: "latest" }));
   metadata.annotations = { "workers/message": `${appVersion} sha256:${digest}`, "workers/commit_sha": commitSha };
   return metadata;
 }
@@ -315,6 +343,7 @@ async function runDryRun(options, deps) {
   for (const line of [
     `GET  ${base}/deployments  — 현재 배포가 버전 하나 100% 인지`,
     `GET  ${base}/versions/<live-version-id>  — 바인딩·script_runtime·handlers`,
+    `GET  ${base}/versions  — 최신 버전이 현재 배포 버전(또는 이 스크립트가 그 버전에서 올린 버전)인지. inherit latest 의 출처이므로 아니면 업로드 금지`,
     `POST ${base}/versions?bindings_inherit=strict  — multipart: metadata(application/json) + ${MAIN_MODULE}(application/javascript+module, ${local.bytes} bytes)`,
     `GET  ${base}/versions/<new-version-id>  — 저장된 버전 깊은 비교, 다르면 승격 금지`,
     "--promote <id> (승인 후): 기록·HEAD·etag 확인 → 다시 비교 → POST /deployments 100% → GET /deployments → GET /content/v2 해시 → /health → 공개 검사",
@@ -322,10 +351,10 @@ async function runDryRun(options, deps) {
   let metadata;
   if (state?.version) {
     const liveVersionId = state.version.id || state.deployment?.versions?.[0]?.version_id;
-    metadata = buildUploadMetadata(state.version, { liveVersionId, appVersion: local.appVersion, sha256: local.sha256, commitSha: commit });
-    deps.log(`상태 파일 ${options.state} 기준 metadata (바인딩 ${metadata.bindings.length}개, 모두 inherit → ${liveVersionId}):`);
+    metadata = buildUploadMetadata(state.version, { appVersion: local.appVersion, sha256: local.sha256, commitSha: commit });
+    deps.log(`상태 파일 ${options.state} 기준 metadata (바인딩 ${metadata.bindings.length}개, 모두 inherit latest — 최신 버전이 ${liveVersionId} 일 때만 올림):`);
   } else {
-    metadata = { main_module: MAIN_MODULE, compatibility_date: "<현재 버전 값>", compatibility_flags: "<현재 버전 값>", usage_model: "<현재 버전 값>", bindings: "<현재 버전의 바인딩 전부를 inherit 로, version_id=<live-version-id>>", annotations: { "workers/message": `${local.appVersion} sha256:${local.sha256}`, "workers/commit_sha": commit } };
+    metadata = { main_module: MAIN_MODULE, compatibility_date: "<현재 버전 값>", compatibility_flags: "<현재 버전 값>", usage_model: "<현재 버전 값>", bindings: "<현재 버전의 바인딩 전부를 inherit 로, version_id=latest>", annotations: { "workers/message": `${local.appVersion} sha256:${local.sha256}`, "workers/commit_sha": commit } };
     deps.log("metadata 골격 (바인딩·호환 설정은 실제 실행 때 현재 버전에서 읽습니다. --state 로 미리 볼 수 있습니다):");
   }
   deps.log(JSON.stringify(metadata, null, 2));
@@ -337,10 +366,15 @@ async function runUpload(options, deps, client) {
   if (problems.length) { deps.error(`전제 검사 실패 — 업로드하지 않습니다:\n- ${problems.join("\n- ")}`); return 2; }
   const live = liveVersionOf(await client.listDeployments());
   const liveVersion = await client.getVersion(live.versionId);
-  const metadata = buildUploadMetadata(liveVersion, { liveVersionId: live.versionId, appVersion: local.appVersion, sha256: local.sha256, commitSha: commit });
+  const metadata = buildUploadMetadata(liveVersion, { appVersion: local.appVersion, sha256: local.sha256, commitSha: commit });
   const directory = releaseDirectory(deps, options, local.appVersion);
   writeRecord(deps, directory, `live-${live.versionId}.json`, liveSnapshot(deps, options, live, liveVersion));
-  deps.log(`현재 배포 ${live.deploymentId} → 버전 ${live.versionId} (바인딩 ${metadata.bindings.length}개). ${local.appVersion} 업로드 — 배포 아님`);
+  const latestId = latestVersionIdOf(await client.listVersions());
+  const latestRecordPath = join(directory, `upload-${latestId}.json`);
+  const latestRecord = latestId !== live.versionId && deps.exists(latestRecordPath) ? JSON.parse(deps.readFile(latestRecordPath, "utf8")) : null;
+  const inherit = inheritSourceCheck({ liveVersionId: live.versionId, latestVersionId: latestId, record: latestRecord });
+  if (!inherit.ok) { deps.error(inherit.reason); return 1; }
+  deps.log(`현재 배포 ${live.deploymentId} → 버전 ${live.versionId} (바인딩 ${metadata.bindings.length}개). 최신 버전 ${latestId}${inherit.basis === "live" ? " = 현재 배포 버전" : ` = 이 스크립트가 현재 배포 버전에서 올린 버전(${latestRecordPath})`}. ${local.appVersion} 업로드 — 배포 아님`);
   const created = await client.uploadVersion(buildUploadForm(metadata, local.sourceBytes));
   if (!created?.id || !UUID.test(created.id)) throw new Error("업로드 응답에 버전 ID 가 없습니다");
   const uploaded = await client.getVersion(created.id);
@@ -349,6 +383,7 @@ async function runUpload(options, deps, client) {
   const record = {
     mode: "upload", at: deps.now().toISOString(), script: options.script, app_version: local.appVersion, commit, sha256: local.sha256, bytes: local.bytes,
     live: { deployment_id: live.deploymentId, version_id: live.versionId, binding_count: metadata.bindings.length },
+    inherit: { version_id: "latest", latest_version_id: latestId, basis: inherit.basis },
     uploaded: { version_id: created.id, number: uploaded?.number ?? created?.number ?? null, created_on: uploaded?.metadata?.created_on ?? null, etag, etag_equals_sha256: etag === local.sha256, startup_time_ms: created?.startup_time_ms ?? null },
     differences, metadata_sent: metadata,
   };
