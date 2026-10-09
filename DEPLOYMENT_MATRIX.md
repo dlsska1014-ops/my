@@ -343,6 +343,19 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.34 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.34 `src/index.js` 전체 교체가 필요합니다(SHA-256 `f74f729a…`). SIM-10(원형 오염)은 보안 결함이라 빨리 적용하는 것이 좋습니다. |
+| 배포 전 확인 | 거래 표가 명시적 id 를 받는지 읽기 전용 조회로 확인합니다(`docs/ASIDE_V22_9_34.md` 2절). |
+| 배포 방식 | `tools/deploy-worker-version.mjs`로 업로드(배포 아님), 대조, 승인 후 `--promote` 순서로 적용합니다. 토큰은 입력이 가려지는 `Read-Host -AsSecureString`으로 받습니다. Worker 내보내기 목록이 같아 `named_handlers` 대조도 같습니다. |
+| SQL·스키마 | 없습니다. |
+| immutable 자산 | `accountbook-v5-v22934.js`, `mobile-home-v22934.js`, `mobile-home-shell-v22934.js`가 새로 생깁니다. `accountbook-v5-v22930`·`mobile-home(-shell)-v22933` 주소는 이전 바이트로 계속 내려갑니다. |
+| 설정과 외부 콘솔 | Secrets·환경변수·바인딩·Cron·도메인·요금제·관제 Worker·Kakao Developers·OpenBuilder 를 바꾸지 않습니다. |
+| 운영 확인 | `docs/ASIDE_V22_9_34.md` 4절 "운영 확인 지시문"을 점검용 계정·가계부로 실행합니다. |
+| 롤백 | `node tools/deploy-worker-version.mjs --rollback e24b4219-9a47-4669-81f9-49ca5d78587a`(V22.9.33)를 실행합니다. |
+
 ## V22.9.33 저장소 준비
 
 | 작업 | 적용 판단 |

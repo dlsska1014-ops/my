@@ -1,12 +1,13 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+  claimOperationLease, operationLeaseOwner, parseStrictSettingsArray, parseStrictSettingsObject,
+  releaseOperationLease, safeError,
 } from "../runtime/leases.js";
 import { redirectResponse } from "../runtime/http.js";
 import { randomEntityId, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { fetchCustomCategories, normalizeCategoryKeywords } from "./categories-keywords.js";
-import { getSettingValue } from "../admin/settings-audit-pages.js";
+import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { getHouseholdMemberRole } from "../domain/users-households.js";
@@ -137,7 +138,7 @@ function normalizeAssetHistory(value) {
   if (typeof raw === "string") {
     try { raw = raw ? JSON.parse(raw) : {}; } catch (err) { raw = {}; }
   }
-  const out = {};
+  const out = Object.create(null);
   for (const [month, itemValue] of Object.entries(safeObject(raw))) {
     if (!validMonth(month)) continue;
     const item = safeObject(itemValue);
@@ -163,7 +164,9 @@ async function fetchAssetHistory(env, householdId = "") {
 async function recordAssetSnapshot(env, householdId = "", assets = [], month = currentMonthKst()) {
   const snapshotMonth = validMonth(month) || currentMonthKst();
   const totals = computePaymentAssetTotals(assets);
-  const history = await fetchAssetHistory(env, householdId);
+  // V22.9.34 감사 S5: 순자산 기록을 못 읽었거나 깨져 있으면 이번 달 한 칸으로 덮어쓰지 않는다.
+  // 실패는 호출한 쪽에서 "순자산 기록 갱신은 잠시 후" 안내로 미룬다.
+  const history = normalizeAssetHistory(parseStrictSettingsObject(await getSettingValueStrict(env, assetHistoryKey(householdId)), "asset_history"));
   history[snapshotMonth] = {
     asset_total: totals.assetTotal,
     liability_total: totals.liabilityTotal,
@@ -189,7 +192,13 @@ async function recordAssetSnapshotBestEffort(env, householdId = "", assets = [],
   }
 }
 
-async function fetchPaymentAssets(env, householdId = "") {
+async function fetchPaymentAssets(env, householdId = "", options = {}) {
+  if (options.strict) {
+    // V22.9.34 감사 S5: 자산 목록을 바꾸는 경로는 읽기 실패·깨진 값을 빈 목록으로 보지 않는다.
+    // 원자 RPC 가 없을 때의 대체 저장이 이 목록을 통째로 다시 쓴다.
+    const value = await getSettingValueStrict(env, paymentAssetsKey(householdId));
+    return normalizePaymentAssetList(parseStrictSettingsArray(value, "payment_assets", { allowItemsObject: true }), householdId);
+  }
   try {
     const value = await getSettingValue(env, paymentAssetsKey(householdId));
     return normalizePaymentAssetList(value, householdId);
@@ -287,7 +296,7 @@ async function addPaymentAsset(env, householdId = "", data = {}) {
   return withPaymentAssetWriteLease(env, householdId, async () => {
     const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
     const now = new Date().toISOString();
-    const current = await fetchPaymentAssets(env, householdId);
+    const current = await fetchPaymentAssets(env, householdId, { strict: true });
     if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
     const next = current.slice();
     const item = {
@@ -313,7 +322,7 @@ async function addPaymentAsset(env, householdId = "", data = {}) {
 
 async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
   return withPaymentAssetWriteLease(env, householdId, async () => {
-    const current = await fetchPaymentAssets(env, householdId);
+    const current = await fetchPaymentAssets(env, householdId, { strict: true });
     const target = current.find((item) => String(item.id) === String(id));
     if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
     const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
@@ -342,7 +351,7 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
 
 async function deletePaymentAsset(env, householdId = "", id = "") {
   return withPaymentAssetWriteLease(env, householdId, async () => {
-    const current = await fetchPaymentAssets(env, householdId);
+    const current = await fetchPaymentAssets(env, householdId, { strict: true });
     if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
     const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
     const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));

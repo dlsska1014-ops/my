@@ -287,7 +287,8 @@ try {
   // 복구 INSERT 실패 중에는 버퍼를 먼저 비우지 않고 다음 재시도 기회를 보존한다.
   const retryDelete = await say("삭제 02번");
   ok(retryDelete.includes("삭제했어요") && !txById("tx-edit-2"), "[E2E·안전] 버퍼 정상 저장 뒤 삭제");
-  fixture.db.__fail_transaction_writes = 3;
+  // V22.9.34 감사 T4: 복구는 원래 id 로 한 번만 넣는다(예전에는 id 없이 두 번 더 시도해 두 건이 생길 수 있었다).
+  fixture.db.__fail_transaction_writes = 1;
   const delayedRestore = await say("복구 02번");
   ok(delayedRestore.includes("복구가 잠시 지연"), "[E2E·안전] 복구 INSERT 실패를 성공으로 안내하지 않음");
   ok(!txById("tx-edit-2") && String(undoBufferRow()?.value || "").trim(), "[E2E·안전] 복구 실패 중 버퍼 유지");

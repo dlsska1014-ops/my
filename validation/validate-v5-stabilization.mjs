@@ -52,7 +52,7 @@ try {
   for (const [path, mime] of [
     ["/assets/accountbook-shell-v22925.css", "text/css"],
     ["/assets/accountbook-nav-v22930.js", "javascript"],
-    ["/assets/accountbook-v5-v22930.js", "javascript"],
+    ["/assets/accountbook-v5-v22934.js", "javascript"],
     ["/assets/accountbook-goals-v22929.js", "javascript"],
   ]) {
     const asset = await request(fixture, path);
@@ -63,7 +63,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "V5 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "V5 home keeps the HTML shell below 35 KiB");
-  ok(home.text.includes("accountbook-v5-v22930.js"), "V5 home loads the shared bundle");
+  ok(home.text.includes("accountbook-v5-v22934.js"), "V5 home loads the shared bundle");
   ok(home.text.includes("accountbook-nav-v22930.js"), "V5 home loads the shared navigation runtime");
 
   const annual = await request(fixture, "/annual?month=2026-07&household_id=house-home");
@@ -84,10 +84,11 @@ try {
   eq(viewerWrite.response.status, 403, "viewer cannot create a goal");
   ok(!fixture.db.accountbook_settings.some((row) => row.key === "goals:v5:house-home"), "viewer mutation persists nothing");
 
-  fixture.db.accountbook_operation_locks.push({ operation_key: "goals-write:house-home", owner: "other-request", locked_until: new Date(Date.now() + 60000).toISOString(), updated_at: new Date().toISOString() });
+  // V22.9.34 감사 S9: 목표 저장은 가계부 삭제와 같은 가계부 설정 잠금(household-settings-rmw)을 쓴다.
+  fixture.db.accountbook_operation_locks.push({ operation_key: "household-settings-rmw:house-home", owner: "other-request", locked_until: new Date(Date.now() + 60000).toISOString(), updated_at: new Date().toISOString() });
   const busyGoal = await request(fixture, "/u/api/goals", { method: "POST", body: { household: "house-home", action: "create", name: "동시 목표", target: 10000 } });
   eq(busyGoal.response.status, 409, "concurrent goal write is rejected instead of overwriting settings");
-  fixture.db.accountbook_operation_locks.find((row) => row.operation_key === "goals-write:house-home").locked_until = new Date(0).toISOString();
+  fixture.db.accountbook_operation_locks.find((row) => row.operation_key === "household-settings-rmw:house-home").locked_until = new Date(0).toISOString();
 
   const invalidGoal = await request(fixture, "/u/api/goals", { method: "POST", body: { household: "house-home", action: "create", name: "금액 없음", target: 0 } });
   eq(invalidGoal.response.status, 400, "goal target must be greater than zero");

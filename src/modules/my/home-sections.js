@@ -1,4 +1,5 @@
 // @build:imports-start
+import { abEditOriginalFields } from "../admin/transactions-households.js";
 import { memberNameMap, renderSpenderOptions } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { memeCollectionFor } from "../features/meme-cards.js";
@@ -86,7 +87,7 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
   const spenderEditor = canEditSpender
     ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
     : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
-  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(memo === "-" ? "" : memo)}" placeholder="내용" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
+  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/>${abEditOriginalFields(t)}<input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(t.memo || "")}" placeholder="${escapeHtml(t.raw_text || "내용")}" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
 }
 
 // V22.8.91 통합 작업지시서 4.3 — "이번 달 리포트" 4장.
@@ -283,7 +284,7 @@ function renderHomeWeekStrip(rows = [], isCurrentMonth = true) {
   const today = nowKstDate();
   const days = [];
   for (let back = 6; back >= 0; back -= 1) days.push(formatDate(addDays(today, -back)));
-  const spend = {};
+  const spend = Object.create(null);
   for (const row of safeArray(rows)) {
     if (row.type === "income") continue;
     const key = String(row.transaction_date || "");

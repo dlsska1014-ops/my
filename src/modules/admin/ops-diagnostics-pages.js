@@ -177,7 +177,7 @@ async function handleHouseholdUserPage(request, env, url, userId) {
   const selected = access.selected;
   const householdId = selected?.id || "";
   const members = selected ? await fetchHouseholdMembers(env, selected.id) : [];
-  const counts = {};
+  const counts = Object.create(null);
   for (const h of households) counts[h.id] = await countHouseholdTransactions(env, h.id);
   const canManage = ["owner", "admin"].includes(String(selected?.role || ""));
   const ownerCount = members.filter((m) => String(m.role || "") === "owner").length;
@@ -200,7 +200,7 @@ async function handleHouseholdAdminPage(request, env, url) {
   const membersMap = await fetchAllHouseholdMembersMap(env, households);
   const selectedId = String(url.searchParams.get("household_id") || "").trim();
   const selected = selectRequestedScopedHousehold(households, selectedId);
-  const counts = {};
+  const counts = Object.create(null);
   for (const h of households) counts[h.id] = await countHouseholdTransactions(env, h.id);
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";

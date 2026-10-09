@@ -278,7 +278,7 @@ async function incrementMemeMetric(env, id, field, householdId = "") {
   const rows = await supabase(env, `/rest/v1/accountbook_meme_cards?id=eq.${encodeURIComponent(id)}${householdFilter}&select=id,${field}&limit=1`, { method: "GET" });
   const row = rows?.[0];
   if (!row) throw new Error("meme card not found");
-  const next = {};
+  const next = Object.create(null);
   next[field] = Number(row[field] || 0) + 1;
   if (field === "view_count") next.last_viewed_at = new Date().toISOString();
   await supabase(env, `/rest/v1/accountbook_meme_cards?id=eq.${encodeURIComponent(id)}${householdFilter}`, {

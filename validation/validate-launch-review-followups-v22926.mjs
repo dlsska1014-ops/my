@@ -284,20 +284,22 @@ ok(source.includes("category_created_keywords_pending"), "category creation repo
 {
   const fixture = await createV2265QaFixture();
   try {
-    const buildBudgetBody = (count) => {
-      const form = new URLSearchParams({ household_id: "house-home", month: "2026-07", budget_return: "budgets" });
+    // V22.9.34 감사 S3: 일괄 예산 저장은 폼이 그려질 때의 계획 지문을 함께 보낸다.
+    const planFingerprint = async () => ((await (await call(fixture, "GET", "/budgets?month=2026-07&household_id=house-home")).text()).match(/name="plan_fingerprint" value="([^"]+)"/) || [])[1] || "";
+    const buildBudgetBody = (count, fingerprint) => {
+      const form = new URLSearchParams({ household_id: "house-home", month: "2026-07", budget_return: "budgets", plan_fingerprint: fingerprint });
       for (let i = 1; i <= count; i++) {
         form.append("budget_category", `검사항목${String(i).padStart(3, "0")}`);
         form.append("budget_amount", String(1000 + i));
       }
       return form.toString();
     };
-    let response = await call(fixture, "POST", "/my/budget-bulk/save", { body: buildBudgetBody(100) });
+    let response = await call(fixture, "POST", "/my/budget-bulk/save", { body: buildBudgetBody(100, await planFingerprint()) });
     eq(response.status, 303, "100 normalized budget entries are accepted");
     eq(rpcCount(fixture.db, "accountbook_replace_budget_plan_v227"), 1, "100-entry budget calls the existing replace RPC once");
     eq(fixture.db.accountbook_budgets.filter((item) => item.household_id === "house-home" && item.month === "2026-07").length, 100, "100-entry budget persists all entries");
     const budgetSnapshot = JSON.stringify(fixture.db.accountbook_budgets);
-    response = await call(fixture, "POST", "/my/budget-bulk/save", { body: buildBudgetBody(101) });
+    response = await call(fixture, "POST", "/my/budget-bulk/save", { body: buildBudgetBody(101, await planFingerprint()) });
     ok(String(response.headers.get("location") || "").includes("err=budget_plan_too_many"), "101 normalized budget entries return a clear mapped error");
     eq(rpcCount(fixture.db, "accountbook_replace_budget_plan_v227"), 1, "101-entry budget performs zero additional RPC writes");
     eq(JSON.stringify(fixture.db.accountbook_budgets), budgetSnapshot, "101-entry rejection preserves the previous budget plan");

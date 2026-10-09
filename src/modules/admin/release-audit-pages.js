@@ -251,7 +251,7 @@ function finalReleaseRoutes() {
 }
 
 function buildFinalFeatureSummary() {
-  const out = {};
+  const out = Object.create(null);
   for (const f of FINAL_FEATURE_MATRIX) {
     const key = f.group;
     if (!out[key]) out[key] = { total: 0, live: 0, planned: 0 };

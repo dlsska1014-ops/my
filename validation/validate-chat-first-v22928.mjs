@@ -177,7 +177,9 @@ for (const failure of ["membership", "membership-definite", "transaction", "netw
     };
     const before = f.db.households.length;
     const first = await skill(f, "점심 만원");
-    ok(!textOf(first.body).includes("저장했어요"), `${failure}: failure never falsely claims save success`);
+    // V22.9.34 감사 B13: 저장은 됐는데 응답만 잃은 경우는 기록 id 로 다시 읽어 확인한다. 실제로 저장됐으니 저장했다고 답한다.
+    if (failure === "network-after-commit") ok(textOf(first.body).includes("저장했어요") && f.db.transactions.filter((row) => row.source_user_key === f.key).length === 1, `${failure}: a lost response after commit is confirmed by id and reported as saved once`);
+    else ok(!textOf(first.body).includes("저장했어요"), `${failure}: failure never falsely claims save success`);
     if (failure === "membership") eq(f.db.households.length, before + 1, "unknown owner assignment retains the stable candidate and never compensates a possible late commit");
     if (failure === "membership-definite") eq(f.db.households.length, before, "definite rejected owner assignment compensates only a strictly confirmed empty household");
     // Keep the observer for retry too; the one-shot synthetic failure is consumed.

@@ -111,7 +111,8 @@ function tokenToField(tokenRaw) {
   const c = compact(token);
   if (!c) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
-    if (words.some((w) => c === w || c.startsWith(w))) return field;
+    // 한 글자 동의어(돈·값)는 접두로 보지 않는다. "돈까스 12000원"이 금액 변경이 되면 안 된다.
+    if (words.some((w) => c === w || (w.length >= 2 && c.startsWith(w)))) return field;
   }
   return null;
 }
@@ -125,6 +126,13 @@ function tokenToFieldFuzzy(tokenRaw) {
     if (words.some((w) => w.length >= 2 && editDistance(c, w) <= 1)) return field;
   }
   return null;
+}
+
+// T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
+// 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
+function startsWithKakaoEditField(textRaw = "") {
+  const first = normalize(textRaw).split(" ")[0] || "";
+  return !!(tokenToField(first) || tokenToFieldFuzzy(first));
 }
 
 // [L2] 값만 보고 필드 추론. config.members = 그룹 구성원 이름 배열
@@ -142,7 +150,8 @@ function inferFieldFromValue(textRaw, config = {}) {
   if (members.includes(c)) return { field: "payer", value: normalize(textRaw), confidence: "high" };
   // 결제수단 어휘 → 결제수단 (등록 카드명 포함 가능: config.methods)
   const methods = [...METHOD_WORDS, ...(config.methods || [])];
-  if (methods.some((w) => c === compact(w) || c.endsWith("카드") || c.endsWith("페이"))) {
+  // 숫자가 섞인 문장("12000원 국민카드")은 결제수단 이름이 아니다.
+  if (!/\d/.test(c) && methods.some((w) => c === compact(w) || c.endsWith("카드") || c.endsWith("페이"))) {
     return { field: "method", value: normalize(textRaw), confidence: "high" };
   }
   // 그 외 짧은 텍스트 → 내용일 가능성. 확신 낮음 → [L3] 확인 단계로
@@ -420,7 +429,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/['원]$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -450,7 +459,7 @@ function applyResult(session, field, value) {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/['원]$/, ""), "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -576,6 +585,6 @@ function loopFuzzTest(config = {}, rounds = 200) {
 export {
   FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, MAX_FAILS, MAX_TOTAL_TURNS, SESSION_TTL_MS,
   buildValuePrompt, compact, handleEditMessage, isSessionExpired, josa, loopFuzzTest,
-  normalizeKakaoEditAmountValue, parseEditInput, selfTest,
+  normalizeKakaoEditAmountValue, parseEditInput, selfTest, startsWithKakaoEditField,
 };
 // @build:exports-end

@@ -366,7 +366,7 @@ async function fetchLegacyKakaoGroupLinkMap(env, strict = false) {
   try {
     if (!value) return {};
     const parsed = strict ? parseStrictSettingsObject(value, "kakao_group_links") : typeof value === "string" ? JSON.parse(value || "{}") : value;
-    const out = {};
+    const out = Object.create(null);
     for (const [k, v] of Object.entries(safeObject(parsed))) {
       const groupKey = String(k || "").trim();
       const item = normalizeKakaoGroupLinkItem({ ...safeObject(v), group_key: groupKey }, groupKey);
@@ -380,16 +380,56 @@ async function fetchLegacyKakaoGroupLinkMap(env, strict = false) {
   }
 }
 
-async function fetchKakaoGroupLinkItemRows(env) {
+async function fetchKakaoGroupLinkItemRows(env, options = {}) {
   const prefix = "kakao_group_link_v2254:";
-  const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${prefix}%`)}&select=key,value&limit=5000`, { method: "GET" }, []) || [];
-  const out = {};
+  const path = `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${prefix}%`)}&select=key,value&limit=5000`;
+  // V22.9.34 감사 S2: 연결을 고쳐 쓰는 경로는 읽기 실패를 "연결 없음"으로 보지 않는다.
+  const rows = options.strict ? await supabase(env, path, { method: "GET" }) : (await optionalSupabase(env, path, { method: "GET" }, []) || []);
+  if (!Array.isArray(rows)) {
+    if (options.strict) throw settingsDataError("kakao_group_links", "invalid_shape");
+    return {};
+  }
+  const out = Object.create(null);
   for (const row of rows) {
     if (!String(row?.key || "").startsWith(prefix)) continue;
     const item = normalizeKakaoGroupLinkItem(row?.value);
     if (item) out[item.group_key] = item;
   }
   return out;
+}
+
+// V22.9.34 감사 S2: 계정 통합은 방 연결의 linked_by 만 옮긴다. 방마다 잠금 안에서 그 방 행을 다시 읽고,
+// 옛 통합 맵은 엄격하게 읽어 같은 칸만 고친다.
+async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") {
+  const from = String(fromUserId || "");
+  const to = String(toUserId || "");
+  if (!from || !to || from === to) return 0;
+  let changed = 0;
+  const items = await fetchKakaoGroupLinkItemRows(env, { strict: true });
+  for (const [groupKey, item] of Object.entries(items)) {
+    if (String(item.linked_by || "") !== from) continue;
+    await withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh }) => {
+      const value = await getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(groupKey));
+      const current = normalizeKakaoGroupLinkItem(value, groupKey);
+      if (!current || String(current.linked_by || "") !== from) return;
+      assertFresh();
+      await saveKakaoGroupLinkItem(env, groupKey, { ...current, linked_by: to });
+      changed += 1;
+    });
+  }
+  await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh }) => {
+    const map = await fetchLegacyKakaoGroupLinkMap(env, true);
+    let legacyChanged = false;
+    for (const item of Object.values(map)) {
+      if (String(item.linked_by || "") !== from) continue;
+      item.linked_by = to;
+      legacyChanged = true;
+    }
+    if (!legacyChanged) return;
+    assertFresh();
+    await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
+  });
+  return changed;
 }
 
 async function fetchKakaoGroupLinkMap(env) {
@@ -588,10 +628,10 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
 export {
   bindKakaoGroupByInviteCode, fetchKakaoGroupLinkMap, fetchLegacyKakaoGroupLinkMap,
   getExplicitKakaoBotGroupKey, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
-  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey,
-  kakaoGroupLinksSettingsKey, markKakaoGroupDeparture, markKakaoGroupRetired,
-  normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
-  readKakaoGroupFirstSnapshot, removeKakaoGroupLink, removeKakaoGroupLinksForHousehold,
-  saveKakaoGroupLinkItem, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
+  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey, markKakaoGroupDeparture,
+  markKakaoGroupRetired, normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker,
+  preserveKakaoGroupDeparturesForMerge, readKakaoGroupFirstSnapshot, reassignKakaoGroupLinkOwner,
+  removeKakaoGroupLink, removeKakaoGroupLinksForHousehold, tryKakaoGroupFirstRecord,
+  withKakaoGroupLifecycleLease,
 };
 // @build:exports-end

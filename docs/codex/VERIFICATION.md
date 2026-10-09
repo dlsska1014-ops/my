@@ -1,3 +1,22 @@
+## V22.9.34의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_34.sha256`의 348개 파일을 사용하고, 자동 검사 하한은 8,744개입니다.
+
+**새 검사**
+- 새 검사 6개는 `validation/lib-audit-v22934.mjs`의 공용 도구를 씁니다.
+- `npm run validate:audit-fixes`로 한 번에 실행합니다.
+
+**픽스처**
+- 같은 기본 키로 거래를 넣으면 409(23505)로 거절합니다(`db.__strict_primary_keys = false`로 끌 수 있습니다).
+- `db.__lose_next_transaction_response`로 "저장은 되고 응답만 잃는" 상황을 만듭니다.
+
+**원형 오염 정적 검사**
+- `validate-proto-safety-v22934`가 저장소 안의 acorn 으로 `src/modules`를 읽습니다.
+- 빈 객체 맵을 계산된 키로 쓰는 곳을 찾으면 실패합니다.
+
+**바뀐 문장 확인**
+- 소스 바이트를 바꾼 판이므로 `node tools/compare-worker-statements.mjs <V22.9.33 src/index.js> src/index.js`로 바뀐 최상위 문장을 확인합니다.
+
 ## V22.9.33의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_33.sha256`의 337개 파일을 사용하고, 자동 검사 하한은 8,452개입니다.

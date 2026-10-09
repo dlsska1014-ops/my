@@ -1,8 +1,6 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
-import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
-} from "../runtime/leases.js";
+import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
 import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
@@ -336,16 +334,17 @@ async function handleReportChallengeSave(request, env) {
   const categoryInvalid = challengeType === "category_spend_limit_days" && !category;
   if (typeInvalid || amountInvalid || categoryInvalid || !Number.isInteger(targetDays) || targetDays < 1 || targetDays > 20 || title.length < 2 || !periodDays || periodDays > 90 || targetDays > periodDays) return inlineError("challenge_invalid", "이름·방식·기간·목표 일수와 한도 조건을 확인해 주세요. 목표 일수는 설정 기간보다 길 수 없습니다.", 422, `${returnTo}&err=challenge_invalid#reportChallenge`);
   const value = { schema_version: 2, type: challengeType, enabled: String(form.get("enabled") || "") === "1", target_days: targetDays, target_amount: challengeType === "no_spend_days" ? null : targetAmount, category: challengeType === "category_spend_limit_days" ? category : null, title, start_date: startDate, target_date: targetDate, updated_by: userId, updated_at: new Date().toISOString() };
-  let lease = null;
   try {
-    lease = await claimOperationLease(env, { key: `report-challenge-write:${householdId}`, owner: operationLeaseOwner("challenge"), leaseSeconds: 30 });
-    if (!lease.acquired) return inlineError("challenge_busy", "다른 챌린지 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.", 409, `${returnTo}&err=challenge_busy#reportChallenge`);
-    await saveSettingValue(env, reportChallengeSettingsKey(householdId), value);
+    // V22.9.34 감사 S9: 챌린지 설정은 가계부 설정 잠금(가계부 삭제와 같은 잠금) 안에서 쓴다.
+    // 따로 쓰던 잠금은 삭제와 직렬화되지 않아, 삭제 직후 도착한 저장이 지운 가계부의 설정을 되살렸다.
+    await withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+      assertFresh();
+      await saveSettingValue(env, reportChallengeSettingsKey(householdId), value);
+    });
   } catch (err) {
+    if (/settings_rmw_busy/.test(safeError(err))) return inlineError("challenge_busy", "다른 챌린지 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.", 409, `${returnTo}&err=challenge_busy#reportChallenge`);
     rememberOpsEvent({ kind: "report_challenge_save_failed", severity: "warn", path: "/my/report-challenge/save", method: "POST", detail: safeError(err) });
     return inlineError("challenge_save_failed", "챌린지 설정을 저장하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.", 503, `${returnTo}&err=challenge_save_failed#reportChallenge`);
-  } finally {
-    if (lease?.acquired) await releaseOperationLease(env, lease);
   }
   if (!inline) return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
   try {

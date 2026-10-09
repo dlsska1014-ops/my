@@ -22,8 +22,9 @@ import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-con
 import { activeSpenderExists } from "../my/transactions.js";
 import { householdPageMessage } from "../my/households-lifecycle.js";
 import {
-  budgetCenterSummary, budgetStatusLabel, fetchBudgets, fetchRecurringRuleByIdStrict,
-  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
+  budgetCenterSummary, budgetPlanFingerprint, budgetStatusLabel, fetchBudgets,
+  fetchRecurringRuleByIdStrict, renderBudgetBasisRows, renderBudgetConsistencyAlert,
+  renderBudgetRows,
 } from "../domain/budgets.js";
 import { moneyPlanTabsCss, renderMoneyPlanTabs } from "../my/money-plan-home-layout.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
@@ -63,12 +64,16 @@ async function handleBudgetCenterPage(request, env, url) {
   }
   if (!selected) return redirectResponse(userId ? "/my/households?err=no_household" : "/?legacy=1");
   const canManage = adminOk || ["owner", "admin"].includes(String(selected.role || "").toLowerCase());
-  const [members, rawRows, budgets, customCategories] = await Promise.all([
+  const [members, rawRows, budgetRead, customCategories] = await Promise.all([
     fetchHouseholdMembers(env, householdId),
     fetchAdminRows(env, { month, householdId, type: "all" }),
-    fetchBudgets(env, householdId, month),
+    // V22.9.34 감사 S3: 계획 폼은 엄격하게 읽는다. 못 읽으면 빈 폼을 그리지 않는다.
+    fetchBudgets(env, householdId, month, { strict: true }).then((list) => ({ ok: true, rows: list }), (error) => ({ ok: false, rows: [], error })),
     fetchCustomCategories(env, householdId),
   ]);
+  if (!budgetRead.ok) rememberOpsEvent({ kind: "budget_plan_read_failed", severity: "warn", path: "/budgets", method: "GET", detail: safeError(budgetRead.error) });
+  const budgets = budgetRead.rows;
+  const planFingerprint = budgetRead.ok ? budgetPlanFingerprint(budgets) : "";
   const rows = attachSpenderNames(rawRows, members);
   const center = budgetCenterSummary(rows, budgets);
   const incomePlans = incomeBudgetRows(budgets).filter((row) => Number(row.amount || 0) > 0);
@@ -99,7 +104,7 @@ async function handleBudgetCenterPage(request, env, url) {
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const hh = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
-  const planForm = canManage && userId ? `<section class="card" id="plan"><div class="sectionHead"><div><span class="eyebrow">종류·분류별 입력</span><h2>예상 수입과 지출 예산</h2></div><b>월 총액 직접입력 없음</b></div><p class="muted">급여·부수입 같은 수입 종류와 식비·교통 같은 지출 분류를 입력하면 각각 자동 합산됩니다. 0원이나 빈 행은 저장하지 않습니다.</p><form method="post" action="/my/budget-bulk/save" id="budgetPlanForm"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><div class="planGrid"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><button type="button" class="addLine" data-add="income">+ 수입 종류 추가</button><p class="guide">실제 수입은 기록에서 자동 집계됩니다. 여기는 앞으로 들어올 예상 금액만 입력합니다.</p></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><button type="button" class="addLine" data-add="expense">+ 지출 분류 추가</button><p class="guide">분류별 금액의 합계가 이번 달 전체 지출 예산이 됩니다.</p></div></div><button class="savePlan" type="submit">종류별 수입·분류별 예산 저장</button></form></section>` : `<section class="card"><h2>예산 설정</h2><p class="muted">${canManage ? "관리자 세션에서는 사용자 계정으로 가계부를 연 뒤 종류·분류별 계획을 편집하세요." : "가계부 소유자 또는 관리자만 계획을 변경할 수 있습니다."}</p></section>`;
+  const planForm = canManage && userId && !budgetRead.ok ? `<section class="card" id="plan"><h2>예상 수입과 지출 예산</h2><p class="warn" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p></section>` : canManage && userId ? `<section class="card" id="plan"><div class="sectionHead"><div><span class="eyebrow">종류·분류별 입력</span><h2>예상 수입과 지출 예산</h2></div><b>월 총액 직접입력 없음</b></div><p class="muted">급여·부수입 같은 수입 종류와 식비·교통 같은 지출 분류를 입력하면 각각 자동 합산됩니다. 0원이나 빈 행은 저장하지 않습니다.</p><form method="post" action="/my/budget-bulk/save" id="budgetPlanForm"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(planFingerprint)}"/><div class="planGrid"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><button type="button" class="addLine" data-add="income">+ 수입 종류 추가</button><p class="guide">실제 수입은 기록에서 자동 집계됩니다. 여기는 앞으로 들어올 예상 금액만 입력합니다.</p></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><button type="button" class="addLine" data-add="expense">+ 지출 분류 추가</button><p class="guide">분류별 금액의 합계가 이번 달 전체 지출 예산이 됩니다.</p></div></div><button class="savePlan" type="submit">종류별 수입·분류별 예산 저장</button></form></section>` : `<section class="card"><h2>예산 설정</h2><p class="muted">${canManage ? "관리자 세션에서는 사용자 계정으로 가계부를 연 뒤 종류·분류별 계획을 편집하세요." : "가계부 소유자 또는 관리자만 계획을 변경할 수 있습니다."}</p></section>`;
   // V22.8.92 (7.5): 이 화면의 답은 "남은 예산" 하나다. 예산 설정 표가 아니라
   // 남은 돈이 P0 이고, 표는 그 아래에 둔다. 그리고 사용률이 낮게 보이는 이유를
   // P0 가 직접 말한다 — 분류별 예산만 잡은 달에는 예산을 잡지 않은 분류의 지출이

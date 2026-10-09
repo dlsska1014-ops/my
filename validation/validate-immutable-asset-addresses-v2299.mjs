@@ -39,6 +39,12 @@ const PINNED = {
   // AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 위 해시로 계속 내려간다.
   "/assets/mobile-home-v22933.js": "d294d13bbc7f45d07fcc6466229af2bb64bd087ca25c391ca72971524eec2ab6",
   "/assets/mobile-home-shell-v22933.js": "4aeb9097cd6a84056a6077e4e2856077f5ddc09ec623a527363145a6980e926e",
+  // V22.9.34: 금액·날짜 해석(D1·N6·D15), 날짜 시트 수정 폼의 원래 값(B14), 원형 없는 집계 맵(SIM-10)으로 세 자산이
+  // 바뀌어 주소를 올렸다. accountbook-v5-v22930·mobile-home(-shell)-v22933 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아
+  // 위 해시로 계속 내려간다.
+  "/assets/accountbook-v5-v22934.js": "0c85fadaee93b78357fd32e9c9b595b66edd5d33601e51fc30ee6a746ad4463d",
+  "/assets/mobile-home-v22934.js": "143562ae7a41dfa30884227582a49507b5442bbf86dcf79ba890f09b184423e5",
+  "/assets/mobile-home-shell-v22934.js": "1b3e04cfe5917fcebc86fbe55e9df1663290b597d4f70c93ae44ed7b419b7968",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",
   "/assets/mobile-home-v22919.css": "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7",
 };

@@ -18,7 +18,8 @@ ok(source.includes(".kwReadOnly .kwRemove{display:none!important}"), "read-only 
 ok(source.includes(".kwAddRow[hidden]{display:none}"), "hidden keyword add rows really collapse");
 ok(source.includes("keyword_manage_only:"), "keyword permission message is defined");
 // 저장 결과를 항상 /my/settings 로 돌려보내면 그 화면을 볼 수 없는 역할이 403 에 갇힌다.
-eq((source.match(/keywordEditorLocation\(returnTo, month, selected\.id/g) || []).length, 7, "both keyword handlers route every outcome through the return-aware helper");
+// V22.9.34 감사 S4: 일괄 저장이 예전 화면(keyword_form_stale)·충돌·변경 없음 결과도 같은 도우미로 돌려보낸다.
+eq((source.match(/keywordEditorLocation\(returnTo, month, selected\.id/g) || []).length, 9, "both keyword handlers route every outcome through the return-aware helper");
 for (const handler of ["handleMyCategoryKeywordsSave", "handleMyCategoryKeywordsBulkSave"]) {
   const start = source.indexOf(`async function ${handler}(`);
   ok(start > 0, `${handler} exists`);
@@ -109,9 +110,12 @@ try {
   }
 
   // 4. 소유자 저장은 정상 동작하고 같은 화면으로 돌아온다.
+  // V22.9.34 감사 S4: 저장 스크립트는 카드마다 그릴 때의 키워드(kw_orig)를 함께 보낸다.
+  const keywordGuideForOwner = await call(fixture, `/keyword-guide?household_id=house-home&month=${month}`, cookies.owner);
+  const foodOrig = ((keywordGuideForOwner.text.match(/data-name="식비" data-orig="([^"]*)"/) || [])[1] || "").replace(/&amp;/g, "&");
   const ownerSave = await call(fixture, "/my/category-keywords/bulk-save", cookies.owner, {
     method: "POST",
-    body: new URLSearchParams({ household_id: "house-home", month, return_to: "guide", kw_type: "expense", kw_name: "식비", kw_keywords: "점심,국밥" }).toString(),
+    body: new URLSearchParams({ household_id: "house-home", month, return_to: "guide", kw_type: "expense", kw_name: "식비", kw_keywords: "점심,국밥", kw_orig: foodOrig }).toString(),
   });
   eq(ownerSave.status, 303, "소유자 저장은 리다이렉트로 끝난다");
   ok(ownerSave.location.startsWith("/keyword-guide?"), "소유자도 온 화면으로 되돌아온다");

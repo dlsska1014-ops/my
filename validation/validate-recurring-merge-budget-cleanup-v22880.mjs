@@ -115,8 +115,10 @@ const home = await (await req(`/app?month=2026-08&${hh}`)).text();
 eq(home.includes("/admin/recurring/save"), false, "the home has no fixed-expense form");
 
 // 예산은 폴백 없이도 저장·조회·삭제가 된다.
+// V22.9.34 감사 S3: 일괄 예산 저장은 폼이 그려질 때의 계획 지문을 함께 보낸다.
+const planFingerprint = ((await budgetPage()).match(/name="plan_fingerprint" value="([^"]+)"/) || [])[1] || "";
 const bulk = await req("/my/budget-bulk/save", form({
-  household_id: "house-home", month: "2026-08",
+  household_id: "house-home", month: "2026-08", plan_fingerprint: planFingerprint,
   income_name: "월급", income_amount: "3000000", budget_category: "식비", budget_amount: "500000",
 }));
 ok(String(bulk.headers.get("location")).includes("budget_saved"), "the bulk budget save succeeds");

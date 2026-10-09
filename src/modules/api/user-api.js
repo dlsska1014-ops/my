@@ -1,9 +1,6 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
-import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
-  withHouseholdSettingsRmw,
-} from "../runtime/leases.js";
+import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
 import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
@@ -195,6 +192,9 @@ async function handleUserDayTransactions(request, env, url) {
       amount: Math.max(0, Number(row.amount || 0)),
       category: String(row.category || ""),
       memo: String(row.memo || row.raw_text || ""),
+      // V22.9.34 2차 점검 B14: 날짜 시트의 수정 폼은 저장된 메모 그대로를 칸 값과 원래 값(orig_memo)으로 쓴다.
+      // 보여 주기용 memo 는 비어 있으면 원문이라, 그대로 저장하면 금액만 고쳐도 원문이 메모가 됐다.
+      memo_raw: String(row.memo || ""),
       payment_method: String(row.payment_method || ""),
       member: String(row.spender_name || ""),
       transaction_date: String(row.transaction_date || "").slice(0, 10),
@@ -326,7 +326,7 @@ function normalizeFavoriteList(value) {
   let raw = value;
   if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
   const arr = Array.isArray(raw) ? raw : [];
-  const seen = {};
+  const seen = Object.create(null);
   const out = [];
   for (const x of arr) {
     const s = normalizeFavoriteSnapshot(x);
@@ -435,7 +435,7 @@ function normalizeGoalList(value) {
   let raw = value;
   if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : []; } catch (e) { raw = []; } }
   const arr = Array.isArray(raw) ? raw : [];
-  const seen = {};
+  const seen = Object.create(null);
   const out = [];
   for (const x of arr) {
     const g = normalizeGoal(x);
@@ -500,62 +500,64 @@ async function handleUserGoals(request, env, url) {
   if (!canWrite) {
     return jsonResponse({ ok: false, error: "forbidden", reason: "viewer_read_only", message: "조회 전용 참여자는 목표를 변경할 수 없습니다." }, 403);
   }
-  const lease = await claimOperationLease(env, {
-    key: `goals-write:${household.id}`,
-    owner: operationLeaseOwner("goals"),
-    leaseSeconds: 30,
-  });
-  if (!lease.acquired) {
-    return jsonResponse({ ok: false, error: "busy", reason: "goal_write_in_progress", message: "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." }, 409);
-  }
   try {
-    let list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
-    const action = String(body.action || "").trim();
-    if (action === "create") {
-      const amounts = goalAmountsFromInput(body);
-      if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
-      const g = normalizeGoal({ name: body.name, emoji: body.emoji, ...amounts, deadline: body.deadline });
-      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
-      if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
-      list = [...list, g];
-    } else if (action === "restore") {
-      const amounts = goalAmountsFromInput(safeObject(body.goal));
-      if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
-      const g = normalizeGoal({ ...safeObject(body.goal), ...amounts });
-      if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
-      const remaining = list.filter(x=>x.id!==g.id);
-      if (remaining.length >= 50) return jsonResponse({ok:false,error:"goal_limit"},400);
-      list = [...remaining,g];
-    } else if (action === "fund" || action === "update" || action === "delete") {
-      const id = String(body.id || "").trim();
-      const idx = list.findIndex((x) => x.id === id);
-      if (idx < 0) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "목표를 찾지 못했습니다." }, 404);
-      if (action === "delete") {
-        list = list.filter((x) => x.id !== id);
-      } else if (action === "fund") {
-        const delta = parseGoalAmountInput(body.amount, { allowZero: false, max: MAX_TRANSACTION_AMOUNT });
-        if (delta === null) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
-        const nextSaved = list[idx].saved + delta;
-        if (!Number.isSafeInteger(nextSaved) || nextSaved > MAX_GOAL_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "goal_saved_limit", message: "모은 금액이 1,000억 원을 넘을 수 없습니다." }, 400);
-        list[idx] = normalizeGoal({ ...list[idx], saved: nextSaved });
-      } else {
-        const amounts = goalAmountsFromInput({ target: body.target, monthly: body.monthly }, list[idx]);
+    // V22.9.34 감사 S9: 목표 저장은 가계부 설정 잠금(가계부 삭제와 같은 잠금)을 쓴다. 따로 쓰던 goals-write
+    // 잠금은 삭제와 직렬화되지 않아, 삭제 직후 도착한 저장이 지운 가계부의 목표를 되살렸다.
+    // 이 잠금은 안에서 가계부가 아직 있는지도 확인한다.
+    return await withHouseholdSettingsRmw(env, household.id, async ({ assertFresh }) => {
+      let list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
+      const action = String(body.action || "").trim();
+      if (action === "create") {
+        const amounts = goalAmountsFromInput(body);
         if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
-        const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: amounts.target, monthly: amounts.monthly, deadline: body.deadline ?? list[idx].deadline });
-        if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
-        list[idx] = updated;
+        const g = normalizeGoal({ name: body.name, emoji: body.emoji, ...amounts, deadline: body.deadline });
+        if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
+        if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
+        list = [...list, g];
+      } else if (action === "restore") {
+        const amounts = goalAmountsFromInput(safeObject(body.goal));
+        if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+        const g = normalizeGoal({ ...safeObject(body.goal), ...amounts });
+        if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
+        const remaining = list.filter(x=>x.id!==g.id);
+        if (remaining.length >= 50) return jsonResponse({ok:false,error:"goal_limit"},400);
+        list = [...remaining,g];
+      } else if (action === "fund" || action === "update" || action === "delete") {
+        const id = String(body.id || "").trim();
+        const idx = list.findIndex((x) => x.id === id);
+        if (idx < 0) return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "목표를 찾지 못했습니다." }, 404);
+        if (action === "delete") {
+          list = list.filter((x) => x.id !== id);
+        } else if (action === "fund") {
+          const delta = parseGoalAmountInput(body.amount, { allowZero: false, max: MAX_TRANSACTION_AMOUNT });
+          if (delta === null) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: "납입 금액을 확인해 주세요." }, 400);
+          const nextSaved = list[idx].saved + delta;
+          if (!Number.isSafeInteger(nextSaved) || nextSaved > MAX_GOAL_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "goal_saved_limit", message: "모은 금액이 1,000억 원을 넘을 수 없습니다." }, 400);
+          list[idx] = normalizeGoal({ ...list[idx], saved: nextSaved });
+        } else {
+          const amounts = goalAmountsFromInput({ target: body.target, monthly: body.monthly }, list[idx]);
+          if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+          const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: amounts.target, monthly: amounts.monthly, deadline: body.deadline ?? list[idx].deadline });
+          if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
+          list[idx] = updated;
+        }
+      } else {
+        return jsonResponse({ ok: false, error: "bad_action", reason: "bad_action", message: "지원하지 않는 요청입니다." }, 400);
       }
-    } else {
-      return jsonResponse({ ok: false, error: "bad_action", reason: "bad_action", message: "지원하지 않는 요청입니다." }, 400);
-    }
-    await saveSettingValue(env, key, JSON.stringify(list));
-    return jsonResponse({ ...goalsPayload(household.id, list), can_write: true });
+      assertFresh();
+      await saveSettingValue(env, key, JSON.stringify(list));
+      return jsonResponse({ ...goalsPayload(household.id, list), can_write: true });
+    });
   } catch (err) {
+    if (/settings_rmw_busy/.test(safeError(err))) {
+      return jsonResponse({ ok: false, error: "busy", reason: "goal_write_in_progress", message: "다른 목표 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." }, 409);
+    }
+    if (/settings_rmw_household_missing/.test(safeError(err))) {
+      return jsonResponse({ ok: false, error: "not_found", reason: "household_missing", message: "가계부를 찾지 못했습니다. 화면을 새로고침해 주세요." }, 404);
+    }
     rememberOpsEvent({ kind: "goal_settings_write_failed", severity: "warn", path: "/u/api/goals", method: "POST", detail: `${household.id}:${safeError(err)}` });
     if (isUncertainStorageWrite(err)) return jsonResponse({ ok: false, error: "db_write_unknown", reason: "db_write_unknown", uncertain: true, message: formatMessage("db_write_unknown") }, 503);
     return jsonResponse({ ok: false, error: "save_failed", reason: "goal_save_failed", message: "목표 변경을 저장하지 못했습니다. 기존 목표는 유지됩니다. 잠시 후 다시 시도해 주세요." }, 503);
-  } finally {
-    await releaseOperationLease(env, lease);
   }
 }
 // @build:exports-start

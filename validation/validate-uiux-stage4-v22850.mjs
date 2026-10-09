@@ -53,10 +53,10 @@ ok(source.includes('별도 쓰기 API를 추가하지 않는다'), "existing tra
 ok(!source.includes('/u/api/quick-input'), "stage 4 adds no parallel quick-input write API");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "current release uses a fresh shell asset");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22930.js"'), "stage 4 uses a fresh navigation asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22930.js"'), "current release uses a fresh V5 asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22934.js"'), "current release uses a fresh V5 asset");
 ok(source.includes('"accountbook-shell-v22925-css"'), "current shell has a fresh immutable ETag");
 ok(source.includes('"accountbook-nav-v22930-js"'), "stage 4 navigation has a fresh immutable ETag");
-ok(source.includes('"accountbook-v5-v22930-js"'), "current V5 runtime has a fresh immutable ETag");
+ok(source.includes('"accountbook-v5-v22934-js"'), "current V5 runtime has a fresh immutable ETag");
 
 function form(values) { return new URLSearchParams(values); }
 async function request(fixture, path, { cookie = fixture.cookie, method = "GET", body } = {}) {
@@ -80,7 +80,7 @@ try {
   ok(Buffer.byteLength(home.text) < 35 * 1024, "default home stays below the protected 35 KiB HTML budget");
   ok(home.text.includes('/assets/accountbook-shell-v22925.css'), "home loads the current shell");
   ok(home.text.includes('/assets/accountbook-nav-v22930.js'), "home loads the stage 4 navigation runtime");
-  ok(home.text.includes('/assets/accountbook-v5-v22930.js'), "home loads the current V5 runtime");
+  ok(home.text.includes('/assets/accountbook-v5-v22934.js'), "home loads the current V5 runtime");
   ok(!home.text.includes('data-ab-save-feedback'), "default home emits no false save feedback");
   eq(fixture.db.transactions.length, before, "rendering stage 4 home does not mutate transactions");
 
@@ -109,9 +109,9 @@ try {
   eq(nav.response.status, 200, "stage 4 navigation runtime is served");
   eq(nav.response.headers.get("etag"), '"accountbook-nav-v22930-js"', "stage 4 navigation ETag is correct");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22930.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22934.js");
   eq(v5.response.status, 200, "stage 4 V5 runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22930-js"', "current V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22934-js"', "current V5 runtime ETag is correct");
   ok(v5.text.includes("accountbookSaveFeedbackClientMain") || v5.text.includes("data-ab-save-feedback"), "V5 runtime contains save feedback behavior");
   ok(v5.text.includes("returnUrlForDate"), "V5 runtime contains date return behavior");
 

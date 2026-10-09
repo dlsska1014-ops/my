@@ -42,11 +42,37 @@ async function fetchBudgets(env, householdId, month, options = {}) {
   params.set("household_id", `eq.${householdId}`);
   params.set("month", `eq.${month}`);
   params.set("order", "category.asc");
-  // 표를 못 읽으면 빈 목록이다. 폴백이 있던 시절에도 settings 가 비어 있으면
-  // 결과는 같았으므로 동작이 달라지지 않는다.
-  return supabase(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { method: "GET" })
+  const request = supabase(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { method: "GET" });
+  // V22.9.34 감사 S3: 월 계획을 통째로 바꾸는 폼과 그 저장 직전 대조는 읽기 실패를
+  // 빈 계획으로 보면 안 된다. 빈 폼에서 한 칸만 저장해도 그 달 예산이 모두 지워졌다.
+  if (options.strict) {
+    return request.then((rows) => {
+      if (!Array.isArray(rows)) throw new Error("budgets_read_invalid");
+      return rows;
+    });
+  }
+  // 표시용 화면은 표를 못 읽으면 빈 목록이다. 폴백이 있던 시절에도 settings 가
+  // 비어 있으면 결과는 같았으므로 동작이 달라지지 않는다.
+  return request
     .then((rows) => Array.isArray(rows) ? rows : [])
     .catch(() => []);
+}
+
+// V22.9.34 감사 S3: 예산 폼은 그린 순간의 월 계획 지문을 싣고, 저장은 지금 계획의 지문이
+// 같을 때만 통째로 바꾼다. 폼을 연 뒤 다른 관리자·카카오가 바꾼 예산을 덮어쓰지 않는다.
+function budgetPlanFingerprint(rows = []) {
+  const canonical = (Array.isArray(rows) ? rows : [])
+    .map((row) => [normalizeText(String(row?.category || "")), Math.round(Number(row?.amount || 0))])
+    .filter(([category, amount]) => category && Number.isFinite(amount) && amount > 0)
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]))
+    .map(([category, amount]) => `${category}=${amount}`)
+    .join("|");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < canonical.length; i += 1) {
+    hash ^= canonical.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `p1-${canonical.length}-${hash.toString(16).padStart(8, "0")}`;
 }
 
 async function fetchMobileHomeSettings(env, householdId = "", month = currentMonthKst(), options = {}) {
@@ -105,7 +131,7 @@ function budgetSummary(rows = [], budgets = []) {
   // V22.6.5: 분류별 예산 합계를 월 예산의 기준으로 사용합니다.
   // 예전 __total 값은 분류별 예산이 하나도 없을 때만 호환용으로 사용합니다.
   const totalBudget = categoryBudgetTotal || explicitTotalBudget;
-  const byCategory = {};
+  const byCategory = Object.create(null);
   for (const r of expenseRows) {
     const c = r.category || "기타";
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
@@ -141,7 +167,7 @@ function budgetCenterSummary(rows = [], budgets = []) {
   const budget = budgetSummary(rows, budgets);
   const incomeBudgets = safeArray(budgets).filter((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
   const incomeBudget = incomeBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
-  const actualIncomeMap = {};
+  const actualIncomeMap = Object.create(null);
   for (const row of safeArray(rows).filter((r) => r.type === "income")) {
     const category = String(row.category || "기타수입").trim() || "기타수입";
     if (!actualIncomeMap[category]) actualIncomeMap[category] = { category, amount: 0, count: 0 };
@@ -169,7 +195,7 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
 function renderBudgetCategoryUsageTree(category = "", rows = []) {
   const filtered = safeArray(rows).filter((r) => r.type !== "income" && normalizeText(r.category || "기타") === normalizeText(category || "기타"));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
-  const groups = {};
+  const groups = Object.create(null);
   for (const r of filtered) {
     const name = r.spender_name || r.user_name || r.nickname || r.user_id || "미지정";
     if (!groups[name]) groups[name] = { total: 0, rows: [] };
@@ -251,7 +277,7 @@ function budgetAlertText(rows = [], budgets = [], category = "") {
   // Returns a short staged alert string for the *saved category* (or total fallback).
   // Empty when under 80% — we only surface 주의/초과 as an alert.
   const expenseRows = safeArray(rows).filter((r) => r.type !== "income");
-  const byCategory = {};
+  const byCategory = Object.create(null);
   for (const r of expenseRows) { const c = r.category || "기타"; byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0); }
   const catBudget = safeArray(budgets).find((b) => b.category && b.category !== "__total" && normalizeText(b.category) === normalizeText(category));
   let name = "", info = null;
@@ -269,7 +295,7 @@ function budgetAlertText(rows = [], budgets = [], category = "") {
 
 function budgetFeedbackLine(rows = [], budgets = [], category = "") {
   const expenseRows = safeArray(rows).filter((r) => r.type !== "income");
-  const byCategory = {};
+  const byCategory = Object.create(null);
   for (const r of expenseRows) {
     const c = r.category || "기타";
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
@@ -339,8 +365,8 @@ async function kakaoBudgetFeedback(env, householdId, month, category) {
 }
 // @build:exports-start
 export {
-  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetStageInfo, budgetStatusLabel,
-  budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchRecurring,
+  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint, budgetStageInfo,
+  budgetStatusLabel, budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchRecurring,
   fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusText, optionalSupabase,
   renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };

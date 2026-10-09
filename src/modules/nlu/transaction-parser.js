@@ -13,26 +13,34 @@ function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     const one = parseTransaction(text, payload);
-    return one.ok ? [{ ...one, raw_text: text }] : [];
+    return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
-    if (parsed.message === "invalid_transaction_date") return [];
+    if (parsed.message === "invalid_transaction_date" || parsed.message === "amount_unit_required") return blockedTransactionParse(parsed);
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
 }
 
+// V22.9.34 감사 N11: 저장하지 않은 이유를 빈 결과에 붙여 둔다. 배열로만 쓰는 호출부는 그대로 빈 목록을 본다.
+function blockedTransactionParse(parsed = {}) {
+  const out = [];
+  if (parsed.message === "invalid_transaction_date" || parsed.message === "amount_unit_required") out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
+  return out;
+}
+
 function hasDateHint(text) {
   const t = normalizeText(text);
-  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/]\d{1,2}|[월화수목금토일]요일)/.test(t);
+  // V22.9.34 감사 N6·D4·D8: 엊그제·그끄저께, 말일, "일주일/이틀/한 달 전" 도 날짜 표현이다(quickInputDate 와 같은 말).
+  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|말일|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/]\d{1,2}|[월화수목금토일]요일)/.test(t);
 }
 
 function extractLeadingDateHint(text) {
   const t = normalizeText(text);
-  if (/^(?:오늘|금일|지금|방금|어제|전날|그제|그저께|내일)[가-힣A-Za-z]/.test(t)) return "";
-  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|\d{1,2}\s*월\s*\d{1,2}\s*일?|\d{1,2}[.\/]\d{1,2})\s*)/);
+  if (/^(?:오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일)[가-힣A-Za-z]/.test(t)) return "";
+  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|(?:지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달)?\s*말일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}[.\/]\d{1,2})\s*)/);
   return m ? m[1].trim() : "";
 }
 
@@ -94,6 +102,10 @@ function parseTransaction(text, payload) {
   if (!amountInfo || !Number.isFinite(amountInfo.amount) || amountInfo.amount <= 0) {
     return { ok: false, message: amountFailText() };
   }
+  // V22.9.34 감사 N11: 단위 없는 한 자리 숫자("택시 7", "5")를 1~9원 지출로 저장하지 않고 다시 묻는다.
+  if (!entityAmountValue && amountInfo.amount < 10 && !/[원십백천만억]/.test(String(amountInfo.raw || ""))) {
+    return { ok: false, message: "amount_unit_required", amount: Math.round(amountInfo.amount) };
+  }
 
   const entityDateValue = params.date || params.transaction_date || params.날짜 || params.일자;
   const transactionDate = entityDateValue ? normalizeDateValue(entityDateValue) : extractDate(raw);
@@ -129,7 +141,7 @@ function amountFailText() {
 }
 
 function extractKakaoParams(payload) {
-  const out = {};
+  const out = Object.create(null);
   const sources = [payload?.action?.params, payload?.action?.detailParams, payload?.params, payload?.detailParams];
   for (const src of sources) {
     if (!src || typeof src !== "object") continue;

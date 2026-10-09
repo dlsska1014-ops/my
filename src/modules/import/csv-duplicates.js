@@ -76,7 +76,7 @@ function csvRowsToObjects(text = "") {
   if (!rows.length) return [];
   const headers = rows[0].map(normalizeHeaderName);
   return rows.slice(1).map((r) => {
-    const obj = {};
+    const obj = Object.create(null);
     for (let i = 0; i < headers.length; i++) obj[headers[i]] = r[i] ?? "";
     return obj;
   }).filter((o) => Object.values(o).some((v) => String(v || "").trim() !== ""));

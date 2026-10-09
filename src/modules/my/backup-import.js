@@ -3,7 +3,9 @@ import {
   boundedRuntimeNumber, rememberDuplicateEvent, rememberOpsEvent,
 } from "../runtime/ops-telemetry.js";
 import { appName } from "../public/site-config.js";
-import { safeError } from "../runtime/leases.js";
+import {
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+} from "../runtime/leases.js";
 import { csvResponse, htmlResponse, redirectResponse } from "../runtime/http.js";
 import {
   makeMyImportPreviewToken, randomHex, sha256Hex, verifyMyImportPreviewToken,
@@ -29,10 +31,13 @@ import {
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
 import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
-import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+import {
+  abTransactionRequestId, escapeHtml, numberWithCommas,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function handleMyBackupPage(request, env, url) {
@@ -206,7 +211,7 @@ function importedRowDuplicate(candidates, row, exact = true) {
 }
 
 function myImportReasonCounts(outcomes = []) {
-  const counts = {};
+  const counts = Object.create(null);
   for (const item of safeArray(outcomes)) {
     const code = String(item?.reason_code || "unsupported_row").slice(0, 40);
     counts[code] = (counts[code] || 0) + 1;
@@ -254,13 +259,25 @@ async function handleMyImport(request, env) {
       return htmlResponse(renderMyImportPreviewHtml({ env, selected, month, payload: tokenPayload, token: previewToken, error: "저장할 행을 한 개 이상 선택해 주세요." }));
     }
     const entries = ready.filter((entry) => selectedRows.has(Number(entry.row_number || 0)));
+    // V22.9.34 proto (B12): one household import lease covers the duplicate check and the insert.
+    let importLease = null;
+    try {
+      importLease = await claimOperationLease(env, { key: `transaction-import:${selected.id}`, owner: operationLeaseOwner("import"), leaseSeconds: 60 });
+    } catch (leaseError) {
+      rememberOpsEvent({ kind: "my_import_lease_failed", severity: "warn", path: "/my/import", method: "POST", detail: safeError(leaseError) });
+      return htmlResponse(renderMyImportPreviewHtml({ env, selected, month, payload: tokenPayload, token: previewToken, error: "저장을 시작하지 못했어요. 아직 아무 행도 저장하지 않았어요. 잠시 후 ‘선택한 항목 저장’을 다시 눌러 주세요." }), 503);
+    }
+    if (!importLease.acquired) {
+      return htmlResponse(renderMyImportPreviewHtml({ env, selected, month, payload: tokenPayload, token: previewToken, error: "다른 가져오기를 저장하고 있어요. 이 미리보기의 행은 아직 저장하지 않았어요. 잠시 후 ‘선택한 항목 저장’을 다시 눌러 주세요." }), 409);
+    }
+    try {
     const outcomes = safeArray(tokenPayload.outcomes).slice();
     const acceptedWarnings = [];
     const skipDuplicates = tokenPayload.skip_duplicates !== false;
     const members = await fetchHouseholdMembers(env, selected.id);
     const memberIds = new Set(members.filter((member) => !["blocked", "pending"].includes(String(member.role || ""))).map((member) => String(member.user_id || "")).filter(Boolean));
     memberIds.add(userId);
-    let imported = 0, duplicate = 0, failed = 0;
+    let imported = 0, duplicate = 0, failed = 0, unknown = 0;
     const pendingRows = [];
     const pendingEntries = [];
     const duplicateCandidates = await importDuplicateCandidates(env, selected.id, entries.map(entry => entry.row));
@@ -305,9 +322,24 @@ async function handleMyImport(request, env) {
           if (safeArray(entry.warnings).length) acceptedWarnings.push({ row_number: entry.row_number, raw: entry.raw, warnings: entry.warnings });
         }
       } catch (err) {
-        failed += pendingRows.length;
-        for (const entry of pendingEntries) outcomes.push(importRejection("write_failed", entry.row_number, entry.raw));
-        rememberOpsEvent({ kind: "my_import_batch_failed", severity: "error", path: "/my/import", method: "POST", detail: `rows=${pendingRows.length} ${safeError(err)}` });
+        // V22.9.34 proto (B15): definite failure (4xx: the RPC is one SQL transaction, nothing stored) vs unknown (5xx/timeout).
+        if (isUncertainStorageWrite(err)) {
+          let found = null;
+          try { found = await reconcileImportedTransactionIds(env, selected.id, pendingRows.map((row) => row.id)); } catch (_) { found = null; }
+          pendingEntries.forEach((entry, index) => {
+            if (found && found.has(String(pendingRows[index].id))) {
+              imported += 1;
+              if (safeArray(entry.warnings).length) acceptedWarnings.push({ row_number: entry.row_number, raw: entry.raw, warnings: entry.warnings });
+            } else {
+              unknown += 1;
+              outcomes.push(importRejection("write_unknown", entry.row_number, entry.raw));
+            }
+          });
+        } else {
+          failed += pendingRows.length;
+          for (const entry of pendingEntries) outcomes.push(importRejection("write_failed", entry.row_number, entry.raw));
+        }
+        rememberOpsEvent({ kind: "my_import_batch_failed", severity: "error", path: "/my/import", method: "POST", detail: `rows=${pendingRows.length} unknown=${unknown} ${safeError(err)}` });
       }
     }
     rememberMyImportSummary("my_import_commit", {
@@ -332,10 +364,12 @@ async function handleMyImport(request, env) {
       imported,
       duplicate,
       failed,
+      unknown,
       limited: Number(tokenPayload.limited || 0),
       importLimit: Number(tokenPayload.import_limit || ready.length || 120),
       selectedCount: entries.length,
     }));
+    } finally { await releaseOperationLease(env, importLease); }
   }
 
   let csvText = String(form.get("csv_text") || "");
@@ -485,11 +519,11 @@ function renderMyImportPreviewHtml({ env, selected, month, payload = {}, token =
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 미리보기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.notice,.error{border-radius:16px;padding:12px;line-height:1.6}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.mapping{display:flex;flex-wrap:wrap;gap:7px}.mapping span{background:#f8fafc;border:1px solid #e5e7eb;border-radius:999px;padding:7px 10px;font-size:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}.soft{background:#eef2f7;color:#111827}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small{display:block;color:#64748b;line-height:1.45;margin-top:4px}.importPick{width:22px;height:22px}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}.btn,button{width:100%}}</style></head><body class="abImportPreview"><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>저장 전 미리보기</h1><p>${escapeHtml(selected.name || "가계부")}에 저장될 후보를 확인하고 필요한 행만 선택하세요. 아직 거래는 저장되지 않았습니다.</p></section>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<section class="metrics"><div class="metric"><span>원본 행</span><b>${numberWithCommas(payload.parsed?.total_rows || 0)}</b></div><div class="metric"><span>인식 행</span><b>${numberWithCommas(payload.parsed?.accepted_count || 0)}</b></div><div class="metric"><span>저장 후보</span><b>${numberWithCommas(ready.length)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>저장 후보 전체 수입</span><b>${numberWithCommas(income)}원</b></div><div class="metric"><span>저장 후보 전체 지출</span><b>${numberWithCommas(expense)}원</b></div></section><section class="card"><h2>인식 기준</h2><div class="mapping">${mappings}</div><p class="notice"><b>안전 확인 단계</b><br/>체크한 행만 저장합니다. 이 미리보기는 30분 뒤 만료되며, 저장 직전에 중복과 권한을 다시 확인합니다.</p></section><form id="myImportCommitForm" method="post" action="/my/import"><input type="hidden" name="import_action" value="commit"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="import_token" value="${escapeHtml(token)}"/><section class="card"><h2>저장할 행 선택</h2><div class="toolbar"><button id="selectAllImport" type="button" class="soft">전체 선택</button><button id="clearImport" type="button" class="soft">전체 해제</button><button id="reviewImportRows" type="button" class="soft" aria-pressed="false">확인 필요한 행 보기</button><b id="selectedImportCount" aria-live="polite">${numberWithCommas(ready.length)}건 선택</b></div><div class="tableWrap"><table><thead><tr><th>선택</th><th>행</th><th>날짜</th><th>구분</th><th>금액</th><th>분류·내용</th><th>결제수단·보정</th></tr></thead><tbody>${rows}</tbody></table></div><section class="importSelectionSummary" aria-label="선택한 항목의 저장 예정 금액"><div><span>선택한 수입</span><b id="selectedImportIncome">${numberWithCommas(income)}원</b></div><div><span>선택한 지출</span><b id="selectedImportExpense">${numberWithCommas(expense)}원</b></div><p id="selectedImportReview" role="status"></p><small>선택한 행 기준입니다. 저장 직전 중복 검사를 거치면 실제 저장 건수와 금액이 줄어들 수 있습니다. 확인 필요 필터를 바꿔도 선택은 유지됩니다.</small></section><div class="toolbar"><button id="commitImport" type="submit"${ready.length ? "" : " disabled"}>선택한 항목 저장</button><a class="btn soft" href="${escapeHtml(back)}">취소하고 돌아가기</a></div></section></form><section class="card"><h2>제외된 행과 이유</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${rejectedRows}</tbody></table></div>${outcomes.length > 40 ? `<p class="notice">처음 40행만 표시했습니다. 전체 사유 건수는 분석 결과에 반영되어 있습니다.</p>` : ""}</section></div></div></main><script>(${importPreviewClientMain.toString()})();</script></body></html>`;
 }
 
-function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [], acceptedWarnings = [], imported = 0, duplicate = 0, failed = 0, limited = 0, importLimit = 120, selectedCount = 0 }) {
+function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [], acceptedWarnings = [], imported = 0, duplicate = 0, failed = 0, unknown = 0, limited = 0, importLimit = 120, selectedCount = 0 }) {
   const ignoredCodes = new Set(["preamble", "repeated_header", "summary_row"]);
   const ignored = outcomes.filter((item) => ignoredCodes.has(item.reason_code)).length;
-  const notRecognized = outcomes.filter((item) => !ignoredCodes.has(item.reason_code) && !["duplicate", "over_limit", "write_failed"].includes(item.reason_code)).length;
-  const reasonCounts = {};
+  const notRecognized = outcomes.filter((item) => !ignoredCodes.has(item.reason_code) && !["duplicate", "over_limit", "write_failed", "write_unknown"].includes(item.reason_code)).length;
+  const reasonCounts = Object.create(null);
   for (const item of outcomes) reasonCounts[item.reason_code] = (reasonCounts[item.reason_code] || 0) + 1;
   const reasonSummary = Object.entries(reasonCounts).map(([code, count]) => {
     const guide = IMPORT_REJECTION_GUIDE[code] || IMPORT_REJECTION_GUIDE.unsupported_row;
@@ -499,12 +533,31 @@ function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [],
   const mappingRows = safeArray(parsed.mappings).map((item) => `<tr><td>${escapeHtml(item.source || "-")}</td><td>→</td><td><b>${escapeHtml(item.label || item.field || "-")}</b></td></tr>`).join("") || `<tr><td colspan="3">제목 행 없이 자연어·행 위치를 기준으로 분석했습니다.</td></tr>`;
   const warningRows = acceptedWarnings.slice(0, 100).map((item) => `<tr><td>${numberWithCommas(item.row_number || 0)}</td><td>${item.warnings.map((warning) => `<span>${escapeHtml(warning)}</span>`).join("")}</td><td>${escapeHtml(item.raw || "-")}</td></tr>`).join("") || `<tr><td colspan="3">자동 보정 주의사항이 없습니다.</td></tr>`;
   const back = `/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 결과</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.ok b{color:#166534}.warn b{color:#9a3412}.bad b{color:#b91c1c}.meta{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.6}.reasonList{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.reasonList li{display:flex;justify-content:space-between;gap:8px;border:1px solid #e5e7eb;border-radius:15px;padding:11px}.reasonList span{color:#64748b}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small,td span{display:block;color:#64748b;line-height:1.5;margin-top:4px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}.soft{background:#eef2f7;color:#111827}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}table{min-width:680px}.btn{width:100%;margin:4px 0}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>가져오기 결과</h1><p>${escapeHtml(selected.name || "가계부")} · ${escapeHtml(parsed.format === "table" ? "제목이 있는 표" : parsed.format === "headerless_table" ? "제목 없는 표" : "자연어 목록")} · ${escapeHtml(parsed.delimiter || "자연어")}로 인식했습니다.</p><p><a class="btn soft" href="${escapeHtml(back)}">백업·가져오기로 돌아가기</a></p></section><section class="metrics"><div class="metric"><span>선택한 행</span><b>${numberWithCommas(selectedCount || imported + duplicate + failed)}</b></div><div class="metric ok"><span>저장 완료</span><b>${numberWithCommas(imported)}</b></div><div class="metric warn"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>설명·합계 제외</span><b>${numberWithCommas(ignored)}</b></div><div class="metric bad"><span>미인식</span><b>${numberWithCommas(notRecognized)}</b></div><div class="metric bad"><span>저장 오류</span><b>${numberWithCommas(failed)}</b></div><div class="metric warn"><span>처리 한도 초과</span><b>${numberWithCommas(limited)}</b></div></section><section class="card"><h2>분석 기준</h2><div class="meta">원본 ${numberWithCommas(parsed.total_rows || 0)}행 · 인식 가능 ${numberWithCommas(parsed.accepted_count || parsed.accepted?.length || 0)}행 · 1회 저장 한도 ${numberWithCommas(importLimit)}행${parsed.header_row ? ` · 제목 행 ${numberWithCommas(parsed.header_row)}번째` : " · 제목 행 없음"}</div><p class="notice"><b>원본 파일은 수정하지 않았습니다.</b><br/>저장하지 못한 행은 아래 원인과 수정 방법을 확인한 뒤 해당 행만 다시 가져오면 됩니다. 중복 제외 행도 새 기록으로 만들지 않았습니다.</p></section><section class="card"><h2>인식한 행 제목</h2><div class="tableWrap"><table><thead><tr><th>원본 제목</th><th></th><th>인식 필드</th></tr></thead><tbody>${mappingRows}</tbody></table></div></section><section class="card"><h2>제외·미인식 사유 요약</h2><ul class="reasonList">${reasonSummary}</ul></section><section class="card"><h2>행별 원인과 수정 방법</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${outcomeRows}</tbody></table></div>${outcomes.length > 160 ? `<p class="notice">화면에는 처음 160행만 표시했습니다. 같은 사유 ${numberWithCommas(outcomes.length - 160)}행은 요약에 포함되어 있습니다.</p>` : ""}</section><section class="card"><h2>저장했지만 자동 보정한 행</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>보정 내용</th><th>원본 미리보기</th></tr></thead><tbody>${warningRows}</tbody></table></div></section><section class="card"><a class="btn" href="${escapeHtml(back)}">다른 파일 가져오기</a> <a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}&feed=all#feed">가져온 기록 확인</a></section></div></div></main><script>try{history.replaceState(null,"",${JSON.stringify(back)});}catch(e){}</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 결과</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:24px;margin-top:5px}.ok b{color:#166534}.warn b{color:#9a3412}.bad b{color:#b91c1c}.meta{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.6}.reasonList{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.reasonList li{display:flex;justify-content:space-between;gap:8px;border:1px solid #e5e7eb;border-radius:15px;padding:11px}.reasonList span{color:#64748b}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small,td span{display:block;color:#64748b;line-height:1.5;margin-top:4px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}.soft{background:#eef2f7;color:#111827}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}table{min-width:680px}.btn{width:100%;margin:4px 0}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>가져오기 결과</h1><p>${escapeHtml(selected.name || "가계부")} · ${escapeHtml(parsed.format === "table" ? "제목이 있는 표" : parsed.format === "headerless_table" ? "제목 없는 표" : "자연어 목록")} · ${escapeHtml(parsed.delimiter || "자연어")}로 인식했습니다.</p><p><a class="btn soft" href="${escapeHtml(back)}">백업·가져오기로 돌아가기</a></p></section><section class="metrics"><div class="metric"><span>선택한 행</span><b>${numberWithCommas(selectedCount || imported + duplicate + failed)}</b></div><div class="metric ok"><span>저장 완료</span><b>${numberWithCommas(imported)}</b></div><div class="metric warn"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>설명·합계 제외</span><b>${numberWithCommas(ignored)}</b></div><div class="metric bad"><span>미인식</span><b>${numberWithCommas(notRecognized)}</b></div><div class="metric bad"><span>저장 안 됨</span><b>${numberWithCommas(failed)}</b></div><div class="metric warn"><span>확인 필요</span><b>${numberWithCommas(unknown)}</b></div><div class="metric warn"><span>처리 한도 초과</span><b>${numberWithCommas(limited)}</b></div></section><section class="card"><h2>분석 기준</h2><div class="meta">원본 ${numberWithCommas(parsed.total_rows || 0)}행 · 인식 가능 ${numberWithCommas(parsed.accepted_count || parsed.accepted?.length || 0)}행 · 1회 저장 한도 ${numberWithCommas(importLimit)}행${parsed.header_row ? ` · 제목 행 ${numberWithCommas(parsed.header_row)}번째` : " · 제목 행 없음"}</div><p class="notice"><b>원본 파일은 수정하지 않았습니다.</b><br/>저장하지 못한 행은 아래 원인과 수정 방법을 확인한 뒤 해당 행만 다시 가져오면 됩니다. 중복 제외 행도 새 기록으로 만들지 않았습니다.</p></section><section class="card"><h2>인식한 행 제목</h2><div class="tableWrap"><table><thead><tr><th>원본 제목</th><th></th><th>인식 필드</th></tr></thead><tbody>${mappingRows}</tbody></table></div></section><section class="card"><h2>제외·미인식 사유 요약</h2><ul class="reasonList">${reasonSummary}</ul></section><section class="card"><h2>행별 원인과 수정 방법</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${outcomeRows}</tbody></table></div>${outcomes.length > 160 ? `<p class="notice">화면에는 처음 160행만 표시했습니다. 같은 사유 ${numberWithCommas(outcomes.length - 160)}행은 요약에 포함되어 있습니다.</p>` : ""}</section><section class="card"><h2>저장했지만 자동 보정한 행</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>보정 내용</th><th>원본 미리보기</th></tr></thead><tbody>${warningRows}</tbody></table></div></section><section class="card"><a class="btn" href="${escapeHtml(back)}">다른 파일 가져오기</a> <a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}&feed=all#feed">가져온 기록 확인</a></section></div></div></main><script>try{history.replaceState(null,"",${JSON.stringify(back)});}catch(e){}</script></body></html>`;
 }
+async function reconcileImportedTransactionIds(env, householdId, ids = []) {
+  const found = new Set();
+  const clean = [...new Set(ids.map((id) => String(id || "").trim()).filter(Boolean))];
+  for (let i = 0; i < clean.length; i += 80) {
+    const params = new URLSearchParams({ select: "id", household_id: `eq.${householdId}`, id: `in.(${clean.slice(i, i + 80).join(",")})`, limit: "80" });
+    const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("import_reconcile_invalid");
+    for (const row of rows) found.add(String(row.id));
+  }
+  return found;
+}
+
+// Only error renders carry the id back (normal home renders add 0 bytes).
+function abEchoQuickRequestId(url, err, html) {
+  const rid = abTransactionRequestId(url.searchParams.get("rid"));
+  if (!rid || !err) return html;
+  return String(html).replace(/<input type="hidden" name="raw_text" id="rawTextInput"\/?>/, (m) => `<input type="hidden" name="request_id" value="${rid}">${m}`);
+}
+
 // @build:exports-start
 export {
-  decodeImportUploadBytes, handleMyBackupCsv, handleMyBackupPage, handleMyImport,
-  myImportDeterministicTransactionId, myImportReasonCounts, prepareMyImportEntry,
+  abEchoQuickRequestId, decodeImportUploadBytes, handleMyBackupCsv, handleMyBackupPage,
+  handleMyImport, myImportDeterministicTransactionId, myImportReasonCounts, prepareMyImportEntry,
   renderMyImportPreviewHtml, renderMyImportResultHtml,
 };
 // @build:exports-end

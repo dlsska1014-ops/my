@@ -36,7 +36,7 @@ import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edi
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoQaPayload,
   isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
-  normalizeKakaoSkillResponse, stripLeadingCommand,
+  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -249,10 +249,13 @@ async function handleKakaoSkill(request, env) {
   // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
   // handleEditMessage가 소비하고 다른 어떤 핸들러로도 보내지 않는다.
   // (새 "수정/삭제/복구 NN번" 명령은 아래 본 라우터의 1·2단계에서 새로 시작한다.)
+  let editSessionNotice = "";
   if (skillConfigured && kakaoUserKey &&
       !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin });
-    if (editSessionReply) return editSessionReply;
+    // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput });
+    if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
+    else if (editSessionReply) return editSessionReply;
   }
 
   if (earlyReply) {
@@ -563,7 +566,14 @@ ${formatRecentTransactions(rows)}`);
     return kakaoText("삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 삭제 01번\n\n방금 입력을 지우려면 ‘방금 삭제’라고 입력해 주세요.\n삭제한 기록은 ‘복구’로 되돌릴 수 있어요.");
   }
 
-  return await saveKakaoParsedTransactionsReply(env, { household, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt });
+  if (!preParsedList.length && preParsedList.blocked?.message === "amount_unit_required") {
+    // V22.9.34 감사 N11: 가계부 선택 같은 흐름을 먼저 본 뒤, 저장 직전에 한 자리 금액을 다시 묻는다.
+    const small = preParsedList.blocked.amount;
+    return kakaoText(`금액이 ${small}원으로 읽혀 저장하지 않았어요. 정말 ${small}원이면 "${small}원"처럼 원을 붙여 다시 보내 주세요.`);
+  }
+  // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
+  if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
+  return await saveKakaoParsedTransactionsReply(env, { household, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
 }
 // @build:exports-start
 export { handleKakaoSkillStable };

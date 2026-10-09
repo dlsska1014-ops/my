@@ -182,8 +182,23 @@ import {
 } from "../admin/launch-guide-pages.js";
 // @build:imports-end
 
+// V22.9.34 감사 SIM-10: 사용자가 정한 이름이 일반 객체의 키로 쓰여 "__proto__" 가 들어오면 Object.prototype 이
+// 바뀌고, 같은 인스턴스에서 처리하는 다른 가계부 요청까지 값이 번졌다. 집계 맵은 원형 없는 객체로 바꿨고
+// (validate-proto-safety-v22934), 놓친 곳이 있어도 다음 요청으로 번지지 않게 요청 앞뒤에서 원형에 붙은
+// 열거 가능 속성을 지우고 운영 이벤트로 남긴다. 내장 속성은 열거되지 않으므로 오염된 키만 걸린다.
+function scrubPrototypePollution(where = "") {
+  const polluted = [];
+  for (const key in Object.prototype) polluted.push(key);
+  for (const key of polluted) {
+    try { delete Object.prototype[key]; } catch (_) {}
+  }
+  if (polluted.length) rememberOpsEvent({ kind: "prototype_pollution_scrubbed", severity: "error", path: where, method: "", detail: polluted.slice(0, 12).join(",").slice(0, 200) });
+  return polluted.length;
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
+    scrubPrototypePollution("fetch:start");
     const monitoring = abMonitorRequestContext(request, env);
     const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
     const routed = rememberedHouseholdRequest(request);
@@ -194,6 +209,8 @@ const ACCOUNTBOOK_WORKER = {
     } catch (error) {
       abMonitorCompleted(requestEnv, ctx, null);
       throw error;
+    } finally {
+      scrubPrototypePollution("fetch:end");
     }
   },
   async route(request, env, ctx) {
@@ -1387,6 +1404,7 @@ const ACCOUNTBOOK_WORKER = {
     }
   },
   async scheduled(controller, env, ctx) {
+    scrubPrototypePollution("scheduled:start");
     env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면

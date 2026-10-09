@@ -2,7 +2,7 @@
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { APP_VERSION } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
-import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { normalizeTransactionType } from "./transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
@@ -11,7 +11,7 @@ import {
   fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
-import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import { fetchBudgets, fetchRecurring, fetchRecurringStrict } from "../domain/budgets.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -37,17 +37,19 @@ async function buildBackupPayload(env, { month, householdId }) {
   const households = await fetchAdminHouseholds(env);
   const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
   const transactions = await fetchAdminRows(env, { month, householdId, type: "all" });
-  const membersByHousehold = {};
-  const budgetsByHousehold = {};
-  const recurringByHousehold = {};
-  const categoriesByHousehold = {};
-  const reservePlansByHousehold = {};
+  const membersByHousehold = Object.create(null);
+  const budgetsByHousehold = Object.create(null);
+  const recurringByHousehold = Object.create(null);
+  const categoriesByHousehold = Object.create(null);
+  const reservePlansByHousehold = Object.create(null);
+  // V22.9.34 감사 S10: 백업은 읽기 실패를 빈 값으로 넣지 않는다. 일부가 빈 백업 파일은 정상처럼 보여
+  // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
   for (const h of selectedHouseholds) {
     membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
-    budgetsByHousehold[h.id] = await fetchBudgets(env, h.id, month);
-    recurringByHousehold[h.id] = await fetchRecurring(env, h.id);
+    budgetsByHousehold[h.id] = await fetchBudgets(env, h.id, month, { strict: true });
+    recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
     categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
-    reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id);
+    reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
   return {
     app: "kakao-accountbook",
@@ -82,7 +84,13 @@ async function handleAdminExportJson(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const householdId = String(url.searchParams.get("household_id") || "").trim();
-  const payload = await buildBackupPayload(env, { month, householdId });
+  let payload;
+  try {
+    payload = await buildBackupPayload(env, { month, householdId });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
+    return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
+  }
   const scope = householdId ? "household" : "all";
   return backupJsonResponse(payload, `accountbook_backup_${month}_${scope}.json`);
 }
@@ -164,14 +172,14 @@ function summarizeBackupPayload(payload) {
   const transactions = safeArray(p.transactions);
   const expense = transactions.filter((t) => safeObject(t).type !== "income").reduce((a, t) => a + Number(safeObject(t).amount || 0), 0);
   const income = transactions.filter((t) => safeObject(t).type === "income").reduce((a, t) => a + Number(safeObject(t).amount || 0), 0);
-  const categoryMap = {};
+  const categoryMap = Object.create(null);
   for (const t of transactions) {
     const row = safeObject(t);
     const c = row.category || "미분류";
     categoryMap[c] = (categoryMap[c] || 0) + Number(row.amount || 0);
   }
   const topCategories = Object.entries(categoryMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const byDate = {};
+  const byDate = Object.create(null);
   for (const t of transactions) {
     const row = safeObject(t);
     const d = row.transaction_date || "날짜없음";

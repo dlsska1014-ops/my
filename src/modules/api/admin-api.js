@@ -114,7 +114,7 @@ async function handleApi(request, env, url) {
 }
 
 function normalizeApiTransactionBody(body = {}, partial = false) {
-  const out = {};
+  const out = Object.create(null);
   const map = {
     household_id: body.household_id,
     user_id: body.user_id,

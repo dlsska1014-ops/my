@@ -34,7 +34,7 @@ function summarizeImportHistory(rows = []) {
   const total = imported.length;
   const income = imported.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const expense = imported.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-  const byBatch = {};
+  const byBatch = Object.create(null);
   for (const r of imported) {
     const key = importHistoryBatchKey(r);
     if (!byBatch[key]) byBatch[key] = { key, count: 0, income: 0, expense: 0, first_created: r.created_at || "", last_created: r.created_at || "" };
@@ -124,7 +124,7 @@ function summarizeRollbackCandidates(rows = []) {
   const arr = safeArray(rows);
   const income = arr.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const expense = arr.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-  const bySource = {};
+  const bySource = Object.create(null);
   for (const r of arr) {
     const key = r.source || "unknown";
     bySource[key] = (bySource[key] || 0) + 1;
