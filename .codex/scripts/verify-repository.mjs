@@ -180,7 +180,8 @@ function run(command, args, label) {
 // V22.9.32 모듈 분리 0·1단계: src/modules 재조립과 src/index.js 의 바이트 동일성·빌드 규칙 검사 19개가 들어왔다.
 // V22.9.32 모듈 분리 6단계: 배포 스크립트의 업로드·대조·승격·되돌림을 가짜 API 로 확인하는 검사 178개가 들어왔다.
 // V22.9.32 모듈 분리 2·3단계: 모듈 단독 문법·표시 117개, 클라이언트 직렬화 38개, 초기화 순서 13개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 8365;
+// V22.9.32 첫 실제 업로드 뒤: inherit latest·최신 버전 출처·호환 플래그 비교 검사 19개로 배포 스크립트 검사가 197개가 됐다.
+const EXPECTED_MINIMUM_CHECKS = 8384;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

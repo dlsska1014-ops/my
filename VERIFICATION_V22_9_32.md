@@ -20,7 +20,7 @@
 | 모듈 단독 문법·import/export 표시 (`validate:module-syntax`) | 117개. 모듈 108개가 표시를 포함해 단독 ES 모듈로 파싱됨. import 이름 2,722개가 모두 실제 export와 이어짐 |
 | 클라이언트 직렬화 자체 완결 (`validate:client-serialization`) | 38개. 직렬화 지점 43곳, 클라이언트 함수 32개, 화면 전역 허용 2건 |
 | 초기화 순서 (`validate:init-order`) | 13개. 로드 때 다른 상수를 읽는 문장 7개가 모두 순서에 맞음. 계획서 4.7의 6건을 탐지함 |
-| 배포 스크립트 (`validate:deploy-script`) | 178개. 가짜 Cloudflare API로 업로드·대조·승격·되돌림과 거부 경로를 확인 |
+| 배포 스크립트 (`validate:deploy-script`) | 197개(첫 실제 업로드 뒤 178 → 197, 아래 "첫 실제 업로드와 수정" 참고). 가짜 Cloudflare API로 업로드·대조·승격·되돌림과 거부 경로를 확인 |
 
 일부러 실패시켜 본 경우는 모두 예상대로 실패했습니다.
 
@@ -35,7 +35,7 @@
 ## 전체 검증
 
 - 새 manifest: `BUNDLE_FILE_CHECKSUMS_V22_9_32.sha256`은 이전 199개 경로를 모두 보존하고 새 파일 133개를 더한 **332개**입니다. 더한 것은 모듈 108개와 `MANIFEST.txt`, 도구 9개, 검증 5개, 계획 문서·명세·스크립트 7개, 판 문서 3개입니다. 과거 manifest는 수정하지 않았습니다.
-- 전체 하네스: `node .codex/scripts/verify-repository.mjs`가 자동 검사 **8,365개**(하한 8,365)·Worker 문법·ESM default.fetch·작업 트리와 스테이징 공백 검사를 통과했습니다.
+- 전체 하네스: `node .codex/scripts/verify-repository.mjs`가 자동 검사 **8,365개**(하한 8,365)·Worker 문법·ESM default.fetch·작업 트리와 스테이징 공백 검사를 통과했습니다. 첫 실제 업로드 뒤 수정으로 8,384개(하한 8,384)가 됐습니다.
 - Node.js v22.23.1에서 `node monitoring/test-d1.mjs`의 SQLite 45개를 별도로 통과했습니다.
 - CI(Ubuntu·Windows) 결과는 아래 "GitHub 통합과 운영 기준"에 적었습니다.
 
@@ -59,8 +59,27 @@ main `07d0f60`의 V22.9.31 운영 기록 `docs/deployments/V22_9_31_2026_10_08.m
 
 병합 뒤 운영 상태도 확인했습니다. 공개 GET `/health`는 V22.9.31·alive=true·설정 누락 0개였고, `/ready`는 200이었습니다. 배포 스크립트가 승격 뒤 실행하는 공개 검사(`tools/verify-deployment-v22920.mjs --version V22.9.31-GROUP-FIRST-RECORD --legacy-origin https://ttokttok-accountbook.com`)도 현재 운영에 미리 실행해 116개가 모두 통과했습니다. V22.9.32 배포는 아직 실행하지 않았습니다.
 
+## 첫 실제 업로드와 수정 (2026-10-09)
+
+병합 뒤 main `74ff9be`에서 사용자가 업로드를 실행했습니다. 스크립트는 현재 배포 `dd301015…` → 버전 `e0442e83…`(바인딩 30개)을 읽었습니다. 그다음 `POST /versions?bindings_inherit=strict`가 HTTP 400으로 거부됐습니다. 바인딩 30개 모두 오류 10057("'version_id' value '<버전 ID>' is invalid, only the literal 'latest' is supported by this API")이었습니다. 버전은 만들어지지 않았고 운영은 바뀌지 않았습니다. API 문서는 버전 ID도 받는다고 적고 있지만 실제 업로드 API는 `latest`만 받습니다. 가짜 API가 버전 ID를 그대로 받아 줬기 때문에 검사 178개가 이를 잡지 못했습니다.
+
+고친 것은 다음과 같습니다.
+
+- inherit를 `version_id: "latest"`로 보냅니다. `latest`는 가장 최근에 저장된 버전이라, 배포 중인 버전과 다를 수 있습니다. 그래서 업로드 직전에 `GET /versions`의 첫 버전(문서상 최신 버전)을 확인합니다. 그 버전이 현재 배포 버전이거나, 이 스크립트가 같은 배포 버전에서 올린 버전(로컬 업로드 기록)일 때만 올립니다.
+- 대시보드로 올린 운영 버전은 `script_runtime`에 `compatibility_flags` 키가 없습니다. 키 없음과 빈 목록을 같게 비교해, 표현 차이만으로 승격이 막히지 않게 했습니다.
+- 가짜 API도 실제처럼 바꿨습니다. 버전 ID 고정 inherit를 10057로 거부하고, 최신 버전에서 이어받고, 버전 목록을 최신순으로 돌려줍니다. 검사를 19개 더해 197개가 됐습니다.
+- 일부러 되돌려 본 세 경우(버전 ID 고정, 최신 버전 확인 제거, 플래그 비교 정규화 제거)는 모두 검사에서 실패했습니다.
+
+실패한 실행이 남긴 현재 버전 스냅숏(바인딩 값은 해시)에서 실제 응답을 확인했습니다.
+
+- 버전 번호 281, `metadata.source`는 `dash`입니다.
+- handlers는 `fetch`·`route`·`scheduled`이고, 버전 조회 응답에 `annotations`가 있습니다.
+- `script_runtime`에는 `compatibility_date`(2026-06-16)와 `usage_model`(standard)만 있습니다.
+- 바인딩은 secret_text 10개, plain_text 19개, service 1개입니다.
+- 서버 etag(`2c0d0768…`)는 V22.9.31 소스 SHA-256(`bbcd1756…`)과 다릅니다.
+
 ## 운영과 한계
 
-이 판의 Worker 교체는 새 배포 스크립트의 첫 실제 사용입니다. `content/v2` 응답 형식, inherit로 올린 버전의 바인딩 조회, 서버 etag와 소스 SHA-256의 관계는 실제 API에서 처음 확인합니다. 어긋나면 스크립트는 멈추고, 기존 대시보드 절차로 돌아갑니다. 새 SQL·스키마·환경변수·Secrets·바인딩·외부 콘솔 변경은 없습니다.
+이 판의 Worker 교체는 새 배포 스크립트의 첫 실제 사용입니다. `content/v2` 응답 형식과 inherit로 올린 버전의 바인딩 조회는 아직 실제 API에서 확인하지 않았습니다. etag와 소스 SHA-256의 관계는 위에서 확인했습니다. 어긋나면 스크립트는 멈추고, 기존 대시보드 절차로 돌아갑니다. 새 SQL·스키마·환경변수·Secrets·바인딩·외부 콘솔 변경은 없습니다.
 
 모듈 간 최상위 `let` 대입 10건(지연 생성 자산 캐시)은 단일 파일 배포에서는 문제가 없습니다. 하지만 진짜 ES 모듈로 나눠 평가하면 import가 읽기 전용이라 실패합니다. 4단계에서 캐시 옆으로 옮길 대상이고, 지금은 검사가 목록을 고정해 새 사례만 막습니다. 10,000자를 넘는 줄은 템플릿 리터럴 8개와 과거 자산 항목 4줄입니다. 과거 자산 줄은 값 자체가 긴 문자열이라, 값을 바꾸지 않고는 더 줄일 수 없습니다.

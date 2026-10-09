@@ -4,8 +4,11 @@
 // 운영 Worker 의 바인딩·Secret·런타임 설정에 닿을 수 있는 자동 경로라서, 실제 API 를 부르지 않고
 // 하네스 안에서 다음을 고정한다.
 //   - dry-run 과 인자·자격 오류는 네트워크를 쓰지 않는다.
-//   - 업로드는 현재 배포 버전의 바인딩 전부를 inherit(strict)로 넘기고 호환 설정을 그대로 옮기며,
-//     배포(POST /deployments)는 하지 않는다. 바인딩을 읽지 못하면 올리지 않는다.
+//   - 업로드는 현재 배포 버전의 바인딩 전부를 inherit(latest, strict)로 넘기고 호환 설정을 그대로
+//     옮기며, 배포(POST /deployments)는 하지 않는다. 바인딩을 읽지 못하면 올리지 않는다.
+//   - 실제 Versions API 는 inherit 의 version_id 로 "latest" 만 받는다(버전 ID 는 10057, 2026-10-09 첫 실행).
+//     latest 는 최신 버전이므로, 최신 버전이 현재 배포 버전(또는 이 스크립트가 그 버전에서 올린 버전)이
+//     아니면 올리지 않는다. 가짜 API 도 실제처럼 버전 ID 를 거부하고 최신 버전에서 이어받는다.
 //   - 저장된 버전의 바인딩·script_runtime·handlers 가 현재와 다르면 승격하지 않는다.
 //   - 승격은 업로드 기록·현재 소스·HEAD·etag 가 맞을 때만 하고, 승격 뒤 배포 상태·소스 해시·
 //     /health·공개 검사를 확인한다. 실패하면 되돌리기 명령만 알리고 스스로 되돌리지 않는다.
@@ -65,6 +68,15 @@ function fakeCloudflare(options = {}) {
     },
   });
   contents.set(LIVE_ID, Buffer.from("// previous release\n"));
+  if (options.newerVersion) {
+    // 대시보드에서 저장만 하고 배포하지 않은 더 새 버전 — inherit latest 의 출처가 현재 배포 버전이 아니게 된다
+    const newer = structuredClone(versions.get(LIVE_ID));
+    newer.id = OTHER_ID;
+    newer.number = 41;
+    newer.resources.bindings.find((b) => b.name === "APP_NAME").text = "NEWER-UNDEPLOYED";
+    versions.set(OTHER_ID, newer);
+  }
+  const newest = () => [...versions.values()].at(-1);
   const deployments = [{
     id: "deployment-live",
     created_on: "2026-10-07T00:00:00Z",
@@ -89,6 +101,10 @@ function fakeCloudflare(options = {}) {
     if (!isApi) throw new Error(`fake: unexpected request ${request.method} ${target.href}`);
     if (call.authorization !== `Bearer ${TOKEN}`) return failure(403, 10000, "Authentication error");
     if (request.method === "GET" && call.path === "/deployments") return success({ deployments: structuredClone(deployments) });
+    if (request.method === "GET" && call.path === "/versions") {
+      if (options.versionListShape === "bad") return success({});
+      return success({ items: [...versions.values()].reverse().map(({ id, number, metadata }) => structuredClone({ id, number, metadata })) });
+    }
     if (request.method === "GET" && call.path.startsWith("/versions/")) {
       const version = versions.get(call.path.slice("/versions/".length));
       return version ? success(structuredClone(version)) : failure(404, 10007, "version not found");
@@ -103,7 +119,10 @@ function fakeCloudflare(options = {}) {
       const bindings = [];
       for (const binding of metadata.bindings ?? []) {
         if (binding.type !== "inherit") { bindings.push(binding); continue; }
-        const from = versions.get(binding.version_id && binding.version_id !== "latest" ? binding.version_id : LIVE_ID);
+        if (binding.version_id !== undefined && binding.version_id !== "latest") {
+          return failure(400, 10057, `inherit binding '${binding.name}' is invalid: 'version_id' value '${binding.version_id}' is invalid, only the literal 'latest' is supported by this API`);
+        }
+        const from = newest();
         const found = binding.name === options.hideFromInherit ? null : from?.resources.bindings.find((b) => b.name === (binding.old_name || binding.name));
         if (!found) {
           if (strict) return failure(400, 10021, `binding ${binding.name} could not be inherited`);
@@ -232,13 +251,13 @@ for (const [label, options, pattern] of [
 }
 
 // ---------------------------------------------------------------------------
-// 3. 업로드 — inherit(strict), 호환 설정 복사, 배포하지 않음, 기록과 가림
+// 3. 업로드 — inherit(latest, strict), 호환 설정 복사, 배포하지 않음, 기록과 가림
 // ---------------------------------------------------------------------------
 const first = await upload();
 {
   const { fake, h, code, created, newId } = first;
   eq(code, 0, "업로드와 대조가 통과한다");
-  eq(fake.calls.map((c) => `${c.method} ${c.path}`).join(" | "), `GET /deployments | GET /versions/${LIVE_ID} | POST /versions | GET /versions/${newId}`, "현재 배포 → 현재 버전 → 업로드 → 저장된 버전 순서로만 요청한다");
+  eq(fake.calls.map((c) => `${c.method} ${c.path}`).join(" | "), `GET /deployments | GET /versions/${LIVE_ID} | GET /versions | POST /versions | GET /versions/${newId}`, "현재 배포 → 현재 버전 → 최신 버전 확인 → 업로드 → 저장된 버전 순서로만 요청한다");
   ok(fake.calls.every((c) => c.authorization === `Bearer ${TOKEN}`), "모든 API 요청에 Bearer 토큰을 붙인다");
   eq(created.query, "?bindings_inherit=strict", "업로드는 bindings_inherit=strict 로 보낸다");
   const { metadata, file, metadataType } = created.upload;
@@ -248,7 +267,7 @@ const first = await upload();
   eq(file.type, "application/javascript+module", "모듈 부분은 ES module 형식이다");
   eq(sha256(file.bytes), SOURCE_SHA, "보낸 모듈 바이트가 src/index.js 와 같다");
   eq(metadata.bindings.length, LIVE_BINDINGS.length, "현재 바인딩 수만큼 inherit 를 보낸다");
-  ok(metadata.bindings.every((b) => b.type === "inherit" && b.version_id === LIVE_ID && Object.keys(b).length === 3), "모든 바인딩이 현재 배포 버전에 고정된 inherit 이고 값은 담지 않는다");
+  ok(metadata.bindings.every((b) => b.type === "inherit" && b.version_id === "latest" && Object.keys(b).length === 3), "모든 바인딩이 inherit(latest)이고 값은 담지 않는다 — 실제 API 는 버전 ID 고정을 10057 로 거부한다");
   eq(canonical(metadata.bindings.map((b) => b.name).sort()), canonical(LIVE_BINDINGS.map((b) => b.name).sort()), "inherit 이름이 현재 바인딩 이름과 같다");
   ok(!JSON.stringify(metadata).includes(PLAIN_VALUE), "업로드 metadata 에 환경변수 값이 없다");
   eq(metadata.compatibility_date, LIVE_RUNTIME.compatibility_date, "compatibility_date 를 현재 버전에서 옮긴다");
@@ -264,6 +283,7 @@ const first = await upload();
   eq(record.data.commit, HEAD, "기록에 커밋이 있다");
   eq(record.data.differences.length, 0, "기록에 대조 결과(차이 없음)가 있다");
   ok(record.data.uploaded.etag, "기록에 서버 etag 가 있다");
+  ok(record.data.inherit?.version_id === "latest" && record.data.inherit.latest_version_id === LIVE_ID && record.data.inherit.basis === "live", "기록에 inherit 출처(최신 버전 = 현재 배포 버전)가 남는다");
   const snapshot = recordOf(h, `live-${LIVE_ID}`);
   ok(snapshot && !JSON.stringify(snapshot.data).includes(PLAIN_VALUE) && JSON.stringify(snapshot.data).includes("sha256:"), "현재 버전 스냅숏은 바인딩 값을 해시로만 저장한다");
   ok(h.output().includes(`--promote ${newId}`), "승격 명령을 알려 주고 스스로 승격하지 않는다");
@@ -274,11 +294,11 @@ const first = await upload();
   h.files.set(resolve(root, statePath), first.h.files.get(recordOf(first.h, `live-${LIVE_ID}`).path));
   eq(await runDeploy(["--dry-run", "--state", statePath], h.deps), 0, "dry-run 이 저장된 스냅숏으로 실제 metadata 를 보여 준다");
   eq(h.network.length, 0, "--state dry-run 도 네트워크를 쓰지 않는다");
-  ok(LIVE_BINDINGS.every((b) => h.output().includes(`"name": "${b.name}"`)) && h.output().includes(`"version_id": "${LIVE_ID}"`), "dry-run metadata 가 모든 바인딩을 현재 버전 inherit 로 적는다");
+  ok(LIVE_BINDINGS.every((b) => h.output().includes(`"name": "${b.name}"`)) && h.output().includes(`"version_id": "latest"`) && !h.output().includes(`"version_id": "${LIVE_ID}"`), "dry-run metadata 가 모든 바인딩을 inherit latest 로 적는다");
 }
 
 // ---------------------------------------------------------------------------
-// 4. 업로드 거부 — 점진 배포, 바인딩을 못 읽음, inherit 실패, 저장 결과가 다름
+// 4. 업로드 거부 — 점진 배포, 바인딩을 못 읽음, inherit 실패, 최신 버전 출처, 저장 결과가 다름
 // ---------------------------------------------------------------------------
 for (const [label, fakeOptions, pattern, uploads] of [
   ["점진 배포 중", { split: true }, /100% 가 아닙니다/, 0],
@@ -287,6 +307,8 @@ for (const [label, fakeOptions, pattern, uploads] of [
   ["Durable Object 마이그레이션", { liveRuntimeExtra: { migration_tag: "v1" } }, /마이그레이션/, 0],
   ["inherit 할 수 없는 바인딩", { hideFromInherit: "KAKAO_SKILL_SECRET" }, /10021.*KAKAO_SKILL_SECRET/, 1],
   ["업로드 오류 응답", { uploadError: true }, /10021/, 1],
+  ["최신 버전이 배포되지 않은 다른 버전", { newerVersion: true }, /최신 버전 22222222-.* 현재 배포 버전 11111111-/, 0],
+  ["버전 목록 형식을 알 수 없음", { versionListShape: "bad" }, /최신 버전을 읽지 못했습니다/, 0],
 ]) {
   const { fake, h, code } = await upload(fakeOptions);
   eq(code, 1, `${label}이면 멈춘다(종료 코드 1)`);
@@ -310,6 +332,37 @@ for (const [label, mutate, pattern] of [
   ok(record && record.data.differences.length > 0, `${label}: 기록에 차이가 남는다`);
   eq(await runDeploy(["--promote", newId], h.deps), 1, `${label}: 그 버전은 --promote 도 거부한다`);
   eq(posts(fake, "/deployments"), 0, `${label}: 승격 시도에도 배포하지 않는다`);
+}
+{
+  // 대조에 실패해 배포하지 않은 업로드가 최신 버전이 돼도, 이 스크립트가 같은 현재 버전에서 올린 것이면 다시 올린다
+  const fake = fakeCloudflare();
+  const h = harness({ fake });
+  eq(await runDeploy([], h.deps), 0, "같은 현재 버전에서 첫 업로드");
+  const firstId = [...fake.versions.keys()].at(-1);
+  eq(await runDeploy([], h.deps), 0, "최신 버전이 이 스크립트가 같은 현재 버전에서 올린 버전이면 다시 올린다");
+  eq(posts(fake, "/versions"), 2, "두 번째 업로드 요청을 보낸다");
+  const second = recordOf(h, `upload-${[...fake.versions.keys()].at(-1)}`);
+  ok(second.data.inherit.latest_version_id === firstId && second.data.inherit.basis === "recorded-upload" && second.data.differences.length === 0, "두 번째 업로드는 앞선 업로드에서 이어받고, 현재 버전과 같다");
+}
+{
+  const fake = fakeCloudflare();
+  const h = harness({ fake });
+  await runDeploy([], h.deps);
+  const r = recordOf(h, `upload-${[...fake.versions.keys()].at(-1)}`);
+  h.files.set(r.path, JSON.stringify({ ...r.data, live: { ...r.data.live, version_id: OTHER_ID } }));
+  eq(await runDeploy([], h.deps), 1, "최신 버전의 업로드 기록이 다른 배포 버전에서 나왔으면 올리지 않는다");
+  eq(posts(fake, "/versions"), 1, "그때는 업로드 요청을 보내지 않는다");
+  ok(/최신 버전 .* 현재 배포 버전/.test(h.output()), "올리지 않는 이유를 알린다");
+}
+{
+  // 실제 API(2026-10-09 첫 실행)처럼 가짜 API 도 버전 ID 를 고정한 inherit 를 10057 로 거부한다
+  const fake = fakeCloudflare();
+  const form = new FormData();
+  form.append("metadata", new Blob([JSON.stringify({ main_module: "index.js", bindings: [{ type: "inherit", name: "APP_NAME", version_id: LIVE_ID }] })], { type: "application/json" }));
+  form.append("index.js", new Blob(["export default {};\n"], { type: "application/javascript+module" }), "index.js");
+  const response = await fake.fetch(`https://api.cloudflare.com${API_PREFIX}/versions?bindings_inherit=strict`, { method: "POST", body: form, headers: { authorization: `Bearer ${TOKEN}` } });
+  const body = await response.json();
+  ok(response.status === 400 && body.errors?.[0]?.code === 10057 && fake.versions.size === 1, "가짜 API 도 실제처럼 버전 ID 고정 inherit 를 10057 로 거부하고 버전을 만들지 않는다");
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +449,10 @@ for (const [label, fakeOptions, harnessOptions, pattern, publicRuns] of [
   const reordered = { resources: { bindings: [{ text: "x", type: "plain_text", name: "A" }], script: { handlers: ["fetch", "scheduled"] }, script_runtime: { compatibility_date: "2026-06-16", usage_model: "standard" } } };
   eq(compareVersionResources(version, reordered).length, 0, "키·handlers 순서만 다른 버전은 같다");
   eq(compareVersionResources(version, { resources: {} }).length, 4, "빈 버전과는 바인딩·런타임 두 키·handlers 가 모두 다르다");
+  const dashboardRuntime = { resources: { script_runtime: { compatibility_date: "2026-06-16", usage_model: "standard" } } };
+  const withFlags = (flags) => ({ resources: { script_runtime: { compatibility_date: "2026-06-16", usage_model: "standard", compatibility_flags: flags } } });
+  eq(compareVersionResources(dashboardRuntime, withFlags([])).length, 0, "compatibility_flags 가 없는 것과 빈 목록은 같다(대시보드로 올린 운영 버전은 키를 생략한다)");
+  eq(compareVersionResources(dashboardRuntime, withFlags(["nodejs_compat"])).join(" "), 'script_runtime.compatibility_flags: [] → ["nodejs_compat"]', "플래그가 실제로 생기면 차이로 잡는다");
   const text = await deployedScriptSha256(new Response(sourceBytes, { headers: { "content-type": "application/javascript" } }));
   eq(text.sha256, SOURCE_SHA, "content/v2 가 스크립트 본문이면 그 바이트를 해시한다");
   const html = await deployedScriptSha256(new Response("<html></html>", { headers: { "content-type": "text/html" } }));
