@@ -106,7 +106,7 @@ await fixture(async (fx) => {
   ok(reply.includes("저장했어요"), "표가 있으면 예전처럼 저장된다");
   eq(savedRow(fx, "표있음저장")?.category, "표분류", "표의 분류·키워드가 적용된다");
   eq(events().slice(before).filter((e) => e.kind === "kakao_category_table_unavailable").length, 0, "표가 있으면 이벤트를 남기지 않는다");
-});
+}, { categoriesPresent: true });
 
 // ── 7. 웹 빠른 입력은 전부터 표 없이도 저장됐다(두 경로가 같은 조건에서 같은 결과) ──
 await fixture(async (fx) => {

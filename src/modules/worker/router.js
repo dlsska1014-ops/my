@@ -114,8 +114,8 @@ import { handleRecurringCronApply, runRecurringAutoApply } from "../cron/recurri
 import { handleMyBudgetBulkSave, handleMyGroupsPage } from "../my/groups-budget-bulk.js";
 import { handleReportChallengeSave } from "../my/report-challenge.js";
 import {
-  handleAutomaticReportCron, handleFreeReportsPage, handleMyPremiumPage, handleReportPreferenceSave,
-  runAutomaticReports,
+  handleAutomaticReportCron, handleCardTargetSave, handleFreeReportsPage, handleMyPremiumPage,
+  handleReportPreferenceSave, runAutomaticReports,
 } from "../my/reports-premium.js";
 import {
   handleMyAnalysisPage, handleMyInsightPage, insightAppJsResponse,
@@ -394,6 +394,10 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/report-preference/save" && request.method === "POST") {
         return await handleReportPreferenceSave(request, env);
+      }
+
+      if (url.pathname === "/my/card-target/save" && request.method === "POST") {
+        return await handleCardTargetSave(request, env);
       }
 
       if (url.pathname === "/my/report-challenge/save" && request.method === "POST") {

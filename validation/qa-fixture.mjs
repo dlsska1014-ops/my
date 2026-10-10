@@ -177,7 +177,8 @@ async function signedSessionCookie(userId, secret) {
   return `ab_user=${encodeURIComponent(`${data}.${Buffer.from(signature).toString("base64url")}`)}`;
 }
 
-export async function createV2265QaFixture() {
+export async function createV2265QaFixture(options = {}) {
+  const categoriesPresent = options.categoriesPresent ?? process.env.AB_QA_CATEGORIES_ABSENT !== "1";
   const createdAt = "2026-07-01T00:00:00.000Z";
   const db = {
     users: [
@@ -450,6 +451,7 @@ export async function createV2265QaFixture() {
       return new Response(JSON.stringify({ code: "PGRST202", message: "RPC not found" }), { status: 404, headers: { "content-type": "application/json" } });
     }
     const table = url.pathname.split("/").filter(Boolean).at(-1);
+    if (table === "accountbook_categories" && !categoriesPresent) return new Response(JSON.stringify({ code: "PGRST205", message: "Could not find the table public.accountbook_categories in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
     if (!db[table]) db[table] = [];
     if (method === "GET") {
       if (table === "accountbook_settings" && (db.__fail_next_settings_read || (db.__fail_settings_read_key && url.searchParams.get("key") === `eq.${db.__fail_settings_read_key}`))) {

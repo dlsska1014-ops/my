@@ -31,7 +31,7 @@ import {
   withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { reportChallengeSettingsKey } from "./report-challenge.js";
-import { freeReportPreferenceKey } from "./reports-premium.js";
+import { cardTargetsKey, freeReportPreferenceKey } from "./reports-premium.js";
 import {
   canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
@@ -363,6 +363,9 @@ async function purgeHouseholdData(env, householdId = "") {
       });
       const summary = Array.isArray(result) ? result[0] : result;
       if (!summary?.deleted) throw new Error("household_delete_not_confirmed");
+      // New settings are cleaned under the same lease that guards their writers.
+      try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(cardTargetsKey(hid))}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); }
+      catch (error) { rememberOpsEvent({ kind: "household_preference_cleanup_pending", severity: "warn", path: "/my/household/delete", method: "POST", detail: safeError(error) }); }
       return { summary, affectedMembers: current.members };
     }));
     try {

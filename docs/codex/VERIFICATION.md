@@ -1,3 +1,11 @@
+## V22.9.38 검증 방법
+
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_38.sha256`의 380개 경로이며, 전체 하네스 하한은 9,591개입니다. 일반·부재 모드 각각 9,591개와 Node.js v22.23.1 SQLite 84개를 통과했습니다. 아래 이전 버전의 수치는 해당 시점 기록입니다.
+
+`node .codex/scripts/verify-repository.mjs`와 `node .codex/scripts/verify-repository.mjs --categories-absent`를 모두 실행합니다. 부재 모드는 분류 REST의 모든 메서드에 404/PGRST205를 반환하며, 정상 표 동작 양성 사례와 모드 시험만 명시적으로 존재 모드를 선택합니다. CI는 OS와 표 모드의 4개 조합입니다.
+
+브라우저 검증은 `node tools/screen-audit.mjs --out <저장소 밖 절대 경로> --pages budgets,settings,reserve,reports,reportsWeek,menu --width 390 --shots --interactions`를 사용합니다. 1280px도 확인합니다. 출력 폴더 아래의 snap 경로인지 검증한 뒤에만 기존 스냅샷을 정리합니다. 결과·정확한 해시와 검사 수는 `VERIFICATION_V22_9_38.md`에 기록합니다.
+
 ## V22.9.37의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_37.sha256`의 372개 파일을 사용하고, 자동 검사 하한은 9,453개입니다.

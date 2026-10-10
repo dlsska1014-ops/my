@@ -16,6 +16,7 @@ import {
   MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH,
 } from "../assets/asset-registry.js";
 import { AB_MANIFEST_LINK, AB_SPECULATION_RULES_TAG } from "../assets/icons-manifest.js";
+import { AB_CONTROLS_38_CSS_PATH, AB_CONTROLS_38_JS_PATH } from "../assets/form-controls-v22938.js";
 import { currentMonthKst, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { AB_CATEGORY_RULES_SCRIPT_TAG } from "../nlu/category-rules.js";
 import { escapeHtml } from "../domain/transactions-core.js";
@@ -220,6 +221,8 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes('id="filterBar"') && source.includes('id="kpis"')) bodyClasses.push("abPageInsight");
   if (source.includes(" · 종합 리포트</title>") || (source.includes(" · 분석</title>") && source.includes("핵심 인사이트"))) bodyClasses.push("abPageAnalysisReport");
   if (source.includes(" · 캘린더</title>")) bodyClasses.push("abPageCalendar");
+  const useControls38 = bodyClasses.some((name) => ["abPageBudgets", "abPageSettings", "abPageReserve", "abPageReports", "abPageMenu"].includes(name));
+  if (useControls38) bodyClasses.push("abControls38");
   const hasLegacyAdminPageMarker = source.includes('class="desktopLedger') || source.includes('class="pcSidebar');
   if (hasLegacyAdminPageMarker) source = source.replaceAll('data-nav-scope="user"', 'data-nav-scope="admin"');
   const hasUserNavScope = source.includes('data-nav-scope="user"');
@@ -260,6 +263,10 @@ function normalizeUserFacingUi(html = "") {
   if (useV22812Shell && source.includes("</body>") && !source.includes(ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH)) {
     // V22.8.34: 검색·알림·행즐겨찾기를 단일 immutable 번들로 주입(오버레이 마크업은 번들 JS가 생성).
     source = source.replace("</body>", `<script src="${ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH}" defer></script></body>`);
+  }
+  if (useControls38) {
+    source = source.replace("</head>", `<link rel="stylesheet" href="${AB_CONTROLS_38_CSS_PATH}"/></head>`);
+    source = source.replace("</body>", `<script src="${AB_CONTROLS_38_JS_PATH}" defer></script></body>`);
   }
   return source;
 }

@@ -18,8 +18,8 @@ export function counter(label) {
   };
 }
 
-export async function fixture(task) {
-  const fx = await createV2265QaFixture();
+export async function fixture(task, options = {}) {
+  const fx = await createV2265QaFixture(options);
   fx.env.SKILL_RATE_LIMIT = 10000;
   const fixtureFetch = globalThis.fetch;
   try {

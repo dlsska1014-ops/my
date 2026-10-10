@@ -19,14 +19,19 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, relative, isAbsolute, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "../validation/qa-fixture.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
-const OUT = flag("out", join(tmpdir(), "ab-screen-audit"));
+const OUT = resolve(flag("out", join(tmpdir(), "ab-screen-audit")));
+const INTERACTIONS = args.includes("interactions") || args.includes("--interactions");
+function assertChildPath(root, target) {
+  const rel = relative(resolve(root), resolve(target));
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("unsafe audit output path");
+}
 const WIDTH = Number(flag("width", "390"));
 const SCHEMES = flag("schemes", "light,dark").split(",");
 const SHOTS = args.includes("--shots");
@@ -38,6 +43,7 @@ const ALL_PAGES = {
   budgets: `/budgets?month=2026-07&${H}`,
   reports: `/reports?month=2026-07&${H}`,
   reportsPrev: `/reports?month=2026-06&${H}`,
+  reportsWeek: `/reports?month=2026-07&${H}&range=week&week=2026-07-06`,
   analysis: `/my/analysis?month=2026-07&${H}`,
   annual: `/annual?${H}`,
   settings: `/my/settings?${H}`,
@@ -69,6 +75,7 @@ async function renderSnapshot(dir) {
   const fixture = await createV2265QaFixture();
   const assets = new Set();
   const localAssets = (text) => text.replace(/(["'(=\s])\/assets\//g, (_m, p) => `${p}assets/`);
+  assertChildPath(OUT, dir);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "assets"), { recursive: true });
   try {
@@ -166,6 +173,83 @@ function openBrowser(chromePath, profileDir) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function auditInteractions(page, name) {
+  const evaluate = async expression => {
+    const value = await page("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+    if (value.exceptionDetails) throw new Error(JSON.stringify(value.exceptionDetails));
+    return value.result.value;
+  };
+  const check = async (expression, message) => { if (!await evaluate(expression)) throw new Error(`${name}: ${message}`); console.log(`  interaction ok: ${name} ${message}`); };
+  const key = async (keyName, code, virtual) => {
+    await page("Input.dispatchKeyEvent", { type: "keyDown", key: keyName, code, windowsVirtualKeyCode: virtual });
+    await page("Input.dispatchKeyEvent", { type: "keyUp", key: keyName, code, windowsVirtualKeyCode: virtual });
+  };
+  if (name === "budgets" || name === "settings") {
+    await check(`!!document.querySelector('[name="budget_category"][role="combobox"]')`, "분류 선택기가 초기화된다");
+    await evaluate(`(() => {const i=document.querySelector('[name="budget_category"][role="combobox"]'); window.__auditInput=i; window.__auditSubmitted=false; i.form.addEventListener('submit',e=>{e.preventDefault();window.__auditSubmitted=true;},{once:true});i.value='식';i.focus();i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await key("ArrowDown", "ArrowDown", 40);
+    await key("Enter", "Enter", 13);
+    await check(`__auditInput.value==='식비'&&!__auditSubmitted&&new FormData(__auditInput.form).getAll('budget_category').includes('식비')`, "실제 Enter는 분류를 적용하며 폼을 제출하지 않는다");
+    await evaluate(`__auditInput.value='직접 입력한 새 분류';__auditInput.dispatchEvent(new Event('input',{bubbles:true}));`);
+    await key("Escape", "Escape", 27);
+    await check(`__auditInput.value==='직접 입력한 새 분류'&&__auditInput.getAttribute('aria-expanded')==='false'`, "Escape는 직접 입력값을 유지하며 목록만 닫는다");
+    await evaluate(`document.querySelector('[data-add="expense"]').click()`);
+    await wait(100);
+    await check(`Array.from(document.querySelectorAll('[name="budget_category"]')).every(i=>i.getAttribute('role')==='combobox')`, "동적으로 추가한 예산 행도 선택기가 된다");
+    await evaluate(`(() => {const f=__auditInput.form;const d=document.createElement('datalist');d.id='audit-labels';const o=document.createElement('option');o.value='<img src=x onerror=alert(1)>';d.append(o);const i=document.createElement('input');i.name='audit-category';i.setAttribute('list',d.id);f.append(d,i);window.__auditLabel=i;})()`);
+    await wait(50);
+    await evaluate(`__auditLabel.focus()`);
+    await check(`__auditLabel.nextElementSibling.textContent.includes('<img src=x onerror=alert(1)>')&&!__auditLabel.nextElementSibling.querySelector('img')`, "HTML 모양의 분류 이름도 텍스트로 표시한다");
+    await key("ArrowDown", "ArrowDown", 40);
+    await key("Enter", "Enter", 13);
+    await check(`__auditLabel.value==='<img src=x onerror=alert(1)>'`, "특수 문자를 포함한 값도 그대로 적용한다");
+    await evaluate(`(()=>{const d=document.createElement('datalist');d.id='audit-late';const o=document.createElement('option');o.value='늦게 추가한 분류';d.append(o);__auditLabel.form.append(d);__auditLabel.setAttribute('list',d.id);})()`);
+    await wait(60);
+    await evaluate(`__auditLabel.value='늦게';__auditLabel.dispatchEvent(new Event('input',{bubbles:true}))`);
+    await check(`!__auditLabel.hasAttribute('list')&&__auditLabel.nextElementSibling.textContent.includes('늦게 추가한 분류')`, "늦게 연결된 datalist는 중복 팝업 없이 반영된다");
+    await evaluate(`(()=>{const o=document.createElement('option');o.value='후속 선택';document.getElementById('audit-late').append(o);})()`);
+    await wait(60);
+    await evaluate(`__auditLabel.value='후속';__auditLabel.dispatchEvent(new Event('input',{bubbles:true}))`);
+    await check(`__auditLabel.nextElementSibling.textContent.includes('후속 선택')`, "나중에 추가한 선택지도 검색에 반영된다");
+    await key("Tab", "Tab", 9);
+    await check(`__auditLabel.getAttribute('aria-expanded')==='false'&&document.activeElement!==__auditLabel`, "Tab은 목록을 닫고 원래 포커스 순서로 이동한다");
+    await evaluate(`document.getElementById('audit-late').remove()`);
+    await evaluate(`__auditLabel.closest('.ab38Combo').remove();document.getElementById('audit-labels').remove();__auditInput.value='식비';__auditInput.blur()`);
+    await check(`new Promise(resolve=>{let n=0;const o=new MutationObserver(rs=>n+=rs.length);o.observe(document.body,{subtree:true,childList:true,attributes:true});setTimeout(()=>{o.disconnect();resolve(n<5)},150)})`, "동적 행 처리 후 DOM 관찰이 안정된다");
+  }
+  if (name === "menu") {
+    await evaluate(`(()=>{const i=document.getElementById('ab38-menu-search');i.value='생활비';i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await check(`Array.from(document.querySelectorAll('.menuRow:not([hidden]),.featuredCard:not([hidden])')).length===1&&document.querySelector('.menuRow:not([hidden])').textContent.includes('생활비 리포트')`, "메뉴 검색은 일치한 메뉴만 표시한다");
+    await evaluate(`(()=>{const i=document.getElementById('ab38-menu-search');i.value='없는메뉴987';i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await check(`document.querySelector('.ab38MenuSearch [role="status"]').textContent.includes('검색 결과가 없습니다')`, "메뉴 검색 결과가 없으면 이유를 안내한다");
+    await evaluate(`document.querySelector('.ab38MenuSearch button').click()`);
+    await check(`!document.querySelector('.menuRow[hidden]')&&document.activeElement.id==='ab38-menu-search'`, "검색 지우기는 전체 메뉴와 검색 포커스를 복원한다");
+    await evaluate(`document.activeElement.blur()`);
+  }
+  if (name === "reports") {
+    await evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:()=>Promise.reject(new Error('denied'))}});window.__auditOriginalCopy=document.execCommand;document.execCommand=()=>false;document.getElementById('copyReport').click()`);
+    await wait(50);
+    await check(`document.getElementById('copyReport').textContent.includes('직접 복사')&&document.getElementById('reportShare').selectionEnd>0`, "복사 권한 거절과 대체 복사 실패는 직접 복사를 안내한다");
+    await evaluate(`document.execCommand=()=>true;document.getElementById('copyReport').click()`);
+    await wait(50);
+    await check(`document.getElementById('copyReport').textContent==='복사됨'`, "대체 복사가 성공했을 때만 성공을 알린다");
+    await evaluate(`document.execCommand=window.__auditOriginalCopy;document.getElementById('copyReport').textContent='문구 복사';document.activeElement.blur()`);
+  }
+  if (name === "reserve") {
+    await check(`Array.from(document.querySelectorAll('.reserveEdit:not([open])>form')).every(f=>getComputedStyle(f).display==='none')`, "접힌 정기 수정 폼은 화면 배치를 차지하지 않는다");
+    await evaluate(`document.querySelector('.reserveActions .reserveEdit summary').click()`);
+    await check(`(()=>{const e=document.querySelector('.reserveActions .reserveEdit[open]');return e&&e.getBoundingClientRect().right<=innerWidth&&e.querySelector('input[name="name"]').getBoundingClientRect().height>=44})()`, "정기 계획 수정 폼은 화면 안에서 열린다");
+    await evaluate(`document.querySelector('.reserveActions .reserveEdit summary').click()`);
+  }
+  if (name === "settings") {
+    await check(`!!document.querySelector('.ab38Recurring .reserveEdit:not([open])')`, "정기 항목 수정 폼은 처음에는 접혀 있다");
+    await evaluate(`document.querySelector('.ab38Recurring .reserveEdit summary').click()`);
+    await check(`document.querySelector('.ab38Recurring .reserveEdit').open&&document.querySelector('.ab38Recurring form[action="/my/recurring/save"] input[name="category"]').getBoundingClientRect().height>=44`, "수정 폼을 열면 입력칸을 조작할 수 있다");
+    await check(`document.querySelector('.ab38Recurring form[action="/my/recurring/delete"] button').getBoundingClientRect().height>=44`, "기존 삭제 버튼도 도달할 수 있다");
+    await evaluate(`document.querySelector('.ab38Recurring .reserveEdit summary').click()`);
+  }
+}
+
 async function main() {
   const chromePath = findChrome();
   if (!chromePath) {
@@ -192,6 +276,7 @@ async function main() {
       for (const name of PAGES) {
         await page("Page.navigate", { url: pathToFileURL(join(snapDir, `${name}.html`)).href });
         await wait(1500);
+        if (INTERACTIONS) await auditInteractions(page, name);
         const { result } = await page("Runtime.evaluate", { expression: MEASURE, returnByValue: true });
         const m = result.value;
         const widened = m.layoutWidth > WIDTH;

@@ -228,7 +228,7 @@ async function handleUnifiedMenuPage(request, env, url) {
       ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "backup"],
     ]],
     ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
-      ["자동 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "report"],
+      ["생활비 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "report"],
       ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
       ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "bell"],
     ]],

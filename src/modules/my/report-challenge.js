@@ -190,19 +190,22 @@ async function buildReportChallengeForHousehold(env, { householdId = "", month =
   return buildReportChallenge(challengeRows, safeMonth, value);
 }
 
-function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "") {
+function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {}) {
   const params = new URLSearchParams({ month: validMonth(month) || currentMonthKst() });
   if (householdId) params.set("household_id", String(householdId));
   if (view) params.set("view", String(view));
+  // V22.9.38: 생활비 리포트의 주간 보기(range=week)처럼 달을 옮겨도 유지할 조건을 받는다.
+  for (const [key, value] of Object.entries(extra || {})) if (value) params.set(key, String(value));
   return `${path}?${params.toString()}`;
 }
 
-function renderReportMonthNavigator({ path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "" } = {}) {
+function renderReportMonthNavigator({ path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {} } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
   const prev = shiftMonthString(safeMonth, -1);
   const next = shiftMonthString(safeMonth, 1);
   const current = currentMonthKst();
-  return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view))}" aria-label="이전 달 ${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view))}" aria-label="다음 달 ${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view))}">이번 달</a>`}</nav>`;
+  const extraInputs = Object.entries(extra || {}).filter(([, value]) => value).map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}"/>`).join("");
+  return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view, extra))}" aria-label="이전 달 ${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}${extraInputs}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view, extra))}" aria-label="다음 달 ${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view, extra))}">이번 달</a>`}</nav>`;
 }
 
 function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst()) {
