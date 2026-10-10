@@ -217,9 +217,9 @@ await fixture(async (fx) => {
   const unknown = await applyPlan(fx, cookie, [planRow("qa-unknown-1", 7000), planRow("qa-unknown-2", 8000)]);
   eq(fx.db.transactions.length - before3, 0, "SIM-6 불명확한 저장 뒤 남은 행은 적용하지 않는다");
   const unknownText = text(unknown.html);
-  ok(unknownText.includes("확인 필요 1") && unknownText.includes("저장 여부 확인 필요"), "SIM-6 결과를 모르는 행은 확인 필요로 알린다");
+  ok(unknownText.includes("확인 필요 1") && /qa-unknown-1[^|]{0,80}확인 필요: 저장 여부 확인 필요/.test(unknownText), "SIM-6 결과를 모르는 행은 확인 필요로 알린다(실패가 아니다)");
   ok(!/qa-unknown-1[^|]{0,80}저장하지 못함/.test(unknownText), "SIM-6 결과를 모르는 행을 '저장하지 못함'이라고 하지 않는다");
-  ok(/qa-unknown-2[^|]{0,80}앞선 저장 결과가 불명확해 적용하지 않음/.test(unknownText), "SIM-6 뒤 행은 중단 사유를 보여 준다");
+  ok(unknownText.includes("형식·범위·중단 제외 1") && /qa-unknown-2[^|]{0,80}제외: 앞선 저장 결과가 불명확해 적용하지 않음/.test(unknownText), "SIM-6 뒤 행은 중단 사유와 함께 제외로 보여 준다");
   ok(unknownText.includes("같은 계획을 다시 제출하세요"), "SIM-6 확인 뒤에만 다시 제출하라고 안내한다");
   // 현재 기록을 못 읽으면 빈 목록으로 보지 않고 적용하지 않는다.
   const restoreRead = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/transactions") && url.searchParams.has("transaction_date") ? new Response(JSON.stringify({ code: "QA" }), { status: 503, headers: { "content-type": "application/json" } }) : null));
@@ -230,7 +230,10 @@ await fixture(async (fx) => {
   eq(fx.db.transactions.length - before4, 0, "SIM-6 읽기 실패 위에 적용하지 않는다");
   ok(!fx.db.accountbook_operation_locks.some((lock) => lock.operation_key === "household-settings-rmw:house-home" && Date.parse(lock.locked_until) > Date.now() + 1000), "SIM-6 오류 뒤 잠금을 풀었다");
   // 잠금이 이미 잡혀 있으면 적용하지 않고 409 로 알린다.
-  fx.db.accountbook_operation_locks.push({ operation_key: "household-settings-rmw:house-home", owner: "other-worker", locked_until: new Date(Date.now() + 60000).toISOString(), updated_at: new Date().toISOString() });
+  const heldLock = { operation_key: "household-settings-rmw:house-home", owner: "other-worker", locked_until: new Date(Date.now() + 60000).toISOString(), updated_at: new Date().toISOString() };
+  const existingLock = fx.db.accountbook_operation_locks.find((lock) => lock.operation_key === heldLock.operation_key);
+  if (existingLock) Object.assign(existingLock, heldLock);
+  else fx.db.accountbook_operation_locks.push(heldLock);
   const before5 = fx.db.transactions.length;
   const busy = await applyPlan(fx, cookie, [planRow("qa-busy", 9500)]);
   eq(busy.status, 409, "SIM-6 다른 작업이 잠금을 잡고 있으면 409 다");
@@ -253,7 +256,8 @@ await fixture(async (fx) => {
     ok(new RegExp(`${escapeRe(memo)}[^|]{0,120}${escapeRe(reason)}`).test(body), `SIM-7 ${memo} 행은 사유(${reason})와 함께 제외된다`);
   }
   ok(body.includes("memo 가 문자열이 아님"), "SIM-7 문자열이 아닌 내용 칸도 사유와 함께 제외된다");
-  ok(body.includes("형식·범위 제외 8"), "SIM-7 제외 건수를 알린다");
+  ok(body.includes("형식·범위·중단 제외 8"), "SIM-7 제외 건수를 알린다");
+  ok(/qa-hex[^|]{0,40}제외: 형식 오류로 제외/.test(body) && !/qa-hex[^|]{0,40}실패:/.test(body), "SIM-7 형식 오류 행은 실패가 아니라 제외로 표시한다");
   const before2 = fx.db.transactions.length;
   const ghost = await applyPlan(fx, cookie, [planRow("qa-ghost", 7000)], { household_id: "house-ghost" });
   eq(ghost.status, 400, "SIM-7 목록에 없는 가계부는 400 이다");

@@ -275,7 +275,7 @@ function isTwoDigitYearImportDate(value = "") {
 }
 
 function parseImportDateCell(value, options = {}) {
-  const text = String(value ?? "").replace(/﻿/g, "").trim().replace(/^["']|["']$/g, "").trim();
+  const text = String(value ?? "").replace(/\ufeff/g, "").trim().replace(/^["']|["']$/g, "").trim();
   if (!text) return "";
   if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text)) : "";
   const parts = text.match(/^(\d{1,2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})(?:\s|$)/);
