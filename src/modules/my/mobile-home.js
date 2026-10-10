@@ -438,15 +438,19 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const previousExpense = Number(prevStats?.totals?.expense || 0);
   const expenseDeltaAmount = Number(stats.totals.expense || 0) - previousExpense;
   // 두 달 모두 0원인 새 가계부에 "지난달과 같은 금액"이라고 쓰면 없는 지난달 기록이 있는 것처럼 읽힌다.
+  // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 비교 대상을 "지난달 1~N일"로 적는다.
+  // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
+  const deltaToday = formatDate(nowKstDate());
+  const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
     : expenseDeltaAmount > 0
-      ? `지난달보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
+      ? `${prevLabel}보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
       : expenseDeltaAmount < 0
-        ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
+        ? `${prevLabel}보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
-          : "지난달과 같은 금액을 썼어요.";
+          : `${prevLabel}과 같은 금액을 썼어요.`;
   const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
@@ -493,10 +497,12 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
 function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
 
-async function fetchMonthAmountRows(env, month, householdId) {
+async function fetchMonthAmountRows(env, month, householdId, { withDate = false } = {}) {
   if (!householdId) return [];
   const params = new URLSearchParams();
   params.set("select", "type,amount");
+  // V22.9.37 감사 D12: 지난달 같은 기간 비교에만 날짜 칸을 더한다. 월별 추이는 예전처럼 금액만 읽는다.
+  if (withDate) params.set("select", "type,amount,transaction_date");
   params.set("transaction_date", `gte.${month}-01`);
   params.append("transaction_date", `lt.${nextMonthStart(month)}`);
   params.set("household_id", `eq.${householdId}`);
@@ -578,7 +584,8 @@ async function handleMobileV8Page(request, env, url) {
   const [members, rawMonthlyRows, prevAmountRows, monthlyTrendRows, budgets, homeSettings, homeLayoutSetting] = await Promise.all([
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
-    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId) : [],
+    // V22.9.37 감사 D12: 지난달 비교는 같은 기간(1일~오늘)끼리 하므로 날짜 칸을 함께 읽는다.
+    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId, { withDate: true }) : [],
     // P3-⑧ 월별 트렌드: 금액만, 최근 6개월까지. 거래내역 탭에서는 쓰지 않으므로 건너뛴다.
     (selectedHousehold && url.searchParams.get("tab") !== "transactions" && url.searchParams.get("trend") === "monthly")
       ? Promise.all(Array.from({ length: 6 }, (_, i) => {
@@ -586,7 +593,8 @@ async function handleMobileV8Page(request, env, url) {
           return fetchMonthAmountRows(env, ym, householdId).then((rs) => {
             const st = calculateStats(safeArray(rs));
             return { month: ym, income: st.totals.income, expense: st.totals.expense };
-          }).catch(() => ({ month: ym, income: 0, expense: 0 }));
+          // V22.9.37 감사 D14: 조회 실패를 0원으로 그리지 않고 확인 불가로 표시한다.
+          }).catch(() => ({ month: ym, income: 0, expense: 0, failed: true }));
         }))
       : [],
     selectedHousehold ? fetchBudgets(env, householdId, month) : [],
@@ -605,7 +613,9 @@ async function handleMobileV8Page(request, env, url) {
     payment_method: mobilePayment,
   });
   const stats = calculateStats(rows);
-  const prevStats = calculateStats(prevAmountRows);
+  // V22.9.37 감사 D12: 이번 달은 지난달 "같은 기간(1일~오늘)"과 견준다. 지난달 전체와 견주면 월초에는 늘 덜 쓴 것처럼 보였다.
+  const todayKey = formatDate(nowKstDate());
+  const prevStats = calculateStats(month === todayKey.slice(0, 7) ? safeArray(prevAmountRows).filter((row) => String(row.transaction_date || "").slice(8, 10) <= todayKey.slice(8, 10)) : prevAmountRows);
   const budget = budgetSummary(rows, budgets);
   const reportChallenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue });
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, rows.map((r) => r.category).filter(Boolean));

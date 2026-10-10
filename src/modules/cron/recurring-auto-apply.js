@@ -49,6 +49,58 @@ async function findRecurringAutoDuplicate(env, row = {}) {
   return rows.find(r => String(r.raw_text) === String(row.raw_text)) || null;
 }
 
+// V22.9.37 감사 T7·SIM-5: 고정항목 지출자의 자격은 저장·화면·자동·수동 반영이 모두 이 한 함수로 판정한다.
+// 소유자·관리자·구성원만 지출자가 될 수 있다. 조회 전용·승인 대기·차단·나간 사람의 규칙은 어디서도 반영하지 않는다.
+// 예전에는 자동 반영만 이 규칙을 쓰고 저장·수동 반영은 pending·blocked 만 걸러 조회 전용 지출자의 규칙이 수동으로만 들어갔다.
+const RECURRING_SPENDER_ROLES = ["owner", "admin", "member"];
+
+function recurringSpenderEligible(members = [], userId = "") {
+  const id = String(userId || "").trim();
+  if (!id) return false;
+  return safeArray(members).some((m) => String(m?.user_id || "") === id && RECURRING_SPENDER_ROLES.includes(String(m?.role || "").toLowerCase()));
+}
+
+function eligibleRecurringSpenders(members = []) {
+  return safeArray(members).filter((m) => recurringSpenderEligible([m], m?.user_id));
+}
+
+// 규칙 하나를 한 달에 넣는다. 자동 반영의 중복 확인·날짜 규칙(없는 날짜만 말일)·표식 갱신을 그대로 쓰므로
+// 수동 반영이 문제 규칙을 건너뛰고 나머지를 넣을 때(T7)도 자동 반영과 같은 기록이 만들어진다.
+// SIM-8: 더 나중 달을 이미 반영한 규칙의 표식(last_applied_month)은 지난 달 반영이 되돌리지 않는다.
+async function applyRecurringRuleForMonth(env, householdId, r, month) {
+  const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
+  const row = {
+    household_id: householdId,
+    user_id: r.user_id || "",
+    type: r.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(r.amount || 0))),
+    category: r.category || (r.type === "income" ? "정기수입" : "정기지출"),
+    memo: r.memo || r.category || "정기지출",
+    payment_method: r.payment_method || "",
+    transaction_date: recurringDateForMonth(month, dueDay),
+    source: "recurring_auto",
+    raw_text: `recurring:${r.id || ""}:${month}`,
+  };
+  // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
+  if (!row.amount) return "skipped";
+  let outcome = "deduplicated";
+  const dup = await findRecurringAutoDuplicate(env, row);
+  if (!dup) {
+    try {
+      const created = await createManualTransaction(env, row);
+      outcome = created?.__duplicate_skipped ? "deduplicated" : "applied";
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+    }
+  }
+  // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신한다. 더 나중 달의 표식은 그대로 둔다.
+  if (!(String(r.last_applied_month || "") > month)) {
+    await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+  }
+  return outcome;
+}
+
 async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const today = opts.today || formatDate(nowKstDate());
   const requestedMonth = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
@@ -83,43 +135,18 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       scanned++;
       if (String(r.last_applied_month || "") === month) { skipped++; continue; }
       if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { householdComplete = false; partial = true; break; }
-      if (!members.some(m => m.user_id === r.user_id && ["owner","admin","member"].includes(m.role))) { skipped++; continue; }
+      if (!recurringSpenderEligible(members, r.user_id)) { skipped++; continue; }
       // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
       // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
       const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
       const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
       if (currentDay < dueDay) { skipped++; continue; }
-      const txDate = recurringDateForMonth(month, dueDay);
-      const row = {
-        household_id: householdId,
-        user_id: r.user_id || "",
-        type: r.type === "income" ? "income" : "expense",
-        amount: Math.max(0, Math.round(Number(r.amount || 0))),
-        category: r.category || (r.type === "income" ? "정기수입" : "정기지출"),
-        memo: r.memo || r.category || "정기지출",
-        payment_method: r.payment_method || "",
-        transaction_date: txDate,
-        source: "recurring_auto",
-        raw_text: `recurring:${r.id || ""}:${month}`,
-      };
-      // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
-      if (!row.amount) { skipped++; continue; }
       try {
-        const dup = await findRecurringAutoDuplicate(env, row);
-        if (!dup) {
-          try {
-            const created = await createManualTransaction(env, row);
-            if (created?.__duplicate_skipped) deduplicated++;
-            else applied++;
-          } catch (err) {
-            if (isUniqueConstraintError(err)) deduplicated++;
-            else throw err;
-          }
-        } else {
-          deduplicated++;
-        }
-        // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신합니다.
-        await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+        // V22.9.37 감사 T7: 수동 반영과 같은 한 건 반영(중복 확인·날짜 규칙·표식 갱신)을 쓴다.
+        const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
+        if (outcome === "applied") applied++;
+        else if (outcome === "deduplicated") deduplicated++;
+        else skipped++;
       } catch (err) {
         failed++;
         householdComplete = false;
@@ -160,5 +187,8 @@ async function handleRecurringCronApply(request, env, url) {
   return jsonResponse(result, result.ok ? 200 : 207);
 }
 // @build:exports-start
-export { handleRecurringCronApply, runRecurringAutoApply };
+export {
+  applyRecurringRuleForMonth, eligibleRecurringSpenders, handleRecurringCronApply,
+  recurringSpenderEligible, runRecurringAutoApply,
+};
 // @build:exports-end

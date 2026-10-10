@@ -3,7 +3,7 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
-import { readOptionalFormAmount } from "./transactions-households.js";
+import { MAX_TRANSACTION_AMOUNT, readOptionalFormAmount } from "./transactions-households.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAnalysisRowsRange, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
@@ -37,7 +37,8 @@ import {
 async function handleBudgetSave(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
@@ -45,6 +46,8 @@ async function handleBudgetSave(request, env) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
     if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장 권한이 없습니다." }));
   }
+  // V22.9.37 감사 N8: 틀린 월(2026-13, 빈 값)은 이번 달 예산으로 떨어뜨리지 않고 거절한다.
+  if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
   const rawCategory = String(form.get("category") || "__total").trim() || "__total";
   const customCategory = String(form.get("category_custom") || "").trim().slice(0, 80);
   let category = rawCategory;
@@ -52,6 +55,8 @@ async function handleBudgetSave(request, env) {
   if (rawCategory === "__category_custom") category = customCategory || "기타";
   const amount = readOptionalFormAmount(form);
   if (amount === null) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 금액을 숫자로 입력하세요. 기존 예산은 유지됩니다." }));
+  // V22.9.37 감사 N9: 단건 예산도 거래 금액 상한(20억)을 넘지 않는다.
+  if (amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "amount_too_large" }));
   try {
     await supabase(env, "/rest/v1/accountbook_budgets?on_conflict=household_id,month,category", {
       method: "POST",
@@ -68,7 +73,8 @@ async function handleBudgetSave(request, env) {
 async function handleBudgetDelete(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const category = String(form.get("category") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
@@ -77,6 +83,8 @@ async function handleBudgetDelete(request, env) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
     if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제 권한이 없습니다." }));
   }
+  // V22.9.37 감사 N8: 틀린 월은 이번 달 예산을 지우지 않고 거절한다.
+  if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
   if (!category) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 예산을 찾지 못했습니다." }));
   try {
     const tablePath = `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`;
@@ -150,14 +158,18 @@ function renderDonutChart(categories = [], totalExpense = 0) {
 
 function renderMonthlySeriesChart(items = []) {
   const list = safeArray(items).slice(-6);
-  if (!list.some((x) => Number(x.income || 0) > 0 || Number(x.expense || 0) > 0)) return `<div class="empty">아직 월별 흐름을 그릴 데이터가 없습니다.</div>`;
-  const max = Math.max(1, ...list.map((x) => Math.max(Number(x.income || 0), Number(x.expense || 0))));
+  // V22.9.37 감사 D14: 조회에 실패한 달(failed)은 0원이 아니라 확인 불가다. 0원 막대는 "안 썼다"는 거짓말이 된다.
+  const failedCount = list.filter((x) => x.failed).length;
+  if (!list.some((x) => x.failed || Number(x.income || 0) > 0 || Number(x.expense || 0) > 0)) return `<div class="empty">아직 월별 흐름을 그릴 데이터가 없습니다.</div>`;
+  const max = Math.max(1, ...list.filter((x) => !x.failed).map((x) => Math.max(Number(x.income || 0), Number(x.expense || 0))));
   const cols = list.map((x) => {
+    if (x.failed) return `<div class="seriesCol" title="${escapeHtml(x.month)} · 조회 실패"><div class="seriesBars"><i class="in" style="height:3px"></i><i class="ex" style="height:3px"></i></div><b>확인 불가</b><span>${escapeHtml(String(x.month).slice(5))}월</span></div>`;
     const ih = Math.max(3, Math.round(Number(x.income || 0) / max * 118));
     const eh = Math.max(3, Math.round(Number(x.expense || 0) / max * 118));
     return `<div class="seriesCol" title="${escapeHtml(x.month)} · 수입 ${numberWithCommas(x.income)}원 · 지출 ${numberWithCommas(x.expense)}원"><div class="seriesBars"><i class="in" style="height:${ih}px"></i><i class="ex" style="height:${eh}px"></i></div><b>${escapeHtml(shortWonLabel(x.expense))}</b><span>${escapeHtml(String(x.month).slice(5))}월</span></div>`;
   }).join("");
-  return `<div class="seriesLegend"><span><i class="in"></i>수입</span><span><i class="ex"></i>지출</span></div><div class="seriesChart">${cols}</div>`;
+  const failedNote = failedCount ? `<p class="muted">${failedCount}개 달은 조회에 실패해 확인 불가로 표시했어요. 새로고침하면 다시 읽어요.</p>` : "";
+  return `<div class="seriesLegend"><span><i class="in"></i>수입</span><span><i class="ex"></i>지출</span></div><div class="seriesChart">${cols}</div>${failedNote}`;
 }
 
 function normalizeRecurringKey(row = {}) {
@@ -177,14 +189,20 @@ function detectRecurringCandidates(historyRows = [], month = currentMonthKst(), 
     if (!windowMonths.includes(ym)) continue;
     const key = normalizeRecurringKey(r);
     if (!key || registeredKeys.has(key)) continue;
-    if (!byKey[key]) byKey[key] = { memo: String(r.memo || r.raw_text || "").trim(), amount: Math.round(Number(r.amount || 0)), category: r.category || "", paymentMethod: r.payment_method || "", days: [], months: new Set() };
+    if (!byKey[key]) byKey[key] = { memo: String(r.memo || r.raw_text || "").trim(), amount: Math.round(Number(r.amount || 0)), categories: Object.create(null), payments: Object.create(null), days: [], months: new Set() };
+    // V22.9.37 감사 SIM-4: 분류·결제수단은 처음 만난 기록이 아니라 가장 많이 쓴 값이다. 첫 기록만 비어 있어도 분류를 잃었다.
+    const category = String(r.category || "").trim();
+    if (category) byKey[key].categories[category] = (byKey[key].categories[category] || 0) + 1;
+    const payment = String(r.payment_method || "").trim();
+    if (payment) byKey[key].payments[payment] = (byKey[key].payments[payment] || 0) + 1;
     const day = Number(String(r.transaction_date || "").slice(8, 10));
     if (Number.isFinite(day) && day >= 1 && day <= 31) byKey[key].days.push(day);
     byKey[key].months.add(ym);
   }
+  const mostCounted = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   return Object.values(byKey)
     .filter((v) => v.months.size >= 2 && v.amount >= 1000)
-    .map((v) => ({ memo: v.memo, amount: v.amount, category: v.category, paymentMethod: v.paymentMethod || "", dayOfMonth: v.days.length ? Math.round(v.days.reduce((s, x) => s + x, 0) / v.days.length) : 1, hitMonths: v.months.size }))
+    .map((v) => ({ memo: v.memo, amount: v.amount, category: mostCounted(v.categories), paymentMethod: mostCounted(v.payments), dayOfMonth: v.days.length ? Math.round(v.days.reduce((s, x) => s + x, 0) / v.days.length) : 1, hitMonths: v.months.size }))
     .sort((a, b) => b.hitMonths - a.hitMonths || b.amount - a.amount)
     .slice(0, 8);
 }
