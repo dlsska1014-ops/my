@@ -9,7 +9,7 @@ import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { CATEGORY_KEYWORD_GUIDE } from "./category-guide-pages.js";
 import {
   attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
-  renderSpenderOptions, selectRequestedScopedHousehold, selectScopedHousehold,
+  renderSpenderOptions, selectRequestedScopedHousehold,
 } from "../data/households-members-rows.js";
 import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
@@ -22,7 +22,9 @@ import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
   parseBudgetFormAmount,
 } from "../my/groups-budget-bulk.js";
-import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import {
+  getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
+} from "../my/access-control.js";
 import { householdPageMessage } from "../my/households-lifecycle.js";
 import {
   budgetCenterSummary, budgetPlanFingerprint, budgetPlanMessage, budgetStatusLabel, fetchBudgets,
@@ -144,7 +146,11 @@ async function handleBudgetCenterPageLegacyV2264(request, env, url) {
     householdId = access.selected?.id || "";
   } else {
     households = await fetchAdminHouseholds(env);
-    householdId = selectScopedHousehold(households, url.searchParams.get("household_id") || "")?.id || "";
+    // V22.9.37 감사 H9: 주소의 가계부가 없으면 첫 가계부로 바꿔 보여 주지 않는다.
+    const requestedAdminHousehold = url.searchParams.get("household_id") || "";
+    const scopedAdminHousehold = selectRequestedScopedHousehold(households, requestedAdminHousehold);
+    if (requestedAdminHousehold && !scopedAdminHousehold) return householdNotFoundResponse({ env, requestedId: requestedAdminHousehold, listHref: "/households" });
+    householdId = scopedAdminHousehold?.id || "";
   }
   const canManage = adminOk || ["owner", "admin"].includes(String((households.find((h) => String(h.id) === String(householdId)) || {}).role || "").toLowerCase());
   const msg = url.searchParams.get("msg") || "";

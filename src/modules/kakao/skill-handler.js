@@ -49,7 +49,7 @@ import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
   guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
   kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoStartText, kakaoUnlinkedGroupStartText,
+  kakaoInviteNotAllowedText, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
   parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
   sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
@@ -548,7 +548,8 @@ async function handleKakaoSkill(request, env) {
     const category = await resolveBudgetCategoryName(env, household.id, directBudget.category);
     if (!category) return kakaoText("등록된 카테고리를 찾지 못했어요.\n‘예산 설정’을 입력해 단계별로 선택해 주세요.", [["예산 설정", "예산 설정"]]);
     await saveKakaoBudget(env, household.id, directBudget.month, category, directBudget.amount);
-    return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원`, [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]]);
+    const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, directBudget.month) : "";
+    return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원${totalNote}`, [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]]);
   }
 
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.

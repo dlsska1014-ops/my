@@ -22,10 +22,10 @@ import {
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText,
   kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoManageableHouseholds, maybeKakaoCta, parseBareInviteCode,
-  parseKakaoCreateKind, parseKakaoHouseholdChoice, plausibleHouseholdNameAtKindStep,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
-  suggestedHouseholdName,
+  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta,
+  parseBareInviteCode, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 } from "./household-budget-commands.js";
 import {
   bindKakaoGroupByInviteCode, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
@@ -349,10 +349,11 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
         return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
       }
       await saveKakaoBudget(env, household.id, month, category, amount);
+      const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, month) : "";
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
       return {
-        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + cta + cleanupNotice,
+        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + totalNote + cta + cleanupNotice,
         quickReplies: [["다른 카테고리", "예산 설정"], ["예산 현황", "남은 예산"], ["기록 방법", "기록 방법"]],
       };
     }

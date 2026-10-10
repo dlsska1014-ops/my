@@ -343,6 +343,20 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 - `src/index.js` 전체 교체 + 자산 주소 6종 갱신(mobile-home·shell CSS, theme·mobile-home·shell·nav JS → v22879)
 - 신규 SQL 3개(03·04·05)는 2026-08-07 에 이미 적용됨. 재실행 불필요
 - 환경변수 변경 없음. 배포 후 웹 탭 새로고침 권장
+## V22.9.37 저장소 준비
+
+| 작업 | 적용 판단 |
+|---|---|
+| 앱 Worker | 검증된 V22.9.37 `src/index.js` 전체 교체가 필요합니다(SHA-256 `12c2d167…`). V22.9.36(카카오 저장 복구)을 포함하므로 V22.9.35 에서 바로 올려도 됩니다. |
+| 배포 방식 | `tools/deploy-worker-version.mjs`로 업로드(배포 아님), 대조, 승인 후 `--promote`. 토큰은 `Read-Host -AsSecureString`. Worker 내보내기 목록이 같아 `named_handlers` 대조도 같습니다. |
+| SQL·스키마 | 없습니다. `accountbook_transaction_audit.actor_kind`에 새 값 `kakao`가 쌓입니다(제약 없음). 배포 전후 읽기 전용 조회 2개(ASIDE 2절). |
+| immutable 자산 | `accountbook-shell-v22937.css`, `accountbook-nav-v22937.js`, `accountbook-v5-v22937.js`, `accountbook-goals-v22937.js`, `accountbook-favrows-v22937.js`, `accountbook-search-v22937.js`, `accountbook-notif-v22937.js`가 새로 생깁니다. 이전 JS 주소는 이전 바이트로 계속 내려갑니다. |
+| 관제 Worker | 1.1.0 을 `npx wrangler deploy --config monitoring/wrangler.jsonc`로 별도 배포합니다(사용자 승인). 알림 이메일은 Email Routing 대상 주소 인증 + `send_email` 바인딩 + `ALERT_TO`, 웹훅은 Secret `ALERT_WEBHOOK_URL`. 둘 다 없어도 배포는 됩니다. |
+| 설정과 외부 콘솔 | 앱의 Secrets·환경변수·바인딩·Cron·도메인·요금제·Kakao Developers·OpenBuilder 를 바꾸지 않습니다. 관제 Worker 의 `CF_PLAN`·`ALERT_FROM`·`ALERT_TO` 변수와 observability 켜기는 `wrangler.jsonc`에 있습니다. |
+| GitHub | `.github/workflows/monitoring.yml`이 병합과 함께 켜집니다(30분 간격, 공개 저장소 무료). |
+| 운영 확인 | `docs/ASIDE_V22_9_37.md` 4절(카카오 K1~K7, 웹 W1~W9, 관제). V22.9.35 S1~S4 가 아직이면 먼저 합니다. |
+| 롤백 | `node tools/deploy-worker-version.mjs --rollback 4f9da854-c185-40f0-8d0f-7bac9a3c9dc4`(V22.9.35) 또는 V22.9.36 을 배포했었다면 그 버전 ID. 되돌리면 카카오 새 기록 저장이 다시 실패합니다(V22.9.35). |
+
 ## V22.9.36 저장소 준비
 
 | 작업 | 적용 판단 |

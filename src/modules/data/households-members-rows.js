@@ -405,6 +405,6 @@ export {
   fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
   fetchRowsByPlainIds, getScopedHouseholdsForPage, isRowLimitExceededError, memberAliasSettingsKey,
   memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist, renderSpenderOptions, roleRank,
-  saveMemberAlias, selectRequestedScopedHousehold, selectScopedHousehold, supabaseExactCount,
+  saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
 };
 // @build:exports-end

@@ -555,6 +555,15 @@ async function findExistingKakaoHouseholdByNameV2254(env, userId = "", name = ""
   const rows = safeArray(await fetchUserHouseholds(env, userId)).filter((h) => String(h?.role || "") === "owner");
   return rows.find((h) => normalizeHouseholdNameText(h?.name || "").toLowerCase() === target) || null;
 }
+// V22.9.37 감사 D7: 분류별 예산이 있는 달에는 전체 예산이 계산에 쓰이지 않는다(기준은 분류별 합계). 설정 자체는 되지만 그 사실을 답장에 함께 적는다.
+async function kakaoTotalBudgetNote(env, householdId, month) {
+  try {
+    const budgets = await fetchBudgets(env, householdId, month);
+    const hasCategory = safeArray(budgets).some((row) => { const c = String(row.category || ""); return c && !c.startsWith("__"); });
+    return hasCategory ? "\n\n분류별 예산이 있는 달에는 전체 예산을 계산에 쓰지 않아요. 분류별 예산 합계가 이번 달 예산이에요." : "";
+  } catch (_) { return ""; }
+}
+
 // @build:exports-start
 export {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
@@ -564,9 +573,10 @@ export {
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
   kakaoDirectStartText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines,
   kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoStartText,
-  kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand,
-  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
-  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
-  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode,
+  parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
+  setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

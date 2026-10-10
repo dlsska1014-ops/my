@@ -1,3 +1,12 @@
+## V22.9.37의 검증 방법
+
+현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_37.sha256`의 372개 파일을 사용하고, 자동 검사 하한은 9,421개입니다.
+
+- **묶음별 검사:** `npm run validate:audit-batch`(A·B·C·D, 556개)와 `npm run validate:monitor-alerts`(39개). 묶음 C 의 검사는 `AB_AUDIT_SOFT=1`로 실패를 모아 볼 수 있습니다(재현 확인용).
+- **관제:** `node monitoring/test-d1.mjs`(SQLite, 72개)는 Node.js 22 에서 따로 돌립니다. `npx wrangler deploy --config monitoring/wrangler.jsonc --dry-run`으로 번들을 확인합니다.
+- **화면 실측:** `node tools/screen-audit.mjs --pages login,startGuide,home,menu --schemes light,dark --shots`로 다크 로그인 대비(U4)를 봅니다.
+- **교훈:** 네 묶음을 병렬로 고칠 때 모듈 소유를 나누고 `src/index.js`는 통합에서 다시 빌드했습니다. 해시로 고정된 화면(`renderMyAnalysisHtml`)과 검사가 글자 그대로 박아 둔 호출 문자열(`renderUnifiedNav("stats", …`)은 통합에서 되돌리거나 자리를 옮겼습니다.
+
 ## V22.9.36의 검증 방법
 
 현재 하네스는 `BUNDLE_FILE_CHECKSUMS_V22_9_36.sha256`의 357개 파일을 사용하고, 자동 검사 하한은 8,795개입니다.
