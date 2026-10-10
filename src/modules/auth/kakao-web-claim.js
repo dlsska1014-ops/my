@@ -5,7 +5,7 @@ import {
   withSettingsRmwLease,
 } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
-import { recordAuthAttempt, sha256Hex } from "./crypto-admin-session.js";
+import { recordAuthAttempt, sha256Hex, trafficClientIp } from "./crypto-admin-session.js";
 import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import {
@@ -146,12 +146,16 @@ async function handleMyKakaoClaim(request, env) {
   const fail = (message, status = 401, headers = {}) => htmlResponse(renderUserLoginHtml(env, message, returnTo, "kakao_claim"), status, headers);
   const code = normalizeKakaoWebClaimCode(form.get("kakao_claim_code"));
   if (!code) return fail("카카오 1:1 채팅에서 받은 웹 연결 코드를 그대로 붙여 넣어 주세요.", 400);
-  for (const scope of ["client", "ip"]) {
-    const attempt = await recordAuthAttempt(env, request, "/my/kakao-claim", false, scope === "ip" ? { scope, limit: 20 } : {});
-    if (attempt.unavailable) return fail("연결 보호 기능을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.", 503);
-    if (!attempt.allowed) return fail("웹 연결 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", 429, { "retry-after": "900" });
-  }
   const hash = await sha256Hex(`kakao-web-claim:v1:${code}`);
+  // V22.9.37 감사 H12: IP 단위(20회)와 IP+UA 단위로만 세어 같은 IP 뒤의 사용자(회사·학교 망)가 모두 막혔다.
+  // 계정 로그인(V22.9.26)과 같은 틀로 센다 — IP 입장 제한은 느슨한 상한으로, 실제 제한은 코드 해시·IP 묶음으로.
+  const admission = await recordAuthAttempt(env, request, "/my/kakao-claim-admission", false, { limit: 40 });
+  if (admission.unavailable) return fail("연결 보호 기능을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.", 503);
+  if (!admission.allowed) return fail("웹 연결 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", 429, { "retry-after": "900" });
+  const claimSubject = `${trafficClientIp(request)}|${hash.slice(0, 32)}`;
+  const attempt = await recordAuthAttempt(env, request, "/my/kakao-claim", false, { scope: "subject-client", key: claimSubject });
+  if (attempt.unavailable) return fail("연결 보호 기능을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.", 503);
+  if (!attempt.allowed) return fail("웹 연결 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.", 429, { "retry-after": "900" });
   try {
     const session = await withSettingsRmwLease(env, `settings-rmw:${KAKAO_WEB_CLAIM_KEY}`, async ({ assertFresh }) => {
       const claims = parseKakaoWebClaims(await getSettingValueStrict(env, KAKAO_WEB_CLAIM_KEY));
@@ -177,7 +181,7 @@ async function handleMyKakaoClaim(request, env) {
       return token;
     });
     if (!session) return fail("웹 연결 코드가 만료되었거나 이미 사용되었어요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 다시 보내 주세요.");
-    await recordAuthAttempt(env, request, "/my/kakao-claim", true);
+    await recordAuthAttempt(env, request, "/my/kakao-claim", true, { scope: "subject-client", key: claimSubject });
     const response = redirectResponse(returnTo || "/my", {
       "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     });

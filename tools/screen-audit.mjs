@@ -43,7 +43,11 @@ const ALL_PAGES = {
   settings: `/my/settings?${H}`,
   reserve: `/reserve-plans?${H}`,
   menu: `/menu?${H}`,
+  // V22.9.37 감사 U4·U9: 로그아웃 시작(로그인) 화면과 시작 안내. login 은 쿠키 없이 그린다(로그아웃 상태의 다크 대비를 잰다).
+  login: "/my",
+  startGuide: `/start-guide?month=2026-07&${H}`,
 };
+const LOGGED_OUT_PAGES = new Set(["login"]);
 const PAGES = flag("pages", Object.keys(ALL_PAGES).join(",")).split(",").filter((name) => ALL_PAGES[name]);
 
 function findChrome() {
@@ -70,7 +74,7 @@ async function renderSnapshot(dir) {
   try {
     for (const name of PAGES) {
       const response = await app.fetch(new Request(ORIGIN + ALL_PAGES[name], {
-        headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile" },
+        headers: { ...(LOGGED_OUT_PAGES.has(name) ? {} : { cookie: fixture.cookie }), "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile" },
       }), fixture.env, { waitUntil() {} });
       let html = await response.text();
       if (response.status !== 200) throw new Error(`${name} ${ALL_PAGES[name]} → ${response.status}`);

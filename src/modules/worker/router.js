@@ -519,7 +519,9 @@ const ACCOUNTBOOK_WORKER = {
         if (!adminOk) {
           const userId = await verifyUserSession(request, env);
           if (userId) {
+            // V22.9.37 감사 U7: 조회 조건(month·household_id)을 버려 지난달 홈에서도 이번 달 분석이 열렸다. 그대로 넘긴다.
             const next = new URL("/my/analysis", url);
+            next.search = url.search;
             return redirectResponse(next.pathname + next.search);
           }
         }

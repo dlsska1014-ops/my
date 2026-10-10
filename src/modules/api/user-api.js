@@ -7,8 +7,8 @@ import {
 } from "../admin/transactions-households.js";
 import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
 import {
-  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
-  fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
+  attachSpenderNames, attachSpenderNamesWithHistory, fetchAdminRows, fetchAdminRowsRange,
+  fetchHouseholdMembers, fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
   selectRequestedScopedHousehold,
 } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
@@ -54,7 +54,8 @@ async function handleUserTxSearch(request, env, url) {
     // 일부 기록만 훑으면 오래된 기록이 조용히 빠진다(QA B05).
     return jsonResponse({ ok: false, error: "too_many_rows", reason: "search_row_limit", message: "기록이 너무 많아 전체 기간을 한 번에 검색하지 못했습니다. 거래 화면에서 월을 골라 찾아 주세요." }, 422);
   }
-  const rows = attachSpenderNames(rowsRaw, members);
+  // V22.9.37 감사 H11: 나간 사람의 기록도 기록 당시 이름으로 보여 준다.
+  const rows = await attachSpenderNamesWithHistory(env, rowsRaw, members);
   const needle = q.toLowerCase();
   const digits = q.replace(/[^0-9]/g, "");
   const matched = [];
@@ -109,7 +110,7 @@ async function handleUserRecentTransactions(request, env, url) {
   ]);
   const hasMore = fetchedRows.length > 80;
   const rawRows = fetchedRows.slice(0, 80);
-  const rows = attachSpenderNames(rawRows, members);
+  const rows = await attachSpenderNamesWithHistory(env, rawRows, members);
   // V22.9.26: nowKstDate() 는 KST 날짜 부품으로 만든 로컬 Date 라 getDay() 가 어디서나 KST 요일이다.
   const todayDate = nowKstDate();
   const today = formatDate(todayDate);
@@ -171,7 +172,7 @@ async function handleUserDayTransactions(request, env, url) {
     fetchHouseholdMembers(env, household.id),
     fetchAdminRows(env, { month, householdId: household.id, type: "all", date }),
   ]);
-  const rows = attachSpenderNames(rawRows, members);
+  const rows = await attachSpenderNamesWithHistory(env, rawRows, members);
   const role = String(household.role || "").toLowerCase();
   const canWrite = !!scope.adminOk || canWriteMyHousehold(role);
   const canManageSpender = !!scope.adminOk || canManageMyHousehold(role);
@@ -240,16 +241,17 @@ async function handleUserNotifications(request, env, url) {
   const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring });
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
   const mq = encodeURIComponent(month);
+  // V22.9.37 감사 U5: 알림 키에 월(납부 알림은 기한)을 붙인다. 달이 없는 키는 한 번 닫으면 다음 달에 같은 알림이 생겨도 숨었다.
   const notifs = [];
 
   // 1) 총 예산 상태 (danger: 초과 / warn: 월말초과·85%↑)
   if (model.totalBudget) {
     if (model.status === "over") {
-      notifs.push({ key: "budget-over", level: "danger", banner: true, title: "이번 달 예산을 초과했어요",
+      notifs.push({ key: `budget-over:${month}`, level: "danger", banner: true, title: "이번 달 예산을 초과했어요",
         body: `사용 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
         href: `/budget-alerts?month=${mq}${hh}` });
     } else if (model.status === "forecast" || model.status === "warning") {
-      notifs.push({ key: "budget-warn", level: "warn", banner: true,
+      notifs.push({ key: `budget-warn:${month}`, level: "warn", banner: true,
         title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "예산의 85% 이상 사용했어요",
         body: `사용 ${numberWithCommas(model.spent)}원 · 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
         href: `/budget-alerts?month=${mq}${hh}` });
@@ -258,7 +260,7 @@ async function handleUserNotifications(request, env, url) {
 
   // 2) 분류별 예산 초과 (상위 3)
   safeArray(model.dangerCategories).slice(0, 3).forEach((c) => {
-    notifs.push({ key: `cat-${c.category}`, level: "danger", title: `${c.category || "미분류"} 예산 초과`,
+    notifs.push({ key: `cat-${c.category}:${month}`, level: "danger", title: `${c.category || "미분류"} 예산 초과`,
       body: `사용 ${numberWithCommas(c.spent)}원 / 예산 ${numberWithCommas(c.budget)}원 (${numberWithCommas(c.rate)}%)`,
       href: `/app?month=${mq}${hh}&type=expense&category=${encodeURIComponent(c.category || "")}&feed=all#feed` });
   });
@@ -266,7 +268,7 @@ async function handleUserNotifications(request, env, url) {
   // 3) 미분류 지출
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
-    notifs.push({ key: "uncat", level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
       body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
       href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
   }
@@ -274,7 +276,7 @@ async function handleUserNotifications(request, env, url) {
   // 4) 이번 달 반영 대기 정기지출
   const pending = safeArray(model.pendingRecurring);
   if (pending.length) {
-    notifs.push({ key: "recurring-pending", level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
+    notifs.push({ key: `recurring-pending:${month}`, level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
       body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
       href: `/reserve-plans?month=${mq}${hh}` });
   }
@@ -286,7 +288,7 @@ async function handleUserNotifications(request, env, url) {
   const candidates = detectRecurringCandidates(historyRows, month, recurring);
   if (candidates.length) {
     const names = candidates.slice(0, 3).map((c) => String(c.memo || "").trim()).filter(Boolean).join(", ");
-    notifs.push({ key: "recurring-detect", level: "info", title: `반복되는 지출 ${candidates.length}건이 감지됐어요`,
+    notifs.push({ key: `recurring-detect:${month}`, level: "info", title: `반복되는 지출 ${candidates.length}건이 감지됐어요`,
       body: `${names}${candidates.length > 3 ? " 외" : ""} · 정기지출로 등록하면 예산 예측이 정확해져요.`,
       href: `/reserve-plans?month=${mq}${hh}` });
   }
@@ -294,7 +296,7 @@ async function handleUserNotifications(request, env, url) {
   // 5) 준비 납부 임박 (상위 3)
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
-    notifs.push({ key: `reserve-${s.plan?.id || idx}`, level: s.days_left <= 7 ? "warn" : "info",
+    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: s.days_left <= 7 ? "warn" : "info",
       title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
       body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
       href: `/reserve-plans?month=${mq}${hh}` });
@@ -303,9 +305,23 @@ async function handleUserNotifications(request, env, url) {
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
 }
 
+// V22.9.37 감사 H1: 저장(목표·즐겨찾기)은 가계부를 반드시 받는다. 가계부 없는 저장이 "첫 가계부"로 가서 화면과 다른
+// 가계부에 쌓였다. 조회는 옛 캐시 번들을 위해 예전 규칙(첫 가계부)을 유지한다 — 새 번들은 늘 가계부를 싣는다.
+const HOUSEHOLD_REQUIRED = { ok: false, error: "household_required", reason: "household_required", message: "저장할 가계부를 알 수 없습니다. 화면을 새로고침한 뒤 다시 시도해 주세요." };
+
 // V22.8.28 V5 즐겨찾기: 스키마 없이 accountbook_settings 키-값 저장소에 (가계부·사용자)별 스냅샷 보관.
 function favoritesKey(householdId, userKey) {
   return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
+}
+// V22.9.37 감사 N12: 즐겨찾기의 날짜·월은 저장 전에 검증한다("2026-02-30", "2026-7" 이 그대로 저장됐다).
+// 읽기 경로는 저장된 값을 그대로 둔다 — 기존 즐겨찾기를 조용히 지우지 않는다.
+function invalidFavoriteDateReason(x) {
+  const o = safeObject(x);
+  const date = String(o.transaction_date || "").trim();
+  if (date && !isValidTransactionDateString(date)) return "invalid_date";
+  const month = String(o.month || "").trim();
+  if (month && !validMonth(month)) return "invalid_month";
+  return "";
 }
 function normalizeFavoriteSnapshot(x) {
   const o = safeObject(x);
@@ -345,6 +361,7 @@ async function handleUserFavorites(request, env, url) {
   const method = request.method;
   const body = method === "POST" ? await readJson(request) : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
@@ -364,6 +381,8 @@ async function handleUserFavorites(request, env, url) {
   }
   const id = String(body.id || (body.tx && body.tx.id) || "").trim();
   if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
+  const dateProblem = body.remove ? "" : invalidFavoriteDateReason(body.tx || body);
+  if (dateProblem) return jsonResponse({ ok: false, error: dateProblem, reason: dateProblem, message: "즐겨찾기할 거래의 날짜가 올바르지 않습니다." }, 400);
   const snap = body.remove ? null : normalizeFavoriteSnapshot(body.tx || body);
   if (!body.remove && !snap) return jsonResponse({ ok: false, error: "invalid_tx", reason: "invalid_tx", message: "즐겨찾기할 거래 정보가 부족합니다." }, 400);
   try {
@@ -416,6 +435,13 @@ function goalAmountsFromInput(source = {}, fallback = {}) {
   return target === null || saved === null || monthly === null ? null : { target, saved, monthly };
 }
 const GOAL_AMOUNT_INVALID = { ok: false, error: "invalid_amount", reason: "invalid_amount", message: "금액은 0 이상 1,000억 원 이하의 숫자로 입력해 주세요." };
+// V22.9.37 감사 N12: 마감월은 실제 YYYY-MM 만 받는다. "2026-13" 이 그대로 저장돼 남은 달 계산이 틀렸다. 비우는 것은 된다.
+const GOAL_DEADLINE_INVALID = { ok: false, error: "invalid_deadline", reason: "invalid_deadline", message: "마감월은 YYYY-MM 형식의 실제 월로 입력해 주세요." };
+function invalidGoalDeadline(value) {
+  if (value === undefined || value === null) return false;
+  const text = String(value).trim();
+  return !!text && !validMonth(text);
+}
 function normalizeGoal(x) {
   const o = safeObject(x);
   const name = String(o.name || "").trim().slice(0, 60);
@@ -427,7 +453,7 @@ function normalizeGoal(x) {
     target: storedGoalAmount(o.target),
     saved: storedGoalAmount(o.saved),
     monthly: storedGoalAmount(o.monthly),
-    deadline: /^\d{4}-\d{2}$/.test(String(o.deadline || "")) ? String(o.deadline) : "",
+    deadline: validMonth(String(o.deadline || "").trim()) || "",
     created_at: o.created_at || new Date().toISOString(),
   };
 }
@@ -482,6 +508,7 @@ async function handleUserGoals(request, env, url) {
   const method = request.method;
   const body = method === "POST" ? await readJson(request) : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
+  if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);
   if (!household) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
@@ -510,6 +537,7 @@ async function handleUserGoals(request, env, url) {
       if (action === "create") {
         const amounts = goalAmountsFromInput(body);
         if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+        if (invalidGoalDeadline(body.deadline)) return jsonResponse(GOAL_DEADLINE_INVALID, 400);
         const g = normalizeGoal({ name: body.name, emoji: body.emoji, ...amounts, deadline: body.deadline });
         if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
         if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
@@ -517,6 +545,7 @@ async function handleUserGoals(request, env, url) {
       } else if (action === "restore") {
         const amounts = goalAmountsFromInput(safeObject(body.goal));
         if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+        if (invalidGoalDeadline(safeObject(body.goal).deadline)) return jsonResponse(GOAL_DEADLINE_INVALID, 400);
         const g = normalizeGoal({ ...safeObject(body.goal), ...amounts });
         if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "복구할 목표 정보를 확인해 주세요." }, 400);
         const remaining = list.filter(x=>x.id!==g.id);
@@ -537,6 +566,7 @@ async function handleUserGoals(request, env, url) {
         } else {
           const amounts = goalAmountsFromInput({ target: body.target, monthly: body.monthly }, list[idx]);
           if (!amounts) return jsonResponse(GOAL_AMOUNT_INVALID, 400);
+          if (invalidGoalDeadline(body.deadline)) return jsonResponse(GOAL_DEADLINE_INVALID, 400);
           const updated = normalizeGoal({ ...list[idx], name: body.name ?? list[idx].name, emoji: body.emoji ?? list[idx].emoji, target: amounts.target, monthly: amounts.monthly, deadline: body.deadline ?? list[idx].deadline });
           if (!updated || !(updated.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 금액을 확인해 주세요." }, 400);
           list[idx] = updated;
