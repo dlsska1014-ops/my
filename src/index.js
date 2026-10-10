@@ -2220,14 +2220,14 @@ const ACCOUNTBOOK_WORKER = {
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) { rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
+        if (!recurringResult.ok) { if (recurringResult.failed > 0) firstError = firstError || new Error("scheduled_recurring_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) { rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
+        if (!reportResult.ok) { if (reportResult.failed > 0) firstError = firstError || new Error("scheduled_reports_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
@@ -2235,7 +2235,7 @@ const ACCOUNTBOOK_WORKER = {
       try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
-      // 실제 예외만 Workers Logs 에 남기고 다시 던진다.
+      // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
       if (firstError) { logWorkerError({ event: "scheduled_failed", path: "/cron", method: "SCHEDULED", error: firstError }); throw firstError; }
     })());
   },
@@ -6366,8 +6366,9 @@ function computePaymentAssetTotals(assets = []) {
       totals.groupTotals[meta.group] = (totals.groupTotals[meta.group] || 0) + amount;
       totals.includedCount += 1;
     } else if (meta.side === "liability") {
-      totals.liabilityTotal += amount;
-      totals.groupTotals.debt = (totals.groupTotals.debt || 0) + amount;
+      // 대출의 저장 부호는 보존하되 남은 원금은 양수 크기로 차감한다.
+      totals.liabilityTotal += Math.abs(amount);
+      totals.groupTotals.debt = (totals.groupTotals.debt || 0) + Math.abs(amount);
     }
   }
   totals.netWorth = totals.assetTotal - totals.liabilityTotal;
@@ -16745,7 +16746,12 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   }
   // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신한다. 더 나중 달의 표식은 그대로 둔다.
   if (!(String(r.last_applied_month || "") > month)) {
-    await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+    try {
+      await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+    } catch (err) {
+      // 적용월 저장 실패가 이미 확인한 거래 저장을 되돌리지 않는다. 호출부가 부분 반영을 알릴 수 있게 보존한다.
+      throw Object.assign(new Error(safeError(err), { cause: err }), { recurringTransactionOutcome: outcome });
+    }
   }
   return outcome;
 }
@@ -20782,6 +20788,7 @@ function budgetPlanMessage(code = "") {
   const text = String(code || "");
   if (/^고정항목 \d{1,6}건 기록(?: · \d{1,6}건은 지출자가 활성 참여자가 아니어서 건너뜀)?$/.test(text)) return escapeHtml(text);
   switch (text) {
+    case "recurring_apply_incomplete": return escapeHtml("고정항목 반영을 끝내지 못했습니다. 일부 기록이 이미 반영되었으므로 거래내역과 반영 상태를 먼저 확인해 주세요.");
     case "budget_month_invalid": return escapeHtml("월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.");
     case "budget_duplicate_category": return escapeHtml("같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.");
     case "reserve_name_duplicate": return escapeHtml("같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.");
@@ -26988,6 +26995,7 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  let mutationConfirmed = false;
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
@@ -27008,6 +27016,7 @@ async function handleRecurringApply(request, env) {
         });
         const summary = Array.isArray(result) ? result[0] : result;
         count = Math.max(0, Number(summary?.inserted || 0));
+        mutationConfirmed = true;
         // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
         for (const r of pending) {
           const previous = String(r.last_applied_month || "");
@@ -27016,7 +27025,9 @@ async function handleRecurringApply(request, env) {
       } else {
         for (const r of pending) {
           if (blocked.includes(r)) continue;
-          if ((await applyRecurringRuleForMonth(env, householdId, r, month)) === "applied") count += 1;
+          const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
+          if (outcome !== "skipped") mutationConfirmed = true;
+          if (outcome === "applied") count += 1;
         }
       }
       const skippedNote = blocked.length ? ` · ${blocked.length}건은 지출자가 활성 참여자가 아니어서 건너뜀` : "";
@@ -27024,7 +27035,7 @@ async function handleRecurringApply(request, env) {
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
-    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }
 }

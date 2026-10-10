@@ -264,6 +264,7 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  let mutationConfirmed = false;
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
@@ -284,6 +285,7 @@ async function handleRecurringApply(request, env) {
         });
         const summary = Array.isArray(result) ? result[0] : result;
         count = Math.max(0, Number(summary?.inserted || 0));
+        mutationConfirmed = true;
         // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
         for (const r of pending) {
           const previous = String(r.last_applied_month || "");
@@ -292,7 +294,9 @@ async function handleRecurringApply(request, env) {
       } else {
         for (const r of pending) {
           if (blocked.includes(r)) continue;
-          if ((await applyRecurringRuleForMonth(env, householdId, r, month)) === "applied") count += 1;
+          const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
+          if (outcome !== "skipped") mutationConfirmed = true;
+          if (outcome === "applied") count += 1;
         }
       }
       const skippedNote = blocked.length ? ` · ${blocked.length}건은 지출자가 활성 참여자가 아니어서 건너뜀` : "";
@@ -300,7 +304,7 @@ async function handleRecurringApply(request, env) {
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
-    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }
 }

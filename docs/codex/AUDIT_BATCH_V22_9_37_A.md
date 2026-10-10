@@ -1,6 +1,6 @@
 # V22.9.37 감사 묶음 A — 정기·예산·집계
 
-검사: `validation/validate-audit-batch-a-v22937.mjs` (97개). 모든 재현은 메모리 픽스처로 하며 네트워크를 쓰지 않는다.
+검사: `validation/validate-audit-batch-a-v22937.mjs` (111개). 모든 재현은 메모리 픽스처로 하며 네트워크를 쓰지 않는다.
 근거: `docs/codex/AUDIT_FINDINGS_V22_9_33.md` §4·§6, `docs/codex/AUDIT_FINDINGS_V22_9_34.md` §2(SIM 항목).
 
 ## 고친 것
@@ -29,6 +29,8 @@
 | N9 | 단건 예산에 상한이 없었다. | `MAX_TRANSACTION_AMOUNT` 를 넘으면 `amount_too_large`. |
 
 ## 안내 코드
+
+PR #68 후속 검토에서 수동 반영의 거래 저장 뒤 표식 저장 실패, RPC 뒤 표식 복원 실패, 앞 규칙 저장 뒤 다음 규칙 실패를 추가로 재현했다. 이 경우 `recurring_apply_incomplete`로 일부 기록이 이미 반영되었음을 알린다. 다시 반영해도 앞서 저장한 거래는 중복되지 않는다. 저장 전 조회 실패는 기존 기록을 변경하지 않았다는 안내를 유지한다(추가 검사 14개).
 
 `formatMessage` 는 모르는 코드를 일반 안내로 닫는다. 이 묶음의 새 코드(`budget_month_invalid`, `budget_duplicate_category`,
 `reserve_name_duplicate`, `reserve_due_day_invalid`, `reserve_due_month_invalid`, `reserve_recurrence_invalid`,

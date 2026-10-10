@@ -96,7 +96,12 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   }
   // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신한다. 더 나중 달의 표식은 그대로 둔다.
   if (!(String(r.last_applied_month || "") > month)) {
-    await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+    try {
+      await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+    } catch (err) {
+      // 적용월 저장 실패가 이미 확인한 거래 저장을 되돌리지 않는다. 호출부가 부분 반영을 알릴 수 있게 보존한다.
+      throw Object.assign(new Error(safeError(err), { cause: err }), { recurringTransactionOutcome: outcome });
+    }
   }
   return outcome;
 }

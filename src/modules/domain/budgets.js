@@ -386,6 +386,7 @@ function budgetPlanMessage(code = "") {
   const text = String(code || "");
   if (/^고정항목 \d{1,6}건 기록(?: · \d{1,6}건은 지출자가 활성 참여자가 아니어서 건너뜀)?$/.test(text)) return escapeHtml(text);
   switch (text) {
+    case "recurring_apply_incomplete": return escapeHtml("고정항목 반영을 끝내지 못했습니다. 일부 기록이 이미 반영되었으므로 거래내역과 반영 상태를 먼저 확인해 주세요.");
     case "budget_month_invalid": return escapeHtml("월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.");
     case "budget_duplicate_category": return escapeHtml("같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.");
     case "reserve_name_duplicate": return escapeHtml("같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.");

@@ -61,7 +61,7 @@ npx wrangler deploy --config monitoring/wrangler.jsonc
 ## 독립 접속 검사
 
 `node monitoring/external-check.mjs`는 자격 증명 없이 실제 공개 경로를 검사합니다.
-`.github/workflows/monitoring.yml`(1.1.0 에서 템플릿을 복사)이 30분마다 GitHub Actions 에서 같은 검사를 돌립니다. 실패하면 GitHub 가 워크플로 실패 알림 메일을 보냅니다. 공개 저장소라 Actions 분은 무료입니다.
+`.github/workflows/monitoring.yml`은 수동 실행(`workflow_dispatch`)만 준비되어 있으며 병합으로 예약 검사가 켜지지 않습니다. 운영 승인 뒤 `monitoring/external-check.workflow.yml` 템플릿의 30분 예약을 별도로 적용합니다. 실행한 검사가 실패하면 GitHub가 워크플로 실패 알림 메일을 보냅니다. 공개 저장소라 Actions 분은 무료입니다.
 GitHub 예약은 지연될 수 있으며 24시간 감시 또는 즉시 통보를 보장하지 않습니다.
 
 ## 알림 발송 (1.1.0)

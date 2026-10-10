@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import * as acorn from "../tools/vendor/acorn.mjs";
 import { parseManifest, stripBuildBlocks } from "../tools/build-worker.mjs";
 import { parseFlexibleImportRecords } from "../src/index.js";
+import { computePaymentAssetTotals } from "../src/modules/settings/payment-assets.js";
 import { BASE, app, counter, ctx, fixture, intercept, post, settingValue, withClock } from "./lib-audit-v22934.mjs";
 
 const { ok, eq, done } = counter("V22.9.37 감사 묶음 D(가져오기·검증) 통과");
@@ -309,6 +310,8 @@ await fixture(async (fx) => {
   ok(msgOf(res).includes("msg=payment_asset_updated") && balanceOf("asset-2") === 5300000, "N7 상세 수정의 빈 잔액 칸은 기존 잔액을 유지한다(예전에는 0)");
   res = await create({ name: "주택대출", kind: "loan", balance: "-120000" });
   ok(msgOf(res).includes("msg=payment_asset_saved") && balanceOf("주택대출") === -120000, "N7 대출의 음수 잔액은 입력한 대로 저장된다(예전에는 120,000)");
+  const snapshot = Object.values(JSON.parse(settingValue(fx, "asset_history:house-home"))).at(-1);
+  ok(snapshot.liability_total > 0 && snapshot.net_worth === snapshot.asset_total - snapshot.liability_total, "N7 음수 대출을 저장해도 자산 이력은 부채를 양수로 차감한다");
   res = await create({ name: "비상금", kind: "cash", balance: "(3000)" });
   ok(msgOf(res).includes("음수 잔액은 대출·부채와 신용카드에서만") && balanceOf("비상금") === undefined, "N7 괄호 음수도 음수이며 현금에는 저장하지 않는다");
   res = await create({ name: "비상금", kind: "cash", balance: "abc" });
@@ -324,6 +327,15 @@ await fixture(async (fx) => {
   const html = await page.text();
   ok(page.status === 200 && html.includes('name="balance" inputmode="numeric" value="-120000"'), "N7 자산 화면의 잔액 폼은 음수 대출 잔액을 부호 그대로 보여 준다");
 });
+
+for (const balance of [-120000, 120000]) {
+  const assets = [{ kind: "bank_account", balance: 1000000 }, { kind: "loan", balance }];
+  const totals = computePaymentAssetTotals(assets);
+  eq(totals.liabilityTotal, 120000, `N7 ${balance} 대출의 부채 합계는 남은 원금의 크기다`);
+  eq(totals.groupTotals.debt, 120000, `N7 ${balance} 대출의 그룹 합계도 같은 기준이다`);
+  eq(totals.netWorth, 880000, `N7 ${balance} 대출은 순자산에서 차감한다`);
+  eq(assets[1].balance, balance, "N7 합계 계산은 입력한 대출 부호를 바꾸지 않는다");
+}
 
 // ── N13 관리자 API 의 엄격한 금액·구분·문자열 ─────────────────────────
 await fixture(async (fx) => {

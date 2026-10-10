@@ -310,6 +310,33 @@ async function sendAlertEmail(env,subject,text,now) {
   try { const mod=await import("cloudflare:email"); message=new mod.EmailMessage(from,env.ALERT_TO,raw); } catch(_) { /* Node 검사: 바인딩 흉내가 평범한 객체를 받는다 */ }
   await env.ALERT_EMAIL.send(message);
 }
+// Missing alerts are not proof of recovery: an errored or stale collector removes its alerts too.
+// Keep its dedupe record until that same source supplies fresh, healthy measurements.
+function alertRecoveryConfirmed(result,title) {
+  const quota=result.quotas.find(item=>item.name===title);
+  if(quota) return quota.status==="normal";
+  const cf=result.states.cloudflare;
+  const db=result.states.database;
+  const uptime=result.states.uptime;
+  const token=result.states.token;
+  const below=(value,limit)=>numberOrNull(value)!==null&&value<limit;
+  switch(title) {
+    case "Workers 런타임 오류 증가":
+      return cf.fresh&&numberOrNull(cf.data?.hour.requests)!==null&&numberOrNull(cf.data?.hour.errors)!==null&&(cf.data.hour.errors===0||(cf.data.hour.requests>0&&cf.data.hour.errors/cf.data.hour.requests<0.01));
+    case "앱 Worker 런타임 오류(오늘)": return cf.fresh&&below(result.application.provider_runtime_errors,3);
+    case "앱 Worker의 CPU 제한 초과": return cf.fresh&&cf.data?.app.cpu_limit_errors===0;
+    case "앱 Worker의 리소스 제한 초과": return cf.fresh&&cf.data?.app.resource_limit_errors===0;
+    case "서비스 접속 또는 DB 준비 상태 실패": return uptime.fresh&&uptime.data?.checks?.length>0&&uptime.data.checks.every(check=>check.ok===true);
+    case "DB CPU 사용률 상승": return db.fresh&&below(result.database.cpu_percent,85);
+    case "DB 연결 수 포화 위험": return db.fresh&&numberOrNull(result.database.connections)!==null&&result.database.max_connections>0&&result.database.connections/result.database.max_connections<0.85;
+    case "카카오 응답 지연": return result.application.telemetry_status==="ok"&&below(result.application.skill_p95_ms,3500);
+    case "최근 처리 실패 기록": return result.application.telemetry_status==="ok"&&result.application.incident_count===0;
+    case "요금제 확인 기록 만료": return !result.plans.stale&&Number.isFinite(Date.parse(result.plans.verified_at))&&result.plans.cloudflare!=="unknown"&&result.plans.supabase!=="unknown";
+    case "Cloudflare 분석 토큰 비활성": return token?.fresh&&token.data?.status==="active";
+    case "Cloudflare 분석 토큰 만료 임박": return token?.fresh&&token.data?.status==="active"&&(token.data.expires_on===null||result.token.days_left>30);
+    default: return false;
+  }
+}
 export async function deliverAlerts(env,now=new Date()) {
   const channels=[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean);
   if(!channels.length) throw new Error("not_connected");
@@ -328,7 +355,11 @@ export async function deliverAlerts(env,now=new Date()) {
     statements.push(env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,JSON.stringify({title:alert.title,status:alert.status,sent_at:now.toISOString()})));
   }
   const recovered=[];
-  for(const [key,previous] of remembered) { statements.push(env.MONITOR_DB.prepare("DELETE FROM settings WHERE key=?").bind(key)); if(previous?.status==="critical") recovered.push(previous); }
+  for(const [key,previous] of remembered) {
+    if(!alertRecoveryConfirmed(result,previous?.title)) continue;
+    statements.push(env.MONITOR_DB.prepare("DELETE FROM settings WHERE key=?").bind(key));
+    if(previous?.status==="critical") recovered.push(previous);
+  }
   if(!due.length&&!recovered.length) { if(statements.length) await env.MONITOR_DB.batch(statements); return {channels,sent:0,recovered:0,active:active.length,status:result.status}; }
   const counts=["critical","upgrade","warning"].map(status=>`${ALERT_LABELS[status]} ${due.filter(a=>a.status===status).length}`).join(" · ");
   const subject=`[말해가계부 관제] ${due.length?counts:"해소 "+recovered.length}`;

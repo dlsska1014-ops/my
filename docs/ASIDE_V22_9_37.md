@@ -4,7 +4,7 @@
 - **배포 담당자용 적용 순서**
 - **운영 확인 지시문:** 사용자나 외부 점검자에게 그대로 맡길 수 있게 쓴 것
 
-새 동결 `src/index.js`는 **3,764,542 bytes**, SHA-256 `12c2d1671819bb1d2336ecc49bc7fd9d92be14f7b1454de507f0ab667a4f9130`입니다.
+새 동결 `src/index.js`는 **3,765,689 bytes**, SHA-256 `dcee743d592a526ffb0a54fccf2b96b9007ea602702a550a83a88270bf5b4ae3`입니다.
 
 기준 운영은 V22.9.35 입니다(V22.9.36 은 main 에 병합됐지만 아직 배포하지 않았습니다).
 - 버전 `4f9da854-c185-40f0-8d0f-7bac9a3c9dc4`, 배포 `994d2f22-d0bd-4761-bc83-c26ef992e5bb`, 소스 `636cab5c…`
@@ -16,7 +16,7 @@
 - **앱 Worker:** 감사 결함 묶음 A~D 와 관제 표본·저장 실패 분류·cron 부분 처리 수정(`00_READ_FIRST_V22_9_37.md`).
 - **1년 캐시 자산(새 주소):** `accountbook-shell-v22937.css`, `accountbook-nav-v22937.js`, `accountbook-v5-v22937.js`, `accountbook-goals-v22937.js`, `accountbook-favrows-v22937.js`, `accountbook-search-v22937.js`, `accountbook-notif-v22937.js`. 이전 JS 주소(nav-v22930, v5-v22934, goals-v22929, favrows-v22836, search-v22929, notif-v22836)는 이전 바이트로 계속 내려갑니다. 이전 CSS 주소(shell-v22925)는 내려가지 않습니다(이전 규칙과 같음).
 - **관제 Worker 1.1.0(별도 배포):** 알림 발송(이메일·웹훅), 요금제 만료 뒤 한도 유지, 토큰 만료 경고, Workers Logs 켜기. `monitoring/wrangler.jsonc`에 `CF_PLAN`·`ALERT_FROM`·`ALERT_TO` 변수가 생깁니다.
-- **GitHub Actions:** `.github/workflows/monitoring.yml`이 30분마다 공개 `/health`·`/ready`를 확인합니다. 병합되면 자동으로 켜집니다(공개 저장소라 무료).
+- **GitHub Actions:** `.github/workflows/monitoring.yml`은 수동 실행만 준비되어 있습니다. 공개 `/health`·`/ready`의 30분 예약 검사는 별도 운영 승인 뒤 템플릿을 적용해야 켜집니다. 병합만으로 예약 검사가 시작되지 않습니다.
 - **바뀌지 않은 것:** SQL·RPC, 환경변수·Secrets·바인딩(앱), Worker 내보내기 목록(`named_handlers` 대조 동일), Kakao Developers·OpenBuilder.
 - **DB 에 쌓이는 새 값:** `accountbook_transaction_audit.actor_kind = 'kakao'`(카카오 삭제·수정). 제약이 없어 SQL 변경은 없습니다.
 

@@ -1,10 +1,8 @@
-# 1.1.0: monitoring/external-check.workflow.yml 템플릿을 복사해 활성화. 30분마다 공개 /health·/ready 를 외부(GitHub)에서 확인한다.
-# 실패하면 GitHub 가 워크플로 실패 알림 메일을 보낸다. 예약 실행은 지연될 수 있다.
+# 1.1.0: 수동 실행만 준비한다. 운영 승인 전에는 공개 /health·/ready 의 예약 검사를 활성화하지 않는다.
+# 승인 뒤 monitoring/external-check.workflow.yml 템플릿의 30분 schedule 을 별도로 적용한다.
 name: External availability check
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
 permissions:
   contents: read
 jobs:

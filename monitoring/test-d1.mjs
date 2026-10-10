@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import worker, { collect, summary } from "./worker.mjs";
+import worker, { collect, deliverAlerts, summary } from "./worker.mjs";
 
 const sqlite=new DatabaseSync(":memory:");
 sqlite.exec(readFileSync(new URL("schema.sql",import.meta.url),"utf8"));
@@ -176,5 +176,31 @@ try {
   const brokenEnv={...alertEnv,ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:false,error_code:"metrics_unavailable"}),{status:503});}}};
   await collect(brokenEnv,new Date(hourly.getTime()+600000));
   eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='database'").get().error_code,"metrics_unavailable","the app's real database error code survives a 503 (was http_503)");
+  // PR #68: a disappearing quota alert is not a recovery if its source cannot be measured.
+  sqlite.prepare("DELETE FROM settings WHERE key LIKE 'alert:%'").run();
+  sqlite.prepare("UPDATE settings SET value=? WHERE key='plans'").run(JSON.stringify({cloudflare:"free",supabase:"free",verified_at:now.toISOString()}));
+  const quotaAt=new Date(now);
+  const seedDatabase=(status,payload,at,successAt=at)=>sqlite.prepare("UPDATE collector_state SET status=?,payload=?,last_attempt_at=?,last_success_at=?,error_code=? WHERE name='database'").run(status,JSON.stringify(payload),at.toISOString(),successAt.toISOString(),status==="error"?"metrics_unavailable":null);
+  const quotaRecord=()=>sqlite.prepare("SELECT key,value FROM settings WHERE key LIKE 'alert:%'").all().find(row=>JSON.parse(row.value).title==="DB 논리 용량");
+  seedDatabase("ok",{database_bytes:499*1024**2},quotaAt);
+  const high=await deliverAlerts(alertEnv,quotaAt);
+  ok(high.titles.includes("DB 논리 용량")&&quotaRecord(),"critical DB quota is delivered and remembered");
+  const criticalRecord=quotaRecord().value;
+  for(const missing of ["error","stale","missing-value"]) {
+    const at=new Date(quotaAt.getTime()+300000);
+    seedDatabase(missing==="error"?"error":"ok",missing==="missing-value"?{}:{database_bytes:499*1024**2},at,missing==="stale"?new Date(at.getTime()-3600000):at);
+    const unavailable=await deliverAlerts(alertEnv,at);
+    eq(unavailable.recovered,0,`${missing} database evidence never sends a false recovery`);
+    eq(quotaRecord()?.value,criticalRecord,`${missing} database evidence preserves the critical dedupe record`);
+  }
+  const stillHighAt=new Date(quotaAt.getTime()+600000);
+  seedDatabase("ok",{database_bytes:499*1024**2},stillHighAt);
+  eq((await deliverAlerts(alertEnv,stillHighAt)).sent,0,"a returning critical DB measurement stays deduplicated within six hours");
+  const healthyAt=new Date(quotaAt.getTime()+900000);
+  seedDatabase("ok",{database_bytes:30*1024**2},healthyAt);
+  ok((await summary(alertEnv,healthyAt.getTime())).unknown.length>0,"unrelated unknown collectors remain in the recovery fixture");
+  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,1,"fresh normal DB evidence confirms recovery despite unrelated unknown collectors");
+  ok(hooks.at(-1).text.includes("[해소] DB 논리 용량")&&!quotaRecord(),"confirmed recovery is delivered before its dedupe record is removed");
+  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,0,"confirmed DB recovery is sent only once");
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;sqlite.close();}

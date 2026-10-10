@@ -116,8 +116,9 @@ function computePaymentAssetTotals(assets = []) {
       totals.groupTotals[meta.group] = (totals.groupTotals[meta.group] || 0) + amount;
       totals.includedCount += 1;
     } else if (meta.side === "liability") {
-      totals.liabilityTotal += amount;
-      totals.groupTotals.debt = (totals.groupTotals.debt || 0) + amount;
+      // 대출의 저장 부호는 보존하되 남은 원금은 양수 크기로 차감한다.
+      totals.liabilityTotal += Math.abs(amount);
+      totals.groupTotals.debt = (totals.groupTotals.debt || 0) + Math.abs(amount);
     }
   }
   totals.netWorth = totals.assetTotal - totals.liabilityTotal;

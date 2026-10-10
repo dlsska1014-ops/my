@@ -2,7 +2,7 @@
 
 감사 `docs/codex/AUDIT_FINDINGS_V22_9_33.md`(4절·입력 검증 묶음)와 `AUDIT_FINDINGS_V22_9_34.md` §2 에서 V22.9.36 으로 넘긴
 항목 가운데 가져오기 해석, 관리자 백업 적용, 입력 검증을 고친 기록이다. 검사는 `validation/validate-audit-batch-d-v22937.mjs`
-(211개)이며 모두 메모리 픽스처로 재현한다.
+(220개)이며 모두 메모리 픽스처로 재현한다.
 
 ## 공용 엄격 검증기 `src/modules/domain/strict-input.js`
 
@@ -28,6 +28,8 @@
 | N13 | 관리자 API 가 `"0x10"`·`"1e3"`·`true` 를 금액으로 받고, 객체·배열 ID·글자 칸을 문자열로 바꿔 저장. | `validateAdminApiTransactionBody` 가 금액은 공용 엄격 검증기, ID·구분·글자 칸은 문자열만 받는다(`invalid_text` 400 추가). `normalizeApiTransactionBody` 는 검증된 정수 금액을 넘긴다. |
 
 ## 바꾸지 않은 것·주의
+
+PR #68 후속 검토에서 음수 대출 잔액을 부채 합계에도 음수로 더해 순자산이 늘어나는 회귀를 고쳤다. 저장된 잔액의 부호는 보존하고, 부채 합계와 부채 그룹은 원금의 절댓값을 사용한다. 은행 1,000,000원과 대출 ±120,000원은 모두 부채 120,000원·순자산 880,000원이 되며, 새 월별 자산 기록에도 같은 합계를 저장한다(추가 검사 9개).
 
 - `nlu/date-payment.js` 의 `parseDateStrict`·`quickInputDate`·`resolveWeekdayPhrase` 는 그대로다(카카오·웹 날짜 해석 공유).
 - 부호 규칙은 제목 행이 있는 표에서만 정한다. 음수가 한 건뿐인 파일은 예전처럼 취소·환불로 보되 미리보기에서 구분을 바꿀 수 있다.

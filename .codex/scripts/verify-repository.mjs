@@ -202,7 +202,8 @@ function run(command, args, label) {
 // V22.9.35 가입 해시 수정: Workers PBKDF2 상한(100,000) 아래의 가입·로그인·관리자 비밀번호 변경 검사 25개가 들어왔다.
 // V22.9.36 카카오 분류 표 대체: 운영에 없는 선택 표(accountbook_categories) 조건에서 카카오 새 기록이 저장되는지 보는 검사 26개가 들어왔다.
 // V22.9.37 감사 결함 묶음: 묶음 A 97, B 102, C 146, D 211, 관제 알림 39 와 기존 검사의 증가분(자산 고정·모듈 표시 등)으로 9,421개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 9421;
+// PR #68 후속: 정기 반영 부분 실패 14, 대출 부채 합계 9, cron 실패 구분 9개를 더해 9,453개가 됐다.
+const EXPECTED_MINIMUM_CHECKS = 9453;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

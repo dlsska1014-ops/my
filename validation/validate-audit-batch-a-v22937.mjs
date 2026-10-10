@@ -148,6 +148,40 @@ await fixture(async (fx) => {
   ok(shown.html.includes("소유자·관리자·구성원"), "SIM-5 거절 사유가 화면에 보인다");
 });
 
+// PR #68: 거래가 저장된 뒤 적용월 저장이나 다음 규칙이 실패해도 미변경으로 안내하지 않는다.
+for (const scenario of ["mixed-marker", "rpc-marker", "later-rule"]) {
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    const month = scenario === "rpc-marker" ? "2026-06" : "2026-07";
+    if (scenario === "rpc-marker") rentRow(fx).last_applied_month = "2026-07";
+    else fx.db.accountbook_recurring.push({ ...rentRow(fx), id: "recurring-left", user_id: "user-left" });
+    if (scenario === "later-rule") fx.db.accountbook_recurring.push({ ...rentRow(fx), id: "recurring-second", memo: "두 번째 규칙" });
+    const before = fx.db.transactions.length;
+    const restore = intercept(({ url, method, init }) => {
+      if (scenario !== "later-rule" && url.pathname === "/rest/v1/accountbook_recurring" && method === "PATCH") return failure(400, "marker rejected");
+      if (scenario === "later-rule" && url.pathname === "/rest/v1/transactions" && method === "POST" && String(init.body).includes("recurring-second")) return failure(400, "second rule rejected");
+      return null;
+    });
+    let result;
+    try { result = await post(fx, "/admin/recurring/apply", { household_id: HOME, month }); }
+    finally { restore(); }
+    eq(fx.db.transactions.length - before, 1, `${scenario}: 실패 전에 거래 한 건이 저장됐다`);
+    eq(locParam(result, "err"), "recurring_apply_incomplete", `${scenario}: 부분 반영을 알리고 미변경으로 안내하지 않는다`);
+    const shown = await page(fx, `/reserve-plans?household_id=${HOME}&month=${month}&err=recurring_apply_incomplete`);
+    ok(shown.html.includes("일부 기록이 이미 반영되었으므로"), `${scenario}: 부분 반영 안내가 실제 화면에 보인다`);
+    await post(fx, "/admin/recurring/apply", { household_id: HOME, month });
+    eq(fx.db.transactions.filter((row) => row.raw_text === `recurring:recurring-rent:${month}`).length, 1, `${scenario}: 확인 후 다시 반영해도 저장된 거래를 중복 생성하지 않는다`);
+  }));
+}
+await fixture(async (fx) => {
+  const before = fx.db.transactions.length;
+  const restore = intercept(({ url, method }) => url.pathname === "/rest/v1/accountbook_recurring" && method === "GET" ? failure(400, "read rejected") : null);
+  let result;
+  try { result = await post(fx, "/admin/recurring/apply", { household_id: HOME, month: "2026-07" }); }
+  finally { restore(); }
+  eq(fx.db.transactions.length, before, "쓰기 전 조회 실패는 거래를 바꾸지 않는다");
+  ok(locParam(result, "err").includes("기존 기록은 변경하지 않았습니다"), "쓰기 전 실패만 미변경으로 안내한다");
+});
+
 // ── SIM-8 지난 달 반영 / T7 문제 규칙만 건너뛰기 ─────────────
 await withClock("2026-07-15", async () => {
   await fixture(async (fx) => {

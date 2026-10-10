@@ -5,7 +5,7 @@
 // 소스·설정·워크플로와 앱 쪽 세 가지(전송 실패 이벤트, 저장 실패 분류, 표본 범위)를 본다. 관제 Worker 의 동작 자체는
 // `node monitoring/test-d1.mjs`(SQLite)가 따로 확인한다.
 import { existsSync, readFileSync } from "node:fs";
-import { BASE, counter, ctx, fixture, intercept, page } from "./lib-audit-v22934.mjs";
+import { BASE, counter, ctx, failure, fixture, intercept, page, putSetting, withClock } from "./lib-audit-v22934.mjs";
 import app from "../src/index.js";
 
 const { ok, eq, done } = counter("V22.9.37 관제 알림·표본 검사 통과");
@@ -28,9 +28,9 @@ const source = read("src/index.js");
   const wrangler = read("monitoring/wrangler.jsonc");
   ok(wrangler.includes('"CF_PLAN": "free"') && wrangler.includes('"ALERT_TO"') && wrangler.includes('"ALERT_FROM"'), "관제 설정에 요금제·알림 변수가 있다");
   ok(wrangler.includes('"observability": { "enabled": true }'), "관제 Worker 의 Workers Logs 를 켠다");
-  ok(existsSync(new URL("../.github/workflows/monitoring.yml", import.meta.url)), "외부 접속 검사 워크플로가 활성화돼 있다");
+  ok(existsSync(new URL("../.github/workflows/monitoring.yml", import.meta.url)), "외부 접속 검사 워크플로가 수동 실행용으로 준비돼 있다");
   const workflow = read(".github/workflows/monitoring.yml");
-  ok(workflow.includes('cron: "*/30 * * * *"') && workflow.includes("node monitoring/external-check.mjs"), "외부 검사는 30분마다 공개 /health·/ready 를 본다");
+  ok(/^  workflow_dispatch:/m.test(workflow) && !/^\s+(?:schedule|cron):/m.test(workflow) && workflow.includes("node monitoring/external-check.mjs"), "외부 검사는 수동 실행만 허용하며 운영 승인 전 예약 실행을 활성화하지 않는다");
   ok(read("monitoring/README.md").includes("## 알림 발송 (1.1.0)"), "README 가 알림 발송 설정 순서를 적는다");
   const dashboard = read("monitoring/dashboard.mjs");
   ok(dashboard.includes("alerts:'알림 발송'") && dashboard.includes("d.notes"), "화면이 알림 발송 상태와 참고 사항을 보여 준다");
@@ -92,5 +92,27 @@ await fixture(async (fx) => {
     eq(failed.result, "error", "저장 실패 답장은 관제에 error 로 집계된다(예전에는 ok)");
   } finally { restore(); }
 });
+
+// PR #68: 정상 분할 처리만 성공이며 내부에서 failed 로 센 저장소 오류는 scheduled 실패다.
+for (const task of ["recurring", "reports", "bounded-partial"]) {
+  await withClock("2026-07-19", () => fixture(async (fx) => {
+    fx.db.accountbook_recurring = [];
+    if (task === "reports") putSetting(fx, "free_report_preference:house-home", JSON.stringify({ enabled: true, weekly: true }));
+    if (task === "bounded-partial") for (let index = 0; index < 7; index++) fx.db.households.push({ id: `partial-${index}`, name: "분할 검사" });
+    const restore = intercept(({ url, method }) => method === "GET" && (task === "recurring" && url.pathname === "/rest/v1/accountbook_recurring" || task === "reports" && url.pathname === "/rest/v1/transactions") ? failure(400, "scheduled source rejected") : null);
+    const pending = [];
+    const before = (globalThis.__AB_OPS_EVENTS || []).length;
+    let outcome;
+    try {
+      await app.scheduled({}, fx.env, { waitUntil(promise) { pending.push(promise); } });
+      [outcome] = await Promise.allSettled(pending);
+    } finally { restore(); }
+    const events = (globalThis.__AB_OPS_EVENTS || []).slice(before);
+    const partial = events.find((event) => event.kind === "scheduled_partial");
+    eq(outcome.status, task === "bounded-partial" ? "fulfilled" : "rejected", `${task}: 실제 실패와 정상 분할의 결과를 구분한다`);
+    ok(partial?.detail.includes(task === "bounded-partial" ? "failed=0" : "failed=1"), `${task}: 부분 처리 이벤트에 실제 실패 건수가 남는다`);
+    ok(events.some((event) => event.kind === "scheduled" && event.detail.endsWith(task === "bounded-partial" ? "completed" : "completed with errors")), `${task}: 최종 완료 이벤트도 실제 결과를 반영한다`);
+  }));
+}
 
 done();

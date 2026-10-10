@@ -1414,14 +1414,14 @@ const ACCOUNTBOOK_WORKER = {
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) { rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
+        if (!recurringResult.ok) { if (recurringResult.failed > 0) firstError = firstError || new Error("scheduled_recurring_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) { rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
+        if (!reportResult.ok) { if (reportResult.failed > 0) firstError = firstError || new Error("scheduled_reports_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
@@ -1429,7 +1429,7 @@ const ACCOUNTBOOK_WORKER = {
       try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
-      // 실제 예외만 Workers Logs 에 남기고 다시 던진다.
+      // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
       if (firstError) { logWorkerError({ event: "scheduled_failed", path: "/cron", method: "SCHEDULED", error: firstError }); throw firstError; }
     })());
   },
