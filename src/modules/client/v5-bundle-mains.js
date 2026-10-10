@@ -302,7 +302,7 @@ function accountbookSidebarDashboardClientMain() {
       var date = month + "-" + String(day).padStart(2, "0");
       var cls = "abNavCalDay" + (active[day] ? " hasRecord" : "") + (date === todayKey ? " isToday" : "");
       var href = qs(month, householdId, "&view=calendar&date=" + encodeURIComponent(date) + "&feed=all#feed");
-      html += '<a class="' + cls + '" role="gridcell" tabindex="' + (day === focusDay ? "0" : "-1") + '" href="' + href + '" data-ab-day="' + date + '" data-ab-hh-id="' + householdId + '" aria-label="' + mon + '월 ' + day + '일' + (active[day] ? ', 기록 있음' : ', 기록 없음') + '"><span>' + day + '</span>' + (active[day] ? '<i aria-hidden="true"></i>' : '') + '</a>';
+      html += '<a class="' + cls + '" role="gridcell" tabindex="' + (day === focusDay ? "0" : "-1") + '" href="' + href + '" data-ab-day="' + date + '" data-ab-household-id="' + householdId + '" aria-label="' + mon + '월 ' + day + '일' + (active[day] ? ', 기록 있음' : ', 기록 없음') + '"><span>' + day + '</span>' + (active[day] ? '<i aria-hidden="true"></i>' : '') + '</a>';
     }
     html += '</div><a class="abNavCalToday" href="' + qs(todayKey.slice(0, 7), householdId) + '">오늘이 있는 달로</a>';
     root.innerHTML = html;
@@ -983,12 +983,12 @@ function accountbookDayDetailClientMain() {
     if (!date) return;
     lastTrigger = trigger;
     activeDate = date;
-    activeHouseholdId = trigger.getAttribute("data-ab-hh-id") || "";
+    activeHouseholdId = trigger.getAttribute("data-ab-household-id") || "";
     var node = ensure();
     node.removeAttribute("hidden");
     node.setAttribute("aria-hidden", "false");
     document.body.classList.add("abDayDetailOpen");
-    load(date, trigger.getAttribute("data-ab-hh-id") || "", trigger.getAttribute("href") || "#");
+    load(date, trigger.getAttribute("data-ab-household-id") || "", trigger.getAttribute("href") || "#");
     var closeButton = node.querySelector(".abDayDetailClose");
     if (closeButton && closeButton.focus) { try { closeButton.focus(); } catch (_error) {} }
   }

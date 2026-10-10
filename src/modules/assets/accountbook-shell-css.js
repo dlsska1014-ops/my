@@ -182,6 +182,10 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.heroLead
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.landingHero h1 strong,.landingPage .ctaSecondary){color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.progressTrack,.summaryList div){background:var(--ab12-line)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .summaryList div{background:transparent!important}
+/* 헤드리스 측정(tools/screen-audit.mjs)에서 남은 둘: 노란 예시 안내의 <b> 가 다크 글자색을 받아 1.11:1, 어두운 띠 안 흰 버튼의 글자가 공통 링크색을 받아 1.80:1. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .sampleNotice{background:var(--ab12-warn-bg)!important;color:var(--ab12-warn-text)!important;border-color:var(--ab12-warn-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .sampleNotice b{color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .previewCta .cta{color:#172033!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:850}

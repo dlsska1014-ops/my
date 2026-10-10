@@ -30,7 +30,7 @@ const PINNED = {
   // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14)와 내비·V5 번들·목표·행 즐겨찾기·검색·알림 JS(H1·U2·U3·U5·U10·U12)가 바뀌어
   // 주소를 올렸다. 옛 CSS 주소(v22925)는 더 내려가지 않고, 옛 JS 주소(nav-v22930·v5-v22934·goals-v22929·favrows-v22836·
   // search-v22929·notif-v22836)는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 아래 옛 해시로 계속 내려간다.
-  "/assets/accountbook-shell-v22937.css": "c291a4ff033cb0211a2e3a9f0fe474928462dcd5dd5a8061ad6cf79aeb15758c",
+  "/assets/accountbook-shell-v22937.css": "17d0784c0a432362198551bc468301c60f07949d3e5cbcf22949bf0ab92c7018",
   "/assets/ab-uiux-v22919.css": "59510e82bbd2b373da76dfa1a070d2ccb40232e115e23da5c23251403fcc9f0c",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22930.js": "b76bebe25f3f0138e918129c7f34e4fa973f1dc53fec0ea905afc4a04bb9de60",
@@ -55,7 +55,7 @@ const PINNED = {
   // 바뀌어 주소를 올렸다. accountbook-v5-v22930·mobile-home(-shell)-v22933 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아
   // 위 해시로 계속 내려간다.
   "/assets/accountbook-v5-v22934.js": "0c85fadaee93b78357fd32e9c9b595b66edd5d33601e51fc30ee6a746ad4463d",
-  "/assets/accountbook-v5-v22937.js": "e3f03222a1401d551534e2e4ca038c4d06a6ceba47d097f6752e249d89a9bc33",
+  "/assets/accountbook-v5-v22937.js": "e939a35fb2acd5428bd1904a94edb35da16748652cd0c5b41e7c78cf0db0b752",
   "/assets/mobile-home-v22934.js": "143562ae7a41dfa30884227582a49507b5442bbf86dcf79ba890f09b184423e5",
   "/assets/mobile-home-shell-v22934.js": "1b3e04cfe5917fcebc86fbe55e9df1663290b597d4f70c93ae44ed7b419b7968",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",
