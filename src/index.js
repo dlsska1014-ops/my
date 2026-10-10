@@ -6280,17 +6280,48 @@ function assetHistoryKey(householdId = "") {
   return `asset_history:${String(householdId || "default").trim() || "default"}`;
 }
 
+// V22.9.37 감사 N7: 저장값의 부호를 지우지 않는다(예전에는 음수를 0 으로 눌렀고, 입력 경로는 부호를 떼어 양수로 저장했다).
+// 음수를 허용하는 종류(대출·부채, 신용카드)는 paymentAssetBalanceForKind 가 정하며 그 밖의 종류는 0 이상이다.
 function normalizePaymentAssetAmount(value = 0) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
-  return Math.max(0, Math.min(9_000_000_000_000, Math.round(amount)));
+  return Math.max(-9_000_000_000_000, Math.min(9_000_000_000_000, Math.round(amount)));
+}
+
+function allowsNegativePaymentAssetBalance(kind = "") {
+  return kind === "loan" || kind === "credit_card";
+}
+
+function paymentAssetBalanceForKind(value = 0, kind = "") {
+  const amount = normalizePaymentAssetAmount(value);
+  return amount < 0 && !allowsNegativePaymentAssetBalance(kind) ? 0 : amount;
+}
+
+function paymentAssetNegativeBalanceError() {
+  return "음수 잔액은 대출·부채와 신용카드에서만 입력할 수 있습니다. 자산 잔액은 0 이상으로 입력해 주세요. 입력 내용은 저장되지 않았습니다.";
+}
+
+// 잔액 입력 해석. 해석에 실패하면 0 으로 저장하지 않고 거절한다. 음수(-, −, 괄호)는 부호를 뒤집지 않고 그대로 읽는다.
+// 숫자·쉼표 숫자는 공용 엄격 검증기로, 단위가 붙은 한글 금액("150만원")은 예전처럼 자연어 금액 해석기로 읽되 0 이면 실패다.
+function parsePaymentAssetBalanceInput(value) {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  if (!text) return { ok: true, balance: 0, empty: true };
+  const negative = /^[-−]/.test(text) || /^\(.+\)$/.test(text);
+  const body = text.replace(/^[-−+]\s*/, "").replace(/^\((.+)\)$/, "$1").replace(/\s*(?:krw|won|원)\s*$/i, "").replace(/[₩￦\s]/g, "");
+  let magnitude = parseStrictAmount(body, { max: 9_000_000_000_000, allowCommas: true });
+  if (magnitude === null && /[억만천백십]/.test(body)) {
+    const parsed = parseAmountValue(body);
+    if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 9_000_000_000_000) magnitude = parsed;
+  }
+  if (magnitude === null) return { ok: false, error: "잔액을 숫자로 입력해 주세요(예: 500000, 1,500,000, 150만원). 입력 내용은 저장되지 않았습니다." };
+  return { ok: true, balance: negative ? -magnitude : magnitude };
 }
 
 function computePaymentAssetTotals(assets = []) {
   const totals = { assetTotal: 0, liabilityTotal: 0, netWorth: 0, includedCount: 0, excludedCount: 0, groupTotals: {} };
   for (const asset of safeArray(assets)) {
     const meta = paymentAssetKindMeta(asset.kind);
-    const amount = normalizePaymentAssetAmount(asset.balance);
+    const amount = paymentAssetBalanceForKind(asset.balance, asset.kind);
     if (meta.side === "asset") {
       if (asset.include_in_asset === false) {
         totals.excludedCount += 1;
@@ -6335,7 +6366,7 @@ function normalizePaymentAssetList(value, householdId = "") {
       name,
       kind,
       issuer: String(item.issuer || "").trim().slice(0, 80),
-      balance: normalizePaymentAssetAmount(item.balance),
+      balance: paymentAssetBalanceForKind(item.balance, kind),
       include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? item.include_in_asset !== false : false,
       memo: String(item.memo || "").trim().slice(0, 120),
       created_at: item.created_at || new Date(0).toISOString(),
@@ -6360,7 +6391,7 @@ function normalizeAssetHistory(value) {
     const item = safeObject(itemValue);
     const netWorth = Number(item.net_worth || 0);
     out[month] = {
-      asset_total: normalizePaymentAssetAmount(item.asset_total),
+      asset_total: Math.max(0, normalizePaymentAssetAmount(item.asset_total)),
       liability_total: normalizePaymentAssetAmount(item.liability_total),
       net_worth: Number.isFinite(netWorth) ? Math.max(-9_000_000_000_000, Math.min(9_000_000_000_000, Math.round(netWorth))) : 0,
       saved_at: String(item.saved_at || "").slice(0, 40),
@@ -6430,7 +6461,7 @@ async function savePaymentAssets(env, householdId = "", assets = []) {
     name: a.name,
     kind: a.kind,
     issuer: a.issuer || "",
-    balance: normalizePaymentAssetAmount(a.balance),
+    balance: paymentAssetBalanceForKind(a.balance, a.kind),
     include_in_asset: paymentAssetKindMeta(a.kind).side === "asset" ? a.include_in_asset !== false : false,
     memo: a.memo || "",
     created_at: a.created_at || new Date().toISOString(),
@@ -6509,8 +6540,10 @@ async function addPaymentAsset(env, householdId = "", data = {}) {
   const name = String(data.name || "").trim().slice(0, 80);
   if (!name) return { ok: false, error: "이름을 입력해주세요." };
   if (containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(data.issuer) || containsSensitiveFinancialNumber(data.memo)) return { ok: false, error: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해주세요." };
+  const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
+  // V22.9.37 감사 N7: 음수 잔액은 대출·부채·신용카드에서만. 그 밖의 종류는 부호를 떼지 않고 거절한다.
+  if (normalizePaymentAssetAmount(data.balance) < 0 && !allowsNegativePaymentAssetBalance(kind)) return { ok: false, error: paymentAssetNegativeBalanceError() };
   return withPaymentAssetWriteLease(env, householdId, async () => {
-    const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
     const now = new Date().toISOString();
     const current = await fetchPaymentAssets(env, householdId, { strict: true });
     if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
@@ -6521,7 +6554,7 @@ async function addPaymentAsset(env, householdId = "", data = {}) {
       name,
       kind,
       issuer: String(data.issuer || "").trim().slice(0, 80),
-      balance: normalizePaymentAssetAmount(data.balance),
+      balance: paymentAssetBalanceForKind(data.balance, kind),
       include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? data.include_in_asset !== false : false,
       memo: String(data.memo || "").trim().slice(0, 120),
       created_at: now,
@@ -6545,6 +6578,11 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
     if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
       return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
     }
+    // V22.9.37 감사 N7: 바뀐 종류 기준으로 음수 잔액 허용 여부를 본다. 종류를 자산으로 바꾸면서 음수 잔액이 남으면
+    // 0 으로 눌러 저장하지 않고 거절한다.
+    const requestedKind = isValidPaymentAssetKind(patch.kind) ? patch.kind : target.kind;
+    const requestedBalance = patch.balance === undefined ? target.balance : patch.balance;
+    if (normalizePaymentAssetAmount(requestedBalance) < 0 && !allowsNegativePaymentAssetBalance(requestedKind)) return { ok: false, error: paymentAssetNegativeBalanceError() };
     const next = current.map((item) => {
       if (String(item.id) !== String(id)) return item;
       const kind = isValidPaymentAssetKind(patch.kind) ? patch.kind : item.kind;
@@ -6552,8 +6590,8 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
       const issuer = patch.issuer === undefined ? item.issuer : String(patch.issuer || "").trim().slice(0, 80);
       const memo = patch.memo === undefined ? item.memo : String(patch.memo || "").trim().slice(0, 120);
       if (!name || containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(issuer) || containsSensitiveFinancialNumber(memo)) throw new Error("asset_sensitive_or_invalid");
-      const balance = patch.balance === undefined ? item.balance : normalizePaymentAssetAmount(patch.balance);
-      const balanceChanged = balance !== normalizePaymentAssetAmount(item.balance);
+      const balance = paymentAssetBalanceForKind(patch.balance === undefined ? item.balance : patch.balance, kind);
+      const balanceChanged = balance !== paymentAssetBalanceForKind(item.balance, item.kind);
       const updatedAt = new Date().toISOString();
       return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
     });
@@ -6669,12 +6707,15 @@ async function handlePaymentAssetCreate(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const access = await resolvePaymentAssetManage(request, env, householdId, month);
   if (!access.ok) return redirectResponse(access.redirect);
+  // V22.9.37 감사 N7: 해석에 실패한 잔액("abc")을 0 으로 저장하지 않고 거절한다. 비워 두면 0 이다(카드).
+  const balanceInput = parsePaymentAssetBalanceInput(form.get("balance"));
+  if (!balanceInput.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: balanceInput.error }));
   try {
     const result = await addPaymentAsset(env, householdId, {
       name: form.get("name"),
       kind: form.get("kind"),
       issuer: form.get("issuer"),
-      balance: parseAmountValue(form.get("balance") || "0"),
+      balance: balanceInput.balance,
       include_in_asset: form.getAll("include_in_asset").includes("on"),
       memo: form.get("memo"),
     });
@@ -6697,7 +6738,14 @@ async function handlePaymentAssetUpdate(request, env) {
   if (!access.ok) return redirectResponse(access.redirect);
   const mode = String(form.get("mode") || "edit").trim();
   const patch = {};
-  if (form.get("balance") !== null) patch.balance = parseAmountValue(form.get("balance") || "0");
+  // V22.9.37 감사 N7: 잔액 칸이 있으면 엄격하게 읽는다. 해석 실패는 거절, 잔액 저장 폼의 빈 칸도 거절(0 으로 저장하지
+  // 않음), 상세 수정 폼의 빈 칸은 잔액을 바꾸지 않는다.
+  const balanceRaw = form.get("balance");
+  if (balanceRaw !== null) {
+    const balanceInput = parsePaymentAssetBalanceInput(balanceRaw);
+    if (!balanceInput.ok || (balanceInput.empty && mode === "balance")) return redirectResponse(paymentMethodsLocation(month, householdId, { err: balanceInput.error || "잔액을 입력해 주세요. 입력 내용은 저장되지 않았습니다." }));
+    if (!balanceInput.empty) patch.balance = balanceInput.balance;
+  }
   if (mode !== "balance") {
     if (form.get("name") !== null) patch.name = form.get("name");
     if (form.get("kind") !== null) patch.kind = form.get("kind");
@@ -7522,7 +7570,7 @@ async function handleAdminImportJson(request, env) {
   try {
     if (!(await verifyAdminSession(request, env))) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인 세션이 만료되었습니다. 새로고침 후 다시 로그인하세요." }, 401);
     const body = await readJson(request);
-    const householdId = String(body.household_id || "").trim();
+    const householdId = typeof body.household_id === "string" ? body.household_id.trim() : "";
     if (!householdId) return jsonResponse({ ok: false, error: "household_id_required", message: "가계부를 먼저 선택해주세요." }, 400);
     const rawText = String(body.raw_text || "");
     const defaultUserId = String(body.user_id || "").trim();
@@ -7556,9 +7604,12 @@ function cleanImportedRowsForInsert(rows = []) {
     if (!out.payment_method) out.payment_method = "";
     if (!out.memo) out.memo = "";
     if (!out.category) out.category = out.type === "income" ? "기타수입" : "기타지출";
-    out.amount = Math.max(0, Math.round(Number(out.amount || 0)));
+    // V22.9.37 감사 SIM-7: 저장 직전 금액·날짜·구분을 공용 엄격 검증기로 다시 확인한다. Number("0x10")=16 처럼
+    // 조용히 바뀌는 값은 저장하지 않고 행을 뺀다.
+    out.amount = parseStrictAmount(out.amount, { min: 1 });
+    out.transaction_date = parseStrictDate(out.transaction_date);
     return out;
-  }).filter((row) => row.household_id && row.type && row.amount > 0 && /^20\d{2}-\d{2}-\d{2}$/.test(String(row.transaction_date || "")));
+  }).filter((row) => typeof row.household_id === "string" && row.household_id && (row.type === "income" || row.type === "expense") && row.amount !== null && row.transaction_date !== null);
 }
 
 const IMPORT_FIELD_ALIASES = Object.freeze({
@@ -7583,7 +7634,7 @@ const IMPORT_REJECTION_GUIDE = Object.freeze({
   repeated_header: ["반복된 제목 행", "여러 시트/표의 새 제목으로 인식해 다음 행부터 새 열 구성을 적용했습니다."],
   summary_row: ["합계·잔액 행", "합계와 잔액은 개별 거래가 아니어서 제외했습니다."],
   missing_date: ["날짜를 찾지 못함", "날짜/일자/거래일 열을 추가하거나 행에 ‘2026-07-15’처럼 날짜를 적어 주세요."],
-  invalid_date: ["날짜 형식을 해석하지 못함", "예: 2026-07-15, 2026.7.15, 7월 15일, 46000(엑셀 날짜) 형식으로 바꿔 주세요."],
+  invalid_date: ["날짜 형식을 해석하지 못함", "예: 2026-07-15, 2026.7.15, 7월 15일, 46000(엑셀 날짜, 날짜 열) 형식으로 바꿔 주세요. 2000년~내년 밖의 연도는 날짜로 보지 않습니다."],
   missing_amount: ["금액을 찾지 못함", "금액·지출·수입·입금·출금 열을 추가하거나 ‘12,000원’처럼 적어 주세요."],
   invalid_amount: ["금액 형식을 해석하지 못함", "통화문자와 쉼표는 허용됩니다. 숫자 또는 ‘1만2천원’처럼 입력해 주세요."],
   amount_too_large: ["금액이 허용 범위를 초과함", "한 거래 금액은 20억 원 이하로 바꾼 뒤 다시 확인해 주세요. 자동으로 줄여 저장하지 않습니다."],
@@ -7719,10 +7770,104 @@ function canonicalImportValue(obj = {}, field = "") {
 
 function findImportDateInValues(values) {
   for (const value of values || []) {
-    const d = parseDateStrict(value);
+    const d = parseImportDateCell(value);
     if (d) return d;
   }
   return "";
+}
+
+// V22.9.37 감사 N5·D6: 가져오기 날짜 전용 해석. 카카오·웹이 함께 쓰는 parseDateStrict 는 그대로 두고, 가져오기만
+// 다음을 다르게 본다. (1) 다섯 자리 숫자(엑셀 일련번호)는 날짜 열 값일 때만(allowSerial) 날짜다 — 금액 칸의 38000·
+// 52000 이 2004·2042년이 되지 않는다. (2) 두 자리 연도의 세 토막 날짜는 SheetJS 가 날짜 셀을 적는 M/D/YY 를 먼저
+// 본다(10/12/25 → 2025-10-12). 월이 13 이상이면 YY/MM/DD 다(25.10.12 → 2025-10-12). (3) 연도는 2000년부터
+// 내년까지만 받는다. 그 밖은 날짜가 아니라고 보고 행을 확인 필요(invalid_date)로 보낸다.
+function importDateYearAllowed(ymd = "") {
+  const year = Number(String(ymd || "").slice(0, 4));
+  return Number.isFinite(year) && year >= 2000 && year <= nowKstDate().getFullYear() + 1 ? String(ymd) : "";
+}
+
+function isTwoDigitYearImportDate(value = "") {
+  return /^\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2}(?:\s|$)/.test(String(value ?? "").trim());
+}
+
+function parseImportDateCell(value, options = {}) {
+  const text = String(value ?? "").replace(/\ufeff/g, "").trim().replace(/^["']|["']$/g, "").trim();
+  if (!text) return "";
+  if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text)) : "";
+  const parts = text.match(/^(\d{1,2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})(?:\s|$)/);
+  if (parts) {
+    const monthDayYear = parts[3].length === 2 ? safeYmd(2000 + Number(parts[3]), Number(parts[1]), Number(parts[2])) : "";
+    const yearMonthDay = parts[1].length === 2 ? safeYmd(2000 + Number(parts[1]), Number(parts[2]), Number(parts[3])) : "";
+    return importDateYearAllowed(monthDayYear || yearMonthDay);
+  }
+  return importDateYearAllowed(parseDateStrict(text));
+}
+
+// 자연어·행 전체 텍스트에서 날짜를 찾을 때도 다섯 자리 숫자 하나뿐인 텍스트는 엑셀 일련번호로 읽지 않는다.
+function importDateFromFreeText(text = "") {
+  const raw = String(text ?? "").trim();
+  if (!raw || /^\d{5}(?:\.\d+)?$/.test(raw)) return "";
+  return importDateYearAllowed(parseExplicitDateFromText(raw));
+}
+
+// 날짜 열(제목 표의 date 필드, 키:값 행의 날짜 항목, 객체의 날짜 키)이 있는 행인지.
+function importHasDateField(obj = {}) {
+  if (safeArray(obj.__headers).some((header) => canonicalImportField(header) === "date")) return true;
+  if (Object.prototype.hasOwnProperty.call(safeObject(obj.__canonical), "date")) return true;
+  return Object.keys(obj || {}).some((key) => !key.startsWith("__") && canonicalImportField(key) === "date");
+}
+
+// V22.9.37 감사 T9: 칸 경계가 곧 단어 경계다. "합계,,123000" 처럼 쉼표로 이은 행의 합계 칸은 쉼표에 붙어 있어 예전의
+// 공백 경계 규칙에 걸리지 않았고, 날짜가 있으면 지출로 저장됐다. 합계·총계·소계·월계는 칸 하나가 그 말이면(앞에
+// "7월"·"지출"·"총" 같은 말, 뒤에 숫자·콜론만 허용) 날짜가 있어도 거래가 아니다. 누계·잔액은 메모에 섞일 수 있어
+// 예전처럼 날짜 없는 행에서만 본다.
+function isImportSummaryRow(cells = [], raw = "") {
+  const totalCell = /^(?:[0-9A-Za-z가-힣]+\s*){0,3}(?:합계|총계|소계|월계)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
+  const balanceCell = /^(?:[0-9A-Za-z가-힣]+\s*){0,3}(?:누계|잔액)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
+  const values = safeArray(cells).map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (values.some((cell) => totalCell.test(cell))) return true;
+  if (findImportDateInValues(values)) return false;
+  return values.some((cell) => balanceCell.test(cell)) || /(?:^|\s)(합계|총계|소계|월계|누계|잔액)(?:\s|$)/.test(String(raw || ""));
+}
+
+// V22.9.37 감사 T10: 파일 전체의 부호 규칙. 금액이 있는 행 중 둘 이상·절반 이상이 음수이고, 양수인데 지출로 적힌 행과
+// 음수인데 수입으로 적힌 행이 하나도 없으면 "음수 = 지출, 양수 = 수입"으로 내보낸 파일(signed)이다. 그 밖(양수 지출
+// 사이의 음수 몇 건)은 예전처럼 취소·환불로 본다(default). 제목 행이 없는 표·자연어는 규칙을 정하지 않는다.
+function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000) {
+  const summary = { mode: "default", amount_rows: 0, negative_rows: 0 };
+  if (headerIndex < 0 || !safeArray(table[headerIndex]).length) return summary;
+  let headers = table[headerIndex];
+  let fields = headers.map(canonicalImportField);
+  let positiveExpense = 0;
+  let negativeIncome = 0;
+  for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
+    const cells = safeArray(table[i]);
+    if (!cells.some((cell) => String(cell ?? "").trim())) continue;
+    const aligned = alignImportCells(headers, cells);
+    let money = null;
+    let typed = "";
+    if (aligned.matched) {
+      fields.forEach((field, index) => {
+        const value = String(aligned.cells[index] ?? "").trim();
+        if (!value) return;
+        if (field === "type") typed = normalizeImportTypeValue(value) || typed;
+        if (!["amount", "income", "expense"].includes(field) || money || /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(String(headers[index]))) return;
+        const info = parseImportAmountCell(value);
+        if (info.amount > 0) { money = info; if (field !== "amount") typed = field; }
+      });
+    }
+    // 금액이 없는 행만 제목 행인지 본다(제목 판정은 비싸고, 금액이 있는 행은 제목이 아니다).
+    if (!money) {
+      if (looksLikeImportHeader(cells)) { headers = cells; fields = headers.map(canonicalImportField); }
+      continue;
+    }
+    if (isImportSummaryRow(aligned.cells, aligned.cells.join(" "))) continue;
+    summary.amount_rows += 1;
+    if (money.negative) { summary.negative_rows += 1; if (typed === "income") negativeIncome += 1; }
+    else if (typed === "expense") positiveExpense += 1;
+  }
+  if (summary.negative_rows >= 2 && summary.negative_rows * 2 >= summary.amount_rows && positiveExpense === 0 && negativeIncome === 0) summary.mode = "signed";
+  return summary;
 }
 
 function parseImportAmountCell(value = "") {
@@ -7731,7 +7876,9 @@ function parseImportAmountCell(value = "") {
   const negative = /^\s*-/.test(raw) || /^\(.*\)$/.test(raw) || /-\s*$/.test(raw);
   const numeric = raw.replace(/[()]/g, "").replace(/(?:krw|won|원)/gi, "").replace(/[₩￦,$\s]/g, "").replace(/^-|-$/g, "");
   let amount = 0;
-  if (/^\d+(?:\.\d+)?$/.test(numeric)) amount = Number(numeric);
+  if (/^\d+(?:\.0+)?$/.test(numeric)) amount = Number(numeric);
+  // V22.9.37 감사 SIM-7: 원 단위에 소수(12.5)는 없다. 반올림해 13원으로 저장하지 않고 금액 형식 오류로 보낸다.
+  else if (/^\d+\.\d+$/.test(numeric)) amount = NaN;
   else amount = parseAmountValue(raw);
   return { amount: Number.isFinite(amount) ? Math.abs(Math.round(amount)) : 0, present: true, valid: Number.isFinite(amount) && amount > 0, negative, raw };
 }
@@ -7851,13 +7998,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   if (currency && !/^(?:KRW|WON|원|원화|₩|￦)$/i.test(String(currency).trim()) && !obj.__local_money) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["원화 통화와 금액을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
   if (obj.__foreign_money && !obj.__local_money) return {row:null, rejection:importRejection("ambiguous_amount",options.rowNumber,rawText), warnings:["원화 금액 열을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
   const dateVal = canonicalImportValue(obj, "date");
-  let transactionDate = dateVal ? parseDateStrict(dateVal) || parseExplicitDateFromText(dateVal) : "";
-  const shortDate = String(dateVal || "").match(/^(\d{1,2})[/-](\d{1,2})$/);
+  // V22.9.37 감사 N5·D6: 날짜 열이 있는 행은 그 칸에서만 날짜를 읽는다. 비었거나 해석되지 않으면 다른 칸(금액 38000 →
+  // 2004년)에서 날짜를 찍어 내지 않고 missing_date·invalid_date 로 확인 필요에 보낸다. 날짜 열이 없는 행만 예전처럼
+  // 행 안의 다른 값과 자연어에서 날짜를 찾는다(엑셀 일련번호 제외).
+  let transactionDate = dateVal ? parseImportDateCell(dateVal, { allowSerial: true }) : "";
+  const shortDate = String(dateVal || "").match(/^(\d{1,2})[./-](\d{1,2})$/);
   if (shortDate) transactionDate = safeYmd(Number(options.importYear || nowKstDate().getFullYear()), Number(shortDate[1]), Number(shortDate[2]));
-  if (!transactionDate) {
-    transactionDate = findImportDateInValues(cells) || parseExplicitDateFromText(rawText);
-    if (transactionDate && dateVal) warnings.push("날짜 열 값 대신 행 안의 다른 날짜를 사용했습니다.");
-  }
+  if (!transactionDate && dateVal && /[가-힣]/.test(dateVal)) transactionDate = importDateFromFreeText(dateVal);
+  if (!transactionDate && !importHasDateField(obj)) transactionDate = findImportDateInValues(cells) || importDateFromFreeText(rawText);
   if (!transactionDate && natural) {
     transactionDate = formatDate(nowKstDate());
     warnings.push("날짜가 없어 오늘 날짜로 보정했습니다.");
@@ -7876,7 +8024,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
     for (const cell of cells || []) {
-      if (!String(cell || "").trim() || parseDateStrict(cell) || normalizeImportTypeValue(cell)) continue;
+      if (!String(cell || "").trim() || parseImportDateCell(cell) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
     }
@@ -7897,9 +8045,18 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
 
   const typeVal = canonicalImportValue(obj, "type");
   const normalizedType = normalizeImportTypeValue(typeVal);
+  // V22.9.37 감사 T9: 문맥으로 구분을 정할 때는 칸을 구분자 대신 공백으로 이어 본다. "…,급여,월급,…" 처럼 쉼표에
+  // 붙은 수입 말은 단어 경계(공백) 규칙에 걸리지 않아 월급·판매가 지출이 됐다. 규칙 자체는 공용 detectType(D2)이다.
+  const cellsText = safeArray(cells).length > 1 ? cells.map((cell) => String(cell ?? "")).join(" ") : rawText;
+  // V22.9.37 감사 T10: 파일 전체가 부호로 수입·지출을 적은 내보내기(음수 = 지출, 양수 = 수입)면 음수를 환불로 뒤집지 않는다.
+  const signedFile = options.signConvention === "signed";
   let type = normalizedType || forcedType || (chosen.negative ? "expense" : "");
+  if (!type && signedFile) {
+    type = "income";
+    if (detectType(cellsText) === "expense") warnings.push("파일 전체의 부호 규칙(양수 = 수입)으로 수입 처리했습니다. 내용이 지출로 보여 확인이 필요합니다.");
+  }
   if (!type) {
-    type = naturalParsed?.type || detectType(rawText);
+    type = naturalParsed?.type || detectType(cellsText);
     if (typeVal) warnings.push(`구분 ‘${String(typeVal).slice(0, 30)}’을 직접 해석하지 못해 문맥으로 ${type === "income" ? "수입" : "지출"} 처리했습니다.`);
   }
   type = type === "income" ? "income" : "expense";
@@ -7909,7 +8066,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(rawText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
-  if (chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
+  if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
     type = "income";
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
@@ -7939,12 +8096,12 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     _import_warnings: warnings.slice(),
     _import_needs_confirmation: refundFlipped || cancellation,
   };
-  return { row, rejection: null, warnings };
+  return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
 
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
   const text = String(rawText || "").replace(/^\ufeff/, "").trim();
-  const result = { rows: [], accepted: [], rejected: [], skipped: 0, warnings: [], mappings: [], delimiter: "", format: "natural_text", header_row: 0, total_rows: 0 };
+  const result = { rows: [], accepted: [], rejected: [], skipped: 0, warnings: [], mappings: [], delimiter: "", format: "natural_text", header_row: 0, total_rows: 0, sign_convention: { mode: "default", amount_rows: 0, negative_rows: 0 }, two_digit_year_rows: 0 };
   if (!text) return result;
   const jsonTable = parseImportJsonTable(text);
   const delimiter = jsonTable ? "" : detectImportDelimiter(text);
@@ -7958,6 +8115,11 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
   }
   result.header_row = headerIndex >= 0 ? headerIndex + 1 : 0;
   result.format = headerIndex >= 0 ? "table" : (delimiter ? "headerless_table" : "natural_text");
+  // V22.9.37 감사 T10: 본 해석 전에 파일 전체의 부호 규칙을 정한다(제목 행이 있는 표만).
+  const signConvention = detectImportSignConvention(table, headerIndex, maxRows);
+  result.sign_convention = signConvention;
+  if (signConvention.mode === "signed") result.warnings.push(`부호 규칙: 금액이 있는 ${signConvention.amount_rows}행 중 ${signConvention.negative_rows}행이 음수라 음수를 지출, 양수를 수입으로 읽었습니다.`);
+  let twoDigitYearRows = 0;
 
   const addRejected = (rejection) => { result.rejected.push(rejection); result.warnings.push(`${rejection.row_number}행: ${rejection.reason}`); };
   let currentHeaders = headerIndex >= 0 ? table[headerIndex] : [];
@@ -7979,13 +8141,14 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
     if (i < headerIndex) { addRejected(importRejection("preamble", rowNumber, raw)); continue; }
     if (i === headerIndex) continue;
     if (/^(?:#\s*)?(?:시트|sheet)\s*[:：]/i.test(raw)) { addRejected(importRejection("preamble", rowNumber, raw)); continue; }
-    if (/(?:^|\s)(합계|총계|소계|월계|누계|잔액)(?:\s|$)/.test(raw) && !findImportDateInValues(cells)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
     if (looksLikeImportHeader(cells)) {
       currentHeaders = cells;
       registerMappings(currentHeaders);
       addRejected(importRejection("repeated_header", rowNumber, raw));
       continue;
     }
+    // V22.9.37 감사 T9: 합계 칸은 칸 단위로 본다(제목 행 판정 뒤 — "잔액" 열이 있는 제목 행을 합계로 오인하지 않는다).
+    if (isImportSummaryRow(cells, raw)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
 
     let obj = null;
     let natural = headerIndex < 0;
@@ -8000,8 +8163,9 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
     if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells)) effectiveCells = [raw];
-    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { natural, rowNumber, importYear: options.importYear, source: options.source || "import_smart" });
+    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { natural, rowNumber, importYear: options.importYear, source: options.source || "import_smart", signConvention: signConvention.mode });
     if (!detailed.row) { addRejected(detailed.rejection || importRejection("unsupported_row", rowNumber, raw)); continue; }
+    if (detailed.twoDigitYear) twoDigitYearRows += 1;
     if (alignmentWarnings.length) {
       detailed.warnings = [...alignmentWarnings, ...safeArray(detailed.warnings)];
       detailed.row._import_warnings = [...alignmentWarnings, ...safeArray(detailed.row._import_warnings)];
@@ -8013,6 +8177,8 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
     for (let i = maxRows; i < Math.min(table.length, maxRows + 100); i++) addRejected(importRejection("over_limit", i + 1, table[i].join(delimiter || " | ")));
     if (table.length > maxRows + 100) result.warnings.push(`${table.length - maxRows - 100}개 행은 표시 한도를 넘어 요약만 남겼습니다.`);
   }
+  result.two_digit_year_rows = twoDigitYearRows;
+  if (twoDigitYearRows) result.warnings.push(`두 자리 연도 날짜(예: 10/12/25) ${twoDigitYearRows}행은 월/일/연도 순서로 읽었습니다. 날짜 열을 확인해 주세요.`);
   result.skipped = result.rejected.length;
   return result;
 }
@@ -9394,10 +9560,24 @@ async function handleBackupCandidateSelectPost(request, env) {
   }
 }
 
-function safeCandidatePlanRows(plan) {
-  const p = safeObject(plan);
-  const rows = Array.isArray(p.selected) ? p.selected : Array.isArray(p.rows) ? p.rows : [];
-  return rows.map((r) => transactionComparable(r)).filter((r) => r.transaction_date || r.memo || r.amount);
+// V22.9.37 감사 SIM-7: 계획 파일의 행을 공용 엄격 검증기로 읽는다. transactionComparable 의 Number(r.amount) 는
+// "0x10" 을 16원, -5000 을 0원 지출로, 모르는 구분을 지출로 바꿔 저장했다. 형식이 틀린 행은 사유와 함께 뺀다.
+function strictCandidatePlanRow(raw) {
+  const r = safeObject(raw);
+  const problems = [];
+  const amount = parseStrictAmount(r.amount, { min: 1 });
+  if (amount === null) problems.push(`금액 ‘${String(r.amount ?? "").slice(0, 20)}’은 1원 이상의 정수가 아님`);
+  const date = parseStrictDate(typeof r.transaction_date === "string" ? r.transaction_date.slice(0, 10) : "");
+  if (!date) problems.push(`날짜 ‘${String(r.transaction_date ?? "").slice(0, 20)}’은 달력에 없음`);
+  const type = r.type === "income" || r.type === "expense" ? r.type : "";
+  if (!type) problems.push(`구분 ‘${String(r.type ?? "").slice(0, 20)}’은 income·expense 가 아님`);
+  const userId = r.user_id === undefined || r.user_id === null ? "" : typeof r.user_id === "string" ? r.user_id.trim() : null;
+  if (userId === null) problems.push("지출자(user_id)가 문자열이 아님");
+  for (const key of ["category", "memo", "payment_method", "raw_text"]) {
+    if (r[key] !== undefined && r[key] !== null && typeof r[key] !== "string") problems.push(`${key} 가 문자열이 아님`);
+  }
+  if (problems.length) return { row: null, problems, display: { ...transactionComparable(r), amount: 0 } };
+  return { row: { ...transactionComparable({ ...r, amount, transaction_date: date, type }), user_id: userId }, problems: [] };
 }
 
 function validateImportCandidatePlan(plan) {
@@ -9408,17 +9588,17 @@ function validateImportCandidatePlan(plan) {
   if (p.app && p.app !== "kakao-accountbook") warnings.push("app 값이 kakao-accountbook이 아닙니다.");
   if (p.mode && p.mode !== "candidate_plan_only_no_db_write") warnings.push("v10.4 후보 선택 계획 파일이 아닐 수 있습니다.");
   if (!Array.isArray(p.selected) && !Array.isArray(p.rows)) errors.push("selected 배열이 없습니다.");
-  const rows = safeCandidatePlanRows(p);
-  if (!rows.length) errors.push("가져오기 후보가 0건입니다.");
-  const badDate = rows.filter((r) => !isValidTransactionDateString(r.transaction_date)).length;
-  const badAmount = rows.filter((r) => !Number.isFinite(Number(r.amount))).length;
-  if (badDate) errors.push(`날짜 형식이 잘못된 후보 ${badDate}건`);
-  if (badAmount) errors.push(`금액이 숫자가 아닌 후보 ${badAmount}건`);
-  const expected = Number(p.selected_count || rows.length);
-  if (Number.isFinite(expected) && expected !== rows.length) warnings.push(`selected_count(${expected})와 실제 후보 수(${rows.length})가 다릅니다.`);
+  const candidates = (Array.isArray(p.selected) ? p.selected : Array.isArray(p.rows) ? p.rows : []).filter((item) => { const r = safeObject(item); return r.transaction_date || r.memo || r.amount; });
+  const checked = candidates.map(strictCandidatePlanRow);
+  const rows = checked.filter((item) => item.row).map((item) => item.row);
+  const invalid = checked.filter((item) => !item.row).map((item) => ({ row: item.display, error: `형식 오류로 제외: ${item.problems.join(", ")}`, excluded: true }));
+  if (!rows.length) errors.push(invalid.length ? `가져올 수 있는 후보가 0건입니다(형식 오류 ${invalid.length}건).` : "가져오기 후보가 0건입니다.");
+  if (invalid.length) warnings.push(`형식이 잘못된 후보 ${invalid.length}건은 제외합니다 — ${invalid.slice(0, 5).map((item) => item.error.replace(/^형식 오류로 제외: /, "")).join(" / ")}${invalid.length > 5 ? " 외" : ""}`);
+  const expected = Number(p.selected_count || candidates.length);
+  if (Number.isFinite(expected) && expected !== candidates.length) warnings.push(`selected_count(${expected})와 실제 후보 수(${candidates.length})가 다릅니다.`);
   const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const expense = rows.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-  return { ok: errors.length === 0, errors, warnings, rows, counts: { selected: rows.length, income, expense, balance: income - expense } };
+  return { ok: errors.length === 0, errors, warnings, rows, invalid, counts: { selected: rows.length, income, expense, balance: income - expense } };
 }
 
 function finalCheckAgainstCurrent(candidateRows, currentRows) {
@@ -9507,7 +9687,8 @@ function renderImportApplyRows(rows = [], status = "") {
   if (!arr.length) return `<tr><td colspan="7">표시할 항목이 없습니다.</td></tr>`;
   return arr.map((item) => {
     const row = safeObject(item.row || item.backup || item);
-    const message = item.error ? `실패: ${item.error}` : item.id ? `저장됨: ${item.id}` : status;
+    // V22.9.37 감사 SIM-6: 결과를 모르는 행과 형식·범위로 뺀 행은 "실패"가 아니다.
+    const message = item.error ? `${item.unknown ? "확인 필요" : item.excluded ? "제외" : "실패"}: ${item.error}` : item.id ? `저장됨: ${item.id}` : status;
     return `<tr><td>${escapeHtml(String(row.transaction_date || ""))}</td><td>${row.type === "income" ? "수입" : "지출"}</td><td>${numberWithCommas(row.amount || 0)}원</td><td>${escapeHtml(row.category || "")}</td><td>${escapeHtml(row.memo || row.raw_text || "")}</td><td>${escapeHtml(row.payment_method || "")}</td><td>${escapeHtml(message || "")}</td></tr>`;
   }).join("");
 }
@@ -9517,7 +9698,7 @@ function renderImportApplyHtml({ households = [], householdId = "", month = "", 
   const errorBox = error ? `<section class="card bad"><h2>가져오기 적용 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const finalBox = finalCheck ? `<section class="card ${finalCheck.counts.now_duplicate ? "warn" : "good"}"><h2>적용 직전 중복 재검사</h2><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>아직 신규</span><b>${numberWithCommas(finalCheck.counts.still_new)}</b></div><div class="metric"><span>현재 중복</span><b>${numberWithCommas(finalCheck.counts.now_duplicate)}</b></div><div class="metric"><span>1회 적용 제한</span><b>${numberWithCommas(IMPORT_APPLY_LIMIT)}건</b></div></div><p class="note">${finalCheck.counts.now_duplicate ? "현재 DB에 이미 들어간 항목은 자동으로 제외합니다." : "중복 항목 없이 신규 후보만 적용 대상입니다."}</p></section>` : "";
-  const resultBox = result ? `<section class="card ${result.failed ? "warn" : "good"}"><h2>적용 결과</h2><div class="grid mini"><div class="metric"><span>요청 후보</span><b>${numberWithCommas(result.requested)}</b></div><div class="metric"><span>적용 대상</span><b>${numberWithCommas(result.to_apply)}</b></div><div class="metric"><span>성공</span><b>${numberWithCommas(result.applied)}</b></div><div class="metric"><span>실패</span><b>${numberWithCommas(result.failed)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(result.skipped_duplicate)}</b></div><div class="metric"><span>제한 초과 제외</span><b>${numberWithCommas(result.skipped_limit)}</b></div></div><p class="note">적용 성공 건은 Supabase transactions 테이블에 저장되었습니다. 실패/제외 항목은 아래 표에서 확인하세요.</p></section><section class="card"><h2>성공 항목</h2><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>상태</th></tr></thead><tbody>${renderImportApplyRows(result.success, "저장됨")}</tbody></table></div></section><section class="card"><h2>실패/제외 항목</h2><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>상태</th></tr></thead><tbody>${renderImportApplyRows([...result.failed_rows, ...result.duplicate_rows, ...result.limit_rows])}</tbody></table></div></section>` : "";
+  const resultBox = result ? `<section class="card ${result.failed || result.unknown ? "warn" : "good"}"><h2>적용 결과</h2><div class="grid mini"><div class="metric"><span>요청 후보</span><b>${numberWithCommas(result.requested)}</b></div><div class="metric"><span>적용 대상</span><b>${numberWithCommas(result.to_apply)}</b></div><div class="metric"><span>성공</span><b>${numberWithCommas(result.applied)}</b></div><div class="metric"><span>실패</span><b>${numberWithCommas(result.failed)}</b></div><div class="metric"><span>확인 필요</span><b>${numberWithCommas(result.unknown || 0)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(result.skipped_duplicate)}</b></div><div class="metric"><span>제한 초과 제외</span><b>${numberWithCommas(result.skipped_limit)}</b></div><div class="metric"><span>형식·범위·중단 제외</span><b>${numberWithCommas(result.skipped_excluded || 0)}</b></div></div><p class="note">적용 성공 건은 Supabase transactions 테이블에 저장되었습니다. 실패/제외 항목은 아래 표에서 확인하세요.</p>${result.unknown ? `<p class="dangerBox">저장 여부를 확인하지 못한 행이 ${numberWithCommas(result.unknown)}건 있습니다. 거래 목록에서 확인한 뒤에만 같은 계획을 다시 제출하세요.</p>` : ""}</section><section class="card"><h2>성공 항목</h2><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>상태</th></tr></thead><tbody>${renderImportApplyRows(result.success, "저장됨")}</tbody></table></div></section><section class="card"><h2>실패/제외 항목</h2><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>상태</th></tr></thead><tbody>${renderImportApplyRows([...result.failed_rows, ...safeArray(result.unknown_rows), ...result.duplicate_rows, ...result.limit_rows, ...safeArray(result.excluded_rows)])}</tbody></table></div></section>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 실제 적용</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#4c0519));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 155px 155px 165px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.danger{background:#dc2626}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.dangerBox{background:#fef2f2;border:1px solid #fecaca;border-radius:16px;padding:12px;color:#991b1b;line-height:1.55;font-weight:800}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:820px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:980px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>가져오기 실제 적용</h1><p>후보 계획 JSON을 최종 재검사한 뒤 신규 후보만 Supabase에 저장합니다. 안전을 위해 1회 최대 ${IMPORT_APPLY_LIMIT}건만 적용합니다.</p><p><a class="btn light" href="/backup/final-check">최종 확인</a> <a class="btn light" href="/backup/select">후보 선택</a></p></section><section class="card"><h2>실제 적용 전 확인</h2><p class="dangerBox">이 화면은 실제 DB에 거래를 추가합니다. 적용 전 반드시 백업을 내려받고, 확인 문구에 <b>${IMPORT_CONFIRM_TEXT}</b>을 정확히 입력하세요.</p><form class="upload" method="post" action="/backup/apply" enctype="multipart/form-data"><input type="file" name="plan_file" accept="application/json,.json" required/><select name="household_id" required><option value="">가계부 선택</option>${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}" required/><input type="password" name="admin_password" placeholder="관리자 비밀번호" autocomplete="current-password" required/><input name="confirm_text" placeholder="${escapeHtml(IMPORT_CONFIRM_TEXT)}" required/><button class="btn danger" type="submit">최대 ${IMPORT_APPLY_LIMIT}건 적용</button></form></section>${errorBox}${validationBox}${finalBox}${resultBox}</main></body></html>`;
 }
 
@@ -9563,57 +9744,100 @@ async function handleImportApplyPost(request, env) {
     if (!validation.ok) {
       return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, error: "후보 계획 파일 구조를 먼저 확인해야 합니다." }), 400);
     }
-    const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const finalCheck = finalCheckAgainstCurrent(validation.rows, currentRows);
-    const applyRows = finalCheck.stillNew.slice(0, IMPORT_APPLY_LIMIT);
-    const limitRows = finalCheck.stillNew.slice(IMPORT_APPLY_LIMIT).map((row) => ({ row, error: `1회 ${IMPORT_APPLY_LIMIT}건 제한으로 제외` }));
-    const duplicateRows = finalCheck.nowDuplicate.map((x) => ({ row: x.backup || x, error: "현재 DB 중복으로 제외" }));
-    const success = [];
-    const failedRows = [];
-    const insertedSigs = new Set(currentRows.map((r) => transactionSignature(r)));
-    for (const row of applyRows) {
-      const sig = transactionSignature(row);
-      if (insertedSigs.has(sig)) {
-        duplicateRows.push({ row, error: "적용 중 중복 재감지로 제외" });
-        continue;
-      }
-      try {
-        const created = await createManualTransaction(env, {
-          household_id: householdId,
-          user_id: row.user_id || "",
-          type: row.type === "income" ? "income" : "expense",
-          transaction_date: row.transaction_date,
-          amount: row.amount,
-          category: row.category || "",
-          memo: row.memo || "",
-          payment_method: row.payment_method || "",
-          raw_text: row.memo || "",
-          source: "backup_import_v19_3",
-        });
-        insertedSigs.add(sig);
-        success.push({ row, id: created?.id || "" });
-      } catch (err) {
-        rememberOpsEvent({ kind: "backup_import_row_failed", severity: "warn", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
-        failedRows.push({ row, error: "저장하지 못함(기존 데이터 유지)" });
-      }
+    // V22.9.37 감사 SIM-7: 가계부는 읽어 온 목록에 있는 것만 받는다(목록을 못 읽었으면 적용하지 않는다).
+    if (!households.some((h) => String(h.id) === householdId)) {
+      return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, error: "선택한 가계부를 찾지 못했습니다. 가계부 목록을 다시 불러온 뒤 선택해 주세요. 아무 행도 저장하지 않았습니다." }), 400);
     }
-    const result = {
-      requested: validation.rows.length,
-      to_apply: applyRows.length,
-      applied: success.length,
-      failed: failedRows.length,
-      skipped_duplicate: duplicateRows.length,
-      skipped_limit: limitRows.length,
-      success,
-      failed_rows: failedRows,
-      duplicate_rows: duplicateRows,
-      limit_rows: limitRows,
-    };
-    return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, finalCheck, result }));
+    // V22.9.37 감사 SIM-6: 가계부 설정 잠금 안에서 현재 기록·참여자를 엄격하게 읽고(읽기 실패면 적용하지 않음) 중복
+    // 확인과 저장을 한다. 같은 계획을 동시에 두 번 보내면 두 번째는 잠금 뒤에 이미 저장된 행을 중복으로 뺀다.
+    const outcome = await withHouseholdSettingsRmw(env, householdId, () => applyCandidatePlanRows(env, { householdId, month, validation }));
+    return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, finalCheck: outcome.finalCheck, result: outcome.result }));
   } catch (err) {
-    rememberOpsEvent({ kind: "backup_import_apply_failed", severity: "error", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
-    return htmlResponse(renderImportApplyHtml({ households, month, householdId, error: "가져오기를 완료하지 못했습니다. 적용 결과를 확인한 뒤 같은 파일을 반복 제출하지 마세요." }), 400);
+    const detail = safeError(err);
+    rememberOpsEvent({ kind: "backup_import_apply_failed", severity: "error", path: "/backup/import-apply", method: "POST", detail });
+    const busy = /settings_rmw_busy/.test(detail);
+    const message = busy ? "이 가계부의 다른 복구·설정 변경이 진행 중입니다. 아무 행도 저장하지 않았으니 잠시 후 다시 시도해 주세요."
+      : /settings_rmw_household_missing/.test(detail) ? "선택한 가계부가 없습니다. 아무 행도 저장하지 않았습니다."
+        : "가져오기를 완료하지 못했습니다. 적용 결과를 확인한 뒤 같은 파일을 반복 제출하지 마세요.";
+    return htmlResponse(renderImportApplyHtml({ households, month, householdId, error: message }), busy ? 409 : 400);
   }
+}
+
+// 잠금 안에서 실행되는 실제 적용. 중복 비교는 선택한 달의 현재 기록과만 하므로 다른 달 날짜는 제외하고 알린다.
+async function applyCandidatePlanRows(env, { householdId = "", month = "", validation = {} }) {
+  const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
+  const members = await fetchHouseholdMembers(env, householdId);
+  const excludedRows = safeArray(validation.invalid).slice();
+  const inScope = [];
+  for (const row of safeArray(validation.rows)) {
+    if (String(row.transaction_date || "").slice(0, 7) !== month) { excludedRows.push({ row, error: `선택한 달(${month}) 밖의 날짜라 중복을 확인할 수 없어 제외`, excluded: true }); continue; }
+    // V22.9.37 감사 SIM-7: 지출자는 비어 있으면 저장할 수 없고(NOT NULL), 있으면 이 가계부의 활성 참여자여야 한다.
+    if (!row.user_id) { excludedRows.push({ row, error: "지출자(user_id)가 없어 저장할 수 없음 — 백업 원본의 user_id 를 확인하세요", excluded: true }); continue; }
+    if (!activeSpenderExists(members, row.user_id)) { excludedRows.push({ row, error: "지출자가 이 가계부의 활성 참여자가 아니어서 제외", excluded: true }); continue; }
+    inScope.push(row);
+  }
+  const finalCheck = finalCheckAgainstCurrent(inScope, currentRows);
+  const applyRows = finalCheck.stillNew.slice(0, IMPORT_APPLY_LIMIT);
+  const limitRows = finalCheck.stillNew.slice(IMPORT_APPLY_LIMIT).map((row) => ({ row, error: `1회 ${IMPORT_APPLY_LIMIT}건 제한으로 제외` }));
+  const duplicateRows = finalCheck.nowDuplicate.map((x) => ({ row: x.backup || x, error: "현재 DB 중복으로 제외" }));
+  const success = [];
+  const failedRows = [];
+  const unknownRows = [];
+  const insertedSigs = new Set(currentRows.map((r) => transactionSignature(r)));
+  for (let index = 0; index < applyRows.length; index++) {
+    const row = applyRows[index];
+    const sig = transactionSignature(row);
+    if (insertedSigs.has(sig)) {
+      duplicateRows.push({ row, error: "적용 중 중복 재감지로 제외" });
+      continue;
+    }
+    try {
+      const created = await createManualTransaction(env, {
+        household_id: householdId,
+        user_id: row.user_id || "",
+        type: row.type === "income" ? "income" : "expense",
+        transaction_date: row.transaction_date,
+        amount: row.amount,
+        category: row.category || "",
+        memo: row.memo || "",
+        payment_method: row.payment_method || "",
+        raw_text: row.memo || "",
+        source: "backup_import_v19_3",
+      });
+      insertedSigs.add(sig);
+      success.push({ row, id: created?.id || "" });
+    } catch (err) {
+      rememberOpsEvent({ kind: "backup_import_row_failed", severity: "warn", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
+      // V22.9.37 감사 SIM-6(B15 와 같은 결함): 응답을 잃은 저장(5xx·시간 초과)은 "저장하지 못함"이 아니다. 다시 읽어
+      // 확인하고, 확인되지 않으면 확인 필요로 알린 뒤 남은 행은 적용하지 않는다(반복 제출의 중복을 막는 쪽으로 멈춘다).
+      if (isUncertainStorageWrite(err)) {
+        let found = null;
+        try { found = (await fetchAdminRows(env, { month, householdId, type: "all" })).find((current) => transactionSignature(current) === sig) || null; } catch (_) { found = null; }
+        if (found) { insertedSigs.add(sig); success.push({ row, id: found.id || "" }); continue; }
+        unknownRows.push({ row, error: "저장 여부 확인 필요 — 거래 목록에서 이 행을 확인한 뒤에만 다시 제출하세요", unknown: true });
+        for (const rest of applyRows.slice(index + 1)) excludedRows.push({ row: rest, error: "앞선 저장 결과가 불명확해 적용하지 않음(기존 데이터 유지)", excluded: true });
+        break;
+      }
+      failedRows.push({ row, error: "저장하지 못함(기존 데이터 유지)" });
+    }
+  }
+  const result = {
+    requested: safeArray(validation.rows).length + safeArray(validation.invalid).length,
+    to_apply: applyRows.length,
+    applied: success.length,
+    failed: failedRows.length,
+    unknown: unknownRows.length,
+    skipped_duplicate: duplicateRows.length,
+    skipped_limit: limitRows.length,
+    skipped_excluded: excludedRows.length,
+    success,
+    failed_rows: failedRows,
+    unknown_rows: unknownRows,
+    duplicate_rows: duplicateRows,
+    limit_rows: limitRows,
+    excluded_rows: excludedRows,
+  };
+  return { finalCheck, result };
 }
 
 function isBackupImportSource(value) {
@@ -15976,6 +16200,14 @@ async function handleMyImport(request, env) {
         continue;
       }
       if (!memberIds.has(String(candidate.user_id || ""))) candidate.user_id = userId;
+      // V22.9.37 감사 T10: 미리보기에서 행별로 바꾼 구분(row_type_N)을 저장 전에 반영한다. 환급으로 뒤집혔던 행을
+      // 지출로 되돌리면 분류도 환급에서 되돌린다. 값은 income·expense 둘만 받는다.
+      const typeOverride = String(form.get(`row_type_${Number(entry.row_number || 0)}`) || "");
+      if ((typeOverride === "income" || typeOverride === "expense") && typeOverride !== candidate.type) {
+        candidate.type = typeOverride;
+        if (typeOverride === "expense" && candidate.category === "환급") candidate.category = "기타지출";
+        else if (typeOverride === "income" && candidate.category === "기타지출") candidate.category = "기타수입";
+      }
       const row = cleanImportedRowsForInsert([candidate])[0];
       if (!row) {
         failed += 1;
@@ -16113,6 +16345,8 @@ async function handleMyImport(request, env) {
     accepted_count: parsed.accepted.length,
     mappings: safeArray(parsed.mappings).slice(0, 40),
     warnings: safeArray(parsed.warnings).slice(0, 30),
+    sign_convention: safeObject(parsed.sign_convention),
+    two_digit_year_rows: Number(parsed.two_digit_year_rows || 0),
   };
   const payload = {
     v: 1,
@@ -16167,6 +16401,13 @@ function importPreviewClientMain() {
   picks.forEach(function(pick) { pick.addEventListener("change", update); });
   document.getElementById("selectAllImport").addEventListener("click", function() { picks.forEach(function(pick) { pick.checked = true; }); update(); });
   document.getElementById("clearImport").addEventListener("click", function() { picks.forEach(function(pick) { pick.checked = false; }); update(); });
+  Array.from(form.querySelectorAll(".importTypePick")).forEach(function(select) {
+    select.addEventListener("change", function() {
+      var pick = form.querySelector('.importPick[value="' + select.getAttribute("data-row") + '"]');
+      if (pick) pick.dataset.type = select.value === "income" ? "income" : "expense";
+      update();
+    });
+  });
   var reviewButton = document.getElementById("reviewImportRows");
   if (reviewButton) reviewButton.addEventListener("click", function() {
     var onlyReview = reviewButton.getAttribute("aria-pressed") !== "true";
@@ -16199,11 +16440,17 @@ function renderMyImportPreviewHtml({ env, selected, month, payload = {}, token =
     const row = safeObject(entry.row);
     const reviewNeeded = safeArray(entry.warnings).length > 0 || /취소|환불|승인취소|cancel|refund/i.test([entry.raw, row.memo].join(" "));
     const warning = safeArray(entry.warnings).map((item) => `<small>${escapeHtml(item)}</small>`).join("");
-    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}"${entry.needs_confirmation ? "" : " checked"} aria-label="${Number(entry.row_number || 0)}행 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${numberWithCommas(entry.row_number || 0)}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><b>${row.type === "income" ? "수입" : "지출"}</b></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
+    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}"${entry.needs_confirmation ? "" : " checked"} aria-label="${Number(entry.row_number || 0)}행 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${numberWithCommas(entry.row_number || 0)}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><select class="importTypePick" name="row_type_${Number(entry.row_number || 0)}" data-row="${Number(entry.row_number || 0)}" aria-label="${Number(entry.row_number || 0)}행 구분"><option value="expense"${row.type === "income" ? "" : " selected"}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
   }).join("") || `<tr><td colspan="7">저장 가능한 행이 없습니다. 제외 사유를 확인해 원본의 해당 행만 수정해 주세요.</td></tr>`;
   const rejectedRows = outcomes.slice(0, 40).map((item) => `<tr><td>${numberWithCommas(item.row_number || 0)}</td><td><b>${escapeHtml(item.reason || "제외")}</b><small>${escapeHtml(item.suggestion || "")}</small></td><td>${escapeHtml(item.raw || "-")}</td></tr>`).join("") || `<tr><td colspan="3">제외된 행이 없습니다.</td></tr>`;
   const mappings = safeArray(payload.parsed?.mappings).map((item) => `<span>${escapeHtml(item.source || "-")} → <b>${escapeHtml(item.label || item.field || "-")}</b></span>`).join("") || "제목 행 없이 자연어·행 위치를 기준으로 분석했습니다.";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 미리보기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.notice,.error{border-radius:16px;padding:12px;line-height:1.6}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.mapping{display:flex;flex-wrap:wrap;gap:7px}.mapping span{background:#f8fafc;border:1px solid #e5e7eb;border-radius:999px;padding:7px 10px;font-size:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}.soft{background:#eef2f7;color:#111827}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small{display:block;color:#64748b;line-height:1.45;margin-top:4px}.importPick{width:22px;height:22px}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}.btn,button{width:100%}}</style></head><body class="abImportPreview"><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>저장 전 미리보기</h1><p>${escapeHtml(selected.name || "가계부")}에 저장될 후보를 확인하고 필요한 행만 선택하세요. 아직 거래는 저장되지 않았습니다.</p></section>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<section class="metrics"><div class="metric"><span>원본 행</span><b>${numberWithCommas(payload.parsed?.total_rows || 0)}</b></div><div class="metric"><span>인식 행</span><b>${numberWithCommas(payload.parsed?.accepted_count || 0)}</b></div><div class="metric"><span>저장 후보</span><b>${numberWithCommas(ready.length)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>저장 후보 전체 수입</span><b>${numberWithCommas(income)}원</b></div><div class="metric"><span>저장 후보 전체 지출</span><b>${numberWithCommas(expense)}원</b></div></section><section class="card"><h2>인식 기준</h2><div class="mapping">${mappings}</div><p class="notice"><b>안전 확인 단계</b><br/>체크한 행만 저장합니다. 이 미리보기는 30분 뒤 만료되며, 저장 직전에 중복과 권한을 다시 확인합니다.</p></section><form id="myImportCommitForm" method="post" action="/my/import"><input type="hidden" name="import_action" value="commit"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="import_token" value="${escapeHtml(token)}"/><section class="card"><h2>저장할 행 선택</h2><div class="toolbar"><button id="selectAllImport" type="button" class="soft">전체 선택</button><button id="clearImport" type="button" class="soft">전체 해제</button><button id="reviewImportRows" type="button" class="soft" aria-pressed="false">확인 필요한 행 보기</button><b id="selectedImportCount" aria-live="polite">${numberWithCommas(ready.length)}건 선택</b></div><div class="tableWrap"><table><thead><tr><th>선택</th><th>행</th><th>날짜</th><th>구분</th><th>금액</th><th>분류·내용</th><th>결제수단·보정</th></tr></thead><tbody>${rows}</tbody></table></div><section class="importSelectionSummary" aria-label="선택한 항목의 저장 예정 금액"><div><span>선택한 수입</span><b id="selectedImportIncome">${numberWithCommas(income)}원</b></div><div><span>선택한 지출</span><b id="selectedImportExpense">${numberWithCommas(expense)}원</b></div><p id="selectedImportReview" role="status"></p><small>선택한 행 기준입니다. 저장 직전 중복 검사를 거치면 실제 저장 건수와 금액이 줄어들 수 있습니다. 확인 필요 필터를 바꿔도 선택은 유지됩니다.</small></section><div class="toolbar"><button id="commitImport" type="submit"${ready.length ? "" : " disabled"}>선택한 항목 저장</button><a class="btn soft" href="${escapeHtml(back)}">취소하고 돌아가기</a></div></section></form><section class="card"><h2>제외된 행과 이유</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${rejectedRows}</tbody></table></div>${outcomes.length > 40 ? `<p class="notice">처음 40행만 표시했습니다. 전체 사유 건수는 분석 결과에 반영되어 있습니다.</p>` : ""}</section></div></div></main><script>(${importPreviewClientMain.toString()})();</script></body></html>`;
+  // V22.9.37 감사 T10·D6: 추론한 부호 규칙과 두 자리 연도 해석을 미리보기에 밝힌다. 구분은 아래 표에서 행마다 바꿀 수 있다.
+  const sign = safeObject(payload.parsed?.sign_convention);
+  const signNotice = sign.mode === "signed"
+    ? `<p class="notice" id="importSignConvention">부호 규칙: 금액이 있는 ${numberWithCommas(sign.amount_rows || 0)}행 중 ${numberWithCommas(sign.negative_rows || 0)}행이 음수라 <b>음수 = 지출, 양수 = 수입</b>으로 읽었습니다. 아래 표의 구분을 행마다 바꿀 수 있습니다.</p>`
+    : Number(sign.negative_rows || 0) > 0 ? `<p class="notice" id="importSignConvention">부호 규칙: 음수 금액 ${numberWithCommas(sign.negative_rows)}행은 취소·환불(수입)로 읽고 확인 필요로 표시했습니다. 아래 표의 구분을 행마다 바꿀 수 있습니다.</p>` : "";
+  const twoDigitNotice = Number(payload.parsed?.two_digit_year_rows || 0) > 0 ? `<p class="notice" id="importTwoDigitYear">두 자리 연도 날짜(예: 10/12/25) ${numberWithCommas(payload.parsed.two_digit_year_rows)}행은 월/일/연도 순서로 읽었습니다. 날짜 열을 확인해 주세요.</p>` : "";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 미리보기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.notice,.error{border-radius:16px;padding:12px;line-height:1.6}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.mapping{display:flex;flex-wrap:wrap;gap:7px}.mapping span{background:#f8fafc;border:1px solid #e5e7eb;border-radius:999px;padding:7px 10px;font-size:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}.soft{background:#eef2f7;color:#111827}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small{display:block;color:#64748b;line-height:1.45;margin-top:4px}.importPick{width:22px;height:22px}.importTypePick{min-height:36px;border:1px solid #cbd5e1;border-radius:10px;padding:4px 8px;font:inherit;background:#fff;color:#111827}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}.btn,button{width:100%}}</style></head><body class="abImportPreview"><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>저장 전 미리보기</h1><p>${escapeHtml(selected.name || "가계부")}에 저장될 후보를 확인하고 필요한 행만 선택하세요. 아직 거래는 저장되지 않았습니다.</p></section>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<section class="metrics"><div class="metric"><span>원본 행</span><b>${numberWithCommas(payload.parsed?.total_rows || 0)}</b></div><div class="metric"><span>인식 행</span><b>${numberWithCommas(payload.parsed?.accepted_count || 0)}</b></div><div class="metric"><span>저장 후보</span><b>${numberWithCommas(ready.length)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>저장 후보 전체 수입</span><b>${numberWithCommas(income)}원</b></div><div class="metric"><span>저장 후보 전체 지출</span><b>${numberWithCommas(expense)}원</b></div></section><section class="card"><h2>인식 기준</h2><div class="mapping">${mappings}</div>${signNotice}${twoDigitNotice}<p class="notice"><b>안전 확인 단계</b><br/>체크한 행만 저장합니다. 이 미리보기는 30분 뒤 만료되며, 저장 직전에 중복과 권한을 다시 확인합니다.</p></section><form id="myImportCommitForm" method="post" action="/my/import"><input type="hidden" name="import_action" value="commit"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="import_token" value="${escapeHtml(token)}"/><section class="card"><h2>저장할 행 선택</h2><div class="toolbar"><button id="selectAllImport" type="button" class="soft">전체 선택</button><button id="clearImport" type="button" class="soft">전체 해제</button><button id="reviewImportRows" type="button" class="soft" aria-pressed="false">확인 필요한 행 보기</button><b id="selectedImportCount" aria-live="polite">${numberWithCommas(ready.length)}건 선택</b></div><div class="tableWrap"><table><thead><tr><th>선택</th><th>행</th><th>날짜</th><th>구분</th><th>금액</th><th>분류·내용</th><th>결제수단·보정</th></tr></thead><tbody>${rows}</tbody></table></div><section class="importSelectionSummary" aria-label="선택한 항목의 저장 예정 금액"><div><span>선택한 수입</span><b id="selectedImportIncome">${numberWithCommas(income)}원</b></div><div><span>선택한 지출</span><b id="selectedImportExpense">${numberWithCommas(expense)}원</b></div><p id="selectedImportReview" role="status"></p><small>선택한 행 기준입니다. 저장 직전 중복 검사를 거치면 실제 저장 건수와 금액이 줄어들 수 있습니다. 확인 필요 필터를 바꿔도 선택은 유지됩니다.</small></section><div class="toolbar"><button id="commitImport" type="submit"${ready.length ? "" : " disabled"}>선택한 항목 저장</button><a class="btn soft" href="${escapeHtml(back)}">취소하고 돌아가기</a></div></section></form><section class="card"><h2>제외된 행과 이유</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${rejectedRows}</tbody></table></div>${outcomes.length > 40 ? `<p class="notice">처음 40행만 표시했습니다. 전체 사유 건수는 분석 결과에 반영되어 있습니다.</p>` : ""}</section></div></div></main><script>(${importPreviewClientMain.toString()})();</script></body></html>`;
 }
 
 function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [], acceptedWarnings = [], imported = 0, duplicate = 0, failed = 0, unknown = 0, limited = 0, importLimit = 120, selectedCount = 0 }) {
@@ -32448,7 +32695,7 @@ function normalizeApiTransactionBody(body = {}, partial = false) {
     household_id: body.household_id,
     user_id: body.user_id,
     type: body.type,
-    amount: body.amount,
+    amount: parseStrictAmount(body.amount, { min: 1 }),
     category: body.category,
     memo: body.memo ?? body.description,
     payment_method: body.payment_method ?? body.method,
@@ -32475,16 +32722,20 @@ async function readAdminApiJson(request) {
 }
 
 function validateAdminApiTransactionBody(body = {}, partial = false) {
-  if (!partial && !String(body.household_id || "").trim()) return jsonResponse({ ok: false, error: "household_required", reason: "household_required", message: "가계부 ID가 필요합니다." }, 400);
-  if (!partial && !String(body.user_id || "").trim()) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID가 필요합니다." }, 400);
+  // V22.9.37 감사 N13: ID·글자 칸은 문자열만, 금액은 공용 엄격 검증기(정수·범위)만 받는다. Number("0x10")=16,
+  // Number("1e3")=1000, Number(true)=1 처럼 조용히 바뀌는 값과 객체·배열은 400 이다.
+  const isText = (value) => typeof value === "string";
+  if (!partial && !(isText(body.household_id) && body.household_id.trim())) return jsonResponse({ ok: false, error: "household_required", reason: "household_required", message: "가계부 ID가 필요합니다." }, 400);
+  if (!partial && !(isText(body.user_id) && body.user_id.trim())) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID가 필요합니다." }, 400);
+  if (partial && body.user_id !== undefined && body.user_id !== null && body.user_id !== "" && !isText(body.user_id)) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID는 문자열이어야 합니다." }, 400);
   if (partial && (Object.hasOwn(body, "household_id") || Object.hasOwn(body, "source"))) return jsonResponse({ ok: false, error: "immutable_field", reason: "immutable_field", message: "수정 요청에서 가계부와 원본 출처는 변경할 수 없습니다." }, 400);
-  if ((!partial || Object.hasOwn(body, "type")) && !["expense", "income"].includes(String(body.type || ""))) return jsonResponse({ ok: false, error: "invalid_type", reason: "invalid_type", message: "구분은 expense 또는 income이어야 합니다." }, 400);
-  if (!partial || Object.hasOwn(body, "amount")) {
-    const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount < 1 || amount > MAX_TRANSACTION_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: `금액은 1원 이상 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하의 정수여야 합니다.` }, 400);
+  if ((!partial || Object.hasOwn(body, "type")) && !(isText(body.type) && ["expense", "income"].includes(body.type))) return jsonResponse({ ok: false, error: "invalid_type", reason: "invalid_type", message: "구분은 expense 또는 income이어야 합니다." }, 400);
+  if ((!partial || Object.hasOwn(body, "amount")) && parseStrictAmount(body.amount, { min: 1 }) === null) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: `금액은 1원 이상 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하의 정수여야 합니다.` }, 400);
+  for (const key of ["category", "memo", "description", "payment_method", "method", "source"]) {
+    if (body[key] !== undefined && body[key] !== null && !isText(body[key])) return jsonResponse({ ok: false, error: "invalid_text", reason: "invalid_text", message: "분류·내용·결제수단·출처는 문자열이어야 합니다." }, 400);
   }
   const date = body.transaction_date ?? body.date;
-  if ((!partial || date !== undefined) && !isValidTransactionDateString(String(date || ""))) return jsonResponse({ ok: false, error: "invalid_date", reason: "invalid_date", message: "날짜는 실제 존재하는 YYYY-MM-DD 형식이어야 합니다." }, 400);
+  if ((!partial || date !== undefined) && !(isText(date) && isValidTransactionDateString(date))) return jsonResponse({ ok: false, error: "invalid_date", reason: "invalid_date", message: "날짜는 실제 존재하는 YYYY-MM-DD 형식이어야 합니다." }, 400);
   return null;
 }
 
@@ -34973,6 +35224,54 @@ function jsonForInlineScript(value) {
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
+}
+
+// V22.9.37 감사 묶음 D(N7·N13·SIM-7 의 공용 기반): 폼·관리자 API·파일에서 들어온 금액·월·날짜·일자를 엄격하게 읽는
+// 공용 검증기. Number("0x10")=16, Number("1e3")=1000, Number(true)=1, Number(" ")=0 처럼 Number() 가 조용히
+// 받아 주는 값을 모두 거절하고 정수(또는 null)만 돌려준다. 단위가 붙은 문자열("1만2천원")은 여기서 해석하지
+// 않는다 — 그런 입력은 호출한 쪽이 자연어 금액 해석기를 거친 뒤 그 결과 숫자를 다시 이 함수로 확인한다.
+// 연결 빌드에서 선언 순서가 초기화 순서이므로 이 모듈은 최상위에 함수 선언만 둔다(로드 때 평가되는 상수 없음).
+// 기본값(거래 상한 등)은 호출 시점에 읽는다.
+
+// 정수 금액. 숫자 또는 "12000"·"+500" 꼴 문자열만 받는다("1,500,000" 같은 천 단위 쉼표는 allowCommas 일 때만).
+// 범위는 min(기본 0) ≤ n ≤ max(기본 거래 상한)이고, allowNegative 이면 -max ≤ n ≤ max 다(0 이상일 때는 min 도 적용).
+// NaN·Infinity·소수·지수·16진수·불리언·객체·빈 값은 null 이다.
+function parseStrictAmount(value, options = {}) {
+  const max = Number.isFinite(Number(options.max)) ? Number(options.max) : MAX_TRANSACTION_AMOUNT;
+  const min = Number.isFinite(Number(options.min)) ? Number(options.min) : 0;
+  const allowNegative = options.allowNegative === true;
+  let n;
+  if (typeof value === "number") n = value;
+  else if (typeof value === "string") {
+    const text = value.trim();
+    const grouped = options.allowCommas === true && /^[-+]?\d{1,3}(?:,\d{3})+$/.test(text);
+    if (!grouped && !/^[-+]?\d+$/.test(text)) return null;
+    n = Number(text.replace(/,/g, ""));
+  } else return null;
+  if (!Number.isSafeInteger(n)) return null;
+  if (n === 0) n = 0; // -0 → 0
+  if (n < 0) return allowNegative && -n <= max ? n : null;
+  return n >= min && n <= max ? n : null;
+}
+
+// "YYYY-MM" 꼴의 실제 달(validMonth 와 같은 2000-01~2099-12)만. 숫자·"2026-13"·"2026/07" 은 null 이다.
+function parseStrictMonth(value) {
+  if (typeof value !== "string") return null;
+  return validMonth(value.trim());
+}
+
+// "YYYY-MM-DD" 꼴의 달력에 있는 날짜만(2000~2099년). "2026-02-30", "2026/07/01", 날짜시각 문자열은 null 이다.
+function parseStrictDate(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return isValidTransactionDateString(text) ? text : null;
+}
+
+// min(기본 1)~max(기본 31) 범위의 정수 일자. "05" → 5.
+function parseStrictDay(value, options = {}) {
+  const min = Number.isFinite(Number(options.min)) ? Number(options.min) : 1;
+  const max = Number.isFinite(Number(options.max)) ? Number(options.max) : 31;
+  return parseStrictAmount(value, { min, max });
 }
 
 function renderDomainStatusRows(env = {}, url = null) {
