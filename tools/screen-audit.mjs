@@ -38,6 +38,7 @@ const ALL_PAGES = {
   budgets: `/budgets?month=2026-07&${H}`,
   reports: `/reports?month=2026-07&${H}`,
   reportsPrev: `/reports?month=2026-06&${H}`,
+  reportsWeek: `/reports?month=2026-07&${H}&range=week&week=2026-07-06`,
   analysis: `/my/analysis?month=2026-07&${H}`,
   annual: `/annual?${H}`,
   settings: `/my/settings?${H}`,
