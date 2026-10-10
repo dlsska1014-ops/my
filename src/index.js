@@ -7050,19 +7050,20 @@ async function handleReservePlansPage(request, env, url) {
   // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
   // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
   // V22.9.16: 다섯 조회가 서로 필요 없다. 한 번에 던진다.
-  const [customCategoryRows, paymentAssetRows, plans, recurringRows, recurringMembers] = await Promise.all([
+  const [customCategoryRows, paymentAssetRows, plans, recurringRows, householdMemberRows] = await Promise.all([
     fetchCustomCategories(env, householdId),
     fetchPaymentAssets(env, householdId),
     fetchReservePlans(env, householdId),
     fetchRecurring(env, householdId),
     fetchHouseholdMembers(env, householdId),
   ]);
+  // V22.9.37 감사 SIM-5: 고정지출의 지출자 후보는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만이다.
+  const recurringMembers = eligibleRecurringSpenders(householdMemberRows);
   const recurring = safeArray(recurringRows);
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
-  // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
-  const spenderOptions = renderSpenderOptions(eligibleRecurringSpenders(recurringMembers), "", "지출자 선택");
+  const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
   const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
@@ -20565,15 +20566,16 @@ function renderHomeReportCards(options = {}) {
   const lastWeek = weeks[2];
   const paceDelta = thisWeek.covered && lastWeek.covered ? thisWeek.amount - lastWeek.amount : null;
   // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
-  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 문구가 기준을 그대로 말한다.
+  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 "지난주" 대신 "직전 7일"이라고 말한다. 홈 HTML 바이트 예산(35KiB)이
+  // 꽉 차 있어 문구는 짧게 둔다.
   const paceRead = paceDelta === null
     ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
     : paceDelta > 0
-      ? `최근 7일이 그 전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
+      ? `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
       : paceDelta < 0
-        ? `최근 7일이 그 전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `최근 7일이 그 전 7일과 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="오늘까지 7일 단위로 묶은 최근 4주 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+        ? `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
+        : `직전 7일과 같은 속도입니다`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="최근 4주 지출">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -25522,18 +25524,19 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const previousExpense = Number(prevStats?.totals?.expense || 0);
   const expenseDeltaAmount = Number(stats.totals.expense || 0) - previousExpense;
   // 두 달 모두 0원인 새 가계부에 "지난달과 같은 금액"이라고 쓰면 없는 지난달 기록이 있는 것처럼 읽힌다.
-  // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 그 기준을 함께 적는다.
+  // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 비교 대상을 "지난달 1~N일"로 적는다.
+  // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
   const deltaToday = formatDate(nowKstDate());
-  const sameRangeNote = month === deltaToday.slice(0, 7) ? ` (1~${Number(deltaToday.slice(8, 10))}일 같은 기간 기준)` : "";
+  const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
     : expenseDeltaAmount > 0
-      ? `지난달보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.${sameRangeNote}`
+      ? `${prevLabel}보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
       : expenseDeltaAmount < 0
-        ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.${sameRangeNote}`
+        ? `${prevLabel}보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
-          : `지난달과 같은 금액을 썼어요.${sameRangeNote}`;
+          : `${prevLabel}과 같은 금액을 썼어요.`;
   const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
@@ -25580,10 +25583,12 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
 function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
 
-async function fetchMonthAmountRows(env, month, householdId, { select = "type,amount" } = {}) {
+async function fetchMonthAmountRows(env, month, householdId, { withDate = false } = {}) {
   if (!householdId) return [];
   const params = new URLSearchParams();
-  params.set("select", select);
+  params.set("select", "type,amount");
+  // V22.9.37 감사 D12: 지난달 같은 기간 비교에만 날짜 칸을 더한다. 월별 추이는 예전처럼 금액만 읽는다.
+  if (withDate) params.set("select", "type,amount,transaction_date");
   params.set("transaction_date", `gte.${month}-01`);
   params.append("transaction_date", `lt.${nextMonthStart(month)}`);
   params.set("household_id", `eq.${householdId}`);
@@ -25666,7 +25671,7 @@ async function handleMobileV8Page(request, env, url) {
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
     // V22.9.37 감사 D12: 지난달 비교는 같은 기간(1일~오늘)끼리 하므로 날짜 칸을 함께 읽는다.
-    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId, { select: "type,amount,transaction_date" }) : [],
+    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId, { withDate: true }) : [],
     // P3-⑧ 월별 트렌드: 금액만, 최근 6개월까지. 거래내역 탭에서는 쓰지 않으므로 건너뛴다.
     (selectedHousehold && url.searchParams.get("tab") !== "transactions" && url.searchParams.get("trend") === "monthly")
       ? Promise.all(Array.from({ length: 6 }, (_, i) => {

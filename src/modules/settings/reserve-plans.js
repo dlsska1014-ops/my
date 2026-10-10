@@ -361,19 +361,20 @@ async function handleReservePlansPage(request, env, url) {
   // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
   // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
   // V22.9.16: 다섯 조회가 서로 필요 없다. 한 번에 던진다.
-  const [customCategoryRows, paymentAssetRows, plans, recurringRows, recurringMembers] = await Promise.all([
+  const [customCategoryRows, paymentAssetRows, plans, recurringRows, householdMemberRows] = await Promise.all([
     fetchCustomCategories(env, householdId),
     fetchPaymentAssets(env, householdId),
     fetchReservePlans(env, householdId),
     fetchRecurring(env, householdId),
     fetchHouseholdMembers(env, householdId),
   ]);
+  // V22.9.37 감사 SIM-5: 고정지출의 지출자 후보는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만이다.
+  const recurringMembers = eligibleRecurringSpenders(householdMemberRows);
   const recurring = safeArray(recurringRows);
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
-  // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
-  const spenderOptions = renderSpenderOptions(eligibleRecurringSpenders(recurringMembers), "", "지출자 선택");
+  const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
   const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);

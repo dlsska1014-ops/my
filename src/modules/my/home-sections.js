@@ -211,15 +211,16 @@ function renderHomeReportCards(options = {}) {
   const lastWeek = weeks[2];
   const paceDelta = thisWeek.covered && lastWeek.covered ? thisWeek.amount - lastWeek.amount : null;
   // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
-  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 문구가 기준을 그대로 말한다.
+  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 "지난주" 대신 "직전 7일"이라고 말한다. 홈 HTML 바이트 예산(35KiB)이
+  // 꽉 차 있어 문구는 짧게 둔다.
   const paceRead = paceDelta === null
     ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
     : paceDelta > 0
-      ? `최근 7일이 그 전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
+      ? `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
       : paceDelta < 0
-        ? `최근 7일이 그 전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `최근 7일이 그 전 7일과 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="오늘까지 7일 단위로 묶은 최근 4주 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+        ? `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
+        : `직전 7일과 같은 속도입니다`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="최근 4주 지출">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);

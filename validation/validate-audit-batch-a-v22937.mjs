@@ -229,7 +229,7 @@ await withClock("2026-07-15", async () => {
     fx.db.accountbook_budgets.push({ id: "d9-june-food", household_id: HOME, month: "2026-06", category: "식비", amount: 100000, created_at: "2026-06-01T00:00:00.000Z" });
     const saved = await post(fx, "/admin/transactions", { household_id: HOME, month: "2026-07", type: "expense", transaction_date: "2026-06-20", amount: "150000", category: "식비", memo: "지난달 장보기", payment_method: "현금", return_to: "/app?month=2026-07&household_id=house-home" });
     ok(saved.status === 303 && /msg=added/.test(saved.decoded), "D9 다른 달 날짜의 기록이 저장된다");
-    ok(/balert=[^&]*식비 예산 초과/.test(saved.decoded), "D9 예산 안내는 보고 있던 7월이 아니라 기록한 6월 예산(10만원) 기준이다");
+    ok(/balert=[^&]*식비 예산 초과/.test(loc(saved)), "D9 예산 안내는 보고 있던 7월이 아니라 기록한 6월 예산(10만원) 기준이다");
   });
 });
 
@@ -262,10 +262,10 @@ await withClock("2026-07-15", async () => {
   await fixture(async (fx) => {
     fx.db.transactions.push(expenseRow("tx-jun-a", "2026-06-05", 10000), expenseRow("tx-jun-b", "2026-06-25", 500000));
     const home = await page(fx, "/app?month=2026-07&household_id=house-home");
-    ok(/지난달보다 238,600원 더 썼어요/.test(home.html), "D12 이번 달은 지난달 1~15일(같은 기간)과 견준다(예전에는 6월 전체 51만원과 견줘 덜 썼다고 했다)");
-    ok(/1~15일 같은 기간 기준/.test(home.html), "D12 비교 기준을 문구에 적는다");
+    ok(/지난달 1~15일보다 238,600원 더 썼어요/.test(home.html), "D12 이번 달은 지난달 1~15일(같은 기간)과 견주고 그 기준을 문장에 적는다(예전에는 6월 전체 51만원과 견줘 덜 썼다고 했다)");
+    ok(!/지난달보다 261,400원 덜 썼어요/.test(home.html), "D12 지난달 전체와 견준 옛 문장이 남지 않는다");
     const past = await page(fx, "/app?month=2026-06&household_id=house-home");
-    ok(/지난달보다 510,000원 더 썼어요/.test(past.html) && !/같은 기간 기준/.test(past.html), "D12 지난 달 화면은 월 전체끼리 견주고 같은 기간 표시를 붙이지 않는다");
+    ok(/지난달보다 510,000원 더 썼어요/.test(past.html) && !/지난달 1~\d+일보다/.test(past.html), "D12 지난 달 화면은 월 전체끼리 견주고 같은 기간 표시를 붙이지 않는다");
   });
 });
 
