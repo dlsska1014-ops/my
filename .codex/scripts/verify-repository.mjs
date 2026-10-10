@@ -6,13 +6,18 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.argv.includes("--categories-absent")) process.env.AB_QA_CATEGORIES_ABSENT = "1";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_37.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_38.sha256",
 );
 const validationScripts = [
+  ["생활비 리포트", "validation/validate-living-report-v22938.mjs"],
+  ["생활비 리포트 저장·기간 안전성", "validation/validate-living-report-safety-v22938.mjs"],
+  ["선택 표 모드·화면 자산", "validation/validate-controls-fixture-v22938.mjs"],
   // 모든 검사가 src/index.js 를 읽으므로 그 파일이 모듈과 같은지부터 본다.
   ["빌드 동일성 — src/modules → src/index.js", "validation/validate-build-identity-v22932.mjs"],
   ["모듈 단독 문법·import/export 표시", "validation/validate-module-syntax-v22932.mjs"],
@@ -203,7 +208,8 @@ function run(command, args, label) {
 // V22.9.36 카카오 분류 표 대체: 운영에 없는 선택 표(accountbook_categories) 조건에서 카카오 새 기록이 저장되는지 보는 검사 26개가 들어왔다.
 // V22.9.37 감사 결함 묶음: 묶음 A 97, B 102, C 146, D 211, 관제 알림 39 와 기존 검사의 증가분(자산 고정·모듈 표시 등)으로 9,421개가 됐다.
 // PR #68 후속: 정기 반영 부분 실패 14, 대출 부채 합계 9, cron 실패 구분 9개를 더해 9,453개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 9453;
+// V22.9.38: 생활비 리포트57, 안전성47, 화면·픽스처31과 모듈·직렬화 증가분을 포함해 9,591개가 됐다.
+const EXPECTED_MINIMUM_CHECKS = 9591;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
@@ -301,6 +307,7 @@ function main() {
   }
 
   console.log(`Node.js ${process.versions.node}`);
+  console.log(`Category table fixture: ${process.env.AB_QA_CATEGORIES_ABSENT === "1" ? "absent (404/PGRST205)" : "present"}`);
   console.log(`저장소: ${repositoryRoot}`);
 
   const checksumCount = verifyChecksums();

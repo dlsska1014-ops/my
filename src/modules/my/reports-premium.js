@@ -28,7 +28,7 @@ import { getMyPageContext, renderReportMonthNavigator, reportUxCss } from "./rep
 import {
   canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold,
 } from "./access-control.js";
-import { fetchRecurring } from "../domain/budgets.js";
+import { fetchRecurring, fetchRecurringStrict } from "../domain/budgets.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
 } from "../admin/pc-analysis-calendar.js";
@@ -41,6 +41,7 @@ import {
 import {
   calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
 } from "../domain/transactions-core.js";
+import { parseStrictAmount } from "../domain/strict-input.js";
 // @build:imports-end
 
 function freeReportPreferenceKey(householdId = "") {
@@ -272,6 +273,23 @@ function cardTargetsKey(householdId = "") {
   return `card_targets:${String(householdId || "").trim()}`.slice(0, 180);
 }
 
+function parseCardTargetsStrict(value) {
+  const parsed = parseStrictSettingsObject(value, "card_targets");
+  const out = Object.create(null);
+  for (const key of Object.keys(parsed)) {
+    const item = parsed[key];
+    if (!key || key.length > 80 || ["__proto__", "constructor", "prototype"].includes(key) || !item || typeof item !== "object" || Array.isArray(item) || typeof item.target !== "number" || parseStrictAmount(item.target, { min: 1000 }) === null || (item.updated_at !== undefined && typeof item.updated_at !== "string")) throw new Error("card_targets_invalid");
+    out[key] = { ...item };
+  }
+  return out;
+}
+
+function parseReportPreferenceStrict(value) {
+  const parsed = parseStrictSettingsObject(value, "report_preference");
+  for (const key of ["enabled", "weekly", "monthly"]) if (parsed[key] !== undefined && typeof parsed[key] !== "boolean") throw new Error("report_preference_invalid");
+  return { enabled: false, weekly: true, monthly: true, ...parsed };
+}
+
 function parseCardTargets(value) {
   const parsed = parseJsonSetting(value, {});
   const out = Object.create(null);
@@ -288,7 +306,8 @@ async function fetchSettingValues(env, keys = []) {
   const wanted = keys.filter(Boolean);
   if (!wanted.length) return new Map();
   const rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${wanted.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" });
-  return new Map(safeArray(rows).map((row) => [row.key, row.value]));
+  if (!Array.isArray(rows) || rows.some((row) => !row || typeof row.key !== "string")) throw new Error("report_settings_invalid");
+  return new Map(rows.map((row) => [row.key, row.value]));
 }
 
 function ymdShift(ymd = "", days = 0) {
@@ -318,7 +337,9 @@ function livingReportPeriod({ range = "month", month = currentMonthKst(), week =
   const monthEnd = monthLastYmd(month);
   const todayMonth = today.slice(0, 7);
   if (range === "week") {
-    const anchor = isValidTransactionDateString(week) ? week : month === todayMonth ? today : month < todayMonth ? monthEnd : monthStart;
+    const requestedStart = isValidTransactionDateString(week) ? mondayOfYmd(week) : "";
+    const overlaps = requestedStart && requestedStart <= monthEnd && ymdShift(requestedStart, 6) >= monthStart;
+    const anchor = overlaps ? week : month === todayMonth ? today : month < todayMonth ? monthEnd : monthStart;
     const start = mondayOfYmd(anchor);
     const end = ymdShift(start, 6);
     const live = today >= start && today <= end;
@@ -338,12 +359,14 @@ function livingReportPeriod({ range = "month", month = currentMonthKst(), week =
   const prevMonth = addMonthsYm(month, -1);
   const prevFull = monthLastYmd(prevMonth);
   const prevSameDay = basisEnd ? `${prevMonth}-${basisEnd.slice(8, 10)}` : prevFull;
+  const prevEnd = live && basisEnd ? (prevSameDay > prevFull ? prevFull : prevSameDay) : prevFull;
+  const clippedPreviousMonth = live && prevSameDay > prevFull;
   return {
     range: "month", start: monthStart, end: monthEnd, basisEnd, elapsed, live,
-    prevStart: `${prevMonth}-01`, prevEnd: live && basisEnd ? (prevSameDay > prevFull ? prevFull : prevSameDay) : prevFull,
+    prevStart: `${prevMonth}-01`, prevEnd,
     label: `${Number(month.slice(5, 7))}월`, title: `${month.slice(0, 4)}년 ${Number(month.slice(5, 7))}월`,
-    basisLabel: live ? `지난달 같은 기간(1~${Number(basisEnd.slice(8, 10))}일) 대비` : "지난달 전체 대비",
-    basisNote: live ? `이번 달 1일부터 오늘(${ymdWithWeekday(today)})까지를 지난달 1일부터 같은 날짜까지와 견줍니다.` : "지난달 한 달 전체와 견줍니다.",
+    basisLabel: live ? (clippedPreviousMonth ? `지난달 1~${Number(prevEnd.slice(8, 10))}일 대비` : `지난달 같은 기간(1~${Number(prevEnd.slice(8, 10))}일) 대비`) : "지난달 전체 대비",
+    basisNote: live ? `이번 달 1일부터 오늘(${ymdWithWeekday(today)})까지를 지난달 1일부터 ${Number(prevEnd.slice(8, 10))}일까지와 견줍니다.${clippedPreviousMonth ? " 지난달은 마지막 날까지만 비교합니다." : ""}` : "지난달 한 달 전체와 견줍니다.",
   };
 }
 
@@ -367,14 +390,17 @@ function livingReportBucket(row = {}) {
   return "";
 }
 
-function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], today = formatDate(nowKstDate()) } = {}) {
+function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], historyAvailable = true, recurringAvailable = true, settingsAvailable = true, today = formatDate(nowKstDate()) } = {}) {
   const period = livingReportPeriod({ range, month, week, today });
   const inWindow = (row, start, end) => { const d = String(row.transaction_date || "").slice(0, 10); return d >= start && d <= end; };
   const rowsAll = safeArray(historyRows);
   const expenseRows = rowsAll.filter((r) => r.type !== "income" && Number(r.amount || 0) > 0);
   const curEnd = period.basisEnd || period.end;
   const cur = period.basisEnd ? expenseRows.filter((r) => inWindow(r, period.start, curEnd)) : [];
-  const income = rowsAll.filter((r) => r.type === "income" && inWindow(r, period.start, period.end)).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const currentRows = period.basisEnd ? rowsAll.filter((r) => inWindow(r, period.start, curEnd)) : [];
+  const income = currentRows.filter((r) => r.type === "income").reduce((s, r) => s + Number(r.amount || 0), 0);
+  const comparisonAvailable = historyAvailable && !!period.basisEnd;
+  const currentAvailable = historyAvailable || (period.start >= `${month}-01` && period.end <= monthLastYmd(month));
   const prev = expenseRows.filter((r) => inWindow(r, period.prevStart, period.prevEnd));
   const sum = (rows) => rows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const expense = sum(cur);
@@ -402,15 +428,15 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
     const p = prev.filter((r) => livingReportBucket(r) === name);
     return { name, amount: sum(c), count: c.length, prevAmount: sum(p), prevCount: p.length, delta: sum(c) - sum(p) };
   });
-  const biggestIncrease = buckets.filter((b) => b.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null;
+  const biggestIncrease = comparisonAvailable ? buckets.filter((b) => b.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null : null;
   const rules = safeArray(recurring).filter((r) => r.is_active !== false && String(r.type || "expense") !== "income");
   const monthRows = expenseRows.filter((r) => inWindow(r, `${month}-01`, monthLastYmd(month)));
   const ruleItems = rules.map((rule) => {
-    const applied = monthRows.some((r) => String(r.raw_text || "") === `recurring:${rule.id}:${month}`) || monthRows.some((r) => String(r.memo || "").trim() === String(rule.memo || "").trim() && Number(r.amount || 0) === Number(rule.amount || 0));
+    const applied = monthRows.some((r) => String(r.raw_text || "") === `recurring:${rule.id}:${month}`);
     return { id: String(rule.id || ""), memo: String(rule.memo || rule.category || "정기지출"), amount: Number(rule.amount || 0), day: Number(rule.day_of_month || 1), category: String(rule.category || ""), applied };
   });
   const fixedTotal = ruleItems.reduce((s, r) => s + r.amount, 0);
-  const candidates = detectRecurringCandidates(rowsAll, month, recurring).slice(0, 5);
+  const candidates = historyAvailable && recurringAvailable ? detectRecurringCandidates(rowsAll, month, recurring).slice(0, 5) : [];
   const subscriptionRows = cur.filter((r) => LIVING_REPORT_SUBSCRIPTION.test(`${r.category || ""} ${r.memo || ""} ${r.raw_text || ""}`));
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
@@ -422,21 +448,22 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const cardItems = cards.map((c) => {
     const u = usage[c.id] || { count: 0, amount: 0 };
     const target = Number(targets[c.id]?.target || 0);
-    return { id: String(c.id), name: String(c.name || "카드"), issuer: String(c.issuer || ""), amount: u.amount, count: u.count, prevAmount: Number((prevUsage[c.id] || {}).amount || 0), target, rate: target ? Math.min(999, Math.round(u.amount / target * 100)) : null, remaining: target ? Math.max(0, target - u.amount) : null, reached: target > 0 && u.amount >= target };
+    return { id: String(c.id), name: String(c.name || "카드"), issuer: String(c.issuer || ""), amount: u.amount, count: u.count, prevAmount: Number((prevUsage[c.id] || {}).amount || 0), target, rate: target ? Math.min(999, Math.round(u.amount / target * 100)) : null, remaining: target ? Math.max(0, target - u.amount) : null, reached: historyAvailable && range === "month" && period.elapsed > 0 && target > 0 && u.amount >= target };
   });
   const noSpendDays = days.filter((d) => !d.future && d.amount === 0).length;
   const badges = [];
   if (period.elapsed >= 3 && noSpendDays >= 3) badges.push({ emoji: "🌿", text: `무지출 ${noSpendDays}일` });
-  if (prevExpense > 0 && delta < 0) badges.push({ emoji: "📉", text: `${period.basisLabel.replace(/ 대비$/, "")}보다 ${Math.abs(deltaPct)}% 적게` });
+  if (comparisonAvailable && prevExpense > 0 && delta < 0) badges.push({ emoji: "📉", text: `${period.basisLabel.replace(/ 대비$/, "")}보다 ${Math.abs(deltaPct)}% 적게` });
   if (ruleItems.length) badges.push({ emoji: "📌", text: `고정비 ${ruleItems.length}건 등록` });
   for (const c of cardItems) if (c.reached) badges.push({ emoji: "💳", text: `${c.name} 실적 목표 달성` });
   if (period.elapsed >= 5 && spendDays >= Math.ceil(period.elapsed * 0.6)) badges.push({ emoji: "✍️", text: `${spendDays}일 꾸준히 기록` });
-  return { month, period, expense, prevExpense, delta, deltaPct, income, count: cur.length, spendDays, dailyAvg, days, topDays, topCategories, weekend, buckets, biggestIncrease, ruleItems, fixedTotal, candidates, subscription, upcoming, cards: cardItems, badges, noSpendDays };
+  return { month, period, historyAvailable, recurringAvailable, settingsAvailable, currentAvailable, comparisonAvailable, expense, prevExpense, delta, deltaPct, income, count: currentRows.length, spendDays, dailyAvg, days, topDays, topCategories, weekend, buckets, biggestIncrease, ruleItems, fixedTotal, candidates, subscription, upcoming, cards: cardItems, badges: historyAvailable && period.elapsed > 0 ? badges : [], noSpendDays };
 }
 
 function livingReportChangeText(report = {}) {
   const basis = String(report.period?.basisLabel || "").replace(/ 대비$/, "");
   if (!report.period?.basisEnd) return "아직 오지 않은 기간이라 지출이 없어요.";
+  if (!report.historyAvailable) return "이전 기록을 불러오지 못해 비교할 수 없어요.";
   if (!(report.prevExpense > 0)) return `${basis} 기록이 없어 비교하지 않아요.`;
   if (report.delta === 0) return `${basis}와 같아요.`;
   return `${basis}보다 ${numberWithCommas(Math.abs(report.delta))}원 ${report.delta > 0 ? "더" : "덜"} 썼어요 (${report.delta > 0 ? "+" : "−"}${Math.abs(report.deltaPct)}%).`;
@@ -444,9 +471,10 @@ function livingReportChangeText(report = {}) {
 
 function livingReportShareText(report = {}, householdName = "가계부") {
   const p = report.period || {};
+  if (!report.currentAvailable) return `${householdName} 생활비 리포트\n기간: ${p.title || ""}\n기간 전체 기록을 불러오지 못해 합계와 무지출 일수를 확인할 수 없습니다. 새로고침한 뒤 다시 확인해 주세요.`;
   const top = safeArray(report.topCategories).slice(0, 3).map((item, index) => `${index + 1}. ${item.name} ${numberWithCommas(item.amount)}원`).join("\n") || "분류별 지출 없음";
   const lines = [`📊 ${householdName} ${p.range === "week" ? "주간" : "월간"} 생활비 리포트`, `기간: ${p.title || ""}${p.live ? " (오늘까지)" : ""}`, `지출 ${numberWithCommas(report.expense)}원 · ${livingReportChangeText(report)}`, `기록 ${numberWithCommas(report.count)}건 · 지출한 날 ${numberWithCommas(report.spendDays)}일 · 하루 평균 ${numberWithCommas(report.dailyAvg)}원`, "", "지출 상위", top];
-  if (report.fixedTotal > 0) lines.push("", `고정비 ${numberWithCommas(report.fixedTotal)}원 (정기 항목 ${report.ruleItems.length}건)`);
+  if (report.fixedTotal > 0) lines.push("", `${p.range === "week" ? "월 정기 예정액" : "고정비"} ${numberWithCommas(report.fixedTotal)}원 (정기 항목 ${report.ruleItems.length}건)`);
   if (report.topDays?.length) lines.push(`가장 많이 쓴 날: ${ymdWithWeekday(report.topDays[0].date)} ${numberWithCommas(report.topDays[0].amount)}원`);
   if (report.badges?.length) lines.push("", report.badges.map((b) => `${b.emoji} ${b.text}`).join("  "));
   lines.push("", `기준: ${p.basisLabel || ""} · 말해가계부`);
@@ -463,23 +491,28 @@ async function handleFreeReportsPage(request, env, url) {
   const currentWeek = isoWeekPeriod(nowKstDate());
   const keys = { preference: freeReportPreferenceKey(hid), weekly: freeReportSnapshotKey(hid, "weekly", currentWeek), monthly: freeReportSnapshotKey(hid, "monthly", month), assets: paymentAssetsKey(hid), targets: cardTargetsKey(hid), reserve: reservePlansKey(hid) };
   // 지난달·지지난달까지 한 번에 읽는다(비교 기준·정기 지출 후보·주간 창이 달을 넘는 경우). 설정 여섯 개는 한 질의로 받는다.
-  const [historyResult, settingsResult, recurringRows] = await Promise.all([
-    fetchAdminRowsRange(env, { householdId: hid, start: `${addMonthsYm(month, -2)}-01`, end: nextMonthStart(month), type: "all" }).then((rows) => ({ rows, truncated: false })).catch((err) => ({ rows: null, truncated: isRowLimitExceededError(err), error: safeError(err) })),
+  const period = livingReportPeriod({ range, month, week, today: formatDate(nowKstDate()) });
+  const historyStart = [`${addMonthsYm(month, -2)}-01`, period.prevStart, period.start].sort()[0];
+  const historyEnd = [nextMonthStart(month), ymdShift(period.end, 1)].sort().at(-1);
+  const [historyResult, settingsResult, recurringResult] = await Promise.all([
+    fetchAdminRowsRange(env, { householdId: hid, start: historyStart, end: historyEnd, type: "all" }).then((rows) => ({ rows, truncated: false })).catch((err) => ({ rows: null, truncated: isRowLimitExceededError(err), error: safeError(err) })),
     fetchSettingValues(env, Object.values(keys)).catch((err) => { rememberOpsEvent({ kind: "living_report_settings_unavailable", severity: "warn", path: "/reports", method: "GET", detail: safeError(err) }); return null; }),
-    fetchRecurring(env, hid),
+    fetchRecurringStrict(env, hid).then((rows) => ({ rows, available: true })).catch(() => ({ rows: [], available: false })),
   ]);
   const historyRows = Array.isArray(historyResult.rows) ? historyResult.rows : ctx.rows;
   const historyLimited = !Array.isArray(historyResult.rows);
   const values = settingsResult || new Map();
-  const settingsUnavailable = !settingsResult;
-  const preference = { enabled: false, weekly: true, monthly: true, ...parseJsonSetting(values.get(keys.preference), {}) };
+  let settingsUnavailable = !settingsResult;
+  let preference = null, targets = Object.create(null);
+  try {
+    if (settingsResult) { preference = parseReportPreferenceStrict(values.get(keys.preference)); targets = parseCardTargetsStrict(values.get(keys.targets)); }
+  } catch { settingsUnavailable = true; }
   const live = buildFreeReportSnapshot(ctx.rows, { householdId: hid, householdName: ctx.selected.name || "가계부", kind: "monthly", period: month });
   const weeklySnapshot = parseJsonSetting(values.get(keys.weekly), null);
   const monthlySnapshot = parseJsonSetting(values.get(keys.monthly), null);
   const assets = normalizePaymentAssetList(values.get(keys.assets), hid);
-  const targets = parseCardTargets(values.get(keys.targets));
   const reservePlans = normalizeReservePlanList(values.get(keys.reserve), hid);
-  const report = buildLivingReport({ month, range, week, historyRows, recurring: recurringRows, assets, targets, reservePlans, today: formatDate(nowKstDate()) });
+  const report = buildLivingReport({ month, range, week, historyRows, recurring: recurringResult.rows, assets, targets, reservePlans, historyAvailable: !historyLimited, recurringAvailable: recurringResult.available, settingsAvailable: !settingsUnavailable, today: formatDate(nowKstDate()) });
   return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
@@ -496,14 +529,16 @@ async function handleCardTargetSave(request, env) {
   if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
   if (!canWriteMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=card_target_write_not_allowed#cards`);
   const assetId = String(form.get("asset_id") || "").trim().slice(0, 80);
-  const rawTarget = String(form.get("target") || "").trim().replace(/[,\s원]/g, "");
-  const clear = rawTarget === "" || rawTarget === "0";
-  const target = clear ? 0 : Number(rawTarget);
+  const rawTarget = String(form.get("target") || "").trim();
+  const target = rawTarget === "" ? 0 : parseStrictAmount(rawTarget, { allowCommas: true });
+  const clear = target === 0;
   if (!assetId || assetId === "__proto__" || assetId === "constructor" || assetId === "prototype" || (!clear && !(Number.isInteger(target) && target >= 1000 && target <= MAX_TRANSACTION_AMOUNT))) return redirectResponse(`${returnTo}&err=card_target_invalid#cards`);
   try {
     await withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
       // 감사 S2~S11 규칙: 엄격한 읽기로 지금 값을 받고, 바꾸는 카드 하나만 고쳐 쓴다. 읽기 실패를 빈 값으로 보지 않는다.
-      const current = parseCardTargets(parseStrictSettingsObject(await getSettingValueStrict(env, cardTargetsKey(householdId)), "card_targets"));
+      const access = await getMySelectedHousehold(env, userId, householdId);
+      if (!access.selected || String(access.selected.id) !== householdId || !canWriteMyHousehold(access.selected.role)) throw new Error("card_target_write_not_allowed");
+      const current = parseCardTargetsStrict(await getSettingValueStrict(env, cardTargetsKey(householdId)));
       const assets = await fetchPaymentAssets(env, householdId, { strict: true });
       if (!assets.some((a) => String(a.id) === assetId && paymentAssetKindMeta(a.kind).group === "card")) throw new Error("card_target_asset_missing");
       if (clear) delete current[assetId]; else current[assetId] = { target, updated_at: new Date().toISOString() };
@@ -512,6 +547,7 @@ async function handleCardTargetSave(request, env) {
     });
   } catch (err) {
     const reason = safeError(err);
+    if (/card_target_write_not_allowed/.test(reason)) return redirectResponse(`${returnTo}&err=card_target_write_not_allowed#cards`);
     if (/settings_rmw_busy/.test(reason)) return redirectResponse(`${returnTo}&err=card_target_busy#cards`);
     if (/card_target_asset_missing/.test(reason)) return redirectResponse(`${returnTo}&err=card_target_asset_missing#cards`);
     rememberOpsEvent({ kind: "card_target_save_failed", severity: "warn", path: "/my/card-target/save", method: "POST", detail: reason });
@@ -537,7 +573,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const hrefWeek = livingReportHref({ month, householdId: hid, range: "week", week: range === "week" ? p.start : "" });
   const weeks = livingReportWeeks(month, formatDate(nowKstDate()));
   const won = (n) => `${numberWithCommas(Math.round(Number(n) || 0))}원`;
-  const deltaText = (delta, prev) => !(prev > 0) && delta === 0 ? "비교 기록 없음" : delta === 0 ? "같음" : `${delta > 0 ? "+" : "−"}${numberWithCommas(Math.abs(delta))}원`;
+  const deltaText = (delta, prev) => !report.comparisonAvailable ? "비교 확인 불가" : !(prev > 0) && delta === 0 ? "비교 기록 없음" : delta === 0 ? "같음" : `${delta > 0 ? "+" : "−"}${numberWithCommas(Math.abs(delta))}원`;
   const deltaClass = (delta) => delta > 0 ? "lrDelta isUp" : delta < 0 ? "lrDelta isDown" : "lrDelta";
   const topDaysText = report.topDays.length ? report.topDays.map((d) => `${ymdWithWeekday(d.date)} ${won(d.amount)}`).join(" · ") : "아직 지출한 날이 없어요";
   const maxDay = Math.max(1, ...report.days.map((d) => d.amount));
@@ -547,23 +583,40 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
   const flash = { card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }[msg];
   const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
-  const summary = `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>기간 전체</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
-  const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>매달 나가는 정기 항목 ${won(report.fixedTotal)}</h3>${report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${r.applied ? "이번 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3><p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>${report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
-  const daily = `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
+  const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
+  const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
+  const daily = !report.currentAvailable ? `<section class="card" id="daily"><h2>날짜별 지출</h2><p>선택한 주의 날짜별 기록을 모두 불러온 뒤 표시합니다.</p></section>` : `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
   const weekendLine = report.weekend.weekdayDays && report.weekend.days ? `주말 하루 평균 ${won(report.weekend.avg)} · 평일 하루 평균 ${won(report.weekend.weekdayAvg)} (주말 비중 ${report.weekend.share}%)` : "주말과 평일을 견줄 기록이 아직 없어요.";
-  const pattern = `<section class="card" id="pattern"><h2>생활 패턴</h2><p class="lead">${escapeHtml(weekendLine)}</p><div class="lrTwo">${report.buckets.map((b) => `<div class="lrBox"><h3>${escapeHtml(b.name)} ${won(b.amount)}</h3><p>${numberWithCommas(b.count)}건 · <span class="${deltaClass(b.delta)}">${escapeHtml(deltaText(b.delta, b.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p></div>`).join("")}</div><p class="note">${report.biggestIncrease ? `${escapeHtml(report.biggestIncrease.name)} 지출이 ${escapeHtml(p.basisLabel.replace(/ 대비$/, ""))}보다 ${won(report.biggestIncrease.delta)} 늘었어요. 줄일 곳을 찾는다면 여기부터 보면 좋아요. 늘어난 금액이 곧 낭비라는 뜻은 아니에요.` : "지난 기간보다 늘어난 생활비 항목이 없어요."}</p></section>`;
-  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건 · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p>${c.target && range === "month" ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}</section>`;
+  const pattern = !report.currentAvailable ? `<section class="card" id="pattern"><h2>생활 패턴</h2><p>기간 기록을 확인할 수 없어요.</p></section>` : `<section class="card" id="pattern"><h2>생활 패턴</h2><p class="lead">${escapeHtml(weekendLine)}</p><div class="lrTwo">${report.buckets.map((b) => `<div class="lrBox"><h3>${escapeHtml(b.name)} ${won(b.amount)}</h3><p>${numberWithCommas(b.count)}건 · <span class="${deltaClass(b.delta)}">${escapeHtml(deltaText(b.delta, b.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p></div>`).join("")}</div><p class="note">${!report.comparisonAvailable ? "기간 비교를 확인할 수 없어요." : report.biggestIncrease ? `${escapeHtml(report.biggestIncrease.name)} 지출이 ${escapeHtml(p.basisLabel.replace(/ 대비$/, ""))}보다 ${won(report.biggestIncrease.delta)} 늘었어요. 줄일 곳을 찾는다면 여기부터 보면 좋아요. 늘어난 금액이 곧 낭비라는 뜻은 아니에요.` : "지난 기간보다 늘어난 생활비 항목이 없어요."}</p></section>`;
+  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${!report.currentAvailable ? `<p class="empty">기간 기록을 모두 불러오지 못해 카드 사용액을 확인할 수 없어요.</p>` : !report.settingsAvailable ? `<p class="empty">카드 설정을 불러오지 못해 사용액과 목표를 확인할 수 없어요.</p>` : report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건 · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p>${c.target && range === "month" && report.historyAvailable && p.elapsed > 0 ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}</section>`;
   return { segment, weekChips, flash, flashErr, summary, fixed, daily, pattern, cards };
+}
+
+function livingReportCopyMain() {
+  const button = document.getElementById("copyReport"), text = document.getElementById("reportShare");
+  if (!button || !text) return;
+  button.addEventListener("click", async function() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("clipboard_unavailable");
+      await navigator.clipboard.writeText(text.value);
+      button.textContent = "복사됨";
+    } catch {
+      text.focus(); text.select();
+      let copied = false;
+      try { copied = document.execCommand("copy") === true; } catch {}
+      button.textContent = copied ? "복사됨" : "문구를 선택했어요. 직접 복사해 주세요.";
+    }
+  });
 }
 
 function renderFreeReportsHtml({ env, month, selected, report, range = "month", week = "", live = {}, preference = {}, weeklySnapshot = null, monthlySnapshot = null, historyLimited = false, settingsUnavailable = false, msg = "", err = "" }) {
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}`;
   const canManage = canManageMyHousehold(selected.role);
-  const canWrite = canWriteMyHousehold(selected.role);
+  const canWrite = canWriteMyHousehold(selected.role) && !settingsUnavailable;
   const share = livingReportShareText(report, selected.name || "가계부");
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
   const parts = renderLivingReportSections({ report, selected, month, range, week, canWrite, msg, err });
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>${livingReportCss()}${reportUxCss()}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${parts.flash ? `<div class="${parts.flash[0]}">${parts.flash[1]}</div>` : ""}${parts.flashErr ? `<div class="error">${escapeHtml(parts.flashErr)}</div>` : ""}<section class="hero"><h1>생활비 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 같은 기록을 주간과 월간으로 읽습니다. 고정비·구독, 날짜별 지출, 생활 패턴, 카드별 사용액을 한 화면에서 봅니다.</p>${parts.segment}<p class="noPrint"><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id, extra: range === "week" ? { range: "week" } : {} })}${parts.weekChips}${historyLimited ? `<div class="note">기록이 많아 지난달 비교와 반복 지출 후보는 이번 달 기록만으로 계산했어요.</div>` : ""}${settingsUnavailable ? `<div class="note">카드·적립 계획 설정을 불러오지 못해 그 부분은 비워 두었어요. 새로고침하면 다시 시도합니다.</div>` : ""}${parts.summary}${parts.fixed}${parts.daily}<section class="card"><h2>지출 상위 분류</h2><p class="lead">${escapeHtml(report.period.title)}${report.period.live ? " 오늘까지" : ""} 기준</p><div class="tableWrap tableFit"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${renderReportTopRows({ top_categories: report.topCategories })}</tbody></table></div></section>${parts.pattern}${parts.cards}<section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(function(){var b=document.getElementById('copyReport'),t=document.getElementById('reportShare');if(!b||!t)return;b.addEventListener('click',function(){var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done);else{t.select();document.execCommand('copy');done();}});})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>${livingReportCss()}${reportUxCss()}</style></head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name })}<main class="wrap">${parts.flash ? `<div class="${parts.flash[0]}">${parts.flash[1]}</div>` : ""}${parts.flashErr ? `<div class="error">${escapeHtml(parts.flashErr)}</div>` : ""}<section class="hero"><h1>생활비 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 같은 기록을 주간과 월간으로 읽습니다. 고정비·구독, 날짜별 지출, 생활 패턴, 카드별 사용액을 한 화면에서 봅니다.</p>${parts.segment}<p class="noPrint"><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id, extra: range === "week" ? { range: "week" } : {} })}${parts.weekChips}${historyLimited ? `<div class="note">기간 전체 기록을 불러오지 못했습니다. 아래 합계는 불러온 선택 월 기록만 포함하며, 기간 비교·반복 후보·달성 배지는 표시하지 않습니다.</div>` : ""}${settingsUnavailable ? `<div class="note">카드·적립 계획 설정을 불러오지 못해 그 부분은 비워 두었어요. 새로고침하면 다시 시도합니다.</div>` : ""}${parts.summary}${parts.fixed}${parts.daily}<section class="card"><h2>지출 상위 분류</h2><p class="lead">${escapeHtml(report.period.title)}${report.period.live ? " 오늘까지" : ""} 기준</p><div class="tableWrap tableFit"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${report.currentAvailable ? renderReportTopRows({ top_categories: report.topCategories }) : `<tr><td colspan="3">기간 기록 확인 불가</td></tr>`}</tbody></table></div></section>${parts.pattern}${parts.cards}<section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${settingsUnavailable ? `<p>설정을 확인할 수 없어 변경할 수 없습니다. 새로고침한 뒤 다시 확인해 주세요.</p>` : canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(${livingReportCopyMain.toString()})();</script></body></html>`;
 }
 
 function renderMiniCategoryRows(stats = {}) {
@@ -615,8 +668,9 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
 }
 // @build:exports-start
 export {
-  freeReportPreferenceKey, handleAutomaticReportCron, handleCardTargetSave, handleFreeReportsPage,
-  handleMyPremiumPage, handleReportPreferenceSave, parseJsonArraySettingStrict, parseJsonSetting,
-  renderMiniCategoryRows, runAutomaticReports, saveSettingValue,
+  cardTargetsKey, freeReportPreferenceKey, handleAutomaticReportCron, handleCardTargetSave,
+  handleFreeReportsPage, handleMyPremiumPage, handleReportPreferenceSave,
+  parseJsonArraySettingStrict, parseJsonSetting, renderMiniCategoryRows, runAutomaticReports,
+  saveSettingValue,
 };
 // @build:exports-end

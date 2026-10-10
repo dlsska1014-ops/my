@@ -375,16 +375,22 @@ async function fetchCustomCategories(env, householdId = "") {
   if (householdId) params.set("household_id", `eq.${householdId}`);
   params.set("order", "sort_order.asc,created_at.asc");
   params.set("limit", "300");
-  const categoryRowsPromise = supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" });
-  const keywordMap = await fetchCategoryKeywordMap(env, householdId);
+  // Attach rejection handlers immediately. A missing optional table may reject before settings finish.
+  // Read both fallback settings together so absence does not add a serial database round trip.
+  const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
+  const [rows, settings] = await Promise.all([
+    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" }).catch(() => null),
+    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
+  ]);
+  const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
+  const keywordMap = Object.create(null);
   try {
-    const rows = (await categoryRowsPromise) || [];
-    const attached = attachCategoryKeywords(Array.isArray(rows) ? rows : [], keywordMap);
-    return [...attached, ...defaultCategoryKeywordRows(keywordMap, householdId)];
-  } catch (err) {
-    const attached = attachCategoryKeywords(await fetchSettingsCategories(env, householdId), keywordMap);
-    return [...attached, ...defaultCategoryKeywordRows(keywordMap, householdId)];
-  }
+    const value = values.get(keys[0]);
+    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value || {};
+    for (const [key, value] of Object.entries(safeObject(parsed))) keywordMap[key] = normalizeCategoryKeywords(value);
+  } catch {}
+  const categories = rows === null ? normalizeStoredCategoryList(values.get(keys[1]), householdId) : safeArray(rows);
+  return [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
 }
 // @build:exports-start
 export {

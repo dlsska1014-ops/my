@@ -69,6 +69,7 @@ assets/theme-home-assets.js
 client/nav-search-notif-mains.js
 assets/icons-manifest.js
 assets/historical-runtime-assets.js
+assets/form-controls-v22938.js
 assets/asset-responses.js
 my/mobile-home.js
 admin/pc-analysis-calendar.js

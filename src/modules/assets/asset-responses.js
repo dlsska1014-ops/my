@@ -21,12 +21,19 @@ import {
   mobileHomeShellJsAsset,
 } from "../client/nav-search-notif-mains.js";
 import { AB_HISTORICAL_RUNTIME_ASSETS } from "./historical-runtime-assets.js";
+import {
+  AB_CONTROLS_38_CSS, AB_CONTROLS_38_CSS_PATH, AB_CONTROLS_38_JS_PATH, accountbookControls38JsAsset,
+} from "./form-controls-v22938.js";
 import { AB_CATEGORY_RULES_ASSET_PATH, abCategoryRulesJsAsset } from "../nlu/category-rules.js";
 // @build:imports-end
 
 function mobileHomePerformanceAssetResponse(request, url) {
   if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
   const path = String(url.pathname || "");
+  if (path === AB_CONTROLS_38_CSS_PATH || path === AB_CONTROLS_38_JS_PATH) {
+    const css = path === AB_CONTROLS_38_CSS_PATH;
+    return new Response(request.method === "HEAD" ? null : css ? AB_CONTROLS_38_CSS : accountbookControls38JsAsset(), { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff", "cross-origin-resource-policy": "same-origin", etag: css ? '"accountbook-controls-v22938-css"' : '"accountbook-controls-v22938-js"' } });
+  }
   const historical = AB_HISTORICAL_RUNTIME_ASSETS[path];
   if (historical) return new Response(request.method === "HEAD" ? null : historical.body, {headers:{"content-type":"text/javascript; charset=utf-8", "cache-control":"public, max-age=31536000, immutable", "x-content-type-options":"nosniff", "cross-origin-resource-policy":"same-origin", etag:historical.etag}});
   const assetPaths = [AB_CATEGORY_RULES_ASSET_PATH, AB_CURSOR_ASSET_PATH, AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];

@@ -86,7 +86,9 @@ await withClock("2026-07-15", async () => {
     ok(t.includes("장보기 지출이 지난달 같은 기간(1~15일)보다 148,000원 늘었어요") && t.includes("늘어난 금액이 곧 낭비라는 뜻은 아니에요"), "가장 많이 늘어난 항목(장보기 148,000원, 지난달 같은 기간 0원)을 짚되 낭비라고 하지 않는다");
     ok(t.includes("구독으로 보이는 지출 13,500원"), "구독으로 보이는 지출을 합산한다");
     ok(t.includes("넷플릭스") && /넷플릭스 \d개월 반복/.test(t), "최근 석 달에 반복된 지출을 후보로 보여 준다");
-    ok(t.includes("이번 달 반영") && !t.includes("반영 전"), "같은 메모·금액의 기록이 있으면 정기 항목을 이번 달 반영으로 본다");
+    ok(t.includes("반영 전"), "같은 메모·금액의 수동 기록만으로 정기 반영을 주장하지 않는다");
+    fx.db.transactions.find((row) => row.id === "tx-lr-6").raw_text = "recurring:recurring-rent:2026-07";
+    ok(text((await page(fx, `/reports?${Q}`)).html).includes("이번 달 반영"), "정기 규칙 식별자가 맞는 기록만 반영으로 표시한다");
     ok(t.includes("더 썼어요") && t.includes("(+"), "지난달 같은 기간보다 늘면 더 썼다고 적는다");
   });
 
