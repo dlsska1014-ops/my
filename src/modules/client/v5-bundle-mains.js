@@ -19,7 +19,8 @@ function accountbookGoalsClientMain() {
   var toastUndo = document.getElementById("goalToastUndo");
   var state = { goals: [], total_saved: 0, total_target: 0, overall_progress: 0, can_write: false };
   var pending = null;
-  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  // V22.9.37 감사 H1: 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다. 주소에 가계부가 없으면 첫 가계부에 목표가 저장됐다.
+  function hh() { try { var scope = document.querySelector(".abNavScope[data-ab-hh]"); var marked = scope ? scope.getAttribute("data-ab-hh") : ""; if (marked) return marked; var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
   function fmt(n) { try { return Number(n || 0).toLocaleString("ko-KR"); } catch (e) { return String(n || 0); } }
   function api(body, options) {
     return fetch("/u/api/goals", { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, credentials: "same-origin", keepalive: !!(options && options.keepalive), body: JSON.stringify(Object.assign({ household: hh() }, body)) })
@@ -199,7 +200,8 @@ function accountbookGoalsJsAsset() {
 // V22.8.33 거래목록 행 즐겨찾기(★, §3.2): 피드 렌더러와 분리된 에셋으로 [data-fav-key] 행을 강화.
 // 콘텐츠 기반 키(date|type|amount|memo)로 검색 오버레이와 일관.
 function accountbookFavRowsClientMain() {
-  function hh() { try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
+  // V22.9.37 감사 U3: 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다.
+  function hh() { try { var scope = document.querySelector(".abNavScope[data-ab-hh]"); var marked = scope ? scope.getAttribute("data-ab-hh") : ""; if (marked) return marked; var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; } }
   var favSet = Object.create(null);
   var loaded = false;
   function apiUrl() { var u = "/u/api/favorites"; var h = hh(); if (h) u += "?household=" + encodeURIComponent(h); return u; }
@@ -243,6 +245,8 @@ function accountbookFavRowsClientMain() {
     });
   }
   function load() {
+    // V22.9.37 감사 U12: 로그아웃 화면(사용자 내비 없음)에서는 부르지 않는다 — 401 과 콘솔 오류만 남겼다.
+    if (!document.querySelector('.abNavScope[data-nav-scope="user"]')) { loaded = true; enhance(); return; }
     fetch(apiUrl(), { headers: { accept: "application/json" }, credentials: "same-origin" })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
       .then(function (json) { favSet = {}; ((json && json.favorites) || []).forEach(function (f) { favSet[f.id] = true; }); loaded = true; enhance(); markAll(); })
@@ -383,7 +387,9 @@ function accountbookQuickInputClientMain() {
   function currentContext() {
     var params = new URLSearchParams(location.search);
     var month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
-    var household = params.get("household_id") || "";
+    // V22.9.37 감사 U3: 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다.
+    var scope = document.querySelector(".abNavScope[data-ab-hh]");
+    var household = (scope && scope.getAttribute("data-ab-hh")) || params.get("household_id") || "";
     return { month: month, household: household };
   }
   function fallbackUrl(date) {
@@ -597,7 +603,9 @@ function accountbookActivityRailClientMain() {
   function fmt(value) { return Number(value || 0).toLocaleString("ko-KR"); }
   function context() {
     var params = new URLSearchParams(location.search);
-    return { month: params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7), household: params.get("household_id") || "" };
+    // V22.9.37 감사 H1: 활동 레일도 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다.
+    var scope = document.querySelector(".abNavScope[data-ab-hh]");
+    return { month: params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7), household: (scope && scope.getAttribute("data-ab-hh")) || params.get("household_id") || "" };
   }
   function endpoint() {
     var ctx = context();

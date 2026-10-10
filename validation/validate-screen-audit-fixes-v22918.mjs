@@ -146,7 +146,7 @@ try {
   // 5. 대비 — 규칙이 도착하는지와, 그 색 쌍이 AA 를 넘는지
   // -------------------------------------------------------------------------
   {
-    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v22925.css`), fixture.env, ctx).then((r) => r.text());
+    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v22937.css`), fixture.env, ctx).then((r) => r.text());
     const home = await app.fetch(new Request(`${base}/assets/mobile-home-v22919.css`), fixture.env, ctx).then((r) => r.text());
     const D = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell';
 
@@ -200,11 +200,11 @@ try {
   // -------------------------------------------------------------------------
   {
     ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "홈 스타일시트 주소가 v22918");
-    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22925.css"'), "셸 스타일시트 주소가 v22918");
+    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22937.css"'), "셸 스타일시트 주소가 v22918");
     eq(source.includes("mobile-home-v22914.css"), false, "옛 홈 스타일시트 주소가 남아 있지 않다");
     eq(source.includes("accountbook-shell-v22914.css"), false, "옛 셸 스타일시트 주소가 남아 있지 않다");
     const reserve = await get(`/reserve-plans?${H}`);
-    ok(reserve.text.includes('href="/assets/accountbook-shell-v22925.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
+    ok(reserve.text.includes('href="/assets/accountbook-shell-v22937.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
   }
 } finally {
   fixture.restore();

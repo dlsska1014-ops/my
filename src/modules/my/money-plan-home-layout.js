@@ -13,7 +13,9 @@ import { renderUnifiedNav } from "../web/unified-nav.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import { saveSettingValue } from "./reports-premium.js";
-import { getMySelectedHousehold, myAccessStatusResponse } from "./access-control.js";
+import {
+  getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
+} from "./access-control.js";
 import {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, homeLayoutKey, normalizeHomeLayout,
 } from "./home-sections.js";
@@ -59,15 +61,20 @@ function moneyPlanTabsCss() {
 // V22.8.95 (10.1): "마우스 따라오는 표시" 스위치. 기본 켜짐이고 값은 홈 구성과
 // 같은 키-값 저장소에 담는다(새 표 없음). 기본값이 켜짐이라 **꺼 둔 사람만** 줄이
 // 생긴다 — 대다수 계정에서 저장 자체가 없다.
-function cursorPrefKey(householdId, userKey) {
+// V22.9.37 감사 U6: 가계부별로 저장돼 주소에 가계부가 없는 화면(설치 앱)과 다른 가계부 화면에서 다시 켜졌다.
+// 사용자별 한 줄로 저장하고 가계부 없이 읽는다. 옛 가계부별 줄은 읽지 않는다(한 번 꺼 둔 사람은 한 번 다시 꺼야 한다).
+function cursorPrefKey(userKey) {
+  return `cursor:v1:user:${String(userKey || "shared").trim() || "shared"}`;
+}
+// 옛 가계부별 키. 가계부 삭제 정리(cursor:v1:<가계부>:)와 기존 검사가 이 줄을 보므로 저장할 때 함께 남긴다. 읽지는 않는다.
+function legacyCursorPrefKey(householdId, userKey) {
   return `cursor:v1:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared").trim() || "shared"}`;
 }
 async function handleCursorPreference(request, env, url) {
   const userId = await verifyUserSession(request, env);
   const adminOk = await verifyAdminSession(request, env);
   if (!userId && !adminOk) return jsonResponse({ ok: false, on: true }, 401);
-  const householdId = String(url.searchParams.get("household_id") || "").trim();
-  const value = String(await getSettingValue(env, cursorPrefKey(householdId, userId || "shared")).catch(() => "") || "");
+  const value = String(await getSettingValue(env, cursorPrefKey(userId || "shared")).catch(() => "") || "");
   // 값이 없으면 켜짐. 이 폴백이 기본값이다.
   return jsonResponse({ ok: true, on: value !== "off" });
 }
@@ -79,12 +86,13 @@ async function handleCursorPreferenceSave(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const back = `/menu?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
   if (!userId && !adminOk) return redirectResponse("/my");
-  if (userId) {
+  if (userId && householdId) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
     if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) return redirectResponse("/app?err=household_scope");
   }
   const on = String(form.get("cursor") || "") === "on";
-  await saveSettingValue(env, cursorPrefKey(householdId, userId || "shared"), on ? "on" : "off");
+  await saveSettingValue(env, cursorPrefKey(userId || "shared"), on ? "on" : "off");
+  if (householdId) await saveSettingValue(env, legacyCursorPrefKey(householdId, userId || "shared"), on ? "on" : "off");
   return redirectResponse(`${back}&msg=cursor_saved#abAppearanceTitle`);
 }
 
@@ -112,6 +120,8 @@ async function handleHomeLayoutPage(request, env, url) {
     const user = await fetchUserById(env, userId);
     const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
     if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+    // V22.9.37 감사 H9: 없는 가계부 id 는 "가계부 없음"으로 돌려보내지 않고 찾을 수 없다고 알린다.
+    if (access.invalidRequested) return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
     households = access.households;
     selected = access.selected;
   } else {
@@ -134,7 +144,7 @@ async function handleHomeLayoutPage(request, env, url) {
   const hh = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
   const appHref = `/app?${hh}`;
   const msg = url.searchParams.get("msg") || "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 홈 구성</title><style>*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:var(--ab12-bg,#f6f7fb);color:var(--ab12-text,#101828);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-lg,16px);padding:var(--ab12-sp-5,20px);margin:12px 0}.hero h1{margin:0 0 7px;font-size:23px}.muted{color:var(--ab12-muted,#667085);line-height:1.6;margin:0 0 12px;font-size:13px}.hlList{list-style:none;margin:0;padding:0;display:grid;gap:8px}.hlRow{display:flex;align-items:center;gap:10px;border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-md,12px);padding:0 10px;min-height:56px}.hlPick{flex:1;display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-weight:800}.hlPick input{width:22px;height:22px}.hlMove{display:flex;gap:6px}.hlMove button{width:44px;height:44px;border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#111827);font-size:16px;font-weight:1000;cursor:pointer}.hlMove button[disabled]{opacity:.35;cursor:default}.hlSave{width:100%;min-height:52px;border:0;border-radius:var(--ab12-r-md,12px);background:var(--ab12-action,#111827);color:#fff;font-weight:1000;font-size:15px;cursor:pointer;margin-top:12px}.hlBack{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action,#1e3a8a);font-weight:900;text-decoration:none}.ok{background:var(--ab12-accent-soft,#ecfdf5);color:var(--ab12-action,#166534);border-radius:var(--ab12-r-md,12px);padding:12px;font-weight:900;margin:12px 0}.err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:var(--ab12-r-md,12px);padding:12px;font-weight:800;margin:12px 0}.fixedNote{border-left:3px solid var(--ab12-line,#e5e7eb);padding-left:12px;color:var(--ab12-muted,#667085);font-size:13px;line-height:1.7}</style></head><body>${renderUnifiedNav("home", { month, householdId, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>홈 구성</h1><p class="muted">${escapeHtml(selected.name || "가계부")} · 홈에 보일 리포트와 바로가기를 고르고 순서를 정합니다. 이 설정은 이 가계부에서 나에게만 적용됩니다.</p><p class="fixedNote">쓸 수 있는 돈과 최근 내역은 홈의 뼈대라 끄거나 옮길 수 없습니다.</p></section>${msg === "saved" ? `<div class="ok">홈 구성을 저장했습니다.</div>` : ""}${layoutReadFailed ? `<div class="err" role="alert">홈 구성을 불러오지 못해 지금은 바꿀 수 없습니다. 저장된 구성은 그대로이니 잠시 뒤 새로고침해 주세요.</div>` : `<form method="post" action="/home-layout/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${renderHomeLayoutSection("이번 달 리포트", "체크를 끄면 그 카드가 홈에서 사라집니다. 위아래 버튼으로 순서를 옮깁니다.", HOME_LAYOUT_REPORTS, layout.reports, "reports")}${renderHomeLayoutSection("바로가기", "자주 쓰지 않는 곳은 꺼 두면 홈이 짧아집니다. 전체 메뉴에서는 그대로 갈 수 있습니다.", HOME_LAYOUT_SHORTCUTS, layout.shortcuts, "shortcuts")}<button class="hlSave" type="submit" name="save" value="1">홈 구성 저장</button></form>`}<p><a class="hlBack" href="${escapeHtml(appHref)}">← 홈으로 돌아가기</a></p></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 홈 구성</title><style>*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:var(--ab12-bg,#f6f7fb);color:var(--ab12-text,#101828);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-lg,16px);padding:var(--ab12-sp-5,20px);margin:12px 0}.hero h1{margin:0 0 7px;font-size:23px}.muted{color:var(--ab12-muted,#667085);line-height:1.6;margin:0 0 12px;font-size:13px}.hlList{list-style:none;margin:0;padding:0;display:grid;gap:8px}.hlRow{display:flex;align-items:center;gap:10px;border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-md,12px);padding:0 10px;min-height:56px}.hlPick{flex:1;display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-weight:800}.hlPick input{width:22px;height:22px}.hlMove{display:flex;gap:6px}.hlMove button{width:44px;height:44px;border:1px solid var(--ab12-line,#e5e7eb);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface,#fff);color:var(--ab12-text,#111827);font-size:16px;font-weight:1000;cursor:pointer}.hlMove button[disabled]{opacity:.35;cursor:default}.hlSave{width:100%;min-height:52px;border:0;border-radius:var(--ab12-r-md,12px);background:var(--ab12-action,#111827);color:#fff;font-weight:1000;font-size:15px;cursor:pointer;margin-top:12px}.hlBack{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action,#1e3a8a);font-weight:900;text-decoration:none}.ok{background:var(--ab12-accent-soft,#ecfdf5);color:var(--ab12-action,#166534);border-radius:var(--ab12-r-md,12px);padding:12px;font-weight:900;margin:12px 0}.err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:var(--ab12-r-md,12px);padding:12px;font-weight:800;margin:12px 0}.fixedNote{border-left:3px solid var(--ab12-line,#e5e7eb);padding-left:12px;color:var(--ab12-muted,#667085);font-size:13px;line-height:1.7}</style></head><body>${renderUnifiedNav("home", { month, householdId, householdName: selected.name, role: userId ? String(selected.role || "") : "" })}<main class="wrap"><section class="hero"><h1>홈 구성</h1><p class="muted">${escapeHtml(selected.name || "가계부")} · 홈에 보일 리포트와 바로가기를 고르고 순서를 정합니다. 이 설정은 이 가계부에서 나에게만 적용됩니다.</p><p class="fixedNote">쓸 수 있는 돈과 최근 내역은 홈의 뼈대라 끄거나 옮길 수 없습니다.</p></section>${msg === "saved" ? `<div class="ok">홈 구성을 저장했습니다.</div>` : ""}${layoutReadFailed ? `<div class="err" role="alert">홈 구성을 불러오지 못해 지금은 바꿀 수 없습니다. 저장된 구성은 그대로이니 잠시 뒤 새로고침해 주세요.</div>` : `<form method="post" action="/home-layout/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${renderHomeLayoutSection("이번 달 리포트", "체크를 끄면 그 카드가 홈에서 사라집니다. 위아래 버튼으로 순서를 옮깁니다.", HOME_LAYOUT_REPORTS, layout.reports, "reports")}${renderHomeLayoutSection("바로가기", "자주 쓰지 않는 곳은 꺼 두면 홈이 짧아집니다. 전체 메뉴에서는 그대로 갈 수 있습니다.", HOME_LAYOUT_SHORTCUTS, layout.shortcuts, "shortcuts")}<button class="hlSave" type="submit" name="save" value="1">홈 구성 저장</button></form>`}<p><a class="hlBack" href="${escapeHtml(appHref)}">← 홈으로 돌아가기</a></p></main></body></html>`);
 }
 
 async function handleHomeLayoutSave(request, env) {

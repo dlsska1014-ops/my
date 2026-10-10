@@ -17,7 +17,9 @@ import { renderUnifiedNav } from "./unified-nav.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { handleMyLogout } from "../auth/kakao-oauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
-import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import {
+  canManageMyHousehold, getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
+} from "../my/access-control.js";
 import { fetchBudgets } from "../domain/budgets.js";
 import { cursorPrefKey } from "../my/money-plan-home-layout.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -102,6 +104,8 @@ async function handleBeginnerGuidePage(request, env, url) {
       const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
       const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
       if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+      // V22.9.37 감사 H9: 없는 가계부 id 는 첫 가계부로 바꾸지 않고 찾을 수 없다고 알린다.
+      if (access.invalidRequested) return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
       const households = access.households;
       let checklist = null;
       if (access.selected) {
@@ -132,7 +136,10 @@ async function handleBeginnerGuidePage(request, env, url) {
   }
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
+  // V22.9.37 감사 H9: 관리자도 목록에 없는 가계부 id 를 첫 가계부로 바꾸지 않는다.
+  const requestedHousehold = String(url.searchParams.get("household_id") || "").trim();
+  if (requestedHousehold && !households.some((h) => String(h.id) === requestedHousehold)) return householdNotFoundResponse({ env, requestedId: requestedHousehold, listHref: "/households" });
+  const householdId = requestedHousehold || households[0]?.id || "";
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
   const rows = householdId ? await fetchAdminRows(env, { month, householdId, type: "all" }) : [];
   const budgets = householdId ? await fetchBudgets(env, householdId, month) : [];
@@ -175,12 +182,16 @@ async function handleUnifiedMenuPage(request, env, url) {
   try {
     if (adminOk) {
       households = await fetchAdminHouseholds(env);
+      // V22.9.37 감사 H9: 없는 가계부 id 는 첫 가계부로 바꾸지 않고 찾을 수 없다고 알린다(관리자·사용자 모두).
+      const requestedAdmin = String(url.searchParams.get("household_id") || "").trim();
+      if (requestedAdmin && !households.some((h) => String(h.id) === requestedAdmin)) return householdNotFoundResponse({ env, requestedId: requestedAdmin, listHref: "/households" });
     } else {
       const [user, access] = await Promise.all([
         fetchUserById(env, userId),
         getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
       ]);
       if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
+      if (access.invalidRequested) return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
       households = access.households;
       selectedHousehold = access.selected;
     }
@@ -192,6 +203,8 @@ async function handleUnifiedMenuPage(request, env, url) {
   const hid = selectedHousehold?.id || "";
   const hh = hid ? `&household_id=${encodeURIComponent(hid)}` : "";
   const monthQs = `month=${encodeURIComponent(month)}${hh}`;
+  // V22.9.37 감사 U14: 일반 참여자(member·viewer)에게는 관리자 전용 메뉴임을 미리 말한다(누르면 403 화면이었다).
+  const adminOnlyNote = userId && selectedHousehold && !canManageMyHousehold(selectedHousehold.role) ? "관리자 전용 · " : "";
   const householdOptions = households.length
     ? households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
@@ -210,7 +223,7 @@ async function handleUnifiedMenuPage(request, env, url) {
     ]],
     ["가계부 관리", "사람과 분류, 데이터 관리", [
       ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "switch"],
-      ["참여자·초대", `/my/members?${monthQs}`, "구성원과 권한 관리", "users"],
+      ["참여자·초대", `/my/members?${monthQs}`, `${adminOnlyNote}구성원과 권한 관리`, "users"],
       ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "tag"],
       ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "backup"],
     ]],
@@ -235,13 +248,13 @@ async function handleUnifiedMenuPage(request, env, url) {
   // V22.8.95 (10.1): 마우스 따라오는 표시 스위치. 테마·톤과 달리 이 값은 기기가
   // 아니라 계정에 붙으므로(지시서) 폼 하나로 서버에 저장한다. 데스크톱에서만 뜻이
   // 있어서 모바일에서는 아무것도 하지 않는다는 사실을 문구로 말한다.
-  const cursorOn = String(await getSettingValue(env, cursorPrefKey(hid, userId || "shared")).catch(() => "") || "") !== "off";
+  const cursorOn = String(await getSettingValue(env, cursorPrefKey(userId || "shared")).catch(() => "") || "") !== "off";
   const cursorSwitchHtml = `<form class="abCursorPref" method="post" action="/cursor-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label class="abCursorPick"><input type="checkbox" name="cursor" value="on"${cursorOn ? " checked" : ""}/><span><b>마우스 따라오는 표시</b><small>마우스가 있는 큰 화면에서만 켜집니다. 동작 줄이기를 켜 두면 이 설정과 무관하게 나타나지 않습니다.</small></span></label><button type="submit">표시 설정 저장</button></form>`;
   const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
   // V22.9.34 감사 U1: 일반 사용자 화면에 로그아웃이 없어 공용 PC 에서 14일 세션이 남았다.
   // 관리자 세션은 운영 화면의 로그아웃을 쓴다.
   const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
