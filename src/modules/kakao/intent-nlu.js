@@ -206,8 +206,14 @@ function isHouseholdSwitchCommand(text = "") {
   return intent === "HOUSEHOLD_SWITCH" || /^(가계부전환|가계부 전환|가계부바꾸기|가계부 바꾸기|가계부선택|가계부 선택|다른가계부|다른 가계부|가계부목록|가계부 목록|내가계부목록|내 가계부 목록|장부전환|장부 전환)$/i.test(normalizeText(text));
 }
 
+// V22.9.37 감사 H13: 가계부 이름은 거래 문장이 아니다. 금액 표기용 normalizeText 는 "원정"을 "원"으로 바꾸고 기호를
+// 지워 "원정대"가 "원대"로 저장됐다. 이름은 공백만 고르고 길이만 제한한다. 명령어·안전성 판정 함수는 스스로 정규화한다.
+function normalizeHouseholdNameText(text = "") {
+  return String(text || "").replace(/[​-‍﻿]/g, "").replace(/\s+/g, " ").trim();
+}
+
 function parseCreateHouseholdCommand(text = "") {
-  const raw = normalizeText(text);
+  const raw = normalizeHouseholdNameText(text);
   const m = raw.match(/^(?:새\s*)?(?:가계부|장부)\s*(?:만들기|생성|추가)\s+(.{2,40})$/i) || raw.match(/^(?:만들기|생성)\s+(.{2,40})\s*(?:가계부|장부)$/i);
   if (!m) return "";
   return String(m[1] || "").replace(/^(이름|제목)\s*/, "").trim().slice(0, 40);
@@ -335,7 +341,7 @@ function kakaoSaveDelayText(origin = "") {
 export {
   detectKakaoNaturalIntent, hasKakaoImageAttachment, isCommandMenuCommand, isHouseholdSwitchCommand,
   kakaoCommandMenuText, kakaoImageNotSupportedText, kakaoNluRegistrySummary, kakaoNluRuntimeConfig,
-  kakaoPublicCommandReply, kakaoSaveDelayText, normalizeKakaoIntentText,
+  kakaoPublicCommandReply, kakaoSaveDelayText, normalizeHouseholdNameText, normalizeKakaoIntentText,
   parseCreateHouseholdCommand,
 };
 // @build:exports-end

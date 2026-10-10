@@ -1,8 +1,8 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import {
-  parseStrictSettingsObject, safeError, settingsDataError, withHouseholdDatabaseLease,
-  withSettingsRmwLease,
+  isUniqueConstraintError, parseStrictSettingsObject, safeError, settingsDataError,
+  withHouseholdDatabaseLease, withSettingsRmwLease,
 } from "../runtime/leases.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { bestRoleFromRows } from "../data/households-members-rows.js";
@@ -235,6 +235,12 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             assertFresh();
             await saveSettingValue(env, snapshot.keys.marker, JSON.stringify(marker));
           };
+          // V22.9.37 감사 H6: 저장소가 분명히 거절(4xx)한 POST 는 아무것도 쓰지 않았다. 단계를 한 칸 되돌려 다음 메시지가 같은
+          // 고정 ID 로 다시 시도하게 한다. 결과를 모르는 실패는 예전처럼 단계를 남기고 고정 대상만 재조회한다(새 UUID·보상 삭제 없음).
+          const rollbackPhase = async previous => { try { await phase(previous); } catch (_) {} };
+          const rollbackMemberAttempt = async () => {
+            try { assertFresh(); await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(snapshot.keys.member)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
+          };
           if (preparing) {
             if (!household) {
               if (marker.phase !== "reserved") throw kakaoGroupPreparationUnknown();
@@ -245,7 +251,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
                 household = Array.isArray(created) ? created[0] : null;
                 if (household?.id !== householdId) throw kakaoGroupPreparationUnknown();
               } catch (err) {
-                if (isDefiniteStorageFailure(err)) throw err;
+                if (isDefiniteStorageFailure(err)) { if (!isUniqueConstraintError(err)) await rollbackPhase("reserved"); throw err; }
                 assertFresh();
                 try { household = await getHouseholdById(env, householdId); }
                 catch (_) { throw kakaoGroupPreparationUnknown(err); }
@@ -264,17 +270,26 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
               catch (err) { writeError = err; }
               assertFresh();
               try { members = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true); }
-              catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+              catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackPhase("create_sent"); throw readErr; }
               ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
-              if (ownerRole !== "owner") throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+              if (ownerRole !== "owner") {
+                if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackPhase("create_sent"); throw writeError; }
+                throw kakaoGroupPreparationUnknown(writeError);
+              }
             }
             if (marker.phase === "link_sent") throw kakaoGroupPreparationUnknown();
             await phase("link_sent");
             assertFresh();
-            const linkedValue = await insertKakaoGroupFirstSetting(env, kakaoGroupLinkItemSettingsKey(groupKey), {
-              group_key: groupKey, household_id: householdId, household_name: household.name, invite_code: household.invite_code,
-              linked_by: marker.owner_id, linked_at: new Date().toISOString(),
-            });
+            let linkedValue;
+            try {
+              linkedValue = await insertKakaoGroupFirstSetting(env, kakaoGroupLinkItemSettingsKey(groupKey), {
+                group_key: groupKey, household_id: householdId, household_name: household.name, invite_code: household.invite_code,
+                linked_by: marker.owner_id, linked_at: new Date().toISOString(),
+              });
+            } catch (err) {
+              if (isDefiniteStorageFailure(err)) await rollbackPhase("owner_sent");
+              throw err;
+            }
             const link = normalizeKakaoGroupLinkItem(linkedValue, groupKey);
             if (link?.household_id !== householdId || link.linked_by !== marker.owner_id) throw new Error("kakao_group_first_link_conflict");
             snapshot.link = link;
@@ -310,10 +325,13 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             catch (err) { writeError = err; }
             assertFresh();
             try { roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" }); }
-            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackMemberAttempt(); throw readErr; }
             strictKakaoGroupMembershipRows(roleRows);
             role = bestRoleFromRows(roleRows);
-            if (!role) throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+            if (!role) {
+              if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackMemberAttempt(); throw writeError; }
+              throw kakaoGroupPreparationUnknown(writeError);
+            }
             firstNotice = "이 방의 공동 가계부에 참여했어요.\n같은 방의 참여자들이 함께 기록을 사용해요.\n\n";
           }
           if (!role) return kakaoText("이 방의 가계부에 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 개인 대화에서 초대코드로 참여해 주세요.");

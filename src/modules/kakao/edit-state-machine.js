@@ -145,6 +145,12 @@ function inferFieldFromValue(textRaw, config = {}) {
   if (DATE_WORDS.has(c) || /^\d{1,2}월\d{1,2}일$/.test(c) || /^\d{1,2}[\/.]\d{1,2}$/.test(c)) {
     return { field: "date", value: normalize(textRaw), confidence: "high" };
   }
+  // V22.9.37 감사 NEW-8: "50억"·"1만3천원"처럼 단위가 붙은 금액 표기도 금액이다. 내용으로 넘기면 "내용을 '50억'으로
+  // 바꾸는 건가요?"라고 되묻게 된다. 20억 상한은 반영 단계가 새 기록·한 줄 수정과 같은 문구로 거절한다.
+  if (/[\d일이삼사오육칠팔구십백천만억]/.test(c) && !/^\d+$/.test(c)) {
+    const unitAmount = normalizeKakaoEditAmountValue(textRaw);
+    if (unitAmount) return { field: "amount", value: unitAmount, confidence: "high" };
+  }
   // 구성원 이름 → 지출자
   const members = (config.members || ["엄마", "아빠", "아들", "딸"]).map(compact);
   if (members.includes(c)) return { field: "payer", value: normalize(textRaw), confidence: "high" };

@@ -172,6 +172,19 @@ async function markKakaoChatFirstHistory(env, userId) {
   await saveSettingValue(env, `kakao_first_record_history_v22928:${String(userId)}`, JSON.stringify({ version: 1, user_id: String(userId) }));
 }
 
+// V22.9.37 감사 H5: 가계부 삭제는 참여자 수만큼 표식을 한 건씩 썼다. 하위 요청이 참여자 수에 비례해 늘어 큰 가계부는
+// 지워지지 않았다. 같은 표식을 한 번의 upsert 로 쓴다(값은 markKakaoChatFirstHistory 와 같다).
+async function markKakaoChatFirstHistoryBatch(env, userIds = []) {
+  const ids = [...new Set(safeArray(userIds).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return 0;
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(ids.map((id) => ({ key: `kakao_first_record_history_v22928:${id}`, value: JSON.stringify({ version: 1, user_id: id }) }))),
+  });
+  return ids.length;
+}
+
 async function kakaoChatFirstCompleted(env, markerKey, userId) {
   const historyKey = `kakao_first_record_history_v22928:${String(userId)}`;
   const doneKey = markerKey.replace("kakao_first_record_v22928:", "kakao_first_record_done_v22928:");
@@ -292,8 +305,8 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
 // @build:exports-start
 export {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
-  markKakaoChatFirstHistory, parseKakaoChatFirstMarker, persistIdentityAliases,
-  resolveLinkedIdentityUser, seedKakaoChatFirstUser, stableShortHash, trustedChatFirstSkillCaller,
-  tryKakaoChatFirstRecord,
+  markKakaoChatFirstHistory, markKakaoChatFirstHistoryBatch, parseKakaoChatFirstMarker,
+  persistIdentityAliases, resolveLinkedIdentityUser, seedKakaoChatFirstUser, stableShortHash,
+  trustedChatFirstSkillCaller, tryKakaoChatFirstRecord,
 };
 // @build:exports-end

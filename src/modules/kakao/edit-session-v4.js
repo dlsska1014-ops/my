@@ -10,7 +10,7 @@ import { stableShortHash } from "./identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
-import { numberWithCommas } from "../domain/transactions-core.js";
+import { deleteTransactionWithAudit, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
 function kakaoEditConversationScope(payload = {}) {
@@ -73,6 +73,9 @@ const KAKAO_EDIT_UNDO_TTL_MS = 24 * 60 * 60 * 1000;
 // 하나씩 되돌릴 수 있다고 믿는다. 버퍼가 한 칸이면 두 번째 삭제가 첫 번째를 덮어써
 // 첫 기록이 안내와 달리 영영 복구되지 않는다. 최근 삭제분을 쌓아 둔다.
 const KAKAO_EDIT_UNDO_MAX = 10;
+// V22.9.37 감사 NEW-4·NEW-9: 카카오 수정·삭제도 웹과 같은 감사 RPC 를 타며, 행위자는 요청한 사용자이고 종류는 "kakao" 다.
+// (웹은 "user"·"admin", 예전 카카오 수정은 행위자 없는 "system" 이었다.)
+const KAKAO_AUDIT_ACTOR_KIND = "kakao";
 // T12: 복구는 지울 때 읽은 칸으로 행을 다시 만든다. source·household_id 가 빠지면 되살린 행의 출처가 사라진다.
 const KAKAO_TX_SELECT_V4 = "id,household_id,user_id,source,source_user_key,type,amount,category,memo,payment_method,transaction_date,created_at,raw_text";
 const KAKAO_TX_RESTORE_COLUMNS_V4 = KAKAO_TX_SELECT_V4.split(",");
@@ -114,7 +117,7 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 
 // S1: 잠금 안에서 버퍼에 먼저 담고, 담긴 것을 확인한 뒤에만 지운다. 버퍼를 읽거나 쓰지 못하면 지우지 않는다.
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
-async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "" } = {}, row = {}, seq = 0) {
+async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     const previous = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
     const entry = { row: { ...row, household_id: row.household_id || householdId }, seq: Number(seq || 0), household_name: String(householdName || "").slice(0, 60), expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS };
@@ -124,7 +127,9 @@ async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, 
     await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
     assertFresh();
     try {
-      await deleteKakaoRowById(env, row.id);
+      // V22.9.37 감사 NEW-4: 직접 DELETE 대신 웹과 같은 감사 RPC 로 지운다. accountbook_transaction_audit 에 지운 행과
+      // 행위자가 남는다. RPC 도 실제 DELETE 이므로 복구는 예전처럼 버퍼의 행을 같은 id 로 다시 넣는다.
+      await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
     } catch (err) {
       throw Object.assign(new Error(`kakao_delete_failed: ${safeError(err)}`, { cause: err }), { kakaoDeletePhase: true });
     }
@@ -161,6 +166,10 @@ function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
     return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘복구 ${twoDigitSeq(seq)}번’으로 되돌릴 수 있어요.`;
+  }
+  // NEW-4: 감사 RPC 가 분명히 거절(4xx)했으면 지워진 것이 없다. 버퍼 준비 실패와 구분해 말한다.
+  if (err?.kakaoDeletePhase) {
+    return `기록을 지우지 않았어요. 저장소가 삭제 요청을 거절했어요.\n${kakaoRowLabel(row, seq)}\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
   }
   return `기록을 지우지 않았어요. 삭제를 되돌릴 준비를 하지 못했어요.\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
 }
@@ -213,13 +222,6 @@ async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
   const row = rows[0] || null;
   return row && isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey) ? row : null;
-}
-
-async function deleteKakaoRowById(env, id) {
-  await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  });
 }
 
 async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, date, seq) {
@@ -391,8 +393,8 @@ function kakaoEditGuideText(origin = "") {
 }
 // @build:exports-start
 export {
-  dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq, getDailyKakaoRows,
-  getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
+  KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
+  getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
   isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
   kakaoEditConversationScope, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,

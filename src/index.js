@@ -19683,6 +19683,8 @@ function householdPageMessage(code = "") {
     household_leave_failed: "가계부에서 나오지 못했습니다. 참여 상태는 그대로 유지됩니다.",
     household_create_failed: "가계부를 만들지 못했습니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 다시 시도하세요.",
     household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.",
+    join_request_cancelled: "참여 요청을 취소했습니다. 다시 참여하려면 초대코드를 다시 입력하세요.",
+    join_cancel_failed: "참여 요청을 취소하지 못했습니다. 승인 대기 상태는 그대로입니다.",
   };
   return map[String(code || "")] || formatMessage(code || "");
 }
@@ -19716,9 +19718,13 @@ async function handleMyHouseholdsPage(request, env, url) {
     const readable = canReadMyHousehold(h.role);
     const manageable = canManageMyHousehold(h.role);
     const status = h.role === "pending" ? "승인 대기" : h.role === "blocked" ? "이용 제한" : userHouseholdRoleLabel(h.role || "member");
+    // V22.9.37 감사 H15: 승인 대기 중인 사람은 자기 참여 요청을 거둘 수 있다(내 pending 행만 지운다).
+    const cancelJoin = h.role === "pending"
+      ? `<form method="post" action="/my/household/leave" class="cancelJoin" onsubmit="return confirm('이 가계부 참여 요청을 취소할까요? 다시 참여하려면 초대코드를 다시 입력해야 합니다.')"><input type="hidden" name="household_id" value="${escapeHtml(h.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="cancel_pending" value="1"/><button class="cancelJoinButton" type="submit">참여 요청 취소</button></form>`
+      : "";
     const actions = readable
       ? `<a class="primary" href="/app?${qsFor(h)}">열기</a><a href="/my/households?${qsFor(h)}&manage=${encodeURIComponent(h.id)}#manage">옵션</a>${manageable ? `<a href="/my/members?${qsFor(h)}">멤버</a>` : ""}`
-      : `<a href="/my?household_id=${encodeURIComponent(h.id)}">상태 확인</a>`;
+      : `<a href="/my?household_id=${encodeURIComponent(h.id)}">상태 확인</a>${cancelJoin}`;
     const invite = manageable && h.invite_code
       ? `<details class="inviteFold"><summary>초대코드 보기</summary><div><code>${escapeHtml(h.invite_code)}</code><button type="button" data-copy="가계부 참여 ${escapeHtml(h.invite_code)}">복사</button></div></details>`
       : "";
@@ -19763,7 +19769,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       ${leaveForm}
     </section>` : "";
 
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.hhActions .cancelJoin{display:contents}.hhActions .cancelJoinButton{background:#fee2e2;color:#991b1b!important;min-height:39px}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
 }
 
 async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
@@ -19809,20 +19815,18 @@ async function handleMyCreate(request, env) {
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
   try {
-    if (displayName !== String(user.nickname || "")) {
-      await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ nickname: displayName }),
-      });
-      user = { ...user, nickname: displayName };
-    }
     const result = await withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
       const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
       if (existing) return { household: existing, existed: true };
       return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
     });
     const household = result.household;
+    // V22.9.37 감사 H14: 폼의 "이 가계부에서 보일 내 이름"은 새 가계부의 내 이름표(member_aliases)다. 계정 전체 닉네임
+    // (users.nickname)과 다른 가계부의 이름표는 바꾸지 않는다. 이름표 저장 실패는 생성 결과를 뒤집지 않는다.
+    if (!result.existed && displayName !== String(user.nickname || "")) {
+      try { await saveMemberAlias(env, household.id, userId, displayName); }
+      catch (aliasErr) { rememberOpsEvent({ kind: "household_create_alias_pending", severity: "warn", path: "/my/create", method: "POST", detail: safeError(aliasErr) }); }
+    }
     const msg = result.existed ? "household_duplicate_selected" : "created";
     const step = result.existed ? "manage" : "invite";
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(household.id)}&manage=${encodeURIComponent(household.id)}&step=${step}&msg=${msg}#${result.existed ? "manage" : "top"}`);
@@ -19909,7 +19913,12 @@ async function purgeHouseholdData(env, householdId = "") {
     const links = linkRows.map(row => { const link = normalizeKakaoGroupLinkItem(row.value); if (!link) throw settingsDataError("kakao_group_link", "invalid_shape"); return link; });
     const groupKeys = [...new Set([...roomMarkers.map(item => item.group_key), ...links.filter(item => item.household_id === hid).map(item => item.group_key), ...Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key)])].sort();
     if (groupKeys.length > 1000) throw new Error("household_purge_scope_too_large");
-    return { members, groupKeys, userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort() };
+    return {
+      members, groupKeys,
+      userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort(),
+      // V22.9.37 감사 H5: 사용자 잠금은 자동 준비 흐름이 잡는 사용자(개인 첫 기록 후보·방 표식 소유자)에만 잡는다.
+      leaseUserIds: [...new Set([...candidateUsers, ...roomMarkers.map(item => String(item.owner_id || ""))].filter(Boolean))].sort(),
+    };
   };
   let purge;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -19918,11 +19927,10 @@ async function purgeHouseholdData(env, householdId = "") {
       const assertFresh = () => { lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
       if (JSON.stringify(current.userIds) !== JSON.stringify(before.userIds) || JSON.stringify(current.groupKeys) !== JSON.stringify(before.groupKeys)) throw new Error("household_purge_scope_changed");
-      for (const userId of current.userIds) {
-        assertFresh();
-        // Actual members and server-confirmed provisional candidates are explicitly retired.
-        await markKakaoChatFirstHistory(env, userId);
-      }
+      assertFresh();
+      // Actual members and server-confirmed provisional candidates are explicitly retired.
+      // V22.9.37 감사 H5: 표식은 한 번의 upsert 로 쓴다. 참여자마다 한 건씩 쓰면 하위 요청이 참여자 수에 비례해 늘어난다.
+      await markKakaoChatFirstHistoryBatch(env, current.userIds);
       for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
       assertFresh();
       const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
@@ -19933,7 +19941,10 @@ async function purgeHouseholdData(env, householdId = "") {
       return { summary, affectedMembers: current.members };
     }));
     try {
-      purge = before.userIds.length ? await withKakaoUserLifecycleLease(env, before.userIds, work) : await work({ assertFresh() {} });
+      // V22.9.37 감사 H5: 참여자 한 명마다 사용자 잠금을 잡고 풀면 저장소 요청이 둘씩 늘어 17명부터 삭제가 되지 않고
+      // 15명부터 잠금이 남았다. 일반 참여자는 가계부 잠금 하나 안에서 표식만 한 번에 쓰고, 사용자 잠금은 자동 준비
+      // 후보(개인 첫 기록 표식의 사용자·방 표식 소유자)에만 잡아 진행 중인 첫 기록과 계속 직렬화한다.
+      purge = before.leaseUserIds.length ? await withKakaoUserLifecycleLease(env, before.leaseUserIds, work) : await work({ assertFresh() {} });
       break;
     } catch (err) {
       if (!/household_purge_scope_changed/.test(safeError(err)) || attempt === 2) throw err;
@@ -19952,13 +19963,19 @@ async function purgeHouseholdData(env, householdId = "") {
   try { await removeKakaoGroupLinksForHousehold(env, hid); } catch (err) {
     rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
   }
-  for (const member of purge.affectedMembers) {
-    try {
-      const selectedId = await getKakaoSelectedHouseholdId(env, member.user_id || "");
-      if (String(selectedId) === hid) await clearKakaoSelectedHousehold(env, member.user_id || "");
-    } catch (err) {
-      rememberOpsEvent({ kind: "household_selection_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household selection cleanup pending" });
+  // V22.9.37 감사 H5: 참여자마다 선택 상태를 읽고 지우던 왕복(참여자 수에 비례)을 조회 한 번·upsert 한 번으로 줄인다.
+  // purge RPC 가 같은 행을 지우므로 여기서는 늦게 남은 행만 비운다.
+  try {
+    const selections = await fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_selected_household_v2251:*")}&value=eq.${encodeURIComponent(hid)}&select=key&order=key.asc`, { maxRows: 1000 });
+    if (selections.length) {
+      await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(selections.map((row) => ({ key: String(row.key || ""), value: "" }))),
+      });
     }
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_selection_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household selection cleanup pending" });
   }
   return { ...safeObject(purge.summary), affectedMembers: purge.affectedMembers.length };
 }
@@ -20027,6 +20044,17 @@ async function handleMyHouseholdLeave(request, env) {
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
   if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
+  if (role === "pending") {
+    // V22.9.37 감사 H15: 승인 대기 중인 사람은 기록도 이력도 없다. 확인 항목 없이 자기 요청 행만 거둔다.
+    try {
+      const result = await cancelPendingHouseholdJoin(env, userId, householdId);
+      if (!result.cancelled) return redirectResponse(addQueryToUrl(back, { err: "join_cancel_failed" }));
+      return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=join_request_cancelled`);
+    } catch (err) {
+      rememberOpsEvent({ kind: "household_join_cancel_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
+      return redirectResponse(addQueryToUrl(back, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "join_cancel_failed" }));
+    }
+  }
   if (!understood) return redirectResponse(addQueryToUrl(back, { err: "household_leave_ack_required" }));
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
@@ -20070,7 +20098,9 @@ async function handleMyJoin(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const code = String(form.get("invite_code") || "").trim().toUpperCase();
+  // V22.9.37 감사 H3: 앱이 복사해 주는 "가계부 참여 CODE"·"초대코드 CODE"를 그대로 붙여 넣어도 코드만 읽는다.
+  const rawCode = String(form.get("invite_code") || "").trim();
+  const code = String(parseJoinCode(rawCode) || parseBareInviteCode(rawCode) || rawCode).toUpperCase();
   if (!code) return redirectResponse(returnLocation(form, "/my/households", { err: "invite_code_missing" }));
   try {
     const joined = await joinHouseholdByCode(env, userId, code);
@@ -28393,8 +28423,14 @@ function isHouseholdSwitchCommand(text = "") {
   return intent === "HOUSEHOLD_SWITCH" || /^(가계부전환|가계부 전환|가계부바꾸기|가계부 바꾸기|가계부선택|가계부 선택|다른가계부|다른 가계부|가계부목록|가계부 목록|내가계부목록|내 가계부 목록|장부전환|장부 전환)$/i.test(normalizeText(text));
 }
 
+// V22.9.37 감사 H13: 가계부 이름은 거래 문장이 아니다. 금액 표기용 normalizeText 는 "원정"을 "원"으로 바꾸고 기호를
+// 지워 "원정대"가 "원대"로 저장됐다. 이름은 공백만 고르고 길이만 제한한다. 명령어·안전성 판정 함수는 스스로 정규화한다.
+function normalizeHouseholdNameText(text = "") {
+  return String(text || "").replace(/[​-‍﻿]/g, "").replace(/\s+/g, " ").trim();
+}
+
 function parseCreateHouseholdCommand(text = "") {
-  const raw = normalizeText(text);
+  const raw = normalizeHouseholdNameText(text);
   const m = raw.match(/^(?:새\s*)?(?:가계부|장부)\s*(?:만들기|생성|추가)\s+(.{2,40})$/i) || raw.match(/^(?:만들기|생성)\s+(.{2,40})\s*(?:가계부|장부)$/i);
   if (!m) return "";
   return String(m[1] || "").replace(/^(이름|제목)\s*/, "").trim().slice(0, 40);
@@ -28730,6 +28766,9 @@ const KAKAO_EDIT_UNDO_TTL_MS = 24 * 60 * 60 * 1000;
 // 하나씩 되돌릴 수 있다고 믿는다. 버퍼가 한 칸이면 두 번째 삭제가 첫 번째를 덮어써
 // 첫 기록이 안내와 달리 영영 복구되지 않는다. 최근 삭제분을 쌓아 둔다.
 const KAKAO_EDIT_UNDO_MAX = 10;
+// V22.9.37 감사 NEW-4·NEW-9: 카카오 수정·삭제도 웹과 같은 감사 RPC 를 타며, 행위자는 요청한 사용자이고 종류는 "kakao" 다.
+// (웹은 "user"·"admin", 예전 카카오 수정은 행위자 없는 "system" 이었다.)
+const KAKAO_AUDIT_ACTOR_KIND = "kakao";
 // T12: 복구는 지울 때 읽은 칸으로 행을 다시 만든다. source·household_id 가 빠지면 되살린 행의 출처가 사라진다.
 const KAKAO_TX_SELECT_V4 = "id,household_id,user_id,source,source_user_key,type,amount,category,memo,payment_method,transaction_date,created_at,raw_text";
 const KAKAO_TX_RESTORE_COLUMNS_V4 = KAKAO_TX_SELECT_V4.split(",");
@@ -28771,7 +28810,7 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 
 // S1: 잠금 안에서 버퍼에 먼저 담고, 담긴 것을 확인한 뒤에만 지운다. 버퍼를 읽거나 쓰지 못하면 지우지 않는다.
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
-async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "" } = {}, row = {}, seq = 0) {
+async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     const previous = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
     const entry = { row: { ...row, household_id: row.household_id || householdId }, seq: Number(seq || 0), household_name: String(householdName || "").slice(0, 60), expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS };
@@ -28781,7 +28820,9 @@ async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, 
     await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
     assertFresh();
     try {
-      await deleteKakaoRowById(env, row.id);
+      // V22.9.37 감사 NEW-4: 직접 DELETE 대신 웹과 같은 감사 RPC 로 지운다. accountbook_transaction_audit 에 지운 행과
+      // 행위자가 남는다. RPC 도 실제 DELETE 이므로 복구는 예전처럼 버퍼의 행을 같은 id 로 다시 넣는다.
+      await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
     } catch (err) {
       throw Object.assign(new Error(`kakao_delete_failed: ${safeError(err)}`, { cause: err }), { kakaoDeletePhase: true });
     }
@@ -28818,6 +28859,10 @@ function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
     return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘복구 ${twoDigitSeq(seq)}번’으로 되돌릴 수 있어요.`;
+  }
+  // NEW-4: 감사 RPC 가 분명히 거절(4xx)했으면 지워진 것이 없다. 버퍼 준비 실패와 구분해 말한다.
+  if (err?.kakaoDeletePhase) {
+    return `기록을 지우지 않았어요. 저장소가 삭제 요청을 거절했어요.\n${kakaoRowLabel(row, seq)}\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
   }
   return `기록을 지우지 않았어요. 삭제를 되돌릴 준비를 하지 못했어요.\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
 }
@@ -28870,13 +28915,6 @@ async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
   const row = rows[0] || null;
   return row && isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey) ? row : null;
-}
-
-async function deleteKakaoRowById(env, id) {
-  await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  });
 }
 
 async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, date, seq) {
@@ -29188,6 +29226,12 @@ function inferFieldFromValue(textRaw, config = {}) {
   // 날짜 표현 → 날짜
   if (DATE_WORDS.has(c) || /^\d{1,2}월\d{1,2}일$/.test(c) || /^\d{1,2}[\/.]\d{1,2}$/.test(c)) {
     return { field: "date", value: normalize(textRaw), confidence: "high" };
+  }
+  // V22.9.37 감사 NEW-8: "50억"·"1만3천원"처럼 단위가 붙은 금액 표기도 금액이다. 내용으로 넘기면 "내용을 '50억'으로
+  // 바꾸는 건가요?"라고 되묻게 된다. 20억 상한은 반영 단계가 새 기록·한 줄 수정과 같은 문구로 거절한다.
+  if (/[\d일이삼사오육칠팔구십백천만억]/.test(c) && !/^\d+$/.test(c)) {
+    const unitAmount = normalizeKakaoEditAmountValue(textRaw);
+    if (unitAmount) return { field: "amount", value: unitAmount, confidence: "high" };
   }
   // 구성원 이름 → 지출자
   const members = (config.members || ["엄마", "아빠", "아들", "딸"]).map(compact);
@@ -29796,7 +29840,8 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   }
   try {
     // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
-    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId });
+    // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
+    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
   } catch (err) {
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
@@ -29840,7 +29885,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     }
     const seq = Number(session.entryNo) || 0;
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "" }, row, seq);
+      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
@@ -29998,7 +30043,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name }, row, seq);
+      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
@@ -30553,7 +30598,8 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
 }
 
 async function beginKakaoHouseholdChoice(env, { user, payload, households = [], action = "select", origin = "", groupKey = "", forceChoice = false } = {}) {
-  const candidates = action === "bind" ? kakaoManageableHouseholds(households) : kakaoActiveHouseholds(households);
+  // V22.9.37 감사 H10: 초대코드는 웹 참여자 화면처럼 소유자·관리자만 본다. 참여만 한 가계부는 초대 후보에서 뺀다.
+  const candidates = ["bind", "invite"].includes(action) ? kakaoManageableHouseholds(households) : kakaoActiveHouseholds(households);
   if (!candidates.length) {
     if (action === "bind") return {
       text: [
@@ -30562,6 +30608,7 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
       ].join("\n"),
       quickReplies: dedupeQuickReplies([["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]),
     };
+    if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말", "도움말"]] };
     return { text: kakaoStartText(false), quickReplies: kakaoStartQuickReplies(false) };
   }
   if (candidates.length === 1 && !forceChoice) {
@@ -30728,9 +30775,14 @@ function inferKakaoCreateKind(text = "") {
   return "";
 }
 
+// H13: 이름은 기호를 지우지 않되, 글자·숫자가 둘은 있어야 "의미 있는 2~40자"다(예전에는 기호를 지운 뒤 길이를 봤다).
+function hasMeaningfulHouseholdName(text = "") {
+  return String(text || "").replace(/[^\p{L}\p{N}]/gu, "").length >= 2;
+}
+
 function plausibleHouseholdNameAtKindStep(text = "") {
-  const t = normalizeText(text).trim();
-  if (!t || isKakaoCreateKindOptionsRequest(t) || isKakaoReservedCreateFlowReply(t) || isUnsafeKakaoNameInputV2254(t)) return "";
+  const t = normalizeHouseholdNameText(text);
+  if (!t || !hasMeaningfulHouseholdName(t) || isKakaoCreateKindOptionsRequest(t) || isKakaoReservedCreateFlowReply(t) || isUnsafeKakaoNameInputV2254(t)) return "";
   if (/^(선택|종류|가계부|그냥|아무거나|모르겠어|모름|다시|\d{1,2}\s*번?)$/.test(t)) return "";
   if (parseKakaoCreateKind(t)) return "";
   if (parseAmountValue(t) > 0 || isKakaoFlowCancelCommand(t)) return "";
@@ -30748,8 +30800,9 @@ function suggestedHouseholdName(kind = "", nickname = "") {
 }
 
 function sanitizeHouseholdNameInput(text = "") {
-  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
-  if (t.length < 2 || t.length > 40) return "";
+  // V22.9.37 감사 H13: 이름은 거래 문장 정규화를 거치지 않는다("원정대"→"원대"). 판정 함수들은 스스로 정규화한다.
+  const t = normalizeHouseholdNameText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40 || !hasMeaningfulHouseholdName(t)) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || isKakaoReservedCreateFlowReply(t) || parseKakaoCreateKind(t) || isUnsafeKakaoNameInputV2254(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
@@ -30760,8 +30813,8 @@ function sanitizeHouseholdNameInput(text = "") {
 // 없다. 이 둘을 그대로 적용하면 `가족 생활비`, `생활비`, `모임`, `여행` 같은
 // 가장 자연스러운 이름이 거부된다. 봇 명령어 충돌과 안전성 검사는 유지한다.
 function sanitizeWebHouseholdNameInput(text = "") {
-  const t = normalizeText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
-  if (t.length < 2 || t.length > 40) return "";
+  const t = normalizeHouseholdNameText(text).replace(/^(가계부 이름|이름|제목)\s*/, "").trim();
+  if (t.length < 2 || t.length > 40 || !hasMeaningfulHouseholdName(t)) return "";
   if (isExplicitKakaoTopLevelCommandV2254(t) || /https?:|[<>\r\n]/i.test(t)) return "";
   if (/^\d{1,2}\s*번?$/.test(t)) return "";
   return t.slice(0, 40);
@@ -30927,6 +30980,22 @@ async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", ki
   }
 }
 
+// V22.9.37 감사 H10: 일반 참여자·조회 전용에게는 초대코드를 보여 주지 않는다. 웹 참여자 화면과 같은 기준이다.
+function kakaoInviteNotAllowedText(household = null) {
+  return [
+    "👥 초대코드는 가계부 소유자·관리자만 확인할 수 있어요.",
+    household?.name ? `가계부: ${household.name}` : "",
+    "",
+    "구성원을 초대하려면 소유자나 관리자에게 초대코드를 요청해 주세요.",
+  ].filter(Boolean).join("\n");
+}
+
+// V22.9.37 감사 NEW-8: 예산도 기록·수정과 같은 20억 상한을 둔다(웹 예산 일괄 저장과 같은 기준). "50억"이
+// 예산으로 저장되면 예산 사용률과 알림이 통째로 어긋난다.
+function kakaoBudgetAmountTooLargeText(amount = 0) {
+  return `금액이 너무 커서 예산을 설정하지 않았어요.\n입력 금액: ${numberWithCommas(amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 설정할 수 있어요. 금액을 다시 보내 주세요.`;
+}
+
 function kakaoInviteManagementText(household = {}, origin = "") {
   const code = String(household?.invite_code || "-").trim() || "-";
   // P1-1: 초대 응답 메시지에는 내부 household_id(UUID)를 노출하지 않는다. 참여는 초대코드만으로 충분하며,
@@ -30980,11 +31049,13 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
   ].filter(Boolean).join("\n") + cta;
 }
 
+// V22.9.37 감사 H7·H13: "같은 이름의 가계부"는 내가 소유한 가계부와만 비교한다. 참여만 한(조회 전용 포함) 가계부와
+// 이름이 같다고 새로 만들지 않으면 같은 이름의 내 가계부를 만들 길이 없다. 비교는 공백·대소문자만 고른다.
 async function findExistingKakaoHouseholdByNameV2254(env, userId = "", name = "") {
-  const target = normalizeText(name).replace(/\s+/g, " ").trim().toLowerCase();
+  const target = normalizeHouseholdNameText(name).toLowerCase();
   if (!target) return null;
-  const rows = kakaoActiveHouseholds(await fetchUserHouseholds(env, userId));
-  return rows.find((h) => normalizeText(h?.name || "").replace(/\s+/g, " ").trim().toLowerCase() === target) || null;
+  const rows = safeArray(await fetchUserHouseholds(env, userId)).filter((h) => String(h?.role || "") === "owner");
+  return rows.find((h) => normalizeHouseholdNameText(h?.name || "").toLowerCase() === target) || null;
 }
 
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
@@ -31055,7 +31126,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
-    if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
+    // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.
+    if (action === "invite") return canManageMyHousehold(chosen.role) ? { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] } : { text: kakaoInviteNotAllowedText(chosen), quickReplies: [["도움말", "도움말"]] };
     if (action === "bind") {
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
@@ -31175,7 +31247,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     const joined = await joinHouseholdByCode(env, user.id, code);
     if (!joined) return { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["다시 입력", "초대코드로 참여"], ["취소", "취소"]] };
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-    if (!["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
+    // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
+    if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
     if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말", "도움말"]] };
     return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
@@ -31271,6 +31344,8 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       if (normalizeText(utterance) === "직접 입력") return { text: "금액을 직접 입력해 주세요.\n예: 80만원", quickReplies: [["취소", "취소"]] };
       const amount = parseAmountValue(utterance);
       if (!amount) return { text: "금액을 확인하지 못했어요.\n예: 50만원, 1000000원", quickReplies: kakaoBudgetAmountQuickReplies() };
+      // V22.9.37 감사 NEW-8: "50억"은 예산으로 저장하지 않고 상한을 알리고 다시 묻는다(웹 예산 저장과 같은 20억 상한).
+      if (amount > MAX_TRANSACTION_AMOUNT) return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
       const category = state.data?.category || "__total";
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "confirm", data: { household_id: household.id, month, category, amount } });
       return { text: `${month} ${category === "__total" ? "전체 월" : category} 예산을\n${numberWithCommas(amount)}원으로 설정할까요?`, quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] };
@@ -31288,6 +31363,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       if (t !== "설정하기" && !isKakaoCreateConfirmYes(t)) return { text: "설정하려면 ‘설정하기’ 또는 ‘응’이라고 입력해 주세요.", quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] };
       const category = state.data?.category || "__total";
       const amount = Number(state.data?.amount || 0);
+      if (amount > MAX_TRANSACTION_AMOUNT) {
+        await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
+        return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
+      }
       await saveKakaoBudget(env, household.id, month, category, amount);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
@@ -31606,7 +31685,8 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(kakaoCreateKindPromptText(), kakaoCreateKindQuickReplies());
   }
 
-  if (!strongTransactionInput && isKakaoJoinFlowCommand(utterance)) {
+  // V22.9.37 감사 H3: 앱이 복사해 주는 초대 문구 "가계부 참여 CODE"는 참여 흐름 안내가 아니라 그 코드로 바로 참여다(아래 joinCode 경로).
+  if (!strongTransactionInput && isKakaoJoinFlowCommand(utterance) && !parseJoinCode(utterance)) {
     await saveKakaoFlowState(env, user.id, payload, { flow: "join_household", step: "code", data: {} });
     return kakaoText("초대코드를 입력해 주세요.\n예: ABC123", [["취소", "취소"]]);
   }
@@ -31651,7 +31731,8 @@ async function handleKakaoSkill(request, env) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
       if (!joined) return kakaoText(`초대코드 ${joinCode}를 찾지 못했어요. 코드를 다시 확인해 주세요.`);
-      if (!["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
+      // V22.9.37 감사 H2: 단톡방에서 보낸 참여 명령은 1:1 개인 가계부 선택을 바꾸지 않는다.
+      if (!botGroupKey && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
       if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`);
       return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, kakaoStartQuickReplies(true));
     } catch (err) {
@@ -31678,6 +31759,19 @@ async function handleKakaoSkill(request, env) {
   ]);
   const pendingHousehold = households.find((h) => String(h.role || "") === "pending") || null;
   let activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
+  // V22.9.37 감사 H15: 승인 대기 중인 사람은 자기 참여 요청을 거둘 수 있다. 내 pending 행 하나만 지우고 확인된 뒤에만 알린다.
+  if (!strongTransactionInput && isJoinCancelCommand(utterance)) {
+    const pendingRows = households.filter((h) => String(h.role || "") === "pending");
+    if (!pendingRows.length) return kakaoText("취소할 참여 요청이 없어요. 승인 대기 중인 가계부가 없습니다.");
+    if (pendingRows.length > 1) return kakaoText([`승인 대기 중인 가계부가 ${pendingRows.length}개예요.`, ...pendingRows.slice(0, 5).map((h, index) => `${index + 1}. ${h.name || "가계부"}`), "", `취소할 가계부는 웹 가계부 관리에서 골라 주세요.\n${origin}/my/households`].join("\n"));
+    try {
+      const cancelled = await cancelPendingHouseholdJoin(env, user.id, pendingRows[0].id);
+      if (!cancelled.cancelled) return kakaoText(`‘${pendingRows[0].name}’ 참여 요청을 취소하지 못했어요. 승인 대기 상태는 그대로예요. 잠시 뒤 다시 시도해 주세요.`);
+    } catch (err) {
+      return kakaoText(`‘${pendingRows[0].name}’ 참여 요청 취소 결과를 확인하지 못했어요. ‘시작’으로 현재 상태를 먼저 확인해 주세요.`);
+    }
+    return kakaoText(`✅ ‘${pendingRows[0].name}’ 참여 요청을 취소했어요.\n다시 참여하려면 초대코드를 다시 보내 주세요.`);
+  }
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
     return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
   }
@@ -31774,6 +31868,8 @@ async function handleKakaoSkill(request, env) {
   const directBudget = parseDirectBudgetSetCommand(utterance);
   if (directBudget) {
     if (!["owner","admin"].includes(accessRole)) return kakaoText("예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.");
+    // V22.9.37 감사 NEW-8: "예산 50억"도 웹 예산 저장과 같은 20억 상한에서 거절한다.
+    if (directBudget.amount > MAX_TRANSACTION_AMOUNT) return kakaoText(kakaoBudgetAmountTooLargeText(directBudget.amount));
     const category = await resolveBudgetCategoryName(env, household.id, directBudget.category);
     if (!category) return kakaoText("등록된 카테고리를 찾지 못했어요.\n‘예산 설정’을 입력해 단계별로 선택해 주세요.", [["예산 설정", "예산 설정"]]);
     await saveKakaoBudget(env, household.id, directBudget.month, category, directBudget.amount);
@@ -31789,6 +31885,8 @@ async function handleKakaoSkill(request, env) {
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
 
   if (!strongTransactionInput && isInviteCommand(utterance)) {
+    // V22.9.37 감사 H10: 초대코드는 웹 참여자 화면처럼 소유자·관리자만 본다.
+    if (!canManageMyHousehold(accessRole)) return kakaoText(kakaoInviteNotAllowedText(household), [["도움말", "도움말"]]);
     return kakaoText(kakaoInviteManagementText(household, origin), [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]]);
   }
 
@@ -32964,6 +33062,12 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             assertFresh();
             await saveSettingValue(env, snapshot.keys.marker, JSON.stringify(marker));
           };
+          // V22.9.37 감사 H6: 저장소가 분명히 거절(4xx)한 POST 는 아무것도 쓰지 않았다. 단계를 한 칸 되돌려 다음 메시지가 같은
+          // 고정 ID 로 다시 시도하게 한다. 결과를 모르는 실패는 예전처럼 단계를 남기고 고정 대상만 재조회한다(새 UUID·보상 삭제 없음).
+          const rollbackPhase = async previous => { try { await phase(previous); } catch (_) {} };
+          const rollbackMemberAttempt = async () => {
+            try { assertFresh(); await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(snapshot.keys.member)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
+          };
           if (preparing) {
             if (!household) {
               if (marker.phase !== "reserved") throw kakaoGroupPreparationUnknown();
@@ -32974,7 +33078,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
                 household = Array.isArray(created) ? created[0] : null;
                 if (household?.id !== householdId) throw kakaoGroupPreparationUnknown();
               } catch (err) {
-                if (isDefiniteStorageFailure(err)) throw err;
+                if (isDefiniteStorageFailure(err)) { if (!isUniqueConstraintError(err)) await rollbackPhase("reserved"); throw err; }
                 assertFresh();
                 try { household = await getHouseholdById(env, householdId); }
                 catch (_) { throw kakaoGroupPreparationUnknown(err); }
@@ -32993,17 +33097,26 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
               catch (err) { writeError = err; }
               assertFresh();
               try { members = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true); }
-              catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+              catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackPhase("create_sent"); throw readErr; }
               ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
-              if (ownerRole !== "owner") throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+              if (ownerRole !== "owner") {
+                if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackPhase("create_sent"); throw writeError; }
+                throw kakaoGroupPreparationUnknown(writeError);
+              }
             }
             if (marker.phase === "link_sent") throw kakaoGroupPreparationUnknown();
             await phase("link_sent");
             assertFresh();
-            const linkedValue = await insertKakaoGroupFirstSetting(env, kakaoGroupLinkItemSettingsKey(groupKey), {
-              group_key: groupKey, household_id: householdId, household_name: household.name, invite_code: household.invite_code,
-              linked_by: marker.owner_id, linked_at: new Date().toISOString(),
-            });
+            let linkedValue;
+            try {
+              linkedValue = await insertKakaoGroupFirstSetting(env, kakaoGroupLinkItemSettingsKey(groupKey), {
+                group_key: groupKey, household_id: householdId, household_name: household.name, invite_code: household.invite_code,
+                linked_by: marker.owner_id, linked_at: new Date().toISOString(),
+              });
+            } catch (err) {
+              if (isDefiniteStorageFailure(err)) await rollbackPhase("owner_sent");
+              throw err;
+            }
             const link = normalizeKakaoGroupLinkItem(linkedValue, groupKey);
             if (link?.household_id !== householdId || link.linked_by !== marker.owner_id) throw new Error("kakao_group_first_link_conflict");
             snapshot.link = link;
@@ -33039,10 +33152,13 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             catch (err) { writeError = err; }
             assertFresh();
             try { roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" }); }
-            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); throw readErr; }
+            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackMemberAttempt(); throw readErr; }
             strictKakaoGroupMembershipRows(roleRows);
             role = bestRoleFromRows(roleRows);
-            if (!role) throw writeError && isDefiniteStorageFailure(writeError) ? writeError : kakaoGroupPreparationUnknown(writeError);
+            if (!role) {
+              if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackMemberAttempt(); throw writeError; }
+              throw kakaoGroupPreparationUnknown(writeError);
+            }
             firstNotice = "이 방의 공동 가계부에 참여했어요.\n같은 방의 참여자들이 함께 기록을 사용해요.\n\n";
           }
           if (!role) return kakaoText("이 방의 가계부에 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 개인 대화에서 초대코드로 참여해 주세요.");
@@ -33653,6 +33769,19 @@ async function markKakaoChatFirstHistory(env, userId) {
   await saveSettingValue(env, `kakao_first_record_history_v22928:${String(userId)}`, JSON.stringify({ version: 1, user_id: String(userId) }));
 }
 
+// V22.9.37 감사 H5: 가계부 삭제는 참여자 수만큼 표식을 한 건씩 썼다. 하위 요청이 참여자 수에 비례해 늘어 큰 가계부는
+// 지워지지 않았다. 같은 표식을 한 번의 upsert 로 쓴다(값은 markKakaoChatFirstHistory 와 같다).
+async function markKakaoChatFirstHistoryBatch(env, userIds = []) {
+  const ids = [...new Set(safeArray(userIds).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return 0;
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(ids.map((id) => ({ key: `kakao_first_record_history_v22928:${id}`, value: JSON.stringify({ version: 1, user_id: id }) }))),
+  });
+  return ids.length;
+}
+
 async function kakaoChatFirstCompleted(env, markerKey, userId) {
   const historyKey = `kakao_first_record_history_v22928:${String(userId)}`;
   const doneKey = markerKey.replace("kakao_first_record_v22928:", "kakao_first_record_done_v22928:");
@@ -33921,6 +34050,29 @@ async function joinHouseholdByCode(env, userId, code, options = {}) {
   });
 }
 
+// V22.9.37 감사 H15: 승인 대기 중인 사람이 자기 참여 요청만 거둔다. 다른 역할 행은 건드리지 않고, 지운 뒤 다시 읽어
+// 비어 있음을 확인한 결과만 성공으로 본다(확인된 쓰기만 알린다). 참여와 같은 사용자 → 가계부 잠금 순서를 쓴다.
+async function cancelPendingHouseholdJoin(env, userId, householdId, options = {}) {
+  const uid = String(userId || "").trim();
+  const hid = String(householdId || "").trim();
+  if (!uid || !hid) return { cancelled: false, reason: "missing" };
+  if (options.lifecycleLeaseHeld !== true) return withKakaoUserLifecycleLease(env, uid, (lifecycleOptions) => cancelPendingHouseholdJoin(env, uid, hid, lifecycleOptions));
+  const membershipPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&user_id=eq.${encodeURIComponent(uid)}`;
+  return withHouseholdDatabaseLease(env, hid, async ({ assertFresh: householdFresh }) => {
+    const assertFresh = () => { options.assertFresh?.(); householdFresh(); };
+    const rows = await supabase(env, `${membershipPath}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("household_member_source_invalid");
+    const role = bestRoleFromRows(rows);
+    if (role !== "pending") return { cancelled: false, reason: role ? "not_pending" : "not_member", role };
+    assertFresh();
+    await supabase(env, `${membershipPath}&role=eq.pending`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    const remaining = await supabase(env, `${membershipPath}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+    if (!Array.isArray(remaining)) throw new Error("household_member_source_invalid");
+    if (bestRoleFromRows(remaining)) return { cancelled: false, reason: "not_confirmed", role: bestRoleFromRows(remaining) };
+    return { cancelled: true, household_id: hid };
+  });
+}
+
 async function getPendingHousehold(env, userId) {
   const rows = await optionalSupabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(userId)}&role=eq.pending&select=household_id,created_at&order=created_at.desc&limit=10`, { method: "GET" }, []) || [];
   for (const row of rows) {
@@ -34016,6 +34168,11 @@ async function supabase(env, path, init = {}) {
 function parseJoinCode(text) {
   const m = text.match(/(?:가계부\s*)?(?:참여|연결|join)\s+([A-Z0-9]{5,12})/i);
   return m ? m[1].toUpperCase() : null;
+}
+
+// V22.9.37 감사 H15: 승인 대기 중인 사람이 자기 참여 요청을 거두는 말. "취소" 한 마디는 수정 세션·단계 흐름 취소와 겹치므로 받지 않는다.
+function isJoinCancelCommand(text = "") {
+  return /^(?:가계부\s*)?(?:참여|가입|참여\s*요청|참여\s*신청|승인\s*대기|승인\s*요청)\s*(?:취소|철회)(?:해줘|해\s*주세요|할래|하기)?$/.test(normalizeText(text));
 }
 
 function isHelpCommand(text) {
