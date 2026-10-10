@@ -278,8 +278,10 @@ async function handleAdminAddTransaction(request, env) {
     try {
       if (txType !== "income" && householdId) {
         const savedCategory = manualClass.category;
-        const budgets = await fetchBudgets(env, householdId, month);
-        const rowsNow = await fetchAdminRows(env, { month, householdId, type: "all" });
+        // V22.9.37 감사 D9: 예산 안내는 보고 있던 달(폼의 month)이 아니라 기록한 날짜의 달 기준이다.
+        const recordMonth = validMonth(String(transactionDate).slice(0, 7)) || month;
+        const budgets = await fetchBudgets(env, householdId, recordMonth);
+        const rowsNow = await fetchAdminRows(env, { month: recordMonth, householdId, type: "all" });
         balert = budgetAlertText(rowsNow, budgets, savedCategory);
       }
     } catch (_) {}

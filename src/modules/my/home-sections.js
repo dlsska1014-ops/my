@@ -35,7 +35,13 @@ function longestNoSpendStreak(rows = [], month = currentMonthKst()) {
   const expenseDays = new Set(rows.filter((r) => r.type !== "income" && String(r.transaction_date || "").slice(0, 7) === month).map((r) => String(r.transaction_date || "")));
   const [y, m] = month.split('-').map(Number);
   if (!y || !m) return 0;
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  // V22.9.37 감사 SIM-18: 이번 달은 오늘까지, 지난 달은 월 전체, 앞으로 올 달은 세지 않는다(U01 과 같은 규칙).
+  // 예전에는 아직 오지 않은 날을 무지출로 세어 달 중순에 "최장 무지출 22일" 같은 숫자가 나왔다.
+  const todayStr = formatDate(nowKstDate());
+  const thisMonth = todayStr.slice(0, 7);
+  if (month > thisMonth) return 0;
+  const monthLastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lastDay = month === thisMonth ? Math.min(monthLastDay, Number(todayStr.slice(8, 10))) : monthLastDay;
   let best = 0, cur = 0;
   for (let d = 1; d <= lastDay; d++) {
     const key = `${month}-${String(d).padStart(2, '0')}`;
@@ -204,14 +210,16 @@ function renderHomeReportCards(options = {}) {
   const thisWeek = weeks[3];
   const lastWeek = weeks[2];
   const paceDelta = thisWeek.covered && lastWeek.covered ? thisWeek.amount - lastWeek.amount : null;
+  // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
+  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 문구가 기준을 그대로 말한다.
   const paceRead = paceDelta === null
     ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
     : paceDelta > 0
-      ? `지난주보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
+      ? `최근 7일이 그 전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
       : paceDelta < 0
-        ? `지난주보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `지난주와 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="지난 4주 주간 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+        ? `최근 7일이 그 전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
+        : `최근 7일이 그 전 7일과 같은 속도입니다`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="오늘까지 7일 단위로 묶은 최근 4주 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -305,6 +313,15 @@ function renderHomeWeekStrip(rows = [], isCurrentMonth = true) {
 
 function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false) {
   if (!rows.length) return "";
+  // V22.9.37 감사 D14: 날짜 합계는 화면에 올린 80건이 아니라 받은 기록 전체로 낸다. 잘린 날은 몇 건을 보여 주는지 적어
+  // 부분합이 그날 전체처럼 읽히지 않게 한다(받은 기록이 쪽 단위라면 쪽 경계의 날은 부르는 쪽이 전체 행을 넘겨야 한다).
+  const dayTotals = Object.create(null);
+  for (const row of rows) {
+    const date = String(row.transaction_date || "");
+    if (!dayTotals[date]) dayTotals[date] = { expense: 0, income: 0, count: 0 };
+    dayTotals[date][row.type === "income" ? "income" : "expense"] += Number(row.amount || 0);
+    dayTotals[date].count += 1;
+  }
   const groups = [];
   for (const row of rows.slice(0, 80)) {
     const date = String(row.transaction_date || "");
@@ -313,11 +330,13 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     else groups.push({ date, rows: [row] });
   }
   return groups.map((group) => {
-    const expense = group.rows.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-    const income = group.rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-    const sum = income
+    const total = dayTotals[group.date] || { expense: 0, income: 0, count: group.rows.length };
+    const expense = total.expense;
+    const income = total.income;
+    const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
+    const sum = (income
       ? `+${numberWithCommas(income)}원${expense ? ` · -${numberWithCommas(expense)}원` : ""}`
-      : `-${numberWithCommas(expense)}원`;
+      : `-${numberWithCommas(expense)}원`) + partial;
     return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender)}</section>`;
   }).join("");
 }

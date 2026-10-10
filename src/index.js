@@ -5456,8 +5456,10 @@ async function handleAdminAddTransaction(request, env) {
     try {
       if (txType !== "income" && householdId) {
         const savedCategory = manualClass.category;
-        const budgets = await fetchBudgets(env, householdId, month);
-        const rowsNow = await fetchAdminRows(env, { month, householdId, type: "all" });
+        // V22.9.37 감사 D9: 예산 안내는 보고 있던 달(폼의 month)이 아니라 기록한 날짜의 달 기준이다.
+        const recordMonth = validMonth(String(transactionDate).slice(0, 7)) || month;
+        const budgets = await fetchBudgets(env, householdId, recordMonth);
+        const rowsNow = await fetchAdminRows(env, { month: recordMonth, householdId, type: "all" });
         balert = budgetAlertText(rowsNow, budgets, savedCategory);
       }
     } catch (_) {}
@@ -6758,7 +6760,8 @@ function normalizeReservePlanList(value, householdId = "", options = {}) {
       payment_method: String(item.payment_method || "").trim().slice(0, 80),
       recurrence,
       due_months: dueMonths,
-      due_day: Math.max(1, Math.min(28, Number(item.due_day || 1))),
+      // V22.9.37 감사 N10: 저장값이 숫자가 아니면 NaN(JSON 에서는 null)이 아니라 기본값 1 로 읽는다.
+      due_day: Number.isFinite(Number(item.due_day)) && Number(item.due_day) > 0 ? Math.max(1, Math.min(28, Math.round(Number(item.due_day)))) : 1,
       alert_days: [...new Set(alertDays.map((d) => Math.max(1, Math.min(365, Number(d || 0)))).filter(Boolean))].sort((a, b) => b - a),
       memo: String(item.memo || "").trim().slice(0, 160),
       created_at: item.created_at || new Date(0).toISOString(),
@@ -6788,18 +6791,56 @@ async function saveReservePlans(env, householdId = "", plans = []) {
   return cleaned;
 }
 
+const RESERVE_RECURRENCES = ["annual", "semiannual", "quarterly", "monthly"];
+
+// V22.9.37 감사 N10: 월·일·반복주기는 깎거나 기본값으로 바꾸지 않고 틀리면 거절한다(NaN 을 저장하지 않는다). 빈 값만 기본값이다.
+function readReserveRecurrence(value, fallback = "annual") {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  if (!RESERVE_RECURRENCES.includes(raw)) throw new Error("reserve_recurrence_invalid");
+  return raw;
+}
+
+function readReserveDueDay(value, fallback = 1) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  if (!/^\d{1,2}$/.test(raw) || Number(raw) < 1 || Number(raw) > 28) throw new Error("reserve_due_day_invalid");
+  return Number(raw);
+}
+
+function readReserveDueMonths(values) {
+  const list = Array.isArray(values) ? values : String(values ?? "").split(/[,\s]+/);
+  const months = [];
+  for (const value of list) {
+    const raw = String(value ?? "").trim();
+    if (!raw) continue;
+    if (!/^\d{1,2}$/.test(raw) || Number(raw) < 1 || Number(raw) > 12) throw new Error("reserve_due_month_invalid");
+    months.push(Number(raw));
+  }
+  return [...new Set(months)].sort((a, b) => a - b);
+}
+
+function defaultReserveDueMonths(recurrence = "annual") {
+  if (recurrence === "monthly") return Array.from({ length: 12 }, (_, i) => i + 1);
+  return recurrence === "semiannual" ? [6, 12] : recurrence === "quarterly" ? [3, 6, 9, 12] : [12];
+}
+
 async function addReservePlan(env, householdId = "", data = {}) {
   const hid = String(householdId || "").trim();
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
   if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
-  const recurrence = ["annual","semiannual","quarterly","monthly"].includes(data.recurrence) ? data.recurrence : "annual";
-  let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
-  if (!dueMonths.length) dueMonths = recurrence === "semiannual" ? [6, 12] : recurrence === "quarterly" ? [3, 6, 9, 12] : [12];
+  const recurrence = readReserveRecurrence(data.recurrence, "annual");
+  let dueMonths = readReserveDueMonths(safeArray(data.due_months));
+  if (!dueMonths.length) dueMonths = defaultReserveDueMonths(recurrence);
+  const dueDay = readReserveDueDay(data.due_day, 1);
   return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
     const current = await fetchReservePlans(env, hid, { strict: true });
+    // V22.9.37 감사 SIM-3: 같은 이름이 이미 있으면 바꿔 끼우지 않고 거절한다. 예전에는 기존 항목을 지우고 새 항목을 넣어
+    // id·알림 설정이 사라졌다. 같은 이름 두 개를 두지도 않는다 — 수정·삭제는 id 로 찾더라도 사람은 이름으로 구분한다.
+    if (current.some((p) => normalizeText(p.name) === normalizeText(name))) throw new Error("reserve_name_duplicate");
     const next = [
-      ...current.filter((p) => normalizeText(p.name) !== normalizeText(name)),
+      ...current,
       {
         id: randomEntityId("reserve"),
         household_id: hid,
@@ -6811,7 +6852,7 @@ async function addReservePlan(env, householdId = "", data = {}) {
         payment_method: String(data.payment_method || "").trim().slice(0, 80),
         recurrence,
         due_months: dueMonths,
-        due_day: Math.max(1, Math.min(28, Number(data.due_day || 1))),
+        due_day: dueDay,
         alert_days: safeArray(data.alert_days).length ? data.alert_days : [90, 60, 30],
         memo: String(data.memo || "").trim().slice(0, 160),
         created_at: new Date().toISOString(),
@@ -6829,16 +6870,20 @@ async function updateReservePlan(env, householdId = "", id = "", data = {}) {
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
   if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
+  // V22.9.37 감사 N10: 월·일·반복주기는 항목을 찾기 전에 검증해 틀린 값을 조용히 깎지 않는다.
+  const requestedRecurrence = readReserveRecurrence(data.recurrence, "");
+  const requestedDueMonths = readReserveDueMonths(safeArray(data.due_months));
+  const requestedDueDay = readReserveDueDay(data.due_day, 0);
   return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
     const current = await fetchReservePlans(env, hid, { strict: true });
     const target = current.find((p) => String(p.id) === String(id));
     if (!target) throw new Error("수정할 항목을 찾지 못했습니다.");
-    const recurrence = ["annual","semiannual","quarterly","monthly"].includes(data.recurrence) ? data.recurrence : target.recurrence;
-    let dueMonths = safeArray(data.due_months).map((m) => Math.max(1, Math.min(12, Number(m || 0)))).filter(Boolean);
+    const recurrence = requestedRecurrence || target.recurrence;
+    let dueMonths = requestedDueMonths;
     if (!dueMonths.length) dueMonths = recurrence === "monthly" ? Array.from({ length: 12 }, (_, i) => i + 1) : safeArray(target.due_months);
-    // 이름이 겹치는 다른 항목은 정리한다(추가 경로가 이름 기준으로 합치는 것과 같은 판단).
+    // V22.9.37 감사 SIM-3: 다른 항목과 같은 이름으로 바꾸면 거절한다. 예전에는 이름이 겹치는 다른 항목을 "정리"해 지웠다.
+    if (current.some((p) => String(p.id) !== String(id) && normalizeText(p.name) === normalizeText(name))) throw new Error("reserve_name_duplicate");
     const next = current
-      .filter((p) => String(p.id) === String(id) || normalizeText(p.name) !== normalizeText(name))
       .map((p) => String(p.id) !== String(id) ? p : {
         ...p,
         name,
@@ -6849,7 +6894,7 @@ async function updateReservePlan(env, householdId = "", id = "", data = {}) {
         payment_method: String(data.payment_method ?? p.payment_method ?? "").trim().slice(0, 80),
         recurrence,
         due_months: dueMonths,
-        due_day: Math.max(1, Math.min(28, Number(data.due_day || p.due_day || 1))),
+        due_day: requestedDueDay || Number(p.due_day || 1),
         memo: String(data.memo ?? p.memo ?? "").trim().slice(0, 160),
       });
     assertFresh();
@@ -7001,7 +7046,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdId = selected?.id || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
   const feedbackCode = String(url.searchParams.get("err") || url.searchParams.get("msg") || "");
-  const feedbackHtml = feedbackCode ? `<div class="${url.searchParams.get("err") ? "error" : "ok"}" role="status">${formatMessage(feedbackCode)}</div>` : "";
+  const feedbackHtml = feedbackCode ? `<div class="${url.searchParams.get("err") ? "error" : "ok"}" role="status">${budgetPlanMessage(feedbackCode) || formatMessage(feedbackCode)}</div>` : "";
   // V22.8.79-1: 고정지출(accountbook_recurring)은 홈에서 진입점을 잃었다. 여기로 합친다.
   // 라우트(/admin/recurring/*)와 반영 RPC 는 그대로 두고 화면만 옮긴다.
   // V22.9.16: 다섯 조회가 서로 필요 없다. 한 번에 던진다.
@@ -7016,7 +7061,8 @@ async function handleReservePlansPage(request, env, url) {
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
-  const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
+  // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
+  const spenderOptions = renderSpenderOptions(eligibleRecurringSpenders(recurringMembers), "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
   const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
@@ -7026,7 +7072,7 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}${recurringSpenderEligible(recurringMembers, r.user_id) ? "" : `<span class="note">지출자 확인 필요 · 지출자가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뜁니다. 수정에서 지출자를 다시 고르세요.</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -7040,7 +7086,8 @@ async function handleReservePlanCreate(request, env) {
     if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기지출 저장 권한이 없습니다.")}`);
   }
   const recurrence = String(form.get("recurrence") || "monthly");
-  let dueMonths = [form.get("due_month_1"), form.get("due_month_2"), form.get("due_month_3"), form.get("due_month_4")].map(Number).filter(Boolean);
+  // V22.9.37 감사 N10: 선택값을 숫자로 바꾸지 않고 그대로 넘겨 저장 함수가 1~12 를 검증한다(틀린 값을 조용히 버리지 않는다).
+  let dueMonths = [form.get("due_month_1"), form.get("due_month_2"), form.get("due_month_3"), form.get("due_month_4")].map((v) => String(v ?? "").trim()).filter(Boolean);
   if (recurrence === "monthly") dueMonths = Array.from({length:12},(_,i)=>i+1);
   try {
     await addReservePlan(env, householdId, {
@@ -7058,7 +7105,9 @@ async function handleReservePlanCreate(request, env) {
     });
     return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&msg=reserve_saved`);
   } catch (err) {
-    return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기지출 저장을 완료하지 못했습니다.")}`);
+    // 검증·중복 이름 거절은 코드 그대로 돌려보내 화면이 이유를 말하게 한다. 그 밖의 실패는 예전 문구다.
+    const code = safeError(err);
+    return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent(/^reserve_[a-z_]+$/.test(code) ? code : "정기지출 저장을 완료하지 못했습니다.")}`);
   }
 }
 
@@ -7076,7 +7125,8 @@ async function handleReservePlanUpdate(request, env) {
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`${back}&err=${encodeURIComponent("수정할 항목을 찾지 못했습니다.")}`);
   const recurrence = String(form.get("recurrence") || "monthly");
-  let dueMonths = [form.get("due_month_1"), form.get("due_month_2"), form.get("due_month_3"), form.get("due_month_4")].map(Number).filter(Boolean);
+  // V22.9.37 감사 N10: 선택값을 그대로 넘겨 저장 함수가 1~12 를 검증한다.
+  let dueMonths = [form.get("due_month_1"), form.get("due_month_2"), form.get("due_month_3"), form.get("due_month_4")].map((v) => String(v ?? "").trim()).filter(Boolean);
   if (recurrence === "monthly") dueMonths = Array.from({ length: 12 }, (_, i) => i + 1);
   try {
     await updateReservePlan(env, householdId, id, {
@@ -11499,7 +11549,7 @@ function openBuilderFinalRows(origin = "") {
     ["기록 입력", "점심 12000 국민카드, 커피 4500 카카오페이", "입력 블록 또는 폴백 → Skill", skill],
     ["여러 줄 입력", "7월3일\\n온열안대 9900 삼성카드\\n풋샴푸 10150 삼성카드", "폴백 → Skill", skill],
     ["조회", "요약, 오늘 기록, 최근, 내역", "조회 블록 → Skill", skill],
-    ["예산", "남은예산, 오늘예산, 이번달예상, 정기지출", "예산 블록 → Skill", skill],
+    ["예산", "남은예산, 예산 현황, 예산 설정, 정기지출", "예산 블록 → Skill", skill],
     ["수정/삭제", "01번 금액 13000원, 01번 삭제, 수정가이드", "수정 블록 → Skill", skill],
     ["단톡방", "단톡방, 단톡방 연결 ABC123, 그룹 정보", "그룹 연결 블록 → Skill", skill],
     ["정책", "개인정보, 데이터 보관, 브랜드, 심사", "안내 블록 → Skill", skill],
@@ -11516,7 +11566,7 @@ async function handleOpenBuilderFinalUtterancePage(request, env, url) {
     "필수 발화",
     "도움말 / 처음 / 메뉴 / 입력 예시",
     "요약 / 오늘 기록 / 최근",
-    "남은예산 / 오늘예산 / 이번달예상 / 정기지출",
+    "남은예산 / 예산 현황 / 예산 설정 / 정기지출",
     "01번 삭제 / 01번 금액 13000원 / 수정가이드",
     "단톡방 / 단톡방 연결 초대코드 / 그룹 정보",
     "개인정보 / 브랜드 / 심사 / 폴백",
@@ -11907,7 +11957,8 @@ function renderPendingRecurringList(model) {
 }
 
 function budgetAlertKakaoHint(model) {
-  if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 남은예산, 오늘예산, 이번달예상처럼 확인할 수 있어요.";
+  // V22.9.37 감사 D10: 카카오에 실제로 있는 명령만 말한다(오늘예산·이번달예상 명령은 없다).
+  if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 ‘남은 예산’·‘예산 현황’으로 바로 확인할 수 있어요.";
   if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
@@ -11922,14 +11973,16 @@ function classifyDeductionPay(pm) {
   if (/카드|신용/.test(s)) return "credit";
   return "other";
 }
-function buildAnnualReportModel(rows, year) {
+function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst()) {
   const monthsExp = new Array(12).fill(0);
   const monthsInc = new Array(12).fill(0);
+  const monthsCount = new Array(12).fill(0);
   let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
   const catExp = Object.create(null);
   for (const r of safeArray(rows)) {
     const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
     const amt = Number(r.amount || 0);
+    if (mi >= 0 && mi < 12) monthsCount[mi] += 1;
     if (r.type === "income") {
       totalInc += amt;
       if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
@@ -11945,10 +11998,16 @@ function buildAnnualReportModel(rows, year) {
   }
   const catTop = Object.keys(catExp).map((k) => ({ category: k, amount: catExp[k] }))
     .sort((a, b) => b.amount - a.amount).slice(0, 6);
+  // V22.9.37 감사 SIM-16: 월 평균을 12 로 나누지 않는다. 이번 해는 오늘이 속한 달까지, 지난 해는 열두 달 가운데
+  // 기록이 있는 달 수로 나누고 화면에 몇 개월 평균인지 적는다(소비 분석의 3개월 평균과 같은 규칙).
+  const nowYear = Number(nowMonth.slice(0, 4));
+  const elapsedMonths = year < nowYear ? 12 : year === nowYear ? Number(nowMonth.slice(5, 7)) : 0;
+  const avgMonths = monthsCount.slice(0, elapsedMonths).filter((count) => count > 0).length;
   return {
     year, monthsExp, monthsInc, totalExp, totalInc,
     savings: totalInc - totalExp,
-    monthAvgExp: Math.round(totalExp / 12),
+    monthAvgExp: avgMonths ? Math.round(totalExp / avgMonths) : 0,
+    avgMonths,
     catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
   };
 }
@@ -11996,7 +12055,7 @@ function renderAnnualReportHtml({ env, households, selected, model, nowYear, now
   const creditDeduct = Math.round(model.creditSpend * 0.15);
   const otherDeduct = Math.round(model.deductibleSpend * 0.30);
   const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:1fr 130px;gap:8px;margin-top:12px}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style></head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section><section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style></head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출${model.avgMonths ? ` · 기록 있는 ${model.avgMonths}개월` : ""}</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section><section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
 }
 
 // V22.8.31 V5 저축·목표 페이지(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) — V5 네이티브 클라이언트 서피스.
@@ -16254,6 +16313,58 @@ async function findRecurringAutoDuplicate(env, row = {}) {
   return rows.find(r => String(r.raw_text) === String(row.raw_text)) || null;
 }
 
+// V22.9.37 감사 T7·SIM-5: 고정항목 지출자의 자격은 저장·화면·자동·수동 반영이 모두 이 한 함수로 판정한다.
+// 소유자·관리자·구성원만 지출자가 될 수 있다. 조회 전용·승인 대기·차단·나간 사람의 규칙은 어디서도 반영하지 않는다.
+// 예전에는 자동 반영만 이 규칙을 쓰고 저장·수동 반영은 pending·blocked 만 걸러 조회 전용 지출자의 규칙이 수동으로만 들어갔다.
+const RECURRING_SPENDER_ROLES = ["owner", "admin", "member"];
+
+function recurringSpenderEligible(members = [], userId = "") {
+  const id = String(userId || "").trim();
+  if (!id) return false;
+  return safeArray(members).some((m) => String(m?.user_id || "") === id && RECURRING_SPENDER_ROLES.includes(String(m?.role || "").toLowerCase()));
+}
+
+function eligibleRecurringSpenders(members = []) {
+  return safeArray(members).filter((m) => recurringSpenderEligible([m], m?.user_id));
+}
+
+// 규칙 하나를 한 달에 넣는다. 자동 반영의 중복 확인·날짜 규칙(없는 날짜만 말일)·표식 갱신을 그대로 쓰므로
+// 수동 반영이 문제 규칙을 건너뛰고 나머지를 넣을 때(T7)도 자동 반영과 같은 기록이 만들어진다.
+// SIM-8: 더 나중 달을 이미 반영한 규칙의 표식(last_applied_month)은 지난 달 반영이 되돌리지 않는다.
+async function applyRecurringRuleForMonth(env, householdId, r, month) {
+  const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
+  const row = {
+    household_id: householdId,
+    user_id: r.user_id || "",
+    type: r.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(r.amount || 0))),
+    category: r.category || (r.type === "income" ? "정기수입" : "정기지출"),
+    memo: r.memo || r.category || "정기지출",
+    payment_method: r.payment_method || "",
+    transaction_date: recurringDateForMonth(month, dueDay),
+    source: "recurring_auto",
+    raw_text: `recurring:${r.id || ""}:${month}`,
+  };
+  // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
+  if (!row.amount) return "skipped";
+  let outcome = "deduplicated";
+  const dup = await findRecurringAutoDuplicate(env, row);
+  if (!dup) {
+    try {
+      const created = await createManualTransaction(env, row);
+      outcome = created?.__duplicate_skipped ? "deduplicated" : "applied";
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+    }
+  }
+  // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신한다. 더 나중 달의 표식은 그대로 둔다.
+  if (!(String(r.last_applied_month || "") > month)) {
+    await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+  }
+  return outcome;
+}
+
 async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const today = opts.today || formatDate(nowKstDate());
   const requestedMonth = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
@@ -16288,43 +16399,18 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       scanned++;
       if (String(r.last_applied_month || "") === month) { skipped++; continue; }
       if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { householdComplete = false; partial = true; break; }
-      if (!members.some(m => m.user_id === r.user_id && ["owner","admin","member"].includes(m.role))) { skipped++; continue; }
+      if (!recurringSpenderEligible(members, r.user_id)) { skipped++; continue; }
       // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
       // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
       const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
       const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
       if (currentDay < dueDay) { skipped++; continue; }
-      const txDate = recurringDateForMonth(month, dueDay);
-      const row = {
-        household_id: householdId,
-        user_id: r.user_id || "",
-        type: r.type === "income" ? "income" : "expense",
-        amount: Math.max(0, Math.round(Number(r.amount || 0))),
-        category: r.category || (r.type === "income" ? "정기수입" : "정기지출"),
-        memo: r.memo || r.category || "정기지출",
-        payment_method: r.payment_method || "",
-        transaction_date: txDate,
-        source: "recurring_auto",
-        raw_text: `recurring:${r.id || ""}:${month}`,
-      };
-      // V22.9.26: 금액 0 항목은 고칠 때까지 건너뛴다. 실패로 세면 매일 scheduled_partial 경고가 반복된다.
-      if (!row.amount) { skipped++; continue; }
       try {
-        const dup = await findRecurringAutoDuplicate(env, row);
-        if (!dup) {
-          try {
-            const created = await createManualTransaction(env, row);
-            if (created?.__duplicate_skipped) deduplicated++;
-            else applied++;
-          } catch (err) {
-            if (isUniqueConstraintError(err)) deduplicated++;
-            else throw err;
-          }
-        } else {
-          deduplicated++;
-        }
-        // 거래 저장 또는 기존 동일 거래 확인이 끝난 뒤에만 적용월을 갱신합니다.
-        await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+        // V22.9.37 감사 T7: 수동 반영과 같은 한 건 반영(중복 확인·날짜 규칙·표식 갱신)을 쓴다.
+        const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
+        if (outcome === "applied") applied++;
+        else if (outcome === "deduplicated") deduplicated++;
+        else skipped++;
       } catch (err) {
         failed++;
         householdComplete = false;
@@ -16543,18 +16629,26 @@ async function handleMyBudgetBulkSave(request, env) {
 
   try {
     const plan = new Map();
+    // V22.9.37 감사 SIM-2: 같은 이름이 두 줄이면 뒤 줄이 앞 줄을 조용히 덮었다. 금액이 같으면 한 줄로 보고, 다르면
+    // 어느 쪽이 맞는지 알 수 없으므로 저장하지 않고 알린다.
+    const putPlanRow = (key, row) => {
+      const prior = plan.get(key);
+      if (prior && prior.amount !== row.amount) return false;
+      if (!prior) plan.set(key, row);
+      return true;
+    };
     for (let i = 0; i < incomeNames.length; i++) {
       const name = incomeNames[i] || defaultIncomeBudgetNames()[i] || `수입${i + 1}`;
       const amount = Math.max(0, Math.min(2000000000, Math.round(Number(incomeAmounts[i] || 0))));
       if (!amount) continue;
-      plan.set(normalizeText(incomeBudgetCategory(name)), { category: incomeBudgetCategory(name), amount });
+      if (!putPlanRow(normalizeText(incomeBudgetCategory(name)), { category: incomeBudgetCategory(name), amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
     }
     for (let i = 0; i < expenseNames.length; i++) {
       const name = expenseNames[i];
       if (!name) continue;
       const amount = Math.max(0, Math.min(2000000000, Math.round(Number(expenseAmounts[i] || 0))));
       if (!amount) continue;
-      plan.set(normalizeText(name), { category: name, amount });
+      if (!putPlanRow(normalizeText(name), { category: name, amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
     }
     const rows = [...plan.values()];
     if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }));
@@ -18802,14 +18896,18 @@ async function handleMyBudgetSave(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const householdId = String(form.get("household_id") || "").trim();
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "write_not_allowed" }));
+  // V22.9.37 감사 N8·N9: 틀린 월은 이번 달로 떨어지지 않고 거절하고, 금액은 거래 상한(20억)을 넘지 않는다.
+  if (!validMonth(monthInput)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "budget_month_invalid" }));
   const category = String(form.get("category") || "__total").trim() || "__total";
   const amount = readOptionalFormAmount(form);
   if (amount === null) return redirectResponse(mySettingsLocation(month, selected.id, { err: "budget_amount_invalid" }));
+  if (amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "amount_too_large" }));
   try {
     await supabase(env, "/rest/v1/accountbook_budgets?on_conflict=household_id,month,category", {
       method: "POST",
@@ -18916,10 +19014,17 @@ async function handleMyRecurringSave(request, env) {
     memo,
     payment_method: String(form.get("payment_method") || "").trim().slice(0, 80),
     day_of_month: normalizeRecurringDay(form.get("day_of_month")),
-    user_id: userId,
     is_active: true,
   };
   try {
+    // V22.9.37 감사 T8: 새 규칙의 지출자는 만든 사람이다. 수정은 지출자를 보내지 않으면 기존 지출자를 그대로 두고(예전에는
+    // 고친 사람으로 바뀌었다), 보냈으면 자동 반영과 같은 자격(소유자·관리자·구성원)일 때만 받는다.
+    const requestedSpender = String(form.get("user_id") || "").trim();
+    if (!ruleId) row.user_id = userId;
+    else if (requestedSpender) {
+      if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, selected.id), requestedSpender)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_spender_ineligible" }));
+      row.user_id = requestedSpender;
+    }
     if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, selected.id, row);
     await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
@@ -18961,11 +19066,12 @@ async function handleMyRecurringDelete(request, env) {
 
 // V22.9.34 감사 T3: 새 정기 규칙을 만들 때 이번 달에 같은 지출(같은 금액·내용)을 이미 기록했으면
 // last_applied_month 를 이번 달로 채운다. 그러지 않으면 자동·수동 반영이 이번 달에 한 번 더 넣었다.
-async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row) {
+async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, rowsHint = null) {
   const thisMonth = currentMonthKst();
   const memoKey = normalizeText(row.memo || "");
   if (!memoKey || !(Number(row.amount) > 0)) return false;
-  const rows = await fetchAdminRows(env, { month: thisMonth, householdId, type: row.type === "income" ? "income" : "expense" });
+  // V22.9.37: 부르는 쪽이 이번 달 같은 종류의 기록을 이미 읽어 두었으면(rowsHint) 다시 읽지 않는다.
+  const rows = Array.isArray(rowsHint) ? rowsHint : await fetchAdminRows(env, { month: thisMonth, householdId, type: row.type === "income" ? "income" : "expense" });
   const recorded = safeArray(rows).some((item) => Number(item.amount) === Number(row.amount)
     && (normalizeText(item.memo || "") === memoKey || normalizeText(item.raw_text || "").includes(memoKey)));
   if (recorded) row.last_applied_month = thisMonth;
@@ -18998,7 +19104,24 @@ async function handleRecurringCandidateConfirm(request, env) {
     is_active: true,
   };
   try {
-    await markRecurringAppliedIfRecordedThisMonth(env, selected.id, row);
+    // V22.9.37 감사 SIM-4: 후보를 만든 최근 3개월 기록을 다시 읽어 지출자·분류를 이어받는다. 규칙은 확정한 사람이 아니라
+    // 그 기록을 낸 사람의 것이어야 한다. 원래 지출자가 더는 활성 참여자가 아니면 확정한 사람으로 둔다. 분류는 폼이 기본값
+    // (정기지출)을 보냈을 때 기록에서 가장 많이 쓴 분류로 채운다.
+    const windowStart = `${addMonthsYm(month, -2)}-01`;
+    const windowEnd = nextMonthStart(month);
+    const [historyRows, rawMembers] = await Promise.all([
+      fetchAdminRowsRange(env, { householdId: selected.id, start: windowStart, end: windowEnd, type: "expense", limit: 6000, complete: false }),
+      fetchRawHouseholdMembers(env, selected.id),
+    ]);
+    const candidateKey = normalizeRecurringKey(row);
+    const sourceRows = safeArray(historyRows).filter((item) => normalizeRecurringKey(item) === candidateKey && !["recurring", "recurring_auto"].includes(String(item.source || "")));
+    const sourceSpender = mostFrequentValue(sourceRows.map((item) => item.user_id));
+    if (sourceSpender && recurringSpenderEligible(rawMembers, sourceSpender)) row.user_id = sourceSpender;
+    const sourceCategory = mostFrequentValue(sourceRows.map((item) => item.category));
+    if (sourceCategory && row.category === "정기지출") row.category = sourceCategory.slice(0, 80);
+    const thisMonth = currentMonthKst();
+    const thisMonthInWindow = windowStart <= `${thisMonth}-01` && `${thisMonth}-01` < windowEnd;
+    await markRecurringAppliedIfRecordedThisMonth(env, selected.id, row, thisMonthInWindow ? safeArray(historyRows).filter((item) => String(item.transaction_date || "").slice(0, 7) === thisMonth) : null);
     const created = await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
       const existing = await fetchRecurringStrict(env, selected.id);
       const key = normalizeRecurringKey(row);
@@ -19016,6 +19139,16 @@ async function handleRecurringCandidateConfirm(request, env) {
     rememberOpsEvent({ kind: "recurring_candidate_confirm_failed", severity: "warn", path: "/my/recurring/from-candidate", method: "POST", detail: safeError(err) });
     return redirectResponse(`${returnTo}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_save_failed"}`);
   }
+}
+
+// 가장 많이 나온 비어 있지 않은 값. 같은 횟수면 먼저 나온 값이다.
+function mostFrequentValue(values = []) {
+  const counts = Object.create(null);
+  for (const value of values) {
+    const key = String(value || "").trim();
+    if (key) counts[key] = (counts[key] || 0) + 1;
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
 }
 
 function renderMySettingsHtml({ env, url, user, month, households, selected, rows = [], budgets, budget, customCategories, recurring, budgetReadFailed = false, planFingerprint = "", msg = "", err = "" }) {
@@ -19049,7 +19182,7 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
     const rate = Number(r.amount || 0) ? Math.round(spent / Number(r.amount || 0) * 100) : 0;
     return `<tr><td><b>${escapeHtml(r.name)}</b></td><td>${numberWithCommas(r.amount)}원</td><td>${numberWithCommas(spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${rate}%</td></tr>`;
   }).join("") : `<tr><td colspan="5">아직 저장된 분류별 예산이 없습니다. 필요한 분류만 추가해서 저장하세요.</td></tr>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 설정</title><style>${myNavCss()}${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero p,.muted{color:#667085;line-height:1.55;font-size:13px}.summaryGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summaryBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.summaryBox b{display:block;font-size:22px;overflow-wrap:anywhere}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rowform{display:grid;grid-template-columns:100px 1fr 150px 150px 150px 100px auto;gap:8px;align-items:center}.rowform input,.rowform select{min-width:0;width:100%}.budgetForm{display:grid;grid-template-columns:1fr 1fr;gap:14px}.budgetLine{display:grid;grid-template-columns:1.2fr .9fr 150px;gap:8px;margin:8px 0}.budgetLine>*{min-width:0}.incomeSummary{list-style:none;padding:0;margin:10px 0;display:grid;gap:7px}.incomeSummary li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:13px;padding:10px 12px}.incomeSummary li span{font-weight:900}.incomeSummary li small{color:#667085}.incomeSummary .emptyIncome{display:block;color:#667085;background:#f8fafc}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.danger{background:#ef4444!important}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}details.fold{border:1px solid #e8edf4;border-radius:22px;background:#fff;padding:6px 14px}details.fold summary{cursor:pointer;font-weight:1000;padding:12px 4px}.sectionNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;font-size:13px;line-height:1.55}.keywordGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.keywordCard{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:16px;padding:10px;background:#f8fafc}.keywordCard label{font-weight:1000}.addBtn{background:#eef2ff!important;color:#3730a3!important;border:1px solid #c7d2fe}@media(max-width:900px){.budgetForm,.keywordGrid{grid-template-columns:1fr}.budgetLine,.keywordCard,.rowform{grid-template-columns:1fr}.toolbar>*{width:100%}}@media(max-width:600px){.wrap{padding:10px 10px 126px}.hero,.card{padding:16px;border-radius:19px}.summaryGrid{grid-template-columns:1fr 1fr}.summaryBox b{font-size:19px}.incomeSummary li{grid-template-columns:1fr auto}.incomeSummary li small{grid-column:1/-1}.budgetLine input,.budgetLine select{width:100%;font-size:16px}}@media(max-width:360px){.summaryGrid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "settings")}<div class="pageMain">${renderMoneyPlanTabs("settings", { month, householdId: selected.id })}<section class="hero"><h1>설정 한눈에</h1><p>이번 달 요약과 예산·정기 설정을 한 화면에서 봅니다. 각 항목은 위 탭에서 더 자세히 볼 수 있습니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 한도는 종류·분류별 행의 합계로 계산합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/settings" class="toolbar"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="btn secondary" href="/app?${hh}">홈</a></form></section><section class="card"><h2>이번 달 요약</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">실제 수입 · 기록 자동합계</span><b>${numberWithCommas(budgetCenter.actualIncome)}원</b></div><div class="summaryBox"><span class="muted">예상 수입 · 종류별 합계</span><b>${numberWithCommas(incomePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">지출 예산 · 분류별 합계</span><b>${numberWithCommas(expensePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">이번 달 지출</span><b>${numberWithCommas(budget.expense || 0)}원</b><span class="muted">예산 사용 ${budget.rate || 0}%</span></div></div><h3>실제 수입 분류</h3><ul class="incomeSummary">${actualIncomeList}</ul></section><section class="card"><h2>예상 수입 + 지출 예산</h2><p class="muted">월 총액을 따로 입력하지 않습니다. 수입 종류와 지출 분류별 금액을 입력하면 위 합계가 자동으로 만들어집니다. 빈 행과 0원 행은 저장하지 않습니다.</p>${budgetReadFailed ? `<p class="error" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p>` : `<form method="post" action="/my/budget-bulk/save" id="budgetBulkForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(planFingerprint)}"/><div class="budgetForm"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><p><button type="button" class="addBtn" data-add="income">+ 수입 종류 추가</button></p><div class="sectionNote">급여·부수입을 고르거나 왼쪽 칸에 직접 이름을 입력하세요. 입력한 행의 합계가 예상 수입입니다.</div></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><p><button type="button" class="addBtn" data-add="expense">+ 지출 분류 추가</button></p><div class="sectionNote">식비·교통 등 필요한 분류만 입력하세요. 분류별 합계가 이번 달 전체 지출 예산입니다.</div></div></div><p><button type="submit">종류별 수입·분류별 예산 저장</button></p></form>`}</section><section class="card"><h2>저장된 분류별 지출 예산</h2><p class="muted">분류별 합계: <b>${numberWithCommas(expensePlanTotal)}원</b></p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th></tr></thead><tbody>${budgetListRows}</tbody></table></div></section><section class="card"><h2>정기 수입·지출 자동 기록</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">정기지출 합계</span><b>${numberWithCommas(recurringInfo.expense)}원</b></div><div class="summaryBox"><span class="muted">정기수입 합계</span><b>${numberWithCommas(recurringInfo.income)}원</b></div><div class="summaryBox"><span class="muted">월 순정기액</span><b>${numberWithCommas(recurringInfo.net)}원</b></div><div class="summaryBox"><span class="muted">등록 건수</span><b>${numberWithCommas(recurringInfo.count)}건</b></div></div><form method="post" action="/my/recurring/save" class="rowform"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="memo" placeholder="예: 자동차보험" required/><input name="amount" placeholder="금액" required/><input name="category" placeholder="분류" value="정기지출"/><input name="payment_method" placeholder="결제수단"/><input name="day_of_month" type="number" min="1" max="31" value="1"/><button type="submit">정기항목 저장</button></form><div class="scroll" style="margin-top:14px"><table><thead><tr><th>내용</th><th>구분</th><th>금액</th><th>분류</th><th>일자</th><th>최근 적용월</th><th></th></tr></thead><tbody>${recurringRows}</tbody></table></div></section><section class="card"><h2>분류·키워드</h2><p class="muted">가족이 실제로 쓰는 표현을 수입·지출 분류에 연결하는 화면은 <b>관리 &gt; 분류·키워드</b> 한 곳에만 둡니다. 같은 편집기를 두 곳에서 열면 어느 쪽이 최신인지 헷갈립니다.</p><p><a class="btn secondary" href="/keyword-guide?${hh}">분류·키워드 관리 열기</a></p></section></div></div></main><script>
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 설정</title><style>${myNavCss()}${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero p,.muted{color:#667085;line-height:1.55;font-size:13px}.summaryGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summaryBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.summaryBox b{display:block;font-size:22px;overflow-wrap:anywhere}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rowform{display:grid;grid-template-columns:100px 1fr 150px 150px 150px 100px auto;gap:8px;align-items:center}.rowform input,.rowform select{min-width:0;width:100%}.budgetForm{display:grid;grid-template-columns:1fr 1fr;gap:14px}.budgetLine{display:grid;grid-template-columns:1.2fr .9fr 150px;gap:8px;margin:8px 0}.budgetLine>*{min-width:0}.incomeSummary{list-style:none;padding:0;margin:10px 0;display:grid;gap:7px}.incomeSummary li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:13px;padding:10px 12px}.incomeSummary li span{font-weight:900}.incomeSummary li small{color:#667085}.incomeSummary .emptyIncome{display:block;color:#667085;background:#f8fafc}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.danger{background:#ef4444!important}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}details.fold{border:1px solid #e8edf4;border-radius:22px;background:#fff;padding:6px 14px}details.fold summary{cursor:pointer;font-weight:1000;padding:12px 4px}.sectionNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;font-size:13px;line-height:1.55}.keywordGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.keywordCard{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:16px;padding:10px;background:#f8fafc}.keywordCard label{font-weight:1000}.addBtn{background:#eef2ff!important;color:#3730a3!important;border:1px solid #c7d2fe}@media(max-width:900px){.budgetForm,.keywordGrid{grid-template-columns:1fr}.budgetLine,.keywordCard,.rowform{grid-template-columns:1fr}.toolbar>*{width:100%}}@media(max-width:600px){.wrap{padding:10px 10px 126px}.hero,.card{padding:16px;border-radius:19px}.summaryGrid{grid-template-columns:1fr 1fr}.summaryBox b{font-size:19px}.incomeSummary li{grid-template-columns:1fr auto}.incomeSummary li small{grid-column:1/-1}.budgetLine input,.budgetLine select{width:100%;font-size:16px}}@media(max-width:360px){.summaryGrid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "settings")}<div class="pageMain">${renderMoneyPlanTabs("settings", { month, householdId: selected.id })}<section class="hero"><h1>설정 한눈에</h1><p>이번 달 요약과 예산·정기 설정을 한 화면에서 봅니다. 각 항목은 위 탭에서 더 자세히 볼 수 있습니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 한도는 종류·분류별 행의 합계로 계산합니다.</p></section>${msg ? `<div class="ok">${budgetPlanMessage(msg) || formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${budgetPlanMessage(err) || formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/settings" class="toolbar"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="btn secondary" href="/app?${hh}">홈</a></form></section><section class="card"><h2>이번 달 요약</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">실제 수입 · 기록 자동합계</span><b>${numberWithCommas(budgetCenter.actualIncome)}원</b></div><div class="summaryBox"><span class="muted">예상 수입 · 종류별 합계</span><b>${numberWithCommas(incomePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">지출 예산 · 분류별 합계</span><b>${numberWithCommas(expensePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">이번 달 지출</span><b>${numberWithCommas(budget.expense || 0)}원</b><span class="muted">예산 사용 ${budget.rate || 0}%</span></div></div><h3>실제 수입 분류</h3><ul class="incomeSummary">${actualIncomeList}</ul></section><section class="card"><h2>예상 수입 + 지출 예산</h2><p class="muted">월 총액을 따로 입력하지 않습니다. 수입 종류와 지출 분류별 금액을 입력하면 위 합계가 자동으로 만들어집니다. 빈 행과 0원 행은 저장하지 않습니다.</p>${budgetReadFailed ? `<p class="error" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p>` : `<form method="post" action="/my/budget-bulk/save" id="budgetBulkForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(planFingerprint)}"/><div class="budgetForm"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><p><button type="button" class="addBtn" data-add="income">+ 수입 종류 추가</button></p><div class="sectionNote">급여·부수입을 고르거나 왼쪽 칸에 직접 이름을 입력하세요. 입력한 행의 합계가 예상 수입입니다.</div></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><p><button type="button" class="addBtn" data-add="expense">+ 지출 분류 추가</button></p><div class="sectionNote">식비·교통 등 필요한 분류만 입력하세요. 분류별 합계가 이번 달 전체 지출 예산입니다.</div></div></div><p><button type="submit">종류별 수입·분류별 예산 저장</button></p></form>`}</section><section class="card"><h2>저장된 분류별 지출 예산</h2><p class="muted">분류별 합계: <b>${numberWithCommas(expensePlanTotal)}원</b></p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th></tr></thead><tbody>${budgetListRows}</tbody></table></div></section><section class="card"><h2>정기 수입·지출 자동 기록</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">정기지출 합계</span><b>${numberWithCommas(recurringInfo.expense)}원</b></div><div class="summaryBox"><span class="muted">정기수입 합계</span><b>${numberWithCommas(recurringInfo.income)}원</b></div><div class="summaryBox"><span class="muted">월 순정기액</span><b>${numberWithCommas(recurringInfo.net)}원</b></div><div class="summaryBox"><span class="muted">등록 건수</span><b>${numberWithCommas(recurringInfo.count)}건</b></div></div><form method="post" action="/my/recurring/save" class="rowform"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="memo" placeholder="예: 자동차보험" required/><input name="amount" placeholder="금액" required/><input name="category" placeholder="분류" value="정기지출"/><input name="payment_method" placeholder="결제수단"/><input name="day_of_month" type="number" min="1" max="31" value="1"/><button type="submit">정기항목 저장</button></form><div class="scroll" style="margin-top:14px"><table><thead><tr><th>내용</th><th>구분</th><th>금액</th><th>분류</th><th>일자</th><th>최근 적용월</th><th></th></tr></thead><tbody>${recurringRows}</tbody></table></div></section><section class="card"><h2>분류·키워드</h2><p class="muted">가족이 실제로 쓰는 표현을 수입·지출 분류에 연결하는 화면은 <b>관리 &gt; 분류·키워드</b> 한 곳에만 둡니다. 같은 편집기를 두 곳에서 열면 어느 쪽이 최신인지 헷갈립니다.</p><p><a class="btn secondary" href="/keyword-guide?${hh}">분류·키워드 관리 열기</a></p></section></div></div></main><script>
 (function(){
   const incomeOptions = ${JSON.stringify(incomeOptions)};
   const categoryOptions = ${JSON.stringify(categoryOptions)};
@@ -19996,7 +20129,14 @@ function budgetSummary(rows = [], budgets = []) {
 function budgetCenterSummary(rows = [], budgets = []) {
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const incomeBudgets = safeArray(budgets).filter((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
+  // V22.9.37 감사 SIM-9: 종류별 예상 수입(__income:이름)이 하나라도 있으면 옛 버전의 __income 합계 행은 기준에서 뺀다.
+  // 둘이 함께 남은 달에는 예상 수입이 두 번 더해졌고, 폼에 보이지 않는 옛 값이 기준을 바꿨다. 종류별 행이 없을 때만
+  // 호환용으로 쓴다 — 분류별 예산 합계가 있으면 __total 을 쓰지 않는 규칙과 같다. 쓰지 않은 옛 값은 화면이 알리도록 따로 돌려준다.
+  const typedIncomeBudgets = safeArray(budgets).filter((b) => isIncomeBudgetCategory(String(b.category || "")));
+  const legacyIncomeBudgets = safeArray(budgets).filter((b) => String(b.category || "") === "__income");
+  const useTypedIncome = typedIncomeBudgets.some((b) => Number(b.amount || 0) > 0);
+  const incomeBudgets = useTypedIncome ? typedIncomeBudgets : legacyIncomeBudgets;
+  const legacyIncomeBudget = useTypedIncome ? legacyIncomeBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0) : 0;
   const incomeBudget = incomeBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
   const actualIncomeMap = Object.create(null);
   for (const row of safeArray(rows).filter((r) => r.type === "income")) {
@@ -20012,7 +20152,7 @@ function budgetCenterSummary(rows = [], budgets = []) {
   const budgetIncomeRate = incomeBase ? Math.round((totalBudget / incomeBase) * 100) : 0;
   const freeAfterBudget = incomeBase ? incomeBase - totalBudget : 0;
   const actualSavings = Number(stats.totals.income || 0) - Number(stats.totals.expense || 0);
-  return { stats, budget, incomeBudget, actualIncome, actualIncomeCategories, incomeBase, totalBudget, budgetIncomeRate, freeAfterBudget, actualSavings, incomeBudgets };
+  return { stats, budget, incomeBudget, legacyIncomeBudget, actualIncome, actualIncomeCategories, incomeBase, totalBudget, budgetIncomeRate, freeAfterBudget, actualSavings, incomeBudgets };
 }
 
 function budgetStatusLabel(rate = 0, spent = null, budget = null) {
@@ -20162,9 +20302,16 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     const expense = Number(budget.budgetedExpense ?? budget.expense ?? stats.totals.expense ?? 0);
     const remain = totalBudget ? totalBudget - expense : 0;
     const rate = totalBudget ? Math.round((expense / totalBudget) * 100) : 0;
-    if (!totalBudget && !budgets.length) {
-      return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", "아직 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
+    if (!totalBudget) {
+      // V22.9.37 감사 D7: 지출 예산이 0원이면(예상 수입만 저장된 달 포함) "남은 예산 0원(초과)"가 아니라 예산 없음이다.
+      const incomeOnly = budgets.some((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
+      return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 지출 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
     }
+    // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이
+    // 왜 보이지 않는지 알 수 있게 그 사실을 적는다.
+    const ignoredTotal = budget.basis === "category" && Number(budget.explicitTotalBudget || 0) > 0
+      ? `직접 설정한 전체 예산 ${numberWithCommas(budget.explicitTotalBudget)}원은 분류별 예산이 있어 계산에 쓰지 않아요.`
+      : "";
     const status = expense > totalBudget ? "초과" : rate >= 85 ? "주의" : rate >= 60 ? "사용중" : "여유";
     const categoryLines = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).slice(0, 7).map((x) => {
       const left = Number(x.budget || 0) - Number(x.spent || 0);
@@ -20173,7 +20320,8 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     });
     return [
       `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
-      `전체 예산: ${numberWithCommas(totalBudget)}원`,
+      `전체 예산: ${numberWithCommas(totalBudget)}원${budget.basis === "category" ? " (분류별 예산 합계)" : ""}`,
+      ...(ignoredTotal ? [ignoredTotal] : []),
       `사용 금액: ${numberWithCommas(expense)}원`,
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,
       `사용률: ${rate}% (${status})`,
@@ -20192,6 +20340,24 @@ async function kakaoBudgetFeedback(env, householdId, month, category) {
     return budgetFeedbackLine(rows, budgets, category);
   } catch (err) {
     return "";
+  }
+}
+
+// V22.9.37: 이 묶음에서 새로 생긴 안내 코드. formatMessage 는 모르는 코드를 일반 안내로 닫으므로 예산·정기·설정 화면이
+// 먼저 이 표를 본다. 수동 반영 결과("고정항목 N건 기록 …")는 숫자가 들어 있어 코드가 될 수 없으므로 형식을 확인한 뒤 그대로 보여 준다.
+// 돌려주는 값은 formatMessage 와 같이 HTML 이스케이프가 끝난 문장이고, 모르는 코드는 빈 문자열이다.
+function budgetPlanMessage(code = "") {
+  const text = String(code || "");
+  if (/^고정항목 \d{1,6}건 기록(?: · \d{1,6}건은 지출자가 활성 참여자가 아니어서 건너뜀)?$/.test(text)) return escapeHtml(text);
+  switch (text) {
+    case "budget_month_invalid": return escapeHtml("월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.");
+    case "budget_duplicate_category": return escapeHtml("같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.");
+    case "reserve_name_duplicate": return escapeHtml("같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.");
+    case "reserve_due_day_invalid": return escapeHtml("납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.");
+    case "reserve_due_month_invalid": return escapeHtml("납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.");
+    case "reserve_recurrence_invalid": return escapeHtml("반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.");
+    case "recurring_spender_ineligible": return escapeHtml("고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.");
+    default: return "";
   }
 }
 
@@ -20223,7 +20389,13 @@ function longestNoSpendStreak(rows = [], month = currentMonthKst()) {
   const expenseDays = new Set(rows.filter((r) => r.type !== "income" && String(r.transaction_date || "").slice(0, 7) === month).map((r) => String(r.transaction_date || "")));
   const [y, m] = month.split('-').map(Number);
   if (!y || !m) return 0;
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  // V22.9.37 감사 SIM-18: 이번 달은 오늘까지, 지난 달은 월 전체, 앞으로 올 달은 세지 않는다(U01 과 같은 규칙).
+  // 예전에는 아직 오지 않은 날을 무지출로 세어 달 중순에 "최장 무지출 22일" 같은 숫자가 나왔다.
+  const todayStr = formatDate(nowKstDate());
+  const thisMonth = todayStr.slice(0, 7);
+  if (month > thisMonth) return 0;
+  const monthLastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lastDay = month === thisMonth ? Math.min(monthLastDay, Number(todayStr.slice(8, 10))) : monthLastDay;
   let best = 0, cur = 0;
   for (let d = 1; d <= lastDay; d++) {
     const key = `${month}-${String(d).padStart(2, '0')}`;
@@ -20392,14 +20564,16 @@ function renderHomeReportCards(options = {}) {
   const thisWeek = weeks[3];
   const lastWeek = weeks[2];
   const paceDelta = thisWeek.covered && lastWeek.covered ? thisWeek.amount - lastWeek.amount : null;
+  // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
+  // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 문구가 기준을 그대로 말한다.
   const paceRead = paceDelta === null
     ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
     : paceDelta > 0
-      ? `지난주보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
+      ? `최근 7일이 그 전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
       : paceDelta < 0
-        ? `지난주보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `지난주와 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="지난 4주 주간 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+        ? `최근 7일이 그 전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
+        : `최근 7일이 그 전 7일과 같은 속도입니다`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="오늘까지 7일 단위로 묶은 최근 4주 지출 추이">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -20493,6 +20667,15 @@ function renderHomeWeekStrip(rows = [], isCurrentMonth = true) {
 
 function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false) {
   if (!rows.length) return "";
+  // V22.9.37 감사 D14: 날짜 합계는 화면에 올린 80건이 아니라 받은 기록 전체로 낸다. 잘린 날은 몇 건을 보여 주는지 적어
+  // 부분합이 그날 전체처럼 읽히지 않게 한다(받은 기록이 쪽 단위라면 쪽 경계의 날은 부르는 쪽이 전체 행을 넘겨야 한다).
+  const dayTotals = Object.create(null);
+  for (const row of rows) {
+    const date = String(row.transaction_date || "");
+    if (!dayTotals[date]) dayTotals[date] = { expense: 0, income: 0, count: 0 };
+    dayTotals[date][row.type === "income" ? "income" : "expense"] += Number(row.amount || 0);
+    dayTotals[date].count += 1;
+  }
   const groups = [];
   for (const row of rows.slice(0, 80)) {
     const date = String(row.transaction_date || "");
@@ -20501,11 +20684,13 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     else groups.push({ date, rows: [row] });
   }
   return groups.map((group) => {
-    const expense = group.rows.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-    const income = group.rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
-    const sum = income
+    const total = dayTotals[group.date] || { expense: 0, income: 0, count: group.rows.length };
+    const expense = total.expense;
+    const income = total.income;
+    const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
+    const sum = (income
       ? `+${numberWithCommas(income)}원${expense ? ` · -${numberWithCommas(expense)}원` : ""}`
-      : `-${numberWithCommas(expense)}원`;
+      : `-${numberWithCommas(expense)}원`) + partial;
     return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender)}</section>`;
   }).join("");
 }
@@ -25337,15 +25522,18 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const previousExpense = Number(prevStats?.totals?.expense || 0);
   const expenseDeltaAmount = Number(stats.totals.expense || 0) - previousExpense;
   // 두 달 모두 0원인 새 가계부에 "지난달과 같은 금액"이라고 쓰면 없는 지난달 기록이 있는 것처럼 읽힌다.
+  // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 그 기준을 함께 적는다.
+  const deltaToday = formatDate(nowKstDate());
+  const sameRangeNote = month === deltaToday.slice(0, 7) ? ` (1~${Number(deltaToday.slice(8, 10))}일 같은 기간 기준)` : "";
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
     : expenseDeltaAmount > 0
-      ? `지난달보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
+      ? `지난달보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.${sameRangeNote}`
       : expenseDeltaAmount < 0
-        ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.`
+        ? `지난달보다 ${numberWithCommas(Math.abs(expenseDeltaAmount))}원 덜 썼어요.${sameRangeNote}`
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
-          : "지난달과 같은 금액을 썼어요.";
+          : `지난달과 같은 금액을 썼어요.${sameRangeNote}`;
   const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
@@ -25392,10 +25580,10 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
 function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
 
-async function fetchMonthAmountRows(env, month, householdId) {
+async function fetchMonthAmountRows(env, month, householdId, { select = "type,amount" } = {}) {
   if (!householdId) return [];
   const params = new URLSearchParams();
-  params.set("select", "type,amount");
+  params.set("select", select);
   params.set("transaction_date", `gte.${month}-01`);
   params.append("transaction_date", `lt.${nextMonthStart(month)}`);
   params.set("household_id", `eq.${householdId}`);
@@ -25477,7 +25665,8 @@ async function handleMobileV8Page(request, env, url) {
   const [members, rawMonthlyRows, prevAmountRows, monthlyTrendRows, budgets, homeSettings, homeLayoutSetting] = await Promise.all([
     selectedHousehold ? fetchHouseholdMembers(env, selectedHousehold.id, { aliasesPromise: homeSettingsPromise.then((settings) => settings.aliases) }) : [],
     selectedHousehold ? fetchAdminRows(env, { month, householdId, type: "all" }) : [],
-    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId) : [],
+    // V22.9.37 감사 D12: 지난달 비교는 같은 기간(1일~오늘)끼리 하므로 날짜 칸을 함께 읽는다.
+    selectedHousehold ? fetchMonthAmountRows(env, addMonthsYm(month, -1), householdId, { select: "type,amount,transaction_date" }) : [],
     // P3-⑧ 월별 트렌드: 금액만, 최근 6개월까지. 거래내역 탭에서는 쓰지 않으므로 건너뛴다.
     (selectedHousehold && url.searchParams.get("tab") !== "transactions" && url.searchParams.get("trend") === "monthly")
       ? Promise.all(Array.from({ length: 6 }, (_, i) => {
@@ -25485,7 +25674,8 @@ async function handleMobileV8Page(request, env, url) {
           return fetchMonthAmountRows(env, ym, householdId).then((rs) => {
             const st = calculateStats(safeArray(rs));
             return { month: ym, income: st.totals.income, expense: st.totals.expense };
-          }).catch(() => ({ month: ym, income: 0, expense: 0 }));
+          // V22.9.37 감사 D14: 조회 실패를 0원으로 그리지 않고 확인 불가로 표시한다.
+          }).catch(() => ({ month: ym, income: 0, expense: 0, failed: true }));
         }))
       : [],
     selectedHousehold ? fetchBudgets(env, householdId, month) : [],
@@ -25504,7 +25694,9 @@ async function handleMobileV8Page(request, env, url) {
     payment_method: mobilePayment,
   });
   const stats = calculateStats(rows);
-  const prevStats = calculateStats(prevAmountRows);
+  // V22.9.37 감사 D12: 이번 달은 지난달 "같은 기간(1일~오늘)"과 견준다. 지난달 전체와 견주면 월초에는 늘 덜 쓴 것처럼 보였다.
+  const todayKey = formatDate(nowKstDate());
+  const prevStats = calculateStats(month === todayKey.slice(0, 7) ? safeArray(prevAmountRows).filter((row) => String(row.transaction_date || "").slice(8, 10) <= todayKey.slice(8, 10)) : prevAmountRows);
   const budget = budgetSummary(rows, budgets);
   const reportChallenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue });
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, rows.map((r) => r.category).filter(Boolean));
@@ -25536,7 +25728,8 @@ async function handleMobileV8Page(request, env, url) {
 async function handleBudgetSave(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
@@ -25544,6 +25737,8 @@ async function handleBudgetSave(request, env) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
     if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장 권한이 없습니다." }));
   }
+  // V22.9.37 감사 N8: 틀린 월(2026-13, 빈 값)은 이번 달 예산으로 떨어뜨리지 않고 거절한다.
+  if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
   const rawCategory = String(form.get("category") || "__total").trim() || "__total";
   const customCategory = String(form.get("category_custom") || "").trim().slice(0, 80);
   let category = rawCategory;
@@ -25551,6 +25746,8 @@ async function handleBudgetSave(request, env) {
   if (rawCategory === "__category_custom") category = customCategory || "기타";
   const amount = readOptionalFormAmount(form);
   if (amount === null) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 금액을 숫자로 입력하세요. 기존 예산은 유지됩니다." }));
+  // V22.9.37 감사 N9: 단건 예산도 거래 금액 상한(20억)을 넘지 않는다.
+  if (amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "amount_too_large" }));
   try {
     await supabase(env, "/rest/v1/accountbook_budgets?on_conflict=household_id,month,category", {
       method: "POST",
@@ -25567,7 +25764,8 @@ async function handleBudgetSave(request, env) {
 async function handleBudgetDelete(request, env) {
   const form = await request.formData();
   const householdId = String(form.get("household_id") || "").trim();
-  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const monthInput = String(form.get("month") || "").trim();
+  const month = validMonth(monthInput) || currentMonthKst();
   const category = String(form.get("category") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/budgets?month=${month}&household_id=${encodeURIComponent(householdId)}`);
   const adminOk = await verifyAdminSession(request, env);
@@ -25576,6 +25774,8 @@ async function handleBudgetDelete(request, env) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
     if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제 권한이 없습니다." }));
   }
+  // V22.9.37 감사 N8: 틀린 월은 이번 달 예산을 지우지 않고 거절한다.
+  if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
   if (!category) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 예산을 찾지 못했습니다." }));
   try {
     const tablePath = `/rest/v1/accountbook_budgets?household_id=eq.${encodeURIComponent(householdId)}&month=eq.${encodeURIComponent(month)}&category=eq.${encodeURIComponent(category)}`;
@@ -25649,14 +25849,18 @@ function renderDonutChart(categories = [], totalExpense = 0) {
 
 function renderMonthlySeriesChart(items = []) {
   const list = safeArray(items).slice(-6);
-  if (!list.some((x) => Number(x.income || 0) > 0 || Number(x.expense || 0) > 0)) return `<div class="empty">아직 월별 흐름을 그릴 데이터가 없습니다.</div>`;
-  const max = Math.max(1, ...list.map((x) => Math.max(Number(x.income || 0), Number(x.expense || 0))));
+  // V22.9.37 감사 D14: 조회에 실패한 달(failed)은 0원이 아니라 확인 불가다. 0원 막대는 "안 썼다"는 거짓말이 된다.
+  const failedCount = list.filter((x) => x.failed).length;
+  if (!list.some((x) => x.failed || Number(x.income || 0) > 0 || Number(x.expense || 0) > 0)) return `<div class="empty">아직 월별 흐름을 그릴 데이터가 없습니다.</div>`;
+  const max = Math.max(1, ...list.filter((x) => !x.failed).map((x) => Math.max(Number(x.income || 0), Number(x.expense || 0))));
   const cols = list.map((x) => {
+    if (x.failed) return `<div class="seriesCol" title="${escapeHtml(x.month)} · 조회 실패"><div class="seriesBars"><i class="in" style="height:3px"></i><i class="ex" style="height:3px"></i></div><b>확인 불가</b><span>${escapeHtml(String(x.month).slice(5))}월</span></div>`;
     const ih = Math.max(3, Math.round(Number(x.income || 0) / max * 118));
     const eh = Math.max(3, Math.round(Number(x.expense || 0) / max * 118));
     return `<div class="seriesCol" title="${escapeHtml(x.month)} · 수입 ${numberWithCommas(x.income)}원 · 지출 ${numberWithCommas(x.expense)}원"><div class="seriesBars"><i class="in" style="height:${ih}px"></i><i class="ex" style="height:${eh}px"></i></div><b>${escapeHtml(shortWonLabel(x.expense))}</b><span>${escapeHtml(String(x.month).slice(5))}월</span></div>`;
   }).join("");
-  return `<div class="seriesLegend"><span><i class="in"></i>수입</span><span><i class="ex"></i>지출</span></div><div class="seriesChart">${cols}</div>`;
+  const failedNote = failedCount ? `<p class="muted">${failedCount}개 달은 조회에 실패해 확인 불가로 표시했어요. 새로고침하면 다시 읽어요.</p>` : "";
+  return `<div class="seriesLegend"><span><i class="in"></i>수입</span><span><i class="ex"></i>지출</span></div><div class="seriesChart">${cols}</div>${failedNote}`;
 }
 
 function normalizeRecurringKey(row = {}) {
@@ -25676,14 +25880,20 @@ function detectRecurringCandidates(historyRows = [], month = currentMonthKst(), 
     if (!windowMonths.includes(ym)) continue;
     const key = normalizeRecurringKey(r);
     if (!key || registeredKeys.has(key)) continue;
-    if (!byKey[key]) byKey[key] = { memo: String(r.memo || r.raw_text || "").trim(), amount: Math.round(Number(r.amount || 0)), category: r.category || "", paymentMethod: r.payment_method || "", days: [], months: new Set() };
+    if (!byKey[key]) byKey[key] = { memo: String(r.memo || r.raw_text || "").trim(), amount: Math.round(Number(r.amount || 0)), categories: Object.create(null), payments: Object.create(null), days: [], months: new Set() };
+    // V22.9.37 감사 SIM-4: 분류·결제수단은 처음 만난 기록이 아니라 가장 많이 쓴 값이다. 첫 기록만 비어 있어도 분류를 잃었다.
+    const category = String(r.category || "").trim();
+    if (category) byKey[key].categories[category] = (byKey[key].categories[category] || 0) + 1;
+    const payment = String(r.payment_method || "").trim();
+    if (payment) byKey[key].payments[payment] = (byKey[key].payments[payment] || 0) + 1;
     const day = Number(String(r.transaction_date || "").slice(8, 10));
     if (Number.isFinite(day) && day >= 1 && day <= 31) byKey[key].days.push(day);
     byKey[key].months.add(ym);
   }
+  const mostCounted = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   return Object.values(byKey)
     .filter((v) => v.months.size >= 2 && v.amount >= 1000)
-    .map((v) => ({ memo: v.memo, amount: v.amount, category: v.category, paymentMethod: v.paymentMethod || "", dayOfMonth: v.days.length ? Math.round(v.days.reduce((s, x) => s + x, 0) / v.days.length) : 1, hitMonths: v.months.size }))
+    .map((v) => ({ memo: v.memo, amount: v.amount, category: mostCounted(v.categories), paymentMethod: mostCounted(v.payments), dayOfMonth: v.days.length ? Math.round(v.days.reduce((s, x) => s + x, 0) / v.days.length) : 1, hitMonths: v.months.size }))
     .sort((a, b) => b.hitMonths - a.hitMonths || b.amount - a.amount)
     .slice(0, 8);
 }
@@ -26116,8 +26326,11 @@ async function handleBudgetCenterPage(request, env, url) {
     const remain = Math.max(0, Number(row.amount || 0) - Number(usage.spent || 0));
     // 홈 게이지와 같은 규칙: 막대는 100% 에서 멈추므로 1,019% 와 100% 가 같은 길이다.
     // 글자 배지(초과/여유)는 이미 다르게 말하고 있었는데 막대 색은 늘 강조색이었다.
-    const usageState = Number(usage.rate || 0) > 100 ? " isOver" : Number(usage.rate || 0) >= 85 ? " isWarn" : "";
-    return `<article class="usageCard${usageState}"><div><b>${escapeHtml(row.name)}</b><span>${budgetStatusLabel(usage.rate || 0)}</span></div><dl><div><dt>예산</dt><dd>${numberWithCommas(row.amount)}원</dd></div><div><dt>사용</dt><dd>${numberWithCommas(usage.spent)}원</dd></div><div><dt>남음</dt><dd>${numberWithCommas(remain)}원</dd></div></dl><div class="miniBar"><i style="width:${Math.min(100, Math.max(0, usage.rate || 0))}%"></i></div><small>사용률 ${numberWithCommas(usage.rate || 0)}%</small></article>`;
+    // V22.9.37 감사 D11: 초과는 반올림 사용률이 아니라 실제 금액으로 판정한다(99.6% 는 100% 로 반올림돼도 초과가 아니다).
+    const isOver = Number(usage.spent || 0) > Number(row.amount || 0);
+    const usageState = isOver ? " isOver" : Number(usage.rate || 0) >= 85 ? " isWarn" : "";
+    const usageLabel = isOver ? "초과" : Number(usage.spent || 0) === Number(row.amount || 0) ? "소진" : budgetStatusLabel(Math.min(99, Number(usage.rate || 0)));
+    return `<article class="usageCard${usageState}"><div><b>${escapeHtml(row.name)}</b><span>${usageLabel}</span></div><dl><div><dt>예산</dt><dd>${numberWithCommas(row.amount)}원</dd></div><div><dt>사용</dt><dd>${numberWithCommas(usage.spent)}원</dd></div><div><dt>남음</dt><dd>${numberWithCommas(remain)}원</dd></div></dl><div class="miniBar"><i style="width:${Math.min(100, Math.max(0, usage.rate || 0))}%"></i></div><small>사용률 ${numberWithCommas(usage.rate || 0)}%</small></article>`;
   }).join("") : `<div class="empty">지출 분류별 한도를 저장하면 사용 현황이 표시됩니다.</div>`;
   const legacyTotal = budgets.find((b) => String(b.category || "") === "__total") || null;
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(householdId) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
@@ -26135,11 +26348,12 @@ async function handleBudgetCenterPage(request, env, url) {
   const budgetP0Rate = Math.min(100, Math.max(0, Number(center.budget.rate || 0)));
   // 671% 인 화면이 100% 와 똑같이 보이던 자리. 게이지는 100 에서 멈추고 색도 하나뿐이라,
   // 예산을 6배 넘긴 달과 딱 맞춘 달이 구별되지 않았다. 히어로 전체를 경고색으로 돌린다.
-  const budgetP0State = Number(center.budget.rate || 0) > 100 ? " isOver" : Number(center.budget.rate || 0) >= 85 ? " isWarn" : "";
+  // V22.9.37 감사 D11: 초과 판정은 반올림 사용률이 아니라 실제 금액이다(V22.9.30 기준).
+  const budgetP0State = Number(center.budget.budgetedExpense || 0) > Number(center.totalBudget || 0) ? " isOver" : Number(center.budget.rate || 0) >= 85 ? " isWarn" : "";
   const budgetP0Html = center.totalBudget
     ? `<section class="budgetP0${budgetP0State}" aria-labelledby="budgetP0Title"><span id="budgetP0Title">이번 달 남은 예산</span><b>${numberWithCommas(budgetP0Remaining)}<small>원</small></b><div class="budgetP0Gauge"><i style="width:${budgetP0Rate}%"></i></div><p>전체 예산 ${numberWithCommas(center.totalBudget)}원 · 사용 ${numberWithCommas(center.budget.budgetedExpense)}원 (${numberWithCommas(center.budget.rate || 0)}%)</p>${budgetP0Uncovered ? `<p class="budgetP0Aside">예산 밖 지출 ${numberWithCommas(budgetP0Uncovered)}원 별도 — 예산을 잡은 분류만 사용률에 들어갑니다.</p>` : ""}</section>`
     : `<section class="budgetP0 isEmpty" aria-labelledby="budgetP0Title"><span id="budgetP0Title">이번 달 남은 예산</span><b>아직 없음</b><p>아래에서 지출 분류별 한도를 저장하면 남은 예산이 이 자리에 생깁니다.</p></section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 수입·예산</title><style>${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 126px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted{color:#667085;line-height:1.6}.filters{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button,.planLine input,.planLine select{width:100%;min-width:0;height:46px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.filters button,.savePlan,.addLine{border:0;border-radius:13px;background:#111827;color:#fff;font-weight:1000;padding:0 14px;min-height:44px}.budgetP0{background:var(--ab12-action,#1d4ed8);color:#fff;border-radius:var(--ab12-r-lg,16px);padding:var(--ab12-sp-5,24px);margin:12px 0}.budgetP0>span{display:block;font-size:var(--ab12-fs-cap,12px);font-weight:1000;opacity:.86}.budgetP0>b{display:block;margin-top:6px;font-size:var(--ab12-fs-num-xl,34px);font-weight:var(--ab12-fw-num-xl,700);line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.budgetP0>b small{font-size:18px;font-weight:800;margin-left:3px;opacity:.82}.budgetP0Gauge{height:8px;margin:14px 0 10px;border-radius:var(--ab12-r-sm,8px);background:rgba(255,255,255,.26);overflow:hidden}.budgetP0Gauge i{display:block;height:100%;border-radius:inherit;background:#fff}.budgetP0 p{margin:0;font-size:13px;font-weight:900;line-height:1.6;opacity:.9}.budgetP0 p.budgetP0Aside{margin-top:7px;opacity:1;border-top:1px solid rgba(255,255,255,.28);padding-top:8px}.budgetP0.isEmpty>b{font-size:24px}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;min-width:0}.metric span,.metric small{display:block;color:#667085;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px;overflow-wrap:anywhere}.metric.actual{background:#ecfdf5;border-color:#bbf7d0}.metric.plan{background:#eff6ff;border-color:#bfdbfe}.twoCol{display:grid;grid-template-columns:1fr 1fr;gap:12px}.moneyList{list-style:none;padding:0;margin:0;display:grid;gap:7px}.moneyList li{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #e5e7eb;border-radius:14px;padding:11px 12px}.moneyList li span b,.moneyList li span small{display:block}.moneyList li span small{color:#667085;margin-top:3px}.moneyList li strong{white-space:nowrap}.empty{display:block!important;background:#f8fafc;border:1px dashed #cbd5e1!important;color:#667085;padding:14px!important;border-radius:14px}.sectionHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.sectionHead h2{margin:7px 0 0}.sectionHead>b{background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;white-space:nowrap}.eyebrow{display:inline-flex;background:#fff7cc;color:#5c4700;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:1000}.planGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.planLine{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:7px;margin:8px 0}.planLine label{display:grid;gap:5px;color:#475467;font-size:11px;font-weight:1000}.addLine{background:#eef2ff;color:#3730a3;min-height:40px}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:14px;padding:11px;font-size:12px;line-height:1.5}.savePlan{width:100%;margin-top:12px;min-height:50px}.usageGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px}.usageCard{border:1px solid #e5e7eb;border-radius:17px;padding:13px;min-width:0}.usageCard>div:first-child{display:flex;justify-content:space-between;gap:8px}.usageCard>div:first-child span{font-size:11px;font-weight:1000;color:#475569}.usageCard dl{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:12px 0}.usageCard dl div{min-width:0}.usageCard dt{font-size:10px;color:#667085}.usageCard dd{margin:3px 0 0;font-size:12px;font-weight:1000;overflow-wrap:anywhere}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden}.miniBar i{display:block;height:100%;background:#3182f6;border-radius:999px}.usageCard.isWarn .miniBar i{background:var(--ab12-gauge-warn,#c2410c)}.usageCard.isOver .miniBar i{background:var(--ab12-gauge-over,#b91c1c)}.usageCard.isOver>div:first-child span{color:var(--ab12-gauge-over,#b91c1c)}.budgetP0.isWarn{background:var(--ab12-gauge-warn,#c2410c)}.budgetP0.isOver{background:var(--ab12-gauge-over,#b91c1c)}.usageCard>small{display:block;color:#667085;margin-top:6px}.notice{border-radius:14px;padding:11px}.notice.ok{background:#ecfdf5;color:#166534}.notice.error,.legacy{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.legacy{border-radius:14px;padding:11px;font-size:12px;line-height:1.5}@media(max-width:760px){.wrap{padding:10px 10px 132px}.hero,.card{padding:16px;border-radius:19px}.filters,.planGrid,.twoCol{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}.planLine{grid-template-columns:1fr}.planLine input,.planLine select,.filters select,.filters input{font-size:16px}.sectionHead{display:block}.sectionHead>b{display:inline-flex;margin-top:9px}.usageGrid{grid-template-columns:1fr}.metric b{font-size:20px}}@media(max-width:360px){.metrics{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("budgets", { month, householdId, householdName: selected.name })}<main class="wrap">${renderMoneyPlanTabs("budgets", { month, householdId })}<section class="hero"><h1>월별 예산·수입</h1><p><b>이번 달에만 적용되는 계획</b>입니다. 매달 반복되는 항목은 위 <b>정기 수입·지출</b> 탭에서 관리합니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 예산은 종류·분류별 금액을 더해 계산합니다.</p><form class="filters" method="get" action="/budgets"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="notice ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="notice error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${budgetP0Html}<section class="metrics"><div class="metric actual"><span>실제 수입 · 기록 자동합계</span><b>${numberWithCommas(center.actualIncome)}원</b><small>${numberWithCommas(center.actualIncomeCategories.reduce((sum, item) => sum + item.count, 0))}건</small></div><div class="metric plan"><span>예상 수입 · 종류별 합계</span><b>${numberWithCommas(center.incomeBudget)}원</b><small>${numberWithCommas(incomePlans.filter((row) => Number(row.amount || 0) > 0).length)}종류</small></div><div class="metric"><span>지출 예산 · 분류별 합계</span><b>${numberWithCommas(center.totalBudget)}원</b><small>${numberWithCommas(expensePlans.length)}개 분류</small></div><div class="metric"><span>이번 달 지출</span><b>${numberWithCommas(center.budget.expense)}원</b><small>예산 사용 ${numberWithCommas(center.budget.rate || 0)}%</small></div><div class="metric"><span>실제 수입 - 실제 지출</span><b>${numberWithCommas(center.actualSavings)}원</b><small>기록 기준 단순 차액</small></div></section><section class="twoCol"><div class="card"><h2>실제 수입 분류</h2><p class="muted">수입으로 기록한 거래가 자동 합산됩니다.</p><ul class="moneyList">${actualIncomeRows}</ul></div><div class="card"><h2>예상 수입 종류</h2><p class="muted">앞으로 들어올 것으로 계획한 금액입니다.</p><ul class="moneyList">${planIncomeRows}</ul></div></section>${planForm}<section class="card"><h2>지출 분류별 사용 현황</h2><p class="muted">월 총액을 따로 정하지 않고 각 분류의 한도를 더해 전체 예산을 계산합니다.</p><div class="usageGrid">${usageCards}</div>${legacyTotal ? `<div class="legacy"><b>이전 버전의 월 총액 ${numberWithCommas(legacyTotal.amount)}원이 남아 있습니다.</b><br/>분류별 예산이 있으면 이 값은 계산에 사용하지 않습니다. 새 계획을 저장하면 자동으로 정리됩니다.</div>` : ""}</section><section class="card"><h2>계산 기준</h2><p class="muted">실제 수입 = 수입 거래 합계 · 예상 수입 = 수입 종류별 계획 합계 · 전체 지출 예산 = 지출 분류별 한도 합계 · 남은 예산 = 전체 지출 예산 - 실제 지출입니다.</p><p><a href="/app?${hh}">홈으로 돌아가기</a> · <a href="/my/settings?${hh}">정기지출·분류 키워드 설정</a></p></section></main><script>(function(){var incomeOptions=${JSON.stringify(incomeOptions)};var categoryOptions=${JSON.stringify(categoryOptions)};function bind(root){root.querySelectorAll('.pickValue').forEach(function(select){select.addEventListener('change',function(){var line=select.closest('.planLine');var input=line&&line.querySelector('input');if(input&&select.value)input.value=select.value;});});}function make(type){var div=document.createElement('div');div.className='planLine';if(type==='income'){div.innerHTML='<label>수입 종류<input name="income_name" placeholder="직접입력: 수입 종류"/></label><label>빠른 선택<select class="pickValue">'+incomeOptions+'</select></label><label>예상 금액<input name="income_amount" inputmode="numeric" placeholder="예상 수입"/></label>';}else{div.innerHTML='<label>지출 분류<input name="budget_category" placeholder="직접입력: 지출 분류"/></label><label>빠른 선택<select class="pickValue">'+categoryOptions+'</select></label><label>한도 금액<input name="budget_amount" inputmode="numeric" placeholder="예산 금액"/></label>';}bind(div);return div;}document.querySelectorAll('[data-add]').forEach(function(button){button.addEventListener('click',function(){var type=button.getAttribute('data-add');document.getElementById(type==='income'?'incomeRows':'expenseRows').appendChild(make(type));});});bind(document);})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 수입·예산</title><style>${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 126px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted{color:#667085;line-height:1.6}.filters{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button,.planLine input,.planLine select{width:100%;min-width:0;height:46px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.filters button,.savePlan,.addLine{border:0;border-radius:13px;background:#111827;color:#fff;font-weight:1000;padding:0 14px;min-height:44px}.budgetP0{background:var(--ab12-action,#1d4ed8);color:#fff;border-radius:var(--ab12-r-lg,16px);padding:var(--ab12-sp-5,24px);margin:12px 0}.budgetP0>span{display:block;font-size:var(--ab12-fs-cap,12px);font-weight:1000;opacity:.86}.budgetP0>b{display:block;margin-top:6px;font-size:var(--ab12-fs-num-xl,34px);font-weight:var(--ab12-fw-num-xl,700);line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.budgetP0>b small{font-size:18px;font-weight:800;margin-left:3px;opacity:.82}.budgetP0Gauge{height:8px;margin:14px 0 10px;border-radius:var(--ab12-r-sm,8px);background:rgba(255,255,255,.26);overflow:hidden}.budgetP0Gauge i{display:block;height:100%;border-radius:inherit;background:#fff}.budgetP0 p{margin:0;font-size:13px;font-weight:900;line-height:1.6;opacity:.9}.budgetP0 p.budgetP0Aside{margin-top:7px;opacity:1;border-top:1px solid rgba(255,255,255,.28);padding-top:8px}.budgetP0.isEmpty>b{font-size:24px}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;min-width:0}.metric span,.metric small{display:block;color:#667085;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px;overflow-wrap:anywhere}.metric.actual{background:#ecfdf5;border-color:#bbf7d0}.metric.plan{background:#eff6ff;border-color:#bfdbfe}.twoCol{display:grid;grid-template-columns:1fr 1fr;gap:12px}.moneyList{list-style:none;padding:0;margin:0;display:grid;gap:7px}.moneyList li{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #e5e7eb;border-radius:14px;padding:11px 12px}.moneyList li span b,.moneyList li span small{display:block}.moneyList li span small{color:#667085;margin-top:3px}.moneyList li strong{white-space:nowrap}.empty{display:block!important;background:#f8fafc;border:1px dashed #cbd5e1!important;color:#667085;padding:14px!important;border-radius:14px}.sectionHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.sectionHead h2{margin:7px 0 0}.sectionHead>b{background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;white-space:nowrap}.eyebrow{display:inline-flex;background:#fff7cc;color:#5c4700;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:1000}.planGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.planLine{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:7px;margin:8px 0}.planLine label{display:grid;gap:5px;color:#475467;font-size:11px;font-weight:1000}.addLine{background:#eef2ff;color:#3730a3;min-height:40px}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:14px;padding:11px;font-size:12px;line-height:1.5}.savePlan{width:100%;margin-top:12px;min-height:50px}.usageGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px}.usageCard{border:1px solid #e5e7eb;border-radius:17px;padding:13px;min-width:0}.usageCard>div:first-child{display:flex;justify-content:space-between;gap:8px}.usageCard>div:first-child span{font-size:11px;font-weight:1000;color:#475569}.usageCard dl{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:12px 0}.usageCard dl div{min-width:0}.usageCard dt{font-size:10px;color:#667085}.usageCard dd{margin:3px 0 0;font-size:12px;font-weight:1000;overflow-wrap:anywhere}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden}.miniBar i{display:block;height:100%;background:#3182f6;border-radius:999px}.usageCard.isWarn .miniBar i{background:var(--ab12-gauge-warn,#c2410c)}.usageCard.isOver .miniBar i{background:var(--ab12-gauge-over,#b91c1c)}.usageCard.isOver>div:first-child span{color:var(--ab12-gauge-over,#b91c1c)}.budgetP0.isWarn{background:var(--ab12-gauge-warn,#c2410c)}.budgetP0.isOver{background:var(--ab12-gauge-over,#b91c1c)}.usageCard>small{display:block;color:#667085;margin-top:6px}.notice{border-radius:14px;padding:11px}.notice.ok{background:#ecfdf5;color:#166534}.notice.error,.legacy{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.legacy{border-radius:14px;padding:11px;font-size:12px;line-height:1.5}@media(max-width:760px){.wrap{padding:10px 10px 132px}.hero,.card{padding:16px;border-radius:19px}.filters,.planGrid,.twoCol{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}.planLine{grid-template-columns:1fr}.planLine input,.planLine select,.filters select,.filters input{font-size:16px}.sectionHead{display:block}.sectionHead>b{display:inline-flex;margin-top:9px}.usageGrid{grid-template-columns:1fr}.metric b{font-size:20px}}@media(max-width:360px){.metrics{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("budgets", { month, householdId, householdName: selected.name })}<main class="wrap">${renderMoneyPlanTabs("budgets", { month, householdId })}<section class="hero"><h1>월별 예산·수입</h1><p><b>이번 달에만 적용되는 계획</b>입니다. 매달 반복되는 항목은 위 <b>정기 수입·지출</b> 탭에서 관리합니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 예산은 종류·분류별 금액을 더해 계산합니다.</p><form class="filters" method="get" action="/budgets"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="notice ok">${budgetPlanMessage(msg) || escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="notice error">${budgetPlanMessage(err) || escapeHtml(householdPageMessage(err))}</div>` : ""}${budgetP0Html}<section class="metrics"><div class="metric actual"><span>실제 수입 · 기록 자동합계</span><b>${numberWithCommas(center.actualIncome)}원</b><small>${numberWithCommas(center.actualIncomeCategories.reduce((sum, item) => sum + item.count, 0))}건</small></div><div class="metric plan"><span>예상 수입 · 종류별 합계</span><b>${numberWithCommas(center.incomeBudget)}원</b><small>${numberWithCommas(incomePlans.filter((row) => Number(row.amount || 0) > 0).length)}종류</small></div><div class="metric"><span>지출 예산 · 분류별 합계</span><b>${numberWithCommas(center.totalBudget)}원</b><small>${numberWithCommas(expensePlans.length)}개 분류</small></div><div class="metric"><span>이번 달 지출</span><b>${numberWithCommas(center.budget.expense)}원</b><small>예산 사용 ${numberWithCommas(center.budget.rate || 0)}%</small></div><div class="metric"><span>실제 수입 - 실제 지출</span><b>${numberWithCommas(center.actualSavings)}원</b><small>기록 기준 단순 차액</small></div></section><section class="twoCol"><div class="card"><h2>실제 수입 분류</h2><p class="muted">수입으로 기록한 거래가 자동 합산됩니다.</p><ul class="moneyList">${actualIncomeRows}</ul></div><div class="card"><h2>예상 수입 종류</h2><p class="muted">앞으로 들어올 것으로 계획한 금액입니다.</p><ul class="moneyList">${planIncomeRows}</ul>${center.legacyIncomeBudget ? `<div class="legacy"><b>이전 버전의 월 수입 기준 ${numberWithCommas(center.legacyIncomeBudget)}원이 남아 있습니다.</b><br/>종류별 예상 수입이 있으면 이 값은 계산에 사용하지 않습니다. 새 계획을 저장하면 자동으로 정리됩니다.</div>` : ""}</div></section>${planForm}<section class="card"><h2>지출 분류별 사용 현황</h2><p class="muted">월 총액을 따로 정하지 않고 각 분류의 한도를 더해 전체 예산을 계산합니다.</p><div class="usageGrid">${usageCards}</div>${legacyTotal ? `<div class="legacy"><b>이전 버전의 월 총액 ${numberWithCommas(legacyTotal.amount)}원이 남아 있습니다.</b><br/>분류별 예산이 있으면 이 값은 계산에 사용하지 않습니다. 새 계획을 저장하면 자동으로 정리됩니다.</div>` : ""}</section><section class="card"><h2>계산 기준</h2><p class="muted">실제 수입 = 수입 거래 합계 · 예상 수입 = 수입 종류별 계획 합계 · 전체 지출 예산 = 지출 분류별 한도 합계 · 남은 예산 = 전체 지출 예산 - 실제 지출입니다.</p><p><a href="/app?${hh}">홈으로 돌아가기</a> · <a href="/my/settings?${hh}">정기지출·분류 키워드 설정</a></p></section></main><script>(function(){var incomeOptions=${JSON.stringify(incomeOptions)};var categoryOptions=${JSON.stringify(categoryOptions)};function bind(root){root.querySelectorAll('.pickValue').forEach(function(select){select.addEventListener('change',function(){var line=select.closest('.planLine');var input=line&&line.querySelector('input');if(input&&select.value)input.value=select.value;});});}function make(type){var div=document.createElement('div');div.className='planLine';if(type==='income'){div.innerHTML='<label>수입 종류<input name="income_name" placeholder="직접입력: 수입 종류"/></label><label>빠른 선택<select class="pickValue">'+incomeOptions+'</select></label><label>예상 금액<input name="income_amount" inputmode="numeric" placeholder="예상 수입"/></label>';}else{div.innerHTML='<label>지출 분류<input name="budget_category" placeholder="직접입력: 지출 분류"/></label><label>빠른 선택<select class="pickValue">'+categoryOptions+'</select></label><label>한도 금액<input name="budget_amount" inputmode="numeric" placeholder="예산 금액"/></label>';}bind(div);return div;}document.querySelectorAll('[data-add]').forEach(function(button){button.addEventListener('click',function(){var type=button.getAttribute('data-add');document.getElementById(type==='income'?'incomeRows':'expenseRows').appendChild(make(type));});});bind(document);})();</script></body></html>`);
 }
 
 async function handleBudgetCenterPageLegacyV2264(request, env, url) {
@@ -26184,7 +26398,9 @@ function normalizeRecurringDay(value) {
 }
 
 function renderRecurringEditForm(row, householdId, month, members, action) {
-  return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${members.length ? `<label>지출자<select name="user_id">${renderSpenderOptions(members,row.user_id,"지출자 선택")}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
+  // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
+  const spenders = eligibleRecurringSpenders(members);
+  return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${spenders.length ? `<label>지출자<select name="user_id">${renderSpenderOptions(spenders,row.user_id,"지출자 선택")}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
 }
 
 async function handleRecurringSave(request, env) {
@@ -26213,7 +26429,9 @@ async function handleRecurringSave(request, env) {
     is_active: true,
   };
   if (!row.amount || !Number.isFinite(row.amount) || row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
-  if (!spenderId || !activeSpenderExists(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목의 지출자를 가계부 활성 참여자 중에서 선택하세요." }));
+  // V22.9.37 감사 SIM-5·T7: 자동 반영과 같은 자격(소유자·관리자·구성원)만 받는다. 조회 전용·대기·차단·나간 지출자의 규칙은
+  // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
+  if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
   try {
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
@@ -26272,14 +26490,34 @@ async function handleRecurringApply(request, env) {
       // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
       // The RPC preserves the requested day and clamps only to this target month's last day.
       assertFresh();
-      const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ p_household_id: householdId, p_month: month }),
-      });
-      const summary = Array.isArray(result) ? result[0] : result;
-      const count = Math.max(0, Number(summary?.inserted || 0));
-      return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록` }));
+      // V22.9.37 감사 T7·SIM-8: 반영 전에 규칙과 참여자를 읽어 둔다. 지출자 자격은 자동 반영과 같은 함수로 판정한다.
+      // 자격이 없는 규칙(나간·조회 전용·대기·차단 지출자)이 하나라도 있으면 RPC 가 전체를 거절하거나(나간 지출자)
+      // 자동 반영과 다르게 넣으므로(조회 전용), 그때만 가능한 규칙을 자동 반영과 같은 길로 한 건씩 넣고 문제 규칙은 건너뛰어 알린다.
+      const [rules, rawMembers] = await Promise.all([fetchRecurringStrict(env, householdId), fetchRawHouseholdMembers(env, householdId)]);
+      const pending = safeArray(rules).filter((r) => !(r.is_active === false || String(r.is_active) === "false") && String(r.last_applied_month || "") !== month);
+      const blocked = pending.filter((r) => !recurringSpenderEligible(rawMembers, r.user_id));
+      let count = 0;
+      if (!blocked.length) {
+        const result = await supabase(env, "/rest/v1/rpc/accountbook_apply_recurring_v227", {
+          method: "POST",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({ p_household_id: householdId, p_month: month }),
+        });
+        const summary = Array.isArray(result) ? result[0] : result;
+        count = Math.max(0, Number(summary?.inserted || 0));
+        // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
+        for (const r of pending) {
+          const previous = String(r.last_applied_month || "");
+          if (previous > month) await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: previous }) });
+        }
+      } else {
+        for (const r of pending) {
+          if (blocked.includes(r)) continue;
+          if ((await applyRecurringRuleForMonth(env, householdId, r, month)) === "applied") count += 1;
+        }
+      }
+      const skippedNote = blocked.length ? ` · ${blocked.length}건은 지출자가 활성 참여자가 아니어서 건너뜀` : "";
+      return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록${skippedNote}` }));
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
