@@ -241,7 +241,7 @@ svg text{font-family:inherit}
 @media(max-width:820px){.grid2{grid-template-columns:1fr}.donutWrap{grid-template-columns:150px minmax(0,1fr)}.kpi b{font-size:18px}}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
 ${reportUxCss()}
-</style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
+</style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
 <section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
 ${renderReportDashboard(dashboard)}

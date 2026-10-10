@@ -12,6 +12,11 @@ function parseJoinCode(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+// V22.9.37 감사 H15: 승인 대기 중인 사람이 자기 참여 요청을 거두는 말. "취소" 한 마디는 수정 세션·단계 흐름 취소와 겹치므로 받지 않는다.
+function isJoinCancelCommand(text = "") {
+  return /^(?:가계부\s*)?(?:참여|가입|참여\s*요청|참여\s*신청|승인\s*대기|승인\s*요청)\s*(?:취소|철회)(?:해줘|해\s*주세요|할래|하기)?$/.test(normalizeText(text));
+}
+
 function isHelpCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
 }
@@ -111,8 +116,8 @@ function parseGroupBindCommand(text = "") {
 export {
   isBrandGuideCommand, isBudgetCommand, isDataPolicyCommand, isEditGuideSimpleCommand,
   isGroupLinkInfoCommand, isHelpCommand, isInputExampleCommand, isInviteCommand,
-  isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand, isRecentCommand,
-  isReserveGuideCommand, isSettlementCommand, isSummaryCommand, isUndoCommand, kakaoSettlementText,
-  parseGroupBindCommand, parseJoinCode,
+  isJoinCancelCommand, isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand,
+  isRecentCommand, isReserveGuideCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
+  kakaoSettlementText, parseGroupBindCommand, parseJoinCode,
 };
 // @build:exports-end

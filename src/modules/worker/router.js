@@ -519,7 +519,9 @@ const ACCOUNTBOOK_WORKER = {
         if (!adminOk) {
           const userId = await verifyUserSession(request, env);
           if (userId) {
+            // V22.9.37 감사 U7: 조회 조건(month·household_id)을 버려 지난달 홈에서도 이번 달 분석이 열렸다. 그대로 넘긴다.
             const next = new URL("/my/analysis", url);
+            next.search = url.search;
             return redirectResponse(next.pathname + next.search);
           }
         }
@@ -1412,21 +1414,23 @@ const ACCOUNTBOOK_WORKER = {
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) { firstError = firstError || new Error("scheduled_recurring_partial"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
+        if (!recurringResult.ok) { if (recurringResult.failed > 0) firstError = firstError || new Error("scheduled_recurring_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) { firstError = firstError || new Error("scheduled_reports_partial"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
+        if (!reportResult.ok) { if (reportResult.failed > 0) firstError = firstError || new Error("scheduled_reports_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
       }
       try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
-      if (firstError) throw firstError;
+      // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
+      // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
+      if (firstError) { logWorkerError({ event: "scheduled_failed", path: "/cron", method: "SCHEDULED", error: firstError }); throw firstError; }
     })());
   },
 };

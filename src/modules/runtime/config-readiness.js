@@ -162,14 +162,38 @@ function withSetCookie(response, cookie) {
   return out;
 }
 
+const AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE = `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+// V22.9.37 감사 H4: 가계부 목록은 승인 대기·이용 제한 가계부를 골라도 200 으로 그린다(상태를 보여 주는 화면이다).
+// 참여 요청 뒤 돌아오는 주소가 그 가계부 ID 를 달고 있어서 "승인 대기" 가계부가 기억됐고, 그 뒤 모든 화면이 403 이 됐다.
+// 이 화면에서는 기억을 새로 쓰지 않는다. 읽을 수 있는 가계부를 실제로 그린 화면(홈 등)만 기억을 남긴다.
+const AB_HOUSEHOLD_MEMORY_NO_SET_PATHS = new Set(["/my/households"]);
+
+// 응답이 로그인 세션(ab_user)을 새로 발급하는지. 이미 가계부 기억 쿠키를 다루는 응답(카카오 연결 등)은 건드리지 않는다.
+function issuesUserSession(response) {
+  try {
+    const cookies = typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : String(response.headers.get("set-cookie") || "").split(/,(?=\s*[A-Za-z0-9_-]+=)/);
+    return cookies.some((cookie) => /^\s*ab_user=[^;]/.test(cookie)) && !cookies.some((cookie) => /^\s*ab_hh=/.test(cookie));
+  } catch (_) {
+    return false;
+  }
+}
+
 async function withRememberedHouseholdCookie(routed, response) {
   try {
     const request = routed.request;
     const url = new URL(request.url);
     if (url.pathname === "/my/logout") {
-      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+      return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
-    if (!routed.eligible || response.status !== 200) return response;
+    // H4: 다른 계정이 로그인해도 쿠키가 남아 그 사람의 가계부로 열렸다. 세션을 새로 주면 기억을 함께 지운다.
+    if (issuesUserSession(response)) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+    if (!routed.eligible) return response;
+    // H4: 기억한 가계부가 더 읽을 수 없게 됐으면(승인 대기·이용 제한) 접근 안내 화면(403)이 나온다. 그 자리에서 기억을
+    // 지워 다음 화면은 기본 규칙으로 열리게 한다. 예전에는 승인 전까지 모든 화면이 403 이었다.
+    if (routed.injected && response.status === 403) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+    if (response.status !== 200) return response;
     if (!String(response.headers.get("content-type") || "").includes("text/html")) return response;
     const requested = String(url.searchParams.get("household_id") || "").trim();
     if (!isRememberableHouseholdId(requested)) return response;
@@ -177,8 +201,9 @@ async function withRememberedHouseholdCookie(routed, response) {
       // 정상 화면은 링크마다 그 가계부 ID 를 단다. 하나도 없으면 가계부 고르기 화면이다 — 쿠키가 낡았다.
       const html = await response.clone().text();
       if (html.includes(`household_id=${requested}`)) return response;
-      return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+      return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
+    if (AB_HOUSEHOLD_MEMORY_NO_SET_PATHS.has(url.pathname)) return response;
     if (requested === routed.remembered) return response;
     return withSetCookie(response, `${AB_HOUSEHOLD_MEMORY_COOKIE}=${requested}; ${AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS}`);
   } catch (_) {

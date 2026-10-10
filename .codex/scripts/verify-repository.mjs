@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_36.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_37.sha256",
 );
 const validationScripts = [
   // 모든 검사가 src/index.js 를 읽으므로 그 파일이 모듈과 같은지부터 본다.
@@ -28,6 +28,11 @@ const validationScripts = [
   ["V22.9.34 2차 점검 화면(B10·B11·U01·U02, 감사 T3)", "validation/validate-qa2-screens-v22934.mjs"],
   ["V22.9.35 가입 해시(Workers PBKDF2 상한 100,000)", "validation/validate-signup-kdf-v22935.mjs"],
   ["V22.9.36 카카오 분류 표 대체(운영에 없는 선택 표)", "validation/validate-kakao-category-fallback-v22936.mjs"],
+  ["V22.9.37 감사 묶음 A — 정기·예산·집계(SIM-3 등)", "validation/validate-audit-batch-a-v22937.mjs"],
+  ["V22.9.37 감사 묶음 B — 카카오·가계부 수명주기(NEW-4 등)", "validation/validate-audit-batch-b-v22937.mjs"],
+  ["V22.9.37 감사 묶음 C — 화면·클라이언트·자산(H1·U3 등)", "validation/validate-audit-batch-c-v22937.mjs"],
+  ["V22.9.37 감사 묶음 D — 가져오기·백업 적용·입력 검증", "validation/validate-audit-batch-d-v22937.mjs"],
+  ["V22.9.37 관제 알림 발송·표본 범위·저장 실패 분류", "validation/validate-monitor-alerts-v22937.mjs"],
   ["카카오 그룹", "validation/validate-kakao-group.mjs"],
   ["카카오 수정·삭제·복구 V4", "validation/validate-kakao-edit-flow.mjs"],
   ["가계부 보안", "validation/validate-household-security.mjs"],
@@ -196,7 +201,9 @@ function run(command, args, label) {
 // 저장 무결성 28, 2차 점검 화면 28 개 검사와 새 v22934 자산 고정이 들어왔다.
 // V22.9.35 가입 해시 수정: Workers PBKDF2 상한(100,000) 아래의 가입·로그인·관리자 비밀번호 변경 검사 25개가 들어왔다.
 // V22.9.36 카카오 분류 표 대체: 운영에 없는 선택 표(accountbook_categories) 조건에서 카카오 새 기록이 저장되는지 보는 검사 26개가 들어왔다.
-const EXPECTED_MINIMUM_CHECKS = 8795;
+// V22.9.37 감사 결함 묶음: 묶음 A 97, B 102, C 146, D 211, 관제 알림 39 와 기존 검사의 증가분(자산 고정·모듈 표시 등)으로 9,421개가 됐다.
+// PR #68 후속: 정기 반영 부분 실패 14, 대출 부채 합계 9, cron 실패 구분 9개를 더해 9,453개가 됐다.
+const EXPECTED_MINIMUM_CHECKS = 9453;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

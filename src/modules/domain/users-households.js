@@ -164,6 +164,29 @@ async function joinHouseholdByCode(env, userId, code, options = {}) {
   });
 }
 
+// V22.9.37 감사 H15: 승인 대기 중인 사람이 자기 참여 요청만 거둔다. 다른 역할 행은 건드리지 않고, 지운 뒤 다시 읽어
+// 비어 있음을 확인한 결과만 성공으로 본다(확인된 쓰기만 알린다). 참여와 같은 사용자 → 가계부 잠금 순서를 쓴다.
+async function cancelPendingHouseholdJoin(env, userId, householdId, options = {}) {
+  const uid = String(userId || "").trim();
+  const hid = String(householdId || "").trim();
+  if (!uid || !hid) return { cancelled: false, reason: "missing" };
+  if (options.lifecycleLeaseHeld !== true) return withKakaoUserLifecycleLease(env, uid, (lifecycleOptions) => cancelPendingHouseholdJoin(env, uid, hid, lifecycleOptions));
+  const membershipPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&user_id=eq.${encodeURIComponent(uid)}`;
+  return withHouseholdDatabaseLease(env, hid, async ({ assertFresh: householdFresh }) => {
+    const assertFresh = () => { options.assertFresh?.(); householdFresh(); };
+    const rows = await supabase(env, `${membershipPath}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("household_member_source_invalid");
+    const role = bestRoleFromRows(rows);
+    if (role !== "pending") return { cancelled: false, reason: role ? "not_pending" : "not_member", role };
+    assertFresh();
+    await supabase(env, `${membershipPath}&role=eq.pending`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    const remaining = await supabase(env, `${membershipPath}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+    if (!Array.isArray(remaining)) throw new Error("household_member_source_invalid");
+    if (bestRoleFromRows(remaining)) return { cancelled: false, reason: "not_confirmed", role: bestRoleFromRows(remaining) };
+    return { cancelled: true, household_id: hid };
+  });
+}
+
 async function getPendingHousehold(env, userId) {
   const rows = await optionalSupabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(userId)}&role=eq.pending&select=household_id,created_at&order=created_at.desc&limit=10`, { method: "GET" }, []) || [];
   for (const row of rows) {
@@ -190,7 +213,7 @@ function roleBlockedMessage(role, householdName = "") {
 }
 // @build:exports-start
 export {
-  ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole, joinHouseholdByCode,
-  roleBlockedMessage,
+  cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole,
+  joinHouseholdByCode, roleBlockedMessage,
 };
 // @build:exports-end

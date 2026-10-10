@@ -1,0 +1,19 @@
+# 1.1.0: 수동 실행만 준비한다. 운영 승인 전에는 공개 /health·/ready 의 예약 검사를 활성화하지 않는다.
+# 승인 뒤 monitoring/external-check.workflow.yml 템플릿의 30분 schedule 을 별도로 적용한다.
+name: External availability check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  availability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: node monitoring/external-check.mjs

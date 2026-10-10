@@ -275,7 +275,7 @@ for (const path of ["/my/recurring/save", "/admin/recurring/save", "/my/recurrin
     const confirmed = await loaded.json();
     eq(confirmed.goals.filter(g => g.name === "QA_UNKNOWN_GOAL").length, 1, "goal reread bypasses cache and shows the late committed goal once");
     eq(creates, 1, "unknown goal create sends no mutation retry");
-    const asset = await call(fixture, "GET", "/assets/accountbook-goals-v22929.js");
+    const asset = await call(fixture, "GET", "/assets/accountbook-goals-v22937.js");
     eq(asset.status, 200, "changed goals client has fresh immutable URL");
     ok((await asset.text()).includes('load().then(function () { showError(err); })'), "unknown create refreshes list before verification notice");
   } finally { fixture.restore(); }

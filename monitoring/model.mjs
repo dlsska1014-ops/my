@@ -1,4 +1,4 @@
-export const MONITOR_VERSION = "1.0.1";
+export const MONITOR_VERSION = "1.1.0";
 export const PRICING_VERIFIED_AT = "2026-10-01";
 export const DAY = 86400000;
 

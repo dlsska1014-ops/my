@@ -203,18 +203,26 @@ async function handleMyBudgetBulkSave(request, env) {
 
   try {
     const plan = new Map();
+    // V22.9.37 감사 SIM-2: 같은 이름이 두 줄이면 뒤 줄이 앞 줄을 조용히 덮었다. 금액이 같으면 한 줄로 보고, 다르면
+    // 어느 쪽이 맞는지 알 수 없으므로 저장하지 않고 알린다.
+    const putPlanRow = (key, row) => {
+      const prior = plan.get(key);
+      if (prior && prior.amount !== row.amount) return false;
+      if (!prior) plan.set(key, row);
+      return true;
+    };
     for (let i = 0; i < incomeNames.length; i++) {
       const name = incomeNames[i] || defaultIncomeBudgetNames()[i] || `수입${i + 1}`;
       const amount = Math.max(0, Math.min(2000000000, Math.round(Number(incomeAmounts[i] || 0))));
       if (!amount) continue;
-      plan.set(normalizeText(incomeBudgetCategory(name)), { category: incomeBudgetCategory(name), amount });
+      if (!putPlanRow(normalizeText(incomeBudgetCategory(name)), { category: incomeBudgetCategory(name), amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
     }
     for (let i = 0; i < expenseNames.length; i++) {
       const name = expenseNames[i];
       if (!name) continue;
       const amount = Math.max(0, Math.min(2000000000, Math.round(Number(expenseAmounts[i] || 0))));
       if (!amount) continue;
-      plan.set(normalizeText(name), { category: name, amount });
+      if (!putPlanRow(normalizeText(name), { category: name, amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
     }
     const rows = [...plan.values()];
     if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }));

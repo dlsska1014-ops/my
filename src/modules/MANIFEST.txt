@@ -105,5 +105,6 @@ nlu/amount-parser.js
 nlu/date-payment.js
 nlu/category-rules.js
 domain/transactions-core.js
+domain/strict-input.js
 admin/launch-guide-pages.js
 worker/test-exports.js

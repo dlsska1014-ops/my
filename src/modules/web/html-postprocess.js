@@ -304,7 +304,11 @@ function promoteLegacyUserLayoutToV5(html = "") {
   const selectedHouseholdOption = source.match(/<option\b([^>]*\bselected\b[^>]*)>([^<]+)<\/option>/i);
   const householdName = decodeUiV5HtmlText(selectedHouseholdOption?.[1]?.match(/\bdata-household-name="([^"]*)"/i)?.[1] || selectedHouseholdOption?.[2] || "");
   const active = legacyUiV5ActiveKey(source);
-  const nav = renderUnifiedNav(active, { month, householdId, householdName });
+  // V22.9.37 감사 U14: 옛 사이드바(renderMySideNav)는 관리자가 아니면 "참여자·초대" 대신 "내 프로필"을 그린다. 이 승격
+  // 경로는 역할을 직접 받지 않으므로 그 흔적으로 일반 참여자를 알아보고 공통 내비에 "관리자 전용" 표시를 넘긴다.
+  const legacyMenu = source.slice(layoutStart, pageStart);
+  const role = legacyMenu.includes('href="/my/profile"') && !legacyMenu.includes("/my/members?") ? "member" : "";
+  const nav = renderUnifiedNav(active, { month, householdId, householdName, role });
   source = source.slice(0, layoutStart) + pageMarker + source.slice(pageStart + pageMarker.length);
   const legacyClosing = source.lastIndexOf("</div></div></main>");
   if (legacyClosing >= 0) source = source.slice(0, legacyClosing) + "</div></main>" + source.slice(legacyClosing + 19);

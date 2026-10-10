@@ -74,7 +74,15 @@ function nluOutcomeFromKakaoResponse(responseText = "") {
   if (/(정확히 이해하지 못했|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(text)) {
     return { result: "fallback", reason: "generic_fallback", text, quick_reply_count: quickReplyCount };
   }
-  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생)/.test(text)) {
+  // V22.9.37(관제): 저장소가 거절한 저장("저장하지 못했어요")과 결과를 모르는 저장("저장 확인이 지연")은 관제에 "ok"로
+  // 집계되고 있었다. 실패·불확실로 나눠 센다.
+  if (/(저장하지 못했어요|기록되지 않았어요)/.test(text)) {
+    return { result: "error", reason: "save_failed", text, quick_reply_count: quickReplyCount };
+  }
+  if (/저장 확인이 지연/.test(text)) {
+    return { result: "error", reason: "save_uncertain", text, quick_reply_count: quickReplyCount };
+  }
+  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(text)) {
     return { result: "error", reason: "safe_error_response", text, quick_reply_count: quickReplyCount };
   }
   if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(text)) {

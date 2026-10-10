@@ -1,11 +1,13 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError } from "../runtime/leases.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import {
   createUserHousehold, fetchUserHouseholds, withHouseholdCreateLock,
 } from "../data/users-household-create.js";
+import { canManageMyHousehold } from "../my/access-control.js";
 import { isHouseholdSwitchCommand } from "./intent-nlu.js";
 import { dedupeQuickReplies, kakaoQr } from "./response-builders.js";
 import {
@@ -18,8 +20,9 @@ import {
 import {
   copyKakaoBudgetsFromPreviousMonth, findExistingKakaoHouseholdByNameV2254, getHouseholdById,
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
-  isKakaoCreateKindOptionsRequest, kakaoCreateKindPromptText, kakaoHouseholdChoiceQuickReplies,
-  kakaoHouseholdListLines, kakaoInviteManagementText, kakaoManageableHouseholds, maybeKakaoCta,
+  isKakaoCreateKindOptionsRequest, kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText,
+  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
+  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta,
   parseBareInviteCode, parseKakaoCreateKind, parseKakaoHouseholdChoice,
   plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
   saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
@@ -104,7 +107,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
-    if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
+    // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.
+    if (action === "invite") return canManageMyHousehold(chosen.role) ? { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] } : { text: kakaoInviteNotAllowedText(chosen), quickReplies: [["도움말", "도움말"]] };
     if (action === "bind") {
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
@@ -224,7 +228,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     const joined = await joinHouseholdByCode(env, user.id, code);
     if (!joined) return { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["다시 입력", "초대코드로 참여"], ["취소", "취소"]] };
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-    if (!["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
+    // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
+    if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
     if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말", "도움말"]] };
     return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
@@ -320,6 +325,8 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       if (normalizeText(utterance) === "직접 입력") return { text: "금액을 직접 입력해 주세요.\n예: 80만원", quickReplies: [["취소", "취소"]] };
       const amount = parseAmountValue(utterance);
       if (!amount) return { text: "금액을 확인하지 못했어요.\n예: 50만원, 1000000원", quickReplies: kakaoBudgetAmountQuickReplies() };
+      // V22.9.37 감사 NEW-8: "50억"은 예산으로 저장하지 않고 상한을 알리고 다시 묻는다(웹 예산 저장과 같은 20억 상한).
+      if (amount > MAX_TRANSACTION_AMOUNT) return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
       const category = state.data?.category || "__total";
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "confirm", data: { household_id: household.id, month, category, amount } });
       return { text: `${month} ${category === "__total" ? "전체 월" : category} 예산을\n${numberWithCommas(amount)}원으로 설정할까요?`, quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] };
@@ -337,11 +344,16 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       if (t !== "설정하기" && !isKakaoCreateConfirmYes(t)) return { text: "설정하려면 ‘설정하기’ 또는 ‘응’이라고 입력해 주세요.", quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] };
       const category = state.data?.category || "__total";
       const amount = Number(state.data?.amount || 0);
+      if (amount > MAX_TRANSACTION_AMOUNT) {
+        await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
+        return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
+      }
       await saveKakaoBudget(env, household.id, month, category, amount);
+      const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, month) : "";
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
       return {
-        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + cta + cleanupNotice,
+        text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + totalNote + cta + cleanupNotice,
         quickReplies: [["다른 카테고리", "예산 설정"], ["예산 현황", "남은 예산"], ["기록 방법", "기록 방법"]],
       };
     }

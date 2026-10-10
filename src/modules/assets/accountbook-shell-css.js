@@ -174,6 +174,18 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity .id
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageAccountSecurity main.wrap a.btn.secondary{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="error"]{color:#fca5a5!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell:is(.abPageLogin,.abPageAccountSecurity) .credentialFeedback[data-state="success"]{color:#6ee7b7!important}
+/* V22.9.37 감사 U4: 다크 모드로 둔 채 로그아웃하면 시작 화면의 글자색만 밝아지고 미리보기·인증 카드는 흰 배경으로 남아 1.05~1.90:1 이었다.
+   그 표면(.demoPanel·.sampleCard·.authIntro·.sampleWindow·기록 카드 칸·.miniRow·.person·보조 버튼)에도 다크 표면과 토큰 글자색을 준다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.demoPanel,.sampleCard,.authIntro,.sampleWindow,.recordCard dl div,.miniRow,.person,.ctaSecondary){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.recordCard,.chatBubble.bot,.miniMark){background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.heroLead,.heroNote,.sectionHead p,.chatCaption,.miniRow span,.recordCard dt,.cardKicker,.metricLine span,.sampleMeta,.summaryList span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.landingHero h1 strong,.landingPage .ctaSecondary){color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin :is(.progressTrack,.summaryList div){background:var(--ab12-line)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .summaryList div{background:transparent!important}
+/* 헤드리스 측정(tools/screen-audit.mjs)에서 남은 둘: 노란 예시 안내의 <b> 가 다크 글자색을 받아 1.11:1, 어두운 띠 안 흰 버튼의 글자가 공통 링크색을 받아 1.80:1. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .sampleNotice{background:var(--ab12-warn-bg)!important;color:var(--ab12-warn-text)!important;border-color:var(--ab12-warn-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .sampleNotice b{color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .previewCta .cta{color:#172033!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:850}
@@ -828,7 +840,14 @@ body.abV22812Shell .abDayDetailEdit{flex:1;min-width:0;border:1px solid var(--li
 body.abV22812Shell .abDayDetailEdit summary{display:flex;align-items:center;min-height:44px;padding:0 13px;color:var(--text)!important;font-size:12px;font-weight:800;cursor:pointer}
 body.abV22812Shell .abDayDetailEdit form{display:grid;gap:10px;padding:0 12px 12px}
 body.abV22812Shell .abDayDetailEditGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:var(--sub)!important;font-size:11px;font-weight:750}
+body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:#475467!important;font-size:11px;font-weight:750}
+/* V22.9.37 감사 U9: 수정 폼의 11px 라벨이 보조색(--sub)으로 4.35:1 이었다. 작은 글자는 더 진한 #475467(밝은 카드 위 7:1)로, 다크는 보조 토큰. */
+body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:#475467!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:var(--ab12-muted)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abDayDetailEditGrid label{color:var(--ab12-muted)!important}
+/* V22.9.37 감사 U14: 일반 참여자에게 관리자 전용 메뉴(참여자·초대, 단톡방 연결)를 표시한다. 글자는 보조 토큰(4.5:1). */
+body.abV22812Shell .abNavAdminTag{margin-left:auto;padding-left:6px;font-size:10px;font-weight:800;color:var(--ab12-muted);white-space:nowrap}
+body.abV22812Shell .abNavLinks a.abNavAdminOnly .abNavItemIcon{opacity:.75}
 body.abV22812Shell .abDayDetailEditGrid label>span{color:var(--sub)!important}
 body.abV22812Shell .abDayDetailEditGrid :is(input,select){width:100%;min-width:0;min-height:44px;padding:0 10px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card)!important;color:var(--text)!important;font:inherit;font-size:13px}
 body.abV22812Shell .abDayDetailMemo{grid-column:1/-1}

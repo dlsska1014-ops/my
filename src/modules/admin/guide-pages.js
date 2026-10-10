@@ -248,7 +248,7 @@ function openBuilderFinalRows(origin = "") {
     ["기록 입력", "점심 12000 국민카드, 커피 4500 카카오페이", "입력 블록 또는 폴백 → Skill", skill],
     ["여러 줄 입력", "7월3일\\n온열안대 9900 삼성카드\\n풋샴푸 10150 삼성카드", "폴백 → Skill", skill],
     ["조회", "요약, 오늘 기록, 최근, 내역", "조회 블록 → Skill", skill],
-    ["예산", "남은예산, 오늘예산, 이번달예상, 정기지출", "예산 블록 → Skill", skill],
+    ["예산", "남은예산, 예산 현황, 예산 설정, 정기지출", "예산 블록 → Skill", skill],
     ["수정/삭제", "01번 금액 13000원, 01번 삭제, 수정가이드", "수정 블록 → Skill", skill],
     ["단톡방", "단톡방, 단톡방 연결 ABC123, 그룹 정보", "그룹 연결 블록 → Skill", skill],
     ["정책", "개인정보, 데이터 보관, 브랜드, 심사", "안내 블록 → Skill", skill],
@@ -265,7 +265,7 @@ async function handleOpenBuilderFinalUtterancePage(request, env, url) {
     "필수 발화",
     "도움말 / 처음 / 메뉴 / 입력 예시",
     "요약 / 오늘 기록 / 최근",
-    "남은예산 / 오늘예산 / 이번달예상 / 정기지출",
+    "남은예산 / 예산 현황 / 예산 설정 / 정기지출",
     "01번 삭제 / 01번 금액 13000원 / 수정가이드",
     "단톡방 / 단톡방 연결 초대코드 / 그룹 정보",
     "개인정보 / 브랜드 / 심사 / 폴백",
@@ -276,11 +276,12 @@ async function handleOpenBuilderFinalUtterancePage(request, env, url) {
 }
 
 function userPolishBaseStyle() {
-  return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em;overflow-x:hidden}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.hero h1{margin:8px 0 10px;font-size:32px;letter-spacing:-.06em}.tag{display:inline-flex;border-radius:999px;background:#FEE500;color:#111827;padding:7px 11px;font-size:12px;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.step{background:#f8fafc;border:1px solid #e8edf4;border-radius:20px;padding:16px}.step b{display:block;font-size:18px}.step span{display:block;color:#64748b;line-height:1.55;margin-top:7px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500;color:#111827!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}.copy{white-space:pre-wrap;background:#111827;color:#f9fafb;border-radius:18px;padding:16px;line-height:1.6;font-family:inherit}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{display:inline-flex;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:13px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e8edf4;padding:11px;text-align:left;vertical-align:top}code{background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;white-space:pre-wrap}.tableWrap{overflow:auto}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.grid{grid-template-columns:1fr}table{font-size:13px}}`;
+  return `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em;overflow-x:hidden}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.hero h1{margin:8px 0 10px;font-size:32px;letter-spacing:-.06em}.tag{display:inline-flex;border-radius:999px;background:#FEE500;color:#111827;padding:7px 11px;font-size:12px;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.step{background:#f8fafc;border:1px solid #e8edf4;border-radius:20px;padding:16px}.step b{display:block;font-size:18px}.step span{display:block;color:#64748b;line-height:1.55;margin-top:7px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a!important}.btn.kakao{background:#FEE500;color:#111827!important}.notice{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.6}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:18px;padding:14px;line-height:1.6}.copy{white-space:pre-wrap;background:#111827;color:#f9fafb;border-radius:18px;padding:16px;line-height:1.6;font-family:inherit}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{display:inline-flex;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:8px 11px;font-weight:900;font-size:13px}table{width:100%;border-collapse:collapse;background:#fff;border-radius:18px;overflow:hidden}td,th{border-bottom:1px solid #e8edf4;padding:11px;text-align:left;vertical-align:top}code{background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;white-space:pre-wrap;color:#111827}html[data-ab-resolved-theme="dark"] code{background:#282b33;color:#edeff3}.tableWrap{overflow:auto}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.grid{grid-template-columns:1fr}table{font-size:13px}}`;
 }
 
-function userPolishNav() {
-  return `<p><a class="btn kakao" href="/my">가계부 시작</a><a class="btn light" href="/app">모바일 입력</a><a class="btn light" href="/quick-input-help">입력 가이드</a><a class="btn light" href="/beta-checklist">베타 체크</a><a class="btn light" href="/operation-center">운영센터</a></p>`;
+// V22.9.37 감사 U13: 사용자 도움말(/quick-input-help)에서는 운영자 화면 링크를 관리자 세션에서만 보인다.
+function userPolishNav(showOps = true) {
+  return `<p><a class="btn kakao" href="/my">가계부 시작</a><a class="btn light" href="/app">모바일 입력</a><a class="btn light" href="/quick-input-help">입력 가이드</a>${showOps ? `<a class="btn light" href="/beta-checklist">베타 체크</a><a class="btn light" href="/operation-center">운영센터</a>` : ""}</p>`;
 }
 
 async function handleUserPolishFinalPage(request, env, url) {
@@ -312,6 +313,7 @@ async function handleMobileFirstFlowGuidePage(request, env, url) {
 
 async function handleQuickInputHelpPage(request, env, url) {
   const title = escapeHtml(appName(env));
+  const adminOk = await verifyAdminSession(request, env);
   const examples = [
     ["점심 12000 국민카드", "오늘 지출 1건"],
     ["커피 4500 카카오페이", "결제수단 포함 지출"],
@@ -323,7 +325,7 @@ async function handleQuickInputHelpPage(request, env, url) {
   ];
   const rows = examples.map(([a,b]) => `<tr><td><code>${escapeHtml(a)}</code></td><td>${escapeHtml(b)}</td></tr>`).join("");
   const copy = examples.slice(0,5).map(([a]) => a).join("\n\n");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 빠른 입력</title><style>${userPolishBaseStyle()}</style></head><body>${renderUnifiedNav("quick-input-help")}<main class="wrap"><section class="hero"><span class="tag">스마트 입력 안내</span><h1>사용자는 문장처럼 쓰면 됩니다</h1><p>금액, 날짜, 결제수단, 메모를 자연스럽게 적으면 웹과 카카오에서 같은 방식으로 처리됩니다.</p>${userPolishNav()}</section><section class="card"><h2>대표 입력 예시</h2><div class="tableWrap"><table><thead><tr><th>입력</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>복사용 예시</h2><div class="copy">${escapeHtml(copy)}</div></section><section class="notice"><b>오입력 안내 기준</b><br/>금액이 없거나 날짜만 있는 줄은 저장하지 않고, 저장 가능한 줄만 분리해서 처리합니다. 중복 저장 방어는 V20.2 기준을 유지합니다.</section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 빠른 입력</title><style>${userPolishBaseStyle()}</style></head><body>${renderUnifiedNav("quick-input-help")}<main class="wrap"><section class="hero"><span class="tag">스마트 입력 안내</span><h1>사용자는 문장처럼 쓰면 됩니다</h1><p>금액, 날짜, 결제수단, 메모를 자연스럽게 적으면 웹과 카카오에서 같은 방식으로 처리됩니다.</p>${userPolishNav(adminOk)}</section><section class="card"><h2>대표 입력 예시</h2><div class="tableWrap"><table><thead><tr><th>입력</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>복사용 예시</h2><div class="copy">${escapeHtml(copy)}</div></section><section class="notice"><b>오입력 안내 기준</b><br/>금액이 없거나 날짜만 있는 줄은 저장하지 않고, 저장 가능한 줄만 분리해서 처리합니다. 중복 저장 방어는 V20.2 기준을 유지합니다.</section></main></body></html>`);
 }
 
 async function handleMenuPolishGuidePage(request, env, url) {

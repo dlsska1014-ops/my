@@ -27,10 +27,22 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
-  "/assets/accountbook-shell-v22925.css": "fbff809b77fd01e4db73b4db5026d8166a4162779ab2792639a22379808300e8",
+  // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14)와 내비·V5 번들·목표·행 즐겨찾기·검색·알림 JS(H1·U2·U3·U5·U10·U12)가 바뀌어
+  // 주소를 올렸다. 옛 CSS 주소(v22925)는 더 내려가지 않고, 옛 JS 주소(nav-v22930·v5-v22934·goals-v22929·favrows-v22836·
+  // search-v22929·notif-v22836)는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/accountbook-shell-v22937.css": "17d0784c0a432362198551bc468301c60f07949d3e5cbcf22949bf0ab92c7018",
   "/assets/ab-uiux-v22919.css": "59510e82bbd2b373da76dfa1a070d2ccb40232e115e23da5c23251403fcc9f0c",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22930.js": "b76bebe25f3f0138e918129c7f34e4fa973f1dc53fec0ea905afc4a04bb9de60",
+  "/assets/accountbook-nav-v22937.js": "c6c30dcbf5ea883ca539becccba221d6c7e616c39859441afc7c4e1fd6ba3ed8",
+  "/assets/accountbook-goals-v22929.js": "1f52fca714cf0683555a75c8a2768f2b007273130ac05081757577aaedc38fe5",
+  "/assets/accountbook-goals-v22937.js": "db29dc0af2818c48689e60479704c7ba9784113e846248b422fd6ecf81e57431",
+  "/assets/accountbook-favrows-v22836.js": "04b2c5df73273baffbaf09b00a0f1e69871febafc24dae81d1f7238a9e3e9aa7",
+  "/assets/accountbook-favrows-v22937.js": "d74d3a6086ee62c5341e111f6766ec787ecb9670ffd54e0623ed963f0125696c",
+  "/assets/accountbook-search-v22929.js": "965589e96d188674d7a1dc151446201ec2197da3e0d4eada885c0f4bef8695ae",
+  "/assets/accountbook-search-v22937.js": "a7a481a686a0e7ce71750b5748c6668933908b7cb2fa6e75665b94632e19912c",
+  "/assets/accountbook-notif-v22836.js": "7a6ef7fe4ca223901e2dc29550add0fe23f3f61803b884ecfb4d6edba33cfc07",
+  "/assets/accountbook-notif-v22937.js": "84a5d43252c9ff9986e552fa0352dcf67036a9332ba117f8848151b87040687d",
   "/assets/accountbook-v5-v22930.js": "98ea43f030df82121f90afb536769dc300576f71e480998382bbb5ed972d5b5e",
   "/assets/mobile-home-v22915.js": "38b828923a12319cd8b6055b3c7cf8c6bec9c7bcfaf0f77759ca14712d7ae290",
   "/assets/mobile-home-v22930.js": "ff513d9d5936fe1393489b98170ca7f7681ed8500d6edfe3f0eb4c9d10e1c416",
@@ -43,6 +55,7 @@ const PINNED = {
   // 바뀌어 주소를 올렸다. accountbook-v5-v22930·mobile-home(-shell)-v22933 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아
   // 위 해시로 계속 내려간다.
   "/assets/accountbook-v5-v22934.js": "0c85fadaee93b78357fd32e9c9b595b66edd5d33601e51fc30ee6a746ad4463d",
+  "/assets/accountbook-v5-v22937.js": "e939a35fb2acd5428bd1904a94edb35da16748652cd0c5b41e7c78cf0db0b752",
   "/assets/mobile-home-v22934.js": "143562ae7a41dfa30884227582a49507b5442bbf86dcf79ba890f09b184423e5",
   "/assets/mobile-home-shell-v22934.js": "1b3e04cfe5917fcebc86fbe55e9df1663290b597d4f70c93ae44ed7b419b7968",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",

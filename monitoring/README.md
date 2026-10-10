@@ -61,10 +61,25 @@ npx wrangler deploy --config monitoring/wrangler.jsonc
 ## 독립 접속 검사
 
 `node monitoring/external-check.mjs`는 자격 증명 없이 실제 공개 경로를 검사합니다.
-`external-check.workflow.yml`은 외부 GitHub Actions 검사 템플릿이며 아직 예약 실행되지 않습니다.
-저장소 게시와 워크플로 활성화가 승인되면 `.github/workflows/monitoring.yml`로 복사합니다.
+`.github/workflows/monitoring.yml`은 수동 실행(`workflow_dispatch`)만 준비되어 있으며 병합으로 예약 검사가 켜지지 않습니다. 운영 승인 뒤 `monitoring/external-check.workflow.yml` 템플릿의 30분 예약을 별도로 적용합니다. 실행한 검사가 실패하면 GitHub가 워크플로 실패 알림 메일을 보냅니다. 공개 저장소라 Actions 분은 무료입니다.
 GitHub 예약은 지연될 수 있으며 24시간 감시 또는 즉시 통보를 보장하지 않습니다.
-알림 이메일·메신저 발송은 연결하지 않았습니다.
+
+## 알림 발송 (1.1.0)
+
+1.0.1 까지는 경고를 관리자가 `/ops-monitor`를 열 때만 계산했고 아무 데도 보내지 않았습니다. 1.1.0 부터 5분 수집이 끝날 때마다 `summary()`를 돌려 **새 경고를 이메일·웹훅으로 보냅니다.**
+
+- **채널:** 이메일은 Workers 의 `send_email` 바인딩(`ALERT_EMAIL`)과 수신 주소 `ALERT_TO`, 발신 주소 `ALERT_FROM`(malhaebook.com 주소). 웹훅은 Secret `ALERT_WEBHOOK_URL`(JSON `{"text": …}` POST, Slack·Discord 호환). 둘 중 하나 이상이 없으면 수집 상태 `alerts`가 `not_connected`이고 화면에 "알림 발송 채널 미연결"이 뜹니다.
+- **무엇을 보내나:** `summary()`의 경고 가운데 긴급(critical)·전환 검토(upgrade)·주의(warning). 같은 제목·같은 등급은 긴급 6시간, 전환 검토 12시간, 주의 24시간 안에 다시 보내지 않습니다. 긴급 경고가 사라지면 "해소"를 한 번 보냅니다. 발송 기록은 D1 `settings`의 `alert:*` 행입니다.
+- **실패하면:** 모든 채널이 실패하면 수집 상태 `alerts`가 `delivery_failed`가 되고 기록을 남기지 않아 다음 5분에 다시 시도합니다. 발송 실패는 사용자 응답에 영향이 없습니다.
+- **새 경고(1.1.0):** 앱 Worker 오늘 런타임 오류 3건 이상(주의)·20건 이상(긴급), 요금제 확인 기록 7일 만료(주의, 그동안은 마지막 확인 요금제의 한도로 계속 비교), Cloudflare 분석 토큰 만료 30일 전(주의)·7일 전(긴급)·비활성(긴급).
+- **참고 사항으로 바뀐 것:** 카카오·웹 p95 표본 부족은 낮은 트래픽에서 정상이라 "확인 불가"가 아니라 참고(`notes`)로 보입니다.
+
+**설정 순서(사용자 승인 뒤 실행):**
+1. Cloudflare → Email Routing → 대상 주소에 알림을 받을 주소를 추가하고 인증합니다(이미 문의 메일 전달에 쓰는 주소면 그대로).
+2. `monitoring/wrangler.jsonc`의 `send_email` 주석을 풀고 `destination_address`와 `ALERT_TO`에 그 주소를 적습니다. `ALERT_FROM`은 `monitor@malhaebook.com`처럼 이 도메인의 주소입니다.
+3. (선택) `npx wrangler secret put ALERT_WEBHOOK_URL --config monitoring/wrangler.jsonc`.
+4. `npx wrangler deploy --config monitoring/wrangler.jsonc`. 배포 뒤 첫 수집(5분 안)에서 `/ops-monitor` 하단 "알림 발송" 상태가 `수집됨`인지 봅니다. 채널이 없으면 `not_connected`로 남습니다.
+5. 한 번 실제로 받아 보려면 요금제 확인 기록을 비워 두면 됩니다(주의 등급 "요금제 확인 기록 만료"가 하루 한 번 옵니다). 확인 뒤 화면에서 요금제를 저장하면 멈춥니다.
 
 Cloudflare 관제는 앱과 계정 한도 및 플랫폼 장애를 공유합니다. 외부 검사 활성화 전에는
 Cloudflare 전체 장애를 독립적으로 계속 관측한다고 표시하지 않습니다.

@@ -30,7 +30,7 @@ ok(source.includes("async function getSettingValueStrict"), "read-modify-write s
 ok(source.includes('reason: "goal_save_failed"'), "goal write failures provide an explicit retryable response");
 ok(source.includes("function showError(err)") && source.includes('if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); }'), "goal create failures remain visible and unknown outcomes refresh before verification");
 ok(source.includes('id: String(o.id || `goal_${crypto.randomUUID()}`)'), "new goal identifiers use Web Crypto randomness");
-ok(source.includes('const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22929.js"') && source.includes('"accountbook-goals-v22929-js"'), "changed goal runtime uses a new immutable asset URL and ETag");
+ok(source.includes('const ACCOUNTBOOK_GOALS_JS_ASSET_PATH = "/assets/accountbook-goals-v22937.js"') && source.includes('"accountbook-goals-v22937-js"'), "changed goal runtime uses a new immutable asset URL and ETag");
 ok(source.includes('return `goals:v5:${String(householdId || "default")'), "shared goals remain scoped by household");
 ok(source.includes('return `favorites:v5:${String(householdId || "default").trim() || "default"}:${String(userKey || "shared")'), "personal favorites remain scoped by household and user");
 

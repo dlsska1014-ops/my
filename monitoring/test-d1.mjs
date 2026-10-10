@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import worker, { collect, summary } from "./worker.mjs";
+import worker, { collect, deliverAlerts, summary } from "./worker.mjs";
 
 const sqlite=new DatabaseSync(":memory:");
 sqlite.exec(readFileSync(new URL("schema.sql",import.meta.url),"utf8"));
@@ -20,15 +20,18 @@ const eq=(value,expected,message)=>{assert.deepEqual(value,expected,message);che
 const now=new Date();
 const env={MONITOR_DB:db,OPS_MONITOR_TOKEN:"sqlite-test-secret",CF_ANALYTICS_TOKEN:"only-a-test",CF_ACCOUNT_ID:"test-account",APP_WORKER_NAME:"test-app",APP_ORIGIN:"https://app.example",SUPABASE_ORG_ID:"test-org",CF_PLAN:"free",SUPABASE_PLAN:"free",PLAN_VERIFIED_AT:now.toISOString(),ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));}}};
 const originalFetch=globalThis.fetch;
-let graphFails=false;
+let graphFails=false, uptimeFails=false, webhookFails=false, tokenExpiresInDays=null, appErrors=0;
+const hooks=[];
 globalThis.fetch=async(input,init)=>{
   const url=new URL(typeof input==="string"?input:input.url);
+  if(url.hostname==="hooks.example") { if(webhookFails) return new Response("down",{status:500}); hooks.push(JSON.parse(String(init?.body))); return new Response("ok"); }
   if(url.hostname==="api.cloudflare.com") {
+    if(url.pathname==="/client/v4/user/tokens/verify") return new Response(JSON.stringify({success:true,result:{id:"t",status:"active",expires_on:tokenExpiresInDays===null?null:new Date(Date.now()+tokenExpiresInDays*86400000).toISOString()}}));
     if(String(init?.body).includes('d1AnalyticsAdaptiveGroups')&&!graphFails) return new Response(JSON.stringify({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:450000,rowsWritten:4000}}],storage:[{dimensions:{databaseId:'fixture'},max:{databaseSizeBytes:1048576}}]}]}}}));
     if(graphFails)return new Response('{"errors":[{"message":"test failure"}]}');
-    return new Response(JSON.stringify({data:{viewer:{accounts:[{today:[{sum:{requests:20000,errors:0,subrequests:20},dimensions:{status:"success"}}],hour:[{sum:{requests:100,errors:0,subrequests:1}}],app:[{sum:{requests:19000,errors:0,subrequests:19}}]}]}}}));
+    return new Response(JSON.stringify({data:{viewer:{accounts:[{today:[{sum:{requests:20000,errors:0,subrequests:20},dimensions:{status:"success"}}],hour:[{sum:{requests:100,errors:0,subrequests:1}}],app:[{sum:{requests:19000,errors:appErrors,subrequests:19}}]}]}}}));
   }
-  return new Response(JSON.stringify(url.pathname==="/ready"?{ready:true}:{alive:true,version:"fixture"}));
+  return new Response(JSON.stringify(url.pathname==="/ready"?{ready:!uptimeFails}:{alive:true,version:"fixture"}));
 };
 const req=(path,init={})=>new Request("https://monitor.example"+path,{...init,headers:{authorization:"Bearer sqlite-test-secret","content-type":"application/json",...init.headers}});
 try {
@@ -73,7 +76,7 @@ try {
   sqlite.prepare("UPDATE telemetry SET at=?").run(Date.now()-2*3600000);
   result=await summary(env);
   eq(result.application.telemetry_status,"stale","old application telemetry explicitly stale");
-  ok(result.unknown.includes("카카오 p95 표본 부족"),"insufficient latency samples included in global unknown state");
+  ok(result.notes.some(note=>note.includes("카카오 p95 표본 부족"))&&!result.unknown.some(item=>item.includes("p95")),"insufficient latency samples are a note, not an unknown item (1.1.0)");
   sqlite.prepare("UPDATE telemetry SET at=?").run(Date.now());
   for(let i=0;i<80;i++) await worker.fetch(req("/internal/telemetry",{method:"POST",body:JSON.stringify({...telemetry,id:`cap-event-${i}`})}),env,{});
   ok(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry").get().n<=10,"global diagnostic cap protects monitoring storage write budget");
@@ -113,5 +116,91 @@ try {
   eq(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry WHERE id='expired-record'").get().n,0,"hourly cleanup removes old request observations");
   eq(sqlite.prepare("SELECT COUNT(*) AS n FROM samples WHERE source='retention-test'").get().n,0,"daily cleanup removes old aggregates");
   ok(sqlite.prepare("SELECT COUNT(*) AS n FROM telemetry").get().n>0,"retention cleanup preserves recent request observations");
+  // ── 1.1.0 알림 발송·토큰 만료·요금제 만료·오류 건수 ───────────────────────────
+  graphFails=false;
+  const mails=[];const pending=[];
+  const alertEnv={...env,ALERT_EMAIL:{async send(message){mails.push(message);}},ALERT_TO:"ops@example.com",ALERT_FROM:"monitor@app.example",ALERT_WEBHOOK_URL:"https://hooks.example/alert"};
+  const runScheduled=async(e,at)=>{await worker.scheduled({scheduledTime:at.getTime()},e,{waitUntil:p=>pending.push(p)});await Promise.all(pending.splice(0));};
+  const base=new Date(now);base.setUTCHours(base.getUTCHours()+1,10,0,0);
+  uptimeFails=true;
+  await runScheduled(alertEnv,base);
+  eq(mails.length,1,"critical uptime failure is emailed once");
+  eq(hooks.length,1,"webhook receives the same alert");
+  ok(mails[0].raw.includes("Subject: =?UTF-8?B?")&&mails[0].raw.includes("Content-Transfer-Encoding: base64")&&mails[0].to==="ops@example.com"&&mails[0].from==="monitor@app.example","alert email is a raw RFC 5322 message from ALERT_FROM to ALERT_TO");
+  ok(hooks[0].text.includes("서비스 접속 또는 DB 준비 상태 실패")&&hooks[0].text.includes("/ops-monitor"),"alert text names the failing check and the dashboard");
+  ok(sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n>=1,"sent alert remembered for deduplication");
+  eq(sqlite.prepare("SELECT status FROM collector_state WHERE name='alerts'").get().status,"ok","alert delivery recorded as a collector state");
+  await runScheduled(alertEnv,new Date(base.getTime()+300000));
+  eq(mails.length,1,"same critical alert is not resent within 6 hours");
+  await runScheduled(alertEnv,new Date(base.getTime()+7*3600000));
+  eq(mails.length,2,"still-active critical alert is resent after 6 hours");
+  uptimeFails=false;
+  await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+300000));
+  eq(mails.length,3,"recovery of a critical alert is sent once");
+  ok(hooks.at(-1).text.includes("[해소] 서비스 접속 또는 DB 준비 상태 실패"),"recovery message names the recovered alert");
+  await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+600000));
+  eq(mails.length,3,"nothing new means nothing sent");
+  uptimeFails=true; webhookFails=true;
+  const failingEnv={...alertEnv,ALERT_EMAIL:{async send(){throw new Error("smtp down");}}};
+  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000));
+  eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"delivery_failed","every channel failing is recorded as delivery_failed");
+  eq(sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n,0,"failed delivery leaves no sent record, so the next run retries");
+  webhookFails=false;
+  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+300000));
+  ok(hooks.at(-1).text.includes("서비스 접속 또는 DB 준비 상태 실패")&&sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n>=1,"retry succeeds through the remaining channel");
+  uptimeFails=false;
+  await runScheduled(env,new Date(base.getTime()+9*3600000));
+  eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"not_connected","no alert channel is recorded as not_connected");
+  let r=await summary(env,base.getTime()+9*3600000);
+  ok(r.unknown.includes("알림 발송 채널 미연결(ALERT_TO 또는 ALERT_WEBHOOK_URL)"),"missing alert channel is a visible unknown item");
+  eq(r.delivery.channels.length,0,"summary reports no alert channels");
+  ok(r.notes.some(note=>note.includes("p95 표본 부족")),"sparse p95 samples stay a note");
+  tokenExpiresInDays=10;
+  const hourly=new Date(base);hourly.setUTCHours(hourly.getUTCHours()+10,0,0,0);
+  await runScheduled(alertEnv,hourly);
+  r=await summary(alertEnv,hourly.getTime());
+  ok(r.token.expires_on&&r.token.days_left<=10&&r.token.days_left>=9,"analytics token expiry is collected hourly");
+  ok(r.alerts.some(a=>a.title==="Cloudflare 분석 토큰 만료 임박"&&a.status==="warning"),"token expiring within 30 days raises a warning");
+  ok(hooks.at(-1).text.includes("분석 토큰 만료 임박"),"token warning is delivered");
+  sqlite.prepare("UPDATE settings SET value=? WHERE key='plans'").run(JSON.stringify({cloudflare:"free",supabase:"free",verified_at:new Date(hourly.getTime()-8*86400000).toISOString()}));
+  r=await summary(alertEnv,hourly.getTime());
+  eq(r.plans.stale,true,"plan record older than 7 days is stale");
+  eq(r.plans.cloudflare,"free","stale plan record still names the last verified plan");
+  eq(r.quotas.find(q=>q.key==="worker_requests").limit,100000,"stale plan record keeps the last known limit instead of null");
+  ok(r.alerts.some(a=>a.title==="요금제 확인 기록 만료")&&r.notes.some(note=>note.includes("요금제 확인 기록이 7일을 넘었습니다")),"stale plan record raises a reminder and a note");
+  appErrors=25;
+  await collect(alertEnv,new Date(hourly.getTime()+300000));
+  r=await summary(alertEnv,hourly.getTime()+300000);
+  ok(r.alerts.some(a=>a.title==="앱 Worker 런타임 오류(오늘)"&&a.status==="critical"),"20 or more app runtime errors today is critical even at low traffic");
+  appErrors=0;
+  const brokenEnv={...alertEnv,ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:false,error_code:"metrics_unavailable"}),{status:503});}}};
+  await collect(brokenEnv,new Date(hourly.getTime()+600000));
+  eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='database'").get().error_code,"metrics_unavailable","the app's real database error code survives a 503 (was http_503)");
+  // PR #68: a disappearing quota alert is not a recovery if its source cannot be measured.
+  sqlite.prepare("DELETE FROM settings WHERE key LIKE 'alert:%'").run();
+  sqlite.prepare("UPDATE settings SET value=? WHERE key='plans'").run(JSON.stringify({cloudflare:"free",supabase:"free",verified_at:now.toISOString()}));
+  const quotaAt=new Date(now);
+  const seedDatabase=(status,payload,at,successAt=at)=>sqlite.prepare("UPDATE collector_state SET status=?,payload=?,last_attempt_at=?,last_success_at=?,error_code=? WHERE name='database'").run(status,JSON.stringify(payload),at.toISOString(),successAt.toISOString(),status==="error"?"metrics_unavailable":null);
+  const quotaRecord=()=>sqlite.prepare("SELECT key,value FROM settings WHERE key LIKE 'alert:%'").all().find(row=>JSON.parse(row.value).title==="DB 논리 용량");
+  seedDatabase("ok",{database_bytes:499*1024**2},quotaAt);
+  const high=await deliverAlerts(alertEnv,quotaAt);
+  ok(high.titles.includes("DB 논리 용량")&&quotaRecord(),"critical DB quota is delivered and remembered");
+  const criticalRecord=quotaRecord().value;
+  for(const missing of ["error","stale","missing-value"]) {
+    const at=new Date(quotaAt.getTime()+300000);
+    seedDatabase(missing==="error"?"error":"ok",missing==="missing-value"?{}:{database_bytes:499*1024**2},at,missing==="stale"?new Date(at.getTime()-3600000):at);
+    const unavailable=await deliverAlerts(alertEnv,at);
+    eq(unavailable.recovered,0,`${missing} database evidence never sends a false recovery`);
+    eq(quotaRecord()?.value,criticalRecord,`${missing} database evidence preserves the critical dedupe record`);
+  }
+  const stillHighAt=new Date(quotaAt.getTime()+600000);
+  seedDatabase("ok",{database_bytes:499*1024**2},stillHighAt);
+  eq((await deliverAlerts(alertEnv,stillHighAt)).sent,0,"a returning critical DB measurement stays deduplicated within six hours");
+  const healthyAt=new Date(quotaAt.getTime()+900000);
+  seedDatabase("ok",{database_bytes:30*1024**2},healthyAt);
+  ok((await summary(alertEnv,healthyAt.getTime())).unknown.length>0,"unrelated unknown collectors remain in the recovery fixture");
+  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,1,"fresh normal DB evidence confirms recovery despite unrelated unknown collectors");
+  ok(hooks.at(-1).text.includes("[해소] DB 논리 용량")&&!quotaRecord(),"confirmed recovery is delivered before its dedupe record is removed");
+  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,0,"confirmed DB recovery is sent only once");
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;sqlite.close();}

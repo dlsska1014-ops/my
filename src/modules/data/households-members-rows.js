@@ -201,6 +201,30 @@ async function fetchAllHouseholdMembersMap(env, households = []) {
   return out;
 }
 
+// V22.9.37 감사 H8: 가계부마다 참여자를 따로 읽지 않고 한 번에(100개씩) 읽어 가계부별 인원만 센다. 같은 사람의 중복 행은 한 명이다.
+async function fetchHouseholdMemberCounts(env, households = []) {
+  const ids = [...new Set(safeArray(households).map((h) => String(h?.id || "").trim()).filter((id) => /^[A-Za-z0-9_-]{1,160}$/.test(id)))];
+  const counts = Object.create(null);
+  for (const id of ids) counts[id] = 0;
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const chunk = ids.slice(offset, offset + 100);
+    const params = new URLSearchParams();
+    params.set("household_id", `in.(${chunk.join(",")})`);
+    params.set("select", "household_id,user_id,role,created_at");
+    params.set("order", "created_at.asc");
+    const rows = await fetchPostgrestRows(env, `/rest/v1/household_members?${params.toString()}`);
+    const seen = new Set();
+    for (const row of rows) {
+      const householdId = String(row?.household_id || "");
+      const key = `${householdId}|${String(row?.user_id || "")}`;
+      if (!householdId || !row?.user_id || seen.has(key)) continue;
+      seen.add(key);
+      counts[householdId] = (counts[householdId] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
 // 조회 결과가 한도를 넘었다는 오류. 일부 행만으로 합계·리포트·백업을 만들지 않도록 호출부가 이 코드로 구분한다(QA B05).
 function rowLimitExceededError(limit) {
   return Object.assign(new Error(`조회 결과가 안전 한도 ${limit}건을 넘었습니다. 기간을 나눠 조회해 주세요.`), { name: "RowLimitExceededError", code: "row_limit_exceeded", limit });
@@ -298,6 +322,24 @@ function attachSpenderNames(rows = [], members = []) {
   }));
 }
 
+// V22.9.37 감사 H11: 가계부에서 나가면 참여 행은 지워지지만(RPC) 사용자 행과 기록은 남는다. 참여 명단에 없는 지출자는
+// 사용자 행의 이름을 한 번에 읽어 기록 당시 이름으로 보여 주고, 그것도 없을 때만 "이전 구성원"이다.
+async function attachSpenderNamesWithHistory(env, rows = [], members = []) {
+  const known = memberNameMap(members);
+  const missing = [...new Set(safeArray(rows).map((t) => String(t?.user_id || "").trim()).filter((id) => id && !known[id]))];
+  if (!missing.length) return attachSpenderNames(rows, members);
+  let users = [];
+  try {
+    users = await fetchRowsByPlainIds(env, "users", missing, "id,nickname");
+  } catch (_) {
+    users = [];
+  }
+  const former = safeArray(users)
+    .filter((user) => user?.id && String(user.nickname || "").trim())
+    .map((user) => ({ user_id: String(user.id), nickname: String(user.nickname).trim(), role: "left" }));
+  return attachSpenderNames(rows, [...safeArray(members), ...former]);
+}
+
 function renderSpenderOptions(members = [], selected = "", blankLabel = "지출자 미지정") {
   const opts = [`<option value=""${!selected ? " selected" : ""}>${escapeHtml(blankLabel)}</option>`];
   for (const m of members) {
@@ -358,11 +400,11 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
 }
 // @build:exports-start
 export {
-  attachSpenderNames, bestRoleFromRows, countHouseholdTransactions, fetchAdminHouseholds,
-  fetchAdminRows, fetchAdminRowsRange, fetchAllHouseholdMembersMap, fetchAnalysisRowsRange,
-  fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds,
-  getScopedHouseholdsForPage, isRowLimitExceededError, memberAliasSettingsKey, memberNameMap,
-  normalizeMemberAliasMap, renderSpenderDatalist, renderSpenderOptions, roleRank, saveMemberAlias,
-  selectRequestedScopedHousehold, selectScopedHousehold, supabaseExactCount,
+  attachSpenderNames, attachSpenderNamesWithHistory, bestRoleFromRows, countHouseholdTransactions,
+  fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange, fetchAnalysisRowsRange,
+  fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
+  fetchRowsByPlainIds, getScopedHouseholdsForPage, isRowLimitExceededError, memberAliasSettingsKey,
+  memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist, renderSpenderOptions, roleRank,
+  saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
 };
 // @build:exports-end

@@ -109,10 +109,16 @@ function accountbookStage4NavClientMain() {
     };
     return '<svg class="abNavIconSvg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + (paths[name] || paths.home) + "</svg>";
   }
+  // V22.9.37 감사 H1·U3: 쿠키로 채운 진입(설치 앱 /app)은 주소에 household_id 가 없다. 서버가 실제로 그린 가계부를 내비 범위
+  // 표식(data-ab-hh)에 싣고, 여기서 먼저 읽어 하단 탭·빠른 입력 링크가 그 가계부를 물고 가게 한다.
+  function scopeHousehold() {
+    var node = document.querySelector(".abNavScope[data-ab-hh]");
+    return (node && node.getAttribute("data-ab-hh")) || "";
+  }
   function contextQuery() {
     var params = new URLSearchParams(location.search);
     var month = params.get("month") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
-    var household = params.get("household_id") || "";
+    var household = scopeHousehold() || params.get("household_id") || "";
     return "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
   }
   function items() {
@@ -560,6 +566,8 @@ function accountbookStage4NavClientMain() {
     syncActiveNavigation();
     bindDeferredEditForms(document);
     bindGaugeHandoff(document);
+    // V22.9.37 감사 U2: 알림 배지 자리(.abV5NotifBadge)는 여기서 만들어진다. 먼저 실행된 알림 스크립트가 다시 찾도록 알린다.
+    try { document.dispatchEvent(new CustomEvent("ab:nav-ready")); } catch (e) {}
   }
   bindCursorEffect();
   bindShell();
@@ -589,8 +597,12 @@ function accountbookSearchClientMain() {
   function favKeyOf(r) {
     return (r.transaction_date || "") + "|" + (r.type || "expense") + "|" + (r.amount || 0) + "|" + String(r.memo || r.category || "").trim();
   }
+  // V22.9.37 감사 U3: 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다. 주소에 가계부가 없는 화면에서 첫 가계부를 검색했다.
   function currentHousehold() {
     try {
+      var scope = document.querySelector(".abNavScope[data-ab-hh]");
+      var marked = scope ? scope.getAttribute("data-ab-hh") : "";
+      if (marked) return marked;
       var p = new URLSearchParams(location.search);
       return p.get("household") || p.get("household_id") || "";
     } catch (e) { return ""; }
@@ -805,34 +817,47 @@ function accountbookSearchJsAsset() {
 function accountbookNotifClientMain() {
   var overlay = document.getElementById("abV5Notif");
   var listBox = document.getElementById("abV5NotifList");
-  var badges = document.querySelectorAll(".abV5NotifBadge");
   if (!overlay || !listBox) return;
   var data = [];
   var dismissed = Object.create(null);
   var returnFocus = null;
   var panel = overlay.querySelector(".abV5NotifPanel");
+  // V22.9.37 감사 U3: 서버가 실제로 그린 가계부(내비 범위 표식)를 먼저 쓴다.
   function currentHousehold() {
-    try { var p = new URLSearchParams(location.search); return p.get("household") || p.get("household_id") || ""; } catch (e) { return ""; }
+    try {
+      var scope = document.querySelector(".abNavScope[data-ab-hh]");
+      var marked = scope ? scope.getAttribute("data-ab-hh") : "";
+      if (marked) return marked;
+      var p = new URLSearchParams(location.search);
+      return p.get("household") || p.get("household_id") || "";
+    } catch (e) { return ""; }
   }
   var storeKey = "abV5NotifDismissed:" + currentHousehold();
+  // V22.9.37 감사 U5: 알림 키에 월이 붙어 다음 달에는 새 키다. 닫은 기록은 {키: 닫은 시각}으로 두고 두 달 뒤 지운다.
+  // 옛 배열 형식은 지금 시각으로 읽어 들인다.
+  var DISMISS_TTL_MS = 62 * 24 * 60 * 60 * 1000;
   function loadDismissed() {
     try {
       var raw = localStorage.getItem(storeKey);
-      var arr = raw ? JSON.parse(raw) : [];
-      dismissed = {};
-      (arr || []).forEach(function (k) { dismissed[k] = true; });
-    } catch (e) { dismissed = {}; }
+      var saved = raw ? JSON.parse(raw) : {};
+      var now = Date.now();
+      dismissed = Object.create(null);
+      if (Array.isArray(saved)) saved.forEach(function (k) { dismissed[k] = now; });
+      else Object.keys(saved || {}).forEach(function (k) { var at = Number(saved[k]); if (at && now - at < DISMISS_TTL_MS) dismissed[k] = at; });
+    } catch (e) { dismissed = Object.create(null); }
   }
   function saveDismissed() {
-    try { localStorage.setItem(storeKey, JSON.stringify(Object.keys(dismissed))); } catch (e) {}
+    try { localStorage.setItem(storeKey, JSON.stringify(dismissed)); } catch (e) {}
   }
   function visible() { return data.filter(function (n) { return !dismissed[n.key]; }); }
   function isOpen() { return !overlay.hidden; }
   function focusable(container) {
     return Array.prototype.slice.call(container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter(function (node) { return node.offsetParent !== null; });
   }
+  // V22.9.37 감사 U2: 배지는 내비 스크립트가 나중에 만든다. 시작할 때 한 번 찾아 둔 빈 목록 대신 부를 때마다 찾는다.
   function setBadge() {
     var n = visible().length;
+    var badges = document.querySelectorAll(".abV5NotifBadge");
     Array.prototype.forEach.call(badges, function (b) {
       if (n > 0) { b.textContent = n > 99 ? "99+" : String(n); b.hidden = false; }
       else { b.hidden = true; }
@@ -857,7 +882,7 @@ function accountbookNotifClientMain() {
     if (returnFocus && returnFocus.focus) returnFocus.focus();
     returnFocus = null;
   }
-  function dismiss(key) { dismissed[key] = true; saveDismissed(); renderList(); setBadge(); renderBanner(); }
+  function dismiss(key) { dismissed[key] = Date.now(); saveDismissed(); renderList(); setBadge(); renderBanner(); }
   function renderList() {
     listBox.textContent = "";
     var list = visible();
@@ -910,6 +935,8 @@ function accountbookNotifClientMain() {
     document.body.appendChild(bar);
   }
   function load() {
+    // V22.9.37 감사 U12: 로그아웃 화면(사용자 내비 없음)에서는 부르지 않는다 — 401 과 콘솔 오류만 남겼다.
+    if (!document.querySelector('.abNavScope[data-nav-scope="user"]')) { data = []; setBadge(); return; }
     var url = "/u/api/notifications";
     var hh = currentHousehold();
     if (hh) url += "?household=" + encodeURIComponent(hh);
@@ -941,6 +968,7 @@ function accountbookNotifClientMain() {
       else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
     }
   });
+  document.addEventListener("ab:nav-ready", setBadge);
   loadDismissed();
   load();
 }

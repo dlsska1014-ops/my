@@ -13,6 +13,7 @@ import {
   renderAutoRefreshScript, renderCalendarFilterScript, renderGuideTab, renderImportTab,
   renderMobileBottomNav, renderPcSidebar, renderQuickStartPanel, renderTabs,
 } from "../web/menu-and-guides.js";
+import { renderHouseholdNotFoundHtml } from "../my/access-control.js";
 import { lastNonEmptyParam } from "../my/mobile-home.js";
 import {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, formatSignedPercent,
@@ -308,6 +309,8 @@ async function renderServerDashboardHtml(env, url) {
   const txPage = Math.max(1, Math.round(Number(url.searchParams.get("page") || "1")) || 1);
   const txPerPage = Math.min(100, Math.max(20, Math.round(Number(url.searchParams.get("per_page") || "50")) || 50));
   const selectedHousehold = households.find((h) => h.id === householdId) || null;
+  // V22.9.37 감사 H9: 주소의 가계부가 목록에 없으면 첫 가계부로 바꿔 그리지 않는다 — 숨은 저장 칸까지 첫 가계부로 갔다.
+  if (householdId && !selectedHousehold) return renderHouseholdNotFoundHtml({ env, requestedId: householdId, listHref: "/households" });
   const activeHouseholdId = selectedHousehold?.id || "";
   const householdMembers = selectedHousehold ? await fetchHouseholdMembers(env, selectedHousehold.id) : [];
   const needsDeepAnalytics = ["overview", "analysis", "partners", "premium"].includes(tab);

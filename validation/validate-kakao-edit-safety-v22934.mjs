@@ -112,7 +112,8 @@ await fixture(async (fx) => {
   ok((await say(fx, "수정 01번 금액 13000")).includes("기록: 저녁 / 13,000원"), "T2 수정 답장이 바뀐 기록을 말한다");
 });
 await fixture(async (fx) => {
-  const lost = { armed: 1, test: (url, method) => method === "DELETE" && url.pathname === "/rest/v1/transactions" };
+  // V22.9.37 NEW-4: 카카오 삭제는 감사 RPC(accountbook_delete_transaction_v227)를 탄다. 같은 "응답을 잃은 삭제" 보호를 그 요청에 건다.
+  const lost = { armed: 1, test: (url, method) => (method === "DELETE" && url.pathname === "/rest/v1/transactions") || url.pathname.endsWith("/accountbook_delete_transaction_v227") };
   const unhook = hookFetch(fx, lostAfterCommit(lost));
   let text = "";
   try { text = await say(fx, "삭제 02번"); } finally { unhook(); }

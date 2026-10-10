@@ -165,7 +165,14 @@ function budgetSummary(rows = [], budgets = []) {
 function budgetCenterSummary(rows = [], budgets = []) {
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const incomeBudgets = safeArray(budgets).filter((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
+  // V22.9.37 감사 SIM-9: 종류별 예상 수입(__income:이름)이 하나라도 있으면 옛 버전의 __income 합계 행은 기준에서 뺀다.
+  // 둘이 함께 남은 달에는 예상 수입이 두 번 더해졌고, 폼에 보이지 않는 옛 값이 기준을 바꿨다. 종류별 행이 없을 때만
+  // 호환용으로 쓴다 — 분류별 예산 합계가 있으면 __total 을 쓰지 않는 규칙과 같다. 쓰지 않은 옛 값은 화면이 알리도록 따로 돌려준다.
+  const typedIncomeBudgets = safeArray(budgets).filter((b) => isIncomeBudgetCategory(String(b.category || "")));
+  const legacyIncomeBudgets = safeArray(budgets).filter((b) => String(b.category || "") === "__income");
+  const useTypedIncome = typedIncomeBudgets.some((b) => Number(b.amount || 0) > 0);
+  const incomeBudgets = useTypedIncome ? typedIncomeBudgets : legacyIncomeBudgets;
+  const legacyIncomeBudget = useTypedIncome ? legacyIncomeBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0) : 0;
   const incomeBudget = incomeBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
   const actualIncomeMap = Object.create(null);
   for (const row of safeArray(rows).filter((r) => r.type === "income")) {
@@ -181,7 +188,7 @@ function budgetCenterSummary(rows = [], budgets = []) {
   const budgetIncomeRate = incomeBase ? Math.round((totalBudget / incomeBase) * 100) : 0;
   const freeAfterBudget = incomeBase ? incomeBase - totalBudget : 0;
   const actualSavings = Number(stats.totals.income || 0) - Number(stats.totals.expense || 0);
-  return { stats, budget, incomeBudget, actualIncome, actualIncomeCategories, incomeBase, totalBudget, budgetIncomeRate, freeAfterBudget, actualSavings, incomeBudgets };
+  return { stats, budget, incomeBudget, legacyIncomeBudget, actualIncome, actualIncomeCategories, incomeBase, totalBudget, budgetIncomeRate, freeAfterBudget, actualSavings, incomeBudgets };
 }
 
 function budgetStatusLabel(rate = 0, spent = null, budget = null) {
@@ -331,9 +338,16 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     const expense = Number(budget.budgetedExpense ?? budget.expense ?? stats.totals.expense ?? 0);
     const remain = totalBudget ? totalBudget - expense : 0;
     const rate = totalBudget ? Math.round((expense / totalBudget) * 100) : 0;
-    if (!totalBudget && !budgets.length) {
-      return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", "아직 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
+    if (!totalBudget) {
+      // V22.9.37 감사 D7: 지출 예산이 0원이면(예상 수입만 저장된 달 포함) "남은 예산 0원(초과)"가 아니라 예산 없음이다.
+      const incomeOnly = budgets.some((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
+      return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 지출 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
     }
+    // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이
+    // 왜 보이지 않는지 알 수 있게 그 사실을 적는다.
+    const ignoredTotal = budget.basis === "category" && Number(budget.explicitTotalBudget || 0) > 0
+      ? `직접 설정한 전체 예산 ${numberWithCommas(budget.explicitTotalBudget)}원은 분류별 예산이 있어 계산에 쓰지 않아요.`
+      : "";
     const status = expense > totalBudget ? "초과" : rate >= 85 ? "주의" : rate >= 60 ? "사용중" : "여유";
     const categoryLines = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).slice(0, 7).map((x) => {
       const left = Number(x.budget || 0) - Number(x.spent || 0);
@@ -342,7 +356,8 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     });
     return [
       `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
-      `전체 예산: ${numberWithCommas(totalBudget)}원`,
+      `전체 예산: ${numberWithCommas(totalBudget)}원${budget.basis === "category" ? " (분류별 예산 합계)" : ""}`,
+      ...(ignoredTotal ? [ignoredTotal] : []),
       `사용 금액: ${numberWithCommas(expense)}원`,
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,
       `사용률: ${rate}% (${status})`,
@@ -363,11 +378,31 @@ async function kakaoBudgetFeedback(env, householdId, month, category) {
     return "";
   }
 }
+
+// V22.9.37: 이 묶음에서 새로 생긴 안내 코드. formatMessage 는 모르는 코드를 일반 안내로 닫으므로 예산·정기·설정 화면이
+// 먼저 이 표를 본다. 수동 반영 결과("고정항목 N건 기록 …")는 숫자가 들어 있어 코드가 될 수 없으므로 형식을 확인한 뒤 그대로 보여 준다.
+// 돌려주는 값은 formatMessage 와 같이 HTML 이스케이프가 끝난 문장이고, 모르는 코드는 빈 문자열이다.
+function budgetPlanMessage(code = "") {
+  const text = String(code || "");
+  if (/^고정항목 \d{1,6}건 기록(?: · \d{1,6}건은 지출자가 활성 참여자가 아니어서 건너뜀)?$/.test(text)) return escapeHtml(text);
+  switch (text) {
+    case "recurring_apply_incomplete": return escapeHtml("고정항목 반영을 끝내지 못했습니다. 일부 기록이 이미 반영되었으므로 거래내역과 반영 상태를 먼저 확인해 주세요.");
+    case "budget_month_invalid": return escapeHtml("월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.");
+    case "budget_duplicate_category": return escapeHtml("같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.");
+    case "reserve_name_duplicate": return escapeHtml("같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.");
+    case "reserve_due_day_invalid": return escapeHtml("납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.");
+    case "reserve_due_month_invalid": return escapeHtml("납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.");
+    case "reserve_recurrence_invalid": return escapeHtml("반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.");
+    case "recurring_spender_ineligible": return escapeHtml("고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.");
+    default: return "";
+  }
+}
 // @build:exports-start
 export {
-  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint, budgetStageInfo,
-  budgetStatusLabel, budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchRecurring,
-  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusText, optionalSupabase,
-  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
+  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint,
+  budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary, fetchBudgets,
+  fetchMobileHomeSettings, fetchRecurring, fetchRecurringRuleByIdStrict, fetchRecurringStrict,
+  kakaoBudgetStatusText, optionalSupabase, renderBudgetBasisRows, renderBudgetConsistencyAlert,
+  renderBudgetRows,
 };
 // @build:exports-end

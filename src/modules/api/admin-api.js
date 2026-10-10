@@ -14,6 +14,7 @@ import {
   bulkTransactionsAtomic, createManualTransaction, deleteTransactionWithAudit, getCalendar,
   getStats, listTransactions, numberWithCommas, updateTransaction,
 } from "../domain/transactions-core.js";
+import { parseStrictAmount } from "../domain/strict-input.js";
 // @build:imports-end
 
 async function handleApi(request, env, url) {
@@ -119,7 +120,7 @@ function normalizeApiTransactionBody(body = {}, partial = false) {
     household_id: body.household_id,
     user_id: body.user_id,
     type: body.type,
-    amount: body.amount,
+    amount: parseStrictAmount(body.amount, { min: 1 }),
     category: body.category,
     memo: body.memo ?? body.description,
     payment_method: body.payment_method ?? body.method,
@@ -146,16 +147,20 @@ async function readAdminApiJson(request) {
 }
 
 function validateAdminApiTransactionBody(body = {}, partial = false) {
-  if (!partial && !String(body.household_id || "").trim()) return jsonResponse({ ok: false, error: "household_required", reason: "household_required", message: "가계부 ID가 필요합니다." }, 400);
-  if (!partial && !String(body.user_id || "").trim()) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID가 필요합니다." }, 400);
+  // V22.9.37 감사 N13: ID·글자 칸은 문자열만, 금액은 공용 엄격 검증기(정수·범위)만 받는다. Number("0x10")=16,
+  // Number("1e3")=1000, Number(true)=1 처럼 조용히 바뀌는 값과 객체·배열은 400 이다.
+  const isText = (value) => typeof value === "string";
+  if (!partial && !(isText(body.household_id) && body.household_id.trim())) return jsonResponse({ ok: false, error: "household_required", reason: "household_required", message: "가계부 ID가 필요합니다." }, 400);
+  if (!partial && !(isText(body.user_id) && body.user_id.trim())) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID가 필요합니다." }, 400);
+  if (partial && body.user_id !== undefined && body.user_id !== null && body.user_id !== "" && !isText(body.user_id)) return jsonResponse({ ok: false, error: "spender_required", reason: "spender_required", message: "지출자 ID는 문자열이어야 합니다." }, 400);
   if (partial && (Object.hasOwn(body, "household_id") || Object.hasOwn(body, "source"))) return jsonResponse({ ok: false, error: "immutable_field", reason: "immutable_field", message: "수정 요청에서 가계부와 원본 출처는 변경할 수 없습니다." }, 400);
-  if ((!partial || Object.hasOwn(body, "type")) && !["expense", "income"].includes(String(body.type || ""))) return jsonResponse({ ok: false, error: "invalid_type", reason: "invalid_type", message: "구분은 expense 또는 income이어야 합니다." }, 400);
-  if (!partial || Object.hasOwn(body, "amount")) {
-    const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount < 1 || amount > MAX_TRANSACTION_AMOUNT) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: `금액은 1원 이상 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하의 정수여야 합니다.` }, 400);
+  if ((!partial || Object.hasOwn(body, "type")) && !(isText(body.type) && ["expense", "income"].includes(body.type))) return jsonResponse({ ok: false, error: "invalid_type", reason: "invalid_type", message: "구분은 expense 또는 income이어야 합니다." }, 400);
+  if ((!partial || Object.hasOwn(body, "amount")) && parseStrictAmount(body.amount, { min: 1 }) === null) return jsonResponse({ ok: false, error: "invalid_amount", reason: "invalid_amount", message: `금액은 1원 이상 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하의 정수여야 합니다.` }, 400);
+  for (const key of ["category", "memo", "description", "payment_method", "method", "source"]) {
+    if (body[key] !== undefined && body[key] !== null && !isText(body[key])) return jsonResponse({ ok: false, error: "invalid_text", reason: "invalid_text", message: "분류·내용·결제수단·출처는 문자열이어야 합니다." }, 400);
   }
   const date = body.transaction_date ?? body.date;
-  if ((!partial || date !== undefined) && !isValidTransactionDateString(String(date || ""))) return jsonResponse({ ok: false, error: "invalid_date", reason: "invalid_date", message: "날짜는 실제 존재하는 YYYY-MM-DD 형식이어야 합니다." }, 400);
+  if ((!partial || date !== undefined) && !(isText(date) && isValidTransactionDateString(date))) return jsonResponse({ ok: false, error: "invalid_date", reason: "invalid_date", message: "날짜는 실제 존재하는 YYYY-MM-DD 형식이어야 합니다." }, 400);
   return null;
 }
 

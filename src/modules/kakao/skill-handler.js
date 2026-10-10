@@ -15,6 +15,7 @@ import { kakaoReserveAlert } from "../settings/reserve-plans.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
+import { canManageMyHousehold } from "../my/access-control.js";
 import { kakaoBudgetStatusText } from "../domain/budgets.js";
 import { kakaoPrivateWebLinkReply } from "../auth/kakao-web-claim.js";
 import {
@@ -46,10 +47,11 @@ import {
 } from "./guided-flow-state.js";
 import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
-  guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoCreateKindPromptText,
-  kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText, kakaoStartText,
-  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
+  kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText,
+  kakaoInviteNotAllowedText, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
+  parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -66,11 +68,13 @@ import {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
   trustedChatFirstSkillCaller, tryKakaoChatFirstRecord,
 } from "./identity-chat-first.js";
-import { ensureUser, joinHouseholdByCode, roleBlockedMessage } from "../domain/users-households.js";
 import {
-  isBudgetCommand, isGroupLinkInfoCommand, isHelpCommand, isInviteCommand, isLinkCommand,
-  isRecentCommand, isSettlementCommand, isSummaryCommand, isUndoCommand, kakaoSettlementText,
-  parseGroupBindCommand, parseJoinCode,
+  cancelPendingHouseholdJoin, ensureUser, joinHouseholdByCode, roleBlockedMessage,
+} from "../domain/users-households.js";
+import {
+  isBudgetCommand, isGroupLinkInfoCommand, isHelpCommand, isInviteCommand, isJoinCancelCommand,
+  isLinkCommand, isRecentCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
+  kakaoSettlementText, parseGroupBindCommand, parseJoinCode,
 } from "./simple-commands.js";
 import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
@@ -356,7 +360,8 @@ async function handleKakaoSkill(request, env) {
     return kakaoText(kakaoCreateKindPromptText(), kakaoCreateKindQuickReplies());
   }
 
-  if (!strongTransactionInput && isKakaoJoinFlowCommand(utterance)) {
+  // V22.9.37 감사 H3: 앱이 복사해 주는 초대 문구 "가계부 참여 CODE"는 참여 흐름 안내가 아니라 그 코드로 바로 참여다(아래 joinCode 경로).
+  if (!strongTransactionInput && isKakaoJoinFlowCommand(utterance) && !parseJoinCode(utterance)) {
     await saveKakaoFlowState(env, user.id, payload, { flow: "join_household", step: "code", data: {} });
     return kakaoText("초대코드를 입력해 주세요.\n예: ABC123", [["취소", "취소"]]);
   }
@@ -401,7 +406,8 @@ async function handleKakaoSkill(request, env) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
       if (!joined) return kakaoText(`초대코드 ${joinCode}를 찾지 못했어요. 코드를 다시 확인해 주세요.`);
-      if (!["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
+      // V22.9.37 감사 H2: 단톡방에서 보낸 참여 명령은 1:1 개인 가계부 선택을 바꾸지 않는다.
+      if (!botGroupKey && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
       if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`);
       return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, kakaoStartQuickReplies(true));
     } catch (err) {
@@ -428,6 +434,19 @@ async function handleKakaoSkill(request, env) {
   ]);
   const pendingHousehold = households.find((h) => String(h.role || "") === "pending") || null;
   let activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
+  // V22.9.37 감사 H15: 승인 대기 중인 사람은 자기 참여 요청을 거둘 수 있다. 내 pending 행 하나만 지우고 확인된 뒤에만 알린다.
+  if (!strongTransactionInput && isJoinCancelCommand(utterance)) {
+    const pendingRows = households.filter((h) => String(h.role || "") === "pending");
+    if (!pendingRows.length) return kakaoText("취소할 참여 요청이 없어요. 승인 대기 중인 가계부가 없습니다.");
+    if (pendingRows.length > 1) return kakaoText([`승인 대기 중인 가계부가 ${pendingRows.length}개예요.`, ...pendingRows.slice(0, 5).map((h, index) => `${index + 1}. ${h.name || "가계부"}`), "", `취소할 가계부는 웹 가계부 관리에서 골라 주세요.\n${origin}/my/households`].join("\n"));
+    try {
+      const cancelled = await cancelPendingHouseholdJoin(env, user.id, pendingRows[0].id);
+      if (!cancelled.cancelled) return kakaoText(`‘${pendingRows[0].name}’ 참여 요청을 취소하지 못했어요. 승인 대기 상태는 그대로예요. 잠시 뒤 다시 시도해 주세요.`);
+    } catch (err) {
+      return kakaoText(`‘${pendingRows[0].name}’ 참여 요청 취소 결과를 확인하지 못했어요. ‘시작’으로 현재 상태를 먼저 확인해 주세요.`);
+    }
+    return kakaoText(`✅ ‘${pendingRows[0].name}’ 참여 요청을 취소했어요.\n다시 참여하려면 초대코드를 다시 보내 주세요.`);
+  }
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
     return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
   }
@@ -524,10 +543,13 @@ async function handleKakaoSkill(request, env) {
   const directBudget = parseDirectBudgetSetCommand(utterance);
   if (directBudget) {
     if (!["owner","admin"].includes(accessRole)) return kakaoText("예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.");
+    // V22.9.37 감사 NEW-8: "예산 50억"도 웹 예산 저장과 같은 20억 상한에서 거절한다.
+    if (directBudget.amount > MAX_TRANSACTION_AMOUNT) return kakaoText(kakaoBudgetAmountTooLargeText(directBudget.amount));
     const category = await resolveBudgetCategoryName(env, household.id, directBudget.category);
     if (!category) return kakaoText("등록된 카테고리를 찾지 못했어요.\n‘예산 설정’을 입력해 단계별로 선택해 주세요.", [["예산 설정", "예산 설정"]]);
     await saveKakaoBudget(env, household.id, directBudget.month, category, directBudget.amount);
-    return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원`, [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]]);
+    const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, directBudget.month) : "";
+    return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원${totalNote}`, [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]]);
   }
 
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
@@ -539,6 +561,8 @@ async function handleKakaoSkill(request, env) {
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
 
   if (!strongTransactionInput && isInviteCommand(utterance)) {
+    // V22.9.37 감사 H10: 초대코드는 웹 참여자 화면처럼 소유자·관리자만 본다.
+    if (!canManageMyHousehold(accessRole)) return kakaoText(kakaoInviteNotAllowedText(household), [["도움말", "도움말"]]);
     return kakaoText(kakaoInviteManagementText(household, origin), [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]]);
   }
 
