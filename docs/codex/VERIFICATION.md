@@ -1,3 +1,11 @@
+## V22.9.39 검증 방법
+
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_39.sha256`의 386개 경로이며 V22.9.38의 380개 경로를 모두 보존하고 새 파일 6개를 더합니다. 일반·분류 표 부재 모드 각각 10,846개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행하고 실제 개수를 `VERIFICATION_V22_9_39.md`에 기록합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.
+
+`npm run validate:public-guides`는 공개 문서·HEAD·리디렉션·noindex·메타데이터·가상 계산과 입력 처리를 확인합니다. `npm run preview:public`은 익명 문서만 여는 로컬 서버입니다. 공개 UI는 브라우저에서 390px·1280px로 확인하고 저장소 밖에 증거를 보관합니다. 로그인·실제 거래·외부 전송을 이 미리보기에서 수행하지 않습니다.
+
+아래 이전 버전의 수치는 해당 시점 기록입니다.
+
 ## V22.9.38 검증 방법
 
 현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_38.sha256`의 380개 경로이며, 전체 하네스 하한은 9,591개입니다. 일반·부재 모드 각각 9,591개와 Node.js v22.23.1 SQLite 84개를 통과했습니다. 아래 이전 버전의 수치는 해당 시점 기록입니다.

@@ -1,10 +1,12 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.38",
+  "version": "22.9.39",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
   "scripts": {
+    "validate:public-guides": "node validation/validate-public-guides-v22939.mjs",
+    "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
     "validate:living-report": "node validation/validate-living-report-v22938.mjs",

@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_38.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_39.sha256",
 );
 const validationScripts = [
+  ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
   ["생활비 리포트", "validation/validate-living-report-v22938.mjs"],
   ["생활비 리포트 저장·기간 안전성", "validation/validate-living-report-safety-v22938.mjs"],
   ["선택 표 모드·화면 자산", "validation/validate-controls-fixture-v22938.mjs"],
@@ -209,7 +210,8 @@ function run(command, args, label) {
 // V22.9.37 감사 결함 묶음: 묶음 A 97, B 102, C 146, D 211, 관제 알림 39 와 기존 검사의 증가분(자산 고정·모듈 표시 등)으로 9,421개가 됐다.
 // PR #68 후속: 정기 반영 부분 실패 14, 대출 부채 합계 9, cron 실패 구분 9개를 더해 9,453개가 됐다.
 // V22.9.38: 생활비 리포트57, 안전성47, 화면·픽스처31과 모듈·직렬화 증가분을 포함해 9,591개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 9591;
+// V22.9.39: 공개 콘텐츠 검사와 기존 별칭·모듈·직렬화 증가분을 더합니다.
+const EXPECTED_MINIMUM_CHECKS = 10846;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

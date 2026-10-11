@@ -16,10 +16,7 @@ import {
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, kakaoChatCommandCatalog,
   kakaoRepresentativeCommands, publicBaseUrl, renderSkillGetHealthHtml,
 } from "../public/site-config.js";
-import {
-  handleAdsTxt, handlePublicContentPage, handlePublicRobots, handlePublicSitemap,
-  handlePublicSitemapStylesheet,
-} from "../public/content-pages.js";
+import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   browserFormRequestFailed, emergencyReturnUrl, headOnlyResponse, htmlResponse, isExplicitAdminUrl,
@@ -254,12 +251,11 @@ const ACCOUNTBOOK_WORKER = {
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
 
+      const publicDocument = await publicDocumentResponse(request, env, url);
+      if (publicDocument) return publicDocument;
+
       if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
         return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
-      }
-
-      if (request.method === "HEAD" && url.pathname === "/ads.txt") {
-        return headOnlyResponse(handleAdsTxt(env));
       }
 
       if (url.pathname === "/" && request.method === "GET") {
@@ -964,66 +960,6 @@ const ACCOUNTBOOK_WORKER = {
         return await handleAdminExportJson(request, env, url);
       }
 
-      if (url.pathname === "/robots.txt" && request.method === "GET") {
-        return await handlePublicRobots(env, url);
-      }
-
-      if (url.pathname === "/sitemap.xml" && request.method === "GET") {
-        return await handlePublicSitemap(env, url);
-      }
-
-      if (url.pathname === "/sitemap.xsl" && request.method === "GET") {
-        return await handlePublicSitemapStylesheet(env, url);
-      }
-
-      if ((url.pathname === "/site-map" || url.pathname === "/sitemap") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "site-map");
-      }
-
-      if (url.pathname === "/ads.txt" && request.method === "GET") {
-        return await handleAdsTxt(env);
-      }
-
-      if ((url.pathname === "/service-guide" || url.pathname === "/service") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "service-guide");
-      }
-
-      if ((url.pathname === "/how-it-works" || url.pathname === "/usage-guide") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "how-it-works");
-      }
-
-      if ((url.pathname === "/kakao-guide" || url.pathname === "/kakao-accountbook-guide") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "kakao-guide");
-      }
-
-      if ((url.pathname === "/budget-guide" || url.pathname === "/budget-management-guide") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "budget-guide");
-      }
-
-      if ((url.pathname === "/group-accountbook" || url.pathname === "/family-accountbook") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "group-accountbook");
-      }
-
-      if ((url.pathname === "/security" || url.pathname === "/data-security") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "security");
-      }
-
-      if (url.pathname === "/faq" && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "faq");
-      }
-
-      if ((url.pathname === "/about" || url.pathname === "/about-service") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "about");
-      }
-
-      if ((url.pathname === "/contact" || url.pathname === "/support") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "contact");
-      }
-
-      if ((url.pathname === "/cookies" || url.pathname === "/cookie-policy") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "cookies");
-      }
-
       if (url.pathname === "/menu" && request.method === "GET") {
         return await handleUnifiedMenuPage(request, env, url);
       }
@@ -1056,13 +992,9 @@ const ACCOUNTBOOK_WORKER = {
         return await handleBrandKitPage(request, env, url);
       }
 
-      if ((url.pathname === "/privacy" || url.pathname === "/data-policy") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "privacy");
-      }
 
-      if ((url.pathname === "/terms" || url.pathname === "/service-policy") && request.method === "GET") {
-        return await handlePublicContentPage(request, env, url, "terms");
-      }
+
+
 
       if ((url.pathname === "/review-ready" || url.pathname === "/beta-ready") && request.method === "GET") {
         return await handleReviewReadyPage(request, env, url);

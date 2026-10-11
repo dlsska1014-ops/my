@@ -99,6 +99,7 @@ const READINESS_RPC_PROBE_BODIES = {
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
+  "x-robots-tag": "noindex, nofollow",
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",

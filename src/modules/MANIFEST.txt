@@ -5,6 +5,7 @@ runtime/config-readiness.js
 runtime/ops-monitor.js
 worker/router.js
 public/site-config.js
+public/guide-content.js
 public/content-pages.js
 client/shared-input-parsers.js
 client/legacy-ui-runtime.js
