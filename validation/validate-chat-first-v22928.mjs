@@ -582,7 +582,8 @@ await withFixture(async (f) => {
     if (path === "/how-it-works") guide = html;
   }
   ok(guide.includes("10분") && guide.includes("카카오에서 기록한 가계부 이어 열기") && guide.includes("다른 계정과 자동 병합하지 않습니다"), "manual explains optional one-time web continuation without account merging");
-  ok(guide.includes("단톡방에서는 개인 가계부나 공동 참여를 자동 생성하지 않으며 웹 연결 코드도 제공하지 않습니다"), "manual keeps group creation, participation and code boundaries explicit");
+  ok(guide.includes("공동 가계부를 준비") && guide.includes("처음 기록한 사람이 소유자"), "manual explains the released group-first shared book behavior");
+  ok(guide.includes("단톡방에서는 개인 가계부를 자동 생성하지 않습니다") && guide.includes("웹 연결 코드는 단톡방에 제공하지 않습니다"), "manual keeps personal data and web codes out of groups");
   for (const [key, count] of Object.entries(before)) eq(f.db[key].length, count, `public manual read does not provision ${key}`);
 });
 

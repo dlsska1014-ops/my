@@ -75,16 +75,19 @@ try {
   }
 
   const publicAliasPaths = [
-    "/sitemap", "/service", "/usage-guide", "/kakao-accountbook-guide",
-    "/budget-management-guide", "/family-accountbook", "/data-security",
-    "/about-service", "/support", "/cookie-policy", "/data-policy", "/service-policy",
+    ["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"],
+    ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"],
+    ["/about-service", "/about"], ["/support", "/contact"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
   ];
-  for (const path of publicAliasPaths) {
+  for (const [path, target] of publicAliasPaths) {
     const response = await request(path);
-    eq(response.status, 200, `${path} public alias is available to the review crawler`);
-    const html = await response.text();
-    eq(countOf(html, `<meta name="google-adsense-account" content="${PUBLISHER_CLIENT}"/>`), 1, `${path} public alias contains exact ownership metadata once`);
-    ok(!AD_RUNTIME_PATTERN.test(html) && !AD_COOKIE_PATTERN.test(html), `${path} public alias stays ad-runtime and ad-cookie free`);
+    eq(response.status, 308, `${path} public alias permanently consolidates to the canonical page`);
+    eq(response.headers.get("location"), `https://malhaebook.com${target}`, `${path} has a fixed canonical destination`);
+    const canonical = await request(target);
+    eq(canonical.status, 200, `${path} canonical destination is available`);
+    const html = await canonical.text();
+    eq(countOf(html, `<meta name="google-adsense-account" content="${PUBLISHER_CLIENT}"/>`), 1, `${path} destination contains exact ownership metadata once`);
+    ok(!AD_RUNTIME_PATTERN.test(html) && !AD_COOKIE_PATTERN.test(html), `${path} destination stays ad-runtime and ad-cookie free`);
     eq(response.headers.get("set-cookie"), null, `${path} public alias creates no review cookie`);
   }
 
@@ -142,7 +145,7 @@ try {
   ok(!source.includes("googlesyndication"), "review source contains no Google ad runtime host");
   ok(!/googleadservices|doubleclick|pagead/i.test(source), "review source contains no alternate advertising runtime host");
   ok(!AD_COOKIE_PATTERN.test(source), "review source contains no advertising-cookie identifier");
-  ok(source.includes('url.pathname === "/ads.txt"'), "root ads.txt route is registered");
+  eq((await request("/ads.txt", { method: "HEAD" })).status, 200, "root ads.txt HEAD route is registered");
   ok(source.includes('"/privacy", "/terms", "/cookies"'), "review policy pages remain in the public content map");
   ok(source.includes("AdSense review mode is ownership-only"), "source documents the ownership-only review boundary");
 

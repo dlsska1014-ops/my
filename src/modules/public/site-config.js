@@ -7,7 +7,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.38-LIVING-REPORT";
+const APP_VERSION = "V22.9.39-PUBLIC-GUIDES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -214,18 +214,17 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
   "/group-accountbook", "/security", "/faq", "/about", "/contact",
   "/privacy", "/terms", "/cookies", "/site-map",
+  "/guides", "/demo", "/report-guide", "/import-guide",
 ]);
 
 function publicSiteNav(active = "home") {
   const links = [
     ["home", "서비스", "/"],
-    ["service-guide", "기능 안내", "/service-guide"],
-    ["how-it-works", "사용 방법", "/how-it-works"],
-    ["kakao-guide", "카카오톡 가이드", "/kakao-guide"],
-    ["budget-guide", "예산 관리", "/budget-guide"],
-    ["group-accountbook", "가족·모임", "/group-accountbook"],
-    ["security", "데이터 보호", "/security"],
-    ["faq", "FAQ", "/faq"],
+    ["demo", "가상 체험", "/demo"],
+    ["guides", "사용 가이드", "/guides"],
+    ["budget-guide", "예산 계산", "/budget-guide"],
+    ["group-accountbook", "공동 가계부", "/group-accountbook"],
+    ["faq", "문제 해결", "/faq"],
   ];
   const linkHtml = links.map(([key,label,href]) => `<a class="${active === key ? "active" : ""}" ${active === key ? `aria-current="page"` : ""} href="${href}">${escapeHtml(label)}</a>`).join("");
   return `<header class="pubHeader"><div class="pubHeaderInner"><a class="pubBrand" href="/"><span>₩</span><b>말해가계부</b></a><nav class="pubDesktopNav" aria-label="공개 페이지">${linkHtml}</nav><a class="pubStart" href="/my">가계부 시작하기</a><details class="pubMobileMenu"><summary aria-label="공개 페이지 메뉴 열기">메뉴</summary><nav aria-label="모바일 공개 페이지"><a href="/my">가계부 시작하기</a>${linkHtml}</nav></details></div></header>`;

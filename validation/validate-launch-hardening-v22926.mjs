@@ -28,7 +28,14 @@ ok(routeStart > 0 && routeEnd > routeStart, "라우터 본문을 찾았다");
 const routeBody = source.slice(routeStart, routeEnd);
 const unawaited = [...routeBody.matchAll(/\breturn\s+(?!await\b)(handle[A-Za-z0-9]*|abMonitorDatabaseProbe)\s*\(/g)].map((m) => m[1]);
 eq(unawaited.length, 0, `라우터에 await 없는 핸들러 반환이 없다${unawaited.length ? " — " + unawaited.slice(0, 5).join(", ") : ""}`);
-ok((routeBody.match(/^\s+return await (handle[A-Za-z0-9]*|abMonitorDatabaseProbe)\(/gm) || []).length >= 200, "라우터가 핸들러를 await 로 받는다");
+// Public routes now share a dispatcher. Check error ownership at every call instead
+// of depending on how many duplicate return statements happen to be in the router.
+const handlerCalls = [...routeBody.matchAll(/\b(?:handle[A-Za-z0-9]*|abMonitorDatabaseProbe|publicDocumentResponse)\s*\(/g)];
+const unsafeCalls = handlerCalls.filter((match) => {
+  const prefix = routeBody.slice(0, match.index);
+  return !/\bawait\s*$/.test(prefix) && !/\bsafeHtmlRoute\(request, url, (?:async )?\(\) =>\s*$/.test(prefix);
+});
+ok(handlerCalls.length > 0 && unsafeCalls.length === 0, "모든 라우터 핸들러 호출이 await 또는 safeHtmlRoute로 오류를 처리한다");
 ok(routeBody.includes("browserFormRequestFailed(request, failUrl)"), "마지막 catch 가 브라우저 폼 제출을 구분한다");
 ok(source.includes("function browserFormRequestFailed(") && source.includes("function emergencyReturnUrl("), "폼 실패 판별·복귀 주소 도우미가 있다");
 
