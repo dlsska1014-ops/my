@@ -207,7 +207,107 @@ function publicAdsenseHead(env = {}) {
   if (!client) return "";
   // AdSense review mode is ownership-only. Ad runtime, slots, and ad cookies
   // remain disabled until a later, separately reviewed release enables them.
+  // V22.9.40 (B): 그 "나중 판"이 아래 광고 게이트다. 운영 변수를 바꾸기 전(기본값)에는 이 소유권
+  // 메타만 나가고, 게이트 함수는 빈 문자열이나 받은 헤더를 그대로 돌려준다.
   return `<meta name="google-adsense-account" content="${escapeHtml(client)}"/>`;
+}
+
+// V22.9.40 (B) 광고 게이트. 아래 adsMode 부터 adsHeaders 까지가 한 블록이다. 광고 런타임 주소, 슬롯
+// 마크업, 광고 쿠키 고지 문구는 이 블록 안에만 둔다(validate-adsense-v2-v22817 이 블록 밖 소스 전체에
+// 광고 호스트가 없는지 본다). 기본값(심사 모드)의 HTML 과 헤더는 게이트가 생기기 전과 바이트 단위로 같다.
+function adsMode(env = {}) {
+  // 운영 변수 ADS_MODE 는 이 함수에서만 읽는다. 정확히 "live" 일 때만 live 이고, 값이 없거나
+  // "LIVE"·"on"·"1"·"review"·앞뒤 공백이 붙은 값이면 모두 review 다.
+  return env?.ADS_MODE === "live" ? "live" : "review";
+}
+
+// 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
+// contact·about·site-map)을 뺀 12쪽과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
+// 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
+// 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
+const AD_PAGE_KEYS = Object.freeze([
+  "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
+  "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
+  "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
+]);
+
+function adsSlotId(env = {}) {
+  // 선택 변수 ADS_SLOT_CONTENT 도 이 함수에서만 읽는다. 문자열 숫자 8~12자리만 쓰고, 그 밖의 값은
+  // 없는 것으로 본다. 검증하지 않은 값을 HTML 에 옮기지 않는다.
+  const value = env?.ADS_SLOT_CONTENT;
+  return typeof value === "string" && /^[0-9]{8,12}$/.test(value) ? value : "";
+}
+
+function adsPageLive(env = {}, pageKey = "") {
+  return adsMode(env) === "live" && AD_PAGE_KEYS.includes(pageKey);
+}
+
+// 광고 자리는 광고가 늦게 와도 화면이 밀리지 않게 높이를 먼저 잡는다. 주변 버튼·링크와 16px 넘게
+// 띄우고(공통 셸의 카드 여백 12px!important 보다 앞서도록 선택자를 높였다), 인쇄에서는 뺀다.
+const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
+
+function adsHeadMarkup(env = {}, pageKey = "") {
+  if (!adsPageLive(env, pageKey)) return "";
+  const client = escapeHtml(adsensePublisherId(env));
+  return `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script><style>${ADS_SLOT_CSS}</style>`;
+}
+
+function adSlotMarkup(env = {}, pageKey = "") {
+  const slot = adsSlotId(env);
+  // 슬롯 id 가 없으면 자리를 만들지 않는다. 머리의 로더만 남으므로 대시보드에서 자동 광고를 켠 경우에만 광고가 나온다.
+  if (!adsPageLive(env, pageKey) || !slot) return "";
+  const client = escapeHtml(adsensePublisherId(env));
+  return `<section class="card adSlot noPrint" aria-label="광고"><ins class="adsbygoogle" style="display:block" data-ad-client="${client}" data-ad-slot="${slot}" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle=window.adsbygoogle||[]).push({});</script></section>`;
+}
+
+// 광고를 켜면 개인정보처리방침·쿠키 안내·FAQ 의 "현재 광고를 실행하지 않습니다" 문장을 AdSense 필수 고지(제3자
+// 광고 쿠키, Google 광고 쿠키, 맞춤 광고 해제 방법)로 바꾼다. review 에서는 빈 값을 돌려주고 부르는 쪽이 지금
+// 문장을 그대로 쓴다.
+const ADS_POLICY_TEXT = Object.freeze({
+  privacy: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
+  cookies: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
+});
+
+function adsPolicyText(env = {}, topic = "") {
+  return adsMode(env) === "live" && Object.hasOwn(ADS_POLICY_TEXT, topic) ? ADS_POLICY_TEXT[topic] : "";
+}
+
+function adsPolicyLinks(env = {}) {
+  return adsMode(env) === "live" ? [["Google 광고 설정에서 맞춤 광고 해제", "https://adssettings.google.com"]] : [];
+}
+
+// CSP 출처: AdSense 고객센터 "Integrate the AdSense ad code with a Content Security Policy (CSP)"
+// https://support.google.com/adsense/answer/16283098 와 GPT 안내
+// https://developers.google.com/publisher-tag/guides/content-security-policy (2026-10-12 확인).
+// Google 은 광고 도메인이 계속 바뀌어 허용 목록 방식을 지원하지 않는다. 지원하는 정책은
+//   object-src 'none'; script-src 'nonce-…' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:; base-uri 'none'
+// 이고, 이보다 느슨한 정책은 되지만 더 엄격하면 예고 없이 깨질 수 있다고 적는다(예시에는 default-src 가
+// 없어 frame·connect 도 열려 있다). 우리 화면에는 nonce 없는 인라인 처리기(내비 토글·인쇄 버튼)가 있어
+// nonce·strict-dynamic 을 걸면 심사 모드 HTML 을 바꾸지 않고는 그 처리기가 막힌다. 그래서 라이브 허용
+// 화면에서만, 광고 코드가 문서 안에서 쓰는 지시어를 공식 예시의 하위 호환 해석('unsafe-inline'
+// 'unsafe-eval' https:) 수준으로 연다. img-src 는 이미 https: 를 허용한다. default-src·base-uri·
+// object-src·frame-ancestors·form-action·font-src·worker-src 와 다른 보안 헤더는 그대로다.
+const ADS_CSP_ADDITIONS = Object.freeze([
+  ["script-src", "'unsafe-eval' https:"],
+  ["style-src", "https:"],
+  ["connect-src", "https:"],
+  ["frame-src", "'self' https:"],
+]);
+
+function adsLiveCsp(policy = "") {
+  const directives = String(policy || "").split(";").map((part) => part.trim()).filter(Boolean);
+  for (const [name, sources] of ADS_CSP_ADDITIONS) {
+    const index = directives.findIndex((directive) => directive.split(" ")[0] === name);
+    if (index >= 0) directives[index] = `${directives[index]} ${sources}`;
+    else directives.push(`${name} ${sources}`);
+  }
+  return directives.join("; ");
+}
+
+function adsHeaders(env = {}, pageKey = "", headers = {}) {
+  if (!adsPageLive(env, pageKey)) return headers;
+  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"]) };
 }
 
 const PUBLIC_CONTENT_PATHS = Object.freeze([
@@ -236,12 +336,12 @@ function publicSiteFooter() {
 // @build:exports-start
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
-  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, PUBLIC_CONTENT_PATHS,
-  adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
-  currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
-  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
-  kakaoRepresentativeCommands, memeCardsEnabled, normalizeBaseUrl, premiumBetaEnabled,
-  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
-  renderBusinessInfoFooter, renderSkillGetHealthHtml,
+  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, PUBLIC_CONTENT_PATHS, adSlotMarkup,
+  adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyText, adsensePublisherIdForTxt,
+  appName, canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
+  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
+  kakaoChatCommandCatalog, kakaoRepresentativeCommands, memeCardsEnabled, normalizeBaseUrl,
+  premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
+  publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
 };
 // @build:exports-end

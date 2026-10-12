@@ -12,7 +12,7 @@ import {
   abMonitorCompleted, abMonitorDatabaseProbe, abMonitorRequestContext, handleComprehensiveMonitor,
 } from "../runtime/ops-monitor.js";
 import {
-  APP_MODE, APP_VERSION, KAKAO_SECONDARY_COMMANDS, appName, canonicalRedirectResponse,
+  APP_MODE, APP_VERSION, KAKAO_SECONDARY_COMMANDS, adsMode, appName, canonicalRedirectResponse,
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, kakaoChatCommandCatalog,
   kakaoRepresentativeCommands, publicBaseUrl, renderSkillGetHealthHtml,
 } from "../public/site-config.js";
@@ -699,7 +699,8 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/ready") {
         const missing = missingRuntimeConfiguration(env);
-        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length }, 503);
+        // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다.
+        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env) }, 503);
         const [checks, optionalChecks, rpcResults, alternativeRpcResults] = await Promise.all([
           Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
           Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
@@ -713,7 +714,7 @@ const ACCOUNTBOOK_WORKER = {
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
