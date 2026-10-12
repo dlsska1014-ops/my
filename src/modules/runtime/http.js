@@ -1,7 +1,9 @@
 // @build:imports-start
 import { rememberOpsEvent } from "./ops-telemetry.js";
 import { CORS_HEADERS, HTML_HEADERS, JSON_HEADERS } from "./config-readiness.js";
-import { attachBusinessInfoFooter, attachUiUxRuntime } from "../web/html-postprocess.js";
+import {
+  attachBusinessInfoFooter, attachUiUxRuntime, shellResponseHints,
+} from "../web/html-postprocess.js";
 import { logWorkerError, safeError } from "./leases.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { formatMessage } from "../kakao/reply-texts.js";
@@ -72,9 +74,10 @@ function htmlResponse(html, status = 200, headers = {}) {
   const operationallyAlignedHtml = String(html || "")
     .replaceAll("schema_v22_8_0_asset_dashboard_complete.sql", "schema_v22_7_1_asset_dashboard.sql")
     .replaceAll("V22.8.0 자산 마이그레이션", "V22.7.1 자산 원자성 마이그레이션");
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml)), {
+  const body = attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml));
+  return new Response(body, {
     status,
-    headers: { ...HTML_HEADERS, ...headers },
+    headers: { ...HTML_HEADERS, ...shellResponseHints(body, status), ...headers },
   });
 }
 
@@ -87,9 +90,10 @@ function responseHeadersWithCookies(baseHeaders = {}, cookies = []) {
 }
 
 function htmlResponseWithCookies(html, status = 200, cookies = [], headers = {}) {
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(html)), {
+  const body = attachBusinessInfoFooter(attachUiUxRuntime(html));
+  return new Response(body, {
     status,
-    headers: responseHeadersWithCookies({ ...HTML_HEADERS, ...headers }, cookies),
+    headers: responseHeadersWithCookies({ ...HTML_HEADERS, ...shellResponseHints(body, status), ...headers }, cookies),
   });
 }
 
