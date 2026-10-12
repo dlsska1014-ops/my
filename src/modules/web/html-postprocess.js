@@ -15,7 +15,9 @@ import {
   ACCOUNTBOOK_THEME_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH,
   MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH,
 } from "../assets/asset-registry.js";
-import { AB_MANIFEST_LINK, AB_SPECULATION_RULES_TAG } from "../assets/icons-manifest.js";
+import {
+  AB_MANIFEST_LINK, AB_SPECULATION_RULES_PATH, AB_SPECULATION_RULES_TAG,
+} from "../assets/icons-manifest.js";
 import { AB_CONTROLS_38_CSS_PATH, AB_CONTROLS_38_JS_PATH } from "../assets/form-controls-v22938.js";
 import { currentMonthKst, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { AB_CATEGORY_RULES_SCRIPT_TAG } from "../nlu/category-rules.js";
@@ -353,10 +355,32 @@ function normalizeUiV5RemainingPages(html = "") {
   return source;
 }
 
+// 홈(최적화된 모바일 홈)은 자기 스타일시트와 홈 런타임을 링크한다. 이 판정은 응답 머리 힌트도 같이 쓴다.
+function isOptimizedMobileHomeHtml(source = "") {
+  return source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
+    && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
+}
+
+// V22.9.40 (C3·C4): HTML 바이트는 그대로 두고 응답 머리에만 더하는 힌트.
+//  · Link preload — 이 화면이 실제로 링크한 셸 CSS·내비 JS 만 적는다. Cloudflare 에서 Early Hints 를 켜면(대시보드
+//    Speed → Settings → Content Optimization) 이 머리를 캐시해 다음 요청부터 103 Early Hints 로 먼저 보낸다.
+//    공개 화면(자체 인라인 CSS)·/skill·오류 화면은 셸을 링크하지 않으므로 붙지 않고, 200 응답에만 단다.
+//  · Speculation-Rules — 홈은 V22.9.7 인라인 규칙(242 B) 대신 같은 규칙 파일 주소를 머리로 받는다(35 KiB 예산).
+function shellResponseHints(html = "", status = 200) {
+  if (status !== 200) return {};
+  const source = String(html || "");
+  const hints = {};
+  const links = [];
+  if (source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)) links.push(`<${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}>; rel=preload; as=style`);
+  if (source.includes(`src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}"`)) links.push(`<${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}>; rel=preload; as=script`);
+  if (links.length) hints.link = links.join(", ");
+  if (isOptimizedMobileHomeHtml(source) && !source.includes('type="speculationrules"')) hints["speculation-rules"] = `"${AB_SPECULATION_RULES_PATH}"`;
+  return hints;
+}
+
 function attachUiUxRuntime(html = "") {
   let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
-  const optimizedMobileHome = source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
-    && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
+  const optimizedMobileHome = isOptimizedMobileHomeHtml(source);
   // 여기가 홈을 뺀 열네 화면이 매 요청마다 20~30 KB 의 CSS 를 인라인으로 실어 보내던
   // 자리다. 홈만 캐시되는 스타일시트를 링크해서 인라인 CSS 가 1% 였고, 나머지 화면은
   // 27~50% 였다. 같은 CSS 를 화면마다 다시 보내는 것이라 합계 260 KB 가 낭비였다.
@@ -424,7 +448,8 @@ function attachUiUxRuntime(html = "") {
     if (!wrapped) source = source.replace(/<p class="heroDelta([^"]*)">([\s\S]*?)<\/p>/, (full, extra, inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p class="heroDelta${extra}">${inner}</p><button type="button" class="abHeadNoteToggle" aria-expanded="true">접기</button></div>`);
   }
 
-  if (source.includes("</head>") && !source.includes('type="speculationrules"')) {
+  // V22.9.40 (C4): 홈은 같은 규칙을 응답 머리(Speculation-Rules)로 받는다 — shellResponseHints 참고.
+  if (!optimizedMobileHome && source.includes("</head>") && !source.includes('type="speculationrules"')) {
     source = source.replace("</head>", `${AB_SPECULATION_RULES_TAG}</head>`);
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
@@ -497,5 +522,5 @@ function attachBusinessInfoFooter(html = "") {
   return source;
 }
 // @build:exports-start
-export { attachBusinessInfoFooter, attachUiUxRuntime };
+export { attachBusinessInfoFooter, attachUiUxRuntime, shellResponseHints };
 // @build:exports-end

@@ -30,7 +30,9 @@ const PINNED = {
   // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14)와 내비·V5 번들·목표·행 즐겨찾기·검색·알림 JS(H1·U2·U3·U5·U10·U12)가 바뀌어
   // 주소를 올렸다. 옛 CSS 주소(v22925)는 더 내려가지 않고, 옛 JS 주소(nav-v22930·v5-v22934·goals-v22929·favrows-v22836·
   // search-v22929·notif-v22836)는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 아래 옛 해시로 계속 내려간다.
-  "/assets/accountbook-shell-v22937.css": "17d0784c0a432362198551bc468301c60f07949d3e5cbcf22949bf0ab92c7018",
+  // V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록을 더해 주소를 v22937 → v22940 으로 올렸다. V22.9.37 과 같이
+  // 옛 CSS 주소는 더 내려가지 않는다(개인 HTML 은 no-store 라 옛 주소를 부르는 화면이 남지 않는다).
+  "/assets/accountbook-shell-v22940.css": "b1d9405934b918b46d880c760951ed2ac4af0e5545d46ad1ab08087956d96a40",
   "/assets/ab-uiux-v22919.css": "59510e82bbd2b373da76dfa1a070d2ccb40232e115e23da5c23251403fcc9f0c",
   "/assets/accountbook-theme-v2299.js": "865e3b33b494afd85462733cc0c1daeaa6e0cadca8bd0e2ccdc9684c7cc10623",
   "/assets/accountbook-nav-v22930.js": "b76bebe25f3f0138e918129c7f34e4fa973f1dc53fec0ea905afc4a04bb9de60",

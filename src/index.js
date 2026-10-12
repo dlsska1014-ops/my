@@ -4580,10 +4580,32 @@ function normalizeUiV5RemainingPages(html = "") {
   return source;
 }
 
+// 홈(최적화된 모바일 홈)은 자기 스타일시트와 홈 런타임을 링크한다. 이 판정은 응답 머리 힌트도 같이 쓴다.
+function isOptimizedMobileHomeHtml(source = "") {
+  return source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
+    && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
+}
+
+// V22.9.40 (C3·C4): HTML 바이트는 그대로 두고 응답 머리에만 더하는 힌트.
+//  · Link preload — 이 화면이 실제로 링크한 셸 CSS·내비 JS 만 적는다. Cloudflare 에서 Early Hints 를 켜면(대시보드
+//    Speed → Settings → Content Optimization) 이 머리를 캐시해 다음 요청부터 103 Early Hints 로 먼저 보낸다.
+//    공개 화면(자체 인라인 CSS)·/skill·오류 화면은 셸을 링크하지 않으므로 붙지 않고, 200 응답에만 단다.
+//  · Speculation-Rules — 홈은 V22.9.7 인라인 규칙(242 B) 대신 같은 규칙 파일 주소를 머리로 받는다(35 KiB 예산).
+function shellResponseHints(html = "", status = 200) {
+  if (status !== 200) return {};
+  const source = String(html || "");
+  const hints = {};
+  const links = [];
+  if (source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)) links.push(`<${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}>; rel=preload; as=style`);
+  if (source.includes(`src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}"`)) links.push(`<${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}>; rel=preload; as=script`);
+  if (links.length) hints.link = links.join(", ");
+  if (isOptimizedMobileHomeHtml(source) && !source.includes('type="speculationrules"')) hints["speculation-rules"] = `"${AB_SPECULATION_RULES_PATH}"`;
+  return hints;
+}
+
 function attachUiUxRuntime(html = "") {
   let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
-  const optimizedMobileHome = source.includes(`href="${MOBILE_HOME_CSS_ASSET_PATH}"`)
-    && (source.includes(`src="${MOBILE_HOME_JS_ASSET_PATH}"`) || source.includes(`src="${MOBILE_HOME_SHELL_JS_ASSET_PATH}"`));
+  const optimizedMobileHome = isOptimizedMobileHomeHtml(source);
   // 여기가 홈을 뺀 열네 화면이 매 요청마다 20~30 KB 의 CSS 를 인라인으로 실어 보내던
   // 자리다. 홈만 캐시되는 스타일시트를 링크해서 인라인 CSS 가 1% 였고, 나머지 화면은
   // 27~50% 였다. 같은 CSS 를 화면마다 다시 보내는 것이라 합계 260 KB 가 낭비였다.
@@ -4651,7 +4673,8 @@ function attachUiUxRuntime(html = "") {
     if (!wrapped) source = source.replace(/<p class="heroDelta([^"]*)">([\s\S]*?)<\/p>/, (full, extra, inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p class="heroDelta${extra}">${inner}</p><button type="button" class="abHeadNoteToggle" aria-expanded="true">접기</button></div>`);
   }
 
-  if (source.includes("</head>") && !source.includes('type="speculationrules"')) {
+  // V22.9.40 (C4): 홈은 같은 규칙을 응답 머리(Speculation-Rules)로 받는다 — shellResponseHints 참고.
+  if (!optimizedMobileHome && source.includes("</head>") && !source.includes('type="speculationrules"')) {
     source = source.replace("</head>", `${AB_SPECULATION_RULES_TAG}</head>`);
   }
   const needsRuntime = source.includes('id="smartInput"') || source.includes('class="appMenu"') || source.includes('class="abNavMobileTop"');
@@ -4953,9 +4976,10 @@ function htmlResponse(html, status = 200, headers = {}) {
   const operationallyAlignedHtml = String(html || "")
     .replaceAll("schema_v22_8_0_asset_dashboard_complete.sql", "schema_v22_7_1_asset_dashboard.sql")
     .replaceAll("V22.8.0 자산 마이그레이션", "V22.7.1 자산 원자성 마이그레이션");
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml)), {
+  const body = attachBusinessInfoFooter(attachUiUxRuntime(operationallyAlignedHtml));
+  return new Response(body, {
     status,
-    headers: { ...HTML_HEADERS, ...headers },
+    headers: { ...HTML_HEADERS, ...shellResponseHints(body, status), ...headers },
   });
 }
 
@@ -4968,9 +4992,10 @@ function responseHeadersWithCookies(baseHeaders = {}, cookies = []) {
 }
 
 function htmlResponseWithCookies(html, status = 200, cookies = [], headers = {}) {
-  return new Response(attachBusinessInfoFooter(attachUiUxRuntime(html)), {
+  const body = attachBusinessInfoFooter(attachUiUxRuntime(html));
+  return new Response(body, {
     status,
-    headers: responseHeadersWithCookies({ ...HTML_HEADERS, ...headers }, cookies),
+    headers: responseHeadersWithCookies({ ...HTML_HEADERS, ...shellResponseHints(body, status), ...headers }, cookies),
   });
 }
 
@@ -17381,13 +17406,57 @@ function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), house
   return `${path}?${params.toString()}`;
 }
 
+// V22.9.40 (C1): 기준 월을 "2026년 7월"처럼 한국어로 보이고, 누르면 브라우저의 월 선택기(showPicker)를 연다.
+// 자바스크립트가 없거나 month 입력을 모르는 브라우저(input.type 이 "text")는 원래 폼(월 입력 + 이동)을 그대로 쓴다.
+// 고른 달은 바로 이동하지 않는다(iOS 휠처럼 고르는 중에도 change 가 날 수 있다). "이동" 단추는 다른 달을 고른
+// 뒤에만 보이고, 이동은 그대로 그 단추가 한다. 월 입력은 같은 칸 밑에 투명하게 남아 폼 제출과 선택기 위치를 맡고,
+// 탭 순서와 보조기기 트리에서는 빠진다. autocomplete=off 는 뒤로 가기 때 브라우저가 고른 값만 되살려 단추 글자와
+// 어긋나는 것을 막는다. 선택기를 열 수 없으면(showPicker 없음·거절) 원래 입력칸을 되돌려 초점을 준다.
+function reportMonthPickerClientMain() {
+  var nav = document.currentScript && document.currentScript.previousElementSibling;
+  var input = nav && nav.querySelector('input[type="month"]');
+  if (!input || input.type !== "month") return;
+  var label = input.closest("label");
+  var start = input.value;
+  var pick = document.createElement("button");
+  pick.type = "button";
+  pick.className = "reportMonthPick";
+  function sync() {
+    var m = /^(\d{4})-(\d{2})$/.exec(input.value);
+    var text = m ? m[1] + "년 " + Number(m[2]) + "월" : "기준 월";
+    var changed = input.value !== start;
+    pick.textContent = text;
+    pick.setAttribute("aria-label", "기준 월 " + text + (changed ? ", 이동 단추를 눌러 적용" : ", 다른 달 고르기"));
+    nav.classList.toggle("isMonthChanged", changed);
+  }
+  function plain() {
+    pick.remove();
+    nav.classList.remove("abPick");
+    label.removeAttribute("aria-hidden");
+    input.removeAttribute("tabindex");
+    input.focus();
+  }
+  pick.addEventListener("click", function () {
+    try { if (input.showPicker) return input.showPicker(); } catch (e) {}
+    plain();
+  });
+  input.addEventListener("input", sync);
+  input.addEventListener("change", sync);
+  label.before(pick);
+  label.setAttribute("aria-hidden", "true");
+  input.tabIndex = -1;
+  input.autocomplete = "off";
+  nav.classList.add("abPick");
+  sync();
+}
+
 function renderReportMonthNavigator({ path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {} } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
   const prev = shiftMonthString(safeMonth, -1);
   const next = shiftMonthString(safeMonth, 1);
   const current = currentMonthKst();
   const extraInputs = Object.entries(extra || {}).filter(([, value]) => value).map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(String(value))}"/>`).join("");
-  return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view, extra))}" aria-label="이전 달 ${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}${extraInputs}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view, extra))}" aria-label="다음 달 ${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view, extra))}">이번 달</a>`}</nav>`;
+  return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view, extra))}" aria-label="이전 달 ${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}${extraInputs}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view, extra))}" aria-label="다음 달 ${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view, extra))}">이번 달</a>`}</nav><script>(${reportMonthPickerClientMain.toString()})();</script>`;
 }
 
 function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst()) {
@@ -17476,7 +17545,8 @@ function reportUxCss() {
   return `
 .reportChallenge select{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallenge [hidden]{display:none!important}
 .reportMonthNav{position:sticky;top:8px;z-index:45;display:grid;grid-template-columns:auto minmax(260px,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:10px;background:color-mix(in srgb,var(--ab12-surface,#fff) 94%,transparent);color:var(--ab12-text,#191f28);backdrop-filter:blur(14px);border:1px solid var(--ab12-line,#e5e9f0);border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
-.reportMonthNav a,.reportMonthNav button,.reportMonthNav .reportMonthCurrent{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-height:44px;border:1px solid var(--ab12-line,#d9e0ea);border-radius:12px;padding:0 10px;background:var(--ab12-input-bg,#fff)}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;height:40px;border:0!important;padding:0;background:transparent!important;font:inherit;font-weight:850;color:var(--ab12-text,#111827)!important}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:var(--ab12-accent-soft,#fff7cc);color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
+.reportMonthNav a,.reportMonthNav button,.reportMonthNav .reportMonthCurrent{min-height:44px;border:0;border-radius:12px;padding:0 13px;display:inline-flex;align-items:center;justify-content:center;gap:4px;text-decoration:none;font:inherit;font-weight:850;white-space:nowrap}.reportMonthArrow{background:var(--ab12-surface-raised,#f2f4f6);color:var(--ab12-text,#333d4b)}.reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-flow:column;gap:7px}.reportMonthNav label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px}.reportMonthNav label span{font-size:12px;color:var(--ab12-muted,#6b7280);font-weight:800}.reportMonthNav input{min-width:0;width:100%;min-height:44px;font:inherit;font-weight:850}.reportMonthNav button{background:var(--ab12-action,#2457d6);color:#fff}.reportMonthCurrent{background:none;color:var(--ab12-accent,#665800);border:1px solid var(--ab12-accent,#f2d64b)!important}
+.reportMonthNav span.reportMonthCurrent{border-color:transparent!important;color:var(--ab12-muted,#5f6b7a)}.reportMonthNav span.reportMonthCurrent:before{content:"●";font-size:9px;color:var(--ab12-accent,#2457d6)}.reportMonthNav.abPick label{grid-area:1/1;opacity:0;pointer-events:none}.reportMonthNav.abPick .reportMonthPick{grid-area:1/1;min-width:0;border:1px solid var(--ab12-line,#d9e0ea);background:var(--ab12-input-bg,#fff);color:var(--ab12-text,#191f28)!important;font-size:16px}.reportMonthPick:after{content:"▾";font-size:12px;color:var(--ab12-muted,#5f6b7a)}.reportMonthNav.abPick:not(.isMonthChanged) button[type=submit]{display:none}
 .reportCockpit{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);border:1px solid var(--ab12-line,#e5e9f0);border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 10px 30px rgba(15,23,42,.06)}.reportCockpitHead,.reportSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:12px}.reportCockpitHead span{display:block;color:var(--ab12-accent,#2457d6);font-size:11px;font-weight:900;letter-spacing:.08em}.reportCockpitHead h2{margin:4px 0 0;font-size:21px}.reportCockpitHead a,.reportSectionTitle a{color:var(--ab12-accent,#2457d6);text-decoration:none;font-size:12px;font-weight:850}.reportCockpitGrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin-top:18px}.reportPace{display:grid;justify-items:center;align-content:center;border-right:1px solid var(--ab12-line,#edf0f4)}.reportGauge{--report-rate:0%;width:148px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ab12-brand,#6d5dfc) var(--report-rate),var(--ab12-surface-raised,#edf0f5) 0);position:relative}.reportGauge:before{content:"";position:absolute;inset:15px;background:var(--ab12-surface,#fff);border-radius:50%}.reportGauge div{position:relative;text-align:center}.reportGauge b{display:block;font-size:27px;letter-spacing:-.04em}.reportGauge span,.reportPace p{color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportPace p{margin:9px 0 0}.reportKpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reportKpis>div{background:var(--ab12-surface-raised,#f7f8fb);border:1px solid var(--ab12-line,#edf0f4);border-radius:16px;padding:14px}.reportKpis span{display:block;color:var(--ab12-muted,#6b7280);font-size:12px;font-weight:800}.reportKpis b{display:block;margin-top:6px;font-size:clamp(18px,2.1vw,25px);overflow-wrap:anywhere;line-height:1.2}.reportInsight{display:flex;gap:10px;align-items:center;margin-top:14px;padding:13px 15px;border:1px solid color-mix(in srgb,var(--ab12-accent,#d97706) 42%,transparent);border-radius:15px;background:var(--ab12-accent-soft,#fffbeb);color:var(--ab12-text,#713f12)}.reportInsight>span{font-size:20px;color:var(--ab12-accent,#d97706)}.reportInsight p{margin:0;line-height:1.5;font-size:13px;font-weight:750}.reportCategoryBudget{margin-top:16px}.reportCategoryBudget ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:9px}.reportCategoryBudget li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;border:1px solid var(--ab12-line,#edf0f4);border-radius:14px;padding:11px}.reportCategoryBudget li div b,.reportCategoryBudget li div span{display:block}.reportCategoryBudget li div span{color:var(--ab12-muted,#7b8493);font-size:11px;margin-top:2px}.reportCategoryBudget li strong{font-size:12px}.reportCategoryBudget li i{grid-column:1/-1;height:7px;border-radius:999px;background:var(--ab12-surface-raised,#edf0f4);overflow:hidden}.reportCategoryBudget li em{display:block;height:100%;border-radius:inherit;background:var(--ab12-brand,#6d5dfc)}
 .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;background:linear-gradient(135deg,#171a2b,#222741);color:#fff;border:1px solid #343b5f;border-radius:22px;padding:18px;margin:14px 0}.reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--ab12-action,#6d5dfc);color:#fff;font-size:11px;font-weight:900}.reportChallenge h2{margin:9px 0 5px;color:#fff!important}.reportChallenge p{margin:0;color:#c7cce0;font-size:13px;line-height:1.5}.reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}.reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--ab12-brand,#6d5dfc));border-radius:inherit}.reportChallengeMain>strong{font-size:12px;color:#ffd45b}.reportChallenge details{align-self:center;border:1px solid #3d4569;border-radius:14px;padding:9px}.reportChallenge summary{cursor:pointer;font-weight:850;min-height:36px;display:flex;align-items:center}.reportChallenge form{display:grid;gap:8px;margin-top:8px}.reportChallenge label{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;color:#d7dbee;font-size:12px;font-weight:750}.reportChallenge label>span{min-width:0;overflow-wrap:anywhere}.reportChallenge input{width:100%;min-width:0;max-width:100%;min-height:42px;border:1px solid #4b557c!important;border-radius:10px;background:#111526!important;color:#fff!important;padding:0 10px}.reportChallengeToggle{grid-template-columns:auto 1fr!important;justify-content:start}.reportChallengeToggle input{width:18px;min-height:18px}.reportChallenge button{min-height:42px;border:0;border-radius:11px;background:var(--ab12-action,#6d5dfc);color:#fff;font-weight:850}.reportChallengeReadOnly{align-self:center}
 .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}.reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}.reportChallengeDays li>span{font-size:10px;color:#aeb6d3}.reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff}.reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}.reportChallengeDays .is-success{border-color:#387966;background:#17372f}.reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d}.reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}.reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218}.reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}.reportChallengeDays .is-today>i{background:#ffd45b;color:#332600}.reportChallengeDays .is-future>i{border:1px solid #59617d}.reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0;font-size:10px;font-weight:750}.reportChallengeLegend .is-success{color:#7ce6c3}.reportChallengeLegend .is-spent{color:#ff9ba4}.reportChallengeLegend .is-today{color:#ffd45b}.reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}.reportChallengePercent>b{font-size:22px;color:#ffd45b}.reportChallengePercent .reportChallengeTrack{margin:0}.reportChallengePercent>span{font-size:11px;color:#c7cce0;white-space:nowrap}
@@ -17484,9 +17554,9 @@ function reportUxCss() {
 .reportMonthNav :is(a,button,input):focus-visible,.reportChallenge :is(summary,input,button):focus-visible,.reportCockpit a:focus-visible{outline:3px solid var(--ab12-accent,#2563eb)!important;outline-offset:2px}
 .reportFlash{border-radius:14px;padding:12px 14px;margin:10px 0;font-size:13px;font-weight:750;line-height:1.5}.reportFlash.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.reportFlash.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
 .reportChallenge button{min-height:44px}.reportChallengeActions{align-self:center;min-width:0}.reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966;border-radius:10px;background:#17372f;color:#9af0d3!important;font-size:11px!important;font-weight:750}.reportChallengeFormStatus.isError{border-color:#86515a;background:#3a2229;color:#ffabb3!important}
-@media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:auto minmax(0,1fr) auto}.reportMonthNav>form{grid-column:2;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:1}.reportMonthNav>form+.reportMonthArrow{grid-column:3;grid-row:1}.reportMonthNav>a.reportMonthCurrent{grid-column:1/-1;grid-row:2;min-height:36px}.reportMonthNav>span.reportMonthCurrent{display:none}.reportMonthArrow span{display:none}.reportMonthArrow{min-width:44px}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}}
+@media(max-width:899px){.reportMonthNav{top:calc(52px + env(safe-area-inset-top,0px));grid-template-columns:auto minmax(0,1fr) auto}.reportMonthNav>form{grid-column:2;grid-row:1}.reportMonthNav>.reportMonthArrow:first-child{grid-column:1;grid-row:1}.reportMonthNav>form+.reportMonthArrow{grid-column:3;grid-row:1}.reportMonthNav>a.reportMonthCurrent{grid-column:1/-1;grid-row:2;min-height:36px}.reportMonthNav>span.reportMonthCurrent{display:none}.reportMonthArrow span{display:none}.reportMonthArrow{min-width:44px;font-size:22px}.reportMonthNav>a.reportMonthCurrent{justify-self:center;min-height:44px;padding:0 20px}.reportCockpitGrid{grid-template-columns:1fr}.reportPace{border-right:0;border-bottom:1px solid #edf0f4;padding-bottom:15px}.reportChallenge{grid-template-columns:1fr}}
 @media(min-width:900px){html body.abV22812Shell main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage main.wrap{width:calc(100vw - var(--abNavW,238px) - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}html body.abV22812Shell.abNavCollapsed main.wrap.reportPageWrap,html body.abV22812Shell.abV5RemainingPage.abNavCollapsed main.wrap{width:calc(100vw - var(--abNavCollapsed,72px) - 32px)!important}}
-@media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav form{grid-template-columns:minmax(0,1fr) auto}.reportMonthNav label span{display:none}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
+@media(max-width:520px){.reportMonthNav{padding:8px;gap:6px}.reportMonthNav label span{display:none}.reportMonthNav label{display:block}.reportMonthNav a,.reportMonthNav button{padding:0 10px}.reportCockpit{padding:15px;border-radius:19px}.reportCockpitHead{align-items:flex-start}.reportCockpitHead>div{min-width:0}.reportCockpitHead a{flex:0 0 92px;max-width:92px;text-align:right;white-space:normal;line-height:1.35}.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr 1fr}.reportKpis>div{padding:11px}.reportKpis b{font-size:17px}.reportChallenge{padding:15px;border-radius:19px}.reportChallengeDays{gap:4px}.reportChallengeDays li{min-height:53px;padding:6px 5px}.reportChallengeDays li>i{width:18px;height:18px}.reportChallengePercent{grid-template-columns:auto 1fr}.reportChallengePercent>span{grid-column:1/-1}}
 @media(max-width:360px){.reportKpis,.reportCategoryBudget ul{grid-template-columns:1fr}.reportChallenge label{grid-template-columns:minmax(0,1fr)}.reportChallengeToggle{grid-template-columns:auto minmax(0,1fr)!important}}
 @media(prefers-reduced-motion:reduce){.reportGauge,.reportChallengeTrack i,.reportCategoryBudget li em{transition:none!important}}
 `;
@@ -23072,7 +23142,9 @@ const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22934.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22937.css";
+// V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록(제목·문단 줄바꿈, 글상자 높이, 창·팝오버 등장, 스크롤 막대 자리,
+// 시트 스크롤 가두기)을 더해 주소를 v22937 → v22940 으로 올렸다.
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22940.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
 /* V22.9.25: scoped enhancements preserve the analysis surface and theme tokens. */
 body.abV22812Shell .homeReports{container-type:inline-size;container-name:home-reports}
@@ -24555,6 +24627,32 @@ body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
   body.abV22812Shell .abV5PageHeader{padding:13px 14px!important}
   body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
 }
+/* ── V22.9.40 (C) 점진적 최신 규칙 ──
+   모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
+   · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려
+     .topLine h1 의 white-space:nowrap(말줄임)을 이긴다.
+   · 창·팝오버 등장은 움직임 줄이기를 켜지 않은 경우에만 움직인다(아래 @media). 켠 경우는 위 전역 규칙도 1ms 로 멈춘다.
+   · 닫힘 전환(display·overlay)은 overlay 를 아는 브라우저에서만 켠다 — 모르면 닫힐 때 맨 위 층에서 먼저 빠져 제자리에 비친다.
+   · 거래 상세 창(.abTxDetail)은 자기 등장 애니메이션이 있어 뺀다. */
+html{scrollbar-gutter:stable}
+body.abV22812Shell :is(h1,h2,h3){text-wrap-style:balance}
+body.abV22812Shell p{text-wrap-style:pretty}
+@supports (field-sizing:content){body.abV22812Shell textarea:is(.share,[readonly]){field-sizing:content;max-height:min(60vh,560px)}}
+body.abV22812Shell :is(.abGlobalDialog,.abV5SearchResults,.abV5NotifList,.abDayDetailBody,.abTransactionRail){overscroll-behavior:contain}
+@media(prefers-reduced-motion:no-preference){
+@supports (transition-behavior:allow-discrete){
+  body.abV22812Shell :is(dialog,[popover]):not(.abTxDetail){transition:opacity var(--ab12-dur) var(--ab12-ease),translate var(--ab12-dur) var(--ab12-ease);transition-behavior:allow-discrete}
+  body.abV22812Shell dialog:not(.abTxDetail)::backdrop{transition:opacity var(--ab12-dur) var(--ab12-ease)}
+  @starting-style{
+    body.abV22812Shell :is(dialog[open],[popover]:popover-open):not(.abTxDetail){opacity:0;translate:0 8px}
+    body.abV22812Shell dialog[open]:not(.abTxDetail)::backdrop{opacity:0}
+  }
+}
+@supports (overlay:auto){
+  body.abV22812Shell :is(dialog,[popover]):not(.abTxDetail){transition-property:opacity,translate,overlay,display}
+  body.abV22812Shell :is(dialog:not([open]),[popover]:not(:popover-open)):not(.abTxDetail){opacity:0;translate:0 8px}
+}
+}
 `;
 
 function accountbookThemeClientMain() {
@@ -25974,7 +26072,13 @@ const AB_WEB_MANIFEST = {
 const AB_WEB_MANIFEST_JSON = JSON.stringify(AB_WEB_MANIFEST);
 const AB_MANIFEST_PATH = "/manifest.json";
 const AB_MANIFEST_LINK = `<link rel="manifest" href="${AB_MANIFEST_PATH}"/>`;
-const AB_SPECULATION_RULES_TAG = "<script type=\"speculationrules\">{\"prerender\":[{\"where\":{\"and\":[{\"href_matches\":\"/*\"},{\"not\":{\"href_matches\":[\"/assets/*\",\"/admin/*\",\"/backup/*\",\"/cron/*\",\"/logout*\",\"/my/logout*\",\"/api/*\",\"/kakao/*\"]}}]},\"eagerness\":\"conservative\"}]}</script>";
+// V22.9.40 (C4): 규칙은 한 곳에서 만든다. HTML 인라인 태그와 응답 머리(Speculation-Rules)가 가리키는 파일이 같은
+// JSON 바이트다(인라인 태그 바이트는 V22.9.7 그대로). 홈처럼 바이트 예산이 빠듯한 화면은 같은 규칙을 HTML 대신
+// 머리로 받는다 — 브라우저는 그 파일을 speculationrules 목적지(cors·같은 출처)로 받아 같은 규칙으로 쓴다(Chrome 121+,
+// 문서 규칙 where·href_matches 를 아는 판과 같다). 1년 캐시 파일이라 규칙이 바뀌면 판을 올린다.
+const AB_SPECULATION_RULES_JSON = JSON.stringify({ prerender: [{ where: { and: [{ href_matches: "/*" }, { not: { href_matches: ["/assets/*", "/admin/*", "/backup/*", "/cron/*", "/logout*", "/my/logout*", "/api/*", "/kakao/*"] } }] }, eagerness: "conservative" }] });
+const AB_SPECULATION_RULES_TAG = `<script type="speculationrules">${AB_SPECULATION_RULES_JSON}</script>`;
+const AB_SPECULATION_RULES_PATH = "/assets/speculation-rules-v22940.json";
 
 const AB_ICON_ROUTES = new Map([
   ["/favicon.ico", { kind: "ico", size: 32 }],
@@ -25989,6 +26093,18 @@ async function appIconAssetResponse(request, url) {
   if (!request || !url) return null;
   const method = String(request.method || "GET").toUpperCase();
   if (!["GET", "HEAD"].includes(method)) return null;
+  if (url.pathname === AB_SPECULATION_RULES_PATH) {
+    return new Response(method === "HEAD" ? null : AB_SPECULATION_RULES_JSON, {
+      status: 200,
+      headers: {
+        "content-type": "application/speculationrules+json",
+        "cache-control": "public, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+        "cross-origin-resource-policy": "same-origin",
+        etag: '"ab-speculation-rules-v22940-json"',
+      },
+    });
+  }
   const route = AB_ICON_ROUTES.get(String(url.pathname || ""));
   if (!route) return null;
   const body = route.kind === "ico"
@@ -26272,7 +26388,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22937-css"'
+        ? '"accountbook-shell-v22940-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

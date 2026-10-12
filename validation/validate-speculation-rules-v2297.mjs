@@ -29,23 +29,45 @@ const ORIGIN = "https://malhaebook.com";
 
 const fixture = await createV2265QaFixture();
 try {
-  const get = async (path) => {
+  const open = async (path) => {
     const url = `${ORIGIN}${path}${path.includes("?") ? "&" : "?"}month=2026-07&household_id=house-home`;
     const response = await app.fetch(new Request(url, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone)" } }), fixture.env, {});
     eq(response.status, 200, `${path} 가 열린다`);
+    return { html: await response.text(), header: response.headers.get("speculation-rules") || "" };
+  };
+  const get = async (path) => (await open(path)).html;
+
+  // V22.9.40 (C4): 홈은 같은 규칙을 HTML 인라인 대신 응답 머리(Speculation-Rules)가 가리키는 파일로 받는다
+  // (홈 HTML 35 KiB 예산). 화면마다 규칙의 출처는 정확히 하나(인라인 하나 또는 머리 하나)이고, 어느 쪽이든
+  // 글자까지 같은 규칙이어야 한다. 머리 파일은 MIME 이 다르면 브라우저가 버리므로 그것도 여기서 본다.
+  const headerRules = async (header) => {
+    const match = header.match(/^"(\/[^"]+)"$/);
+    ok(match, `머리 값이 따옴표 친 같은 출처 주소 하나다 (${header})`);
+    const response = await app.fetch(new Request(`${ORIGIN}${match[1]}`), fixture.env, {});
+    eq(response.status, 200, `${match[1]} 가 내려온다`);
+    eq(response.headers.get("content-type"), "application/speculationrules+json", "규칙 파일 MIME 이 application/speculationrules+json 이다");
+    ok(String(response.headers.get("cache-control")).includes("immutable") && /-v\d+\.json$/.test(match[1]), "규칙 파일은 판이 붙은 1년 캐시 주소다");
     return response.text();
   };
 
   const SCREENS = ["/app", "/budgets", "/menu", "/my/analysis", "/goals", "/reports", "/my/members", "/payment-methods", "/settlement-summary"];
   let rules = null;
+  let rulesText = "";
+  const viaHeader = [];
   for (const path of SCREENS) {
-    const html = await get(path);
+    const { html, header } = await open(path);
     const found = [...html.matchAll(/<script type="speculationrules">([\s\S]*?)<\/script>/g)];
-    eq(found.length, 1, `${path} 에 규칙이 정확히 하나 있다`);
-    const parsed = JSON.parse(found[0][1]);
-    if (!rules) rules = parsed;
-    else eq(JSON.stringify(parsed), JSON.stringify(rules), `${path} 도 같은 규칙을 쓴다`);
+    eq(found.length + (header ? 1 : 0), 1, `${path} 에 규칙이 정확히 하나 있다 (인라인 ${found.length} · 머리 ${header ? 1 : 0})`);
+    const text = found.length ? found[0][1] : await headerRules(header);
+    if (header) viaHeader.push(path);
+    const parsed = JSON.parse(text);
+    if (!rules) { rules = parsed; rulesText = text; }
+    else {
+      eq(JSON.stringify(parsed), JSON.stringify(rules), `${path} 도 같은 규칙을 쓴다`);
+      eq(text, rulesText, `${path} 의 규칙이 글자까지 같다(인라인·머리 파일이 한 원본에서 나온다)`);
+    }
   }
+  eq(viaHeader.join(","), "/app", "머리로 규칙을 받는 화면은 홈뿐이다");
 
   // -------------------------------------------------------------------------
   // 1) 누르기 전에는 움직이지 않는다
