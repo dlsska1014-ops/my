@@ -317,6 +317,10 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/group-accountbook", "/security", "/faq", "/about", "/contact",
   "/privacy", "/terms", "/cookies", "/site-map",
   "/guides", "/demo", "/report-guide", "/import-guide",
+  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
+  "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
+  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
+  "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
 ]);
 
 function publicSiteNav(active = "home") {
