@@ -1,8 +1,8 @@
 ## V22.9.40 검증 방법
 
-현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_40.sha256`의 394개 경로이며 V22.9.39의 386개 경로를 모두 보존하고 새 파일 8개(검사기 4개·패키지 기록 3개·직전 manifest)를 더합니다. 일반·분류 표 부재 모드 각각 12,438개, Node.js v22.23.1 SQLite 84개가 통과했습니다(통합 1.75단계 실측). `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_40.sha256`의 399개 경로이며 V22.9.39의 386개 경로를 모두 보존하고 새 파일 13개(검사기 5개·패키지 기록 4개·판 문서 3개·직전 manifest)를 더합니다. 일반·분류 표 부재 모드 각각 14,517개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행하고 실제 개수를 `VERIFICATION_V22_9_40.md`에 기록합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.
 
-`npm run validate:polish`는 화면 다듬기·감사 잔여(U9·U10·H11·D14), `npm run validate:ads-gate`는 광고 게이트(기본 review 바이트 동일·live 허용 화면만 광고), `npm run validate:www-canonical`은 www → 정본 308(CANONICAL_REDIRECT 무관), `npm run validate:ui-perf`는 리포트 기간 내비게이터·셸 CSS 최신 규칙·Link preload 머리·홈 Speculation-Rules 머리를 확인합니다.
+`npm run validate:polish`는 화면 다듬기·감사 잔여(U9·U10·H11·D14), `npm run validate:ads-gate`는 광고 게이트(기본 review 바이트 동일·live 허용 화면만 광고), `npm run validate:www-canonical`은 www → 정본 308(CANONICAL_REDIRECT 무관), `npm run validate:ui-perf`는 리포트 기간 내비게이터·셸 CSS 최신 규칙·Link preload 머리·홈 Speculation-Rules 머리, `npm run validate:public-articles`는 생활비 가이드 글 12편의 길이·고유성·링크·검색 메타를 확인합니다.
 
 아래 이전 버전의 수치는 해당 시점 기록입니다.
 

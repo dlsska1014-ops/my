@@ -7,7 +7,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.39-PUBLIC-GUIDES";
+const APP_VERSION = "V22.9.40-ADS-GATE-CONTENT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -224,12 +224,17 @@ function adsMode(env = {}) {
 }
 
 // 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
-// contact·about·site-map)을 뺀 12쪽과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
+// contact·about·site-map)을 뺀 24쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
 // 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
 // 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
 const AD_PAGE_KEYS = Object.freeze([
   "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
   "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
+  // V22.9.40 (D 병합): 생활비 가이드 글 12편. 긴 읽을거리라 광고 자리로 가장 알맞다.
+  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
+  "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
+  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
+  "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
   "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
 ]);
 

@@ -3,8 +3,13 @@ import { createServer } from "node:http";
 import app from "../src/index.js";
 
 const port = Number(process.env.PUBLIC_PREVIEW_PORT || 4399);
-const allowed = new Set(["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide", "/robots.txt", "/sitemap.xml", "/sitemap.xsl", "/ads.txt"]);
 globalThis.fetch = async () => { throw new Error("Network calls are disabled in public preview"); };
+// V22.9.40: the public document list is read from the Worker's own sitemap.xml (the same PUBLIC_CONTENT_PATHS
+// list, 30 documents) instead of a hand-written copy, so new public pages open here without editing this file.
+const sitemap = await (await app.fetch(new Request("https://malhaebook.com/sitemap.xml"), {}, {})).text();
+const documents = [...sitemap.matchAll(new RegExp("<loc>([^<]+)</loc>", "g"))].map((match) => new URL(match[1]).pathname);
+if (documents.length === 0) throw new Error("sitemap.xml listed no public documents");
+const allowed = new Set([...documents, "/robots.txt", "/sitemap.xml", "/sitemap.xsl", "/ads.txt"]);
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "https://malhaebook.com");

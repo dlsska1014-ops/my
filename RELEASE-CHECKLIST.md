@@ -1,3 +1,18 @@
+## V22.9.40 광고 게이트와 생활비 가이드 글
+
+- [x] 네 묶음(A·B·C·D)과 통합 단계(www 정본·관제 알림 채널·외부 검사 예약)를 통합 브랜치에서 합쳤습니다.
+- [x] 일반·분류 표 부재 모드가 각각 14,517개 검사·399개 체크섬, SQLite는 84개를 통과했습니다. 결과는 `VERIFICATION_V22_9_40.md`에 기록했습니다.
+- [ ] PR의 Ubuntu·Windows × 일반·분류 표 부재 CI를 확인합니다.
+- [ ] 별도 승인 후 Worker 업로드·설정 대조·승격(`tools/deploy-worker-version.mjs`)과 운영 공개 검사를 수행합니다.
+- [ ] 배포 뒤 `/health`의 `V22.9.40-ADS-GATE-CONTENT`, `/ready`의 `"ads_mode":"review"`, `https://www.malhaebook.com/budget-guide`의 308, 새 글 12개 200, `/sitemap.xml` 30개, 셸 화면의 `Link` 머리와 홈의 `Speculation-Rules` 머리를 확인합니다.
+- [ ] Cloudflare Speed → Early Hints를 켭니다(선택).
+- [ ] 관제: `npx wrangler secret put ALERT_TO --config monitoring/wrangler.jsonc` 뒤 `npx wrangler deploy --config monitoring/wrangler.jsonc`를 실행하고 `/ops-monitor`의 "알림 발송" 상태를 확인합니다.
+- [ ] main 병합 뒤 GitHub "External availability check" 예약의 첫 실행을 확인합니다.
+- [ ] Search Console에서 sitemap.xml을 다시 제출합니다.
+- [ ] 카카오 C1~C4(`docs/ASIDE_V22_9_36.md` 4절)를 확인합니다.
+- [ ] AdSense 승인 뒤에만 live 전환 절차(`docs/ASIDE_V22_9_40.md` 8)를 따릅니다.
+- [ ] 실제 기기의 월 선택기와 보조기기를 확인합니다.
+
 ## V22.9.39 공개 콘텐츠 개선
 
 - [x] 공개 18개 문서, 가상 예산 계산, 정본 별칭, 검색·개인정보 안내를 개선했습니다.
