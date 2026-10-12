@@ -217,7 +217,7 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/guides", "/demo", "/report-guide", "/import-guide",
   "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
   "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
-  "/payday-budget-cycle", "/expense-category-rules",
+  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
 ]);
 
 function publicSiteNav(active = "home") {
