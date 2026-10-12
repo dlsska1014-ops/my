@@ -215,7 +215,7 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/group-accountbook", "/security", "/faq", "/about", "/contact",
   "/privacy", "/terms", "/cookies", "/site-map",
   "/guides", "/demo", "/report-guide", "/import-guide",
-  "/budget-ratio-guide", "/fixed-cost-checklist",
+  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
 ]);
 
 function publicSiteNav(active = "home") {
