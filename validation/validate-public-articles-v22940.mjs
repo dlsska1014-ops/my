@@ -38,8 +38,9 @@ const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").repla
 const sectionsOf = (html) => [...html.matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a)>/g, "\n").replace(/<[^>]+>/g, " "));
 const hangulCount = (html) => (sectionsOf(html).map(textOf).join(" ").match(/[가-힣]/g) || []).length;
-// 같은 문장 검사는 문단·목록·표 칸 단위로 줄을 나눈 뒤 공백을 하나로 줄여 비교한다.
-const linesOf = (html) => sectionsOf(html).map(textOf).join("\n").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+// 같은 문장 검사는 머리 영역의 소개 문단과 본문 절을 문단·목록·표 칸 단위로 줄을 나눈 뒤 공백을 하나로 줄여 비교한다.
+const introOf = (html) => (html.match(/<header class="pubHero">[\s\S]*?<\/h1><p>([\s\S]*?)<\/p>/) || [])[1] || "";
+const linesOf = (html) => [decode(introOf(html)), ...sectionsOf(html).map(textOf)].join("\n").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 const sentencesOf = (html) => linesOf(html).flatMap((line) => line.split(/(?<=[.!?])\s+/)).filter(Boolean);
 const articleOf = (html) => (html.match(/<article>([\s\S]*?)<\/article>/) || [])[1] || "";
 const sectionByTitle = (html, title) => sectionsOf(html).find((s) => s.startsWith(`<h2>${title}</h2>`)) || "";
