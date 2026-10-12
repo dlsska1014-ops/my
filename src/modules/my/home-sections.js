@@ -312,12 +312,14 @@ function renderHomeWeekStrip(rows = [], isCurrentMonth = true) {
   return `<ol class="homeWeek" aria-label="최근 7일 지출">${cells}</ol>`;
 }
 
-function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false) {
+function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, totalRows = null) {
   if (!rows.length) return "";
   // V22.9.37 감사 D14: 날짜 합계는 화면에 올린 80건이 아니라 받은 기록 전체로 낸다. 잘린 날은 몇 건을 보여 주는지 적어
   // 부분합이 그날 전체처럼 읽히지 않게 한다(받은 기록이 쪽 단위라면 쪽 경계의 날은 부르는 쪽이 전체 행을 넘겨야 한다).
+  // V22.9.40 A5(D14): 거래내역 탭은 쪽(50건)만 넘겨 쪽 경계에 걸린 날의 합계가 그 쪽의 부분합이었다. 부르는 쪽이 필터를 거친
+  // 전체 행(totalRows)을 넘기면 그것으로 날짜 합계·건수를 낸다(추가 조회 없음, 쪽에 일부만 보이는 날은 "N건 중 M건 표시").
   const dayTotals = Object.create(null);
-  for (const row of rows) {
+  for (const row of Array.isArray(totalRows) ? totalRows : rows) {
     const date = String(row.transaction_date || "");
     if (!dayTotals[date]) dayTotals[date] = { expense: 0, income: 0, count: 0 };
     dayTotals[date][row.type === "income" ? "income" : "expense"] += Number(row.amount || 0);

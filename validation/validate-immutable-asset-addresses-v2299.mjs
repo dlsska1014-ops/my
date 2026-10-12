@@ -59,7 +59,10 @@ const PINNED = {
   "/assets/mobile-home-v22934.js": "143562ae7a41dfa30884227582a49507b5442bbf86dcf79ba890f09b184423e5",
   "/assets/mobile-home-shell-v22934.js": "1b3e04cfe5917fcebc86fbe55e9df1663290b597d4f70c93ae44ed7b419b7968",
   "/assets/ab-category-rules-v22926.js": "0b2cbae61f91c36acbd75c95aa08efdbcb1c150424b41e394f0d54e6247ad70c",
+  // V22.9.40 A3(감사 U9): 홈 스타일시트의 수정 폼 라벨 색·다크 읽기 전용 칸 규칙이 바뀌어 주소를 v22940 으로 올렸다.
+  // 옛 v22919 주소는 AB_HISTORICAL_RUNTIME_ASSETS 에서 CSS 형식으로 옛 바이트를 그대로 낸다(아래 옛 해시).
   "/assets/mobile-home-v22919.css": "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7",
+  "/assets/mobile-home-v22940.css": "f05fe3470dc0e98680b6c701639c2ae894e6290ef84bd802a00cfb6e98e996dc",
 };
 
 const measured = {};

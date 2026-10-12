@@ -1,4 +1,6 @@
-const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css";
+// V22.9.40 A3(감사 U9): 홈 스타일시트(MOBILE_V81_CSS)의 수정 폼 라벨 색·다크 읽기 전용 칸이 바뀌어 주소를 v22919 → v22940 으로
+// 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 CSS 형식(contentType)으로 남아 그대로 내려간다.
+const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22940.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22934.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";

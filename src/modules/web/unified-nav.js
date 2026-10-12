@@ -46,7 +46,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   // 찾아가는 곳이라 그 자리가 낫다.
   let groups = [
     { key: "record", label: "적는다", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
-    { key: "review", label: "본다", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["reports", "월 마감", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
+    { key: "review", label: "본다", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["reports", "생활비 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
     { key: "plan", label: "계획한다", icon: "budget", items: [["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
     { key: "settings", label: "설정", icon: "tools", items: [["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
     { key: "ops", label: "운영 관리", icon: "shield", items: [["operation-center", "운영센터", "/operation-center", "tools"], ["release-candidate", "릴리스 후보", "/release-candidate", "check"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "users"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "report"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "shield"], ["ops-traffic", "트래픽", "/ops-traffic", "report"], ["skill-ops", "스킬", "/skill-ops", "sparkle"], ["diagnostics", "시스템 진단", "/diagnostics", "tools"], ["deployment-check", "배포점검", "/deployment-check", "check"], ["ui-polish-check", "화면점검", "/ui-polish-check", "check"], ["final-release", "배포 확인", "/final-release", "check"]] },
@@ -76,7 +76,9 @@ function renderUnifiedNav(active = "home", opts = {}) {
       const classes = [key === activeKey ? "active" : "", adminOnly ? "abNavAdminOnly" : ""].filter(Boolean).join(" ");
       return `<a data-key="${escapeHtml(key)}"${classes ? ` class="${classes}"` : ""} href="${escapeHtml(href)}"${adminOnly ? ' title="관리자 전용"' : ""}${key === activeKey ? ' aria-current="page"' : ""}><i class="abNavItemIcon" data-ab-nav-icon="${escapeHtml(itemIcon)}"></i><span>${escapeHtml(label)}</span>${adminOnly ? '<small class="abNavAdminTag">관리자 전용</small>' : ""}</a>`;
     }).join("");
-    return `<details class="abNavGroup ${g.key === "record" ? "abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
+    // V22.9.40 A1: "월 마감" → "생활비 리포트"로 홈 HTML 이 9 B 늘어 예산(35,840 B, 여유 6 B)을 넘는다. 그만큼을 이 클래스 끝
+    // 공백(그룹 셋)과 아래 하단 탭의 이중 공백(넷), 홈의 두 군데 공백(mobile-home.js)에서 되찾는다. 속성 값과 의미는 같다.
+    return `<details class="abNavGroup${g.key === "record" ? " abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   // V22.8.87 통합 작업지시서 M1. 다섯 칸은 유지하되 가운데를 기록으로 넘긴다.
   // 정산은 다섯 손가락 자리를 차지할 만큼 자주 쓰는 화면이 아니라 통계 화면
@@ -103,7 +105,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
       || (key === "records" && activeKey === "calendar")
       || (key === "stats" && activeKey === "analysis"));
     const cls = [isQuick ? "abNavQuick" : "", on ? "active" : ""].filter(Boolean).join(" ");
-    return `<a data-key="${escapeHtml(key)}"${isQuick ? ' data-ab-quick-open aria-label="빠른 입력"' : ""} class="${cls}" ${on ? `aria-current="page"` : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
+    return `<a data-key="${escapeHtml(key)}"${isQuick ? ' data-ab-quick-open aria-label="빠른 입력"' : ""} class="${cls}"${on ? ' aria-current="page"' : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
   // V22.9.37 감사 H1·U3: 실제로 그린 가계부·월을 표식에 싣는다. 쿠키로 채운 진입(설치 앱 /app, 예산 바로가기)은 주소에
   // household_id 가 없어서 검색·알림·즐겨찾기·목표·활동 레일이 첫 가계부로 갔다. 클라이언트는 이 표식을 먼저 읽는다.

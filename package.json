@@ -5,6 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22 <23" },
   "scripts": {
+    "validate:polish": "node validation/validate-polish-v22940.mjs",
     "validate:public-guides": "node validation/validate-public-guides-v22939.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
