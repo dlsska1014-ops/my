@@ -236,7 +236,7 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 44 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22919.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22940.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22937.css"'), 1, "home loads the current shell stylesheet once");
   ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v2299.js") && externalScripts.includes("/assets/mobile-home-shell-v22934.js") && externalScripts.includes("/assets/accountbook-nav-v22937.js") && externalScripts.includes("/assets/accountbook-v5-v22937.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
@@ -278,7 +278,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22919.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22937.css"];
+  const cssPaths = ["/assets/mobile-home-v22940.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22937.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -294,7 +294,7 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22919.css") {
+    if (path === "/assets/mobile-home-v22940.css") {
       // V22.8.97(M2 블록 3): 최근 7일 스트립의 스타일이 들어왔다. 주소를 v22896 →
       // v22897 로 올리고 고정 해시도 함께 옮긴다.
       // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
@@ -308,7 +308,9 @@ try {
       // V22.9.18: 최근 내역 행 본문이 수정 접기의 summary 가 되면서 그 모양 규칙이
       // 들어왔다. 내용이 바뀌었으니 주소를 v22914 → v22918 로 올리고 해시를 옮긴다.
       // V22.9.19: 영수증 화면을 없애면서 그 규칙이 빠졌다. 주소를 v22918 → v22919 로 올리고 해시를 옮긴다.
-      eq(createHash("sha256").update(bytes).digest("hex"), "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7", "legacy home stylesheet bytes remain pinned");
+      // V22.9.40 A3(감사 U9): 수정 폼 11px 라벨 색과 다크 읽기 전용 지출자 칸 규칙이 바뀌어 주소를 v22919 → v22940 으로
+      // 올리고 해시를 옮긴다. 옛 v22919 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다.
+      eq(createHash("sha256").update(bytes).digest("hex"), "f05fe3470dc0e98680b6c701639c2ae894e6290ef84bd802a00cfb6e98e996dc", "legacy home stylesheet bytes remain pinned");
     }
   }
 

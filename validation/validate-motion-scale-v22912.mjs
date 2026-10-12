@@ -22,7 +22,12 @@ import app from "../src/index.js";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks += 1; };
-const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+const fullSource = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+// V22.9.40 A3: AB_HISTORICAL_RUNTIME_ASSETS 는 옛 주소가 계속 내보내는 바이트를 글자 그대로 보관한다(옛 홈 스타일시트
+// mobile-home-v22919.css 포함). 그 바이트는 바꿀 수 없고 불변 자산 검사가 해시로 고정하므로, 이 눈금 검사는 지금
+// 내려가는 스타일만 본다 — 보관본의 게이지 선언까지 세면 같은 몸짓이 다섯 곳으로 잘못 세어진다.
+const source = fullSource.replace(/const AB_HISTORICAL_RUNTIME_ASSETS = \{[\s\S]*?\n\};\n/, "");
+ok(source.length < fullSource.length && !source.includes("mobile-home-v22919-css"), "옛 주소 보관 자산은 눈금 검사에서 뺀다");
 
 // ---------------------------------------------------------------------------
 // 1) 눈금이 있고, 네 칸이 서로 다른 뜻을 가진다

@@ -12,7 +12,7 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime expos
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22937.css"'), "changed shell uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22937.js"'), "navigation runtime uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22937.js"'), "updated V5 runtime uses the current immutable path");
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22919.css"'), "byte-pinned legacy home stylesheet keeps its path");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22940.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 상단바 버튼은 전역 button{width:100%} 규칙에 늘어나면 안 된다.
 //    V22.8.87(M1)에서 "작업" 버튼이 사라지며 감싸던 묶음(.abNavMobileTopActions)도 없어졌다.

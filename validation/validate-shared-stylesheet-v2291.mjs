@@ -130,7 +130,7 @@ try {
 
   // 홈은 이 개편의 기준점이었다 — 원래도 링크를 쓰고 있었으므로 달라지면 안 된다.
   const home = await get("/app");
-  ok(home.includes("mobile-home-v22919.css"), "홈은 자기 스타일시트를 그대로 쓴다");
+  ok(home.includes("mobile-home-v22940.css"), "홈은 자기 스타일시트를 그대로 쓴다");
   ok(!home.includes(`href="${ASSET}"`), "홈은 공유 스타일시트를 중복으로 받지 않는다");
   ok(inlineCssBytes(home) <= 1024, `홈의 인라인 CSS 가 여전히 1 KiB 이하다 (${inlineCssBytes(home)} B)`);
 
