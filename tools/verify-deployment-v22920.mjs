@@ -33,6 +33,20 @@ async function request(path, method = "GET", requestBase = base) {
     headers: { "user-agent": `MalhaebookReleaseCheck/${version}`, accept: "*/*" },
   });
 }
+// V22.9.40: the ad gate (ADS_MODE) is reported by /ready as ads_mode ("review" | "live"). /ready is read once
+// and shared by the readiness and AdSense checks. A missing field means a release from before the gate, which
+// is review mode. Review: no ad runtime anywhere (as before). Live: the public guides (/ included, it is in
+// AD_PAGE_KEYS) carry exactly one fixed-publisher loader; the login and policy/identity pages carry none.
+const AD_LOADER = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3546469870344416";
+const AD_FREE_PATHS = ["/my", "/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map"];
+let readyResult;
+function readReady() {
+  readyResult ??= request("/ready").then(async (r) => ({ status: r.status, data: await r.json() }));
+  return readyResult;
+}
+function adLoaderCount(html) {
+  return html.split("adsbygoogle.js").length - 1;
+}
 const tasks = [
   ["health", async () => {
     const r = await request("/health");
@@ -42,9 +56,8 @@ const tasks = [
     check(data.missing_count === 0, "health required configuration present");
   }],
   ["ready", async () => {
-    const r = await request("/ready");
-    check(r.status === 200, "ready HTTP 200");
-    const data = await r.json();
+    const { status, data } = await readReady();
+    check(status === 200, "ready HTTP 200");
     check(data.ready === true, "required database readiness");
   }],
   ["manifest", async () => {
@@ -61,7 +74,20 @@ const tasks = [
     check((await r.text()).trim() === "google.com, pub-3546469870344416, DIRECT, f08c47fec0942fa0", "ads.txt matches the connected publisher");
     const html = await (await request("/")).text();
     check(html.includes('<meta name="google-adsense-account" content="ca-pub-3546469870344416"/>'), "public ownership metadata matches the connected publisher");
-    check(!html.includes("adsbygoogle.js"), "ad runtime remains disabled during review");
+    const adsMode = (await readReady()).data?.ads_mode ?? "review";
+    if (adsMode === "live") {
+      check(adLoaderCount(html) === 1 && html.includes(AD_LOADER), "live: / has exactly one fixed-publisher ad loader");
+      const guide = await (await request("/budget-guide")).text();
+      check(adLoaderCount(guide) === 1 && guide.includes(AD_LOADER), "live: /budget-guide has exactly one fixed-publisher ad loader");
+      // Sequential on purpose: the task batches below already keep four requests in flight.
+      for (const path of AD_FREE_PATHS) {
+        const page = await request(path);
+        check(page.status === 200 && adLoaderCount(await page.text()) === 0, `live: ${path} has no ad loader`);
+      }
+    } else {
+      if (adsMode !== "review") check(false, `ready reports ads_mode review or live (got ${JSON.stringify(adsMode)})`);
+      check(!html.includes("adsbygoogle.js"), "ad runtime remains disabled during review");
+    }
   }],
   ["kakao login", async () => {
     const r = await request("/auth/kakao/start");

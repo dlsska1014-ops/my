@@ -129,7 +129,8 @@ eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.st
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {
   ok(!pageKeys.includes(key), `${key} 는 허용 화면 키가 아니다`);
 }
-eq(functionBlockHash("function insightClientMain("), "c2b199d2e5f352475b7893101582bf6072e217335f9d578613b7c85070b4dc8a", "고정 분석 화면 클라이언트는 바뀌지 않았다");
+// V22.9.40 통합: 패키지 A(U10)가 578·687행 aria-label 에 비율을 더해 해시가 c2b199d2…4dc8a 에서 바뀌었다(두 줄을 되돌리면 이전 해시와 같음 — validate-polish-v22940 이 확인). 광고 게이트는 이 클라이언트를 바꾸지 않는다.
+eq(functionBlockHash("function insightClientMain("), "0250d7aad1a8a540ed7e42a1f4c5b901828ef86b061195b738afd2b7bc0427a9", "고정 분석 화면 클라이언트는 광고 게이트가 바꾸지 않았다(A U10 aria-label 반영 해시)");
 eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "고정 분석 화면 렌더러는 바뀌지 않았다");
 for (const path of ["wrangler.toml", "wrangler.json", "wrangler.jsonc", "monitoring/wrangler.jsonc"]) {
   const file = new URL(`../${path}`, import.meta.url);
