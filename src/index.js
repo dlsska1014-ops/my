@@ -22983,7 +22983,9 @@ const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22934.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22937.css";
+// V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록(제목·문단 줄바꿈, 글상자 높이, 창·팝오버 등장, 스크롤 막대 자리,
+// 시트 스크롤 가두기)을 더해 주소를 v22937 → v22940 으로 올렸다.
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22940.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
 /* V22.9.25: scoped enhancements preserve the analysis surface and theme tokens. */
 body.abV22812Shell .homeReports{container-type:inline-size;container-name:home-reports}
@@ -24465,6 +24467,32 @@ body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
 @media(max-width:480px){
   body.abV22812Shell .abV5PageHeader{padding:13px 14px!important}
   body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
+}
+/* ── V22.9.40 (C) 점진적 최신 규칙 ──
+   모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
+   · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려
+     .topLine h1 의 white-space:nowrap(말줄임)을 이긴다.
+   · 창·팝오버 등장은 움직임 줄이기를 켜지 않은 경우에만 움직인다(아래 @media). 켠 경우는 위 전역 규칙도 1ms 로 멈춘다.
+   · 닫힘 전환(display·overlay)은 overlay 를 아는 브라우저에서만 켠다 — 모르면 닫힐 때 맨 위 층에서 먼저 빠져 제자리에 비친다.
+   · 거래 상세 창(.abTxDetail)은 자기 등장 애니메이션이 있어 뺀다. */
+html{scrollbar-gutter:stable}
+body.abV22812Shell :is(h1,h2,h3){text-wrap-style:balance}
+body.abV22812Shell p{text-wrap-style:pretty}
+@supports (field-sizing:content){body.abV22812Shell textarea:is(.share,[readonly]){field-sizing:content;max-height:min(60vh,560px)}}
+body.abV22812Shell :is(.abGlobalDialog,.abV5SearchResults,.abV5NotifList,.abDayDetailBody,.abTransactionRail){overscroll-behavior:contain}
+@media(prefers-reduced-motion:no-preference){
+@supports (transition-behavior:allow-discrete){
+  body.abV22812Shell :is(dialog,[popover]):not(.abTxDetail){transition:opacity var(--ab12-dur) var(--ab12-ease),translate var(--ab12-dur) var(--ab12-ease);transition-behavior:allow-discrete}
+  body.abV22812Shell dialog:not(.abTxDetail)::backdrop{transition:opacity var(--ab12-dur) var(--ab12-ease)}
+  @starting-style{
+    body.abV22812Shell :is(dialog[open],[popover]:popover-open):not(.abTxDetail){opacity:0;translate:0 8px}
+    body.abV22812Shell dialog[open]:not(.abTxDetail)::backdrop{opacity:0}
+  }
+}
+@supports (overlay:auto){
+  body.abV22812Shell :is(dialog,[popover]):not(.abTxDetail){transition-property:opacity,translate,overlay,display}
+  body.abV22812Shell :is(dialog:not([open]),[popover]:not(:popover-open)):not(.abTxDetail){opacity:0;translate:0 8px}
+}
 }
 `;
 
