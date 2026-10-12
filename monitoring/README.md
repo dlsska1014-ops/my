@@ -73,9 +73,10 @@ GitHub 예약은 지연될 수 있으며 24시간 감시 또는 즉시 통보를
 - **실패하면:** 모든 채널이 실패하면 수집 상태 `alerts`가 `delivery_failed`가 되고 기록을 남기지 않아 다음 5분에 다시 시도합니다. 발송 실패는 사용자 응답에 영향이 없습니다.
 - **새 경고(1.1.0):** 앱 Worker 오늘 런타임 오류 3건 이상(주의)·20건 이상(긴급), 요금제 확인 기록 7일 만료(주의, 그동안은 마지막 확인 요금제의 한도로 계속 비교), Cloudflare 분석 토큰 만료 30일 전(주의)·7일 전(긴급)·비활성(긴급).
 - **참고 사항으로 바뀐 것:** 카카오·웹 p95 표본 부족은 낮은 트래픽에서 정상이라 "확인 불가"가 아니라 참고(`notes`)로 보입니다.
+- **발송 실패 원인(1.1.1):** 채널별 원인이 `error_code` 에 `delivery_failed email:E_SENDER_NOT_VERIFIED webhook:http_500` 꼴로 남고, `/ops-monitor` "확인되지 않은 항목"의 "알림 발송: …" 줄과 Workers Logs(`monitor alert email failed: …`)에 그대로 보입니다. 1.1.0 은 `delivery_failed` 만 남겨 원인을 알 수 없었습니다. 이메일 코드는 Cloudflare Email Service 의 오류 코드입니다. `E_SENDER_NOT_VERIFIED`·`E_SENDER_DOMAIN_NOT_AVAILABLE` 는 발신 도메인(`ALERT_FROM` 의 malhaebook.com)이 Email Service(발신)에 등록·인증되지 않은 것, `E_RECIPIENT_NOT_ALLOWED` 는 수신 주소가 바인딩 허용 목록 밖, `E_VALIDATION_ERROR`·`E_FIELD_MISSING` 은 주소 형식(Secret 값의 공백·줄바꿈 포함)입니다.
 
 **설정 순서(사용자 승인 뒤 실행):**
-1. Cloudflare → Email Routing → 대상 주소에 알림을 받을 주소를 추가하고 인증합니다(이미 문의 메일 전달에 쓰는 주소면 그대로).
+1. Cloudflare → Email Routing → 대상 주소에 알림을 받을 주소를 추가하고 인증합니다(이미 문의 메일 전달에 쓰는 주소면 그대로). 발송이 `E_SENDER_NOT_VERIFIED` 로 실패하면 Cloudflare → Email → Email Service(발신)에서 malhaebook.com 을 등록하고 안내된 DNS 레코드(SPF·DKIM)를 추가해 인증합니다.
 2. 수신 주소는 `npx wrangler secret put ALERT_TO --config monitoring/wrangler.jsonc` 로 넣습니다(Email Routing 대상 주소로 인증된 주소여야 함). `monitoring/wrangler.jsonc`에는 `send_email` 바인딩(`ALERT_EMAIL`)이 이미 켜져 있고, 공개 저장소에 개인 주소를 남기지 않도록 `destination_address`를 적지 않습니다(계정에서 인증된 대상 주소로만 보낼 수 있음). `ALERT_TO`는 vars 에 두지 않습니다 — 비어 있는 var 가 배포마다 Secret·대시보드 값을 덮어쓰지 않게 하기 위해서입니다. 예전 설정(빈 `ALERT_TO` var)으로 배포된 상태에서 이름이 겹친다며 거부되면 4번 배포를 먼저 한 뒤 다시 넣습니다. `ALERT_FROM`은 `monitor@malhaebook.com`처럼 이 도메인의 주소입니다.
 3. (선택) `npx wrangler secret put ALERT_WEBHOOK_URL --config monitoring/wrangler.jsonc`.
 4. `npx wrangler deploy --config monitoring/wrangler.jsonc`. 배포 뒤 첫 수집(5분 안)에서 `/ops-monitor` 하단 "알림 발송" 상태가 `수집됨`인지 봅니다. 채널이 없으면 `not_connected`로 남습니다.

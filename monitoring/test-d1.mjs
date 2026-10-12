@@ -141,9 +141,10 @@ try {
   await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+600000));
   eq(mails.length,3,"nothing new means nothing sent");
   uptimeFails=true; webhookFails=true;
-  const failingEnv={...alertEnv,ALERT_EMAIL:{async send(){throw new Error("smtp down");}}};
+  const failingEnv={...alertEnv,ALERT_EMAIL:{async send(){throw Object.assign(new Error("sender domain is not verified"),{code:"E_SENDER_NOT_VERIFIED"});}}};
   await runScheduled(failingEnv,new Date(base.getTime()+8*3600000));
-  eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"delivery_failed","every channel failing is recorded as delivery_failed");
+  const failedCode=String(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code);
+  ok(failedCode.startsWith("delivery_failed")&&failedCode.includes("email:E_SENDER_NOT_VERIFIED")&&failedCode.includes("webhook:"),`every channel failing is recorded as delivery_failed with the per-channel cause (1.1.1): ${failedCode}`);
   eq(sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n,0,"failed delivery leaves no sent record, so the next run retries");
   webhookFails=false;
   await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+300000));

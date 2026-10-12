@@ -49,7 +49,8 @@ async function readBounded(response,max=262144) {
   return new TextDecoder().decode(all);
 }
 async function requestJson(request,max=16384) { return JSON.parse(await readBounded(request,max)); }
-const failureCode = error => /not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|delivery_failed|metrics_unavailable|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
+// 1.1.1: Cloudflare Email Service 는 오류를 `code`(E_SENDER_NOT_VERIFIED 등)로 던진다. 그 코드가 있으면 그대로 쓴다.
+const failureCode = error => (/^E_[A-Z_]+$/.exec(String(error?.code||""))?.[0]) || /E_[A-Z_]+|not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|delivery_failed|metrics_unavailable|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
 
 async function writeCollector(env,name,task,now) {
   const at=now.toISOString();
@@ -62,7 +63,11 @@ async function writeCollector(env,name,task,now) {
       env.MONITOR_DB.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES(?,?,?,?) ON CONFLICT(source,bucket) DO UPDATE SET collected_at=excluded.collected_at,payload=excluded.payload").bind(name,bucket,at,encoded)
     ]);
   } catch(error) {
-    const code=failureCode(error);
+    // 1.1.1: 발송 실패는 채널별 원인(`delivery_failed email:E_SENDER_NOT_VERIFIED webhook:http_500`)을 error_code 에 그대로 남겨
+    // 화면의 "확인되지 않은 항목"에 보이게 하고, 모든 수집 실패를 Workers Logs 에도 적는다(예전에는 코드만 남아 원인을 알 수 없었다).
+    const message=String(error?.message||error).replace(/\s+/g," ").trim();
+    const code=name==="alerts"&&/^delivery_failed\b/.test(message)?message.slice(0,160):failureCode(error);
+    console.error(`monitor collector ${name} failed: ${code}${code===message?"":` — ${message.slice(0,200)}`}`);
     await env.MONITOR_DB.prepare("INSERT INTO collector_state(name,last_attempt_at,status,error_code) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,status=excluded.status,error_code=excluded.error_code").bind(name,at,code==="not_connected"?"not_connected":"error",code).run();
   }
 }
@@ -365,8 +370,9 @@ export async function deliverAlerts(env,now=new Date()) {
   const subject=`[말해가계부 관제] ${due.length?counts:"해소 "+recovered.length}`;
   const text=renderAlertText(result,due,recovered,now,env.APP_ORIGIN||"");
   const delivered=[];const failures=[];
-  if(channels.includes("email")) { try { await sendAlertEmail(env,subject,text,now); delivered.push("email"); } catch(error) { failures.push(`email:${failureCode(error)}`); } }
-  if(channels.includes("webhook")) { try { const response=await fetch(env.ALERT_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:`${subject}\n${text}`}),signal:AbortSignal.timeout(8000)}); if(!response.ok) throw new Error(`http_${response.status}`); delivered.push("webhook"); } catch(error) { failures.push(`webhook:${failureCode(error)}`); } }
+  const channelFailed=(channel,error)=>{ const code=failureCode(error); failures.push(`${channel}:${code}`); console.error(`monitor alert ${channel} failed: ${code} — ${String(error?.message||error).replace(/\s+/g," ").slice(0,200)}`); };
+  if(channels.includes("email")) { try { await sendAlertEmail(env,subject,text,now); delivered.push("email"); } catch(error) { channelFailed("email",error); } }
+  if(channels.includes("webhook")) { try { const response=await fetch(env.ALERT_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:`${subject}\n${text}`}),signal:AbortSignal.timeout(8000)}); if(!response.ok) throw new Error(`http_${response.status}`); delivered.push("webhook"); } catch(error) { channelFailed("webhook",error); } }
   if(!delivered.length) throw new Error(`delivery_failed ${failures.join(" ")}`);
   if(statements.length) await env.MONITOR_DB.batch(statements);
   return {channels,delivered,failures,sent:due.length,recovered:recovered.length,active:active.length,status:result.status,titles:due.map(alert=>alert.title).slice(0,10)};
