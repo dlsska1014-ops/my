@@ -137,7 +137,7 @@ function canonicalRouteRows(month = currentMonthKst(), householdId = "") {
     ["분류 설정", hid ? `/categories?household_id=${encodeURIComponent(hid)}` : "/categories", "카테고리"],
     ["예산 관리", `/budgets?month=${encodeURIComponent(month)}${hh}`, "월 수입 대비 예산"],
     ["무료 스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "예측·반복지출·리포트"],
-    ["자동 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "주간·월간 생성·공유"],
+    ["생활비 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "주간·월간 생성·공유"],
     ["결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "카드/계좌/간편결제"],
     ["정기지출 준비", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "세금/보험 미리 준비"],
     ["백업·복구", `/backup?month=${encodeURIComponent(month)}${hh}`, "백업/복구/되돌리기 통합"],

@@ -32,7 +32,7 @@ const PAGES = [
   ["통계", `/my/analysis?${q}`],
   ["종합 리포트", `/my/analysis?${q}&view=report`],
   ["예산", `/budgets?${q}`],
-  ["월 마감", `/reports?${q}`],
+  ["생활비 리포트", `/reports?${q}`],
   ["연간 리포트", `/annual?year=2026&household_id=house-home`],
   ["스마트 도구", `/smart-tools?${q}`],
   ["예산 알림", `/budget-alerts?${q}`],
