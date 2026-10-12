@@ -9,7 +9,7 @@ const ok = (value, message) => { assert.ok(value, message); checks++; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks++; };
 const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
 // V22.9.40 (D): 생활비 가이드 글은 validate-public-articles-v22940 이 자세히 검사한다. 여기서는 정본 목록에만 더한다.
-const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics"];
+const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading"];
 const allPaths = [...paths, ...articlePaths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
