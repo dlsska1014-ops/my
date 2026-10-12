@@ -142,9 +142,17 @@ try {
   ok(!source.includes("env.ADSENSE_PUBLISHER_ID") && !source.includes("env.GOOGLE_ADSENSE_ACCOUNT"), "legacy publisher environment variables cannot override the review owner");
   ok(!source.includes("ADSENSE_AUTO_ADS"), "review release cannot accidentally enable Auto ads");
   ok(!source.includes("ADSENSE_ENABLED"), "review release has no advertising enable switch");
-  ok(!source.includes("googlesyndication"), "review source contains no Google ad runtime host");
-  ok(!/googleadservices|doubleclick|pagead/i.test(source), "review source contains no alternate advertising runtime host");
-  ok(!AD_COOKIE_PATTERN.test(source), "review source contains no advertising-cookie identifier");
+  // V22.9.40 (B): 승인 뒤 재배포 없이 운영 변수(ADS_MODE=live)로 광고를 켜는 게이트가 생겼다. 광고 로더
+  // 주소·슬롯 마크업·광고 쿠키 고지 문구는 게이트 함수 블록(function adsMode( 부터 adsHeaders 의 끝까지)
+  // 안에만 있고, 그 블록은 live 일 때만 출력한다. 그래서 "소스 전체에 없음"을 "블록 밖에는 없음"으로 바꾼다.
+  // 기본값(review)의 렌더링 결과는 위아래의 렌더 검사가 그대로 지킨다.
+  const adGateStart = source.indexOf("function adsMode(");
+  const adGateEnd = adGateStart < 0 ? -1 : source.indexOf("\n}\n", source.indexOf("function adsHeaders(", adGateStart));
+  ok(adGateStart > 0 && adGateEnd > adGateStart && source.indexOf("function adsMode(", adGateStart + 1) < 0, "V22.9.40 ad gate block (adsMode~adsHeaders) exists exactly once");
+  const outsideAdGate = source.slice(0, adGateStart) + source.slice(adGateEnd + 3);
+  ok(!outsideAdGate.includes("googlesyndication"), "source outside the V22.9.40 ad gate contains no Google ad runtime host");
+  ok(!/googleadservices|doubleclick|pagead/i.test(outsideAdGate), "source outside the V22.9.40 ad gate contains no alternate advertising runtime host");
+  ok(!AD_COOKIE_PATTERN.test(outsideAdGate), "source outside the V22.9.40 ad gate contains no advertising-cookie identifier");
   eq((await request("/ads.txt", { method: "HEAD" })).status, 200, "root ads.txt HEAD route is registered");
   ok(source.includes('"/privacy", "/terms", "/cookies"'), "review policy pages remain in the public content map");
   ok(source.includes("AdSense review mode is ownership-only"), "source documents the ownership-only review boundary");

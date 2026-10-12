@@ -6,6 +6,7 @@
   "engines": { "node": ">=22 <23" },
   "scripts": {
     "validate:public-guides": "node validation/validate-public-guides-v22939.mjs",
+    "validate:ads-gate": "node validation/validate-ads-gate-v22940.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
