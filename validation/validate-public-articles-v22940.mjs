@@ -4,7 +4,7 @@
 // 마지막에 QA 픽스처 env 로도 한 번 더 그려 광고 실행 코드가 없는지 확인한다.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import app, { buildSettlementModel, parseTransaction } from "../src/index.js";
+import app, { buildSettlementModel, parseDirectBudgetSetCommand, parseTransaction } from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
@@ -262,6 +262,9 @@ try {
     eq(parseTransaction(text)[field], expected, `"${text}" is parsed as ${field}=${expected}`);
     ok(pages.get(path).includes(`‘${text}’`), `${path}: quotes the parsed example ‘${text}’`);
   }
+  const budgetCommand = parseDirectBudgetSetCommand("식비 예산 45만원");
+  ok(budgetCommand?.category === "식비" && budgetCommand?.amount === 450000, "‘식비 예산 45만원’ is a budget command, not an expense");
+  ok(pages.get("/budget-ratio-guide").includes("‘식비 예산 45만원’"), "/budget-ratio-guide: quotes the budget command example");
 
   // 10. 글이 말하는 기능이 소스에 그대로 있다. 기능이 바뀌면 이 검사가 글을 다시 보라고 알린다.
   const worker = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
