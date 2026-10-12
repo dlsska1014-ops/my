@@ -17,6 +17,7 @@ const checksumManifest = resolve(
 const validationScripts = [
   ["V22.9.40 화면 다듬기·감사 잔여(U9·U10·H11·D14)", "validation/validate-polish-v22940.mjs"],
   ["V22.9.40 광고 게이트 ADS_MODE(review 바이트 동일·live 허용 화면)", "validation/validate-ads-gate-v22940.mjs"],
+  ["V22.9.40 www 정본 308(CANONICAL_REDIRECT 무관)", "validation/validate-www-canonical-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
   ["생활비 리포트", "validation/validate-living-report-v22938.mjs"],
   ["생활비 리포트 저장·기간 안전성", "validation/validate-living-report-safety-v22938.mjs"],
@@ -214,7 +215,8 @@ function run(command, args, label) {
 // V22.9.38: 생활비 리포트57, 안전성47, 화면·픽스처31과 모듈·직렬화 증가분을 포함해 9,591개가 됐다.
 // V22.9.39: 공개 콘텐츠 검사와 기존 별칭·모듈·직렬화 증가분을 더합니다.
 // V22.9.40: 화면 다듬기·감사 잔여 76, 광고 게이트(ADS_MODE) 1,269 와 기존 검사 증가분(불변 자산 +3, 움직임 눈금 +1, AdSense 게이트 블록 +1)을 더해 12,196개가 됐다(일반·분류 표 부재 모드 같음).
-const EXPECTED_MINIMUM_CHECKS = 12196;
+// V22.9.40 통합 1.5단계: www 정본 308 검사 110 과 관제 알림 설정 단언 1(ALERT_TO Secret·send_email 바인딩 분리)을 더해 12,307개가 됐다.
+const EXPECTED_MINIMUM_CHECKS = 12307;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

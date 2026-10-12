@@ -2,9 +2,9 @@ e2cfdafc8bbfcd753ddc1083d8279484a80630078a33797cf751432f0d1adc31  ./.agents/skil
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 7eb82312c07fb2e537b591369bb654b3620e0d0781e7bf036791c34e1c1803ad  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-612eab12cab5425cf36f6af7724a109e5b393786ac47815159c74d2f1bed5914  ./.codex/scripts/verify-repository.mjs
+e2e6ac135d33c7d03e930ffc6eb3bca66644a58f54af9b98c3ec8f96565ef51f  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
-d764650bdc460ede2673a3253618e941776e7feaa55d1caccbc548b0ce9fd955  ./.github/workflows/monitoring.yml
+97af5a3086d1d42c6cb8adbd3ef41c024bf33b4a5dacd8ceac75fdf195074a86  ./.github/workflows/monitoring.yml
 2116fb38bdf1e30332f2be4d557bdca857dc8b374622d7950861fd0d825bfb90  ./.github/workflows/verify.yml
 688e3598af038122d5939902aefc6d530c4590d04a7f2fd00f79e4392d78a7b2  ./.gitignore
 ef23d1270b14425e794fca19f1bb98459b48e9aa61c27f2279c31cc6c1aa2646  ./00_READ_FIRST_V22_8_74.md
@@ -44,7 +44,7 @@ b484171ad67c52c48c75edbd5cae2e11de955e0078f071105a9d96444b9a7d07  ./10_VERIFY_AF
 95cf55cb5dabc693abfe1f907134473b4f280204aeaf386f44f3330e14bc9ef5  ./10_VERIFY_AFTER_DEPLOY_V22_8_77.ps1
 3ea7d1bc9f173114c8dd5a0fbc923d07ee978ac422b133ff6e7f958e28c91405  ./10_VERIFY_AFTER_DEPLOY_V22_8_78.ps1
 e5c7827d455957de51f3362938b8fca9e9fa9cc09f25b35a2ba542ca4967379e  ./10_VERIFY_AFTER_DEPLOY_V22_8_79.ps1
-6341c6690733408943f1afdf20218750284aaa4a23a2808105b1612153465fd3  ./AGENTS.md
+2be8cf0e09ca544541f9710f906e47031e0e0ac6f98543d231cfd01a56e8f322  ./AGENTS.md
 be324ac6787ba3c5847e7ccb8f1b4759174ba7b0d9a923a4f900cde69724ed79  ./ARTIFACT_MANIFEST_V22_8_74.txt
 51502036c5eb6525da7670d27c9215af897bc7e4ddf0afd85edf6841481829e6  ./ARTIFACT_MANIFEST_V22_8_75.txt
 f81e30563604fd3369238beea1920e849656a71b26236bf8b6bf7d75f0738d3c  ./ARTIFACT_MANIFEST_V22_8_76.txt
@@ -103,7 +103,7 @@ a4a661c14e5208600d3917613858e09e22ddb16ef96c9f3aa52557c9e87db663  ./docs/ASIDE_V
 8d42e31c66556d06243f3f7a04471b4da533ea22b52d9caaab63450c3b83026c  ./docs/ASIDE_V22_9_37.md
 c82dac21d61b79706648cf842628e503a8e1349f636a5cc66b261fdcac96633e  ./docs/ASIDE_V22_9_38.md
 c90b5fa803c78add35cc4597f8d5cf8dfabbd482d7cab0f4ce41db68e1fd4861  ./docs/BACKUP_RECOVERY_RUNBOOK.md
-d996f4c38bca774e48d512e1b7c98eeb31cc59f50b44d8da971c15a44194b5e4  ./docs/MONETIZATION_OPS_PLAN_2026_10.md
+83b882e169a76a939fb5d0fee3a644b0d7622b553864c35f1b2f313f78e783bb  ./docs/MONETIZATION_OPS_PLAN_2026_10.md
 086bbde4d2d6794161d950738c4279fa5cadf12da4be44b21bfc7bdbdaf32852  ./docs/OPS_REMAINING_V22_9_29.md
 a3473b6d21efe8c7ddebba4a040ffc99fb499645751a5e6cde39175292cc23ea  ./docs/codex/AUDIT_BATCH_V22_9_37_A.md
 89af6cf3c4850f5f55e12dea84b1e35a19934f00f333aabd8e46549ecd2d42dd  ./docs/codex/AUDIT_BATCH_V22_9_37_B.md
@@ -114,7 +114,7 @@ a3473b6d21efe8c7ddebba4a040ffc99fb499645751a5e6cde39175292cc23ea  ./docs/codex/A
 6beb2aef54dba08c145efd64b9cf742170409cbdce24cf1cab27ef8153e88cef  ./docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md
 c19bde186806b02ee21eca24966cb4a87c031dabbacd06f566a36ef49f63cfbf  ./docs/codex/V22_9_40_A.md
 2ee231b27e4db7adc80b880867e4b0d1e3ad649fe2430611d2835ce1382cc2df  ./docs/codex/V22_9_40_B.md
-a24ad1f0ae55c0a46e339c8a861f7ef1084c093e8b514582697bda2a080014e5  ./docs/codex/VERIFICATION.md
+f82da1552fed95e7da6d093a963fa85664fa31dc14bec2dcbce5ffa99cd8554c  ./docs/codex/VERIFICATION.md
 853b327a6b00ee80040900f7e5a1041114f10dac737ab3fa38657b7651e9036c  ./docs/deployments/V22_9_35_2026_10_10.md
 f43c557e804c0b0063d4913069708a2be10790b978906e61dfab2378bab8f62c  ./docs/kakao-manual/03_KAKAO_CANONICAL_RULES_AND_CONFLICTS.md
 8ae52dc3dbbef53fbf1391e2b265da86c455b7ec8abba0a512e1963713fa2a58  ./docs/refactor/modularization-v1/HANDOFF_PROMPT.md
@@ -127,7 +127,7 @@ fdc8127e8c25d1d04d9b5820d69c7d3c443581f98f2cbcd5ff9b9f1e6a2aab78  ./docs/refacto
 95f054bee0c65b498819a93fb2bfc9d078f50da4dc8896ea84ae2af179916684  ./docs/ux/UX_PRINCIPLES_BRUNCH_110_PROJECT_MEMORY.md
 42bf26dd98a09dc05dad977944a63cda73abd595b9d3cb1b3618360dde3c5673  ./migrations/01_FIX_RECURRING_MONTH_END_V22_9_29.sql
 25c5e46152945c34d357afba73c5500266407a0976529b2d0905a71c6fec3d43  ./migrations/02_ROLLBACK_RECURRING_MONTH_END_V22_9_29.sql
-af20dd243f81cbb6c6e0a6ccf16391ba39bb3b6a43e7fe363a61a1f8cd6bf697  ./monitoring/README.md
+7f69c47c9de0a6c71c27f66a29a9b860fca4ee9ef4d65e4ad8784ffd2f506a9b  ./monitoring/README.md
 17a819491531ad671479f4a569aeca9a30278829dc74b616c99788008cfd973e  ./monitoring/dashboard.mjs
 8bccef88bbbf00cdc19e3e999ea4305ef3f87f1a329749aab7c02c6fa7ab516c  ./monitoring/external-check.mjs
 6332a1173ba617f668da84e979bf22bfb9d2acdcf3c455544f34bbbfcc084cf4  ./monitoring/external-check.workflow.yml
@@ -135,9 +135,9 @@ a52ed529997922f4a46722357c9e1763b87edd7f676e8a9f2e14a13b19de4a61  ./monitoring/m
 7b1d2295d09aec7b74d8400873f6663d8eede2d97f72d1fb45d1da42a8bebbc2  ./monitoring/schema.sql
 516b23fb34dd7c305b6be24dd3a207c96cf9bbfd8397fabb80202ecb773d3cb8  ./monitoring/test-d1.mjs
 7c3509cc690e9c8e386cb9aca1aea341a854f5376b0c959be0940eab96b20e8f  ./monitoring/worker.mjs
-4c900f1467a5ccff4b8c797c97af9c4ef086849cf5ba490a0a8b994b6663a764  ./monitoring/wrangler.jsonc
-35eb6c44fdbcf827e8c51e45e84a3fd6ccee6f4b5a9f57ce9ed31d1e8755f9fd  ./package.json
-b0968b069d7877b4e300f43386ed2a2ba5390e2f477f39b39f15a5f28d11ab16  ./src/index.js
+a70ac192ae4ec8466fffac75ae7811deb9a8cd8a53ec74c08b85147a005e045e  ./monitoring/wrangler.jsonc
+408ac3f0813bc7c951025e8a0446c05e027066b7a87aa80178a4be975a7b394c  ./package.json
+116aea9b862e72d7f91ce4d1b118e9898f0b2fd23bbbd4d4b48a664fcf8eac81  ./src/index.js
 cfc66caf109ab2f837f30d5f59c2424b12953fb0709f471246d4cb5a6cc26f20  ./src/modules/MANIFEST.txt
 fba3765de9ae58d0a75fe3f4f73205a291d889f5d9ddb309aa6194011edcb57a  ./src/modules/admin/backup-apply.js
 e183962d8ecc2dc224bcea61595e844a0e1abb38d153b77ad17641396257b3b4  ./src/modules/admin/backup-compare.js
@@ -233,7 +233,7 @@ ad3c242ae00d5502444aeaa04442e6e1b4ab287b35285076c363039f1b136295  ./src/modules/
 aaa937c8a2d475747ea7549da55755a7780534a8b4e4fe0b4e28262f466d82a2  ./src/modules/nlu/transaction-parser.js
 7442d77cb57826f5a0d5d1c11e11e5d7e99e509c4d794ad7ec75afd272fb64c3  ./src/modules/public/content-pages.js
 5e721cb7cd826338312b0e6e54d0cb679fa03b6b836e4b83f028bb4a035013db  ./src/modules/public/guide-content.js
-bf4ab198d966d964cc670facb7a9fad8abdd8b349a9fb724f37e9bf9f11163b8  ./src/modules/public/site-config.js
+fc252e13d8cde6a07c3ef339778d48dc1687f421c998a29eb1164fa8b91b1fb4  ./src/modules/public/site-config.js
 7916e6e24bc9191df03015384cadc9d5b2ac98e47e1107dc01d5ad27a91ce1de  ./src/modules/runtime/config-readiness.js
 55549525da4cf845ef2ac01ca600dfa45a410a0a660ec3e3ea145acf8668abcd  ./src/modules/runtime/global-state.js
 1ba34897605d1625e13d59d0e18251cfb712d1e3ee058ebfd68fb668744392ac  ./src/modules/runtime/http.js
@@ -335,7 +335,7 @@ cab47274af71f8300d4ad7c060e3badb6069f4848f6c3dca26c6de44c76926d9  ./validation/v
 18d65e51f3748aafa8222bb37989fb2ca67d74a3b040f8aadd27432ed4883c9b  ./validation/validate-mobile-surface-audit-v22862.mjs
 41a51c791bfcfe2db4994f5be9609a5f72f39c542e6aed79cb9967b41e825287  ./validation/validate-mobile-surface-repair-v22861.mjs
 a75c1d2ae3b6cf983aed04f73fc9390d923bea89d3f557d6d64ec2be91f996f8  ./validation/validate-module-syntax-v22932.mjs
-a9e750933421c3a49f989d03583f4700cc3c9d17192108a51065596481a66531  ./validation/validate-monitor-alerts-v22937.mjs
+6b9134743a3d114599c60445bce203ba885a730bd895e74626fd5b5f30d8e5f9  ./validation/validate-monitor-alerts-v22937.mjs
 d9667299fb961a350b5c43a1e57662316e0e5865a74d3d9a38eaff1661cd1ec6  ./validation/validate-monitoring-v22922.mjs
 9b6e1ab09d79c640da1ba0ff25c9542fc2b41a30d7aca9f188a12f22298faff1  ./validation/validate-month-reset-brand-icon-v22879.mjs
 24d3862a697696cf18e21af0039f7e8775e583dc5df0e9390686f1a7378f6bda  ./validation/validate-motion-scale-v22912.mjs
@@ -389,3 +389,4 @@ cf224a93415b9f3f59547a1758411dca9df8bed93813fbc9f4a5a33d37ff91d1  ./validation/v
 5994e0ad073ad33750fa525690caab5b3627fed7c92a55ecaf165571bcfacb8e  ./validation/validate-version-single-source-v22915.mjs
 6864c6d53f4446ddc937db01727a4bc0599f894cc761e42bce950ddea7e6da10  ./validation/validate-web-manifest-v22864.mjs
 b5f9d868f95a12c66cd01a67ca23919559293d6397f0e7411c75e7b47164c0b9  ./validation/validate-write-integrity-v22934.mjs
+f50c9c1aede3c48681fdaaa26e628a75351af3d84de9792063b4e99f84720ac3  ./validation/validate-www-canonical-v22940.mjs

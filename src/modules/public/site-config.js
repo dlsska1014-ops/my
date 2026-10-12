@@ -133,7 +133,6 @@ function renderSkillGetHealthHtml(env = {}, url = null) {
 function canonicalRedirectResponse(request, env = {}, url = null) {
   try {
     if (!url || String(request?.method || "GET").toUpperCase() !== "GET") return null;
-    if (String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
     if (["/health", "/ops-snapshot.json", "/meme-card-catalog.json"].includes(url.pathname)) return null;
     const targetBase = publicBaseUrl(env, url);
     const currentBase = currentRequestBaseUrl(url);
@@ -141,6 +140,9 @@ function canonicalRedirectResponse(request, env = {}, url = null) {
     const currentHost = new URL(currentBase).host;
     const targetHost = new URL(targetBase).host;
     if (!currentHost || !targetHost || currentHost === targetHost) return null;
+    // V22.9.40: www.<정본 호스트>는 CANONICAL_REDIRECT 설정과 무관하게 정본으로 보낸다. 운영 www 가 같은 문서를 200 으로
+    // 내보내 한 문서가 두 주소로 색인될 수 있었다. 옛 도메인·workers.dev 같은 다른 호스트는 예전처럼 변수가 "1" 일 때만 옮긴다.
+    if (currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
     const next = new URL(url.pathname + url.search + url.hash, targetBase);
     return new Response(null, { status: 308, headers: { location: next.toString(), "cache-control": "no-store" } });
   } catch (err) {

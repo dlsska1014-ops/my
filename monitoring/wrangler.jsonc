@@ -9,9 +9,10 @@
   "triggers": { "crons": ["*/5 * * * *"] },
   "d1_databases": [{ "binding": "MONITOR_DB", "database_name": "malhaebook-monitor", "database_id": "9cb13eee-5c2b-43d8-994e-1316300c9222" }],
   "services": [{ "binding": "ACCOUNTBOOK", "service": "kakao-accountbook" }],
-  // 1.1.0 알림 이메일: Email Routing 에서 수신 주소(ALERT_TO)를 "대상 주소"로 인증한 뒤 아래 주석을 풀고 배포한다.
-  // 발신 주소(ALERT_FROM)는 malhaebook.com 의 주소여야 한다. 인증되지 않은 대상 주소로는 배포가 거부된다.
-  // "send_email": [{ "name": "ALERT_EMAIL", "destination_address": "<ALERT_TO 와 같은 인증된 주소>" }],
+  // 1.1.0 알림 이메일: 수신 주소는 `npx wrangler secret put ALERT_TO --config monitoring/wrangler.jsonc` 로 넣는다(Email Routing 대상 주소로 인증된 주소여야 함).
+  // 공개 저장소에 개인 주소를 남기지 않도록 destination_address 를 적지 않는다. 이 바인딩은 계정에서 인증된 대상 주소로만 보낼 수 있다.
+  // 발신 주소(ALERT_FROM)는 malhaebook.com 의 주소여야 한다.
+  "send_email": [{ "name": "ALERT_EMAIL" }],
   "vars": {
     "APP_ORIGIN": "https://malhaebook.com",
     "CF_ACCOUNT_ID": "58e7954ad3d92f0d39a7492ad4689165",
@@ -22,8 +23,8 @@
     "CF_PLAN": "free",
     "SUPABASE_PLAN": "free",
     "PLAN_VERIFIED_AT": "2026-10-10T00:00:00.000Z",
-    // 1.1.0 알림: 이메일(send_email 바인딩 + ALERT_TO) 또는 웹훅(Secret ALERT_WEBHOOK_URL, Slack/Discord 호환 {"text":…}) 가운데 하나 이상.
-    "ALERT_FROM": "monitor@malhaebook.com",
-    "ALERT_TO": ""
+    // 1.1.0 알림: 이메일(send_email 바인딩 ALERT_EMAIL + Secret ALERT_TO) 또는 웹훅(Secret ALERT_WEBHOOK_URL, Slack/Discord 호환 {"text":…}) 가운데 하나 이상.
+    // ALERT_TO 는 vars 에 두지 않는다. 비어 있는 var 가 배포마다 Secret·대시보드 값을 덮어쓰지 않게 하기 위해서다.
+    "ALERT_FROM": "monitor@malhaebook.com"
   }
 }

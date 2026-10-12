@@ -1,3 +1,11 @@
+## V22.9.40 검증 방법
+
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_40.sha256`의 392개 경로이며 V22.9.39의 386개 경로를 모두 보존하고 새 파일 6개(검사기 3개·패키지 기록 2개·직전 manifest)를 더합니다. 일반·분류 표 부재 모드 각각 12,307개, Node.js v22.23.1 SQLite 84개가 통과했습니다(통합 1.5단계 실측). `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.
+
+`npm run validate:polish`는 화면 다듬기·감사 잔여(U9·U10·H11·D14), `npm run validate:ads-gate`는 광고 게이트(기본 review 바이트 동일·live 허용 화면만 광고), `npm run validate:www-canonical`은 www → 정본 308(CANONICAL_REDIRECT 무관)을 확인합니다.
+
+아래 이전 버전의 수치는 해당 시점 기록입니다.
+
 ## V22.9.39 검증 방법
 
 현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_39.sha256`의 386개 경로이며 V22.9.38의 380개 경로를 모두 보존하고 새 파일 6개를 더합니다. 일반·분류 표 부재 모드 각각 10,846개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행하고 실제 개수를 `VERIFICATION_V22_9_39.md`에 기록합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.
