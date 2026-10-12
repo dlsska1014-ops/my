@@ -15,8 +15,8 @@ ok(!/\.abSkipLink\{[^}]*(display:none|visibility:hidden)/.test(source), "the ski
 ok(/body\.abV22812Shell \.abSkipLink\{[^}]*position:fixed/.test(source), "the skip link is taken out of the layout flow");
 ok(/\.abSkipLink:focus[^{]*\{[^}]*top:12px/.test(source), "the skip link comes into view when focused");
 ok(/\.abSkipLink\{[^}]*min-height:44px/.test(source), "the skip link meets the 44px target size");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22937.css"'), "the shell stylesheet moved to a new immutable address");
-ok(source.includes('"accountbook-shell-v22937-css"'), "the shell stylesheet ships a matching ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22940.css"'), "the shell stylesheet moved to a new immutable address");
+ok(source.includes('"accountbook-shell-v22940-css"'), "the shell stylesheet ships a matching ETag");
 
 const ORIGIN = "https://malhaebook.com";
 const q = "month=2026-08&household_id=house-home";
@@ -32,7 +32,7 @@ const PAGES = [
   ["통계", `/my/analysis?${q}`],
   ["종합 리포트", `/my/analysis?${q}&view=report`],
   ["예산", `/budgets?${q}`],
-  ["월 마감", `/reports?${q}`],
+  ["생활비 리포트", `/reports?${q}`],
   ["연간 리포트", `/annual?year=2026&household_id=house-home`],
   ["스마트 도구", `/smart-tools?${q}`],
   ["예산 알림", `/budget-alerts?${q}`],

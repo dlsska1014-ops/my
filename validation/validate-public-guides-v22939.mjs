@@ -8,6 +8,9 @@ let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks++; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks++; };
 const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
+// V22.9.40 (D): 생활비 가이드 글은 validate-public-articles-v22940 이 자세히 검사한다. 여기서는 정본 목록에만 더한다.
+const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
+const allPaths = [...paths, ...articlePaths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;
@@ -49,7 +52,7 @@ try {
     for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
       if (href.startsWith("#")) ok(html.includes(`id="${href.slice(1)}"`), `${path}: anchor ${href} exists`);
       else if (href.startsWith("/assets/") || href === "/manifest.json") assets.add(href);
-      else if (href.startsWith("/")) ok(paths.includes(href) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+      else if (href.startsWith("/")) ok(allPaths.includes(href) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
     }
     for (const [, src] of html.matchAll(/src="(\/assets\/[^\"]+)"/g)) assets.add(src);
   }
@@ -76,12 +79,15 @@ try {
   const sitemapResponse = await get("/sitemap.xml");
   const xml = await sitemapResponse.text();
   const locations = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-  eq(new Set(locations).size, paths.length, "sitemap contains each public canonical once");
-  for (const path of paths) {
+  eq(new Set(locations).size, allPaths.length, "sitemap contains each public canonical once");
+  for (const path of allPaths) {
     ok(locations.includes(`${origin}${path}`), `${path}: discoverable in XML sitemap`);
     if (path !== "/site-map") ok(pages.get("/site-map").includes(`href="${path}"`), `${path}: discoverable in visible sitemap`);
   }
-  eq([...xml.matchAll(/<lastmod>2026-10-11<\/lastmod>/g)].length, paths.length, "sitemap tracks this content revision instead of stale July date");
+  // V22.9.40 (D): 고친 페이지는 수정일이 2026-10-11 뒤로 간다. 정확한 날짜 대조는 페이지별 검사(구조화 데이터·표시 날짜)가 맡는다.
+  const lastmods = [...xml.matchAll(/<lastmod>(\d{4}-\d{2}-\d{2})<\/lastmod>/g)].map((m) => m[1]);
+  eq(lastmods.length, allPaths.length, "every sitemap entry carries a modification date");
+  ok(lastmods.every((date) => date >= "2026-10-11"), "sitemap tracks this content revision instead of stale July date");
   for (const path of ["/robots.txt", "/sitemap.xml", "/sitemap.xsl", "/ads.txt"]) {
     const head = await get(path, "HEAD");
     eq(head.status, 200, `${path}: document HEAD supported`);

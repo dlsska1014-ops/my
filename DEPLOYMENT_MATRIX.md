@@ -1,3 +1,21 @@
+## V22.9.40 적용 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | 검증한 전체 `src/index.js`를 `tools/deploy-worker-version.mjs`로 업로드·대조하고 별도 승인 후 승격합니다. 현재 미배포입니다. 내보내기 목록은 V22.9.39와 같아 `named_handlers` 대조가 바뀌지 않습니다. |
+| SQL·스키마·RPC | 변경이 필요하지 않습니다. |
+| 새 변수(선택) | `ADS_MODE`·`ADS_SLOT_CONTENT`는 지금 만들지 않습니다(없음 = review). AdSense 승인 뒤 대시보드에서 Text 변수로 저장하고 Deploy 합니다. wrangler 설정 파일에는 넣지 않습니다. |
+| 기존 환경변수·Secrets(앱) | 변경이 필요하지 않습니다. `CANONICAL_REDIRECT` 없이도 www는 정본으로 308 합니다. |
+| 불변 자산 | 새 주소 3개: `accountbook-shell-v22940.css`, `mobile-home-v22940.css`, `speculation-rules-v22940.json`. 옛 `accountbook-shell-v22937.css`는 은퇴(404), 옛 `mobile-home-v22919.css`는 옛 바이트를 그대로 냅니다. 그 밖의 자산 바이트는 같습니다. |
+| 응답 머리 | 셸을 쓰는 HTML 200 응답에 `Link` preload, 홈에 `Speculation-Rules`, `/ready`에 `ads_mode`가 더해집니다. 공개 화면·API·`/skill`은 그대로입니다. |
+| 관제 Worker | 1.1.0 설정을 다시 배포합니다: `send_email` 바인딩 `ALERT_EMAIL`(대상 주소 미기재)과 Secret `ALERT_TO`(Email Routing 인증 주소). 사용자가 직접 실행합니다. |
+| GitHub | `.github/workflows/monitoring.yml`의 30분 예약 외부 검사가 main 병합 뒤부터 돕니다(2026-10-12 사용자 승인). |
+| Cloudflare 설정(선택) | Speed → Early Hints를 켜면 `Link` 머리로 103을 먼저 보냅니다(무료 요금제 가능). |
+| Kakao Developers·OpenBuilder·도메인 | 변경이 필요하지 않습니다. |
+| 되돌리기 | 운영 현재값 V22.9.39: Cloudflare 버전 `40159ed0-8c35-4840-bb9f-964e5ccde87e`, 배포 `d11c0e79-69b2-4542-9546-5a4895258b49`, 소스 SHA-256 `d97e3a60bb881546aacf8953a091152ff16b77cfd5c173452fecb2348cd4a7e5`. 승인 후 `node tools/deploy-worker-version.mjs --rollback 40159ed0-8c35-4840-bb9f-964e5ccde87e`. |
+
+검증은 `VERIFICATION_V22_9_40.md`, 운영 적용 순서는 `docs/ASIDE_V22_9_40.md`에 있습니다.
+
 ## V22.9.39 적용 판단
 
 | 항목 | 판단 |
@@ -19,7 +37,7 @@
 | 새 자산 | `accountbook-controls-v22938.css`, `accountbook-controls-v22938.js`가 추가됩니다. 기존 버전 자산은 동일 바이트로 유지합니다. |
 | SQL·스키마·환경변수·Secrets | 변경하지 않습니다. |
 | 관제·Kakao Developers·OpenBuilder | 이번 버전에서 배포나 외부 설정을 변경하지 않습니다. |
-| GitHub 검증 | Ubuntu·Windows 각각 일반 및 분류 테이블 부재 모드로 검증합니다. 외부 접속 검사는 계속 수동 실행만 준비합니다. |
+| GitHub 검증 | Ubuntu·Windows 각각 일반 및 분류 테이블 부재 모드로 검증합니다. 외부 접속 검사는 계속 수동 실행만 준비합니다(V22.9.40에서 2026-10-12 사용자 승인으로 30분 예약을 켰습니다). |
 
 PR #68 병합 커밋은 `67d38a3`입니다. PR CI 38040911361과 main CI 38041040170은 성공했습니다. 이 기록은 운영 배포 증거가 아닙니다.
 
@@ -378,7 +396,7 @@ OpenBuilder URL과 봇 이름은 반영했고, 비즈니스 채널 이름은 카
 | immutable 자산 | `accountbook-shell-v22937.css`, `accountbook-nav-v22937.js`, `accountbook-v5-v22937.js`, `accountbook-goals-v22937.js`, `accountbook-favrows-v22937.js`, `accountbook-search-v22937.js`, `accountbook-notif-v22937.js`가 새로 생깁니다. 이전 JS 주소는 이전 바이트로 계속 내려갑니다. |
 | 관제 Worker | 1.1.0 을 `npx wrangler deploy --config monitoring/wrangler.jsonc`로 별도 배포합니다(사용자 승인). 알림 이메일은 Email Routing 대상 주소 인증 + `send_email` 바인딩 + `ALERT_TO`, 웹훅은 Secret `ALERT_WEBHOOK_URL`. 둘 다 없어도 배포는 됩니다. |
 | 설정과 외부 콘솔 | 앱의 Secrets·환경변수·바인딩·Cron·도메인·요금제·Kakao Developers·OpenBuilder 를 바꾸지 않습니다. 관제 Worker 의 `CF_PLAN`·`ALERT_FROM`·`ALERT_TO` 변수와 observability 켜기는 `wrangler.jsonc`에 있습니다. |
-| GitHub | `.github/workflows/monitoring.yml`은 수동 실행만 준비합니다. 30분 예약 검사 활성화는 별도 운영 승인 뒤 템플릿을 적용합니다. |
+| GitHub | `.github/workflows/monitoring.yml`은 수동 실행만 준비합니다. 30분 예약 검사 활성화는 별도 운영 승인 뒤 템플릿을 적용합니다(V22.9.40에서 2026-10-12 사용자 승인으로 30분 예약을 켰습니다). |
 | 운영 확인 | `docs/ASIDE_V22_9_37.md` 4절(카카오 K1~K7, 웹 W1~W9, 관제). V22.9.35 S1~S4 가 아직이면 먼저 합니다. |
 | 롤백 | `node tools/deploy-worker-version.mjs --rollback 4f9da854-c185-40f0-8d0f-7bac9a3c9dc4`(V22.9.35) 또는 V22.9.36 을 배포했었다면 그 버전 ID. 되돌리면 카카오 새 기록 저장이 다시 실패합니다(V22.9.35). |
 

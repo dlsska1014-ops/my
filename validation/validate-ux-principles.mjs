@@ -178,7 +178,8 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime repor
 // read-only note and a "예산 설정 →" link so that editing budgets happens only on
 // /budgets. The table itself and renderBudgetGaugeRows stay untouched.
 // V22.9.34 감사 SIM-10·SIM-12: 분류별 집계 맵을 원형 없는 객체(Object.create(null))로 바꿔 기준이 갱신됐다.
-eq(functionBlockHash("function insightClientMain("), "c2b199d2e5f352475b7893101582bf6072e217335f9d578613b7c85070b4dc8a", "analysis client matches the V22.8.75 role-split baseline");
+// V22.9.40 U10: 578·687행 aria-label 에 비율 추가, 그 외 변경 없음 (두 줄을 되돌리면 이전 해시 c2b199d2…4dc8a 와 같다).
+eq(functionBlockHash("function insightClientMain("), "0250d7aad1a8a540ed7e42a1f4c5b901828ef86b061195b738afd2b7bc0427a9", "analysis client matches the V22.8.75 role-split baseline");
 // V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
 // 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을
 // 확인했다). `.meme` 의 #f59e0b 은 히어로가 아니라 그대로 둔다.

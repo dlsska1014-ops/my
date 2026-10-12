@@ -235,7 +235,13 @@ const AB_WEB_MANIFEST = {
 const AB_WEB_MANIFEST_JSON = JSON.stringify(AB_WEB_MANIFEST);
 const AB_MANIFEST_PATH = "/manifest.json";
 const AB_MANIFEST_LINK = `<link rel="manifest" href="${AB_MANIFEST_PATH}"/>`;
-const AB_SPECULATION_RULES_TAG = "<script type=\"speculationrules\">{\"prerender\":[{\"where\":{\"and\":[{\"href_matches\":\"/*\"},{\"not\":{\"href_matches\":[\"/assets/*\",\"/admin/*\",\"/backup/*\",\"/cron/*\",\"/logout*\",\"/my/logout*\",\"/api/*\",\"/kakao/*\"]}}]},\"eagerness\":\"conservative\"}]}</script>";
+// V22.9.40 (C4): 규칙은 한 곳에서 만든다. HTML 인라인 태그와 응답 머리(Speculation-Rules)가 가리키는 파일이 같은
+// JSON 바이트다(인라인 태그 바이트는 V22.9.7 그대로). 홈처럼 바이트 예산이 빠듯한 화면은 같은 규칙을 HTML 대신
+// 머리로 받는다 — 브라우저는 그 파일을 speculationrules 목적지(cors·같은 출처)로 받아 같은 규칙으로 쓴다(Chrome 121+,
+// 문서 규칙 where·href_matches 를 아는 판과 같다). 1년 캐시 파일이라 규칙이 바뀌면 판을 올린다.
+const AB_SPECULATION_RULES_JSON = JSON.stringify({ prerender: [{ where: { and: [{ href_matches: "/*" }, { not: { href_matches: ["/assets/*", "/admin/*", "/backup/*", "/cron/*", "/logout*", "/my/logout*", "/api/*", "/kakao/*"] } }] }, eagerness: "conservative" }] });
+const AB_SPECULATION_RULES_TAG = `<script type="speculationrules">${AB_SPECULATION_RULES_JSON}</script>`;
+const AB_SPECULATION_RULES_PATH = "/assets/speculation-rules-v22940.json";
 
 const AB_ICON_ROUTES = new Map([
   ["/favicon.ico", { kind: "ico", size: 32 }],
@@ -250,6 +256,18 @@ async function appIconAssetResponse(request, url) {
   if (!request || !url) return null;
   const method = String(request.method || "GET").toUpperCase();
   if (!["GET", "HEAD"].includes(method)) return null;
+  if (url.pathname === AB_SPECULATION_RULES_PATH) {
+    return new Response(method === "HEAD" ? null : AB_SPECULATION_RULES_JSON, {
+      status: 200,
+      headers: {
+        "content-type": "application/speculationrules+json",
+        "cache-control": "public, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+        "cross-origin-resource-policy": "same-origin",
+        etag: '"ab-speculation-rules-v22940-json"',
+      },
+    });
+  }
   const route = AB_ICON_ROUTES.get(String(url.pathname || ""));
   if (!route) return null;
   const body = route.kind === "ico"
@@ -274,5 +292,7 @@ async function appIconAssetResponse(request, url) {
   });
 }
 // @build:exports-start
-export { AB_MANIFEST_LINK, AB_SPECULATION_RULES_TAG, appIconAssetResponse };
+export {
+  AB_MANIFEST_LINK, AB_SPECULATION_RULES_PATH, AB_SPECULATION_RULES_TAG, appIconAssetResponse,
+};
 // @build:exports-end

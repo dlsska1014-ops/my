@@ -175,7 +175,7 @@ const FINAL_FEATURE_MATRIX = [
   { group: "숨김 기능", name: "카드 실적·예상 혜택", status: "미완성숨김", route: "-", detail: "조건 데이터와 계산 정확도 검증 완료 전 메뉴·직접 URL 숨김" },
   { group: "카드혜택", name: "결제수단 연결 안내", status: "신규포함", route: "/payment-methods", detail: "기존 payment_method 기준 카드/계좌/간편결제 흐름 확인" },
   { group: "스마트 도구", name: "예측·반복지출·이상지출", status: "운영포함", route: "/smart-tools", detail: "월말 예측·반복지출·이상지출·절약 후보를 무료 제공" },
-  { group: "요약/리포트", name: "주간·월간 자동 리포트", status: "운영포함", route: "/reports", detail: "자동 생성 설정과 복사·공유·인쇄/PDF 저장" },
+  { group: "요약/리포트", name: "주간·월간 생활비 리포트", status: "운영포함", route: "/reports", detail: "자동 생성 설정과 복사·공유·인쇄/PDF 저장" },
   { group: "백업/복구", name: "백업센터", status: "운영포함", route: "/backup", detail: "JSON/CSV 백업" },
   { group: "백업/복구", name: "백업 미리보기", status: "운영포함", route: "/backup/preview", detail: "DB 저장 없는 구조 검증" },
   { group: "백업/복구", name: "백업 비교", status: "운영포함", route: "/backup/compare", detail: "중복/충돌/신규 후보 분석" },

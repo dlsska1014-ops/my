@@ -74,7 +74,7 @@ try {
 
   // 모든 사용자 화면이 매니페스트를 정확히 한 번만 참조해야 한다.
   const q = "month=2026-07&household_id=house-home";
-  for (const [name, path] of [["홈", `/app?${q}`], ["전체 메뉴", `/menu?${q}`], ["통계", `/my/analysis?${q}`], ["예산", `/budgets?${q}`], ["월 마감", `/reports?${q}`]]) {
+  for (const [name, path] of [["홈", `/app?${q}`], ["전체 메뉴", `/menu?${q}`], ["통계", `/my/analysis?${q}`], ["예산", `/budgets?${q}`], ["생활비 리포트", `/reports?${q}`]]) {
     const page = await app.fetch(new Request(`https://malhaebook.com${path}`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
     const html = await page.text();
     eq(page.status, 200, `${name} 화면이 200으로 응답한다`);

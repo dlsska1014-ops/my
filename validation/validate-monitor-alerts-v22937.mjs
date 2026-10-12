@@ -26,11 +26,15 @@ const source = read("src/index.js");
   ok(/metrics_unavailable\|http_\\d\+/.test(worker), "DB 수집 실패의 실제 원인 코드가 살아남는다");
   ok(read("monitoring/model.mjs").includes('MONITOR_VERSION = "1.1.0"'), "관제 판은 1.1.0 이다");
   const wrangler = read("monitoring/wrangler.jsonc");
-  ok(wrangler.includes('"CF_PLAN": "free"') && wrangler.includes('"ALERT_TO"') && wrangler.includes('"ALERT_FROM"'), "관제 설정에 요금제·알림 변수가 있다");
+  // V22.9.40: 수신 주소 ALERT_TO 는 Secret 으로 넣는다. 비어 있는 var 가 배포마다 Secret·대시보드 값을 덮어쓰지 않게 vars 에서 뺐고,
+  // 알림 이메일 바인딩은 켜되 공개 저장소에 개인 주소가 남지 않도록 destination_address 를 적지 않는다.
+  ok(wrangler.includes('"CF_PLAN": "free"') && wrangler.includes('"ALERT_FROM"') && !/^\s*"ALERT_TO"\s*:/m.test(wrangler) && wrangler.includes("npx wrangler secret put ALERT_TO --config monitoring/wrangler.jsonc"), "관제 설정에 요금제·발신 변수가 있고 수신 주소 ALERT_TO 는 vars 가 아니라 Secret 으로 넣는다");
+  ok(/^  "send_email": \[\{ "name": "ALERT_EMAIL" \}\],$/m.test(wrangler) && !/"destination_address"\s*:/.test(wrangler), "알림 이메일 바인딩 ALERT_EMAIL 이 켜져 있고 개인 수신 주소(destination_address)를 적지 않는다");
   ok(wrangler.includes('"observability": { "enabled": true }'), "관제 Worker 의 Workers Logs 를 켠다");
-  ok(existsSync(new URL("../.github/workflows/monitoring.yml", import.meta.url)), "외부 접속 검사 워크플로가 수동 실행용으로 준비돼 있다");
+  ok(existsSync(new URL("../.github/workflows/monitoring.yml", import.meta.url)), "외부 접속 검사 워크플로가 있다");
   const workflow = read(".github/workflows/monitoring.yml");
-  ok(/^  workflow_dispatch:/m.test(workflow) && !/^\s+(?:schedule|cron):/m.test(workflow) && workflow.includes("node monitoring/external-check.mjs"), "외부 검사는 수동 실행만 허용하며 운영 승인 전 예약 실행을 활성화하지 않는다");
+  // V22.9.40: 2026-10-12 사용자 승인으로 30분 예약을 다시 켰다(PR #68 리뷰 커밋 5876a24 가 승인 전이라며 뺐던 것).
+  ok(/^  workflow_dispatch:/m.test(workflow) && /^  schedule:\n    - cron: "\*\/30 \* \* \* \*"$/m.test(workflow) && (workflow.match(/^\s+- cron:/gm) || []).length === 1 && workflow.includes("node monitoring/external-check.mjs"), "외부 검사는 수동 실행과 30분 예약 하나로 돈다(2026-10-12 사용자 승인)");
   ok(read("monitoring/README.md").includes("## 알림 발송 (1.1.0)"), "README 가 알림 발송 설정 순서를 적는다");
   const dashboard = read("monitoring/dashboard.mjs");
   ok(dashboard.includes("alerts:'알림 발송'") && dashboard.includes("d.notes"), "화면이 알림 발송 상태와 참고 사항을 보여 준다");

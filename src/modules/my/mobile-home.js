@@ -6,8 +6,8 @@ import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { isValidTransactionDateString } from "../admin/transactions-households.js";
 import { reserveDashboard } from "../settings/reserve-plans.js";
 import {
-  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
-  fetchPostgrestRows, memberNameMap, renderSpenderOptions,
+  attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchFormerSpenderMembers,
+  fetchHouseholdMembers, fetchPostgrestRows, memberNameMap, renderSpenderOptions,
 } from "../data/households-members-rows.js";
 import { getSettingValue } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -85,7 +85,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "" }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
@@ -116,7 +116,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const currentPath = `${baseAppPath}${feedMode !== "10" ? `&feed=${encodeURIComponent(feedMode)}` : ""}`;
   const feedSource = Array.isArray(filteredRows) ? filteredRows : rows;
   const feedLimit = feedMode === "all" ? feedSource.length : feedMode === "30" ? 30 : 10;
-  const feedRows = feedSource.slice(0, feedLimit).map((row) => ({ ...row, __spenderMembers: members, __canEditSpender: appIsManager }));
+  // V22.9.40 A4(감사 H11): 지출자 이름은 나간 참여자(사용자 행 이름)까지 담은 spenderMembers 로 찾는다. 선택지·인원은 members 그대로.
+  const feedRows = feedSource.slice(0, feedLimit).map((row) => ({ ...row, __spenderMembers: spenderMembers, __canEditSpender: appIsManager }));
   const todayStr = formatDate(nowKstDate());
   const todaySpend = rows.filter((r) => r.type !== "income" && String(r.transaction_date || "") === todayStr).reduce((a, r) => a + Number(r.amount || 0), 0);
   const isCurrentMonth = todayStr.slice(0, 7) === month;
@@ -231,7 +232,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const usageBar = Math.max(0, Math.min(100, usageRate));
   const usageState = usageRate > 100 ? "isOver" : usageRate >= 85 ? "isWarn" : "";
   const incomeUsageHtml = usageIncome > 0
-    ? `<div class="homeUsage ${usageState}"><span><b>수입 대비 사용</b><em>${numberWithCommas(usageRate)}%</em></span><div class="abNavBudgetTrack" role="progressbar" aria-label="수입 대비 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${usageBar}"><i style="width:${usageBar}%"></i></div><small><b>${numberWithCommas(usageExpense)}원</b> / ${numberWithCommas(usageIncome)}원</small></div>`
+    ? `<div class="homeUsage${usageState ? ` ${usageState}` : ""}"><span><b>수입 대비 사용</b><em>${numberWithCommas(usageRate)}%</em></span><div class="abNavBudgetTrack" role="progressbar" aria-label="수입 대비 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${usageBar}"><i style="width:${usageBar}%"></i></div><small><b>${numberWithCommas(usageExpense)}원</b> / ${numberWithCommas(usageIncome)}원</small></div>`
     : `<div class="homeUsage isEmpty"><span><b>수입 대비 사용</b></span><small>수입을 입력하면 사용률이 표시돼요</small></div>`;
 
   // ── 정기 수입·지출 진입 요약 (P1-A) ──────────────────────────────────
@@ -262,7 +263,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const txTotalPages = Math.max(1, Math.ceil(txAll.length / txPageSize));
   const txCurrentPage = Math.min(Math.max(1, Number(txPage) || 1), txTotalPages);
   const txStart = (txCurrentPage - 1) * txPageSize;
-  const txRows = txAll.slice(txStart, txStart + txPageSize).map((row) => ({ ...row, __spenderMembers: members, __canEditSpender: appIsManager }));
+  const txRows = txAll.slice(txStart, txStart + txPageSize).map((row) => ({ ...row, __spenderMembers: spenderMembers, __canEditSpender: appIsManager }));
   const txPagePath = (page) => {
     const params = new URLSearchParams(appParams);
     params.set("tab", "transactions");
@@ -281,7 +282,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? `<nav class="txPager" aria-label="거래내역 페이지">${txCurrentPage > 1 ? `<a href="${escapeHtml(txPagePath(txCurrentPage - 1))}">‹ 이전</a>` : `<span aria-disabled="true">‹ 이전</span>`}<b>${txCurrentPage} / ${txTotalPages}</b>${txCurrentPage < txTotalPages ? `<a href="${escapeHtml(txPagePath(txCurrentPage + 1))}">다음 ›</a>` : `<span aria-disabled="true">다음 ›</span>`}</nav>`
     : "";
 
-  const mobileFilterForm = `<form class="mobileFilterForm" method="get" action="/app"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${homeView === "calendar" ? `<input type="hidden" name="view" value="calendar"/>` : ""}<input name="q" value="${escapeHtml(filterQ)}" placeholder="내용 검색: 커피, 병원, 카드"/><div class="filterQuick"><select name="type"><option value="all"${filterType === "all" ? " selected" : ""}>수입·지출 전체</option><option value="expense"${filterType === "expense" ? " selected" : ""}>지출만</option><option value="income"${filterType === "income" ? " selected" : ""}>수입만</option></select><select name="quality"><option value="all"${filterQuality === "all" ? " selected" : ""}>정리상태 전체</option><option value="missing_any"${filterQuality === "missing_any" ? " selected" : ""}>정리 필요</option><option value="missing_category"${filterQuality === "missing_category" ? " selected" : ""}>미분류</option><option value="missing_payment"${filterQuality === "missing_payment" ? " selected" : ""}>결제수단 미입력</option></select></div><details class="filterAdvanced" ${filterDate || filterCategory || filterPayment ? "open" : ""}><summary>날짜·분류·결제수단 상세 필터</summary><div class="filterAdvancedGrid"><input type="date" name="date" value="${escapeHtml(filterDate)}"/><input name="category" list="categoryList" value="${escapeHtml(filterCategory)}" placeholder="분류"/><input name="payment_method" list="paymentList" value="${escapeHtml(filterPayment)}" placeholder="결제수단"/></div></details><div class="filterQuick"><button type="submit">검색 적용</button><a href="${escapeHtml(resetAppPath)}#feed">필터 초기화</a></div></form>`;
+  const mobileFilterForm = `<form class="mobileFilterForm" method="get" action="/app"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${homeView === "calendar" ? `<input type="hidden" name="view" value="calendar"/>` : ""}<input name="q" value="${escapeHtml(filterQ)}" placeholder="내용 검색: 커피, 병원, 카드"/><div class="filterQuick"><select name="type"><option value="all"${filterType === "all" ? " selected" : ""}>수입·지출 전체</option><option value="expense"${filterType === "expense" ? " selected" : ""}>지출만</option><option value="income"${filterType === "income" ? " selected" : ""}>수입만</option></select><select name="quality"><option value="all"${filterQuality === "all" ? " selected" : ""}>정리상태 전체</option><option value="missing_any"${filterQuality === "missing_any" ? " selected" : ""}>정리 필요</option><option value="missing_category"${filterQuality === "missing_category" ? " selected" : ""}>미분류</option><option value="missing_payment"${filterQuality === "missing_payment" ? " selected" : ""}>결제수단 미입력</option></select></div><details class="filterAdvanced"${filterDate || filterCategory || filterPayment ? " open" : ""}><summary>날짜·분류·결제수단 상세 필터</summary><div class="filterAdvancedGrid"><input type="date" name="date" value="${escapeHtml(filterDate)}"/><input name="category" list="categoryList" value="${escapeHtml(filterCategory)}" placeholder="분류"/><input name="payment_method" list="paymentList" value="${escapeHtml(filterPayment)}" placeholder="결제수단"/></div></details><div class="filterQuick"><button type="submit">검색 적용</button><a href="${escapeHtml(resetAppPath)}#feed">필터 초기화</a></div></form>`;
 
   // 필터를 걸어도 거래내역 탭에 남아 있어야 한다(tab hidden). 분류 select 도 얹는다.
   // V22.9.34 2차 점검 B10: select 와 직접 입력이 같은 이름(category)이면 직접 입력이 무시됐다. 거래내역 탭의
@@ -317,7 +318,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ["미분류", { quality: "missing_category" }, filterQuality === "missing_category"],
     ["결제수단 미입력", { quality: "missing_payment" }, filterQuality === "missing_payment"],
   ].map(([label, patch, on]) => `<a class="txChip${on ? " isOn" : ""}" href="${escapeHtml(txChipPath(patch))}"${on ? ` aria-current="true"` : ""}>${escapeHtml(label)}</a>`).join("")}</nav>`;
-  const txViewHtml = `<section class="txTabHead" data-count="${txAll.length}" data-income="${txSums.income}" data-expense="${txSums.expense}"><div><h2>거래내역</h2><p>${numberWithCommas(txAll.length)}건${hasMobileFilter ? " · 필터 적용" : ""} · 수입 ${numberWithCommas(txSums.income)}원 · 지출 ${numberWithCommas(txSums.expense)}원</p></div><a class="txTabHome" href="${escapeHtml(resetAppPath)}">홈으로</a></section>${txChipBar}<section class="txTabFilter"><details class="txFilterMore"${hasMobileFilter ? " open" : ""}><summary>날짜 · 분류 · 결제수단 · 검색어로 좁히기</summary>${txFilterForm}<input id="v8Search" placeholder="이 페이지에서 빠른 검색"/></details></section><section class="txTabList">${txRows.length ? `<div id="v8Feed">${renderV8TxDayGroups(txRows, `${currentPath}&tab=transactions`, appCanEditRow)}</div>` : `<div class="empty">조건에 맞는 기록이 없습니다. 필터를 지우면 전체가 보입니다.</div>`}${txPager}</section>`;
+  const txViewHtml = `<section class="txTabHead" data-count="${txAll.length}" data-income="${txSums.income}" data-expense="${txSums.expense}"><div><h2>거래내역</h2><p>${numberWithCommas(txAll.length)}건${hasMobileFilter ? " · 필터 적용" : ""} · 수입 ${numberWithCommas(txSums.income)}원 · 지출 ${numberWithCommas(txSums.expense)}원</p></div><a class="txTabHome" href="${escapeHtml(resetAppPath)}">홈으로</a></section>${txChipBar}<section class="txTabFilter"><details class="txFilterMore"${hasMobileFilter ? " open" : ""}><summary>날짜 · 분류 · 결제수단 · 검색어로 좁히기</summary>${txFilterForm}<input id="v8Search" placeholder="이 페이지에서 빠른 검색"/></details></section><section class="txTabList">${txRows.length ? `<div id="v8Feed">${renderV8TxDayGroups(txRows, `${currentPath}&tab=transactions`, appCanEditRow, [], false, txAll)}</div>` : `<div class="empty">조건에 맞는 기록이 없습니다. 필터를 지우면 전체가 보입니다.</div>`}${txPager}</section>`;
   const hidden = `<input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/>`;
   const today = formatDate(nowKstDate());
   const quickInputDate = filterDate || today;
@@ -408,7 +409,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const reserveInfo = reserveDashboard(reservePlans || []);
   const topCatsForHome = stats.categories.filter((c) => c.expense > 0).slice(0, 4);
   const topCatTotal = Number(stats.totals.expense || 0) || 1;
-  const mobileMemberNames = memberNameMap(members);
+  const mobileMemberNames = memberNameMap(spenderMembers);
   const homeTimeline = rows.slice(0, 6).map((r) => {
     const isIncome = r.type === "income";
     const icon = categoryInitial(r.category, r.type);
@@ -617,7 +618,13 @@ async function handleMobileV8Page(request, env, url) {
   const todayKey = formatDate(nowKstDate());
   const prevStats = calculateStats(month === todayKey.slice(0, 7) ? safeArray(prevAmountRows).filter((row) => String(row.transaction_date || "").slice(8, 10) <= todayKey.slice(8, 10)) : prevAmountRows);
   const budget = budgetSummary(rows, budgets);
-  const reportChallenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue });
+  // V22.9.40 A4(감사 H11): 나간 참여자의 기록은 참여 행이 지워져 "이전 참여자"로 보였다. /u/api/* 와 같은 조회로 명단에 없는
+  // 지출자가 있을 때만 사용자 행 이름을 한 번에 읽는다(없으면 추가 조회 0, 실패하면 예전 문구). 챌린지 조회와 함께 기다려 깊이를 덜 늘린다.
+  const [reportChallenge, formerSpenders] = await Promise.all([
+    buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue }),
+    fetchFormerSpenderMembers(env, rawMonthlyRows, members),
+  ]);
+  const spenderMembers = formerSpenders.length ? [...members, ...formerSpenders] : members;
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, rows.map((r) => r.category).filter(Boolean));
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, [...paymentAssetRows.map((p) => p.name).filter(Boolean), ...rows.map((r) => r.payment_method).filter(Boolean)]);
   const msg = url.searchParams.get("msg") || "";
@@ -641,7 +648,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers })));
 }
 // @build:exports-start
 export { handleMobileV8Page, lastNonEmptyParam, renderMobileV81Html };

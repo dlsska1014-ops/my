@@ -57,7 +57,7 @@
 ### 2-3. "광고 켜기" 판 설계 (AdSense 승인 뒤 바로 배포할 수 있게 지금 준비)
 
 1. 새 변수 하나(`ADS_MODE=review|live`, 기본 `review`)로 게이트. 운영 변수는 승인 뒤 대시보드에서 바꿉니다(코드 재배포 없음).
-2. `live` 에서만: 공개 14쪽 + 로그인 뒤 **콘텐츠 화면**(`/reports`, `/my/analysis`, `/annual`, 가이드 류)에 광고 슬롯 1~2개, CSP 에 `pagead2.googlesyndication.com` 등 허용, 쿠키 정책 문구 갱신.
+2. `live` 에서만: 공개 가이드(정책·신원 6쪽 제외) + 로그인 뒤 **콘텐츠 화면**(`/reports`·`/annual`·`/smart-tools`·`/start-guide`·`/keyword-guide`)에 광고 슬롯 1~2개, CSP 에 `pagead2.googlesyndication.com` 등 허용, 쿠키 정책 문구 갱신. `/my/analysis` 는 고정 분석 화면 보호로 제외합니다(V22.9.40 패키지 B 구현 기준; 화면별 자리와 CSP 판단은 `docs/codex/V22_9_40_B.md`).
 3. 다음 화면은 **광고 금지**: `/app` 홈·빠른 입력·거래 목록, 모든 폼, 로그인·가입, 관리자·운영 화면. 버튼 44px 안에 광고 금지(오클릭 방지).
 4. 검사: `validate-adsense-v2-v22817`를 "review 모드 = 기존 단언 전부, live 모드 = 슬롯은 허용 화면에만·금지 화면에는 없음·CSP"로 확장.
 5. 승인 뒤 첫 2주는 자동광고(Auto ads) 끄고 수동 슬롯만. 자동광고는 입력 화면까지 침범합니다.

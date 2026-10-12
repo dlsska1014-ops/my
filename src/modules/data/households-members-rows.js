@@ -324,20 +324,26 @@ function attachSpenderNames(rows = [], members = []) {
 
 // V22.9.37 감사 H11: 가계부에서 나가면 참여 행은 지워지지만(RPC) 사용자 행과 기록은 남는다. 참여 명단에 없는 지출자는
 // 사용자 행의 이름을 한 번에 읽어 기록 당시 이름으로 보여 주고, 그것도 없을 때만 "이전 구성원"이다.
-async function attachSpenderNamesWithHistory(env, rows = [], members = []) {
+// V22.9.40 A4: 홈 피드도 같은 조회를 쓰도록 조회 부분을 나눴다. 명단에 없는 지출자가 없으면 DB 를 부르지 않고 빈 목록,
+// 조회에 실패해도 빈 목록이다(부르는 쪽은 예전 문구로 그린다). 돌려주는 줄(role "left")은 이름 맵에만 쓰고 지출자 선택지에는 넣지 않는다.
+async function fetchFormerSpenderMembers(env, rows = [], members = []) {
   const known = memberNameMap(members);
   const missing = [...new Set(safeArray(rows).map((t) => String(t?.user_id || "").trim()).filter((id) => id && !known[id]))];
-  if (!missing.length) return attachSpenderNames(rows, members);
+  if (!missing.length) return [];
   let users = [];
   try {
     users = await fetchRowsByPlainIds(env, "users", missing, "id,nickname");
   } catch (_) {
     users = [];
   }
-  const former = safeArray(users)
+  return safeArray(users)
     .filter((user) => user?.id && String(user.nickname || "").trim())
     .map((user) => ({ user_id: String(user.id), nickname: String(user.nickname).trim(), role: "left" }));
-  return attachSpenderNames(rows, [...safeArray(members), ...former]);
+}
+
+async function attachSpenderNamesWithHistory(env, rows = [], members = []) {
+  const former = await fetchFormerSpenderMembers(env, rows, members);
+  return attachSpenderNames(rows, former.length ? [...safeArray(members), ...former] : members);
 }
 
 function renderSpenderOptions(members = [], selected = "", blankLabel = "지출자 미지정") {
@@ -402,9 +408,10 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
 export {
   attachSpenderNames, attachSpenderNamesWithHistory, bestRoleFromRows, countHouseholdTransactions,
   fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange, fetchAnalysisRowsRange,
-  fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
-  fetchRowsByPlainIds, getScopedHouseholdsForPage, isRowLimitExceededError, memberAliasSettingsKey,
-  memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist, renderSpenderOptions, roleRank,
-  saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
+  fetchFormerSpenderMembers, fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap,
+  fetchPostgrestRows, fetchRowsByPlainIds, getScopedHouseholdsForPage, isRowLimitExceededError,
+  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist,
+  renderSpenderOptions, roleRank, saveMemberAlias, selectRequestedScopedHousehold,
+  supabaseExactCount,
 };
 // @build:exports-end

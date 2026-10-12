@@ -1,3 +1,12 @@
+## V22.9.40 이후
+
+1. PR CI를 확인하고 별도 승인 뒤 Worker를 적용합니다. 배포 뒤 확인 목록은 `RELEASE-CHECKLIST.md`의 V22.9.40 절에 있습니다.
+2. AdSense 승인 뒤: 개인정보 보호 및 메시지에서 EEA·영국·스위스 동의 메시지를 켠 다음 `ADS_MODE=live`(선택 `ADS_SLOT_CONTENT`)로 바꿉니다. 자동 광고는 처음 몇 주 끄거나 vignette·anchor 형식을 끕니다. 절차는 `docs/ASIDE_V22_9_40.md` 8에 있습니다.
+3. 셸 CSS 정리: C5 측정의 "확인 필요" 갈래(`abNavQuickInput:before`, 옛 `.abPageCalendar .hero`, `homeDesktopNav`)를 상호작용 측정 뒤 소스 검색으로 확인해 지웁니다. 지우는 판에도 셸 주소를 올립니다.
+4. D14 데스크톱 활동 레일: `docs/codex/V22_9_40_A.md`의 설계안대로 다음 V5 번들 변경과 묶습니다.
+5. 엄격한 CSP: 인라인 처리기(내비 토글·인쇄)를 리스너로 옮긴 뒤 nonce·strict-dynamic을 `Content-Security-Policy-Report-Only`로 먼저 시험합니다.
+6. 실기기: iOS Safari·Android의 월 선택기, VoiceOver·TalkBack, 카카오 인앱 브라우저를 확인합니다.
+
 ## V22.9.39 이후
 
 공개 콘텐츠 개선의 전체 검증과 독립 검토를 완료한 뒤, 별도 승인된 Git 게시 및 Worker 적용을 진행합니다. 운영의 18개 정본 문서·별칭·체험·검색 파일을 확인한 후 AdSense 재검토를 요청합니다. 자세한 순서는 `docs/ADSENSE_REMEDIATION_V22_9_39.md`를 따릅니다. SQL·환경변수·Kakao·OpenBuilder 변경은 필요하지 않습니다.
