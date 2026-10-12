@@ -26252,7 +26252,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22937-css"'
+        ? '"accountbook-shell-v22940-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v2299-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
