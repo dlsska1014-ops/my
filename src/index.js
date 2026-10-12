@@ -18884,7 +18884,7 @@ function insightClientMain() {
           state.shown = 80;
           renderAll();
         });
-        row.setAttribute("aria-label", s.name + " " + won(s.amt) + ", 누르면 이 분류만 필터");
+        row.setAttribute("aria-label", s.name + " " + Math.round(s.amt / total * 100) + "% " + won(s.amt) + ", 누르면 이 분류만 필터");
       } else { row.style.cursor = "default"; }
       legend.appendChild(row);
     });
@@ -18993,7 +18993,7 @@ function insightClientMain() {
           state.shown = 80;
           renderAll();
         });
-        row.setAttribute("aria-label", it.name + " " + won(it.amt) + ", 누르면 필터 적용");
+        row.setAttribute("aria-label", it.name + " " + won(it.amt) + " " + share.textContent + ", 누르면 필터 적용");
       } else { row.style.cursor = "default"; }
       wrap.appendChild(row);
     });
