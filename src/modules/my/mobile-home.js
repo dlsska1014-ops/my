@@ -20,7 +20,7 @@ import {
   renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
 } from "./analysis-page.js";
 import {
-  canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  MEMBER_POLICY_RECORD_ONLY, canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
 import { activeSpenderExists, memberCanBeSpender } from "./transactions.js";
 import {
@@ -85,13 +85,14 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
-  const appCanEditRow = (r) => appIsManager || (appCanWrite && sessionUserId && String(r.user_id || "") === String(sessionUserId));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록에도 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
+  const appCanEditRow = (r) => appIsManager || (appCanWrite && memberCanChangeRecords && sessionUserId && String(r.user_id || "") === String(sessionUserId));
   const householdId = selectedHousehold?.id || "";
   const filterType = mobileFilters.type === "income" ? "income" : mobileFilters.type === "expense" ? "expense" : "all";
   const filterQ = String(mobileFilters.q || "").trim();
@@ -576,7 +577,7 @@ async function handleMobileV8Page(request, env, url) {
   const canLoadWriteOptions = !!selectedHousehold && (adminOk || canWriteMyHousehold(String(selectedHousehold.role || "")));
   const includeReserve = !!selectedHousehold && month === currentMonthKst();
   const homeSettingsPromise = selectedHousehold
-    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions })
+    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions, includeMemberPolicy: !adminOk && String(selectedHousehold?.role || "").toLowerCase() === "member" })
     : Promise.resolve({ aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} });
   // V22.8.94 (8.4): 홈 구성은 (가계부·사용자)별 설정 한 줄이다. 읽지 못해도 홈은
   // 기본 순서로 그려야 하므로 실패를 삼킨다 — 설정 조회가 홈을 막을 이유는 없다.
@@ -648,7 +649,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY })));
 }
 // @build:exports-start
 export { handleMobileV8Page, lastNonEmptyParam, renderMobileV81Html };

@@ -7,7 +7,7 @@ import {
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
-import { canWriteMyHousehold } from "../my/access-control.js";
+import { canWriteMyHousehold, memberRecordChangeError } from "../my/access-control.js";
 import { budgetCenterSummary, budgetStatusLabel, budgetSummary } from "../domain/budgets.js";
 import { ACCOUNTBOOK_GOALS_JS_ASSET_PATH } from "../assets/asset-registry.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
@@ -194,12 +194,18 @@ async function handleGoalsPage(request, env, url) {
   const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
   if (!selected) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const canWrite = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  const writeRole = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 목표도 읽기만 한다(공동 설정). 구성원일 때만 권한을 읽는다.
+  const policyError = scoped.scope === "admin" || !writeRole ? "" : await memberRecordChangeError(env, selected.role, selected.id);
+  const canWrite = writeRole && !policyError;
   let html = renderGoalsHtml({ env, households, selected, month, canWrite });
   if (!canWrite) {
+    const why = policyError === "member_record_only" ? "소유자가 구성원 권한을 ‘기록만’으로 정해 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다."
+      : policyError ? "구성원 권한을 확인하지 못해 지금은 목표를 바꿀 수 없습니다. 잠시 후 다시 열어 주세요."
+        : "조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.";
     html = html.replace(
       '<section class="card"><h2>목표 추가</h2>',
-      '<section class="card"><h2>읽기 전용</h2><p class="muted">조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.</p></section><section class="card" hidden><h2>목표 추가</h2>',
+      `<section class="card"><h2>읽기 전용</h2><p class="muted">${why}</p></section><section class="card" hidden><h2>목표 추가</h2>`,
     );
   }
   return htmlResponse(html);

@@ -17,6 +17,18 @@ function isJoinCancelCommand(text = "") {
   return /^(?:가계부\s*)?(?:참여|가입|참여\s*요청|참여\s*신청|승인\s*대기|승인\s*요청)\s*(?:취소|철회)(?:해줘|해\s*주세요|할래|하기)?$/.test(normalizeText(text));
 }
 
+// V22.9.43: 소유자가 구성원 권한을 보고 정하는 말. "구성원 권한"은 보기, "구성원 권한 기록만"·"구성원 권한 기록 수정"은 바꾸기.
+// 금액이 없는 짧은 고정 문장만 받는다. 알아듣지 못한 뒷말은 바꾸지 않고 보기로 돌린다.
+function parseKakaoMemberPolicyCommand(text = "") {
+  const m = normalizeText(text).trim().match(/^(?:구성원|참여자|멤버)\s*권한(?:\s*(?:설정|변경|보기|확인))?(?:\s+(.+))?$/);
+  if (!m) return null;
+  const rest = String(m[1] || "").replace(/[\s·.,!~]+/g, "");
+  if (!rest) return { show: true };
+  if (/^(?:기록만|기록전용|기록만허용|기록만가능)(?:으로|로)?(?:해줘|해주세요|바꿔줘|변경)?$/.test(rest)) return { mode: "record_only" };
+  if (/^(?:기록수정|기록과수정|기록및수정|수정허용|수정가능|수정까지|수정까지허용|기록수정허용|기록수정가능)(?:으로|로)?(?:해줘|해주세요|바꿔줘|변경)?$/.test(rest)) return { mode: "record_edit" };
+  return { show: true, unknown: true };
+}
+
 function isHelpCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
 }
@@ -118,6 +130,6 @@ export {
   isGroupLinkInfoCommand, isHelpCommand, isInputExampleCommand, isInviteCommand,
   isJoinCancelCommand, isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand,
   isRecentCommand, isReserveGuideCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
-  kakaoSettlementText, parseGroupBindCommand, parseJoinCode,
+  kakaoSettlementText, parseGroupBindCommand, parseJoinCode, parseKakaoMemberPolicyCommand,
 };
 // @build:exports-end

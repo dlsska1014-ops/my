@@ -1,3 +1,15 @@
+## V22.9.43
+
+SQL·스키마·RPC·RLS·GRANT·인덱스 변경은 없습니다.
+
+- 구성원 권한은 기존 `accountbook_settings`에 `household_member_policy_v22943:<가계부 ID>` 한 줄로 저장합니다. 가계부를 삭제하면 Worker가 이 줄을 지웁니다.
+- 단톡방 자동 참여는 기존 `household_members`에 `member` 행을 넣거나 `pending`을 `member`로 바꿉니다.
+- `household_members.role` 허용값(V22.8.46)은 바꾸지 않았습니다.
+
+## V22.9.41
+
+SQL·스키마·RPC·RLS·GRANT·인덱스 변경은 없습니다. 관리자 로그인 복귀와 옛 관리자 화면 내비 스타일은 데이터베이스를 바꾸지 않습니다.
+
 ## V22.9.40
 
 SQL·스키마·RPC·RLS·GRANT·인덱스 변경은 없습니다. 광고 게이트·생활비 가이드 글·www 정본·관제 알림 채널은 데이터베이스를 바꾸지 않습니다.

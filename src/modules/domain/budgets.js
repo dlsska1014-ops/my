@@ -8,6 +8,7 @@ import { safeArray } from "../admin/backup-compare.js";
 import { isIncomeBudgetCategory } from "../my/groups-budget-bulk.js";
 import { reportChallengeSettingsKey } from "../my/report-challenge.js";
 import { parseJsonSetting } from "../my/reports-premium.js";
+import { homeMemberPolicyValue, memberPolicySettingsKey } from "../my/access-control.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
@@ -80,6 +81,8 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   const keys = [memberAliasSettingsKey(householdId), reportChallengeSettingsKey(householdId)];
   if (options.includeReserve) keys.push(reservePlansKey(householdId));
   if (options.includePayment) keys.push(paymentAssetsKey(householdId));
+  // V22.9.43: 구성원 세션이면 구성원 권한(기록만/기록·수정)도 같은 질의로 읽는다(추가 조회 없음). 화면 단추에만 쓴다.
+  if (options.includeMemberPolicy) keys.push(memberPolicySettingsKey(householdId));
   const params = new URLSearchParams();
   params.set("key", `in.(${[...new Set(keys)].join(",")})`);
   params.set("select", "key,value");
@@ -91,6 +94,7 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
     reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
+    memberPolicy: options.includeMemberPolicy ? homeMemberPolicyValue(values.get(memberPolicySettingsKey(householdId))) : "",
   };
 }
 

@@ -105,7 +105,7 @@ import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth
 import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
 } from "../auth/kakao-oauth.js";
-import { handleMyMembersPage } from "../my/members-page.js";
+import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
 import { handleRecurringCronApply, runRecurringAutoApply } from "../cron/recurring-auto-apply.js";
 import { handleMyBudgetBulkSave, handleMyGroupsPage } from "../my/groups-budget-bulk.js";
@@ -197,7 +197,7 @@ const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
     const monitoring = abMonitorRequestContext(request, env);
-    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
+    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
     const routed = rememberedHouseholdRequest(request);
     try {
       const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
@@ -346,6 +346,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/household/leave" && request.method === "POST") {
         return await handleMyHouseholdLeave(request, env);
+      }
+
+      // V22.9.43: 소유자가 정하는 구성원 권한(기록만/기록·수정).
+      if (url.pathname === "/my/member-policy/save" && request.method === "POST") {
+        return await handleMyMemberPolicySave(request, env);
       }
 
       if (url.pathname === "/my/transactions" && request.method === "POST") {

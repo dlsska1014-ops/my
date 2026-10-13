@@ -24,7 +24,9 @@ import { verifyUserSession } from "../auth/user-session.js";
 import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
-import { canWriteMyHousehold } from "../my/access-control.js";
+import {
+  canWriteMyHousehold, memberRecordChangeError, memberRecordChangeMessage,
+} from "../my/access-control.js";
 import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
 import { purgeHouseholdData } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
@@ -307,6 +309,11 @@ async function handleAdminDeleteTransaction(request, env) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
     return redirectResponse(signedOutWriteRedirect(form));
   }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
+  }
   const validationError = validateRecordFormFields({ id, mode: "delete" });
   if (validationError) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
@@ -354,6 +361,17 @@ async function handleTransactionEditPage(request, env, url) {
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
   }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 수정 폼을 주지 않는다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) {
+      const message = memberRecordChangeMessage(policyError);
+      if (wantsFragment) return new Response(`<p class="v8-editError">${escapeHtml(message)}</p>`, { status: 403, headers: { ...HTML_HEADERS } });
+      const target = new URL(backTo, "https://accountbook.local");
+      target.searchParams.set("err", policyError);
+      return redirectResponse(`${target.pathname}${target.search}`);
+    }
+  }
 
   // 권한 판정용 조회(fetchTransactionRowById)는 id·가계부·지출자 세 칸만 가져온다. 운영 DB 는 요청한 칸만
   // 돌려주므로 그 행으로 폼을 그리면 금액·날짜·분류가 빈 폼이 되고, 그대로 저장하면 기록을 덮어쓴다.
@@ -395,6 +413,11 @@ async function handleAdminUpdateTransaction(request, env) {
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 수정할 권한이 없습니다." }), { err: "이 기록을 수정할 권한이 없습니다." }));
     return redirectResponse(signedOutWriteRedirect(form));
+  }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
   }
   const typeValues = form.getAll("type").map((v) => String(v || "").trim()).filter(Boolean);
   // V22.9.34 감사 SIM-1: 같은 폼에 서로 다른 type 이 함께 오면(필터 hidden 칸 등) 어느 쪽도 고르지 않고 저장하지 않는다.

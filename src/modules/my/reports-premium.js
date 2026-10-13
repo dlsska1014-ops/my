@@ -26,7 +26,8 @@ import { renderUnifiedNav } from "../web/unified-nav.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { getMyPageContext, renderReportMonthNavigator, reportUxCss } from "./report-challenge.js";
 import {
-  canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold,
+  MEMBER_POLICY_RECORD_ONLY, canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold,
+  memberPolicySettingsKey, memberRecordChangeError, parseMemberPolicyValue,
 } from "./access-control.js";
 import { fetchRecurring, fetchRecurringStrict } from "../domain/budgets.js";
 import {
@@ -489,7 +490,7 @@ async function handleFreeReportsPage(request, env, url) {
   const range = LIVING_REPORT_RANGES.has(String(url.searchParams.get("range") || "")) ? String(url.searchParams.get("range")) : "month";
   const week = isValidTransactionDateString(String(url.searchParams.get("week") || "")) ? String(url.searchParams.get("week")) : "";
   const currentWeek = isoWeekPeriod(nowKstDate());
-  const keys = { preference: freeReportPreferenceKey(hid), weekly: freeReportSnapshotKey(hid, "weekly", currentWeek), monthly: freeReportSnapshotKey(hid, "monthly", month), assets: paymentAssetsKey(hid), targets: cardTargetsKey(hid), reserve: reservePlansKey(hid) };
+  const keys = { preference: freeReportPreferenceKey(hid), weekly: freeReportSnapshotKey(hid, "weekly", currentWeek), monthly: freeReportSnapshotKey(hid, "monthly", month), assets: paymentAssetsKey(hid), targets: cardTargetsKey(hid), reserve: reservePlansKey(hid), policy: memberPolicySettingsKey(hid) };
   // 지난달·지지난달까지 한 번에 읽는다(비교 기준·정기 지출 후보·주간 창이 달을 넘는 경우). 설정 여섯 개는 한 질의로 받는다.
   const period = livingReportPeriod({ range, month, week, today: formatDate(nowKstDate()) });
   const historyStart = [`${addMonthsYm(month, -2)}-01`, period.prevStart, period.start].sort()[0];
@@ -507,6 +508,12 @@ async function handleFreeReportsPage(request, env, url) {
   try {
     if (settingsResult) { preference = parseReportPreferenceStrict(values.get(keys.preference)); targets = parseCardTargetsStrict(values.get(keys.targets)); }
   } catch { settingsUnavailable = true; }
+  // V22.9.43: 구성원 권한(기록만)은 같은 설정 질의로 읽는다. 구성원만 보며, 읽지 못하면 카드 실적 목표 폼을 숨긴다.
+  let memberCanChangeSettings = true;
+  if (String(ctx.selected.role || "").toLowerCase() === "member") {
+    try { memberCanChangeSettings = !!settingsResult && parseMemberPolicyValue(values.get(keys.policy)) !== MEMBER_POLICY_RECORD_ONLY; }
+    catch { memberCanChangeSettings = false; }
+  }
   const live = buildFreeReportSnapshot(ctx.rows, { householdId: hid, householdName: ctx.selected.name || "가계부", kind: "monthly", period: month });
   const weeklySnapshot = parseJsonSetting(values.get(keys.weekly), null);
   const monthlySnapshot = parseJsonSetting(values.get(keys.monthly), null);
@@ -515,7 +522,7 @@ async function handleFreeReportsPage(request, env, url) {
   const report = buildLivingReport({ month, range, week, historyRows, recurring: recurringResult.rows, assets, targets, reservePlans, historyAvailable: !historyLimited, recurringAvailable: recurringResult.available, settingsAvailable: !settingsUnavailable, today: formatDate(nowKstDate()) });
   // V22.9.40 (B): 광고는 그 기간 기록을 읽어 낸 리포트에만 둔다. 기록이 없거나 기간을 읽지 못한 화면은 광고 키를 받지 않는다.
   const adKey = report.currentAvailable && report.count > 0 ? "/reports" : "";
-  return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
+  return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, memberCanChangeSettings, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
 }
 
 async function handleCardTargetSave(request, env) {
@@ -530,6 +537,9 @@ async function handleCardTargetSave(request, env) {
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
   if (!canWriteMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=card_target_write_not_allowed#cards`);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 공동 설정인 카드 실적 목표를 바꾸지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(`${returnTo}&err=${policyError}#cards`);
   const assetId = String(form.get("asset_id") || "").trim().slice(0, 80);
   const rawTarget = String(form.get("target") || "").trim();
   const target = rawTarget === "" ? 0 : parseStrictAmount(rawTarget, { allowCommas: true });
@@ -584,7 +594,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const segment = `<div class="lrSeg noPrint" role="group" aria-label="리포트 기간 단위"><a href="${escapeHtml(hrefMonth)}"${range === "month" ? ' aria-current="true"' : ""}>월간</a><a href="${escapeHtml(hrefWeek)}"${range === "week" ? ' aria-current="true"' : ""}>주간</a></div>`;
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
   const flash = { card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }[msg];
-  const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
+  const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
   const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
   const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
   const daily = !report.currentAvailable ? `<section class="card" id="daily"><h2>날짜별 지출</h2><p>선택한 주의 날짜별 기록을 모두 불러온 뒤 표시합니다.</p></section>` : `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
@@ -611,10 +621,10 @@ function livingReportCopyMain() {
   });
 }
 
-function renderFreeReportsHtml({ env, month, selected, report, range = "month", week = "", live = {}, preference = {}, weeklySnapshot = null, monthlySnapshot = null, historyLimited = false, settingsUnavailable = false, adKey = "", msg = "", err = "" }) {
+function renderFreeReportsHtml({ env, month, selected, report, range = "month", week = "", live = {}, preference = {}, weeklySnapshot = null, monthlySnapshot = null, historyLimited = false, settingsUnavailable = false, memberCanChangeSettings = true, adKey = "", msg = "", err = "" }) {
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}`;
   const canManage = canManageMyHousehold(selected.role);
-  const canWrite = canWriteMyHousehold(selected.role) && !settingsUnavailable;
+  const canWrite = canWriteMyHousehold(selected.role) && !settingsUnavailable && memberCanChangeSettings !== false;
   const share = livingReportShareText(report, selected.name || "가계부");
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
   const parts = renderLivingReportSections({ report, selected, month, range, week, canWrite, msg, err });

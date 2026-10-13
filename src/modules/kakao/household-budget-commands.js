@@ -11,6 +11,9 @@ import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
 import { upsertMyBudgetRow, withBudgetPlanLease } from "../my/groups-budget-bulk.js";
 import { shiftMonthString } from "../my/analysis-page.js";
+import {
+  fetchHouseholdMemberPolicy, memberPolicyDescription, memberPolicyLabel, saveHouseholdMemberPolicy,
+} from "../my/access-control.js";
 import { fetchBudgets, optionalSupabase } from "../domain/budgets.js";
 import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
 import { normalizeHouseholdNameText } from "./intent-nlu.js";
@@ -20,7 +23,7 @@ import {
   isExplicitKakaoTopLevelCommandV2254, isKakaoFlowCancelCommand, isUnsafeKakaoNameInputV2254,
   kakaoStartQuickReplies, saveKakaoFlowState,
 } from "./guided-flow-state.js";
-import { bindKakaoGroupByInviteCode } from "./group-links-first-record.js";
+import { bindKakaoGroupByInviteCode, kakaoRoomBindDoneText } from "./group-links-first-record.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
 import {
@@ -118,7 +121,7 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
     if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
     if (action === "bind") {
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, chosen.invite_code || "");
-      if (result.ok) return { text: `✅ 단톡방 연결 완료\n가계부: ${chosen.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.`, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+      if (result.ok) return { text: await kakaoRoomBindDoneText(env, chosen), quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
       return { text: "단톡방 연결을 완료하지 못했어요. 초대코드를 확인해 주세요.", quickReplies: [["연결 방법", "단톡방 연결"]] };
     }
   }
@@ -190,8 +193,8 @@ function guidedHelpText(hasHousehold = false) {
     "📒 말해가계부 시작하기",
     "",
     "1. 새 가계부를 만들거나 초대코드로 참여합니다.",
-    "2. 만든 사람은 초대하고, 참여자는 관리자 승인을 기다립니다.",
-    "3. 단톡방에서 쓸 경우 소유자·관리자 한 명이 초대코드로 연결합니다.",
+    "2. 초대코드로 참여하면 관리자 승인을 기다립니다.",
+    "3. 단톡방에서는 봇에게 거래를 보내면 그 방 가계부에 승인 없이 참여합니다. 기존 가계부를 쓰려면 소유자·관리자가 초대코드로 연결합니다.",
     "4. 기록 예시를 확인한 뒤 ‘점심 12000원 국민카드’처럼 첫 기록을 남깁니다.",
     "5. ‘오늘 기록 보기’로 저장 결과를 확인합니다. 예산은 이후에 설정해도 됩니다.",
   ].join("\n");
@@ -564,6 +567,29 @@ async function kakaoTotalBudgetNote(env, householdId, month) {
   } catch (_) { return ""; }
 }
 
+// V22.9.43: "구성원 권한" 보기와 "구성원 권한 기록만/기록 수정" 바꾸기. 단톡방이면 그 방에 연결된 가계부, 1:1 이면 선택한 가계부가 대상이다.
+// 바꾸기는 소유자만 한다. 저장 결과를 확인하지 못하면 바뀌었다고 말하지 않는다.
+async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "", command = {} } = {}) {
+  const name = household.name || "가계부";
+  const ownerOnly = `구성원 권한은 ‘${name}’ 소유자만 바꿀 수 있어요.`;
+  if (command.mode) {
+    if (String(role || "").toLowerCase() !== "owner") return ownerOnly;
+    let result;
+    try { result = await saveHouseholdMemberPolicy(env, household.id, user.id, command.mode); }
+    catch (_) { return "구성원 권한을 저장하지 못했어요. 기존 권한은 그대로예요. 잠시 후 다시 보내 주세요."; }
+    if (!result?.ok) return result?.error === "member_policy_owner_only" ? ownerOnly : "구성원 권한을 저장하지 못했어요. 기존 권한은 그대로예요.";
+    return [`✅ ‘${name}’ 구성원 권한: ${memberPolicyLabel(result.mode)}`, memberPolicyDescription(result.mode)].join("\n");
+  }
+  let mode = "";
+  try { mode = await fetchHouseholdMemberPolicy(env, household.id); }
+  catch (_) { return "구성원 권한을 확인하지 못했어요. 잠시 후 다시 보내 주세요."; }
+  return [
+    `👥 ‘${name}’ 구성원 권한: ${memberPolicyLabel(mode)}`,
+    memberPolicyDescription(mode),
+    String(role || "").toLowerCase() === "owner" ? "바꾸려면 ‘구성원 권한 기록만’ 또는 ‘구성원 권한 기록 수정’이라고 보내 주세요." : "소유자만 바꿀 수 있어요.",
+  ].join("\n");
+}
+
 // @build:exports-start
 export {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
@@ -572,11 +598,11 @@ export {
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
   kakaoDirectStartText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines,
-  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoStartText,
-  kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode,
-  parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
-  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
+  kakaoMemberPolicyReply, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
+  maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind,
+  parseKakaoHouseholdChoice, parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput,
+  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

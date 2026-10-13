@@ -16,7 +16,8 @@ import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { buildBudgetAlertPolishModel } from "../features/budget-alerts-annual-goals.js";
 import { parseJsonArraySettingStrict, saveSettingValue } from "../my/reports-premium.js";
 import {
-  canManageMyHousehold, canManageMyRecord, canWriteMyHousehold,
+  canChangeMyHouseholdRecordsForView, canManageMyHousehold, canManageMyRecord, canWriteMyHousehold,
+  memberRecordChangeError, memberRecordChangeMessage,
 } from "../my/access-control.js";
 import { memberCanBeSpender } from "../my/transactions.js";
 import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
@@ -168,12 +169,14 @@ async function handleUserDayTransactions(request, env, url) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
   const month = date.slice(0, 7);
-  const [members, rawRows] = await Promise.all([
+  const role = String(household.role || "").toLowerCase();
+  // V22.9.43: 구성원 권한(기록만)은 같은 단계에서 함께 읽는다. 구성원일 때만 조회하고, 읽지 못하면 수정·삭제 단추를 끈다.
+  const [members, rawRows, recordChangeAllowed] = await Promise.all([
     fetchHouseholdMembers(env, household.id),
     fetchAdminRows(env, { month, householdId: household.id, type: "all", date }),
+    scope.adminOk ? true : canChangeMyHouseholdRecordsForView(env, role, household.id),
   ]);
   const rows = await attachSpenderNamesWithHistory(env, rawRows, members);
-  const role = String(household.role || "").toLowerCase();
   const canWrite = !!scope.adminOk || canWriteMyHousehold(role);
   const canManageSpender = !!scope.adminOk || canManageMyHousehold(role);
   const activeMembers = safeArray(members).filter(memberCanBeSpender);
@@ -185,7 +188,7 @@ async function handleUserDayTransactions(request, env, url) {
   }
   const displayLimit = 250;
   const items = rows.slice(0, displayLimit).map((row) => {
-    const canEdit = canWrite && (!!scope.adminOk || canManageMyRecord(role, row, scope.userId));
+    const canEdit = canWrite && recordChangeAllowed && (!!scope.adminOk || canManageMyRecord(role, row, scope.userId));
     return {
       id: String(row.id || ""),
       user_id: String(row.user_id || ""),
@@ -514,11 +517,13 @@ async function handleUserGoals(request, env, url) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
   const canWrite = scope.scope === "admin" || canWriteMyHousehold(household.role);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 구성원은 공동 목표를 바꾸지 못한다. 권한을 읽지 못해도 바꾸지 않는다.
+  const policyError = scope.scope === "admin" || !canWrite ? "" : await memberRecordChangeError(env, household.role, household.id);
   const key = goalsKey(household.id);
   if (method !== "POST") {
     try {
       const list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
-      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite });
+      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite && !policyError });
     } catch (err) {
       rememberOpsEvent({ kind: "goal_settings_read_failed", severity: "warn", path: "/u/api/goals", method: "GET", detail: `${household.id}:${safeError(err)}` });
       return jsonResponse({ ok: false, error: "read_failed", reason: "goal_read_failed", message: "목표를 불러오지 못했습니다. 기존 목표는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 503);
@@ -526,6 +531,9 @@ async function handleUserGoals(request, env, url) {
   }
   if (!canWrite) {
     return jsonResponse({ ok: false, error: "forbidden", reason: "viewer_read_only", message: "조회 전용 참여자는 목표를 변경할 수 없습니다." }, 403);
+  }
+  if (policyError) {
+    return jsonResponse({ ok: false, error: "forbidden", reason: policyError, message: memberRecordChangeMessage(policyError) }, 403);
   }
   try {
     // V22.9.34 감사 S9: 목표 저장은 가계부 설정 잠금(가계부 삭제와 같은 잠금)을 쓴다. 따로 쓰던 goals-write
