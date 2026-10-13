@@ -5,7 +5,10 @@ import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchPaymentAssets } from "../settings/payment-assets.js";
 import { fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
-import { canManageMyHousehold, canWriteMyHousehold } from "../my/access-control.js";
+import {
+  canChangeMyHouseholdRecords, canManageMyHousehold, canWriteMyHousehold,
+  memberRecordOnlyRefusalText,
+} from "../my/access-control.js";
 import { isUncertainStorageWrite, kakaoText } from "./response-builders.js";
 import {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
@@ -228,6 +231,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (!canWriteMyHousehold(currentRole)) {
       return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요. 가계부 관리자에게 권한을 확인한 뒤 ‘오늘 기록 보기’부터 다시 시작해 주세요.", null);
     }
+    // V22.9.43: 세션을 연 뒤 소유자가 구성원 권한을 ‘기록만’으로 바꿨어도 반영 직전에 다시 본다.
+    const refusal = await kakaoRecordChangeRefusalTextV4(env, { id: session.householdId, name: session.householdName }, currentRole);
+    if (refusal) return sendKakaoEditReplyV4(env, ctx, session, refusal, null);
   }
   if (result?.action === "apply") {
     const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole });
@@ -323,11 +329,27 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
 
+// V22.9.43: 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서 구성원은 기록을 고치거나 지우거나 되살리지 못한다.
+// 권한을 읽지 못하면 아무것도 바꾸지 않는다(막힌 쪽). 소유자·관리자는 정책을 읽지 않는다.
+async function kakaoRecordChangeRefusalTextV4(env, household = {}, role = "") {
+  try {
+    if (await canChangeMyHouseholdRecords(env, role, household?.id)) return "";
+  } catch (_) {
+    return "기록 수정 권한을 확인하지 못해 아무것도 바꾸지 않았어요. 잠시 후 다시 보내 주세요.";
+  }
+  return memberRecordOnlyRefusalText(household?.name);
+}
+
 // 3장 1·2단계 + 조회·복구: 최상위 수정 관련 명령 라우터.
 // 어떤 이해 실패도 메뉴 재출력으로 이어지지 않는다(I8) — 실패는 모듈 fail 경로뿐.
 async function handleKakaoEditCommandV4(env, ctx) {
   const { utterance, household, user, kakaoUserKey, payload, origin } = ctx;
   const raw = normalizeText(utterance);
+  // 고치기·지우기·되살리기 명령으로 확인된 뒤에만 권한을 읽는다(조회·안내는 그대로).
+  const refuseRecordChange = async () => {
+    const text = await kakaoRecordChangeRefusalTextV4(env, household, ctx.role);
+    return text ? kakaoText(text) : null;
+  };
 
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
@@ -344,6 +366,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
   if (restoreTarget) {
     if (restoreTarget.invalidSeq) return kakaoText(kakaoEditTargetRejectTextV4({ seq: 0 }));
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     let outcome = null;
     try {
       // S1·T4: 버퍼 읽기·복구·버퍼 정리를 한 잠금 안에서 한다. 겹친 두 "복구"가 같은 기록을 두 번 넣지 못한다.
@@ -398,6 +421,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (deleteTarget) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
     try {
@@ -414,6 +438,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (editTarget) {
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget));
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest });

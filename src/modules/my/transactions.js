@@ -16,7 +16,8 @@ import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import {
-  canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, myReturnLocation,
+  canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, memberRecordChangeError,
+  myReturnLocation,
 } from "./access-control.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
@@ -187,6 +188,9 @@ async function handleMyUpdateTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   const transactionDate = String(form.get("transaction_date") || row.transaction_date || formatDate(nowKstDate())).trim();
   const amount = parseMyAmount(form);
   if (!amount || amount <= 0) return redirectResponse(myReturnLocation(month, selected.id, { err: "amount_required" }));
@@ -234,6 +238,9 @@ async function handleMyDeleteTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
     await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));

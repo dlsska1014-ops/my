@@ -133,7 +133,9 @@ await withFixture(async f => {
   eq(member.role, "member", "absent second caller receives member permission");
   eq((await auto(f)).done.owner_id, first.user_id, "first owner never changes");
   ok(textOf(result.body).includes("공동") && textOf(result.body).includes("참여"), "second response explains shared membership");
-  for (const role of ["pending", "blocked", "viewer"]) {
+  // V22.9.43: 조회 전용·이용 제한은 소유자가 정한 값이라 그대로 거절한다. 승인 대기는 승인 단계가 없어져 같은 방에서
+  // 기록하면 구성원이 되고 그 기록도 저장된다(validate-room-autojoin-v22943 이 자세히 본다).
+  for (const role of ["blocked", "viewer"]) {
     member.role = role;
     const count = f.db.transactions.length;
     f.trace = [];
@@ -141,9 +143,15 @@ await withFixture(async f => {
     eq(f.db.transactions.length, count, `${role}: zero writes after owner role change`);
     eq(member.role, role, `${role}: membership is never overwritten`);
     eq(writes(f, "household_members").length, 0, `${role}: no automatic membership POST`);
-    ok(textOf(rejected.body).includes(role === "pending" ? "승인 대기" : role === "blocked" ? "사용이 제한" : "조회 전용"), `${role}: actual role is explained`);
+    ok(textOf(rejected.body).includes(role === "blocked" ? "사용이 제한" : "조회 전용"), `${role}: actual role is explained`);
   }
-  member.role = "member";
+  member.role = "pending";
+  const pendingCount = f.db.transactions.length;
+  const promoted = await skill(f, "우유 3300", { key: secondKey });
+  eq(f.db.transactions.length, pendingCount + 1, "pending room participant records without an approval step");
+  const promotedRow = f.db.household_members.find(item => item.user_id === second.user_id && item.household_id === first.household_id);
+  eq(promotedRow?.role, "member", "pending room participant becomes a member");
+  ok(textOf(promoted.body).includes("참여"), "pending promotion explains the joined membership");
   const changed = await web(f, "/my/household/update", first.user_id, { household_id: first.household_id, household_name: "가족 공동 기록" });
   eq(changed.status, 303, "existing household-name settings work for prepared ledger");
   await skill(f, "예산 50만원");
@@ -202,12 +210,14 @@ await withFixture(async f => {
   const before = f.db.transactions.length, households = f.db.households.length;
   f.trace = [];
   await skill(f, "커피 5000");
-  eq(f.db.transactions.length, before, "manual ledger never autojoins an unrelated room caller");
+  // V22.9.43: 초대코드로 직접 연결한 방도 승인 없이 거래 한 번으로 구성원이 된다. 새 가계부를 만들지 않고 연결된 가계부에만 쓴다.
+  eq(f.db.transactions.length, before + 1, "manual ledger room caller records without an approval step");
+  eq(f.db.transactions.at(-1).household_id, manual.household.id, "manual room record lands only in the linked ledger");
   eq(f.db.households.length, households, "manual ledger never creates a fallback ledger");
-  eq(writes(f, "household_members").length, 0, "manual ledger membership remains explicit");
-  const user = f.db.users.find(item => item.kakao_user_key === f.key);
-  const pending = await runtime.joinHouseholdByCode(f.env, user.id, "HOME2265");
-  eq(pending.join_role, "pending", "existing manual invitation approval policy stays pending");
+  eq(writes(f, "household_members").filter(call => call.body?.role === "member").length, 1, "manual ledger room caller becomes a member once");
+  // 방 밖의 초대코드 참여(1:1·웹)는 예전처럼 승인 대기로 들어간다.
+  const invited = await runtime.joinHouseholdByCode(f.env, "synthetic-invitee-v22943", "HOME2265");
+  eq(invited.join_role, "pending", "existing manual invitation approval policy stays pending");
 });
 
 await withFixture(async f => {
@@ -305,7 +315,7 @@ for (const action of ["unbind", "purge"]) {
   });
 }
 
-// Manual rebinding preserves old rows and disables automatic membership in the new ledger.
+// Manual rebinding preserves old rows. V22.9.43: the explicitly linked new ledger also joins room callers without approval.
 await withFixture(async f => {
   await skill(f, "점심 10000");
   const state = await auto(f), old = state.done.candidate_id, owner = state.done.owner_id;
@@ -315,7 +325,8 @@ await withFixture(async f => {
   ok(f.db.transactions.some(tx => tx.household_id === old && tx.memo === "점심"), "rebind preserves records in old ledger");
   const before = f.db.transactions.length;
   await skill(f, "커피 5500", { key: `${f.key}-outsider` });
-  eq(f.db.transactions.length, before, "new manual target cannot autojoin an outsider");
+  eq(f.db.transactions.length, before + 1, "room caller joins the newly linked ledger without approval");
+  eq(f.db.transactions.at(-1).household_id, "house-trip", "room caller record lands in the newly linked ledger");
   await skill(f, "택시 12500");
   eq(f.db.transactions.at(-1).household_id, "house-trip", "explicitly authorized target gets later records");
   ok(f.db.transactions.some(tx => tx.household_id === old), "old records are never migrated to new target");

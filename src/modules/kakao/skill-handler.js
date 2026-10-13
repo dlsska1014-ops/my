@@ -49,9 +49,9 @@ import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
   guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
   kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
-  parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  kakaoInviteNotAllowedText, kakaoMemberPolicyReply, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -61,8 +61,8 @@ import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
 import { readJson } from "../api/admin-api.js";
 import {
   bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
-  getLinkedKakaoGroupHousehold, kakaoGroupInfoText, readKakaoGroupFirstSnapshot,
-  tryKakaoGroupFirstRecord,
+  getLinkedKakaoGroupHousehold, kakaoGroupInfoText, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
+  readKakaoGroupFirstSnapshot, tryKakaoGroupFirstRecord,
 } from "./group-links-first-record.js";
 import {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
@@ -74,7 +74,7 @@ import {
 import {
   isBudgetCommand, isGroupLinkInfoCommand, isHelpCommand, isInviteCommand, isJoinCancelCommand,
   isLinkCommand, isRecentCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
-  kakaoSettlementText, parseGroupBindCommand, parseJoinCode,
+  kakaoSettlementText, parseGroupBindCommand, parseJoinCode, parseKakaoMemberPolicyCommand,
 } from "./simple-commands.js";
 import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
@@ -238,7 +238,7 @@ async function handleKakaoSkill(request, env) {
 
   const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
-    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
+    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance) || !!parseKakaoMemberPolicyCommand(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
   const botGroupKey = getKakaoBotGroupKey(payload);
@@ -312,9 +312,13 @@ async function handleKakaoSkill(request, env) {
       if (!linkedGroupHousehold?.id) {
         return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
       }
-      const membership = active.find((h) => String(h.id) === String(linkedGroupHousehold.id));
-      const linked = { ...linkedGroupHousehold, role: membership?.role || "pending" };
-      return kakaoText([`📒 이 단톡방 연결 가계부: ${linked.name}`, `내 권한: ${userHouseholdRoleLabel(linked.role)}`, "", "이 방의 기록·예산·요약은 이 가계부 기준으로만 처리합니다."].join("\n"), kakaoStartQuickReplies(true));
+      // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
+      const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
+      const myRole = String(membership?.role || "");
+      const roleLine = !myRole ? "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요"
+        : myRole === "pending" ? `내 권한: ${userHouseholdRoleLabel(myRole)} · 이 방에서 거래를 한 번 보내면 바로 참여해요`
+          : `내 권한: ${userHouseholdRoleLabel(myRole)}`;
+      return kakaoText([`📒 이 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, roleLine, "", "이 방의 기록·예산·요약은 이 가계부 기준으로만 처리합니다."].join("\n"), kakaoStartQuickReplies(true));
     }
     if (!active.length) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
     const current = active.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
@@ -391,12 +395,12 @@ async function handleKakaoSkill(request, env) {
       if (result.error === "not_allowed_current") return kakaoText(`이 단톡방은 현재 ‘${result.current?.name || "다른 가계부"}’에 연결되어 있어요. 연결을 바꾸려면 현재 연결 가계부와 새 가계부 양쪽에서 소유자 또는 관리자 권한이 필요해요.`);
       if (result.error === "replace_confirmation_required") {
         await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: botGroupKey, target_household_id: result.household?.id || "", current_household_id: result.current?.id || "" } });
-        return kakaoText(["단톡방 연결을 변경할까요?", result.current?.name ? `현재: ${result.current.name}` : "현재: 연결되지 않음", `변경: ${result.household?.name || "가계부"}`, "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
+        return kakaoText(["단톡방 연결을 변경할까요?", result.current?.name ? `현재: ${result.current.name}` : "현재: 연결되지 않음", `변경: ${result.household?.name || "가계부"}`, kakaoRoomBindConfirmLine(result.household?.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
       }
       return kakaoText("단톡방 연결을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
     if (result.already_linked) return kakaoText(`이 단톡방은 이미 ‘${result.household.name}’ 가계부에 연결되어 있어요.`, kakaoStartQuickReplies(true));
-    return kakaoText(`✅ 단톡방 연결 완료\n가계부: ${result.household.name}\n\n이제 이 방에서 구성원들이 함께 기록하고 조회할 수 있어요.`, [["기록 방법", "기록 방법"], ["예산 설정", "예산 설정"], ["이번 달 요약", "이번 달 요약"]]);
+    return kakaoText(await kakaoRoomBindDoneText(env, result.household), [["기록 방법", "기록 방법"], ["예산 설정", "예산 설정"], ["이번 달 요약", "이번 달 요약"]]);
   }
 
   if (!strongTransactionInput && isGroupLinkInfoCommand(utterance)) {
@@ -465,7 +469,8 @@ async function handleKakaoSkill(request, env) {
     [households, selectedHouseholdId] = await Promise.all([fetchUserHouseholds(env, user.id), getKakaoSelectedHouseholdId(env, user.id)]);
     activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
   }
-  if (!households.length) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  // V22.9.43: 연결된 단톡방에서는 가계부가 하나도 없는 사람도 아래 방 분기에서 ‘거래 한 번이면 참여’ 안내를 받는다.
+  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
 
   let household = null;
   let accessRole = "";
@@ -480,7 +485,8 @@ async function handleKakaoSkill(request, env) {
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
     accessRole = membership?.role || "";
-    if (!accessRole) return kakaoText("\uC774 \uBC29\uC758 \uAC00\uACC4\uBD80\uC5D0 \uCC38\uC5EC\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uAC1C\uC778 \uB300\uD654\uC5D0\uC11C \uCD08\uB300\uCF54\uB4DC\uB85C \uCC38\uC5EC\uD574 \uC8FC\uC138\uC694.");
+    // V22.9.43: \uC5F0\uACB0\uB41C \uBC29\uC740 \uC2B9\uC778 \uC5C6\uC774 \uAC70\uB798 \uD55C \uBC88\uC73C\uB85C \uCC38\uC5EC\uD55C\uB2E4(group-links-first-record.js). \uAE30\uB85D\uC774 \uC544\uB2CC \uB9D0\uC5D0\uB294 \uADF8 \uBC29\uBC95\uC744 \uC54C\uB9B0\uB2E4.
+    if (!accessRole) return kakaoText("\uC774 \uBC29\uC758 \uAC00\uACC4\uBD80\uC5D0 \uC544\uC9C1 \uCC38\uC5EC\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uC774 \uBC29\uC5D0\uC11C \u2018\uCEE4\uD53C 4500\u2019\uCC98\uB7FC \uAC70\uB798\uB97C \uD55C \uBC88 \uBCF4\uB0B4\uBA74 \uC790\uB3D9\uC73C\uB85C \uCC38\uC5EC\uD574\uC694. \uC774 \uAC00\uACC4\uBD80\uC5D0\uC11C \uB098\uAC04 \uC801\uC774 \uC788\uB2E4\uBA74 \uAC1C\uC778 \uB300\uD654\uC5D0\uC11C \uCD08\uB300\uCF54\uB4DC\uB85C \uB2E4\uC2DC \uCC38\uC5EC\uD574 \uC8FC\uC138\uC694.");
   } else {
     household = activeHouseholds.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
     if (!household && selectedHouseholdId) await clearKakaoSelectedHousehold(env, user.id);
@@ -510,6 +516,10 @@ async function handleKakaoSkill(request, env) {
       || isHouseholdSwitchCommand(utterance);
     if (!viewerReadCommand) return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
+
+  // V22.9.43: 구성원 권한(기록만/기록·수정) 보기·바꾸기. 바꾸기는 소유자만 한다(kakaoMemberPolicyReply).
+  const memberPolicyCommand = strongTransactionInput ? null : parseKakaoMemberPolicyCommand(utterance);
+  if (memberPolicyCommand) return kakaoText(await kakaoMemberPolicyReply(env, { household, user, role: accessRole, command: memberPolicyCommand }));
 
   // V22.1: 짧고 모호한 표현은 임의 실행하지 않고 관련 선택지로 한 번만 명확화합니다.
   const ambiguityReply = kakaoAmbiguityGuide(utterance, origin);
@@ -557,7 +567,7 @@ async function handleKakaoSkill(request, env) {
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
   if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
-  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin });
+  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
   if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
@@ -599,7 +609,8 @@ ${formatRecentTransactions(rows)}`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
-  return await saveKakaoParsedTransactionsReply(env, { household, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
+  // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
+  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
 }
 // @build:exports-start
 export { handleKakaoSkillStable };

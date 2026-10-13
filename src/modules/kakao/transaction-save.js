@@ -20,6 +20,9 @@ import {
   memberAliasSettingsKey, normalizeMemberAliasMap,
 } from "../data/households-members-rows.js";
 import { maskKey } from "../admin/ops-diagnostics-pages.js";
+import {
+  MEMBER_POLICY_RECORD_ONLY, memberPolicySettingsKey, parseMemberPolicyValue,
+} from "../my/access-control.js";
 import { kakaoNoMatchGuide } from "./reply-texts.js";
 import { kakaoSaveDelayText } from "./intent-nlu.js";
 import { isUncertainStorageWrite, kakaoSaveFailedText, kakaoText } from "./response-builders.js";
@@ -54,7 +57,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (settled[0].status === "rejected") throw settled[0].reason;
   if (settled[1].status === "rejected") throw settled[1].reason;
   if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
-  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, pendingWrite} = settled[0].value;
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
@@ -103,7 +106,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
       const memo = row.memo || row.raw_text || row.category || "기록";
       return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
     });
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.${finalizeNotice}`);
+    const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
+      ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.";
+    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -119,13 +124,17 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
   // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
   const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);
-  const editGuide = seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
+  // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.
+  const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
+  const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
+    : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
   return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
 async function fetchKakaoInputSettings(env, householdId, userId = "") {
-  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
+  // V22.9.43: 구성원 권한(기록만/기록·수정)도 같은 한 번의 조회로 읽는다. 저장 안내의 수정·삭제 문구에만 쓰고 저장 자체는 막지 않는다.
+  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),memberPolicySettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
   const settingsPromise=supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, {method:"GET"});
   // V22.9.36: 분류 표(accountbook_categories)는 운영 DB 에 없는 선택 표다(/ready 의 unavailable_optional_tables).
   // 웹 경로(fetchCustomCategories)는 표 조회 실패를 설정에 저장된 분류로 대체하지만, V22.9.30 부터 이 함수는
@@ -138,7 +147,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
   const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
-  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),pendingWrite:keys[4] ? parseKakaoPendingWrite(values.get(keys[4])) : null};
+  let memberPolicy="";
+  try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;

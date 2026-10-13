@@ -1,8 +1,15 @@
 // @build:imports-start
 import { appName } from "../public/site-config.js";
+import {
+  parseStrictSettingsObject, settingsDataError, withHouseholdSettingsRmw,
+} from "../runtime/leases.js";
 import { htmlResponse } from "../runtime/http.js";
+import { bestRoleFromRows } from "../data/households-members-rows.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
+import { saveSettingValue } from "./reports-premium.js";
+import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -80,6 +87,108 @@ function canManageMyRecord(role = "", row = {}, userId = "") {
   return canWriteMyHousehold(r) && String(row.user_id || "") === String(userId || "");
 }
 
+// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 자기 기록을 고치고 지운다,
+// V22.9.42까지와 같다)이다. 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
+// DB 역할 값(household_members.role)은 바꾸지 않는다. 역할 제약(V22.8.46) 밖의 새 역할을 만들지 않기 위해서다.
+const MEMBER_POLICY_RECORD_ONLY = "record_only";
+const MEMBER_POLICY_RECORD_EDIT = "record_edit";
+
+function memberPolicySettingsKey(householdId = "") {
+  return `household_member_policy_v22943:${String(householdId || "").trim()}`;
+}
+
+function parseMemberPolicyValue(value) {
+  const item = parseStrictSettingsObject(value, "household_member_policy");
+  if (!Object.keys(item).length) return MEMBER_POLICY_RECORD_EDIT;
+  if (item.version !== 1 || ![MEMBER_POLICY_RECORD_ONLY, MEMBER_POLICY_RECORD_EDIT].includes(item.mode)) throw settingsDataError("household_member_policy", "invalid_shape");
+  return item.mode;
+}
+
+// 읽기 실패와 모양이 틀린 값은 오류로 올린다. 부르는 쪽이 허용으로 넘어가지 않고 거절(막힌 쪽)로 처리한다.
+async function fetchHouseholdMemberPolicy(env, householdId = "") {
+  const hid = String(householdId || "").trim();
+  if (!hid) throw new Error("household_id_required");
+  const cache = env?.__AB_MEMBER_POLICY instanceof Map ? env.__AB_MEMBER_POLICY : null;
+  if (cache?.has(hid)) return cache.get(hid);
+  const mode = parseMemberPolicyValue(await getSettingValueStrict(env, memberPolicySettingsKey(hid)));
+  cache?.set(hid, mode);
+  return mode;
+}
+
+// 기록을 고치고 지우는 권한(자기 기록 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
+// 조회 전용·승인 대기·이용 제한은 원래부터 막혀 있다. 구성원만 정책을 한 번 읽는다.
+async function canChangeMyHouseholdRecords(env, role = "", householdId = "") {
+  const r = String(role || "").toLowerCase();
+  if (["owner", "admin"].includes(r)) return true;
+  if (r !== "member") return false;
+  return (await fetchHouseholdMemberPolicy(env, householdId)) !== MEMBER_POLICY_RECORD_ONLY;
+}
+
+// 홈 화면이 다른 설정과 함께 한 번에 읽은 값을 풀 때 쓴다. 깨진 값은 ‘기록만’으로 보고 단추를 숨긴다.
+function homeMemberPolicyValue(value) {
+  try { return parseMemberPolicyValue(value); } catch (_) { return MEMBER_POLICY_RECORD_ONLY; }
+}
+
+// 화면에서 수정·삭제 단추를 보일지 정할 때만 쓴다. 읽지 못하면 단추를 숨긴다(서버 경로는 따로 다시 확인한다).
+async function canChangeMyHouseholdRecordsForView(env, role = "", householdId = "") {
+  try { return await canChangeMyHouseholdRecords(env, role, householdId); }
+  catch (_) { return false; }
+}
+
+function memberPolicyLabel(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY ? "기록만" : "기록·수정";
+}
+
+function memberPolicyDescription(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY
+    ? "구성원은 새 기록만 남기고, 수정·삭제는 소유자·관리자가 해요."
+    : "구성원은 기록하고, 자기가 쓴 기록을 고치거나 지울 수 있어요.";
+}
+
+function memberRecordChangeMessage(code = "") {
+  return code === "member_policy_unavailable"
+    ? "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요."
+    : "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.";
+}
+
+// 기록을 고치거나 지우는 웹·API 경로가 쓰는 판정. ""이면 허용, 아니면 화면 오류 코드다.
+async function memberRecordChangeError(env, role = "", householdId = "") {
+  try { return (await canChangeMyHouseholdRecords(env, role, householdId)) ? "" : "member_record_only"; }
+  catch (_) { return "member_policy_unavailable"; }
+}
+
+// 소유자만 바꾼다. 가계부 잠금 안에서 역할을 다시 엄격하게 읽고 쓰며, 삭제된 가계부에는 쓰지 않는다.
+// 저장된 값이 깨져 있으면 소유자가 고른 새 값으로 덮어 고친다.
+async function saveHouseholdMemberPolicy(env, householdId = "", actorUserId = "", mode = "") {
+  const hid = String(householdId || "").trim();
+  const actor = String(actorUserId || "").trim();
+  if (!hid || !actor || ![MEMBER_POLICY_RECORD_ONLY, MEMBER_POLICY_RECORD_EDIT].includes(mode)) return { ok: false, error: "member_policy_invalid" };
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&user_id=eq.${encodeURIComponent(actor)}&select=role`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("member_policy_role_source_invalid");
+    if (bestRoleFromRows(rows) !== "owner") return { ok: false, error: "member_policy_owner_only" };
+    const key = memberPolicySettingsKey(hid);
+    let current = "";
+    try { current = parseMemberPolicyValue(await getSettingValueStrict(env, key)); } catch (err) { if (err?.code !== "settings_data_invalid") throw err; }
+    if (current !== mode) {
+      assertFresh();
+      await saveSettingValue(env, key, JSON.stringify({ version: 1, mode, updated_by: actor, updated_at: new Date().toISOString() }));
+    }
+    if (env?.__AB_MEMBER_POLICY instanceof Map) env.__AB_MEMBER_POLICY.set(hid, mode);
+    return { ok: true, mode, unchanged: current === mode };
+  }, { missingHousehold: "noop", missingResult: { ok: false, error: "member_policy_household_missing" } });
+}
+
+function memberRecordOnlyRefusalText(householdName = "") {
+  return `‘${householdName || "이 가계부"}’는 소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 고치거나 지울 수 없어요. 고칠 내용은 소유자나 관리자에게 알려 주세요.`;
+}
+
+function memberPolicyJoinLine(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY
+    ? "내 권한: 기록만 (수정·삭제는 소유자·관리자가 해요)"
+    : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
+}
+
 async function getMySelectedHousehold(env, userId, householdId = "") {
   const memberships = await fetchUserHouseholds(env, userId);
   const households = memberships.filter((h) => canReadMyHousehold(h.role));
@@ -94,8 +203,12 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
 }
 // @build:exports-start
 export {
-  canManageMyHousehold, canManageMyRecord, canReadMyHousehold, canWriteMyHousehold,
-  getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse, myReturnLocation,
-  renderHouseholdNotFoundHtml, renderMyAccessStatusHtml,
+  MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, canChangeMyHouseholdRecords,
+  canChangeMyHouseholdRecordsForView, canManageMyHousehold, canManageMyRecord, canReadMyHousehold,
+  canWriteMyHousehold, fetchHouseholdMemberPolicy, getMySelectedHousehold, homeMemberPolicyValue,
+  householdNotFoundResponse, memberPolicyDescription, memberPolicyJoinLine, memberPolicyLabel,
+  memberPolicySettingsKey, memberRecordChangeError, memberRecordChangeMessage,
+  memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation, parseMemberPolicyValue,
+  renderHouseholdNotFoundHtml, renderMyAccessStatusHtml, saveHouseholdMemberPolicy,
 };
 // @build:exports-end

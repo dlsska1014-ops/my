@@ -29,6 +29,7 @@ import {
 } from "./household-budget-commands.js";
 import {
   bindKakaoGroupByInviteCode, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
+  kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
 } from "./group-links-first-record.js";
 import {
   getHouseholdMemberRole, joinHouseholdByCode, roleBlockedMessage,
@@ -65,7 +66,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, target.invite_code || "", { allowReplace: true });
       if (result.ok) {
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: `✅ 단톡방 연결 완료\n가계부: ${target.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+        return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
       }
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] };
@@ -114,7 +115,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
       if (current?.id && String(current.id) === String(chosen.id)) return { text: `이 단톡방은 이미 ‘${chosen.name}’ 가계부에 연결되어 있어요.`, quickReplies: kakaoStartQuickReplies(true) };
       await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: groupKey, target_household_id: chosen.id, current_household_id: current?.id || "" } });
-      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${current.name}` : "현재: 연결되지 않음", `변경: ${chosen.name}`, "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${current.name}` : "현재: 연결되지 않음", `변경: ${chosen.name}`, kakaoRoomBindConfirmLine(chosen.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
     }
   }
   if (state.flow === "create_household") {

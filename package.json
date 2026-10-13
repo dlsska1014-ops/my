@@ -1,10 +1,11 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.42",
+  "version": "22.9.43",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
   "scripts": {
+    "validate:room-autojoin": "node validation/validate-room-autojoin-v22943.mjs",
     "validate:admin-return": "node validation/validate-admin-return-v22941.mjs",
     "validate:polish": "node validation/validate-polish-v22940.mjs",
     "validate:public-guides": "node validation/validate-public-guides-v22939.mjs",

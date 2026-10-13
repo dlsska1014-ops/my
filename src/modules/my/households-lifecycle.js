@@ -33,7 +33,8 @@ import {
 import { reportChallengeSettingsKey } from "./report-challenge.js";
 import { cardTargetsKey, freeReportPreferenceKey } from "./reports-premium.js";
 import {
-  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, memberPolicySettingsKey,
+  myAccessStatusResponse,
 } from "./access-control.js";
 import { transactionEditHistoryKey } from "./transactions.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -110,6 +111,10 @@ function householdPageMessage(code = "") {
     household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.",
     join_request_cancelled: "참여 요청을 취소했습니다. 다시 참여하려면 초대코드를 다시 입력하세요.",
     join_cancel_failed: "참여 요청을 취소하지 못했습니다. 승인 대기 상태는 그대로입니다.",
+    // V22.9.43: 참여자 화면의 구성원 권한(기록만/기록·수정) 저장 결과.
+    member_policy_saved: "구성원 권한을 저장했습니다. 새로 참여하는 사람과 기존 구성원 모두에게 바로 적용됩니다.",
+    member_policy_owner_only: "구성원 권한은 가계부 소유자만 바꿀 수 있습니다.",
+    member_policy_failed: "구성원 권한을 저장하지 못했습니다. 기존 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
   };
   return map[String(code || "")] || formatMessage(code || "");
 }
@@ -384,6 +389,9 @@ async function purgeHouseholdData(env, householdId = "") {
       try { await supabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${prefix}:${hid}:*`)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}); }
       catch(error) { rememberOpsEvent({kind:"household_preference_cleanup_pending",severity:"warn",path:"/my/household/delete",method:"POST",detail:safeError(error)}); }
     }
+    // V22.9.43: 가계부마다 하나인 구성원 권한 줄도 지운다(소유자 사용자 ID 가 남지 않게).
+    try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(memberPolicySettingsKey(hid))}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}); }
+    catch(error) { rememberOpsEvent({kind:"household_preference_cleanup_pending",severity:"warn",path:"/my/household/delete",method:"POST",detail:safeError(error)}); }
   }
 
   // Relational data is already committed atomically. External lookup mappings

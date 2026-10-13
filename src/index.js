@@ -1007,7 +1007,7 @@ const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
     const monitoring = abMonitorRequestContext(request, env);
-    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
+    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
     const routed = rememberedHouseholdRequest(request);
     try {
       const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
@@ -1156,6 +1156,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/household/leave" && request.method === "POST") {
         return await handleMyHouseholdLeave(request, env);
+      }
+
+      // V22.9.43: 소유자가 정하는 구성원 권한(기록만/기록·수정).
+      if (url.pathname === "/my/member-policy/save" && request.method === "POST") {
+        return await handleMyMemberPolicySave(request, env);
       }
 
       if (url.pathname === "/my/transactions" && request.method === "POST") {
@@ -2186,7 +2191,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.42-GROUP-EMPTY-MENTION";
+const APP_VERSION = "V22.9.43-ROOM-AUTOJOIN";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -2546,13 +2551,13 @@ function publicGuidePages(env = {}) {
     ], { type: "CollectionPage", primary: ["가상 예제로 시작하기", "/demo"], updated: "2026-10-12" }),
     "service-guide": page("기능별로 할 수 있는 일과 확인할 것", "말해가계부의 기록·예산·리포트·정산·파일 기능과 권한, 자동으로 처리하지 않는 범위를 확인하세요.", "기능과 사용 범위", "카카오톡은 짧은 기록과 조회에, 웹은 상세 수정과 비교에 사용하면 편리합니다. 아래 표에서 원하는 작업을 찾고 해당 가이드로 이동하세요.", [
       { title: "어디에서 무엇을 하나요?", table: { caption: "주요 기능과 사용 위치", headers: ["작업", "카카오톡", "웹"], rows: [["거래 기록", "내용과 금액을 한 문장으로 전송", "빠른 입력과 거래 수정"], ["예산", "예산 설정·남은 예산 조회", "분류별 예산과 적용 지출 확인"], ["생활비 점검", "오늘 기록·이번 달 요약", "주간·월간 리포트와 상세 분석"], ["공동 사용", "방별 기록·초대·연결", "참여자와 역할 관리·정산"], ["내역 이동", "웹 가계부 열기로 이동", "파일 미리보기·선택 저장·CSV 내보내기"]] }, links: [["카카오 명령 예시", "/kakao-guide"], ["생활비 리포트", "/report-guide"]] },
-      { title: "권한에 따라 할 수 있는 일이 달라집니다", table: { caption: "가계부 안에서의 역할", headers: ["역할", "가능한 작업", "주의할 점"], rows: [["소유자·관리자", "조회·기록·구성원 기록 관리·가계부 관리", "영구 삭제 등 일부 작업은 소유자와 본인 확인이 필요합니다."], ["구성원", "조회·기록·자신의 기록 수정과 삭제", "예산과 참여자 관리는 관리 권한이 필요합니다."], ["조회 전용", "조회·거래 CSV 다운로드", "새 기록이나 파일 가져오기는 할 수 없습니다."], ["승인 대기·이용 제한", "허용된 안내와 권한 확인", "초대코드를 반복 입력해도 제한이 해제되지 않습니다."]] } },
+      { title: "권한에 따라 할 수 있는 일이 달라집니다", table: { caption: "가계부 안에서의 역할", headers: ["역할", "가능한 작업", "주의할 점"], rows: [["소유자·관리자", "조회·기록·구성원 기록 관리·가계부 관리", "영구 삭제 등 일부 작업은 소유자와 본인 확인이 필요합니다."], ["구성원", "조회·기록·자신의 기록 수정과 삭제", "소유자가 구성원 권한을 ‘기록만’으로 정하면 새 기록만 남깁니다. 예산과 참여자 관리는 관리 권한이 필요합니다."], ["조회 전용", "조회·거래 CSV 다운로드", "새 기록이나 파일 가져오기는 할 수 없습니다."], ["승인 대기·이용 제한", "허용된 안내와 권한 확인", "초대코드를 반복 입력해도 제한이 해제되지 않습니다."]] } },
       { title: "자동으로 처리하지 않는 작업", bullets: ["은행·카드사 계정에 로그인하여 결제 내역을 자동 수집하지 않습니다.", "단톡방 전체 대화를 읽지 않으며 봇에 전달된 요청을 처리합니다.", "정산 화면에서 제안한 금액을 실제로 송금하지 않습니다.", "CSV 거래 백업으로 계정·참여 권한·모든 설정을 통째로 복원하지 않습니다.", "영수증 사진 등록 기능은 현재 제공하지 않습니다."], links: [["파일 가져오기 범위", "/import-guide"], ["공동 정산 계산 사례", "/group-accountbook"]] },
       { title: "처리 결과는 어디에서 확인하나요?", paragraphs: ["카카오 저장 응답 뒤에는 ‘오늘 기록 보기’에서 날짜·금액·내용을 확인합니다. 웹에서는 선택한 가계부와 기간을 확인한 뒤 거래 목록을 봅니다. 저장 결과가 불명확하다는 안내를 받으면 같은 입력을 반복하지 말고 목록을 먼저 확인하세요.", "공개된 기능은 현재 무료로 제공합니다. 기능 사용 권한은 유료 등급이 아니라 가계부 안에서의 역할에 따라 달라집니다."], links: [["첫 기록 안내", "/how-it-works"], ["문제가 있을 때", "/faq"]] },
     ]),
     "how-it-works": page("첫 기록을 남기고 같은 가계부를 웹에서 열기", "카카오 1:1 첫 기록, 새 단톡방의 공동 기록, 10분 연결 코드로 웹에서 이어 여는 방법을 단계별로 설명합니다.", "처음 사용하는 날", "개인 기록은 1:1 채팅에서 시작하세요. 여러 사람이 같은 내역을 보려면 단톡방에서 봇을 호출해 기록합니다. 웹은 상세 확인이나 파일 작업이 필요할 때 이어 열 수 있습니다.", [
       { title: "1:1 채팅에서 개인 첫 기록", steps: ["말해가계부와의 1:1 채팅에 ‘점심 만원’을 보냅니다.", "처음 사용하는 계정이라면 웹 로그인 없이 개인 가계부와 첫 기록을 준비합니다.", "저장 응답에서 10,000원과 내용을 확인하고 ‘오늘 기록 보기’로 다시 확인합니다.", "이름과 예산은 필요할 때 설정합니다. 시작부터 모든 설정을 마칠 필요는 없습니다."], note: "이미 사용한 계정, 삭제·나가기 이력이 있는 계정, 승인 대기·조회 전용·이용 제한 계정은 기존 가계부와 권한 절차를 따릅니다." },
-      { title: "새 단톡방에서 공동 첫 기록", paragraphs: ["처음 사용하는 미연결 단톡방에서는 봇을 호출하고 ‘점심 12000원’처럼 명확한 거래를 보냅니다. 해당 방의 공동 가계부를 준비하며 처음 기록한 사람이 소유자가 됩니다. 같은 방에서 기록하는 다른 참여자도 기존 제한이 없으면 구성원으로 함께 참여합니다.", "도움말을 보거나 봇을 추가한 것만으로는 가계부를 만들지 않습니다. 기존 수동 연결, 승인 대기·조회 전용·이용 제한, 나가기와 삭제·연결 해제 이력은 자동 참여로 우회하지 않습니다.", "단톡방에서는 개인 가계부를 자동 생성하지 않습니다. 웹 연결 코드는 단톡방에 제공하지 않습니다."], links: [["기존 가계부 연결과 공동 권한", "/group-accountbook"]] },
+      { title: "새 단톡방에서 공동 첫 기록", paragraphs: ["처음 사용하는 미연결 단톡방에서는 봇을 호출하고 ‘점심 12000원’처럼 명확한 거래를 보냅니다. 해당 방의 공동 가계부를 준비하며 처음 기록한 사람이 소유자가 됩니다. 같은 방에서 기록하는 다른 참여자도 기존 제한이 없으면 구성원으로 함께 참여합니다.", "도움말을 보거나 봇을 추가한 것만으로는 가계부를 만들지 않습니다. 기존 가계부를 연결한 방에서도 거래를 보낸 참여자는 승인 없이 구성원이 됩니다. 조회 전용·이용 제한, 나가기·내보내기 이력, 삭제·연결 해제 이력은 자동 참여로 우회하지 않습니다.", "단톡방에서는 개인 가계부를 자동 생성하지 않습니다. 웹 연결 코드는 단톡방에 제공하지 않습니다."], links: [["기존 가계부 연결과 공동 권한", "/group-accountbook"]] },
       { title: "같은 기록을 웹에서 이어 열기", steps: ["봇과의 1:1 채팅에서 ‘웹 가계부 열기’를 요청합니다.", "안내받은 웹 주소를 열고 ‘카카오에서 기록한 가계부 이어 열기’를 선택합니다.", "10분 동안 한 번 사용할 수 있는 연결 코드를 입력합니다.", "가계부 이름과 기록을 확인합니다. 코드가 만료되었다면 1:1 채팅에서 다시 요청합니다."], paragraphs: ["다른 계정과 자동 병합하지 않습니다. 현재 웹에 다른 계정이 열려 있다면 전환 안내를 확인한 뒤 진행하세요. 연결 코드는 내 계정에 접근하기 위한 수단이며 공동 참여용 초대코드와 다릅니다. 코드와 코드가 보이는 화면을 공유하지 마세요."] },
       { title: "웹에서 처음 시작한다면", paragraphs: ["가계부 시작하기에서 계정 로그인 또는 새 계정 만들기를 선택합니다. 카카오에 이미 기록이 있다면 새 계정을 추가로 만들기 전에 위의 이어 열기를 확인하세요. 서로 다른 계정으로 시작하면 같은 사람이더라도 가계부가 다르게 보일 수 있습니다."], links: [["가계부 시작하기", "/my"], ["기록이 보이지 않을 때", "/faq"]] },
       { title: "첫날 확인할 세 가지", bullets: ["개인 기록인지 공동 기록인지, 가계부 이름을 확인합니다.", "오늘 기록에서 날짜와 금액이 의도대로 저장되었는지 확인합니다.", "예산을 설정하려면 문장에 ‘예산’을 넣습니다. ‘식비 50만원’은 지출입니다."], links: [["기록과 예산 명령 구분", "/kakao-guide"]] },
@@ -2572,10 +2577,10 @@ function publicGuidePages(env = {}) {
       { title: "설정과 점검 순서", steps: ["소유자 또는 관리자 계정으로 현재 가계부와 월을 확인합니다.", "웹 예산 화면에서 분류별 금액을 정하거나 ‘식비 예산 30만원’처럼 입력합니다.", "‘남은 예산’에서 설정액과 적용 사용액을 확인합니다.", "분류가 잘못된 기록이 있다면 거래를 수정한 뒤 다시 확인합니다."], links: [["카카오 문장 구분", "/kakao-guide"]] },
     ]),
     "group-accountbook": page("방별 공동 가계부와 세 사람의 정산 사례", "단톡방 첫 기록과 기존 가계부 연결의 차이, 역할별 권한, 세 사람의 120,000원 여행비 정산을 계산 과정과 함께 설명합니다.", "함께 쓰는 돈의 기록", "누가 결제했는지와 누가 비용을 부담하는지는 서로 다릅니다. 공동 가계부를 시작하는 방법을 확인한 뒤, 같은 금액을 나누는 정산 사례를 살펴보세요.", [
-      { title: "새 방과 기존 가계부는 시작 방식이 다릅니다", table: { caption: "단톡방을 사용하는 두 가지 방법", headers: ["상황", "시작 방법", "기록이 저장될 곳"], rows: [["처음 사용하는 미연결 방", "봇을 호출하고 명확한 첫 거래를 입력", "그 방에 새로 준비한 공동 가계부"], ["이미 사용하던 가계부를 연결", "가계부 소유자·관리자가 단톡방 연결 초대코드 입력", "초대코드에 해당하는 기존 가계부"], ["다른 가계부로 연결 변경", "현재 연결과 새 가계부의 관리 권한 확인", "새로 연결한 가계부, 이전 기록은 이동하지 않음"]] }, paragraphs: ["새 방에서는 첫 기록자가 소유자가 됩니다. 같은 방에서 다음 기록을 보내는 사람도 기존 제한이 없으면 구성원으로 참여합니다. 일반 대화와 조회만으로는 자동 참여하지 않습니다. 삭제·연결 해제 이력이 있는 방은 자동으로 다시 만들지 않으며, 나간 구성원은 초대코드로 다시 참여해야 합니다."] },
+      { title: "새 방과 기존 가계부는 시작 방식이 다릅니다", table: { caption: "단톡방을 사용하는 두 가지 방법", headers: ["상황", "시작 방법", "기록이 저장될 곳"], rows: [["처음 사용하는 미연결 방", "봇을 호출하고 명확한 첫 거래를 입력", "그 방에 새로 준비한 공동 가계부"], ["이미 사용하던 가계부를 연결", "가계부 소유자·관리자가 단톡방 연결 초대코드 입력", "초대코드에 해당하는 기존 가계부"], ["다른 가계부로 연결 변경", "현재 연결과 새 가계부의 관리 권한 확인", "새로 연결한 가계부, 이전 기록은 이동하지 않음"]] }, paragraphs: ["새 방에서는 첫 기록자가 소유자가 됩니다. 새 방이든 기존 가계부를 연결한 방이든, 그 방에서 거래를 보내는 사람은 기존 제한이 없으면 승인 없이 구성원으로 참여합니다. 일반 대화와 조회만으로는 자동 참여하지 않습니다. 삭제·연결 해제 이력이 있는 방은 자동으로 다시 만들지 않으며, 나갔거나 내보내진 구성원은 초대코드로 다시 참여를 요청하고 소유자·관리자의 승인을 받아야 합니다."] },
       { title: "가상 사례: 여행비 120,000원을 세 사람이 나누기", table: { caption: "세 사람 모두 같은 비용에 참여한 가상 사례, 단위 원", headers: ["참여자", "먼저 낸 돈", "각자 부담할 돈", "정산 후 받을 돈 또는 보낼 돈"], rows: [["가", "90,000", "40,000", "50,000 받음"], ["나", "30,000", "40,000", "10,000 보냄"], ["다", "0", "40,000", "40,000 보냄"]] }, paragraphs: ["합계는 90,000원 + 30,000원 = 120,000원입니다. 세 사람이 똑같이 부담하면 120,000 ÷ 3 = 40,000원입니다. 나가 가에게 10,000원, 다가 가에게 40,000원을 보내면 각자의 최종 부담이 40,000원이 됩니다."], note: "계산용 가상 사례입니다. 정산 제안은 자동 송금이 아니며, 실제 송금 여부와 완료 이력은 직접 확인해야 합니다." },
       { title: "모든 항목을 똑같이 나누지 않는다면", paragraphs: ["한 사람이 식사에 참여하지 않았거나 숙박비를 다른 비율로 나누기로 했다면 총액을 단순히 인원수로 나누면 안 됩니다. 웹 정산에서 동일 분배, 비율, 인원수 또는 품목별 참여자 방식을 고르고 합의한 조건과 맞는지 확인하세요.", "정산 전에 기간·가계부·참여자·결제자를 확인합니다. 표시 이름을 바꾸는 것은 카카오 닉네임을 바꾸거나 실제 결제자를 다른 사람으로 바꾸는 작업이 아닙니다."] },
-      { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 자신의 거래를 수정·삭제하며, 타인 기록과 예산 관리는 관리 권한이 필요합니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
+      { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 자신의 거래를 수정·삭제하며, 타인 기록과 예산 관리는 관리 권한이 필요합니다. 소유자는 구성원 권한을 ‘기록만’으로 바꿔 구성원이 새 기록만 남기게 할 수 있습니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
     ]),
     "report-guide": page("주간·월간 리포트에서 먼저 볼 숫자", "같은 기간 비교, 월을 넘는 주, 정기 지출과 카드 사용액의 의미를 가상 수치로 해설합니다.", "기록을 생활비 점검으로", "생활비 리포트는 같은 거래를 주간 또는 월간으로 읽는 화면입니다. 금액부터 판단하기 전에 선택한 가계부와 기간, 아직 들어오지 않은 기록이 있는지를 확인하세요.", [
       { title: "진행 중인 달은 같은 날짜 범위끼리 비교합니다", table: { caption: "9월 12일에 확인한다고 가정한 가상 비교, 단위 원", headers: ["기간", "지출", "비교에 사용"], rows: [["9월 1~12일", "255,000", "이번 달 현재까지"], ["8월 1~12일", "300,000", "지난달 같은 범위"], ["8월 전체", "720,000", "위 비교에는 사용하지 않음"]] }, paragraphs: ["같은 날짜 범위의 차이는 255,000원 − 300,000원 = −45,000원입니다. 변화율은 −45,000 ÷ 300,000 × 100 = −15%입니다. 이번 달 일부와 지난달 전체를 비교해 큰 절약으로 해석하면 안 됩니다.", "비교 기간에 데이터가 없거나 읽지 못했다면 절약을 확정할 수 없습니다. 이전 금액이 0원이면 증가율을 무리하게 계산하기보다 현재 금액과 기록 유무를 확인합니다."] },
@@ -2607,7 +2612,7 @@ function publicGuidePages(env = {}) {
       ["식비 50만원이라고 입력하면 어떻게 되나요?", "지출 기록으로 처리합니다. 예산을 설정하려면 ‘식비 예산 50만원’처럼 예산이라는 말을 함께 적으세요. 소유자·관리자만 예산을 설정할 수 있습니다."],
       ["전체 지출과 예산 사용액이 달라요.", "분류별 예산이 있으면 해당 분류의 지출만 예산에 비교합니다. 예산이 없는 분류는 예산 밖 지출입니다. 전체 예산과 분류별 예산을 더하지 않습니다."],
       ["저장 확인이 지연된다고 나와요.", "같은 문장을 다시 보내기 전에 오늘 기록이나 웹 거래 목록을 확인하세요. 저장은 되었지만 응답 확인이 늦을 수 있습니다. 오류 문구와 발생 시각을 보관하되 공개 문의에서는 거래와 코드를 가립니다."],
-      ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 자신의 기록을 수정·삭제합니다. 예산과 참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
+      ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 자신의 기록을 수정·삭제합니다. 다만 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서는 새 기록만 남길 수 있습니다. 예산과 참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
       ["카드별 사용액이 카드사 실적과 달라요.", "말해가계부는 입력한 결제수단 기준으로 합산합니다. 실시간 카드사 데이터가 아니며 누락·취소·혜택 제외 항목이 다를 수 있습니다. 공식 명세서와 혜택 조건을 대조하세요."],
       ["CSV만 있으면 계정 전체를 복구할 수 있나요?", "일반 CSV 백업은 거래 목록입니다. 계정 로그인, 참여 권한, 예산과 모든 설정을 통째로 복원하지 않습니다. 가져오기 미리보기에서 행을 확인한 뒤 거래를 등록합니다."],
       ["무료인가요? 광고가 나오나요?", adsPolicyText(env, "faq") || "현재 공개된 기능은 무료로 제공합니다. 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
@@ -5830,6 +5835,11 @@ async function handleAdminDeleteTransaction(request, env) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
     return redirectResponse(signedOutWriteRedirect(form));
   }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
+  }
   const validationError = validateRecordFormFields({ id, mode: "delete" });
   if (validationError) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
@@ -5877,6 +5887,17 @@ async function handleTransactionEditPage(request, env, url) {
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
   }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 수정 폼을 주지 않는다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) {
+      const message = memberRecordChangeMessage(policyError);
+      if (wantsFragment) return new Response(`<p class="v8-editError">${escapeHtml(message)}</p>`, { status: 403, headers: { ...HTML_HEADERS } });
+      const target = new URL(backTo, "https://accountbook.local");
+      target.searchParams.set("err", policyError);
+      return redirectResponse(`${target.pathname}${target.search}`);
+    }
+  }
 
   // 권한 판정용 조회(fetchTransactionRowById)는 id·가계부·지출자 세 칸만 가져온다. 운영 DB 는 요청한 칸만
   // 돌려주므로 그 행으로 폼을 그리면 금액·날짜·분류가 빈 폼이 되고, 그대로 저장하면 기록을 덮어쓴다.
@@ -5918,6 +5939,11 @@ async function handleAdminUpdateTransaction(request, env) {
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 수정할 권한이 없습니다." }), { err: "이 기록을 수정할 권한이 없습니다." }));
     return redirectResponse(signedOutWriteRedirect(form));
+  }
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
+  if (!isManager) {
+    const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
+    if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
   }
   const typeValues = form.getAll("type").map((v) => String(v || "").trim()).filter(Boolean);
   // V22.9.34 감사 SIM-1: 같은 폼에 서로 다른 type 이 함께 오면(필터 hidden 칸 등) 어느 쪽도 고르지 않고 저장하지 않는다.
@@ -12720,12 +12746,18 @@ async function handleGoalsPage(request, env, url) {
   const selected = selectRequestedScopedHousehold(households, url.searchParams.get("household_id") || "");
   if (!selected) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const canWrite = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  const writeRole = scoped.scope === "admin" || canWriteMyHousehold(selected.role);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 목표도 읽기만 한다(공동 설정). 구성원일 때만 권한을 읽는다.
+  const policyError = scoped.scope === "admin" || !writeRole ? "" : await memberRecordChangeError(env, selected.role, selected.id);
+  const canWrite = writeRole && !policyError;
   let html = renderGoalsHtml({ env, households, selected, month, canWrite });
   if (!canWrite) {
+    const why = policyError === "member_record_only" ? "소유자가 구성원 권한을 ‘기록만’으로 정해 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다."
+      : policyError ? "구성원 권한을 확인하지 못해 지금은 목표를 바꿀 수 없습니다. 잠시 후 다시 열어 주세요."
+        : "조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.";
     html = html.replace(
       '<section class="card"><h2>목표 추가</h2>',
-      '<section class="card"><h2>읽기 전용</h2><p class="muted">조회 전용 참여자는 목표를 확인할 수 있지만 추가·납입·삭제할 수 없습니다.</p></section><section class="card" hidden><h2>목표 추가</h2>',
+      `<section class="card"><h2>읽기 전용</h2><p class="muted">${why}</p></section><section class="card" hidden><h2>목표 추가</h2>`,
     );
   }
   return htmlResponse(html);
@@ -16229,11 +16261,44 @@ async function handleMyMembersPage(request, env, url) {
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
-  const members = await fetchHouseholdMembers(env, selected.id);
-  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  // V22.9.43: 구성원 권한은 참여자 목록과 함께 읽는다. 읽지 못하면 값을 추측하지 않고 확인 불가로 그린다.
+  const [members, memberPolicy] = await Promise.all([
+    fetchHouseholdMembers(env, selected.id),
+    fetchHouseholdMemberPolicy(env, selected.id).catch(() => ""),
+  ]);
+  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
-function renderMyMembersHtml({ env, month, households, selected, members = [], msg = "", err = "" }) {
+// V22.9.43: 구성원 권한(기록만/기록·수정) 저장. 소유자만 바꾸며, 결과는 참여자 화면의 같은 칸으로 돌아가 알린다.
+async function handleMyMemberPolicySave(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const householdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const mode = String(form.get("mode") || "");
+  const back = (extra) => `/my/members?household_id=${encodeURIComponent(householdId)}&month=${encodeURIComponent(month)}&${extra}#member-policy`;
+  if (!householdId || ![MEMBER_POLICY_RECORD_ONLY, MEMBER_POLICY_RECORD_EDIT].includes(mode)) return redirectResponse(back("err=member_policy_failed"));
+  try {
+    const result = await saveHouseholdMemberPolicy(env, householdId, userId, mode);
+    if (!result?.ok) return redirectResponse(back(`err=${result?.error === "member_policy_owner_only" ? "member_policy_owner_only" : "member_policy_failed"}`));
+    return redirectResponse(back("msg=member_policy_saved"));
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_policy_save_failed", severity: "warn", path: "/my/member-policy/save", method: "POST", detail: safeError(err) });
+    return redirectResponse(back("err=member_policy_failed"));
+  }
+}
+
+function renderMemberPolicySection({ selected, month, memberPolicy = "" }) {
+  const isOwner = String(selected.role || "").toLowerCase() === "owner";
+  const intro = `<p class="muted">단톡방에 연결된 가계부는 그 방에서 거래를 보낸 사람이 승인 없이 구성원이 됩니다. 이 설정은 그렇게 참여한 사람과 초대코드로 들어온 구성원 모두에게 적용되고, 소유자·관리자는 언제나 모든 기록을 고칠 수 있습니다.</p>`;
+  if (!memberPolicy) return `<section class="card" id="member-policy"><h2>구성원 권한</h2>${intro}<p class="error">구성원 권한을 확인하지 못했습니다. 기존 권한은 그대로이니 잠시 후 새로고침해 주세요.</p></section>`;
+  if (!isOwner) return `<section class="card" id="member-policy"><h2>구성원 권한</h2>${intro}<p><b>현재: ${escapeHtml(memberPolicyLabel(memberPolicy))}</b> · ${escapeHtml(memberPolicyDescription(memberPolicy))}</p><p class="muted">구성원 권한은 소유자만 바꿀 수 있습니다.</p></section>`;
+  const option = (mode) => `<label class="policyOption"><input type="radio" name="mode" value="${mode}"${memberPolicy === mode ? " checked" : ""}/><span><b>${escapeHtml(memberPolicyLabel(mode))}</b><small>${escapeHtml(memberPolicyDescription(mode))}</small></span></label>`;
+  return `<section class="card" id="member-policy"><h2>구성원 권한</h2>${intro}<form method="post" action="/my/member-policy/save" class="policyForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${option(MEMBER_POLICY_RECORD_EDIT)}${option(MEMBER_POLICY_RECORD_ONLY)}<button type="submit">권한 저장</button></form><p class="muted">카카오톡에서는 ‘구성원 권한 기록만’ 또는 ‘구성원 권한 기록 수정’으로도 바꿀 수 있습니다.</p></section>`;
+}
+
+function renderMyMembersHtml({ env, month, households, selected, members = [], memberPolicy = "", msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const returnTo = `/my/members?${hh}`;
@@ -16245,7 +16310,7 @@ function renderMyMembersHtml({ env, month, households, selected, members = [], m
     const remove = owner ? "" : `<form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 가계부에서 내보낼까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><button class="danger" type="submit">내보내기</button></form>`;
     return `<article class="memberCard"><div class="memberHead"><div class="avatar">${escapeHtml(String(m.nickname || "구").slice(0, 1))}</div><div><b>${escapeHtml(m.nickname || "구성원")}</b><span>${escapeHtml(userHouseholdRoleLabel(role))} · ${escapeHtml(String(m.created_at || "").slice(0, 10) || "참여일 미상")}</span></div></div><form method="post" action="/admin/member/nickname" class="nameForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><label>이 가계부에서 보일 이름<input name="nickname" value="${escapeHtml(m.nickname || "")}" maxlength="40" required/></label><button type="submit">이름 저장</button></form>${roleForm}<div class="memberFoot"><small>표시 이름과 권한으로 구분합니다.</small>${remove}</div></article>`;
   }).join("") || `<div class="empty">참여자가 없습니다.</div>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:1fr}.memberGrid{grid-template-columns:1fr}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section><section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${jsonForInlineScript(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:1fr}.memberGrid{grid-template-columns:1fr}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}.policyForm{display:grid;gap:9px}.policyOption{display:flex;gap:10px;align-items:flex-start;border:1px solid #e8edf4;border-radius:16px;padding:12px}.policyOption input{width:20px;height:20px;margin:2px 0 0;flex:none}.policyOption b,.policyOption small{display:block}.policyOption small{color:#667085;margin-top:3px;line-height:1.5}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section>${renderMemberPolicySection({ selected, month, memberPolicy })}<section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${jsonForInlineScript(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
 }
 
 function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, members = [], msg = "", err = "" }) {
@@ -18216,7 +18281,7 @@ async function handleFreeReportsPage(request, env, url) {
   const range = LIVING_REPORT_RANGES.has(String(url.searchParams.get("range") || "")) ? String(url.searchParams.get("range")) : "month";
   const week = isValidTransactionDateString(String(url.searchParams.get("week") || "")) ? String(url.searchParams.get("week")) : "";
   const currentWeek = isoWeekPeriod(nowKstDate());
-  const keys = { preference: freeReportPreferenceKey(hid), weekly: freeReportSnapshotKey(hid, "weekly", currentWeek), monthly: freeReportSnapshotKey(hid, "monthly", month), assets: paymentAssetsKey(hid), targets: cardTargetsKey(hid), reserve: reservePlansKey(hid) };
+  const keys = { preference: freeReportPreferenceKey(hid), weekly: freeReportSnapshotKey(hid, "weekly", currentWeek), monthly: freeReportSnapshotKey(hid, "monthly", month), assets: paymentAssetsKey(hid), targets: cardTargetsKey(hid), reserve: reservePlansKey(hid), policy: memberPolicySettingsKey(hid) };
   // 지난달·지지난달까지 한 번에 읽는다(비교 기준·정기 지출 후보·주간 창이 달을 넘는 경우). 설정 여섯 개는 한 질의로 받는다.
   const period = livingReportPeriod({ range, month, week, today: formatDate(nowKstDate()) });
   const historyStart = [`${addMonthsYm(month, -2)}-01`, period.prevStart, period.start].sort()[0];
@@ -18234,6 +18299,12 @@ async function handleFreeReportsPage(request, env, url) {
   try {
     if (settingsResult) { preference = parseReportPreferenceStrict(values.get(keys.preference)); targets = parseCardTargetsStrict(values.get(keys.targets)); }
   } catch { settingsUnavailable = true; }
+  // V22.9.43: 구성원 권한(기록만)은 같은 설정 질의로 읽는다. 구성원만 보며, 읽지 못하면 카드 실적 목표 폼을 숨긴다.
+  let memberCanChangeSettings = true;
+  if (String(ctx.selected.role || "").toLowerCase() === "member") {
+    try { memberCanChangeSettings = !!settingsResult && parseMemberPolicyValue(values.get(keys.policy)) !== MEMBER_POLICY_RECORD_ONLY; }
+    catch { memberCanChangeSettings = false; }
+  }
   const live = buildFreeReportSnapshot(ctx.rows, { householdId: hid, householdName: ctx.selected.name || "가계부", kind: "monthly", period: month });
   const weeklySnapshot = parseJsonSetting(values.get(keys.weekly), null);
   const monthlySnapshot = parseJsonSetting(values.get(keys.monthly), null);
@@ -18242,7 +18313,7 @@ async function handleFreeReportsPage(request, env, url) {
   const report = buildLivingReport({ month, range, week, historyRows, recurring: recurringResult.rows, assets, targets, reservePlans, historyAvailable: !historyLimited, recurringAvailable: recurringResult.available, settingsAvailable: !settingsUnavailable, today: formatDate(nowKstDate()) });
   // V22.9.40 (B): 광고는 그 기간 기록을 읽어 낸 리포트에만 둔다. 기록이 없거나 기간을 읽지 못한 화면은 광고 키를 받지 않는다.
   const adKey = report.currentAvailable && report.count > 0 ? "/reports" : "";
-  return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
+  return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, memberCanChangeSettings, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
 }
 
 async function handleCardTargetSave(request, env) {
@@ -18257,6 +18328,9 @@ async function handleCardTargetSave(request, env) {
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
   if (!canWriteMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=card_target_write_not_allowed#cards`);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 공동 설정인 카드 실적 목표를 바꾸지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(`${returnTo}&err=${policyError}#cards`);
   const assetId = String(form.get("asset_id") || "").trim().slice(0, 80);
   const rawTarget = String(form.get("target") || "").trim();
   const target = rawTarget === "" ? 0 : parseStrictAmount(rawTarget, { allowCommas: true });
@@ -18311,7 +18385,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const segment = `<div class="lrSeg noPrint" role="group" aria-label="리포트 기간 단위"><a href="${escapeHtml(hrefMonth)}"${range === "month" ? ' aria-current="true"' : ""}>월간</a><a href="${escapeHtml(hrefWeek)}"${range === "week" ? ' aria-current="true"' : ""}>주간</a></div>`;
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
   const flash = { card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }[msg];
-  const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
+  const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
   const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
   const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
   const daily = !report.currentAvailable ? `<section class="card" id="daily"><h2>날짜별 지출</h2><p>선택한 주의 날짜별 기록을 모두 불러온 뒤 표시합니다.</p></section>` : `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
@@ -18338,10 +18412,10 @@ function livingReportCopyMain() {
   });
 }
 
-function renderFreeReportsHtml({ env, month, selected, report, range = "month", week = "", live = {}, preference = {}, weeklySnapshot = null, monthlySnapshot = null, historyLimited = false, settingsUnavailable = false, adKey = "", msg = "", err = "" }) {
+function renderFreeReportsHtml({ env, month, selected, report, range = "month", week = "", live = {}, preference = {}, weeklySnapshot = null, monthlySnapshot = null, historyLimited = false, settingsUnavailable = false, memberCanChangeSettings = true, adKey = "", msg = "", err = "" }) {
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}`;
   const canManage = canManageMyHousehold(selected.role);
-  const canWrite = canWriteMyHousehold(selected.role) && !settingsUnavailable;
+  const canWrite = canWriteMyHousehold(selected.role) && !settingsUnavailable && memberCanChangeSettings !== false;
   const share = livingReportShareText(report, selected.name || "가계부");
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
   const parts = renderLivingReportSections({ report, selected, month, range, week, canWrite, msg, err });
@@ -20380,6 +20454,108 @@ function canManageMyRecord(role = "", row = {}, userId = "") {
   return canWriteMyHousehold(r) && String(row.user_id || "") === String(userId || "");
 }
 
+// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 자기 기록을 고치고 지운다,
+// V22.9.42까지와 같다)이다. 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
+// DB 역할 값(household_members.role)은 바꾸지 않는다. 역할 제약(V22.8.46) 밖의 새 역할을 만들지 않기 위해서다.
+const MEMBER_POLICY_RECORD_ONLY = "record_only";
+const MEMBER_POLICY_RECORD_EDIT = "record_edit";
+
+function memberPolicySettingsKey(householdId = "") {
+  return `household_member_policy_v22943:${String(householdId || "").trim()}`;
+}
+
+function parseMemberPolicyValue(value) {
+  const item = parseStrictSettingsObject(value, "household_member_policy");
+  if (!Object.keys(item).length) return MEMBER_POLICY_RECORD_EDIT;
+  if (item.version !== 1 || ![MEMBER_POLICY_RECORD_ONLY, MEMBER_POLICY_RECORD_EDIT].includes(item.mode)) throw settingsDataError("household_member_policy", "invalid_shape");
+  return item.mode;
+}
+
+// 읽기 실패와 모양이 틀린 값은 오류로 올린다. 부르는 쪽이 허용으로 넘어가지 않고 거절(막힌 쪽)로 처리한다.
+async function fetchHouseholdMemberPolicy(env, householdId = "") {
+  const hid = String(householdId || "").trim();
+  if (!hid) throw new Error("household_id_required");
+  const cache = env?.__AB_MEMBER_POLICY instanceof Map ? env.__AB_MEMBER_POLICY : null;
+  if (cache?.has(hid)) return cache.get(hid);
+  const mode = parseMemberPolicyValue(await getSettingValueStrict(env, memberPolicySettingsKey(hid)));
+  cache?.set(hid, mode);
+  return mode;
+}
+
+// 기록을 고치고 지우는 권한(자기 기록 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
+// 조회 전용·승인 대기·이용 제한은 원래부터 막혀 있다. 구성원만 정책을 한 번 읽는다.
+async function canChangeMyHouseholdRecords(env, role = "", householdId = "") {
+  const r = String(role || "").toLowerCase();
+  if (["owner", "admin"].includes(r)) return true;
+  if (r !== "member") return false;
+  return (await fetchHouseholdMemberPolicy(env, householdId)) !== MEMBER_POLICY_RECORD_ONLY;
+}
+
+// 홈 화면이 다른 설정과 함께 한 번에 읽은 값을 풀 때 쓴다. 깨진 값은 ‘기록만’으로 보고 단추를 숨긴다.
+function homeMemberPolicyValue(value) {
+  try { return parseMemberPolicyValue(value); } catch (_) { return MEMBER_POLICY_RECORD_ONLY; }
+}
+
+// 화면에서 수정·삭제 단추를 보일지 정할 때만 쓴다. 읽지 못하면 단추를 숨긴다(서버 경로는 따로 다시 확인한다).
+async function canChangeMyHouseholdRecordsForView(env, role = "", householdId = "") {
+  try { return await canChangeMyHouseholdRecords(env, role, householdId); }
+  catch (_) { return false; }
+}
+
+function memberPolicyLabel(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY ? "기록만" : "기록·수정";
+}
+
+function memberPolicyDescription(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY
+    ? "구성원은 새 기록만 남기고, 수정·삭제는 소유자·관리자가 해요."
+    : "구성원은 기록하고, 자기가 쓴 기록을 고치거나 지울 수 있어요.";
+}
+
+function memberRecordChangeMessage(code = "") {
+  return code === "member_policy_unavailable"
+    ? "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요."
+    : "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.";
+}
+
+// 기록을 고치거나 지우는 웹·API 경로가 쓰는 판정. ""이면 허용, 아니면 화면 오류 코드다.
+async function memberRecordChangeError(env, role = "", householdId = "") {
+  try { return (await canChangeMyHouseholdRecords(env, role, householdId)) ? "" : "member_record_only"; }
+  catch (_) { return "member_policy_unavailable"; }
+}
+
+// 소유자만 바꾼다. 가계부 잠금 안에서 역할을 다시 엄격하게 읽고 쓰며, 삭제된 가계부에는 쓰지 않는다.
+// 저장된 값이 깨져 있으면 소유자가 고른 새 값으로 덮어 고친다.
+async function saveHouseholdMemberPolicy(env, householdId = "", actorUserId = "", mode = "") {
+  const hid = String(householdId || "").trim();
+  const actor = String(actorUserId || "").trim();
+  if (!hid || !actor || ![MEMBER_POLICY_RECORD_ONLY, MEMBER_POLICY_RECORD_EDIT].includes(mode)) return { ok: false, error: "member_policy_invalid" };
+  return withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+    const rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&user_id=eq.${encodeURIComponent(actor)}&select=role`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("member_policy_role_source_invalid");
+    if (bestRoleFromRows(rows) !== "owner") return { ok: false, error: "member_policy_owner_only" };
+    const key = memberPolicySettingsKey(hid);
+    let current = "";
+    try { current = parseMemberPolicyValue(await getSettingValueStrict(env, key)); } catch (err) { if (err?.code !== "settings_data_invalid") throw err; }
+    if (current !== mode) {
+      assertFresh();
+      await saveSettingValue(env, key, JSON.stringify({ version: 1, mode, updated_by: actor, updated_at: new Date().toISOString() }));
+    }
+    if (env?.__AB_MEMBER_POLICY instanceof Map) env.__AB_MEMBER_POLICY.set(hid, mode);
+    return { ok: true, mode, unchanged: current === mode };
+  }, { missingHousehold: "noop", missingResult: { ok: false, error: "member_policy_household_missing" } });
+}
+
+function memberRecordOnlyRefusalText(householdName = "") {
+  return `‘${householdName || "이 가계부"}’는 소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 고치거나 지울 수 없어요. 고칠 내용은 소유자나 관리자에게 알려 주세요.`;
+}
+
+function memberPolicyJoinLine(mode = "") {
+  return mode === MEMBER_POLICY_RECORD_ONLY
+    ? "내 권한: 기록만 (수정·삭제는 소유자·관리자가 해요)"
+    : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
+}
+
 async function getMySelectedHousehold(env, userId, householdId = "") {
   const memberships = await fetchUserHouseholds(env, userId);
   const households = memberships.filter((h) => canReadMyHousehold(h.role));
@@ -20554,6 +20730,9 @@ async function handleMyUpdateTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   const transactionDate = String(form.get("transaction_date") || row.transaction_date || formatDate(nowKstDate())).trim();
   const amount = parseMyAmount(form);
   if (!amount || amount <= 0) return redirectResponse(myReturnLocation(month, selected.id, { err: "amount_required" }));
@@ -20601,6 +20780,9 @@ async function handleMyDeleteTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
     await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));
@@ -20658,6 +20840,10 @@ function householdPageMessage(code = "") {
     household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.",
     join_request_cancelled: "참여 요청을 취소했습니다. 다시 참여하려면 초대코드를 다시 입력하세요.",
     join_cancel_failed: "참여 요청을 취소하지 못했습니다. 승인 대기 상태는 그대로입니다.",
+    // V22.9.43: 참여자 화면의 구성원 권한(기록만/기록·수정) 저장 결과.
+    member_policy_saved: "구성원 권한을 저장했습니다. 새로 참여하는 사람과 기존 구성원 모두에게 바로 적용됩니다.",
+    member_policy_owner_only: "구성원 권한은 가계부 소유자만 바꿀 수 있습니다.",
+    member_policy_failed: "구성원 권한을 저장하지 못했습니다. 기존 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
   };
   return map[String(code || "")] || formatMessage(code || "");
 }
@@ -20932,6 +21118,9 @@ async function purgeHouseholdData(env, householdId = "") {
       try { await supabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${prefix}:${hid}:*`)}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}); }
       catch(error) { rememberOpsEvent({kind:"household_preference_cleanup_pending",severity:"warn",path:"/my/household/delete",method:"POST",detail:safeError(error)}); }
     }
+    // V22.9.43: 가계부마다 하나인 구성원 권한 줄도 지운다(소유자 사용자 ID 가 남지 않게).
+    try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(memberPolicySettingsKey(hid))}`, {method:"DELETE",headers:{Prefer:"return=minimal"}}); }
+    catch(error) { rememberOpsEvent({kind:"household_preference_cleanup_pending",severity:"warn",path:"/my/household/delete",method:"POST",detail:safeError(error)}); }
   }
 
   // Relational data is already committed atomically. External lookup mappings
@@ -21184,6 +21373,8 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   const keys = [memberAliasSettingsKey(householdId), reportChallengeSettingsKey(householdId)];
   if (options.includeReserve) keys.push(reservePlansKey(householdId));
   if (options.includePayment) keys.push(paymentAssetsKey(householdId));
+  // V22.9.43: 구성원 세션이면 구성원 권한(기록만/기록·수정)도 같은 질의로 읽는다(추가 조회 없음). 화면 단추에만 쓴다.
+  if (options.includeMemberPolicy) keys.push(memberPolicySettingsKey(householdId));
   const params = new URLSearchParams();
   params.set("key", `in.(${[...new Set(keys)].join(",")})`);
   params.set("select", "key,value");
@@ -21195,6 +21386,7 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
     reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
+    memberPolicy: options.includeMemberPolicy ? homeMemberPolicyValue(values.get(memberPolicySettingsKey(householdId))) : "",
   };
 }
 
@@ -26603,13 +26795,14 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
-  const appCanEditRow = (r) => appIsManager || (appCanWrite && sessionUserId && String(r.user_id || "") === String(sessionUserId));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록에도 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
+  const appCanEditRow = (r) => appIsManager || (appCanWrite && memberCanChangeRecords && sessionUserId && String(r.user_id || "") === String(sessionUserId));
   const householdId = selectedHousehold?.id || "";
   const filterType = mobileFilters.type === "income" ? "income" : mobileFilters.type === "expense" ? "expense" : "all";
   const filterQ = String(mobileFilters.q || "").trim();
@@ -27094,7 +27287,7 @@ async function handleMobileV8Page(request, env, url) {
   const canLoadWriteOptions = !!selectedHousehold && (adminOk || canWriteMyHousehold(String(selectedHousehold.role || "")));
   const includeReserve = !!selectedHousehold && month === currentMonthKst();
   const homeSettingsPromise = selectedHousehold
-    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions })
+    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions, includeMemberPolicy: !adminOk && String(selectedHousehold?.role || "").toLowerCase() === "member" })
     : Promise.resolve({ aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} });
   // V22.8.94 (8.4): 홈 구성은 (가계부·사용자)별 설정 한 줄이다. 읽지 못해도 홈은
   // 기본 순서로 그려야 하므로 실패를 삼킨다 — 설정 조회가 홈을 막을 이유는 없다.
@@ -27166,7 +27359,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: [], meme: null, categoryOptions, paymentOptions, msg, err, mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend: monthlyTrendRows, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY })));
 }
 
 async function handleBudgetSave(request, env) {
@@ -29322,7 +29515,8 @@ function formatMessage(msg) {
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
   if (friendly[msg]) return escapeHtml(friendly[msg]);
-  const map = { no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
+  const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
+    no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
     db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
@@ -31305,6 +31499,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (!canWriteMyHousehold(currentRole)) {
       return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요. 가계부 관리자에게 권한을 확인한 뒤 ‘오늘 기록 보기’부터 다시 시작해 주세요.", null);
     }
+    // V22.9.43: 세션을 연 뒤 소유자가 구성원 권한을 ‘기록만’으로 바꿨어도 반영 직전에 다시 본다.
+    const refusal = await kakaoRecordChangeRefusalTextV4(env, { id: session.householdId, name: session.householdName }, currentRole);
+    if (refusal) return sendKakaoEditReplyV4(env, ctx, session, refusal, null);
   }
   if (result?.action === "apply") {
     const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole });
@@ -31400,11 +31597,27 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
 
+// V22.9.43: 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서 구성원은 기록을 고치거나 지우거나 되살리지 못한다.
+// 권한을 읽지 못하면 아무것도 바꾸지 않는다(막힌 쪽). 소유자·관리자는 정책을 읽지 않는다.
+async function kakaoRecordChangeRefusalTextV4(env, household = {}, role = "") {
+  try {
+    if (await canChangeMyHouseholdRecords(env, role, household?.id)) return "";
+  } catch (_) {
+    return "기록 수정 권한을 확인하지 못해 아무것도 바꾸지 않았어요. 잠시 후 다시 보내 주세요.";
+  }
+  return memberRecordOnlyRefusalText(household?.name);
+}
+
 // 3장 1·2단계 + 조회·복구: 최상위 수정 관련 명령 라우터.
 // 어떤 이해 실패도 메뉴 재출력으로 이어지지 않는다(I8) — 실패는 모듈 fail 경로뿐.
 async function handleKakaoEditCommandV4(env, ctx) {
   const { utterance, household, user, kakaoUserKey, payload, origin } = ctx;
   const raw = normalizeText(utterance);
+  // 고치기·지우기·되살리기 명령으로 확인된 뒤에만 권한을 읽는다(조회·안내는 그대로).
+  const refuseRecordChange = async () => {
+    const text = await kakaoRecordChangeRefusalTextV4(env, household, ctx.role);
+    return text ? kakaoText(text) : null;
+  };
 
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
@@ -31421,6 +31634,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
   if (restoreTarget) {
     if (restoreTarget.invalidSeq) return kakaoText(kakaoEditTargetRejectTextV4({ seq: 0 }));
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     let outcome = null;
     try {
       // S1·T4: 버퍼 읽기·복구·버퍼 정리를 한 잠금 안에서 한다. 겹친 두 "복구"가 같은 기록을 두 번 넣지 못한다.
@@ -31475,6 +31689,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (deleteTarget) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
     try {
@@ -31491,6 +31706,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (editTarget) {
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget));
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest });
@@ -32055,7 +32271,7 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
     if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
     if (action === "bind") {
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, chosen.invite_code || "");
-      if (result.ok) return { text: `✅ 단톡방 연결 완료\n가계부: ${chosen.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.`, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+      if (result.ok) return { text: await kakaoRoomBindDoneText(env, chosen), quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
       return { text: "단톡방 연결을 완료하지 못했어요. 초대코드를 확인해 주세요.", quickReplies: [["연결 방법", "단톡방 연결"]] };
     }
   }
@@ -32127,8 +32343,8 @@ function guidedHelpText(hasHousehold = false) {
     "📒 말해가계부 시작하기",
     "",
     "1. 새 가계부를 만들거나 초대코드로 참여합니다.",
-    "2. 만든 사람은 초대하고, 참여자는 관리자 승인을 기다립니다.",
-    "3. 단톡방에서 쓸 경우 소유자·관리자 한 명이 초대코드로 연결합니다.",
+    "2. 초대코드로 참여하면 관리자 승인을 기다립니다.",
+    "3. 단톡방에서는 봇에게 거래를 보내면 그 방 가계부에 승인 없이 참여합니다. 기존 가계부를 쓰려면 소유자·관리자가 초대코드로 연결합니다.",
     "4. 기록 예시를 확인한 뒤 ‘점심 12000원 국민카드’처럼 첫 기록을 남깁니다.",
     "5. ‘오늘 기록 보기’로 저장 결과를 확인합니다. 예산은 이후에 설정해도 됩니다.",
   ].join("\n");
@@ -32501,6 +32717,29 @@ async function kakaoTotalBudgetNote(env, householdId, month) {
   } catch (_) { return ""; }
 }
 
+// V22.9.43: "구성원 권한" 보기와 "구성원 권한 기록만/기록 수정" 바꾸기. 단톡방이면 그 방에 연결된 가계부, 1:1 이면 선택한 가계부가 대상이다.
+// 바꾸기는 소유자만 한다. 저장 결과를 확인하지 못하면 바뀌었다고 말하지 않는다.
+async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "", command = {} } = {}) {
+  const name = household.name || "가계부";
+  const ownerOnly = `구성원 권한은 ‘${name}’ 소유자만 바꿀 수 있어요.`;
+  if (command.mode) {
+    if (String(role || "").toLowerCase() !== "owner") return ownerOnly;
+    let result;
+    try { result = await saveHouseholdMemberPolicy(env, household.id, user.id, command.mode); }
+    catch (_) { return "구성원 권한을 저장하지 못했어요. 기존 권한은 그대로예요. 잠시 후 다시 보내 주세요."; }
+    if (!result?.ok) return result?.error === "member_policy_owner_only" ? ownerOnly : "구성원 권한을 저장하지 못했어요. 기존 권한은 그대로예요.";
+    return [`✅ ‘${name}’ 구성원 권한: ${memberPolicyLabel(result.mode)}`, memberPolicyDescription(result.mode)].join("\n");
+  }
+  let mode = "";
+  try { mode = await fetchHouseholdMemberPolicy(env, household.id); }
+  catch (_) { return "구성원 권한을 확인하지 못했어요. 잠시 후 다시 보내 주세요."; }
+  return [
+    `👥 ‘${name}’ 구성원 권한: ${memberPolicyLabel(mode)}`,
+    memberPolicyDescription(mode),
+    String(role || "").toLowerCase() === "owner" ? "바꾸려면 ‘구성원 권한 기록만’ 또는 ‘구성원 권한 기록 수정’이라고 보내 주세요." : "소유자만 바꿀 수 있어요.",
+  ].join("\n");
+}
+
 
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
@@ -32528,7 +32767,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, target.invite_code || "", { allowReplace: true });
       if (result.ok) {
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: `✅ 단톡방 연결 완료\n가계부: ${target.name}\n\n이제 이 방의 기록은 이 가계부에만 저장됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+        return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
       }
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] };
@@ -32577,7 +32816,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
       if (current?.id && String(current.id) === String(chosen.id)) return { text: `이 단톡방은 이미 ‘${chosen.name}’ 가계부에 연결되어 있어요.`, quickReplies: kakaoStartQuickReplies(true) };
       await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: groupKey, target_household_id: chosen.id, current_household_id: current?.id || "" } });
-      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${current.name}` : "현재: 연결되지 않음", `변경: ${chosen.name}`, "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${current.name}` : "현재: 연결되지 않음", `변경: ${chosen.name}`, kakaoRoomBindConfirmLine(chosen.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
     }
   }
   if (state.flow === "create_household") {
@@ -33008,7 +33247,7 @@ async function handleKakaoSkill(request, env) {
 
   const bypassPublic = isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
-    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance);
+    isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance) || !!parseKakaoMemberPolicyCommand(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
   const botGroupKey = getKakaoBotGroupKey(payload);
@@ -33082,9 +33321,13 @@ async function handleKakaoSkill(request, env) {
       if (!linkedGroupHousehold?.id) {
         return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
       }
-      const membership = active.find((h) => String(h.id) === String(linkedGroupHousehold.id));
-      const linked = { ...linkedGroupHousehold, role: membership?.role || "pending" };
-      return kakaoText([`📒 이 단톡방 연결 가계부: ${linked.name}`, `내 권한: ${userHouseholdRoleLabel(linked.role)}`, "", "이 방의 기록·예산·요약은 이 가계부 기준으로만 처리합니다."].join("\n"), kakaoStartQuickReplies(true));
+      // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
+      const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
+      const myRole = String(membership?.role || "");
+      const roleLine = !myRole ? "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요"
+        : myRole === "pending" ? `내 권한: ${userHouseholdRoleLabel(myRole)} · 이 방에서 거래를 한 번 보내면 바로 참여해요`
+          : `내 권한: ${userHouseholdRoleLabel(myRole)}`;
+      return kakaoText([`📒 이 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, roleLine, "", "이 방의 기록·예산·요약은 이 가계부 기준으로만 처리합니다."].join("\n"), kakaoStartQuickReplies(true));
     }
     if (!active.length) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
     const current = active.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
@@ -33161,12 +33404,12 @@ async function handleKakaoSkill(request, env) {
       if (result.error === "not_allowed_current") return kakaoText(`이 단톡방은 현재 ‘${result.current?.name || "다른 가계부"}’에 연결되어 있어요. 연결을 바꾸려면 현재 연결 가계부와 새 가계부 양쪽에서 소유자 또는 관리자 권한이 필요해요.`);
       if (result.error === "replace_confirmation_required") {
         await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: botGroupKey, target_household_id: result.household?.id || "", current_household_id: result.current?.id || "" } });
-        return kakaoText(["단톡방 연결을 변경할까요?", result.current?.name ? `현재: ${result.current.name}` : "현재: 연결되지 않음", `변경: ${result.household?.name || "가계부"}`, "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
+        return kakaoText(["단톡방 연결을 변경할까요?", result.current?.name ? `현재: ${result.current.name}` : "현재: 연결되지 않음", `변경: ${result.household?.name || "가계부"}`, kakaoRoomBindConfirmLine(result.household?.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
       }
       return kakaoText("단톡방 연결을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
     if (result.already_linked) return kakaoText(`이 단톡방은 이미 ‘${result.household.name}’ 가계부에 연결되어 있어요.`, kakaoStartQuickReplies(true));
-    return kakaoText(`✅ 단톡방 연결 완료\n가계부: ${result.household.name}\n\n이제 이 방에서 구성원들이 함께 기록하고 조회할 수 있어요.`, [["기록 방법", "기록 방법"], ["예산 설정", "예산 설정"], ["이번 달 요약", "이번 달 요약"]]);
+    return kakaoText(await kakaoRoomBindDoneText(env, result.household), [["기록 방법", "기록 방법"], ["예산 설정", "예산 설정"], ["이번 달 요약", "이번 달 요약"]]);
   }
 
   if (!strongTransactionInput && isGroupLinkInfoCommand(utterance)) {
@@ -33235,7 +33478,8 @@ async function handleKakaoSkill(request, env) {
     [households, selectedHouseholdId] = await Promise.all([fetchUserHouseholds(env, user.id), getKakaoSelectedHouseholdId(env, user.id)]);
     activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
   }
-  if (!households.length) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  // V22.9.43: 연결된 단톡방에서는 가계부가 하나도 없는 사람도 아래 방 분기에서 ‘거래 한 번이면 참여’ 안내를 받는다.
+  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
 
   let household = null;
   let accessRole = "";
@@ -33250,7 +33494,8 @@ async function handleKakaoSkill(request, env) {
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
     accessRole = membership?.role || "";
-    if (!accessRole) return kakaoText("\uC774 \uBC29\uC758 \uAC00\uACC4\uBD80\uC5D0 \uCC38\uC5EC\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uAC1C\uC778 \uB300\uD654\uC5D0\uC11C \uCD08\uB300\uCF54\uB4DC\uB85C \uCC38\uC5EC\uD574 \uC8FC\uC138\uC694.");
+    // V22.9.43: \uC5F0\uACB0\uB41C \uBC29\uC740 \uC2B9\uC778 \uC5C6\uC774 \uAC70\uB798 \uD55C \uBC88\uC73C\uB85C \uCC38\uC5EC\uD55C\uB2E4(group-links-first-record.js). \uAE30\uB85D\uC774 \uC544\uB2CC \uB9D0\uC5D0\uB294 \uADF8 \uBC29\uBC95\uC744 \uC54C\uB9B0\uB2E4.
+    if (!accessRole) return kakaoText("\uC774 \uBC29\uC758 \uAC00\uACC4\uBD80\uC5D0 \uC544\uC9C1 \uCC38\uC5EC\uD558\uC9C0 \uC54A\uC558\uC5B4\uC694. \uC774 \uBC29\uC5D0\uC11C \u2018\uCEE4\uD53C 4500\u2019\uCC98\uB7FC \uAC70\uB798\uB97C \uD55C \uBC88 \uBCF4\uB0B4\uBA74 \uC790\uB3D9\uC73C\uB85C \uCC38\uC5EC\uD574\uC694. \uC774 \uAC00\uACC4\uBD80\uC5D0\uC11C \uB098\uAC04 \uC801\uC774 \uC788\uB2E4\uBA74 \uAC1C\uC778 \uB300\uD654\uC5D0\uC11C \uCD08\uB300\uCF54\uB4DC\uB85C \uB2E4\uC2DC \uCC38\uC5EC\uD574 \uC8FC\uC138\uC694.");
   } else {
     household = activeHouseholds.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
     if (!household && selectedHouseholdId) await clearKakaoSelectedHousehold(env, user.id);
@@ -33280,6 +33525,10 @@ async function handleKakaoSkill(request, env) {
       || isHouseholdSwitchCommand(utterance);
     if (!viewerReadCommand) return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
+
+  // V22.9.43: 구성원 권한(기록만/기록·수정) 보기·바꾸기. 바꾸기는 소유자만 한다(kakaoMemberPolicyReply).
+  const memberPolicyCommand = strongTransactionInput ? null : parseKakaoMemberPolicyCommand(utterance);
+  if (memberPolicyCommand) return kakaoText(await kakaoMemberPolicyReply(env, { household, user, role: accessRole, command: memberPolicyCommand }));
 
   // V22.1: 짧고 모호한 표현은 임의 실행하지 않고 관련 선택지로 한 번만 명확화합니다.
   const ambiguityReply = kakaoAmbiguityGuide(utterance, origin);
@@ -33327,7 +33576,7 @@ async function handleKakaoSkill(request, env) {
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
   if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
-  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin });
+  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
   if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
@@ -33369,7 +33618,8 @@ ${formatRecentTransactions(rows)}`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
-  return await saveKakaoParsedTransactionsReply(env, { household, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
+  // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
+  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
 }
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
@@ -33393,7 +33643,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (settled[0].status === "rejected") throw settled[0].reason;
   if (settled[1].status === "rejected") throw settled[1].reason;
   if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
-  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, pendingWrite} = settled[0].value;
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
@@ -33442,7 +33692,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
       const memo = row.memo || row.raw_text || row.category || "기록";
       return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
     });
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.${finalizeNotice}`);
+    const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
+      ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.";
+    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -33458,13 +33710,17 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
   // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
   const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);
-  const editGuide = seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
+  // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.
+  const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
+  const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
+    : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
   return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
 async function fetchKakaoInputSettings(env, householdId, userId = "") {
-  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
+  // V22.9.43: 구성원 권한(기록만/기록·수정)도 같은 한 번의 조회로 읽는다. 저장 안내의 수정·삭제 문구에만 쓰고 저장 자체는 막지 않는다.
+  const keys=[categoryKeywordsSettingsKey(householdId),categorySettingsKey(householdId),paymentAssetsKey(householdId),memberAliasSettingsKey(householdId),memberPolicySettingsKey(householdId),...(userId ? [kakaoPendingWriteKey(householdId, userId)] : [])];
   const settingsPromise=supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, {method:"GET"});
   // V22.9.36: 분류 표(accountbook_categories)는 운영 DB 에 없는 선택 표다(/ready 의 unavailable_optional_tables).
   // 웹 경로(fetchCustomCategories)는 표 조회 실패를 설정에 저장된 분류로 대체하지만, V22.9.30 부터 이 함수는
@@ -33477,7 +33733,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
   const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
-  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),pendingWrite:keys[4] ? parseKakaoPendingWrite(values.get(keys[4])) : null};
+  let memberPolicy="";
+  try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
@@ -33745,12 +34003,14 @@ async function handleUserDayTransactions(request, env, url) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
   const month = date.slice(0, 7);
-  const [members, rawRows] = await Promise.all([
+  const role = String(household.role || "").toLowerCase();
+  // V22.9.43: 구성원 권한(기록만)은 같은 단계에서 함께 읽는다. 구성원일 때만 조회하고, 읽지 못하면 수정·삭제 단추를 끈다.
+  const [members, rawRows, recordChangeAllowed] = await Promise.all([
     fetchHouseholdMembers(env, household.id),
     fetchAdminRows(env, { month, householdId: household.id, type: "all", date }),
+    scope.adminOk ? true : canChangeMyHouseholdRecordsForView(env, role, household.id),
   ]);
   const rows = await attachSpenderNamesWithHistory(env, rawRows, members);
-  const role = String(household.role || "").toLowerCase();
   const canWrite = !!scope.adminOk || canWriteMyHousehold(role);
   const canManageSpender = !!scope.adminOk || canManageMyHousehold(role);
   const activeMembers = safeArray(members).filter(memberCanBeSpender);
@@ -33762,7 +34022,7 @@ async function handleUserDayTransactions(request, env, url) {
   }
   const displayLimit = 250;
   const items = rows.slice(0, displayLimit).map((row) => {
-    const canEdit = canWrite && (!!scope.adminOk || canManageMyRecord(role, row, scope.userId));
+    const canEdit = canWrite && recordChangeAllowed && (!!scope.adminOk || canManageMyRecord(role, row, scope.userId));
     return {
       id: String(row.id || ""),
       user_id: String(row.user_id || ""),
@@ -34091,11 +34351,13 @@ async function handleUserGoals(request, env, url) {
     return jsonResponse({ ok: false, error: "no_household", reason: "no_household", message: "가계부를 찾지 못했습니다." }, 404);
   }
   const canWrite = scope.scope === "admin" || canWriteMyHousehold(household.role);
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 구성원은 공동 목표를 바꾸지 못한다. 권한을 읽지 못해도 바꾸지 않는다.
+  const policyError = scope.scope === "admin" || !canWrite ? "" : await memberRecordChangeError(env, household.role, household.id);
   const key = goalsKey(household.id);
   if (method !== "POST") {
     try {
       const list = normalizeGoalList(parseJsonArraySettingStrict(await getSettingValueStrict(env, key), "goal_settings_json_invalid"));
-      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite });
+      return jsonResponse({ ...goalsPayload(household.id, list), can_write: canWrite && !policyError });
     } catch (err) {
       rememberOpsEvent({ kind: "goal_settings_read_failed", severity: "warn", path: "/u/api/goals", method: "GET", detail: `${household.id}:${safeError(err)}` });
       return jsonResponse({ ok: false, error: "read_failed", reason: "goal_read_failed", message: "목표를 불러오지 못했습니다. 기존 목표는 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 503);
@@ -34103,6 +34365,9 @@ async function handleUserGoals(request, env, url) {
   }
   if (!canWrite) {
     return jsonResponse({ ok: false, error: "forbidden", reason: "viewer_read_only", message: "조회 전용 참여자는 목표를 변경할 수 없습니다." }, 403);
+  }
+  if (policyError) {
+    return jsonResponse({ ok: false, error: "forbidden", reason: policyError, message: memberRecordChangeMessage(policyError) }, 403);
   }
   try {
     // V22.9.34 감사 S9: 목표 저장은 가계부 설정 잠금(가계부 삭제와 같은 잠금)을 쓴다. 따로 쓰던 goals-write
@@ -34543,8 +34808,8 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           // V22.9.37 감사 H6: 저장소가 분명히 거절(4xx)한 POST 는 아무것도 쓰지 않았다. 단계를 한 칸 되돌려 다음 메시지가 같은
           // 고정 ID 로 다시 시도하게 한다. 결과를 모르는 실패는 예전처럼 단계를 남기고 고정 대상만 재조회한다(새 UUID·보상 삭제 없음).
           const rollbackPhase = async previous => { try { await phase(previous); } catch (_) {} };
-          const rollbackMemberAttempt = async () => {
-            try { assertFresh(); await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(snapshot.keys.member)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
+          const rollbackMemberAttempt = async key => {
+            try { assertFresh(); await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
           };
           if (preparing) {
             if (!household) {
@@ -34612,34 +34877,61 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             assertFresh();
             snapshot.done = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.done, { ...marker, phase: "complete" }), groupKey, true);
             await phase("complete");
-            if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n\n";
+            if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n참여자 권한: 기록·수정 (기록만 허용하려면 ‘구성원 권한 기록만’)\n\n";
           }
-          let roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" });
+          const roleRowsPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`;
+          let roleRows = await supabase(env, roleRowsPath, { method: "GET" });
           strictKakaoGroupMembershipRows(roleRows);
           let role = bestRoleFromRows(roleRows);
-          const automaticRoom = !snapshot.retired && snapshot.done?.candidate_id === householdId && snapshot.link.household_id === snapshot.done.candidate_id;
-          if (!role && automaticRoom) {
-            if (snapshot.departures.households[await sha256Hex(householdId)]) return kakaoText("이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
+          // V22.9.43: 승인 단계를 없앴다. 가계부에 연결된 방이면(첫 기록으로 준비한 방이든 초대코드로 직접 연결한 방이든)
+          // 그 방에서 거래를 보낸 사람은 그 자리에서 구성원이 되고, 승인 대기(pending)도 같은 방에서 기록하면 구성원이 된다.
+          // 조회 전용·이용 제한은 소유자가 정한 권한이라 그대로 둔다. 이 가계부에서 나갔거나 내보내진 사람은 자동으로 다시 넣지 않는다.
+          // 구성원이 기록을 고치고 지울 수 있는지는 소유자가 정한 구성원 권한(기록만/기록·수정)이 정한다.
+          const departed = !!snapshot.departures.households[await sha256Hex(householdId)];
+          let joinedNow = false;
+          if (!role && departed) return kakaoText("이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
+          if (!role) {
+            // 결과를 모르는 참여 POST 는 다시 보내지 않는다. 표식은 방·사용자·가계부마다 하나라 방을 다른 가계부로 다시 연결해도 막히지 않는다.
+            // V22.9.31 표식(방·사용자마다 하나)이 같은 가계부를 가리키면 예전처럼 결과를 모르는 상태로 본다.
+            const memberAttemptKey = `kakao_group_member_attempt_v22943:${snapshot.keys.hash}:${await sha256Hex(String(user.id))}:${await sha256Hex(householdId)}`;
             if (Object.keys(snapshot.member).length && snapshot.member.household_id === householdId) throw kakaoGroupPreparationUnknown();
             assertFresh();
-            const attempt = parseStrictSettingsObject(await insertKakaoGroupFirstSetting(env, snapshot.keys.member, { version: 1, user_id: String(user.id), household_id: householdId, phase: "member_sent" }, { requireInserted: true }), "kakao_group_member_attempt");
+            const attempt = parseStrictSettingsObject(await insertKakaoGroupFirstSetting(env, memberAttemptKey, { version: 1, user_id: String(user.id), household_id: householdId, phase: "member_sent" }, { requireInserted: true }), "kakao_group_member_attempt");
             if (attempt.household_id !== householdId || attempt.user_id !== String(user.id)) throw new Error("kakao_group_member_attempt_conflict");
             assertFresh();
             let writeError;
             try { await supabase(env, "/rest/v1/household_members?on_conflict=household_id,user_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ household_id: householdId, user_id: user.id, role: "member" }) }); }
             catch (err) { writeError = err; }
             assertFresh();
-            try { roleRows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`, { method: "GET" }); }
-            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackMemberAttempt(); throw readErr; }
+            try { roleRows = await supabase(env, roleRowsPath, { method: "GET" }); }
+            catch (readErr) { if (writeError && !isDefiniteStorageFailure(writeError)) throw kakaoGroupPreparationUnknown(writeError); if (writeError) await rollbackMemberAttempt(memberAttemptKey); throw readErr; }
             strictKakaoGroupMembershipRows(roleRows);
             role = bestRoleFromRows(roleRows);
             if (!role) {
-              if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackMemberAttempt(); throw writeError; }
+              if (writeError && isDefiniteStorageFailure(writeError)) { await rollbackMemberAttempt(memberAttemptKey); throw writeError; }
               throw kakaoGroupPreparationUnknown(writeError);
             }
-            firstNotice = "이 방의 공동 가계부에 참여했어요.\n같은 방의 참여자들이 함께 기록을 사용해요.\n\n";
+            joinedNow = true;
+          } else if (role === "pending" && !departed) {
+            // 승인 대기 행만 고치는 조건부 PATCH 라 다시 보내도 이미 바뀐 행(조회 전용·이용 제한 등)은 건드리지 않는다.
+            assertFresh();
+            let writeError;
+            try { await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&role=eq.pending`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ role: "member" }) }); }
+            catch (err) { writeError = err; }
+            assertFresh();
+            roleRows = await supabase(env, roleRowsPath, { method: "GET" });
+            strictKakaoGroupMembershipRows(roleRows);
+            role = bestRoleFromRows(roleRows);
+            if (role === "pending") throw writeError || new Error("kakao_group_pending_promotion_not_applied");
+            joinedNow = role === "member";
           }
-          if (!role) return kakaoText("이 방의 가계부에 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 개인 대화에서 초대코드로 참여해 주세요.");
+          if (joinedNow) {
+            let policy = "";
+            try { policy = await fetchHouseholdMemberPolicy(env, householdId); } catch (_) {}
+            const automaticRoom = !snapshot.retired && snapshot.done?.candidate_id === householdId && snapshot.link.household_id === snapshot.done.candidate_id;
+            firstNotice = `${automaticRoom ? "이 방의 공동 가계부에 참여했어요." : `이 방에 연결된 ‘${household.name}’ 가계부에 참여했어요.`}\n같은 방의 참여자들이 함께 기록을 사용해요.\n${policy ? `${memberPolicyJoinLine(policy)}\n` : ""}\n`;
+          }
+          if (!role) throw new Error("kakao_group_member_missing");
           if (!["owner", "admin", "member"].includes(role)) return kakaoText(roleBlockedMessage(role, household.name));
           if (firstNotice) { assertFresh(); await markKakaoChatFirstHistory(env, user.id); }
           return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, assertFresh, onSaved: async () => { recordSaved = true; } });
@@ -34941,11 +35233,29 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     "👥 단톡방 연결 상태",
     "",
     `연결 가계부: ${household.name}`,
-    role ? `내 권한: ${role}` : "",
+    role ? `내 권한: ${userHouseholdRoleLabel(role)}` : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요",
     "",
     "이 방에서 입력한 지출/수입은 연결된 가계부에 기록됩니다.",
     "예: 점심 12000원 국민카드",
   ].filter(Boolean).join("\n");
+}
+
+// V22.9.43: 방 연결은 이제 그 방에서 거래를 보내는 참여자 모두에게 가계부를 여는 일이다. 연결을 확인할 때와
+// 마쳤을 때 그 사실과 현재 구성원 권한을 함께 알린다.
+function kakaoRoomBindConfirmLine(householdName = "") {
+  return `연결하면 이 방에서 거래를 보내는 참여자는 승인 없이 ‘${householdName || "이 가계부"}’ 구성원이 돼요.`;
+}
+
+async function kakaoRoomBindDoneText(env, household = {}) {
+  let policy = "";
+  try { policy = household?.id ? await fetchHouseholdMemberPolicy(env, household.id) : ""; } catch (_) {}
+  return [
+    "✅ 단톡방 연결 완료",
+    `가계부: ${household?.name || "가계부"}`,
+    "",
+    "이제 이 방의 기록은 이 가계부에만 저장되고, 이 방에서 거래를 보내는 참여자는 승인 없이 구성원이 돼요.",
+    ...(policy ? [`구성원 권한: ${memberPolicyLabel(policy)} · 소유자가 ‘구성원 권한’으로 바꿀 수 있어요`] : []),
+  ].join("\n");
 }
 
 function maskIdentityKey(value = "") {
@@ -35651,6 +35961,18 @@ function parseJoinCode(text) {
 // V22.9.37 감사 H15: 승인 대기 중인 사람이 자기 참여 요청을 거두는 말. "취소" 한 마디는 수정 세션·단계 흐름 취소와 겹치므로 받지 않는다.
 function isJoinCancelCommand(text = "") {
   return /^(?:가계부\s*)?(?:참여|가입|참여\s*요청|참여\s*신청|승인\s*대기|승인\s*요청)\s*(?:취소|철회)(?:해줘|해\s*주세요|할래|하기)?$/.test(normalizeText(text));
+}
+
+// V22.9.43: 소유자가 구성원 권한을 보고 정하는 말. "구성원 권한"은 보기, "구성원 권한 기록만"·"구성원 권한 기록 수정"은 바꾸기.
+// 금액이 없는 짧은 고정 문장만 받는다. 알아듣지 못한 뒷말은 바꾸지 않고 보기로 돌린다.
+function parseKakaoMemberPolicyCommand(text = "") {
+  const m = normalizeText(text).trim().match(/^(?:구성원|참여자|멤버)\s*권한(?:\s*(?:설정|변경|보기|확인))?(?:\s+(.+))?$/);
+  if (!m) return null;
+  const rest = String(m[1] || "").replace(/[\s·.,!~]+/g, "");
+  if (!rest) return { show: true };
+  if (/^(?:기록만|기록전용|기록만허용|기록만가능)(?:으로|로)?(?:해줘|해주세요|바꿔줘|변경)?$/.test(rest)) return { mode: "record_only" };
+  if (/^(?:기록수정|기록과수정|기록및수정|수정허용|수정가능|수정까지|수정까지허용|기록수정허용|기록수정가능)(?:으로|로)?(?:해줘|해주세요|바꿔줘|변경)?$/.test(rest)) return { mode: "record_edit" };
+  return { show: true, unknown: true };
 }
 
 function isHelpCommand(text) {
