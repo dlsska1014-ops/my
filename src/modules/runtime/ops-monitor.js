@@ -2,7 +2,7 @@
 import { rememberOpsEvent } from "./ops-telemetry.js";
 import { HTML_HEADERS } from "./config-readiness.js";
 import { constantTimeTextEqual, htmlResponse, jsonResponse, redirectResponse } from "./http.js";
-import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { adminLoginLocation, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -116,7 +116,7 @@ async function abMonitorDatabaseProbe(request, env) {
 }
 
 async function handleComprehensiveMonitor(request, env, url) {
-  if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse("/admin-view") : jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse(adminLoginLocation(url)) : jsonResponse({ ok: false, error: "admin_required" }, 401);
   if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>종합 관제 연결 준비</title><h1>종합 관제 연결이 필요합니다.</h1><p>별도 관제 Worker와 저장소를 연결하면 사용량과 오류 이력을 확인할 수 있습니다.</p><a href="/ops-dashboard">기존 운영 화면 열기</a></html>', 503);
   const paths = { "/ops-monitor": "/dashboard?base=/ops-monitor", "/ops-monitor/api/summary": "/api/summary", "/ops-monitor/api/manual": "/api/manual", "/ops-monitor/api/plans": "/api/plans", "/ops-monitor/open": "/internal/ticket" };
   const target = paths[url.pathname];

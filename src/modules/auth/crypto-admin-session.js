@@ -307,13 +307,20 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
     return fallback;
   }
 }
+// V22.9.41: 관리자 전용 화면은 로그인 뒤 요청한 화면으로 돌아간다(/ops-monitor → 로그인 → /ops-monitor).
+// 전에는 /admin-view 로만 보내 로그인 뒤 ?legacy=1 관리자 화면에 떨어졌다.
+function adminLoginLocation(url) {
+  const requested = url ? `${url.pathname}${url.search}` : "";
+  const returnTo = safeAdminReturnPath(requested, "");
+  return returnTo ? `/admin-view?return_to=${encodeURIComponent(returnTo)}` : "/admin-view";
+}
 // @build:exports-start
 export {
-  PASSWORD_KDF_ITERATIONS, checkAdminPassword, getAdminSecurityState, hmacSha256,
-  kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized, kakaoSkillSecretMatches, makeAdminSession,
-  makeMyImportPreviewToken, newPasswordSalt, pbkdf2PasswordHash, randomEntityId, randomHex,
-  recordAuthAttempt, rememberSkillLatency, requiredSecret, safeAdminReturnPath, sha256Hex,
-  skillLatencySnapshot, trafficClientIp, verifyAdminSession, verifyCronExecutionAuth,
+  PASSWORD_KDF_ITERATIONS, adminLoginLocation, checkAdminPassword, getAdminSecurityState,
+  hmacSha256, kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized, kakaoSkillSecretMatches,
+  makeAdminSession, makeMyImportPreviewToken, newPasswordSalt, pbkdf2PasswordHash, randomEntityId,
+  randomHex, recordAuthAttempt, rememberSkillLatency, requiredSecret, safeAdminReturnPath,
+  sha256Hex, skillLatencySnapshot, trafficClientIp, verifyAdminSession, verifyCronExecutionAuth,
   verifyMyImportPreviewToken,
 };
 // @build:exports-end

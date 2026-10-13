@@ -15,6 +15,7 @@ const checksumManifest = resolve(
   "BUNDLE_FILE_CHECKSUMS_V22_9_42.sha256",
 );
 const validationScripts = [
+  ["V22.9.41 관리자 로그인 복귀·옛 관리자 화면 내비 스타일", "validation/validate-admin-return-v22941.mjs"],
   ["V22.9.40 화면 다듬기·감사 잔여(U9·U10·H11·D14)", "validation/validate-polish-v22940.mjs"],
   ["V22.9.40 광고 게이트 ADS_MODE(review 바이트 동일·live 허용 화면)", "validation/validate-ads-gate-v22940.mjs"],
   ["V22.9.40 www 정본 308(CANONICAL_REDIRECT 무관)", "validation/validate-www-canonical-v22940.mjs"],

@@ -5,6 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22 <23" },
   "scripts": {
+    "validate:admin-return": "node validation/validate-admin-return-v22941.mjs",
     "validate:polish": "node validation/validate-polish-v22940.mjs",
     "validate:public-guides": "node validation/validate-public-guides-v22939.mjs",
     "validate:ads-gate": "node validation/validate-ads-gate-v22940.mjs",

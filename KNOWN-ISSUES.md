@@ -1,3 +1,10 @@
+## V22.9.41 확인 경계
+
+- **옛 관리자 화면은 옛 설계 그대로:** `/?legacy=1`은 V19.3 리포트 화면의 구성(가계부·월 선택·조회·카드)이며 이번 판은 사이드바 스타일만 되살렸습니다. 휴대폰 상단 바의 브랜드 아이콘은 검은 사각형으로 나옵니다(기능 영향 없음).
+- **후처리의 옛 안내 내비 스타일 조건:** `html-postprocess`의 `</style><aside class="abLayoutNav"` 치환은 현재 사이드바 마크업(`<aside id="abDesktopSidebar" class=...>`)과 맞지 않아 동작하지 않습니다. 이번 판은 건드리지 않았습니다.
+- **다른 관리자 전용 화면:** `backup-*`·`identity-merge`·`category-guide` 등은 전처럼 세션 없으면 `/?legacy=1`로 보냅니다(로그인 뒤 옛 관리자 화면). 이번 판은 운영자가 실제로 겪은 관제·NLU·스킬 운영 화면만 고쳤습니다.
+- 운영 배포와 실제 브라우저의 로그인 복귀 확인은 배포 뒤에 합니다(`docs/ASIDE_V22_9_41.md` 3).
+
 ## V22.9.40 확인 경계
 
 - **live CSP 폭:** live 허용 화면에서만 `script-src`·`connect-src`·`style-src`에 `https:`, `frame-src 'self' https:`, `'unsafe-eval'`을 더합니다. Google이 허용 목록 방식을 지원하지 않아서입니다. nonce·strict-dynamic으로 더 엄격하게 가려면 먼저 인라인 처리기(내비 토글·인쇄)를 리스너로 옮겨야 합니다.

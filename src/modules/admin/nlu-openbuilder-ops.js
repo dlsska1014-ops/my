@@ -4,7 +4,7 @@ import {
 } from "../runtime/ops-telemetry.js";
 import { APP_VERSION, appName, publicBaseUrl } from "../public/site-config.js";
 import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
-import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { adminLoginLocation, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { safeArray } from "./backup-compare.js";
 import { csvCell } from "./import-history-rollback.js";
 import { maskKey } from "./ops-diagnostics-pages.js";
@@ -106,7 +106,7 @@ async function handleNluFailuresCsv(request, env, url) {
 }
 
 async function handleNluOpsPage(request, env, url) {
-  if (!(await nluAdminAuthorized(request, env, url))) return redirectResponse("/admin-view");
+  if (!(await nluAdminAuthorized(request, env, url))) return redirectResponse(adminLoginLocation(url));
   const hours = Math.max(1, Math.min(2160, Number(url.searchParams.get("hours") || 168)));
   const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") || 14)));
   const runtime = getNluOpsSnapshot(env);
@@ -123,7 +123,7 @@ async function handleNluOpsPage(request, env, url) {
 
 async function handleSkillOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  if (!adminOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse(adminLoginLocation(url));
   const title = escapeHtml(appName(env));
   const snap = getSkillOpsSnapshot();
   const rows = snap.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td><span class="kind ${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span></td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>`;

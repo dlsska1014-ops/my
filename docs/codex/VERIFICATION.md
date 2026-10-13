@@ -1,3 +1,9 @@
+## V22.9.41 검증 방법
+
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_41.sha256`의 404개 경로이며 V22.9.40의 399개 경로를 모두 보존하고 새 파일 5개(검사기 1개·판 문서 3개·직전 manifest)를 더합니다. 일반·분류 표 부재 모드 각각 14,573개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`로 확인합니다.
+
+`npm run validate:admin-return`은 세션 없는 관리자 전용 화면의 `return_to` 복귀, 로그인 폼·로그인 뒤 복귀, 옛 관리자 화면의 인라인 내비 스타일과 사용자 화면의 불변을 검사합니다(55개).
+
 ## V22.9.40 검증 방법
 
 현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_40.sha256`의 399개 경로이며 V22.9.39의 386개 경로를 모두 보존하고 새 파일 13개(검사기 5개·패키지 기록 4개·판 문서 3개·직전 manifest)를 더합니다. 일반·분류 표 부재 모드 각각 14,517개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `--categories-absent` 모드를 모두 실행하고 실제 개수를 `VERIFICATION_V22_9_40.md`에 기록합니다. Node.js 22에서 `node monitoring/test-d1.mjs`도 별도로 실행합니다.

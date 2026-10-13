@@ -7,6 +7,22 @@
 | OpenBuilder | 도움말 블록 도움말 내용(가계부 만들기·참여 항목) 수정. 도움말 블록만 부분 배포합니다. |
 | 배포 기록 | 2026-10-13 13:57 KST 운영 승격(사용자 승인). Cloudflare 버전 `a371e559-163f-43e0-bae8-b82c00c6c08c`(#290), 배포 `b9bf820c-5275-4625-90a1-8c765a12c7b9`, 소스 SHA-256 `71140ad0f4c2791e0a7efd4d064ad64b26b42fe82c37c70265c14d66993fc8ef`. 바인딩 30개·script_runtime·handlers 가 직전 버전과 같음을 확인했고, 저장된 content/v2 해시가 로컬과 같았습니다. /health 5회 연속 V22.9.42, 공개 검사 112/112 통과. OpenBuilder v2.4 부분 배포(도움말 블록) 13:58 KST. |
 | 되돌리기 | 직전 운영 V22.9.40: 버전 `3a2567c4-3226-4307-91a0-7e5faf407690`, 배포 `806bf81e-4c21-4471-831f-107039f21463`, 소스 SHA-256 `560171890b1ce1a5b1cdc590c2da4e9040db557c2ccd036cc988b2903fe09a5b`. `node tools/deploy-worker-version.mjs --rollback 3a2567c4-3226-4307-91a0-7e5faf407690` |
+
+## V22.9.41 적용 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | 검증한 전체 `src/index.js`를 `tools/deploy-worker-version.mjs`로 업로드·대조하고 별도 승인 후 승격합니다. 현재 미배포입니다. 내보내기 목록은 V22.9.40과 같아 `named_handlers` 대조가 바뀌지 않습니다. |
+| SQL·스키마·RPC | 변경이 필요하지 않습니다. |
+| 환경변수·Secrets·바인딩 | 변경이 필요하지 않습니다. |
+| 불변 자산 | 새 주소 없음. 자산 바이트는 모두 같습니다. |
+| 응답 | 세션 없는 관리자 전용 화면 5개의 303 위치에 `return_to`가 붙습니다. 옛 관리자 화면 HTML에 인라인 내비 스타일(약 13.5 KB)이 더해집니다. 사용자·공개 화면·API·`/skill`은 그대로입니다. |
+| 관제 Worker·GitHub·Cloudflare 설정 | 변경이 필요하지 않습니다. |
+| Kakao Developers·OpenBuilder·도메인 | 변경이 필요하지 않습니다. |
+| 되돌리기 | 운영 현재값 V22.9.40: Cloudflare 버전 `3a2567c4-3226-4307-91a0-7e5faf407690`, 배포 `806bf81e-4c21-4471-831f-107039f21463`, 소스 SHA-256 `560171890b1ce1a5b1cdc590c2da4e9040db557c2ccd036cc988b2903fe09a5b`. 승인 후 `node tools/deploy-worker-version.mjs --rollback 3a2567c4-3226-4307-91a0-7e5faf407690`. |
+
+검증은 `VERIFICATION_V22_9_41.md`, 운영 적용 순서는 `docs/ASIDE_V22_9_41.md`에 있습니다.
+
 ## V22.9.40 적용 판단
 
 | 항목 | 판단 |

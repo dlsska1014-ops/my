@@ -106,6 +106,7 @@ npm run validate:signup-kdf
 npm run validate:kakao-category-fallback
 npm run validate:audit-batch
 npm run validate:monitor-alerts
+npm run validate:admin-return
 npm run validate:polish
 npm run validate:ads-gate
 npm run validate:www-canonical
