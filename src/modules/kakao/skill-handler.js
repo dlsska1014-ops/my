@@ -27,7 +27,7 @@ import {
   parseCreateHouseholdCommand,
 } from "./intent-nlu.js";
 import {
-  dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoText,
+  dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoText,
 } from "./response-builders.js";
 import {
   getRecentKakaoOwnedTransactionsV2254, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
@@ -231,6 +231,8 @@ async function handleKakaoSkill(request, env) {
 
   if (!utterance) {
     if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoImageNotSupportedText(origin));
+    // 단톡방에서 봇만 멘션한 빈 발화: 짧은 안내 + 도움말·챗봇 멘션하기 버튼으로 다음 발화를 유도한다.
+    if (getKakaoBotGroupKey(payload)) return kakaoGroupEmptyMentionReply();
     return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
   }
 

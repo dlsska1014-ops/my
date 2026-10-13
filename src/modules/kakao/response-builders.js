@@ -95,6 +95,36 @@ function kakaoText(text, quickReplies = null, status = 200) {
   }, status);
 }
 
+// 그룹 단톡방에서 봇만 멘션하고 내용 없이 보낸 경우(빈 발화)의 짧은 안내.
+// 카카오 심사 요청: 문구는 기본 시작 안내의 절반 이하로 줄이고, 자세한 설명은
+// 관리자센터 '도움말 블록'에 둔다. 버튼은 그룹 챗봇 스킬 응답 플러그인 액션
+// guide(도움말 하단 창)와 mention(입력창에 챗봇 멘션 자동 입력)을 사용한다.
+const KAKAO_GROUP_EMPTY_MENTION_TITLE = "안녕하세요 😊 말해가계부예요";
+const KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION = [
+  "카카오톡에서 함께 쓰는 가계부 챗봇이에요.",
+  "아래 버튼으로 명령어를 고르거나 도움말에서 사용법을 확인해 주세요.",
+].join("\n");
+
+function kakaoGroupEmptyMentionReply() {
+  return jsonResponse({
+    version: "2.0",
+    template: {
+      outputs: [
+        {
+          textCard: {
+            title: KAKAO_GROUP_EMPTY_MENTION_TITLE,
+            description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
+            buttons: [
+              { label: "도움말", action: "guide" },
+              { label: "챗봇 멘션하기", action: "mention" },
+            ],
+          },
+        },
+      ],
+    },
+  }, 200);
+}
+
 const KAKAO_GROUP_SUPPORTED_OUTPUTS = new Set([
   "simpleText",
   "simpleImage",
@@ -158,6 +188,7 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 // @build:exports-start
 export {
   dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
-  kakaoGroupCompatibleResponse, kakaoQr, kakaoSaveFailedText, kakaoText,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoQr, kakaoSaveFailedText,
+  kakaoText,
 };
 // @build:exports-end
