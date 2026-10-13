@@ -142,7 +142,7 @@ e8c7e681833272533715f188665e172ea2c9acd3b932a7ab8d4c9f36ef39cd9f  ./monitoring/t
 4b86b3ca5e022bb5900873567030b71f4e491d996d033980d951369b0ce0ab39  ./monitoring/worker.mjs
 a70ac192ae4ec8466fffac75ae7811deb9a8cd8a53ec74c08b85147a005e045e  ./monitoring/wrangler.jsonc
 e6a0da6320e32be9f46a220caa3201f0e59a3ecefcd22881b5ebeea57dc595d4  ./package.json
-c9ed16b55932b809d6ffbf9c3febb83570dd447dcf65f2d2dd3cbb3fe5f45184  ./src/index.js
+560171890b1ce1a5b1cdc590c2da4e9040db557c2ccd036cc988b2903fe09a5b  ./src/index.js
 cfc66caf109ab2f837f30d5f59c2424b12953fb0709f471246d4cb5a6cc26f20  ./src/modules/MANIFEST.txt
 fba3765de9ae58d0a75fe3f4f73205a291d889f5d9ddb309aa6194011edcb57a  ./src/modules/admin/backup-apply.js
 e183962d8ecc2dc224bcea61595e844a0e1abb38d153b77ad17641396257b3b4  ./src/modules/admin/backup-compare.js
@@ -213,9 +213,9 @@ d30b9a27e2e0d8bf42f109d93bc9b1624ed4e39a0831bd9031a3cb12749eaffa  ./src/modules/
 17157dabb79d92686c589640b9e04ffde24c6b0981028fe97d2f67503636c343  ./src/modules/kakao/intent-nlu.js
 ec510f2beb792800ccfdca62a11d082ba38c213c993a791ff4684807f9b8fd03  ./src/modules/kakao/reply-texts.js
 0bc11fcda255c6c307ba0899b05b434ff07b01e9a3cef5ad62122bd6753c6296  ./src/modules/kakao/request-guards.js
-f220ac0f0d9fe7b80969624be8c6803368695029224ac09ff6137f36322b1cee  ./src/modules/kakao/response-builders.js
+a55e059d13bf475217a36a6d4ca919c2ba97f3946955057e55f376b8bf99e29c  ./src/modules/kakao/response-builders.js
 f8d71b6c344030c65fb887b87b13825a0e71e3dc0d6b9e0941cab4929dd323e9  ./src/modules/kakao/simple-commands.js
-257801e4e5de329674c5a5f22e566703422da13c04c1b2fc9e74bcf0570f99be  ./src/modules/kakao/skill-handler.js
+6ef2f485732d8f38629c4e78d16ae8f61d47d577a9d84faee5d68d148e8d1ef1  ./src/modules/kakao/skill-handler.js
 68838f11baf22b2381c43b191782319d45c150f46cb4e1eeb57f9f036eda655e  ./src/modules/kakao/transaction-save.js
 51b3b85f45c8369444c3ceb47f7fe10e582365e00cf0b9f8d1c5f75ee06f17bb  ./src/modules/my/access-control.js
 7e65d56c98f3c775e1f27358787635c9c7d2b7337483fcb27c2627aaa278ff3b  ./src/modules/my/analysis-page.js
@@ -325,7 +325,7 @@ f89820de189e885b67322980d18aa313c1893c43167b256965ad840eb47d239c  ./validation/v
 d5e37842c3f3d33f00713af0604a01ac73ac5061112ddd0ed5dba99e03e3e1d5  ./validation/validate-kakao-category-fallback-v22936.mjs
 a933740dc3658c180e44fc0d23c072f05a5d8a9329e1765f1480af09ebd74e5f  ./validation/validate-kakao-edit-flow.mjs
 0721580bb5986e3ca1ad865db0e45b6480635fee06436449f2140a65ae162760  ./validation/validate-kakao-edit-safety-v22934.mjs
-e940c5008ea3d30cd07ab8c2b5b80130a3efa25c2c7076ba2f218911a24f9251  ./validation/validate-kakao-group.mjs
+95d670e7fa39ddcaae9cd045e4b8d0109fe8970bd43dce7961a635a6953dbb17  ./validation/validate-kakao-group.mjs
 f3eb46b0560996ecf9524345e8f4dd6b3b9ff99aad5f8b229ff98fe0d926957d  ./validation/validate-kakao-intent-skill-auth-v22876.mjs
 7aa78b1368290496c3482bdebb97144b51dffb2f70f45220311d593c929120ed  ./validation/validate-kakao-memo-repeat-v22869.mjs
 fcb8a2f9dee9fa54996301ec17e7c78dc53fb665d6ee88cd56ed69b9c6e5ede5  ./validation/validate-last-household-memory-v22917.mjs

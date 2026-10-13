@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.40",
+  "version": "22.9.42",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
