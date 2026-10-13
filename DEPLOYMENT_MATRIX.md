@@ -1,3 +1,18 @@
+## V22.9.41 적용 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | 검증한 전체 `src/index.js`를 `tools/deploy-worker-version.mjs`로 업로드·대조하고 별도 승인 후 승격합니다. 현재 미배포입니다. 내보내기 목록은 V22.9.40과 같아 `named_handlers` 대조가 바뀌지 않습니다. |
+| SQL·스키마·RPC | 변경이 필요하지 않습니다. |
+| 환경변수·Secrets·바인딩 | 변경이 필요하지 않습니다. |
+| 불변 자산 | 새 주소 없음. 자산 바이트는 모두 같습니다. |
+| 응답 | 세션 없는 관리자 전용 화면 5개의 303 위치에 `return_to`가 붙습니다. 옛 관리자 화면 HTML에 인라인 내비 스타일(약 13.5 KB)이 더해집니다. 사용자·공개 화면·API·`/skill`은 그대로입니다. |
+| 관제 Worker·GitHub·Cloudflare 설정 | 변경이 필요하지 않습니다. |
+| Kakao Developers·OpenBuilder·도메인 | 변경이 필요하지 않습니다. |
+| 되돌리기 | 운영 현재값 V22.9.40: Cloudflare 버전 `3a2567c4-3226-4307-91a0-7e5faf407690`, 배포 `806bf81e-4c21-4471-831f-107039f21463`, 소스 SHA-256 `560171890b1ce1a5b1cdc590c2da4e9040db557c2ccd036cc988b2903fe09a5b`. 승인 후 `node tools/deploy-worker-version.mjs --rollback 3a2567c4-3226-4307-91a0-7e5faf407690`. |
+
+검증은 `VERIFICATION_V22_9_41.md`, 운영 적용 순서는 `docs/ASIDE_V22_9_41.md`에 있습니다.
+
 ## V22.9.40 적용 판단
 
 | 항목 | 판단 |

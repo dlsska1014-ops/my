@@ -1,3 +1,10 @@
+## V22.9.41 이후
+
+1. PR CI를 확인하고 별도 승인 뒤 Worker를 적용합니다. 배포 뒤 확인 목록은 `RELEASE-CHECKLIST.md`의 V22.9.41 절에 있습니다.
+2. 나머지 관리자 전용 화면(`backup-*`·`identity-merge`·`category-guide` 등)의 세션 없음 리디렉션도 `adminLoginLocation`으로 옮겨 로그인 뒤 요청한 화면으로 돌아가게 합니다.
+3. 관제 판단 신뢰성(Codex 개선안 P0, `docs/MONITOR_REFRESH_IMPROVEMENT_PLAN_2026_10_12.md`): 미입력·만료·표본 부족 상태 구분, 요금제 확인 시각 분리, 분석 토큰 401 표시.
+4. V22.9.40 이후 계획(AdSense live 전환, 셸 CSS 정리, D14, 엄격한 CSP, 실기기)은 그대로 이어집니다.
+
 ## V22.9.40 이후
 
 1. PR CI를 확인하고 별도 승인 뒤 Worker를 적용합니다. 배포 뒤 확인 목록은 `RELEASE-CHECKLIST.md`의 V22.9.40 절에 있습니다.

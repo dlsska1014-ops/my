@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_40.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_41.sha256",
 );
 const validationScripts = [
+  ["V22.9.41 관리자 로그인 복귀·옛 관리자 화면 내비 스타일", "validation/validate-admin-return-v22941.mjs"],
   ["V22.9.40 화면 다듬기·감사 잔여(U9·U10·H11·D14)", "validation/validate-polish-v22940.mjs"],
   ["V22.9.40 광고 게이트 ADS_MODE(review 바이트 동일·live 허용 화면)", "validation/validate-ads-gate-v22940.mjs"],
   ["V22.9.40 www 정본 308(CANONICAL_REDIRECT 무관)", "validation/validate-www-canonical-v22940.mjs"],
@@ -220,7 +221,7 @@ function run(command, args, label) {
 // V22.9.40 통합 1.5단계: www 정본 308 검사 110 과 관제 알림 설정 단언 1(ALERT_TO Secret·send_email 바인딩 분리)을 더해 12,307개가 됐다.
 // V22.9.40 통합 1.75단계: 패키지 C 체감 성능·최신 UI 117, 화면 미리 준비(홈 Speculation-Rules 머리) +13, 클라이언트 직렬화 +1 을 더해 12,438개가 됐다.
 // V22.9.40 통합 2단계: 패키지 D 생활비 가이드 글 1,526, 공개 가이드 +60, 광고 게이트 +493(새 글 12편을 허용 화면으로 렌더)을 더해 14,517개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 14517;
+const EXPECTED_MINIMUM_CHECKS = 14573;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

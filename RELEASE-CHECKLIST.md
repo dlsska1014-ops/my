@@ -1,3 +1,12 @@
+## V22.9.41 관리자 로그인 복귀와 옛 관리자 화면 내비 스타일
+
+- [x] 관리자 전용 화면 5개의 로그인 복귀와 옛 관리자 화면의 인라인 내비 스타일을 고쳤습니다.
+- [x] 일반·분류 표 부재 모드가 각각 14,573개 검사·404개 체크섬, SQLite는 84개를 통과했습니다. 결과는 `VERIFICATION_V22_9_41.md`에 기록했습니다.
+- [ ] PR의 Ubuntu·Windows × 일반·분류 표 부재 CI를 확인합니다.
+- [ ] 별도 승인 후 Worker 업로드·설정 대조·승격(`tools/deploy-worker-version.mjs`)과 운영 공개 검사를 수행합니다.
+- [ ] 배포 뒤 `/health`의 `V22.9.41-ADMIN-RETURN`, `curl.exe -sI https://malhaebook.com/ops-monitor`의 303과 `location: /admin-view?return_to=%2Fops-monitor`, 브라우저 로그인 뒤 종합 관제 복귀, `/?legacy=1`의 사이드바를 확인합니다.
+- [ ] V22.9.40 절의 남은 항목(카카오 C2~C4, AdSense 승인 뒤 live 전환, 실기기)은 그대로 이어집니다.
+
 ## V22.9.40 광고 게이트와 생활비 가이드 글
 
 - [x] 네 묶음(A·B·C·D)과 통합 단계(www 정본·관제 알림 채널·외부 검사 예약)를 통합 브랜치에서 합쳤습니다.

@@ -1,3 +1,11 @@
+## V22.9.41 관리자 로그인 복귀와 옛 관리자 화면 내비 스타일
+
+현재 저장소 버전은 `V22.9.41-ADMIN-RETURN`입니다. 운영에는 아직 반영하지 않았습니다.
+
+- 관리자 전용 화면(`/ops-monitor`·`/ops-monitor/open`·`/nlu-ops`·`/skill-ops`·`/ops-skill`)을 세션 없이 열면 `/admin-view?return_to=<요청 경로·쿼리>`로 보내고 로그인 뒤 그 화면으로 돌아갑니다(`adminLoginLocation`, `safeAdminReturnPath`로 거른 경로만). 전에는 `/admin-view`로만 보내 로그인 뒤 `/?legacy=1` 옛 관리자 화면에 떨어졌습니다(2026-10-13 운영 확인).
+- 옛 관리자 화면(`/?legacy=1`·`/admin-view`)의 사이드바를 `renderUnifiedNav` admin 범위로 그려 인라인 내비 스타일을 head에 싣습니다. V22.8.44 이후 맨글자 링크와 화면을 덮는 브랜드 아이콘으로 나오던 것을 고쳤습니다. 사용자 화면은 바이트가 같습니다.
+- 새 검사 `validate-admin-return-v22941` 55개. 일반·분류 표 부재 모드가 각각 14,573개 검사·404개 체크섬, SQLite 관제 84개를 통과했습니다. 세부는 `VERIFICATION_V22_9_41.md`에 있습니다. SQL·변수·Secrets·관제 Worker·Kakao Developers·OpenBuilder 변경은 없습니다.
+
 ## V22.9.40 광고 게이트와 생활비 가이드 글
 
 현재 저장소 버전은 `V22.9.40-ADS-GATE-CONTENT`입니다. 네 묶음(A 화면 다듬기, B 광고 게이트, C UI·성능, D 생활비 가이드 글)을 통합 브랜치 `claude/v22940-integration`에서 합치고 www 정본·관제 알림 채널·외부 검사 예약을 더했습니다. 운영에는 아직 반영하지 않았습니다.

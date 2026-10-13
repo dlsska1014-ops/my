@@ -970,7 +970,7 @@ async function abMonitorDatabaseProbe(request, env) {
 }
 
 async function handleComprehensiveMonitor(request, env, url) {
-  if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse("/admin-view") : jsonResponse({ ok: false, error: "admin_required" }, 401);
+  if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse(adminLoginLocation(url)) : jsonResponse({ ok: false, error: "admin_required" }, 401);
   if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>종합 관제 연결 준비</title><h1>종합 관제 연결이 필요합니다.</h1><p>별도 관제 Worker와 저장소를 연결하면 사용량과 오류 이력을 확인할 수 있습니다.</p><a href="/ops-dashboard">기존 운영 화면 열기</a></html>', 503);
   const paths = { "/ops-monitor": "/dashboard?base=/ops-monitor", "/ops-monitor/api/summary": "/api/summary", "/ops-monitor/api/manual": "/api/manual", "/ops-monitor/api/plans": "/api/plans", "/ops-monitor/open": "/internal/ticket" };
   const target = paths[url.pathname];
@@ -2186,7 +2186,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.40-ADS-GATE-CONTENT";
+const APP_VERSION = "V22.9.41-ADMIN-RETURN";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -5557,6 +5557,13 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   } catch (err) {
     return fallback;
   }
+}
+// V22.9.41: 관리자 전용 화면은 로그인 뒤 요청한 화면으로 돌아간다(/ops-monitor → 로그인 → /ops-monitor).
+// 전에는 /admin-view 로만 보내 로그인 뒤 ?legacy=1 관리자 화면에 떨어졌다.
+function adminLoginLocation(url) {
+  const requested = url ? `${url.pathname}${url.search}` : "";
+  const returnTo = safeAdminReturnPath(requested, "");
+  return returnTo ? `/admin-view?return_to=${encodeURIComponent(returnTo)}` : "/admin-view";
 }
 
 async function handleAdminLogin(request, env) {
@@ -9337,7 +9344,7 @@ async function renderServerDashboardHtml(env, url) {
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title}</title>
 <style>${SERVER_DASHBOARD_CSS}</style>
-</head><body class="desktopLedger tab-${escapeHtml(tab)}">${renderUnifiedNav(tab === "transactions" ? "records" : tab === "overview" ? "home" : tab, { month, householdId: householdValue })}${renderPcSidebar(tab, month, householdValue, selectedHousehold?.name || title)}<main class="wrap">
+</head><body class="desktopLedger tab-${escapeHtml(tab)}">${renderUnifiedNav(tab === "transactions" ? "records" : tab === "overview" ? "home" : tab, { month, householdId: householdValue, scope: "admin" })}${renderPcSidebar(tab, month, householdValue, selectedHousehold?.name || title)}<main class="wrap">
 <section class="hero"><div class="brand"><div class="logo">💸</div><div><h1>${tab === "transactions" ? "기록 관리" : title}</h1><div class="subtitle">통합 가계부 · ${escapeHtml(selectedHousehold?.name || "전체 가계부")} · 페이지 버전: V19.3-REPORT</div></div></div><div class="topMiniActions"><a class="btn ghost" href="/menu?month=${escapeHtml(month)}${householdValue ? `&household_id=${encodeURIComponent(householdValue)}` : ""}">통합메뉴</a><a class="btn ghost" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="btn ghost" href="/households${householdValue ? `?household_id=${encodeURIComponent(householdValue)}` : ""}">가계부·참여자</a><a class="btn ghost" href="/categories${householdValue ? `?household_id=${encodeURIComponent(householdValue)}` : ""}">분류 설정</a><a class="btn ghost" href="/settings">설정</a><a class="btn ghost" href="/app?month=${escapeHtml(month)}&household_id=${escapeHtml(householdValue)}">모바일 입력</a><form method="post" action="/logout"><button class="secondary" type="submit">로그아웃</button></form></div></section>
 ${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}
 <section class="card filterCard"><form method="get" action="/" class="calmFilters"><input type="hidden" name="tab" value="${escapeHtml(tab)}"/><div class="filterTop"><div class="field"><label>가계부</label><select name="household_id"><option value=""${!selectedHousehold ? " selected" : ""}>전체 가계부</option>${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selectedHousehold?.id ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select></div><div class="field"><label>월 선택</label><input type="month" name="month" value="${escapeHtml(month)}"/></div><div class="field"><label>구분</label><select name="type"><option value="all"${type === "all" ? " selected" : ""}>전체</option><option value="expense"${type === "expense" ? " selected" : ""}>지출</option><option value="income"${type === "income" ? " selected" : ""}>수입</option></select></div><div class="field"><label>검색</label><input name="q" value="${escapeHtml(q)}" placeholder="예: 커피, 병원, 카드"/></div><div class="filterActions"><button type="submit">조회</button><a class="btn ghost" href="/?legacy=1">초기화</a></div></div><div class="quickFilters"><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "all", group_by: groupBy }))}">전체 보기</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "expense", group_by: groupBy }))}">지출만</a><a class="chip blue" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, type: "income", group_by: groupBy }))}">수입만</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab, quality: "missing_any", group_by: groupBy }))}">정리 필요</a><a class="chip" href="${escapeHtml(csvHref)}">CSV 다운로드</a></div><details class="filterDetails"><summary>상세 조건 열기</summary><div class="filterMore"><div class="field"><label>날짜</label><input type="date" name="date" value="${escapeHtml(date)}"/></div><div class="field"><label>분류</label><select name="category"><option value="">분류 전체</option><option value="__missing"${categoryFilter === "__missing" ? " selected" : ""}>미분류만</option>${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"${categoryFilter === c ? " selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></div><div class="field"><label>결제수단</label><select name="payment_method"><option value="">수단 전체</option><option value="__missing"${paymentFilter === "__missing" ? " selected" : ""}>수단 미입력만</option>${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"${paymentFilter === p ? " selected" : ""}>${escapeHtml(p)}</option>`).join("")}</select></div><div class="field"><label>정리 상태</label><select name="quality">${renderQualityOptions(quality)}</select></div><div class="field"><label>묶어 보기</label><select name="group_by">${renderGroupOptions(groupBy)}</select></div><div class="filterActions"><button type="submit">적용</button></div></div></details></form>${selectedHousehold ? `<div class="quick"><a class="chip blue" href="/households?household_id=${escapeHtml(selectedHousehold.id)}">가계부·참여자 관리</a><a class="chip hot" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "analysis", type: "expense", group_by: "category" }))}">분석 확장</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "calendar", group_by: groupBy }))}">캘린더</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "partners", group_by: groupBy }))}">생활비 팁</a><a class="chip" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "premium", group_by: groupBy }))}">고급 분석</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">초대코드는 보안상 이 화면에 표시하지 않습니다. <b>가계부·참여자 관리</b>에서 필요한 때만 확인하세요.</p>` : `<div class="quick"><span class="chip blue">전체 가계부 보기</span><a class="chip hot" href="${escapeHtml(dashboardQuery(month, "", { tab: "cleanup", quality: "missing_any", group_by: groupBy }))}">정리 필요 ${analysis.missingAny}건</a><a class="chip" href="${escapeHtml(dashboardQuery(month, "", { tab: "transactions", group_by: groupBy }))}">기록 관리</a><a class="chip" href="/ledger?all=1">기록 전체</a><a class="chip" href="/households">가계부·참여자</a><a class="chip" href="/my">카카오 사용자 웹</a></div><p class="muted">현재 모든 가계부의 기록을 합쳐 보고 있습니다. 새 입력은 기본 가계부에 저장됩니다.</p>`}</section>
@@ -14561,7 +14568,7 @@ async function handleNluFailuresCsv(request, env, url) {
 }
 
 async function handleNluOpsPage(request, env, url) {
-  if (!(await nluAdminAuthorized(request, env, url))) return redirectResponse("/admin-view");
+  if (!(await nluAdminAuthorized(request, env, url))) return redirectResponse(adminLoginLocation(url));
   const hours = Math.max(1, Math.min(2160, Number(url.searchParams.get("hours") || 168)));
   const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") || 14)));
   const runtime = getNluOpsSnapshot(env);
@@ -14578,7 +14585,7 @@ async function handleNluOpsPage(request, env, url) {
 
 async function handleSkillOpsPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
-  if (!adminOk) return redirectResponse("/admin-view");
+  if (!adminOk) return redirectResponse(adminLoginLocation(url));
   const title = escapeHtml(appName(env));
   const snap = getSkillOpsSnapshot();
   const rows = snap.recent.map((e) => `<tr><td>${escapeHtml(e.at)}</td><td><span class="kind ${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span></td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">아직 이벤트가 없습니다.</td></tr>`;
