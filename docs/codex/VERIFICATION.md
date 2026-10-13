@@ -5,9 +5,9 @@
 - V22.9.41의 404개 경로(운영 V22.9.42의 399개를 모두 포함)를 보존합니다.
 - 새 파일 6개를 더했습니다: 검사기 1개, 판 문서 3개, 직전 manifest 2개.
 
-일반·분류 표 부재 모드 각각 14,728개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 실행합니다.
+일반·분류 표 부재 모드 각각 14,745개, Node.js v22.23.1 SQLite 84개가 통과했습니다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 실행합니다.
 
-`npm run validate:room-autojoin`은 139개를 검사합니다.
+`npm run validate:room-autojoin`은 156개를 검사합니다.
 
 - 연결된 단톡방의 승인 없는 참여와 승인 대기 승격, 방 재연결
 - 보호: 나간 사람·내보낸 사람, 조회 전용·이용 제한, 인증 없는 요청
@@ -15,6 +15,7 @@
 - 기록만일 때 카카오·웹 수정 차단과 기록 추가 허용
 - 권한을 읽지 못할 때 막힌 쪽 동작
 - 가계부 삭제 때 권한 줄 정리
+- 공식 가이드 모양 요청(`chat.properties.botGroupKey`)의 새 방 준비·참여와 수상한 키 거절
 - 소스 계약
 
 ## V22.9.41 검증 방법

@@ -348,7 +348,60 @@ await withFixture(async (f) => {
   ok(!setting(f, policyKey("house-trip")), "household purge removes the member permission row");
 });
 
-// 7. 소스 계약: 새 역할·SQL 없이 설정 한 줄로 저장하고, 라우터는 await 로 넘기며, 요청마다 권한 캐시를 새로 만든다.
+// 7. 실제 카카오 요청 모양(공식 그룹 챗봇 가이드 v1.11.1): 방 키는 userRequest.chat.properties.botGroupKey 와
+// type 이 "botGroupKey" 인 chat.id 에 온다. 이 모양이 명시적 키로 인정되지 않아 운영(V22.9.31~42)에서는 새 방 첫 기록이
+// "연결된 가계부가 없습니다"로 거절됐다(2026-10-13 운영 단톡방). 위 시나리오의 user.properties 모양과 별도로 확인한다.
+async function officialSkill(f, utterance, { key, room, auth = true, chat = null } = {}) {
+  const headers = { "content-type": "application/json", "user-agent": f.key };
+  if (auth) headers["x-kakao-skill-secret"] = f.env.KAKAO_SKILL_SECRET;
+  const payload = {
+    bot: { id: "667e5382f2b2f84cb555091c", name: "말해가계부" },
+    intent: { id: "synthetic-fallback", name: "폴백 블록" },
+    userRequest: {
+      utterance,
+      user: { id: key, type: "botUserKey", properties: { botUserKey: key } },
+      chat: chat || { id: room, type: "botGroupKey", properties: { botGroupKey: room } },
+    },
+  };
+  const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers, body: JSON.stringify(payload) }), f.env, { waitUntil() {} });
+  const body = await response.json();
+  return { body, text: textOf(body) };
+}
+
+await withFixture(async (f) => {
+  const room = `${f.key}-official-room`;
+  eq(runtime.getExplicitKakaoBotGroupKey({ userRequest: { chat: { id: room, type: "botGroupKey", properties: { botGroupKey: room } } } }), room, "official chat shape is an explicit room key");
+  eq(runtime.getExplicitKakaoBotGroupKey({ userRequest: { chat: { id: room, type: "botGroupKey" } } }), room, "typed chat id alone is an explicit room key");
+  eq(runtime.getExplicitKakaoBotGroupKey({ userRequest: { chat: { id: room } } }), "", "untyped chat id is still not provisioning proof");
+  eq(runtime.getExplicitKakaoBotGroupKey({ userRequest: { chat: { id: room, type: "botGroupKey", properties: { botGroupKey: `${room}-other` } } } }), "", "conflicting room keys are rejected");
+
+  const households = f.db.households.length;
+  const first = await officialSkill(f, "@말해가계부 점심 5만원", { key: "kakao_login:2265", room });
+  eq(f.db.households.length, households + 1, "official payload: an owner of other ledgers still gets a new room ledger");
+  const ledger = f.db.transactions.at(-1).household_id;
+  ok(!["house-home", "house-trip"].includes(ledger), "official payload: the first record goes to the new room ledger, not an existing one");
+  eq(f.db.transactions.at(-1).amount, 50000, "official payload: the first record is saved");
+  eq(roleOf(f, "user-bin", ledger), "owner", "official payload: the first caller owns the room ledger");
+  ok(first.text.includes("공동 가계부를 준비했어요") && !first.text.includes("연결된 가계부가 없습니다"), "official payload: no 'no linked ledger' refusal");
+
+  const second = await officialSkill(f, "@말해가계부 커피 4500", { key: "a19b8cd3404d56ff71890edcb9b0be8b6466fd0c6bae2c9b177f3fa12cf21dd9ae", room });
+  const secondId = userIdOf(f, "a19b8cd3404d56ff71890edcb9b0be8b6466fd0c6bae2c9b177f3fa12cf21dd9ae");
+  eq(roleOf(f, secondId, ledger), "member", "official payload: the second participant joins without approval");
+  eq(f.db.transactions.at(-1).household_id, ledger, "official payload: the second participant's record is saved in the room ledger");
+  ok(second.text.includes("참여했어요"), "official payload: the join is explained");
+
+  for (const [label, chat] of [["untyped chat id", { id: `${room}-untyped` }], ["conflicting keys", { id: `${room}-x`, type: "botGroupKey", properties: { botGroupKey: `${room}-y` } }]]) {
+    const before = f.db.households.length, tx = txCount(f);
+    await officialSkill(f, "택시 9000", { key: `${f.key}-${label}`, chat });
+    eq(f.db.households.length, before, `${label}: no room ledger is prepared`);
+    eq(txCount(f), tx, `${label}: nothing is saved`);
+  }
+  const untrustedBefore = f.db.households.length;
+  await officialSkill(f, "택시 9100", { key: `${f.key}-untrusted`, room: `${room}-untrusted`, auth: false });
+  eq(f.db.households.length, untrustedBefore, "official payload without the skill secret prepares nothing");
+});
+
+// 8. 소스 계약: 새 역할·SQL 없이 설정 한 줄로 저장하고, 라우터는 await 로 넘기며, 요청마다 권한 캐시를 새로 만든다.
 {
   const access = readFileSync(new URL("../src/modules/my/access-control.js", import.meta.url), "utf8");
   const room = readFileSync(new URL("../src/modules/kakao/group-links-first-record.js", import.meta.url), "utf8");

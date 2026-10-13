@@ -34607,6 +34607,7 @@ function getKakaoBotGroupKey(payload) {
     userReq.botGroupKey,
     userReq.groupKey,
     chat.botGroupKey,
+    chat.properties?.botGroupKey,
     chat.groupKey,
     chat.id,
     payload?.botGroupKey,
@@ -34621,11 +34622,16 @@ function kakaoGroupLinksSettingsKey() {
 }
 
 // V22.9.31: only an explicit botGroupKey can authorize a new shared room ledger.
-// Legacy groupKey/chat.id remain read/bind compatibility inputs, never provisioning proof.
+// Legacy groupKey/untyped chat.id remain read/bind compatibility inputs, never provisioning proof.
+// V22.9.43: 공식 그룹 챗봇 가이드(v1.11.1)의 SkillRequest 는 방 키를 userRequest.chat.properties.botGroupKey 와
+// type 이 "botGroupKey" 인 userRequest.chat.id 에 싣는다. 이 두 자리를 읽지 않아 실제 카카오 요청에서는 V22.9.31 부터
+// 새 방 첫 기록이 한 번도 준비되지 않았다(2026-10-13 운영 단톡방에서 확인). 두 자리도 명시적 키로 받고, 값이 서로 다르면 받지 않는다.
 function getExplicitKakaoBotGroupKey(payload = {}) {
   const req = payload?.userRequest || {};
   const props = req.user?.properties || payload?.user?.properties || {};
-  const keys = [...new Set([props.botGroupKey, req.botGroupKey, req.chat?.botGroupKey, payload?.botGroupKey]
+  const chat = req.chat && typeof req.chat === "object" ? req.chat : {};
+  const typedChatId = String(chat.type || "").trim() === "botGroupKey" ? chat.id : "";
+  const keys = [...new Set([props.botGroupKey, req.botGroupKey, chat.botGroupKey, chat.properties?.botGroupKey, typedChatId, payload?.botGroupKey]
     .map(value => String(value || "").trim()).filter(Boolean))];
   return keys.length === 1 && keys[0] !== "unknown-group" && keys[0].length <= 160 ? keys[0] : "";
 }

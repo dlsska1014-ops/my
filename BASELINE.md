@@ -5,6 +5,7 @@
   - 조회 전용·이용 제한 역할은 덮어쓰지 않는다.
   - 이 가계부에서 나갔거나 소유자·관리자가 내보낸 사람(`kakao_group_departed_v22931:*`)은 다시 넣지 않는다.
   - 일반 대화·조회·도움말과 인증 없는 요청은 참여시키지 않는다.
+- **방 키를 읽는 자리.** 새 방 준비의 명시적 방 키는 `user.properties.botGroupKey`·`userRequest.botGroupKey`·`chat.botGroupKey`·`chat.properties.botGroupKey`·type이 `botGroupKey`인 `chat.id` 중 있는 값이 모두 같을 때만 인정한다. 타입 없는 `chat.id`와 `groupKey`는 준비 근거가 아니다. 검사 요청은 실제 카카오 모양(`chat.properties`)도 함께 쓴다.
 - **구성원 권한.** 값은 `household_member_policy_v22943:<가계부 ID>` 한 줄이며, 값이 없으면 기록·수정이고 소유자만 바꾼다. 기록만이면 역할이 구성원인 사람은 기록을 더하기만 하고 다음을 바꾸지 못한다.
   - 카카오: 수정·삭제·복구·방금 삭제
   - 웹 기록 수정·삭제: `/admin/update`·`/admin/delete`·`/my/update`·`/my/delete`·수정 폼
