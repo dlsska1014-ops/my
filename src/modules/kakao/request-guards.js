@@ -153,6 +153,14 @@ function kakaoRepeatGuardText(origin = "") {
   ].join("\n");
 }
 
+// V22.9.44: 처리가 응답 예산(기본 4초)을 넘길 때 카카오에 먼저 보내는 답. 처리는 뒤에서 끝까지 진행된다.
+function kakaoSkillDeferredText() {
+  return [
+    "요청은 받았어요. 처리 결과 확인이 조금 늦어지고 있어요.",
+    "같은 내용을 다시 보내지 말고 잠시 뒤 ‘오늘 기록 보기’로 확인해 주세요.",
+  ].join("\n");
+}
+
 function buildKakaoSkillTestPayload(utterance = "메뉴") {
   const text = String(utterance || "메뉴").trim() || "메뉴";
   return {
@@ -208,7 +216,7 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
   isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
-  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention,
-  stripLeadingCommand,
+  kakaoSkillDeferredText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin,
+  stripKakaoBotMention, stripLeadingCommand,
 };
 // @build:exports-end
