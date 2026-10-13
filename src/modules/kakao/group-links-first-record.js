@@ -206,10 +206,14 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
     return await withKakaoUserLifecycleLease(env, userIds, async ({ assertFresh: userFresh }) => {
       userFresh();
       env.__AB_REQUEST_USER_ROWS?.delete(String(user.id));
-      if (!(await kakaoClaimUserUnmerged(env, user.id))) throw new Error("kakao_group_identity_scope_changed");
+      // V22.9.44: 계정 통합 확인(DB 읽기 2번)은 방 잠금 획득·재조회와 겹쳐 돌리고, 첫 쓰기 전에 결과를 본다. 이 경로의 순차 왕복이
+      // 카카오 5초 제한을 넘겼다(2026-10-13 운영, 최대 5.69초). 잠금 순서와 쓰기 순서는 그대로다.
+      const userUnmerged = kakaoClaimUserUnmerged(env, user.id);
+      userUnmerged.catch(() => {});
       return withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh: roomFresh }) => {
         const roomGuard = () => { userFresh(); roomFresh(); };
         let snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
+        if (!(await userUnmerged)) throw new Error("kakao_group_identity_scope_changed");
         let marker = snapshot.done || snapshot.marker;
         let firstNotice = "";
         if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {
@@ -239,7 +243,14 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
         // Same order in create/bind/unbind/purge/leave: users -> rooms -> households.
         return await withSettingsRmwLease(env, `household-settings-rmw:${householdId}`, async ({ assertFresh: householdFresh }) => {
           const assertFresh = () => { roomGuard(); householdFresh(); };
-          let household = await getHouseholdById(env, householdId);
+          const roleRowsPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`;
+          // V22.9.44: 준비 중이 아니면 가계부와 내 역할을 한 번에 읽는다. 이 잠금 안에서는 다른 요청이 역할을 바꾸지 못한다.
+          // 준비 중이면 아래에서 가계부·소유자 행을 만든 뒤 역할을 다시 읽는다(예전과 같다).
+          const [householdRead, initialRoleRows] = await Promise.all([
+            getHouseholdById(env, householdId),
+            preparing ? Promise.resolve(null) : supabase(env, roleRowsPath, { method: "GET" }),
+          ]);
+          let household = householdRead;
           const phase = async next => {
             marker = { ...marker, phase: next };
             assertFresh();
@@ -319,8 +330,8 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             await phase("complete");
             if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n참여자 권한: 기록·수정 (기록만 허용하려면 ‘구성원 권한 기록만’)\n\n";
           }
-          const roleRowsPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`;
-          let roleRows = await supabase(env, roleRowsPath, { method: "GET" });
+          // V22.9.44: 준비 중이 아니었으면 잠금 첫머리에서 가계부와 함께 읽은 역할을 쓰고, 준비 중이었으면 소유자 행을 만든 뒤 다시 읽는다.
+          let roleRows = initialRoleRows || await supabase(env, roleRowsPath, { method: "GET" });
           strictKakaoGroupMembershipRows(roleRows);
           let role = bestRoleFromRows(roleRows);
           // V22.9.43: 승인 단계를 없앴다. 가계부에 연결된 방이면(첫 기록으로 준비한 방이든 초대코드로 직접 연결한 방이든)
@@ -365,15 +376,20 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             if (role === "pending") throw writeError || new Error("kakao_group_pending_promotion_not_applied");
             joinedNow = role === "member";
           }
-          if (joinedNow) {
-            let policy = "";
-            try { policy = await fetchHouseholdMemberPolicy(env, householdId); } catch (_) {}
-            const automaticRoom = !snapshot.retired && snapshot.done?.candidate_id === householdId && snapshot.link.household_id === snapshot.done.candidate_id;
-            firstNotice = `${automaticRoom ? "이 방의 공동 가계부에 참여했어요." : `이 방에 연결된 ‘${household.name}’ 가계부에 참여했어요.`}\n같은 방의 참여자들이 함께 기록을 사용해요.\n${policy ? `${memberPolicyJoinLine(policy)}\n` : ""}\n`;
-          }
           if (!role) throw new Error("kakao_group_member_missing");
           if (!["owner", "admin", "member"].includes(role)) return kakaoText(roleBlockedMessage(role, household.name));
-          if (firstNotice) { assertFresh(); await markKakaoChatFirstHistory(env, user.id); }
+          if (firstNotice || joinedNow) {
+            assertFresh();
+            // V22.9.44: 참여 안내에 쓸 구성원 권한 조회와 첫 사용 표시 저장을 함께 돌린다.
+            const [policy] = await Promise.all([
+              joinedNow ? fetchHouseholdMemberPolicy(env, householdId).catch(() => "") : Promise.resolve(""),
+              markKakaoChatFirstHistory(env, user.id),
+            ]);
+            if (joinedNow) {
+              const automaticRoom = !snapshot.retired && snapshot.done?.candidate_id === householdId && snapshot.link.household_id === snapshot.done.candidate_id;
+              firstNotice = `${automaticRoom ? "이 방의 공동 가계부에 참여했어요." : `이 방에 연결된 ‘${household.name}’ 가계부에 참여했어요.`}\n같은 방의 참여자들이 함께 기록을 사용해요.\n${policy ? `${memberPolicyJoinLine(policy)}\n` : ""}\n`;
+            }
+          }
           return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, assertFresh, onSaved: async () => { recordSaved = true; } });
         });
       });

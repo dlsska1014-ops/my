@@ -37,7 +37,8 @@ import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edi
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoQaPayload,
   isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
-  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, stripLeadingCommand,
+  kakaoSkillDeferredText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse,
+  stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -84,6 +85,7 @@ import {
 // @build:imports-end
 
 async function handleKakaoSkillStable(request, env, ctx = null) {
+  const requestStartedAt = Date.now();
   const origin = publicBaseUrl(env, new URL(request.url));
   if (!kakaoSkillCallerAuthorized(request, env)) {
     abMonitorOutcome(env, "auth_denied");
@@ -169,7 +171,10 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin)), payload, origin);
   }
 
-  try {
+  // V22.9.44: 카카오는 5초 안에 답이 없으면 '스킬 서버 연결 오류'(폴백 블록 오류 알림)로 끝낸다. 처리가 응답 예산(기본 4초)을
+  // 넘기면 먼저 '처리 중' 답을 보내고 같은 처리는 ctx.waitUntil 로 끝까지 마친다. 중복 저장을 막는 처리 중 표시는 그 처리가
+  // 끝날 때 내려가고, 관제 지표에는 실제로 걸린 시간과 결과를 남긴다.
+  const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
     headers.set("content-type", "application/json; charset=utf-8");
@@ -215,7 +220,23 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     headers.set("x-accountbook-request-id", requestId);
     headers.set("x-accountbook-latency-ms", String(latencyMs));
     return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
-  }
+  } })();
+  if (!ctx || typeof ctx.waitUntil !== "function") return await work;
+  const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
+  let deadlineTimer = null;
+  const first = await Promise.race([work, new Promise((resolve) => { deadlineTimer = setTimeout(() => resolve(null), Math.max(0, budgetMs - (Date.now() - requestStartedAt))); })]);
+  if (deadlineTimer) clearTimeout(deadlineTimer);
+  if (first) return first;
+  ctx.waitUntil(work.then(() => {}, () => {}));
+  rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
+  const deferred = await kakaoGroupCompatibleResponse(kakaoText(kakaoSkillDeferredText()), payload, origin);
+  const deferredHeaders = new Headers(deferred.headers || {});
+  deferredHeaders.set("x-accountbook-version", APP_VERSION);
+  deferredHeaders.set("x-accountbook-intent", intentMatch.intent);
+  deferredHeaders.set("x-accountbook-nlu-result", "deferred");
+  deferredHeaders.set("x-accountbook-request-id", requestId);
+  deferredHeaders.set("x-accountbook-latency-ms", String(Date.now() - skillStartedAt));
+  return new Response(deferred.body, { status: deferred.status, statusText: deferred.statusText, headers: deferredHeaders });
 }
 
 async function handleKakaoSkill(request, env) {
