@@ -219,7 +219,7 @@ function detectPaymentMethod(text) {
 // @build:exports-start
 export {
   addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
-  normalizePaymentMethod, nowKstDate, parseDateStrict, parseExplicitDateFromText,
+  normalizePaymentMethod, nowKstDate, parseDateStrict, parseExplicitDateFromText, qaFixedNowMs,
   resolveWeekdayPhrase, safeYmd, validMonth, weekdayIndexOfYmd,
 };
 // @build:exports-end

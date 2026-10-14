@@ -65,6 +65,7 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 
 function householdTemplatePreset(key = "") {
   const presets = {
+    household: { name: "우리집 생활비", label: "생활비" },
     travel: { name: "우리 여행 경비", label: "여행" },
     meeting: { name: "우리 모임 회비", label: "모임" },
     settlement: { name: "단발성 정산", label: "정산" },

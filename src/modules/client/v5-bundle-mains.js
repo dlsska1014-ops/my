@@ -1,5 +1,9 @@
 // @build:imports-start
 import {
+  accountbookAmountPrivacyClientMain, accountbookCelebrationClientMain,
+  accountbookEmptyFolderClientMain, accountbookTourClientMain,
+} from "./lucian-e-mains.js";
+import {
   AB_ACCOUNTBOOK_FAVROWS_JS_CACHE, AB_ACCOUNTBOOK_GOALS_JS_CACHE, AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE,
   ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML, ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML,
 } from "../assets/asset-registry.js";
@@ -58,7 +62,7 @@ function accountbookGoalsClientMain() {
     state.can_write = !!(p && p.can_write);
     if (addForm) addForm.closest("section").hidden = !state.can_write;
   }
-  function render() {
+  function render(confirmed) {
     setOverall();
     root.textContent = "";
     if (!state.goals.length) {
@@ -71,6 +75,12 @@ function accountbookGoalsClientMain() {
     state.goals.forEach(function (g) {
       var card = document.createElement("div");
       card.className = "card goalCard";
+      // Lucian #093: pending/undo renders cannot publish a completion event.
+      if (confirmed && g.status === "done" && Number(g.target) > 0 && Number(g.saved) >= Number(g.target)) {
+        card.setAttribute("data-ab-celebrate", "goal");
+        card.setAttribute("data-ab-celebrate-key", hh() + ":" + g.id + ":" + g.target);
+        card.setAttribute("data-ab-celebrate-count", String(state.goals.filter(function(goal) { return goal.status === "done"; }).length));
+      }
       var head = document.createElement("div"); head.className = "goalHead";
       var em = document.createElement("span"); em.className = "goalEmoji"; em.textContent = g.emoji || "🎯";
       var titleWrap = document.createElement("div");
@@ -117,7 +127,7 @@ function accountbookGoalsClientMain() {
     var body = pending.commit;
     pending = null;
     hideToast();
-    api(body, options).then(function (p) { applyPayload(p); render(); }).catch(function (err) { if (!(options && options.keepalive)) { showError(err); load(); } });
+    api(body, options).then(function (p) { applyPayload(p); render(true); }).catch(function (err) { if (!(options && options.keepalive)) { showError(err); load(); } });
   }
   function showToast(msg, undoFn) {
     toastMsg.textContent = msg;
@@ -176,7 +186,7 @@ function accountbookGoalsClientMain() {
     };
     if (!String(body.name || "").trim()) { f.name.focus(); return; }
     if (!(Number(body.target) > 0)) { f.target.focus(); return; }
-    api(body).then(function (p) { applyPayload(p); render(); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); } });
+    api(body).then(function (p) { applyPayload(p); render(true); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); } });
   });
   function load() {
     var url = "/u/api/goals";
@@ -184,7 +194,7 @@ function accountbookGoalsClientMain() {
     if (h) url += "?household=" + encodeURIComponent(h);
     return fetch(url, { headers: { accept: "application/json" }, credentials: "same-origin" })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(function (p) { applyPayload(p); render(); })
+      .then(function (p) { applyPayload(p); render(true); })
       .catch(function (err) { root.textContent = ""; var e = document.createElement("div"); e.className = "card goalEmpty"; e.textContent = err === 401 ? "로그인이 필요해요." : "목표를 불러오지 못했어요."; root.appendChild(e); });
   }
   window.addEventListener("pagehide", function () { commitPending({ keepalive: true }); });
@@ -1305,7 +1315,7 @@ function accountbookDetailExperienceClientMain() {
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }

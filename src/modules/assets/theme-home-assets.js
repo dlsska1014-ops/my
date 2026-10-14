@@ -1,4 +1,5 @@
 // @build:imports-start
+import { accountbookAmountMaskClientMain } from "../client/lucian-e-mains.js";
 import {
   explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickInputDate,
   transactionTypeFromText,
@@ -61,6 +62,9 @@ function accountbookThemeClientMain() {
     }
   }
   function apply(theme, tone, announce) {
+    // Lucian #138: this blocking head asset applies device privacy before paint.
+    if (read("abHideAmounts", "0") === "1") root.setAttribute("data-ab-hide-amounts", "");
+    else root.removeAttribute("data-ab-hide-amounts");
     theme = valid(theme, themes, "light");
     tone = valid(tone, tones, "blue");
     var mode = resolved(theme);
@@ -120,14 +124,14 @@ function accountbookThemeClientMain() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true });
   else bind();
   window.addEventListener("storage", function(event) {
-    if (event.key === themeKey || event.key === toneKey) apply(currentTheme(), currentTone(), false);
+    if (event.key === themeKey || event.key === toneKey || event.key === "abHideAmounts") apply(currentTheme(), currentTone(), false);
   });
   window.addEventListener("pageshow", function() { apply(currentTheme(), currentTone(), false); });
 }
 
 function accountbookThemeJsAsset() {
   if (!AB_ACCOUNTBOOK_THEME_JS_CACHE) {
-    AB_ACCOUNTBOOK_THEME_JS_CACHE = `(${accountbookThemeClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_THEME_JS_CACHE = `(${accountbookThemeClientMain.toString()})();(${accountbookAmountMaskClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_THEME_JS_CACHE;
 }
