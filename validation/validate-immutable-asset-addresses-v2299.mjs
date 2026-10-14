@@ -28,10 +28,10 @@ const ORIGIN = "https://malhaebook.com";
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
   // V22.9.46 Lucian E: new bytes use four new URLs; all previous pins remain.
-  "/assets/accountbook-shell-v22946.css": "40e603ec482f950c8370fbb044e802e33f6ec428b7d25893e61cfff69a934801",
-  "/assets/accountbook-v5-v22946.js": "2a8be5fee634914acd0eb1f462d3b6d922653a29f4c7ee00e50f88417566b36c",
+  "/assets/accountbook-shell-v22946.css": "3653eb214c33fe4223b8f0bc414c63b3e8292c85bd6f9eb59a4adfcb97fde08c",
+  "/assets/accountbook-v5-v22946.js": "d8b25695573233145372dba77ee457bbf9a27c98f6875269664056ed02e28f03",
   "/assets/accountbook-goals-v22946.js": "1f882601ea745ed7c9c48bf3fb70ca1bdf9e9bc9ba7b0fb540522cdc4e329ca6",
-  "/assets/accountbook-theme-v22946.js": "9cff63e2bd0df17bb4fa33c41330b281d26d789b435cbc396f87978de4710011",
+  "/assets/accountbook-theme-v22946.js": "febcc2cdbaedbeaefabe0cf596b4bfb2a103fc6574591c1f9ecbda4a6fc2e189",
   // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14)와 내비·V5 번들·목표·행 즐겨찾기·검색·알림 JS(H1·U2·U3·U5·U10·U12)가 바뀌어
   // 주소를 올렸다. 옛 CSS 주소(v22925)는 더 내려가지 않고, 옛 JS 주소(nav-v22930·v5-v22934·goals-v22929·favrows-v22836·
   // search-v22929·notif-v22836)는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 아래 옛 해시로 계속 내려간다.

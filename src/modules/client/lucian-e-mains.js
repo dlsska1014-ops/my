@@ -54,9 +54,20 @@ function accountbookTourClientMain() {
   var specs = [
     ['[data-ab-quick-open],.tabAdd', '빠른 입력에서 지출이나 수입을 한 줄로 남기세요.'],
     ['.homeCalendarToggle a', '캘린더에서 날짜별 기록을 확인하세요.'],
-    ['a[data-key="stats"],a.homeCategoryLink', '분석에서 지출 흐름과 예산을 확인하세요.']
+    ['.homeReport a,a[data-key="stats"],a.homeCategoryLink', '분석에서 지출 흐름과 예산을 확인하세요.']
   ];
-  function target(selector) { return Array.from(document.querySelectorAll(selector)).find(function(el) { var r=el.getBoundingClientRect(); return r.width>0 && r.height>0; }); }
+  function target(selector) {
+    return Array.from(document.querySelectorAll(selector)).find(function(el) {
+      if (el.closest('[hidden],[aria-hidden="true"]')) return false;
+      if (el.checkVisibility && !el.checkVisibility({visibilityProperty:true})) return false;
+      for (var owner=el; owner; owner=owner.parentElement) {
+        if (owner.tagName==='DETAILS' && !owner.hasAttribute('open')) return false;
+        var style=getComputedStyle(owner);
+        if (style.display==='none' || style.visibility==='hidden' || style.visibility==='collapse') return false;
+      }
+      var r=el.getBoundingClientRect(); return r.width>0 && r.height>0;
+    });
+  }
   var steps = specs.filter(function(step) { return !!target(step[0]); });
   if (!steps.length) return;
   var previous = document.activeElement, index = 0, frame = 0, closed = false;
@@ -70,6 +81,7 @@ function accountbookTourClientMain() {
     var el=target(steps[index][0]);
     if (!el) { advance(); return; }
     var r=el.getBoundingClientRect();
+    if (r.top<7 || r.bottom>innerHeight-7) { el.scrollIntoView({block:'center',behavior:'instant'}); r=el.getBoundingClientRect(); }
     spot.style.left=Math.max(2,r.left-5)+'px'; spot.style.top=Math.max(2,r.top-5)+'px';
     spot.style.width=Math.min(innerWidth-4,r.width+10)+'px'; spot.style.height=r.height+10+'px';
     var height=card.getBoundingClientRect().height;
@@ -80,10 +92,11 @@ function accountbookTourClientMain() {
   }
   function queue() { if (!frame) frame=requestAnimationFrame(position); }
   function show() {
+    cancelAnimationFrame(frame); frame=0;
     var el=target(steps[index][0]); if (!el) { advance(); return; }
-    el.scrollIntoView({block:'nearest',behavior:'instant'});
+    el.scrollIntoView({block:'center',behavior:'instant'});
     root.querySelector('#abTourText').textContent=(index+1)+'/'+steps.length+' · '+steps[index][1];
-    next.textContent=index===steps.length-1?'안내 마치기':'다음'; position(); next.focus({preventScroll:true});
+    next.textContent=index===steps.length-1?'안내 마치기':'다음'; position(); queue(); next.focus({preventScroll:true});
   }
   function advance() { index++; if (index>=steps.length) close(true); else show(); }
   function key(event) {
@@ -95,7 +108,7 @@ function accountbookTourClientMain() {
     if (!root.isConnected || !document.querySelector('.wrap')) { close(false); return; }
     if (document.body.classList.contains('abQuickInputOpen')) close(true);
   }
-  var observer=new MutationObserver(watch); observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden','aria-hidden']});
+  var observer=new MutationObserver(watch); observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden','aria-hidden','open']});
   function close(remember) {
     if(closed) return; closed=true; cancelAnimationFrame(frame); observer.disconnect();
     window.removeEventListener('resize',queue); document.removeEventListener('scroll',queue,true);
@@ -165,53 +178,73 @@ function accountbookCelebrationClientMain() {
 // <!-- Lucian UX/UI Prompt #138 · MIT License (c) 2026 Seokwoooo · https://lucianlabs.dev/uxui-prompt/#138 -->
 function accountbookAmountMaskClientMain() {
   // This runs in the blocking theme asset. DOM parser mutations are processed
-  // before paint, including currency in memos and numbers with a separate unit.
+  // before paint only while privacy is on. V5 controls signal changes by event.
   if (typeof MutationObserver !== 'function') return;
+  var html=document.documentElement, active=false, wrapped=false, suspended=false;
   function wrap(el) {
-    if (!el || el.nodeType !== 1 || el.closest('input,textarea,select,[contenteditable],.abPrivateAmount,script,style')) return;
+    if (!el || el.nodeType !== 1) return false;
+    if (el.closest('.abPrivateAmount')) return true;
+    if (el.closest('input,textarea,select,[contenteditable],script,style')) return false;
+    var moneyUnit=el.closest('[data-ab-num-unit="원"]');
+    var re=moneyUnit ? /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?/g : /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?(?:\s*(?:억|천|만)\s*\d[\d,]*(?:\.\d+)?)*\s*(?:(?:억|천|만)*\s*원|(?:억|천|만)+(?!\s*(?:원|명|건|개|회|일|개월|년|%)))/g;
+    // SVG text keeps its native nodes; an HTML span inside <text> would not render.
+    if (el.closest('svg') && (el.tagName.toLowerCase()==='text' || el.tagName.toLowerCase()==='tspan') && re.test(el.textContent)) {
+      el.classList.add('abPrivateAmount'); el.setAttribute('data-ab-private-svg',''); el.setAttribute('data-ab-private-ready',''); return true;
+    }
+    var money=false;
     Array.from(el.childNodes).forEach(function(node) {
-      if (node.nodeType === 1) { wrap(node); return; }
+      if (node.nodeType === 1) { money=wrap(node)||money; return; }
       if (node.nodeType !== 3) return;
-      var moneyUnit=el.closest('[data-ab-num-unit="원"]');
-      var re=moneyUnit ? /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?/g : /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?\s*(?:만\s*)?원/g;
+      if (el.closest('svg')) return;
+      re.lastIndex=0;
       var value=node.textContent, matches=Array.from(value.matchAll(re));
       if (!matches.length) return;
       var fragment=document.createDocumentFragment(), from=0;
       matches.forEach(function(m) { fragment.appendChild(document.createTextNode(value.slice(from,m.index))); var amount=document.createElement('span'); amount.className='abPrivateAmount'; amount.textContent=m[0]; fragment.appendChild(amount); from=m.index+m[0].length; });
-      fragment.appendChild(document.createTextNode(value.slice(from))); node.replaceWith(fragment);
+      fragment.appendChild(document.createTextNode(value.slice(from))); node.replaceWith(fragment); money=true;
     });
-    el.setAttribute('data-ab-private-ready','');
+    // Only successfully masked content disables the first-paint CSS fallback.
+    if (money && !el.hasAttribute('data-ab-private-ready')) el.setAttribute('data-ab-private-ready','');
+    return money;
   }
   var observer=new MutationObserver(function(records) {
-    (records || []).forEach(function(record) { Array.from(record.addedNodes || []).forEach(function(node) { wrap(node.nodeType===3 ? node.parentElement : node); }); });
+    if (!active) return;
+    (records || []).forEach(function(record) {
+      var nodes=record.type==='characterData' ? [record.target] : Array.from(record.addedNodes || []);
+      nodes.forEach(function(node) {
+        if (!wrap(node.nodeType===3 ? node.parentElement : node)) return;
+        for (var parent=node.parentElement; parent; parent=parent.parentElement) {
+          if (!parent.hasAttribute('data-ab-private-ready')) parent.setAttribute('data-ab-private-ready','');
+        }
+      });
+    });
   });
-  function start() { wrap(document.documentElement); observer.observe(document.documentElement,{childList:true,subtree:true}); }
-  function stop() { observer.disconnect(); }
-  start(); window.addEventListener('pagehide',stop); window.addEventListener('pageshow',function(event){if(event.persisted)start();});
+  function start() {
+    if (active || suspended) return;
+    wrap(html); wrapped=true; active=true; observer.observe(html,{childList:true,subtree:true,characterData:true});
+  }
+  function stop(restore) {
+    observer.disconnect(); active=false;
+    if (!restore || !wrapped) return;
+    document.querySelectorAll('span.abPrivateAmount').forEach(function(el){el.replaceWith(document.createTextNode(el.textContent));});
+    document.querySelectorAll('[data-ab-private-svg]').forEach(function(el){el.classList.remove('abPrivateAmount');el.removeAttribute('data-ab-private-svg');el.removeAttribute('data-ab-amount-revealed');});
+    document.querySelectorAll('[data-ab-private-ready]').forEach(function(el){el.removeAttribute('data-ab-private-ready');}); wrapped=false;
+  }
+  function sync() { if (html.hasAttribute('data-ab-hide-amounts')) start(); else stop(true); }
+  function storage(event) { if(event.key==='abHideAmounts'){html.toggleAttribute('data-ab-hide-amounts',event.newValue==='1');sync();} }
+  sync(); window.addEventListener('ab:amount-privacy',sync); window.addEventListener('storage',storage);
+  window.addEventListener('pagehide',function(){suspended=true;stop(false);});
+  window.addEventListener('pageshow',function(event){if(event.persisted){suspended=false;sync();}});
 }
 
 // <!-- Lucian UX/UI Prompt #138 · MIT License (c) 2026 Seokwoooo · https://lucianlabs.dev/uxui-prompt/#138 -->
 function accountbookAmountPrivacyClientMain() {
-  var html=document.documentElement, key='abHideAmounts', reveals=new Map(), queued=false;
+  var html=document.documentElement, key='abHideAmounts', reveals=new Map();
   function isHidden(){return html.hasAttribute('data-ab-hide-amounts');}
-  function wrap(el) {
-    if(el.closest('input,textarea,select,[contenteditable],.abPrivateAmount,script,style')) return;
-    Array.from(el.childNodes).forEach(function(node){
-      if(node.nodeType===1){if(!node.matches('input,textarea,select,[contenteditable],.abPrivateAmount,script,style')) wrap(node); return;}
-      if(node.nodeType!==3) return;
-      var value=node.textContent, moneyUnit=el.closest('[data-ab-num-unit="원"]');
-      var re=moneyUnit ? /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?/g : /(?:[+−-]\s*)?\d[\d,]*(?:\.\d+)?\s*(?:만\s*)?원/g;
-      var matches=Array.from(value.matchAll(re));
-      if(!matches.length) return;
-      var frag=document.createDocumentFragment(), from=0;
-      matches.forEach(function(m){frag.appendChild(document.createTextNode(value.slice(from,m.index)));var span=document.createElement('span');span.className='abPrivateAmount';span.textContent=m[0];frag.appendChild(span);from=m.index+m[0].length;});
-      frag.appendChild(document.createTextNode(value.slice(from))); node.replaceWith(frag);
-    });
-    el.setAttribute('data-ab-private-ready','');
-  }
-  function scan(){queued=false;wrap(document.body); reveals.forEach(function(timer,el){if(!el.isConnected){clearTimeout(timer);reveals.delete(el);}});}
+  function clearReveals(){observer.disconnect();reveals.forEach(function(timer,el){clearTimeout(timer);el.removeAttribute('data-ab-amount-revealed');});reveals.clear();}
+  var observer=new MutationObserver(function(){reveals.forEach(function(timer,el){if(!el.isConnected){clearTimeout(timer);reveals.delete(el);}});if(!reveals.size)observer.disconnect();});
   function sync(){document.querySelectorAll('[data-ab-hide-toggle]').forEach(function(button){button.setAttribute('aria-pressed',String(isHidden()));button.setAttribute('aria-label',isHidden()?'금액 가리기 끄기':'금액 가리기 켜기');});}
-  function apply(hidden){html.toggleAttribute('data-ab-hide-amounts',hidden);if(!hidden){reveals.forEach(function(timer,el){clearTimeout(timer);el.removeAttribute('data-ab-amount-revealed');});reveals.clear();}sync();}
+  function apply(hidden){html.toggleAttribute('data-ab-hide-amounts',hidden);if(!hidden)clearReveals();window.dispatchEvent(new Event('ab:amount-privacy'));sync();}
   function toggle(){var hidden=!isHidden();try{localStorage.setItem(key,hidden?'1':'0');}catch(_error){}apply(hidden);}
   var icon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="abEyeSlash" d="m3 3 18 18"/></svg>';
   document.querySelectorAll('.abNavMobileTop,.abNavTop').forEach(function(bar){var button=document.createElement('button');button.type='button';button.className='abPrivacyEye';button.setAttribute('data-ab-hide-toggle','');button.innerHTML=icon;button.title='금액 가리기 · 화면에서만 가립니다';bar.appendChild(button);});
@@ -221,15 +254,15 @@ function accountbookAmountPrivacyClientMain() {
     if(event.target.closest('[data-ab-hide-toggle]')){toggle();return;}
     var amount=event.target.closest('.abPrivateAmount');if(!amount||!isHidden())return;
     event.preventDefault();event.stopImmediatePropagation();clearTimeout(reveals.get(amount));amount.setAttribute('data-ab-amount-revealed','');
-    reveals.set(amount,setTimeout(function(){amount.removeAttribute('data-ab-amount-revealed');reveals.delete(amount);},3000));
+    reveals.set(amount,setTimeout(function(){amount.removeAttribute('data-ab-amount-revealed');reveals.delete(amount);if(!reveals.size)observer.disconnect();},3000));
+    observer.observe(document.body,{childList:true,subtree:true});
   }
   function storage(event){if(event.key===key)apply(event.newValue==='1');}
-  var observer=new MutationObserver(function(){if(!queued){queued=true;queueMicrotask(scan);}});
-  scan();sync();observer.observe(document.body,{childList:true,subtree:true});
+  sync();
   document.addEventListener('click',click,true);window.addEventListener('storage',storage);
-  function cleanup(){observer.disconnect();reveals.forEach(function(timer,el){clearTimeout(timer);el.removeAttribute('data-ab-amount-revealed');});reveals.clear();document.removeEventListener('click',click,true);window.removeEventListener('storage',storage);window.removeEventListener('pagehide',cleanup);}
+  function cleanup(){clearReveals();document.removeEventListener('click',click,true);window.removeEventListener('storage',storage);window.removeEventListener('pagehide',cleanup);}
   window.addEventListener('pagehide',cleanup);
-  window.addEventListener('pageshow',function(event){if(event.persisted){observer.observe(document.body,{childList:true,subtree:true});document.addEventListener('click',click,true);window.addEventListener('storage',storage);window.addEventListener('pagehide',cleanup);scan();sync();}});
+  window.addEventListener('pageshow',function(event){if(event.persisted){document.addEventListener('click',click,true);window.addEventListener('storage',storage);window.addEventListener('pagehide',cleanup);sync();}});
 }
 // @build:exports-start
 export {

@@ -230,8 +230,8 @@ function run(command, args, label) {
 // 공동방 첫 기록 검사의 승인 대기 승격 +1, 실제 카카오 요청 모양(chat.properties.botGroupKey) 검사 17개를 더해 14,745개가 됐다.
 // V22.9.44: 카카오 5초 제한 대응 검사 36개를 더해 14,781개가 됐다.
 // V22.9.45: B-1, C-1, G-1, G-18 and G-16 add 224 deterministic regression checks.
-// V22.9.46 Lucian E: 146 feature checks plus module/serialization/asset coverage.
-const EXPECTED_MINIMUM_CHECKS = 15172;
+// V22.9.46 Lucian E: 192 feature checks, including 46 PR80 review regressions.
+const EXPECTED_MINIMUM_CHECKS = 15218;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
