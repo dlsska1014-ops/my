@@ -1,7 +1,7 @@
 // @build:imports-start
 import { appName, publicBaseUrl } from "../public/site-config.js";
 import { safeAdminReturnPath } from "../auth/crypto-admin-session.js";
-import { dashboardQuery } from "./transactions-households.js";
+import { dashboardQuery, isValidTransactionDateString } from "./transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchPaymentAssets } from "../settings/payment-assets.js";
 import {
@@ -298,7 +298,8 @@ async function renderServerDashboardHtml(env, url) {
   const defaultHouseholdId = households[0]?.id || "";
   const householdId = url.searchParams.get("household_id") || "";
   const type = url.searchParams.get("type") || "all";
-  const date = url.searchParams.get("date") || "";
+  const requestedDate = String(url.searchParams.get("date") || "").trim();
+  const date = isValidTransactionDateString(requestedDate) ? requestedDate : "";
   const q = url.searchParams.get("q") || "";
   const quality = url.searchParams.get("quality") || "all";
   const categoryFilter = lastNonEmptyParam(url.searchParams, "category");

@@ -69,7 +69,7 @@ Select only branches supported by the request:
 |---|---|---|
 | Authentication, account, invitation, permission, deletion, leaving | `BASELINE.md`, security validation | `npm run validate:household-security` |
 | `botGroupKey`, response shapes, identity keys, Kakao login | Kakao project memory | `npm run validate:kakao-group` |
-| OCR, photos, upload, receipt save | receipt rules and implementation | `npm run validate:receipt` |
+| Card or spreadsheet file imports | current import implementation and `AGENTS.md` | `npm run validate:card-import` (receipt photo registration is removed) |
 | Hierarchy, action text, accessibility, analysis UI | UX project memory | `npm run validate:ux-principles` |
 | `/my`, `/app`, request count, cache, static assets | performance baseline | `npm run validate:performance` |
 | Version, ZIP, deployment decision | deployment matrix, SQL history, release checklist | document consistency plus full harness |
@@ -130,7 +130,13 @@ evidence rather than raw logs.
 
 ```sh
 node .codex/scripts/verify-repository.mjs
+npm run validate:categories-absent
 ```
+
+Run both commands: one harness invocation covers one fixture mode. Use the
+validation list and active checksum manifest named in `AGENTS.md`, and the current
+`EXPECTED_MINIMUM_CHECKS` in `.codex/scripts/verify-repository.mjs`. Report the actual
+checksum and automated-check counts, without a fixed historical count.
 
 8. Inspect the full diff, prohibited files, checksum result, deployment classification, and
    outstanding real-device checks.

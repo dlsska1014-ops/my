@@ -48,27 +48,24 @@ Secrets, Kakao Developers, OpenBuilder, and production deployment.
 
 ## 4. Verify the attempt
 
-Run the narrow validation that matches the changed area:
-
-```sh
-npm run validate:receipt
-npm run validate:kakao-group
-npm run validate:kakao-edit
-npm run validate:household-security
-npm run validate:ux-principles
-npm run validate:performance
-npm run validate:adsense-v2
-```
+Run the narrow validations that match the changed area using the current validation
+list in `AGENTS.md` and scripts in `package.json`. Receipt photo registration was
+removed; use the current card-import check when the change concerns file imports.
 
 Before completion, always run the cross-platform repository harness:
 
 ```sh
 node .codex/scripts/verify-repository.mjs
+npm run validate:categories-absent
 ```
+
+Each invocation runs one fixture mode. Run both commands explicitly.
 
 Inspect the complete diff and confirm that:
 
-- all 34 release checksums, 902 automated checks, and `default.fetch` pass;
+- every checksum in the active manifest named in `AGENTS.md`, the current
+  `EXPECTED_MINIMUM_CHECKS` in `.codex/scripts/verify-repository.mjs`, and
+  `default.fetch` pass; report the actual counts printed by each fixture mode;
 - the source hash changes only when an authorized source change requires it;
 - no unrelated, generated, secret, environment, screenshot, or archive files entered the diff;
 - SQL, environment, console, deployment, and real-device requirements are reported separately.

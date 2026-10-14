@@ -37,7 +37,7 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
-  const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
+  const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
@@ -75,7 +75,11 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     transaction_date: parsed.transaction_date, source: "kakao_skill", source_user_key: kakaoUserKey,
     raw_text: parsed.raw_text || utterance,
   }));
-  if (Date.now() - handlerStartedAt >= 3500) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
+  // V22.9.45: waitUntil keeps the same save alive after the 4s response. Bound
+  // preparation at 20s, leaving time for the write and lease cleanup; synchronous
+  // callers retain the 3.5s gate. Group first-record forwards this via ...context.
+  const preparationBudgetMs = canDeferSave ? 20000 : 3500;
+  if (Date.now() - handlerStartedAt >= preparationBudgetMs) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
   let savedRows = [];
   try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
@@ -140,7 +144,7 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   // 웹 경로(fetchCustomCategories)는 표 조회 실패를 설정에 저장된 분류로 대체하지만, V22.9.30 부터 이 함수는
   // 두 조회를 함께 기다리며 실패를 그대로 던졌다. 그래서 운영에서는 카카오 새 기록 저장이 전부 실패했다.
   // 표 조회 실패는 빈 목록으로 보고 설정 저장 분류(keys[1])·기본 분류·키워드만 쓴다. 실패 이유는 인스턴스마다 한 번만 남긴다.
-  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"})
+  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET", optionalTable:"accountbook_categories"})
     .catch((err) => { if (!globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED) { globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED = true; rememberOpsEvent({ kind: "kakao_category_table_unavailable", severity: "warn", path: "/skill", method: "GET", detail: safeError(err) }); } return []; });
   const [settings,categories]=await Promise.all([settingsPromise,categoryPromise]);
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");

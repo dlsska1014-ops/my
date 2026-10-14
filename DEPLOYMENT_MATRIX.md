@@ -1,3 +1,17 @@
+## V22.9.45 적용 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | `V22.9.45-DEFERRED-SAVE`의 전체 `src/index.js`를 배포 스크립트로 업로드·대조한 뒤 사용자가 승격합니다. 현재 운영 적용 대기 상태이며 내보내기 목록을 유지합니다. |
+| SQL·스키마·RPC·환경변수·Secrets·바인딩 | 변경이 필요하지 않습니다. 적용 완료한 V22.8.46 SQL을 재실행하지 않습니다. |
+| 관제 Worker·Kakao Developers·OpenBuilder | 변경이 필요하지 않습니다. |
+| 동작 변화 | waitUntil 지원 시 저장 준비 상한 20초, 미지원 시 기존 3.5초 거절을 적용합니다. 관리자 날짜를 검증하고 선택 분류 표 404/PGRST205를 관제 실패에서 제외합니다. |
+| 불변 자산 | 변경한 캐시 자산이 없으며 새 주소는 필요하지 않습니다. |
+| 현재 운영·되돌리기 | V22.9.44, 2026-10-13 15:52 KST. 버전 `3d12b754-299f-4e83-8235-c5994d7fa4f9`, 배포 `4d5884dd-1a12-408a-93b9-d934e6c71bae`. 되돌리기 명령은 `node tools/deploy-worker-version.mjs --rollback 3d12b754-299f-4e83-8235-c5994d7fa4f9`입니다. |
+| 로컬 배포 기록 | 원본은 Git에서 제외한 output/에 보관하고 운영 ID 요약은 이 문서에 남깁니다. |
+
+검증은 `VERIFICATION_V22_9_45.md`, 사용자 배포와 운영 확인은 `docs/ASIDE_V22_9_45.md`를 따릅니다.
+
 ## V22.9.44 적용 판단
 
 | 항목 | 판단 |
@@ -7,7 +21,8 @@
 | 환경변수 | 선택 변수 `KAKAO_RESPONSE_BUDGET_MS`(밀리초, 200~4700)입니다. 넣지 않으면 4000이며, 지금은 넣지 않아도 됩니다. |
 | OpenBuilder·Kakao Developers | 변경이 필요하지 않습니다. |
 | 동작 변화 | 카카오 요청 처리가 4초를 넘기면 먼저 '처리 중' 답을 보내고 저장은 뒤에서 마칩니다. 방 기록 경로의 순차 왕복이 줄었습니다. |
-| 되돌리기 | 운영 현재값 V22.9.43: Cloudflare 버전 `7ece012b-15d0-4738-ae50-428ddb19b089`, 배포 `c9a302ff-fcb1-4d43-9b69-7147f075aa62`, 소스 SHA-256 `4002c6dc1bda4e3992f9d841b5dff60e25efb8bcf10ec7a24a53be9bb54383c1`. 승인 후 `node tools/deploy-worker-version.mjs --rollback 7ece012b-15d0-4738-ae50-428ddb19b089`. |
+| 운영 기록 | 2026-10-13 15:52 KST에 승격했습니다. Cloudflare 버전 `3d12b754-299f-4e83-8235-c5994d7fa4f9`, 배포 `4d5884dd-1a12-408a-93b9-d934e6c71bae`입니다. 근거는 로컬 `output/deploy/V22.9.44-KAKAO-LATENCY/promote-*.json`이며 원본은 Git에 넣지 않습니다. |
+| 되돌리기 | 직전 운영 V22.9.43: Cloudflare 버전 `7ece012b-15d0-4738-ae50-428ddb19b089`, 배포 `c9a302ff-fcb1-4d43-9b69-7147f075aa62`, 소스 SHA-256 `4002c6dc1bda4e3992f9d841b5dff60e25efb8bcf10ec7a24a53be9bb54383c1`. 승인 후 `node tools/deploy-worker-version.mjs --rollback 7ece012b-15d0-4738-ae50-428ddb19b089`. |
 
 검증은 `VERIFICATION_V22_9_44.md`, 운영 적용 순서는 `docs/ASIDE_V22_9_44.md`에 있습니다.
 

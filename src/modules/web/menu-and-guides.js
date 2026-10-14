@@ -26,7 +26,7 @@ import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "./login-page-side-nav.js";
 import { fetchKakaoGroupLinkMap } from "../kakao/group-links-first-record.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
-import { escapeHtml } from "../domain/transactions-core.js";
+import { escapeHtml, jsonForInlineScript } from "../domain/transactions-core.js";
 // @build:imports-end
 
 function renderPublicStartGuideHtml({ env, url }) {
@@ -357,7 +357,7 @@ function renderTabs(active, month, householdId, extra) {
 }
 
 function renderCalendarFilterScript(selectedDate) {
-  return `<script>(function(){try{var active=${JSON.stringify(selectedDate || "")};function qs(s){return document.querySelector(s)}function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function apply(date){var visible=0;qsa('.tx-row').forEach(function(r){var show=!date||r.getAttribute('data-date')===date;r.classList.toggle('hiddenByDate',!show);if(show)visible++;});qsa('.calendarDay').forEach(function(a){a.classList.toggle('selected',a.getAttribute('data-date')===date);});var note=qs('#txFilterNote');if(note)note.textContent=date?(date+' 거래 '+visible+'건 표시 중'):(visible+'건 전체 표시 중');var u=new URL(location.href);if(date){u.searchParams.set('date',date);u.searchParams.set('tab','calendar');}else{u.searchParams.delete('date');}history.replaceState(null,'',u.pathname+u.search+(date?'#transactionsSection':''));}qsa('.calendarDay').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var d=this.getAttribute('data-date');apply(d);var t=qs('#transactionsSection');if(t&&t.scrollIntoView)t.scrollIntoView({behavior:'smooth',block:'start'});});});var clear=qs('#clearDateFilter');if(clear){clear.addEventListener('click',function(){apply('');});}if(active)apply(active);}catch(e){console.log('calendar filter disabled',e);}})();</script>`;
+  return `<script>(function(){try{var active=${jsonForInlineScript(selectedDate || "")};function qs(s){return document.querySelector(s)}function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function apply(date){var visible=0;qsa('.tx-row').forEach(function(r){var show=!date||r.getAttribute('data-date')===date;r.classList.toggle('hiddenByDate',!show);if(show)visible++;});qsa('.calendarDay').forEach(function(a){a.classList.toggle('selected',a.getAttribute('data-date')===date);});var note=qs('#txFilterNote');if(note)note.textContent=date?(date+' 거래 '+visible+'건 표시 중'):(visible+'건 전체 표시 중');var u=new URL(location.href);if(date){u.searchParams.set('date',date);u.searchParams.set('tab','calendar');}else{u.searchParams.delete('date');}history.replaceState(null,'',u.pathname+u.search+(date?'#transactionsSection':''));}qsa('.calendarDay').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var d=this.getAttribute('data-date');apply(d);var t=qs('#transactionsSection');if(t&&t.scrollIntoView)t.scrollIntoView({behavior:'smooth',block:'start'});});});var clear=qs('#clearDateFilter');if(clear){clear.addEventListener('click',function(){apply('');});}if(active)apply(active);}catch(e){console.log('calendar filter disabled',e);}})();</script>`;
 }
 
 function renderAutoRefreshScript() {

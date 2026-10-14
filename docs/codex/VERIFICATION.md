@@ -1,3 +1,9 @@
+## V22.9.45 검증 방법
+
+현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_45.sha256`의 422개 경로입니다. 직전 415개 경로를 보존하고 새 검사기·판 문서 3개·직전 manifest·감사·인계 문서 2개를 더합니다. 새 회귀 검사는 224개이며 전체 하한은 15,005개입니다.
+
+`npm run validate:audit-hotfix`는 B-1·C-1·G-1·G-18·G-16의 회귀를 검사합니다. 항목별 `--case=` 검사로 수정 전 실패와 수정 후 통과를 확인합니다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 각각 실행하며 Node.js 22의 `node monitoring/test-d1.mjs`를 별도로 실행합니다. 실제 개수와 소스 SHA-256은 `VERIFICATION_V22_9_45.md`에 기록합니다.
+
 ## V22.9.44 검증 방법
 
 현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_44.sha256`의 415개 경로입니다. V22.9.43의 410개 경로를 보존하고 새 파일 5개를 더했습니다: 검사기 1개, 판 문서 3개, 직전 manifest. 일반·분류 표 부재 모드 각각 14,781개, Node.js v22.23.1 SQLite 84개가 통과했습니다.

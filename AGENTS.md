@@ -63,9 +63,9 @@
   않는다. 모듈 사이 선언 이동은 `docs/refactor/modularization-v1/PLAN.md` 4단계의
   절차와 검사를 따르고, `node tools/compare-worker-statements.mjs`로 의도한 문장만 바뀌었는지
   확인한다. `.toString()`으로 내려보내는 클라이언트 함수에는 Worker 최상위 이름을 새로 넣지 않는다.
-- 현재 V22.8.46은 `household_members.role`에 `admin`을 허용하는
-  `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql` 적용이 필요하다. 기존 참여자 행,
-  RLS, GRANT, RPC, 인덱스, 환경변수, Kakao Developers, OpenBuilder는 변경하지 않는다.
+- `household_members.role`에 `admin`을 허용하는 V22.8.46 SQL은 이미 적용됐다.
+  `01_APPLY_MEMBER_ROLE_SCHEMA_V22_8_46.sql`을 재실행하지 않는다(`SQL_HISTORY.md` 참조).
+  기존 참여자 행, RLS, GRANT, RPC, 인덱스, 환경변수, Kakao Developers, OpenBuilder는 변경하지 않는다.
 - 비밀키, 토큰, 실제 사용자 데이터, `.env`, 빌드 결과, `node_modules`,
   스크린샷, 중첩 ZIP을 커밋하지 않는다.
 - 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `CHANGELOG.md`,
@@ -77,6 +77,7 @@
 코드 변경 후 먼저 관련 검증을 실행하고 마지막에 전체 검증을 실행한다.
 
 ```bash
+npm run validate:audit-hotfix
 npm run validate:card-import
 npm run validate:kakao-group
 npm run validate:kakao-edit
@@ -115,10 +116,11 @@ npm run validate:www-canonical
 npm run validate:ui-perf
 npm run validate:public-articles
 node .codex/scripts/verify-repository.mjs
+npm run validate:categories-absent
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_44.sha256`로 확인하며 자동 검사의 최소 기준은 14,781개이다. ESM `default.fetch`, 작업 트리와
+현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_45.sha256`의 422개 경로로 확인하며 자동 검사의 최소 기준은 15,005개이다(하네스의 `EXPECTED_MINIMUM_CHECKS`). ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 여기에는 V22.9.24의 설정 범위·취소·관제 SSO·부분 지표 검사 121개, V22.9.25의 UI/UX 회귀 검사 42개, V22.9.26의 라우터 await·안전 실패 검사 47개, 출시 점검 수정 검사 83개, 코드리뷰 후속 검사 125개와 cold/warm 직렬 깊이 보호 6개가 포함된다.
 설정 JSON(키워드·적립계획·별칭·식별 링크·즐겨찾기·거래 수정 이력)을 읽고-고쳐-쓰는 경로는 `{ strict: true }` 읽기와 가계부 설정 잠금을 쓴다. 편집 폼은 권한 판정용 좁은 조회가 아니라 표시할 칸을 모두 읽은 행으로 그리고, 원래 값(`orig_*`)을 실어 바꾼 칸만 저장한다. 사용자 값이 키가 되는 맵은 `Object.create(null)`로 만든다(빈 객체 `{}`를 계산된 키로 쓰면 `validate-proto-safety-v22934`가 실패한다). 읽기 실패를 빈 값으로 보면 기존 값이 통째로 사라진다.
 비밀번호 해시(PBKDF2) 반복 횟수는 Cloudflare Workers 운영 상한 100,000 을 넘기지 않는다. Node 에는 이 상한이 없으므로 메모리 픽스처의 상한 흉내를 끄지 않는다.
@@ -130,7 +132,7 @@ SQLite 메모리 검증 84개는 사용 중인 Node.js 22 환경에서 `node mon
 템플릿 리터럴 안 문자열이므로 정규식 백슬래시를 반드시 이중으로 쓴다. 새로 작성하는
 클라이언트 코드는 실제 함수로 만들고 `.toString()`으로 직렬화한다.
 
-기존 `npm run validate`는 원본 배포 묶음 호환용이며 Bash가 필요하다.
+`npm run validate`는 교차 플랫폼 Node 하네스이다. 옛 Bash 검사는 `npm run validate:unix`로 실행한다.
 문서만 변경했더라도 저장소 하네스를 실행해 기준선이 그대로인지 확인한다.
 운영 환경 수동 확인이 필요한 항목은 자동 통과로 간주하지 말고
 `RELEASE-CHECKLIST.md`에 따라 별도로 보고한다.
@@ -161,4 +163,4 @@ SQLite 메모리 검증 84개는 사용 중인 Node.js 22 환경에서 `node mon
 - 파괴적 Git 명령, 강제 푸시, 운영 배포, SQL 실행, 외부 서비스 설정 변경은
   사용자 승인 없이 수행하지 않는다.
 
-V22.9.38부터 전체 하네스는 일반 모드와 `--categories-absent` 모드를 모두 실행합니다. 새 입력 자산은 대상 화면에만 추가하며 홈·분석 화면을 넓게 변경하지 않습니다.
+전체 하네스는 한 번 실행할 때 한 모드만 검사한다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 각각 실행하여 일반 모드와 분류 표 부재 모드를 확인한다. 새 입력 자산은 대상 화면에만 추가하며 홈·분석 화면을 넓게 변경하지 않는다.

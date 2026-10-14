@@ -2191,7 +2191,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.44-KAKAO-LATENCY";
+const APP_VERSION = "V22.9.45-DEFERRED-SAVE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -6578,7 +6578,7 @@ async function fetchCustomCategories(env, householdId = "") {
   // Read both fallback settings together so absence does not add a serial database round trip.
   const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
   const [rows, settings] = await Promise.all([
-    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET" }).catch(() => null),
+    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch(() => null),
     supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
@@ -9285,7 +9285,8 @@ async function renderServerDashboardHtml(env, url) {
   const defaultHouseholdId = households[0]?.id || "";
   const householdId = url.searchParams.get("household_id") || "";
   const type = url.searchParams.get("type") || "all";
-  const date = url.searchParams.get("date") || "";
+  const requestedDate = String(url.searchParams.get("date") || "").trim();
+  const date = isValidTransactionDateString(requestedDate) ? requestedDate : "";
   const q = url.searchParams.get("q") || "";
   const quality = url.searchParams.get("quality") || "all";
   const categoryFilter = lastNonEmptyParam(url.searchParams, "category");
@@ -15018,7 +15019,7 @@ function renderTabs(active, month, householdId, extra) {
 }
 
 function renderCalendarFilterScript(selectedDate) {
-  return `<script>(function(){try{var active=${JSON.stringify(selectedDate || "")};function qs(s){return document.querySelector(s)}function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function apply(date){var visible=0;qsa('.tx-row').forEach(function(r){var show=!date||r.getAttribute('data-date')===date;r.classList.toggle('hiddenByDate',!show);if(show)visible++;});qsa('.calendarDay').forEach(function(a){a.classList.toggle('selected',a.getAttribute('data-date')===date);});var note=qs('#txFilterNote');if(note)note.textContent=date?(date+' 거래 '+visible+'건 표시 중'):(visible+'건 전체 표시 중');var u=new URL(location.href);if(date){u.searchParams.set('date',date);u.searchParams.set('tab','calendar');}else{u.searchParams.delete('date');}history.replaceState(null,'',u.pathname+u.search+(date?'#transactionsSection':''));}qsa('.calendarDay').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var d=this.getAttribute('data-date');apply(d);var t=qs('#transactionsSection');if(t&&t.scrollIntoView)t.scrollIntoView({behavior:'smooth',block:'start'});});});var clear=qs('#clearDateFilter');if(clear){clear.addEventListener('click',function(){apply('');});}if(active)apply(active);}catch(e){console.log('calendar filter disabled',e);}})();</script>`;
+  return `<script>(function(){try{var active=${jsonForInlineScript(selectedDate || "")};function qs(s){return document.querySelector(s)}function qsa(s){return Array.prototype.slice.call(document.querySelectorAll(s))}function apply(date){var visible=0;qsa('.tx-row').forEach(function(r){var show=!date||r.getAttribute('data-date')===date;r.classList.toggle('hiddenByDate',!show);if(show)visible++;});qsa('.calendarDay').forEach(function(a){a.classList.toggle('selected',a.getAttribute('data-date')===date);});var note=qs('#txFilterNote');if(note)note.textContent=date?(date+' 거래 '+visible+'건 표시 중'):(visible+'건 전체 표시 중');var u=new URL(location.href);if(date){u.searchParams.set('date',date);u.searchParams.set('tab','calendar');}else{u.searchParams.delete('date');}history.replaceState(null,'',u.pathname+u.search+(date?'#transactionsSection':''));}qsa('.calendarDay').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var d=this.getAttribute('data-date');apply(d);var t=qs('#transactionsSection');if(t&&t.scrollIntoView)t.scrollIntoView({behavior:'smooth',block:'start'});});});var clear=qs('#clearDateFilter');if(clear){clear.addEventListener('click',function(){apply('');});}if(active)apply(active);}catch(e){console.log('calendar filter disabled',e);}})();</script>`;
 }
 
 function renderAutoRefreshScript() {
@@ -33190,6 +33191,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   // V22.9.44: 카카오는 5초 안에 답이 없으면 '스킬 서버 연결 오류'(폴백 블록 오류 알림)로 끝낸다. 처리가 응답 예산(기본 4초)을
   // 넘기면 먼저 '처리 중' 답을 보내고 같은 처리는 ctx.waitUntil 로 끝까지 마친다. 중복 저장을 막는 처리 중 표시는 그 처리가
   // 끝날 때 내려가고, 관제 지표에는 실제로 걸린 시간과 결과를 남긴다.
+  const canDeferSave = typeof ctx?.waitUntil === "function";
   const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
@@ -33199,7 +33201,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       headers,
       body: JSON.stringify(payload || {}),
     });
-    const response = await handleKakaoSkill(cloned, env);
+    const response = await handleKakaoSkill(cloned, env, { canDeferSave });
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
@@ -33237,7 +33239,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     headers.set("x-accountbook-latency-ms", String(latencyMs));
     return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
   } })();
-  if (!ctx || typeof ctx.waitUntil !== "function") return await work;
+  if (!canDeferSave) return await work;
   const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
   let deadlineTimer = null;
   const first = await Promise.race([work, new Promise((resolve) => { deadlineTimer = setTimeout(() => resolve(null), Math.max(0, budgetMs - (Date.now() - requestStartedAt))); })]);
@@ -33255,7 +33257,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   return new Response(deferred.body, { status: deferred.status, statusText: deferred.statusText, headers: deferredHeaders });
 }
 
-async function handleKakaoSkill(request, env) {
+async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -33465,7 +33467,7 @@ async function handleKakaoSkill(request, env) {
     if (preParsedList.length > limit) return kakaoText(`한 번에 ${limit}건까지 입력할 수 있어요. ${preParsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
-    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, groupKey: botGroupKey });
+    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey });
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -33500,7 +33502,7 @@ async function handleKakaoSkill(request, env) {
       (!households.length || (households.length === 1 && households[0].role === "owner"))) {
     const tooLarge = preParsedList.slice(0, boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80)).find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
-    const firstReply = await tryKakaoChatFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, selectedHouseholdId });
+    const firstReply = await tryKakaoChatFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, selectedHouseholdId });
     if (firstReply) return firstReply;
     // A queued first request may have published the one personal household meanwhile.
     [households, selectedHouseholdId] = await Promise.all([fetchUserHouseholds(env, user.id), getKakaoSelectedHouseholdId(env, user.id)]);
@@ -33647,11 +33649,11 @@ ${formatRecentTransactions(rows)}`);
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
-  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
+  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
-  const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
+  const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
@@ -33689,7 +33691,11 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     transaction_date: parsed.transaction_date, source: "kakao_skill", source_user_key: kakaoUserKey,
     raw_text: parsed.raw_text || utterance,
   }));
-  if (Date.now() - handlerStartedAt >= 3500) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
+  // V22.9.45: waitUntil keeps the same save alive after the 4s response. Bound
+  // preparation at 20s, leaving time for the write and lease cleanup; synchronous
+  // callers retain the 3.5s gate. Group first-record forwards this via ...context.
+  const preparationBudgetMs = canDeferSave ? 20000 : 3500;
+  if (Date.now() - handlerStartedAt >= preparationBudgetMs) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
   let savedRows = [];
   try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
@@ -33754,7 +33760,7 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   // 웹 경로(fetchCustomCategories)는 표 조회 실패를 설정에 저장된 분류로 대체하지만, V22.9.30 부터 이 함수는
   // 두 조회를 함께 기다리며 실패를 그대로 던졌다. 그래서 운영에서는 카카오 새 기록 저장이 전부 실패했다.
   // 표 조회 실패는 빈 목록으로 보고 설정 저장 분류(keys[1])·기본 분류·키워드만 쓴다. 실패 이유는 인스턴스마다 한 번만 남긴다.
-  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET"})
+  const categoryPromise=supabase(env, `/rest/v1/accountbook_categories?household_id=eq.${encodeURIComponent(householdId)}&select=id,household_id,name,type,sort_order,created_at&order=sort_order.asc,created_at.asc&limit=300`, {method:"GET", optionalTable:"accountbook_categories"})
     .catch((err) => { if (!globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED) { globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED = true; rememberOpsEvent({ kind: "kakao_category_table_unavailable", severity: "warn", path: "/skill", method: "GET", detail: safeError(err) }); } return []; });
   const [settings,categories]=await Promise.all([settingsPromise,categoryPromise]);
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
@@ -35671,7 +35677,7 @@ async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
 }
 
 async function tryKakaoChatFirstRecord(env, context = {}) {
-  const { payload, user, kakaoUserKey, nickname, origin, utterance = "", parsedList, handlerStartedAt } = context;
+  const { payload, user, kakaoUserKey, nickname, origin, utterance = "", parsedList, handlerStartedAt, canDeferSave = false } = context;
   if (getKakaoBotGroupKey(payload) || !user?.id || !hasChatFirstKakaoIdentity(payload, kakaoUserKey) || context.selectedHouseholdId) return null;
   const key = await kakaoChatFirstSettingsKey(kakaoUserKey);
   const observed = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
@@ -35709,7 +35715,7 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
         if (role !== "owner") throw new Error("kakao_first_record_owner_required");
         const firstNotice = "웹 로그인 없이 내 개인 가계부를 준비했어요.\n이름·예산은 나중에 웹에서 설정할 수 있어요.\n\n";
         return await saveKakaoParsedTransactionsReply(env, {
-          household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt,
+          household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt, canDeferSave,
           firstNotice, assertFresh,
           onSaved: async () => {
             recordSaved = true;
@@ -35940,7 +35946,7 @@ async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
   if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-  const { timeoutMs, rawHeadResponse = false, ...fetchInit } = init;
+  const { timeoutMs, rawHeadResponse = false, optionalTable = "", ...fetchInit } = init;
   const method = String(fetchInit.method || "GET").toUpperCase();
   const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
   if (!readOnly && !/\/rpc\/accountbook_(?:auth_attempt|claim_operation|release_operation)/.test(path)) env.__AB_REQUEST_USER_ROWS?.clear();
@@ -35953,6 +35959,7 @@ async function supabase(env, path, init = {}) {
   let failed = false;
   let dispatched = false;
   let status = 0;
+  let expectedOptionalAbsence = false;
   let timer;
   let timeout = false;
   const controller = readOnly ? new AbortController() : null;
@@ -35970,7 +35977,16 @@ async function supabase(env, path, init = {}) {
       status = res.status;
       if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;
       const text = await res.text();
-      if (!res.ok) throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+      if (!res.ok) {
+        // V22.9.45: only an explicitly optional categories GET may treat this
+        // schema-cache absence as expected. Authentication, writes and other
+        // 404/5xx errors still count as failures. Keep the exception for fallback.
+        if (method === "GET" && optionalTable === "accountbook_categories" &&
+            /^\/rest\/v1\/accountbook_categories(?:\?|$)/.test(path) && status === 404) {
+          try { expectedOptionalAbsence = JSON.parse(text)?.code === "PGRST205"; } catch (_) {}
+        }
+        throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+      }
       if (!text) return null;
       try { return JSON.parse(text); } catch (_) { return text; }
     };
@@ -35998,7 +36014,7 @@ async function supabase(env, path, init = {}) {
     if (monitor) {
       monitor.db_count += 1;
       monitor.db_ms += Math.max(0, Date.now() - startedAt);
-      if (failed) monitor.db_failures += 1;
+      if (failed && !expectedOptionalAbsence) monitor.db_failures += 1;
     }
   }
 }
