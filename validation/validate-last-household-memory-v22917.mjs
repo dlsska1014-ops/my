@@ -103,7 +103,7 @@ const hhCookie = (result) => result.setCookies.find((cookie) => cookie.startsWit
 
   const pub = await get("/privacy?household_id=house-home");
   eq(hhCookie(pub), "", "공개 화면은 쿠키를 만들지 않는다");
-  const asset = await get(`/assets/accountbook-theme-v2299.js?household_id=house-home`);
+  const asset = await get(`/assets/accountbook-theme-v22946.js?household_id=house-home`);
   eq(hhCookie(asset), "", "자산 응답은 쿠키를 만들지 않는다");
 
   const weird = await get(`/app?month=${month}&household_id=${encodeURIComponent("bad value;")}`);

@@ -1,4 +1,5 @@
 // @build:imports-start
+import { ACCOUNTBOOK_LUCIAN_E_CSS } from "./lucian-e-css.js";
 import {
   accountbookFavRowsJsAsset, accountbookGoalsJsAsset, accountbookV5BundleJsAsset,
 } from "../client/v5-bundle-mains.js";
@@ -53,7 +54,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
       ? ACCOUNTBOOK_SHELL_V22811_CSS
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-      ? ACCOUNTBOOK_SHELL_CSS + ACCOUNTBOOK_EXPERIENCE_CSS
+      ? ACCOUNTBOOK_SHELL_CSS + ACCOUNTBOOK_EXPERIENCE_CSS + ACCOUNTBOOK_LUCIAN_E_CSS
       : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
         ? accountbookThemeJsAsset()
       : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
@@ -89,9 +90,9 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22940-css"'
+        ? '"accountbook-shell-v22946-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
-          ? '"accountbook-theme-v2299-js"'
+          ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22934-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
@@ -101,11 +102,11 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
           ? '"accountbook-notif-v22937-js"'
         : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
-          ? '"accountbook-goals-v22937-js"'
+          ? '"accountbook-goals-v22946-js"'
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22937-js"'
+          ? '"accountbook-v5-v22946-js"'
           : '"mobile-home-v22934-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });

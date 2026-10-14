@@ -150,9 +150,10 @@ try {
   // 8조합 모두에서 --ab12-brand 가 실제로 정의돼 있어야 점이 보인다.
   // 블루는 기본 톤이라 셸 선언부에 그대로 있고(라이트·다크 각 한 벌), 나머지 셋은
   // 톤 선택자에서 덮는다. 여덟 조합 어디서도 값이 비지 않아야 점이 보인다.
-  eq((source.match(/body\.abV22812Shell\{--ab12-bg:[^}]*--ab12-brand:#[0-9a-f]{3,8}/g) || []).length, 2, "기본 톤(블루)의 브랜드 색이 라이트·다크 양쪽에 있다");
+  const activeSource = source.replace(/const AB_HISTORICAL_RUNTIME_ASSETS = \{[\s\S]*?\n\};\n/, "");
+  eq((activeSource.match(/body\.abV22812Shell\{--ab12-bg:[^}]*--ab12-brand:#[0-9a-f]{3,8}/g) || []).length, 2, "기본 톤(블루)의 브랜드 색이 라이트·다크 양쪽에 있다");
   for (const tone of ["emerald", "violet", "amber"]) {
-    const rules = source.match(new RegExp(`data-ab-tone="${tone}"\\] body\\.abV22812Shell\\{--ab12-brand:#[0-9a-f]{3,8}`, "g")) || [];
+    const rules = activeSource.match(new RegExp(`data-ab-tone="${tone}"\\] body\\.abV22812Shell\\{--ab12-brand:#[0-9a-f]{3,8}`, "g")) || [];
     eq(rules.length, 2, `${tone} 톤의 브랜드 색이 라이트·다크 양쪽에 있다 (${rules.length})`);
   }
 
@@ -165,7 +166,7 @@ try {
   ok(menu.text.includes("마우스 따라오는 표시"), "화면 설정에 스위치가 있다");
   ok(/name="cursor" value="on" checked/.test(menu.text), "기본 상태가 켜짐으로 보인다");
   // 스위치 스타일은 페이지가 아니라 공유 셸 자산에 있다(그래서 주소를 함께 올렸다).
-  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22940.css`), fixture.env, {});
+  const shell = await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22946.css`), fixture.env, {});
   eq(shell.status, 200, "셸 스타일이 새 주소에서 내려온다");
   const shellCss = await shell.text();
   ok(shellCss.includes(".abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px"), "스위치가 44px 탭 영역을 갖는다");

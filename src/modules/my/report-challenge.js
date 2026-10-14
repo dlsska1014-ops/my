@@ -159,7 +159,8 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
         return { date, day, weekday, state, stateLabel };
       })
     : [];
-  return { ...settings, month: safeMonth, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
+  const hasMonthlyRecords = safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth);
+  return { ...settings, month: safeMonth, hasMonthlyRecords, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
 }
 
 async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {} } = {}) {
@@ -187,7 +188,8 @@ async function buildReportChallengeForHousehold(env, { householdId = "", month =
       return null;
     }
   }
-  return buildReportChallenge(challengeRows, safeMonth, value);
+  // The optional cross-month challenge read must not make an empty selected month celebrate.
+  return { ...buildReportChallenge(challengeRows, safeMonth, value), hasMonthlyRecords: safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth) };
 }
 
 function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {}) {
@@ -331,7 +333,9 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
       : `<p class="reportChallengeReadOnly">소유자·관리자가 목표를 설정할 수 있습니다.</p>`;
   const description = home ? "" : `<p>${escapeHtml(status)}<br/><span class="reportChallengeDates">기간 ${escapeHtml(safe.startDate)} ~ ${escapeHtml(safe.targetDate)} · 오늘 ${escapeHtml(safe.today || formatDate(nowKstDate()))}</span></p>`;
   const progressSummary = safe.type === "no_spend_days" ? `무지출 ${safe.progress}/${safe.targetDays}일` : `${escapeHtml(safe.goalLabel || safe.typeLabel || "챌린지")} · ${safe.progress}/${safe.targetDays}일 성공`;
-  return `<section class="reportChallenge" id="reportChallenge"><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+  const celebration = safe.enabled && (safe.schemaVersion >= 2 || safe.revision > 0) && safe.hasMonthlyRecords === true && safe.targetDays > 0 && safe.progress >= safe.targetDays
+    ? ` data-ab-celebrate="challenge" data-ab-celebrate-key="${escapeHtml([householdId, safe.startDate, safe.targetDate, safe.type, safe.targetDays, safe.targetAmount || 0, safe.category || "", safe.revision || 0].join(":"))}" data-ab-celebrate-count="${Number(safe.progress) || 0}"` : "";
+  return `<section class="reportChallenge" id="reportChallenge"${celebration}><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
 }
 
 function reportUxCss() {

@@ -1,10 +1,11 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.45",
+  "version": "22.9.46",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
   "scripts": {
+    "validate:lucian-e": "node validation/validate-lucian-e-v22946.mjs",
     "validate:audit-hotfix": "node validation/validate-audit-hotfix-v22945.mjs",
     "validate:kakao-latency": "node validation/validate-kakao-latency-v22944.mjs",
     "validate:room-autojoin": "node validation/validate-room-autojoin-v22943.mjs",

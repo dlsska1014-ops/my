@@ -162,8 +162,8 @@ eq(empty.status, 200, "기록 0건 계정에서도 홈이 열린다");
 ok(empty.html.includes("homeOnboarding"), "기록이 0건이면 빈 상태가 나온다");
 ok(empty.html.indexOf("homeOnboarding") > empty.html.indexOf('id="v8Feed"'), "빈 상태는 최근 내역 자리에 놓인다");
 eq(empty.html.includes('id="v8Search"'), false, "기록이 없을 때 목록 검색칸을 띄우지 않는다");
-// 통과 조건은 "증가 0건"이다. 기록이 없는 계정은 오히려 덜 묻는다(9회).
-ok(empty.calls.length <= baseline.calls.length, `빈 상태도 질의 수를 늘리지 않는다 (${empty.calls.length} ≤ ${baseline.calls.length})`);
+// Lucian E #088: the user authorized exactly one all-time existence read for an empty month.
+ok(empty.calls.length <= baseline.calls.length + 1, `빈 상태는 허용한 존재 조회 1회 이내이다 (${empty.calls.length} ≤ ${baseline.calls.length + 1})`);
 
 if (previousFixedNow === undefined) delete globalThis.__AB_QA_FIXED_NOW_MS;
 else globalThis.__AB_QA_FIXED_NOW_MS = previousFixedNow;
