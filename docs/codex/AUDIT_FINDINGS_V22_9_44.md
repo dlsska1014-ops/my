@@ -1,5 +1,7 @@
 # V22.9.44 전체 점검 결과 (2026-10-14)
 
+**1단계 반영:** B-1·C-1·G-1·G-18·G-16은 V22.9.45에서 고침(저장소 수정, 운영 적용 대기). 나머지 100건과 아래의 원래 점검 관찰은 보존합니다. 전후 검사 근거는 `VERIFICATION_V22_9_45.md`에 있습니다.
+
 ## 개요
 
 - **대상:** main `ed75a0e`, 즉 운영 배포본 V22.9.44-KAKAO-LATENCY(2026-10-13 15:52 KST)입니다. 이 점검은 저장소와 운영 설정을 바꾸지 않았고 운영으로 요청도 보내지 않았습니다.
@@ -43,6 +45,7 @@
 ## 1. 지금 바로 고칠 것 (P0)
 
 ### B-1 ★ '먼저 답하기'로 넘어간 첫 기록이 저장되지 않음 (새 단톡방·새 1:1 사용자)
+- **상태:** V22.9.45에서 고침. waitUntil 지원 여부를 저장 경로까지 전달하고 준비 상한 20초를 적용합니다. 문맥 없는 호출은 3.5초 거절을 유지합니다.
 - **증상:** 새 단톡방의 첫 기록과 처음 쓰는 1:1 사용자의 첫 기록은 4초 응답 예산을 넘깁니다.
   - 그래서 "요청은 받았어요. … 같은 내용을 다시 보내지 말고 잠시 뒤 '오늘 기록 보기'로 확인해 주세요"라고 먼저 답합니다.
   - 그런데 뒤에서 이어지는 저장이 `transaction-save.js:78`의 검사에 걸립니다. 핸들러 시작 뒤 3.5초가 지나면 INSERT하지 않는 검사입니다. 그래서 저장되지 않습니다.
@@ -83,6 +86,7 @@
 - **고치는 방향:** 만료되지 않은 세션이 있으면, '수정·삭제' 말과 날짜 접두가 없는 "N번"·"N번 값"을 세션에 먼저 넘깁니다.
 
 ### C-1 ★ 관리자 대시보드의 `date` 쿼리가 인라인 스크립트에 그대로 들어감(반사형 스크립트 삽입)
+- **상태:** V22.9.45에서 고침. 날짜 검증과 달력 스크립트의 안전한 인라인 JSON을 적용했습니다.
 - **위치:** `admin/dashboard-page.js:301`이 `date`를 검증 없이 받고 `:405`에서 넘깁니다. `web/menu-and-guides.js:360` `renderCalendarFilterScript`가 그 값을 `var active=${JSON.stringify(selectedDate)}`로 씁니다.
 - **재현:** `verify/c1-admin-date-xss.mjs`, `verify/c1b.mjs`
   - 관리자 세션으로 `/?legacy=1&date=</script><script>…</script>`를 열면 `var active="</script><script>window.__x=1</script>"`가 그대로 나옵니다.
@@ -395,6 +399,7 @@
 
 **결함**
 - **G-1 ★ 분류 표 404가 'DB 실패 표본'으로 쌓여 관제의 '최근 처리 실패 기록' 경고가 꺼지지 않음**
+  - 상태: V22.9.45에서 고침. 명시한 선택 분류 표 GET의 404/PGRST205만 DB 실패 집계에서 제외하며 실제 오류는 유지합니다.
   - 위치:
     - `kakao/transaction-save.js:143`, `settings/categories-keywords.js:382`
     - `data/supabase-client.js:48-65`: 실패한 호출마다 `db_failures += 1`
@@ -531,8 +536,10 @@
 - G-14 `migrations/README.md`의 `/ready` 범위와 "코드가 의존하는 표" 목록이 틀림(없는 표 4개, 빠진 표 8개) — `migrations/README.md:42-60`
 - G-15 필수 Secret 6개와 카카오 로그인·cron 변수 이름이 운영 문서 어디에도 없음. `/cron/*`이 `ADMIN_API_TOKEN` Bearer로도 통과한다는 사실도 문서에 없음 — `runtime/config-readiness.js:14-21`
 - G-16 커밋된 운영 기록에 V22.9.44 배포가 없고, 배포 ID는 추적되지 않는 `output/`에만 있음(DEPLOYMENT_MATRIX·CHANGELOG·README·RELEASE-CHECKLIST는 V22.9.43 기준)
+  - 상태: V22.9.45에서 고침. 문서 네 개에 운영 ID·시각을 기록하고 output/을 Git 제외 목록에 넣었습니다.
 - G-17 README의 "현재 릴리스 적용" 절이 V22.9.21의 붙여넣기 배포와 옛 `--version`을 안내함. SQLite 검사 수도 45개로 적혀 있음(실제 84개) — `README.md:1-3·92-97·279-283`
 - G-18 저장소 스킬과 AGENTS.md의 검증 지시가 실제와 다름(이미 알려진 902/34 외) — `.agents/skills/*/SKILL.md`, `AGENTS.md:66-68·133·164`
+  - 상태: V22.9.45에서 고침. 실제 npm 스크립트·두 모드 실행·현행 manifest·검사 하한 참조와 SQL 적용 완료·validate:unix 설명을 반영했습니다.
   - 두 스킬의 첫 검증 `validate:receipt`가 없는 스크립트임
   - AGENTS.md가 "V22.8.46 SQL 적용 필요"라고 적음(실제로는 재실행 금지)
   - AGENTS.md가 "하네스가 두 모드를 실행"한다고 적음(실제로는 한 번에 한 모드)

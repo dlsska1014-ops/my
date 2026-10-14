@@ -1,5 +1,7 @@
 # Codex 인계: V22.9.44 전체 점검 결과 수정 (2026-10-14)
 
+**1단계 반영:** B-1·C-1·G-1·G-18·G-16은 V22.9.45에서 고침(저장소 수정, 운영 적용 대기). 첫 커밋 `bf79272`에 감사·인계 문서만 보존했으며 아래의 원래 작업 지시는 유지합니다. 실제 전후 검사와 배포 절차는 `VERIFICATION_V22_9_45.md`, `docs/ASIDE_V22_9_45.md`에 있습니다.
+
 이 문서는 Codex가 `docs/codex/AUDIT_FINDINGS_V22_9_44.md`의 결함 105건(P0 1·P1 12·P2 38·P3 54)을 이어받아 고치기 위한 작업 지시입니다.
 - 2026-10-14 Claude 점검 세션에서 만들었습니다. 이 세션은 저장소 코드를 바꾸지 않았습니다.
 - 이 문서와 감사 문서는 아직 커밋되지 않았습니다. 1단계 PR의 첫 커밋에 넣습니다.
@@ -91,6 +93,8 @@ AGENTS.md를 요약하고, 이번 점검에서 확인한 함정을 더했습니�
 
 ### B-1 먼저 답한 첫 기록이 저장되지 않음
 
+- **상태:** V22.9.45에서 고침. 일반·새 방·새 1:1 경로에 waitUntil 지원 여부를 전달했으며 준비 상한은 20초입니다.
+
 - **원인:** `handleKakaoSkillStable`(`kakao/skill-handler.js:87-240`)은 4초가 지나면 먼저 답하고 `work`를 `ctx.waitUntil`로 넘깁니다.
   - 그런데 `work`가 부르는 `handleKakaoSkill(cloned, env)`(186줄)는 이 사실을 모릅니다.
   - 그래서 저장 직전 `kakao/transaction-save.js:78`의 `Date.now() - handlerStartedAt >= 3500` 검사가 뒤 작업에서도 저장을 거절합니다.
@@ -114,6 +118,8 @@ AGENTS.md를 요약하고, 이번 점검에서 확인한 함정을 더했습니�
 
 ### C-1 관리자 대시보드 `date` 스크립트 삽입
 
+- **상태:** V22.9.45에서 고침. 날짜 검증과 `jsonForInlineScript`를 적용했습니다.
+
 - **고치는 곳:**
   - `admin/dashboard-page.js:301`: `date`가 `isValidTransactionDateString`(`admin/transactions-households.js:114`)을 통과하지 않으면 빈 값으로 둡니다.
   - `web/menu-and-guides.js:360` `renderCalendarFilterScript`: `JSON.stringify` 대신 `jsonForInlineScript`(`domain/transactions-core.js:402`)를 씁니다.
@@ -123,6 +129,8 @@ AGENTS.md를 요약하고, 이번 점검에서 확인한 함정을 더했습니�
   - 본보기: `verify/c1-admin-date-xss.mjs`, `verify/c1b.mjs`
 
 ### G-1 분류 표 404가 관제 'DB 실패'로 셈
+
+- **상태:** V22.9.45에서 고침. 명시한 선택 표 GET의 404/PGRST205만 실패 집계에서 제외하며 추가 DB 왕복은 없습니다. 표 부재 캐시는 도입하지 않았습니다.
 
 - **원인:** `data/supabase-client.js:48-65`의 `finally`가 실패한 호출마다 `monitor.db_failures += 1`을 합니다.
   - 운영에는 선택 표 `accountbook_categories`가 없습니다(V22.9.36).
@@ -138,9 +146,11 @@ AGENTS.md를 요약하고, 이번 점검에서 확인한 함정을 더했습니�
 ### 같은 PR에 넣을 문서
 
 - **G-18:**
+  - 상태: V22.9.45에서 고침. 실제 검증 명령과 두 모드·manifest·검사 하한 참조를 반영했습니다.
   - `.agents/skills/run-kakao-accountbook-loop/SKILL.md`의 54·71줄과 `.agents/skills/orchestrate-kakao-accountbook-graph/SKILL.md`의 72줄을 고칩니다. AGENTS.md의 검증 목록과 현재 manifest·검사 하한을 가리키게 합니다.
   - `AGENTS.md`의 66~67·133줄을 위 2절대로 고칩니다.
 - **G-16:**
+  - 상태: V22.9.45에서 고침. 운영 ID·시각을 문서 네 개에 남기고 output/을 Git 제외 목록에 넣었습니다.
   - V22.9.44 운영 배포 기록(0절의 ID)을 `DEPLOYMENT_MATRIX.md`, `CHANGELOG.md`, `README.md`, `RELEASE-CHECKLIST.md`에 반영합니다.
   - `output/`을 `.gitignore`에 넣을지는 9절의 사용자 결정을 따릅니다.
 - **감사·인계 문서:** `docs/codex/AUDIT_FINDINGS_V22_9_44.md`와 이 문서를 커밋하고, 고친 항목에 "V22.9.45에서 고침"을 표시합니다.

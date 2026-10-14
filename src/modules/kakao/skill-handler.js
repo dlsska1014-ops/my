@@ -174,6 +174,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   // V22.9.44: 카카오는 5초 안에 답이 없으면 '스킬 서버 연결 오류'(폴백 블록 오류 알림)로 끝낸다. 처리가 응답 예산(기본 4초)을
   // 넘기면 먼저 '처리 중' 답을 보내고 같은 처리는 ctx.waitUntil 로 끝까지 마친다. 중복 저장을 막는 처리 중 표시는 그 처리가
   // 끝날 때 내려가고, 관제 지표에는 실제로 걸린 시간과 결과를 남긴다.
+  const canDeferSave = typeof ctx?.waitUntil === "function";
   const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
@@ -183,7 +184,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       headers,
       body: JSON.stringify(payload || {}),
     });
-    const response = await handleKakaoSkill(cloned, env);
+    const response = await handleKakaoSkill(cloned, env, { canDeferSave });
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
@@ -221,7 +222,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     headers.set("x-accountbook-latency-ms", String(latencyMs));
     return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
   } })();
-  if (!ctx || typeof ctx.waitUntil !== "function") return await work;
+  if (!canDeferSave) return await work;
   const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
   let deadlineTimer = null;
   const first = await Promise.race([work, new Promise((resolve) => { deadlineTimer = setTimeout(() => resolve(null), Math.max(0, budgetMs - (Date.now() - requestStartedAt))); })]);
@@ -239,7 +240,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   return new Response(deferred.body, { status: deferred.status, statusText: deferred.statusText, headers: deferredHeaders });
 }
 
-async function handleKakaoSkill(request, env) {
+async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -449,7 +450,7 @@ async function handleKakaoSkill(request, env) {
     if (preParsedList.length > limit) return kakaoText(`한 번에 ${limit}건까지 입력할 수 있어요. ${preParsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
-    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, groupKey: botGroupKey });
+    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey });
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -484,7 +485,7 @@ async function handleKakaoSkill(request, env) {
       (!households.length || (households.length === 1 && households[0].role === "owner"))) {
     const tooLarge = preParsedList.slice(0, boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80)).find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
-    const firstReply = await tryKakaoChatFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, selectedHouseholdId });
+    const firstReply = await tryKakaoChatFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, selectedHouseholdId });
     if (firstReply) return firstReply;
     // A queued first request may have published the one personal household meanwhile.
     [households, selectedHouseholdId] = await Promise.all([fetchUserHouseholds(env, user.id), getKakaoSelectedHouseholdId(env, user.id)]);
@@ -631,7 +632,7 @@ ${formatRecentTransactions(rows)}`);
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
-  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, firstNotice: editSessionNotice });
+  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 // @build:exports-start
 export { handleKakaoSkillStable };

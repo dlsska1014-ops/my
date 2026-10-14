@@ -236,7 +236,7 @@ async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
 }
 
 async function tryKakaoChatFirstRecord(env, context = {}) {
-  const { payload, user, kakaoUserKey, nickname, origin, utterance = "", parsedList, handlerStartedAt } = context;
+  const { payload, user, kakaoUserKey, nickname, origin, utterance = "", parsedList, handlerStartedAt, canDeferSave = false } = context;
   if (getKakaoBotGroupKey(payload) || !user?.id || !hasChatFirstKakaoIdentity(payload, kakaoUserKey) || context.selectedHouseholdId) return null;
   const key = await kakaoChatFirstSettingsKey(kakaoUserKey);
   const observed = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
@@ -274,7 +274,7 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
         if (role !== "owner") throw new Error("kakao_first_record_owner_required");
         const firstNotice = "웹 로그인 없이 내 개인 가계부를 준비했어요.\n이름·예산은 나중에 웹에서 설정할 수 있어요.\n\n";
         return await saveKakaoParsedTransactionsReply(env, {
-          household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt,
+          household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt, canDeferSave,
           firstNotice, assertFresh,
           onSaved: async () => {
             recordSaved = true;

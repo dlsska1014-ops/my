@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_44.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_45.sha256",
 );
 const validationScripts = [
+  ["V22.9.45 감사 긴급 수정(B-1·C-1·G-1·G-18·G-16)", "validation/validate-audit-hotfix-v22945.mjs"],
   ["V22.9.44 카카오 5초 제한 대응(방 기록 순차 왕복·응답 예산)", "validation/validate-kakao-latency-v22944.mjs"],
   ["V22.9.43 단톡방 자동 참여(승인 없음)·구성원 권한(기록만/기록·수정)", "validation/validate-room-autojoin-v22943.mjs"],
   ["V22.9.41 관리자 로그인 복귀·옛 관리자 화면 내비 스타일", "validation/validate-admin-return-v22941.mjs"],
@@ -227,7 +228,8 @@ function run(command, args, label) {
 // V22.9.43: 미배포 V22.9.41(관리자 로그인 복귀 55개)을 합치고, 단톡방 자동 참여·구성원 권한 검사 139개와
 // 공동방 첫 기록 검사의 승인 대기 승격 +1, 실제 카카오 요청 모양(chat.properties.botGroupKey) 검사 17개를 더해 14,745개가 됐다.
 // V22.9.44: 카카오 5초 제한 대응 검사 36개를 더해 14,781개가 됐다.
-const EXPECTED_MINIMUM_CHECKS = 14781;
+// V22.9.45: B-1, C-1, G-1, G-18 and G-16 add 224 deterministic regression checks.
+const EXPECTED_MINIMUM_CHECKS = 15005;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

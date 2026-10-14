@@ -3,7 +3,7 @@ async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
   if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-  const { timeoutMs, rawHeadResponse = false, ...fetchInit } = init;
+  const { timeoutMs, rawHeadResponse = false, optionalTable = "", ...fetchInit } = init;
   const method = String(fetchInit.method || "GET").toUpperCase();
   const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
   if (!readOnly && !/\/rpc\/accountbook_(?:auth_attempt|claim_operation|release_operation)/.test(path)) env.__AB_REQUEST_USER_ROWS?.clear();
@@ -16,6 +16,7 @@ async function supabase(env, path, init = {}) {
   let failed = false;
   let dispatched = false;
   let status = 0;
+  let expectedOptionalAbsence = false;
   let timer;
   let timeout = false;
   const controller = readOnly ? new AbortController() : null;
@@ -33,7 +34,16 @@ async function supabase(env, path, init = {}) {
       status = res.status;
       if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;
       const text = await res.text();
-      if (!res.ok) throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+      if (!res.ok) {
+        // V22.9.45: only an explicitly optional categories GET may treat this
+        // schema-cache absence as expected. Authentication, writes and other
+        // 404/5xx errors still count as failures. Keep the exception for fallback.
+        if (method === "GET" && optionalTable === "accountbook_categories" &&
+            /^\/rest\/v1\/accountbook_categories(?:\?|$)/.test(path) && status === 404) {
+          try { expectedOptionalAbsence = JSON.parse(text)?.code === "PGRST205"; } catch (_) {}
+        }
+        throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
+      }
       if (!text) return null;
       try { return JSON.parse(text); } catch (_) { return text; }
     };
@@ -61,7 +71,7 @@ async function supabase(env, path, init = {}) {
     if (monitor) {
       monitor.db_count += 1;
       monitor.db_ms += Math.max(0, Date.now() - startedAt);
-      if (failed) monitor.db_failures += 1;
+      if (failed && !expectedOptionalAbsence) monitor.db_failures += 1;
     }
   }
 }
