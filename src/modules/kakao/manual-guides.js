@@ -75,13 +75,14 @@ function kakaoManualButtons(items = [], { group = false } = {}) {
 
 const KAKAO_MANUAL_PAGES = Object.freeze({
   home: {
+    // V22.9.68: 시작·도움말·메뉴가 모두 이 화면으로 온다. 버튼 두 번이면 모든 기능에 닿는다.
     title: "말해가계부 사용 설명서",
-    description: "궁금한 것을 눌러 보세요.",
+    description: "하고 싶은 것을 눌러 보세요.",
     buttons: [
       { messageText: "기록하는 법" },
-      { messageText: "예산 정하는 법" },
       { messageText: "리포트 보는 법" },
-      { messageText: "정기지출 방법" },
+      { messageText: "예산 정하는 법" },
+      { messageText: "함께 쓰는 법" },
       { messageText: "웹 관리 방법" },
     ],
   },
@@ -109,6 +110,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
     buttons: [
       { messageText: "예산 설정" },
       { messageText: "남은 예산" },
+      { messageText: "정기지출 방법" },
       KAKAO_MANUAL_HOME,
     ],
   },
@@ -139,14 +141,16 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
     ],
   },
   web: {
-    title: "웹 관리 방법",
+    title: "가계부·웹 관리",
     description: [
       "‘웹 가계부 열기’로 주소를 받아 로그인하면",
       "내역 수정·통계·예산을 크게 볼 수 있어요.",
     ].join("\n"),
     buttons: [
       { messageText: "웹 가계부 열기" },
-      { messageText: "함께 쓰는 법" },
+      { messageText: "새 가계부 만들기" },
+      { messageText: "초대코드로 참여" },
+      { messageText: "가계부 전환" },
       KAKAO_MANUAL_HOME,
     ],
   },
@@ -160,6 +164,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       { label: "친구 초대하기", plugin: "inviteMember" },
       { messageText: "내 이름 설정" },
       { messageText: "단톡방 연결" },
+      { messageText: "초대코드" },
       KAKAO_MANUAL_HOME,
     ],
   },

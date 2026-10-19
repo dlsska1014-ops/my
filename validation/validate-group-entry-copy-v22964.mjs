@@ -69,7 +69,9 @@ try {
     eq(buttons.length, 2, `${utterance}: 버튼 두 개`);
     eq(buttons[0]?.action, "mention", `${utterance}: 첫 버튼은 바로 행동하는 챗봇 멘션`);
     eq(buttons[0]?.label, "챗봇 멘션하기", `${utterance}: 첫 버튼 이름`);
-    eq(buttons[1]?.action, "guide", `${utterance}: 두 번째 버튼은 도움말`);
+    // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(버튼 이름 = 보낼 명령).
+    eq(buttons[1]?.action, "message", `${utterance}: 두 번째 버튼은 도움말 메시지`);
+    eq(buttons[1]?.messageText, "도움말", `${utterance}: 도움말 버튼이 보낼 명령`);
     eq(buttons[1]?.label, "도움말", `${utterance}: 두 번째 버튼 이름`);
     ok(!Object.hasOwn(result.data.template, "quickReplies"), `${utterance}: 단톡방 응답에 quickReplies 없음`);
   }

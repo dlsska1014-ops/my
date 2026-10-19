@@ -65,9 +65,10 @@ eq(allowedFixture.status, 200, "authenticated QA mode can still retrieve the Kak
 const direct = await callSkill(skillPayload({ userKey: "qa-direct-v2287" }));
 eq(direct.response.status, 200, "direct skill request succeeds");
 eq(direct.data.version, "2.0", "direct response keeps Kakao version 2.0");
-ok(Array.isArray(direct.data.template?.quickReplies), "direct chat keeps guided quick replies");
-ok(direct.data.template.quickReplies.length >= 3, "direct chat keeps the start choices");
-ok(direct.data.template.quickReplies.every((item) => item.action === "message" && item.messageText), "direct quick replies remain valid message actions");
+// V22.9.68: 1:1 시작도 버튼형 사용 설명서 첫 화면(textCard 메시지 버튼)으로 답한다.
+const directButtons = (direct.data.template?.outputs || []).flatMap((o) => o?.textCard?.buttons || []);
+ok(directButtons.length >= 3, "direct chat start shows the manual buttons");
+ok(directButtons.every((item) => item.action === "message" && item.messageText && item.label === item.messageText), "direct start buttons are message actions whose label is the command");
 
 const group = await callSkill(skillPayload({ userKey: "qa-group-v2287", groupKey: "qa-bot-group-v2287" }));
 eq(group.response.status, 200, "group skill request with unknown future fields succeeds");
@@ -83,8 +84,8 @@ const groupText = group.data.template.outputs.map((output) => output?.simpleText
 const choiceButtons = group.data.template.outputs.flatMap((output) => output?.textCard?.buttons || []);
 ok(!groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies no longer become a typed-choice list");
 ok(choiceButtons.length >= 3 && choiceButtons.every((b) => b.action === "message" && b.messageText && String(b.label || "").length <= 14), "quick replies become tappable message buttons");
-ok(choiceButtons.some((b) => b.messageText === "기록 방법") && choiceButtons.some((b) => b.messageText === "새 가계부 만들기"), "first record and create choices are preserved as buttons");
-ok(choiceButtons.some((b) => b.messageText === "초대코드로 참여"), "join choice is preserved as a button");
+ok(choiceButtons.some((b) => b.messageText === "기록하는 법") && choiceButtons.some((b) => b.messageText === "웹 관리 방법"), "start shows the manual topics as buttons");
+ok(choiceButtons.some((b) => b.messageText === "함께 쓰는 법"), "start reaches the together topic");
 ok(group.data.template.outputs.filter((o) => o.textCard).every((o) => o.textCard.buttons.length <= 5 && o.textCard.buttonLayout === "vertical"), "choice cards keep at most five vertical buttons");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
 
@@ -103,7 +104,8 @@ const emptyCard = groupEmpty.data.template.outputs[0]?.textCard;
 ok(emptyCard && typeof emptyCard === "object", "group empty mention uses a textCard so plugin buttons can be attached");
 const emptyButtons = Array.isArray(emptyCard?.buttons) ? emptyCard.buttons : [];
 eq(emptyButtons.length, 2, "group empty mention offers exactly two buttons");
-ok(emptyButtons.some((b) => b.action === "guide" && b.label === "도움말"), "group empty mention has the guide (도움말) action button");
+// V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(단톡방은 버튼 이름을 그대로 보낸다).
+ok(emptyButtons.some((b) => b.action === "message" && b.label === "도움말" && b.messageText === "도움말"), "group empty mention has the 도움말 message button that opens the manual");
 ok(emptyButtons.some((b) => b.action === "mention" && b.label === "챗봇 멘션하기"), "group empty mention has the mention (챗봇 멘션하기) action button");
 ok(emptyButtons.every((b) => String(b.label || "").length <= 8), "group empty mention button labels fit the horizontal 8-character limit");
 const emptyText = `${emptyCard?.title || ""}\n${emptyCard?.description || ""}`;
@@ -119,7 +121,7 @@ ok(emptyText.length * 2 <= fullStartText.length, "group empty mention text is at
 
 const directEmpty = await callSkill(emptyMentionPayload({ userKey: "qa-direct-empty-v22941" }));
 eq(directEmpty.response.status, 200, "direct empty utterance still succeeds");
-ok(Array.isArray(directEmpty.data.template?.quickReplies) && directEmpty.data.template.quickReplies.length >= 3, "direct empty utterance keeps the guided start quick replies");
+ok((directEmpty.data.template?.outputs || []).flatMap((o) => o?.textCard?.buttons || []).length >= 3, "direct empty utterance shows the manual buttons");
 ok(!JSON.stringify(directEmpty.data).includes('"action":"mention"'), "1:1 chat never receives the group-only mention action");
 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");

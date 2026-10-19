@@ -1,3 +1,12 @@
+## V22.9.69 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | 운영 V22.9.68-ROOM-REBIND(`52a83dd5-24e7-4e33-8a78-44ea0412373c`) 소스 위에 설명서 허브 변경을 3-way 병합한 후보. 활성 버전·해시 대조 후 승격합니다. |
+| SQL·스키마·RPC·환경변수·Secret | 변경 없음. |
+| 카카오 OpenBuilder | `00_시작_메뉴`를 스킬 응답으로, `01_도움말_전체안내`에 `도움말` 패턴 추가. 해당 블록만 부분 배포. 봇 입장 블록 제외. |
+| 되돌리기 | V22.9.68-ROOM-REBIND `52a83dd5-24e7-4e33-8a78-44ea0412373c`. |
+
 ## V22.9.68 배포 준비
 
 Worker 모듈 20개(src/modules/kakao/guided-flows.js, skill-handler.js, household-budget-commands.js, group-links-first-record.js, request-guards.js, edit-session-v4.js, edit-flow-v4.js, simple-commands.js, reply-texts.js, nlu/transaction-parser.js, runtime/config-readiness.js, my/access-control.js, settings-page.js, members-page.js, groups-budget-bulk.js, backup-import.js, insight-page.js, report-challenge.js, mobile-home.js, households-lifecycle.js)과 버전 표기를 변경합니다. 검증된 전체 src/index.js로 교체하며, 기준은 운영 V22.9.67 versionId 2428e81f-f616-4547-bb7b-4729ff854237입니다. 신규 Secret·환경변수·DB 변경·1년 캐시 자산 주소 변경은 없습니다. 되돌리기는 V22.9.67 버전(2428e81f)의 재승격입니다.

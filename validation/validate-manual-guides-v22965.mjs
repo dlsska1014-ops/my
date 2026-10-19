@@ -13,7 +13,8 @@ import { kakaoManualTopic } from "../src/modules/kakao/manual-guides.js";
 import {
   isBudgetCommand, isGroupLinkInfoCommand, isInviteCommand, isLinkCommand, isRecentCommand, isSettlementCommand, isSummaryCommand,
 } from "../src/modules/kakao/simple-commands.js";
-import { isKakaoBudgetSetupCommand, isKakaoMemberAliasCommand } from "../src/modules/kakao/guided-flow-state.js";
+import { isKakaoBudgetSetupCommand, isKakaoCreateFlowCommand, isKakaoJoinFlowCommand, isKakaoMemberAliasCommand } from "../src/modules/kakao/guided-flow-state.js";
+import { isHouseholdSwitchCommand } from "../src/modules/kakao/intent-nlu.js";
 
 let checks = 0;
 const ok = (value, label) => { if (!value) throw new Error(`FAIL: ${label}`); checks += 1; };
@@ -45,7 +46,7 @@ async function callSkill(utterance, group) {
 
 const KNOWN_COMMAND = (text) => isKakaoBudgetSetupCommand(text) || isBudgetCommand(text) || isRecentCommand(text) || isSummaryCommand(text)
   || isSettlementCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isKakaoMemberAliasCommand(text) || isGroupLinkInfoCommand(text)
-  || /^단톡방 연결$/.test(text);
+  || isKakaoCreateFlowCommand(text) || isKakaoJoinFlowCommand(text) || isHouseholdSwitchCommand(text) || /^단톡방 연결$/.test(text);
 const GROUP_PLUGINS = new Set(["mention", "inviteMember", "guide"]);
 
 const ENTRY = {

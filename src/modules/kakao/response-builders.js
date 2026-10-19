@@ -116,7 +116,8 @@ function kakaoGroupEmptyMentionReply() {
             description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
             buttons: [
               { label: "챗봇 멘션하기", action: "mention" },
-              { label: "도움말", action: "guide" },
+              // V22.9.68: 도움말은 글만 있는 하단 창(guide) 대신, 버튼으로 모든 기능에 닿는 사용 설명서를 연다.
+              { label: "도움말", action: "message", messageText: "도움말" },
             ],
           },
         },

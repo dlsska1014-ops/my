@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_68.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_69.sha256",
 );
 const validationScripts = [
   ["V22.9.68 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22968.mjs"],
@@ -267,7 +267,8 @@ function run(command, args, label) {
 // V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
 // V22.9.67: add loop-guard, button-label, emoji and length assertions.
 // V22.9.68: room-rebind question 241 and release-audit regression 167 checks on top of V22.9.67 (20,874).
-const EXPECTED_MINIMUM_CHECKS = 21282;
+// V22.9.69: button hub merged on V22.9.68-ROOM-REBIND.
+const EXPECTED_MINIMUM_CHECKS = 21304;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

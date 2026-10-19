@@ -50,7 +50,7 @@ import {
 import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
   inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
-  kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText,
+  kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoInviteManagementText,
   kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
   kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
   parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
@@ -283,7 +283,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoImageNotSupportedText(origin));
     // 단톡방에서 봇만 멘션한 빈 발화: 짧은 안내 + 도움말·챗봇 멘션하기 버튼으로 다음 발화를 유도한다.
     if (getKakaoBotGroupKey(payload)) return kakaoGroupEmptyMentionReply();
-    return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    return kakaoManualReply("home", { group: false });
   }
 
   // V22.9.65: 버튼형 사용 설명서. 읽기 전용이라 사용자·가계부 행을 만들지 않고 바로 답한다.
@@ -346,7 +346,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     if (!strongTransactionInput && isCommandMenuCommand(utterance)) return kakaoManualReply("home", { group: !!botGroupKey });
-    if (!strongTransactionInput && isKakaoStartCommand(utterance)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    if (!strongTransactionInput && isKakaoStartCommand(utterance)) return kakaoManualReply("home", { group: !!botGroupKey });
     if (isHelpCommand(utterance)) return kakaoManualReply("home", { group: !!botGroupKey });
     if (!strongTransactionInput && isBudgetCommand(utterance) || isKakaoBudgetSetupCommand(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
     return kakaoText(kakaoSkillSafeFallbackText(origin));
@@ -398,28 +398,31 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey) {
+      // V22.9.68: 시작은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
       if (!linkedGroupHousehold?.id) {
-        return kakaoText(kakaoUnlinkedGroupStartText(active, origin, await unlinkedRoomTextOptions(false)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+        const roomOptions = await unlinkedRoomTextOptions(false);
+        return kakaoManualReply("home", { group: true, statusLine: roomOptions.retired
+          ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요."
+          : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
       }
       // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
       const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
       const myRole = String(membership?.role || "");
       const departureSnapshot = !myRole || myRole === "pending" ? await readKakaoGroupFirstSnapshot(env,botGroupKey,user.id) : null;
       const departed = !!departureSnapshot?.departures.households[await sha256Hex(linkedGroupHousehold.id)];
-      const roleLine = departed ? "내 권한: 나간 이력이 있어 자동 참여하지 않습니다. 개인 대화에서 초대코드로 참여를 요청해 주세요."
-        : !myRole ? "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요"
-        : myRole === "pending" ? `내 권한: ${userHouseholdRoleLabel(myRole)} · 이 방에서 거래를 한 번 보내면 바로 참여해요`
+      const roleLine = departed ? "나간 이력이 있어 자동 참여하지 않아요. 초대코드로 참여를 요청해 주세요."
+        : !myRole || myRole === "pending" ? "기록을 한 번 보내면 자동으로 참여해요."
           : `내 권한: ${userHouseholdRoleLabel(myRole)}`;
-      return kakaoText([`📒 이 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, roleLine, "", "이 방의 기록·예산·요약은 이 가계부 기준으로만 처리합니다."].join("\n"), kakaoStartQuickReplies(true));
+      return kakaoManualReply("home", { group: true, statusLine: [`이 방 가계부: ${linkedGroupHousehold.name}`, roleLine].join("\n") });
     }
-    if (!active.length) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    if (!active.length) return kakaoManualReply("home", { group: false, statusLine: "첫 기록을 보내면 내 가계부가 바로 만들어져요." });
     const current = active.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
     if (!current) {
       if (selectedHouseholdId) await clearKakaoSelectedHousehold(env, user.id);
       const choice = await beginKakaoHouseholdChoice(env, { user, payload, households: active, action: "select", origin, forceChoice: true });
       return kakaoText(choice.text, choice.quickReplies || []);
     }
-    return kakaoText(kakaoDirectStartText(current, active), kakaoStartQuickReplies(true));
+    return kakaoManualReply("home", { group: false, statusLine: `지금 가계부: ${current.name}` });
   }
 
   if (isHelpCommand(utterance)) {
@@ -433,13 +436,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       // V22.9.68 감사(단톡방 2): 해제·삭제된 방에는 "첫 기록을 보내면 만들어져요"라고 하지 않는다.
       const roomOptions = await unlinkedRoomTextOptions(false);
       return kakaoManualReply("home", { group: true, statusLine: roomOptions.retired
-        ? "📌 이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요."
-        : "📌 이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
+        ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요."
+        : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
     }
     if (botGroupKey && linkedGroupHousehold?.id) {
-      return kakaoManualReply("home", { group: true, statusLine: `📌 이 방 가계부: ${linkedGroupHousehold.name}` });
+      return kakaoManualReply("home", { group: true, statusLine: `이 방 가계부: ${linkedGroupHousehold.name}` });
     }
-    return kakaoManualReply("home", { group: false, statusLine: active.length ? "" : "📌 첫 기록을 보내면 내 가계부가 바로 만들어져요." });
+    return kakaoManualReply("home", { group: false, statusLine: active.length ? "" : "첫 기록을 보내면 내 가계부가 바로 만들어져요." });
   }
 
   const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, routingSnapshot?.flow);
