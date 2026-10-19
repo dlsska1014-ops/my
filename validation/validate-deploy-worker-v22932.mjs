@@ -16,7 +16,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256 } from "../tools/build-worker.mjs";
 import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, runDeploy } from "../tools/deploy-worker-version.mjs";
@@ -191,6 +191,7 @@ function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_
     writeFile: (path, data) => files.set(path, data),
     exists: (path) => files.has(path),
     mkdir: () => {},
+    listDirectories: (directory) => [...new Set([...files.keys()].filter((path) => path.startsWith(directory + sep)).map((path) => path.slice(directory.length + 1).split(sep)[0]))],
     now: () => new Date("2026-10-08T00:00:00.000Z"),
     sleep: async () => {},
     log: (line) => logs.push(String(line)),
@@ -359,6 +360,26 @@ for (const [label, mutate, pattern] of [
   eq(await runDeploy([], h.deps), 1, "최신 버전의 업로드 기록이 다른 배포 버전에서 나왔으면 올리지 않는다");
   eq(posts(fake, "/versions"), 1, "그때는 업로드 요청을 보내지 않는다");
   ok(/최신 버전 .* 현재 배포 버전/.test(h.output()), "올리지 않는 이유를 알린다");
+}
+{
+  // 2026-10-19: 저장만 하고 승격하지 않은 업로드 뒤 판이 올라가면 그 기록은 이전 판 폴더에 남는다. 거기서도 찾아 다시 올린다.
+  const fake = fakeCloudflare();
+  const h = harness({ fake });
+  eq(await runDeploy([], h.deps), 0, "이전 판 폴더 사례: 첫 업로드");
+  const firstId = [...fake.versions.keys()].at(-1);
+  const first = recordOf(h, `upload-${firstId}`);
+  const moved = resolve(root, "output/deploy", "V0.0.0-PREVIOUS", `upload-${firstId}.json`);
+  h.files.set(moved, h.files.get(first.path));
+  h.files.delete(first.path);
+  eq(await runDeploy([], h.deps), 0, "최신 버전의 업로드 기록이 이전 판 폴더에 있어도 찾아서 다시 올린다");
+  eq(posts(fake, "/versions"), 2, "이전 판 폴더의 기록으로 두 번째 업로드 요청을 보낸다");
+  const second = recordOf(h, `upload-${[...fake.versions.keys()].at(-1)}`);
+  ok(second.data.inherit.latest_version_id === firstId && second.data.inherit.basis === "recorded-upload", "이전 판 폴더의 기록을 근거로 이어받는다");
+  ok(/이전 판 폴더/.test(h.output()) && h.output().includes("V0.0.0-PREVIOUS"), "어느 폴더의 기록을 썼는지 알린다");
+  const latestNow = recordOf(h, `upload-${[...fake.versions.keys()].at(-1)}`);
+  h.files.delete(latestNow.path);
+  h.files.delete(moved);
+  eq(await runDeploy([], h.deps), 1, "최신 버전의 기록이 어느 폴더에도 없으면 예전처럼 올리지 않는다");
 }
 {
   // 실제 API(2026-10-09 첫 실행)처럼 가짜 API 도 버전 ID 를 고정한 inherit 를 10057 로 거부한다

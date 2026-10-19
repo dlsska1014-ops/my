@@ -5,8 +5,11 @@
 
 ## 작업 시작
 
-- 먼저 `VERSION.txt`, `BASELINE.md`, `KNOWN-ISSUES.md`를 읽는다.
-- 다음 버전 작업은 `NEXT_UPDATE_PLAN.md`와 `DEPLOYMENT_MATRIX.md`를 확인한다.
+- 먼저 `VERSION.txt`와 `docs/STATUS.md`(운영 판·브랜치·열린 PR·배포 절차·열린 일, 약 4 KB)를 읽는다.
+- `BASELINE.md`, `KNOWN-ISSUES.md`, `NEXT_UPDATE_PLAN.md`, `DEPLOYMENT_MATRIX.md`, `CHANGELOG.md`,
+  `SQL_HISTORY.md`는 통째로 읽지 않는다. 작업 범위의 판 절만 찾아 읽는다(`grep -n "^## V22.9" <파일>`로
+  위치를 찾은 뒤 그 절만 읽는다). 첫 절은 늘 현재 판이다. V22.8 이력은 `docs/archive/`에 있다.
+- 판을 올리거나 운영에 반영하면 `docs/STATUS.md`의 표를 먼저 갱신한다.
 - 카카오 동작은 `docs/kakao-manual/PROJECT_MEMORY_V22_8_10.md`와 관련 문서를
   기준으로 판단한다.
 - UX 변경은 `docs/ux/UX_PRINCIPLES_BRUNCH_110_PROJECT_MEMORY.md`를 확인한다.
@@ -28,6 +31,8 @@
 - `tools/vendor/`: 분석에 쓰는 acorn 8.16.0 원본과 라이선스·출처 기록.
 - `docs/refactor/modularization-v1/`: 모듈 분리 설계·분할 명세와 재생산 스크립트.
 - `validation/`: 현재 릴리스의 독립 회귀 검증.
+- `docs/STATUS.md`: 운영 판·브랜치·배포 절차·열린 일 요약. 작업 시작 때 읽는 유일한 상태 문서.
+- `docs/archive/`: V22.8 이력(CHANGELOG·KNOWN-ISSUES·DEPLOYMENT_MATRIX·SQL_HISTORY)의 보관본. 현재 판 문서에서 옮겼다.
 - `docs/kakao-manual/`: 카카오 1:1·그룹 응답과 가계부 규칙.
 - `docs/ux/`: 화면·행동·상태 피드백 원칙.
 - `BASELINE.md`: 후속 버전에서 보호해야 할 제품 기준.
@@ -68,7 +73,7 @@
   기존 참여자 행, RLS, GRANT, RPC, 인덱스, 환경변수, Kakao Developers, OpenBuilder는 변경하지 않는다.
 - 비밀키, 토큰, 실제 사용자 데이터, `.env`, 빌드 결과, `node_modules`,
   스크린샷, 중첩 ZIP을 커밋하지 않는다.
-- 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `CHANGELOG.md`,
+- 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `docs/STATUS.md`, `CHANGELOG.md`,
   `DEPLOYMENT_MATRIX.md`, `SQL_HISTORY.md`, 관련 검증·체크리스트를 함께 검토한다.
 - Windows에서도 체크섬이 유지되도록 `.gitattributes`의 LF 정책을 보존한다.
 
@@ -135,7 +140,7 @@ npm run validate:categories-absent
 ```
 
 저장소 하네스는 PowerShell, 명령 프롬프트, Git Bash에서 동일하게 실행되며
-현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_68.sha256`의 570개 경로로 확인하며 자동 검사의 최소 기준은 21,282개이다(하네스의 `EXPECTED_MINIMUM_CHECKS`). ESM `default.fetch`, 작업 트리와
+현재 배포 묶음은 `BUNDLE_FILE_CHECKSUMS_V22_9_68.sha256`의 575개 경로로 확인하며 자동 검사의 최소 기준은 21,288개이다(하네스의 `EXPECTED_MINIMUM_CHECKS`). ESM `default.fetch`, 작업 트리와
 스테이징 영역의 공백 오류를 확인해야 한다. 여기에는 V22.9.24의 설정 범위·취소·관제 SSO·부분 지표 검사 121개, V22.9.25의 UI/UX 회귀 검사 42개, V22.9.26의 라우터 await·안전 실패 검사 47개, 출시 점검 수정 검사 83개, 코드리뷰 후속 검사 125개와 cold/warm 직렬 깊이 보호 6개가 포함된다.
 설정 JSON(키워드·적립계획·별칭·식별 링크·즐겨찾기·거래 수정 이력)을 읽고-고쳐-쓰는 경로는 `{ strict: true }` 읽기와 가계부 설정 잠금을 쓴다. 편집 폼은 권한 판정용 좁은 조회가 아니라 표시할 칸을 모두 읽은 행으로 그리고, 원래 값(`orig_*`)을 실어 바꾼 칸만 저장한다. 사용자 값이 키가 되는 맵은 `Object.create(null)`로 만든다(빈 객체 `{}`를 계산된 키로 쓰면 `validate-proto-safety-v22934`가 실패한다). 읽기 실패를 빈 값으로 보면 기존 값이 통째로 사라진다.
 비밀번호 해시(PBKDF2) 반복 횟수는 Cloudflare Workers 운영 상한 100,000 을 넘기지 않는다. Node 에는 이 상한이 없으므로 메모리 픽스처의 상한 흉내를 끄지 않는다.
