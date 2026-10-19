@@ -2896,7 +2896,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.70-MANUAL-ENTRY";
+const APP_VERSION = "V22.9.71-NAME-EXAMPLE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -32184,7 +32184,7 @@ function kakaoNoMatchGuideText(utterance = "", origin = "") {
       "",
       "아래처럼 보내주세요.",
       "• 내 이름 설정",
-      "• 내 이름을 인남으로 변경",
+      "• 내 이름을 민지로 변경",
     ].join("\n");
   }
   if (/(초대|코드|구성원|멤버)/.test(t)) {
@@ -35941,7 +35941,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
-    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 인남, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘내 이름 설정’을 눌러 주세요.", quickReplies: [["내 이름 설정", "내 이름 설정"]] });
+    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘내 이름 설정’을 눌러 주세요.", quickReplies: [["내 이름 설정", "내 이름 설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
@@ -36628,7 +36628,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
 
   if (!strongTransactionInput && isKakaoMemberAliasCommand(utterance)) {
     await saveKakaoFlowState(env, user.id, payload, { flow: "member_alias", step: "name", data: { household_id: household.id } });
-    return kakaoText("가계부에서 표시할 내 이름을 입력해 주세요.\n예: 인남, 엄마, 아빠\n\n한 번에 바꾸려면 ‘닉네임 인남으로 변경’처럼 입력할 수도 있어요.", nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]]);
+    return kakaoText("가계부에서 표시할 내 이름을 입력해 주세요.\n예: 민지, 엄마, 아빠", nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]]);
   }
 
   if (!strongTransactionInput && isKakaoBudgetSetupCommand(utterance)) {

@@ -135,7 +135,7 @@ function kakaoNoMatchGuideText(utterance = "", origin = "") {
       "",
       "아래처럼 보내주세요.",
       "• 내 이름 설정",
-      "• 내 이름을 인남으로 변경",
+      "• 내 이름을 민지로 변경",
     ].join("\n");
   }
   if (/(초대|코드|구성원|멤버)/.test(t)) {

@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_70.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_71.sha256",
 );
 const validationScripts = [
+  ["V71 no operator real name in user-facing copy", "validation/validate-no-real-name-v22971.mjs"],
   ["V22.9.68 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22968.mjs"],
   ["V22.9.68 출시 전 전체 점검 회귀(1:1 선택 불변·연결 전 방 문구·준비 단계 재시도·수정 말 비저장·한 글자 첫 기록·여러 줄·정산·오늘 기록·recurring_not_found·남의 가계부 ID 404)", "validation/validate-release-audit-v22968.mjs"],
   ["V67 guided flow loop guard and legacy button labels", "validation/validate-flow-loop-guard-v22967.mjs"],
@@ -268,7 +269,8 @@ function run(command, args, label) {
 // V22.9.67: add loop-guard, button-label, emoji and length assertions.
 // V22.9.68: room-rebind question 241 and release-audit regression 167 checks on top of V22.9.67 (20,874).
 // V22.9.69: button hub merged on V22.9.68-ROOM-REBIND.
-const EXPECTED_MINIMUM_CHECKS = 21304;
+// V22.9.71: add 125 real-name absence assertions.
+const EXPECTED_MINIMUM_CHECKS = 21429;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
