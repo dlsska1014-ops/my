@@ -2,7 +2,7 @@ import {createHash} from "node:crypto";
 import {counter,fixture,putSetting,withClock,skill} from "./lib-audit-v22934.mjs";
 import {AB_KAKAO_REPEAT_GUARD,AB_KAKAO_INFLIGHT} from "../src/modules/runtime/ops-telemetry.js";
 import {kakaoBudgetGuideText} from "../src/modules/kakao/reply-texts.js";
-import {kakaoStartText,guidedHelpText,kakaoUnlinkedGroupStartText} from "../src/modules/kakao/household-budget-commands.js";
+import {kakaoStartText,kakaoUnlinkedGroupStartText} from "../src/modules/kakao/household-budget-commands.js";
 const {ok,eq,deepEq,done}=counter("BOT parsing and guidance V22.9.54");
 globalThis.fetch=async()=>{throw new Error("External fetch forbidden");};
 const sha=value=>createHash("sha256").update(value).digest("hex");
@@ -37,11 +37,12 @@ await withClock("2026-10-15",async()=>{
   });
 });
 ok(kakaoBudgetGuideText().includes("외식 예산설정"),"new budget example canonical");
-for(const text of [kakaoStartText(false),kakaoStartText(true),guidedHelpText(false),guidedHelpText(true),kakaoUnlinkedGroupStartText([],"https://example.test")]){
+for(const text of [kakaoStartText(false),kakaoStartText(true),kakaoUnlinkedGroupStartText([],"https://example.test")]){
   ok(!/https?:\/\//.test(text),"entry guidance has no long URL");ok(text.length<650,"entry guidance stays concise");
 }
 ok(kakaoStartText(false).includes("첫 기록"),"personal entry explains first record");
-ok(guidedHelpText(false).includes("초대코드"),"external participation explanation retained");
+// V22.9.65: 도움말은 버튼형 설명서로 바뀌었다(validate-manual-guides-v22965). 외부 참여 안내는 시작·미연결 안내에 남는다.
+ok(kakaoStartText(false).includes("초대코드로 참여")&&kakaoUnlinkedGroupStartText([],"https://example.test").includes("초대코드"),"external participation explanation retained");
 await fixture(async fx=>{
   fx.db.transactions=[{id:"food",household_id:"house-home",user_id:"user-bin",transaction_date:"2026-10-10",type:"expense",amount:20000,category:"외식"}];
   fx.db.accountbook_budgets=[{household_id:"house-home",month:"2026-10",category:"식비",amount:100000}];

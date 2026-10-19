@@ -143,14 +143,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
+  // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
   return [
-    "👥 이 단톡방에 연결된 가계부가 없습니다.",
-    !writeRejected ? "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다." : "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다.",
-    writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
-    "",
-    "기존 가계부를 쓰려면 소유자·관리자가 ‘단톡방 연결 초대코드’를 입력해 주세요.",
-    "같은 방에서는 거래를 기록하면 자동 참여합니다. 나갔거나 이용이 제한된 사람은 기존 권한 절차를 따라야 해요.",
-    "연결 방법: 단톡방 연결 · 자세한 사용법: 도움말",
+    "이 단톡방에 연결된 가계부가 없습니다.",
+    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요." : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
+    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
 
@@ -169,40 +166,15 @@ function kakaoDirectStartText(current = null, households = []) {
 
 function kakaoStartText(hasHousehold = false, householdName = "") {
   if (!hasHousehold) return [
-    "안녕하세요 😊",
-    "카카오톡에서 함께 쓰는 말해가계부입니다.",
-    "",
-    "‘커피 4500원’처럼 첫 기록을 보내면 개인 가계부를 자동으로 준비해요.",
-    "기록을 확인하려면 ‘오늘 기록 보기’를 입력해 주세요.",
-    "",
-    "다른 가계부를 쓰려면 ‘새 가계부 만들기’ 또는 ‘초대코드로 참여’를 선택해 주세요.",
+    "친구와 함께 말 한마디로 기록하는 말해가계부입니다.",
+    "‘커피 4500원’처럼 첫 기록을 보내면 바로 시작돼요.",
+    "다른 가계부는 ‘새 가계부 만들기’·‘초대코드로 참여’로 열어요.",
   ].join("\n");
   return [
     `📒 ${householdName || "가계부"}에서 무엇을 해볼까요?`,
     "",
-    "카카오톡에서 기록·예산·요약을 바로 사용할 수 있어요.",
+    "말 한마디로 기록·예산·요약을 바로 사용할 수 있어요.",
     "단톡방 첫 기록은 공동 가계부를 준비합니다. 기존 가계부를 연결할 때는 소유자·관리자가 초대코드를 사용해요.",
-  ].join("\n");
-}
-
-function guidedHelpText(hasHousehold = false) {
-  if (!hasHousehold) return [
-    "📒 말해가계부 시작하기",
-    "",
-    "개인 대화: 첫 기록을 보내면 개인 가계부를 준비합니다.",
-    "단톡방: 첫 기록으로 공동 가계부를 준비하고, 같은 방에서 기록하는 사람은 자동으로 참여합니다. 나갔거나 제한된 사람은 기존 권한 절차를 따릅니다.",
-    "기존 가계부: 외부 참여는 초대코드로 요청하고 승인을 기다립니다. 방 연결은 소유자·관리자가 초대코드를 사용합니다.",
-    "기록: 점심 12000원 국민카드 · 확인: 오늘 기록 보기",
-    "자세한 행동: 기록 방법 · 예산 설정 · 가계부 전환",
-  ].join("\n");
-  return [
-    "📒 말해가계부 사용법",
-    "",
-    "기록: 점심 12000원 국민카드",
-    "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
-    "관리: 예산 설정 · 가계부 전환 · 수정 01번 금액 13000원",
-    "내 이름: 내 이름 설정",
-    "공유: 초대코드 · 단톡방 연결 ABC123",
   ].join("\n");
 }
 
@@ -591,7 +563,7 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 export {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
   findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
-  guidedHelpText, inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
+  inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
   kakaoDirectStartText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines,

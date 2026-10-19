@@ -400,7 +400,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_group_first_record_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
     if (recordSaved) return kakaoText("공동 가계부에 기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘 기록 보기’에서 확인해 주세요.");
-    if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 카카오톡에서 봇을 다시 호출해 주세요.");
+    if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 봇을 다시 호출해 주세요.");
     if (isUncertainStorageWrite(err)) return kakaoText("공동 가계부 준비 결과를 아직 확정하지 못했어요. 이 요청의 거래 기록은 아직 보내지 않았어요. 같은 준비 요청을 반복하지 않고 고정된 가계부의 결과를 확인합니다. 잠시 후 ‘시작’으로 연결 상태를 확인해 주세요.");
     return kakaoText(/settings_rmw_busy|scope_changed/.test(safeError(err))
       ? "이 방의 공동 가계부를 준비하거나 변경하는 요청이 처리 중이에요. 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요."

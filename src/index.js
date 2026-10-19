@@ -2891,7 +2891,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.62-LOAN-DISPLAY";
+const APP_VERSION = "V22.9.67-SHORT-BUTTONS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3226,7 +3226,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://everyday-tools-ko.pages.dev" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://tools.malhaebook.com/" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
 }
 // Public guides use synthetic examples, never household or account records.
 function publicGuidePages(env = {}) {
@@ -32167,23 +32167,12 @@ function kakaoNoMatchGuideText(utterance = "", origin = "") {
   }
   const maybeHasMoneyWord = /(원|만원|천원|카드|현금|페이|계좌|점심|커피|마트|병원|월급|수입|지출|결제|주유|택시|보험|세금)/.test(t);
   const firstLine = maybeHasMoneyWord
-    ? "금액과 내용을 한 문장으로 보내주시면 바로 기록할 수 있어요 😊"
-    : "말씀하신 내용을 정확히 이해하지 못했어요. 아래 예시처럼 보내주세요 😊";
+    ? "내용과 금액을 한 문장으로 보내면 바로 기록돼요."
+    : "무슨 뜻인지 이해하지 못했어요. 아래처럼 보내 주세요.";
+  // V22.9.67: 알아듣지 못했을 때도 짧게 답하고 버튼으로 다음 행동을 고르게 한다.
   return [
     firstLine,
-    "",
-    "기록 예시",
-    "• 점심 12000원 국민카드",
-    "• 커피 5000원 현금",
-    "• 어제 병원 15000원",
-    "• 월급 250만원",
-    "",
-    "자주 쓰는 말",
-    "• 이번 달 요약",
-    "• 오늘 기록 보기",
-    "• 내 이름 설정",
-    "• 초대코드",
-    "• 수정가이드",
+    "예) 점심 12000원 국민카드",
   ].filter(Boolean).join("\n");
 }
 
@@ -32280,7 +32269,7 @@ function kakaoNoMatchGuide(utterance = "", origin = "") {
   if (/가계부/.test(nlu.normalized)) {
     return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부 전환", "가계부 전환"]] };
   }
-  return { text, quickReplies: [] };
+  return { text, quickReplies: [["사용 설명서", "사용 설명서"], ["오늘 기록 보기", "오늘 기록 보기"]] };
 }
 
 function kakaoInputExampleText(origin = "") {
@@ -32830,8 +32819,8 @@ function kakaoText(text, quickReplies = null, status = 200) {
 // guide(도움말 하단 창)와 mention(입력창에 챗봇 멘션 자동 입력)을 사용한다.
 const KAKAO_GROUP_EMPTY_MENTION_TITLE = "안녕하세요 😊 말해가계부예요";
 const KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION = [
-  "카카오톡에서 함께 쓰는 가계부 챗봇이에요.",
-  "아래 버튼으로 명령어를 고르거나 도움말에서 사용법을 확인해 주세요.",
+  "친구와 함께 말 한마디로 간단히 기록하는 가계부 챗봇이에요.",
+  "예) @말해가계부 점심 12000원",
 ].join("\n");
 
 function kakaoGroupEmptyMentionReply() {
@@ -32844,8 +32833,8 @@ function kakaoGroupEmptyMentionReply() {
             title: KAKAO_GROUP_EMPTY_MENTION_TITLE,
             description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
             buttons: [
-              { label: "도움말", action: "guide" },
               { label: "챗봇 멘션하기", action: "mention" },
+              { label: "도움말", action: "guide" },
             ],
           },
         },
@@ -32871,16 +32860,46 @@ function kakaoGroupTextChoices(quickReplies = []) {
     return command ? `${index + 1}. ${command}` : "";
   }).filter(Boolean);
   if (!lines.length) return "";
-  return ["선택하려면 아래 문구를 그대로 입력해 주세요.", ...lines].join("\n");
+  return ["더 고르려면 아래 문구를 보내 주세요.", ...lines].join("\n");
 }
 
+// V22.9.65: 그룹 챗봇은 QuickReplies 를 지원하지 않으므로 textCard 의 세로 메시지 버튼(카드당 최대 5개)으로 바꾼다.
+// V22.9.67: 단톡방 메시지 버튼은 messageText 가 아니라 버튼 이름을 그대로 보낸다. 그래서 버튼 이름을 보낼 명령과
+// 똑같이 맞춘다(14자 이하일 때). 안내 글이 짧으면 글과 버튼을 한 말풍선에 담아 대화창이 길어지지 않게 한다.
+const KAKAO_GROUP_CARD_TEXT_MAX = 400;
+
+function kakaoGroupChoiceButtons(quickReplies = []) {
+  return dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
+    .filter((reply) => reply.action === "message" && reply.messageText)
+    .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+}
+
+function kakaoGroupChoiceCards(quickReplies = [], outputs = []) {
+  const buttons = kakaoGroupChoiceButtons(quickReplies);
+  if (!buttons.length) return { outputs, rest: [] };
+  const merged = [...outputs];
+  let used = 0;
+  const lastIndex = merged.length - 1;
+  const lastText = merged[lastIndex]?.simpleText?.text;
+  if (typeof lastText === "string" && lastText.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+    const chunk = buttons.slice(0, 5);
+    merged[lastIndex] = { textCard: { description: lastText, buttons: chunk, buttonLayout: "vertical" } };
+    used = chunk.length;
+  }
+  while (used < buttons.length && merged.length < 3) {
+    const chunk = buttons.slice(used, used + 5);
+    merged.push({ textCard: { title: used ? "더 보기" : "골라 주세요", buttons: chunk, buttonLayout: "vertical" } });
+    used += chunk.length;
+  }
+  return { outputs: merged, rest: buttons.slice(used) };
+}
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return response;
   try {
     const raw = await response.clone().text();
     const data = JSON.parse(raw || "{}");
     const template = data?.template && typeof data.template === "object" ? { ...data.template } : {};
-    const textChoices = kakaoGroupTextChoices(template.quickReplies);
+    const quickReplies = template.quickReplies;
     delete template.quickReplies;
 
     const outputs = (Array.isArray(template.outputs) ? template.outputs : []).map((output) => {
@@ -32890,6 +32909,9 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
     }).filter(Boolean).slice(0, 3);
 
     if (!outputs.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
+    const choice = kakaoGroupChoiceCards(quickReplies, outputs);
+    outputs.splice(0, outputs.length, ...choice.outputs);
+    const textChoices = kakaoGroupTextChoices(choice.rest);
     if (textChoices) {
       const simpleTextOutput = outputs.find((output) => output?.simpleText?.text);
       if (simpleTextOutput) {
@@ -32914,6 +32936,207 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 }
+
+// V22.9.65: 버튼으로 따라 하는 사용 설명서.
+// 카카오 승인권자 요청 — 기록·예산·리포트·정기지출·웹 관리 사용법을 버튼별로 나누고,
+// 초등학생도 따라 할 수 있는 짧은 단계와 예시로 안내한다. 그룹 챗봇은 QuickReplies·Carousel 을
+// 지원하지 않으므로 textCard 의 세로 버튼(최대 5개)과 message·mention·inviteMember 액션을 쓴다.
+// 설명서는 읽기 전용이다. 사용자·가계부 행을 만들거나 기록을 저장하지 않는다.
+// 버튼이 보내는 문장은 모두 아래 KAKAO_MANUAL_TRIGGERS 또는 기존 명령으로 다시 처리된다.
+const KAKAO_MANUAL_CARD_DESCRIPTION_MAX = 400;
+const KAKAO_MANUAL_BUTTON_LABEL_MAX = 14;
+
+const KAKAO_MANUAL_HOME = { label: "사용 설명서", messageText: "사용 설명서" };
+
+// 토픽별 진입 문장. 공백·물음표 등을 뺀 형태로 비교한다.
+// 기존 동작 명령(예산 설정·남은 예산·오늘 기록 보기·웹 가계부 열기 등)은 여기에 넣지 않는다.
+const KAKAO_MANUAL_TRIGGERS = Object.freeze({
+  home: ["사용설명서", "설명서", "사용설명서보기", "설명서보기", "매뉴얼", "메뉴얼", "사용매뉴얼", "사용메뉴얼", "사용가이드", "가이드보기", "전체가이드", "전체사용법", "처음사용하는법", "처음사용법", "멍령어"],
+  record: ["기록하는법", "기록하는방법", "기록방법", "기록방법알려줘", "기록하는법알려줘", "입력방법", "입력하는법", "입력하는방법", "입력예시", "기록예시", "가계부입력예시", "지출입력예시", "수입입력예시", "어떻게입력해", "어떻게입력", "어떻게기록해", "어떻게기록", "카톡입력", "수입입력", "지출입력", "입력하기", "예시", "예제"],
+  budget: ["예산정하는법", "예산정하는방법", "예산설정방법", "예산설정하는법", "예산설정하는방법", "예산가이드", "예산사용법", "예산사용방법", "예산방법", "예산안내", "예산설명"],
+  report: ["리포트보는법", "리포트보는방법", "리포트", "리포트보기방법", "보고서보는법", "보고서", "통계보는법", "통계보는방법", "요약보는법", "요약보는방법", "조회방법", "조회하는법", "쓴돈보는법"],
+  recurring: ["정기지출", "정기지출설정방법", "정기지출설정하는법", "정기지출방법", "정기지출등록방법", "정기지출등록", "정기지출설정", "정기예산", "정기예산설정", "정기예산설정방법", "정기예산설정하는법", "고정지출", "고정지출설정", "고정지출등록", "고정지출방법", "매달나가는돈", "매달나가는돈등록", "정기결제", "정기수입", "정기수입지출", "구독료등록", "월세등록"],
+  web: ["웹관리방법", "웹에서관리하기", "웹에서관리하는법", "웹관리", "웹사용법", "웹사용방법", "웹가계부사용법", "웹가계부사용방법", "웹이용방법", "웹으로관리하기", "웹가계부관리방법", "웹에서보는법"],
+  together: ["함께쓰는법", "함께쓰는방법", "같이쓰는법", "같이쓰는방법", "함께쓰기", "같이쓰기", "친구와함께쓰기", "가족과함께쓰기", "공유방법", "단톡방사용법", "단톡방에서쓰는법", "공동가계부방법"],
+  edit: ["고치는법", "고치는방법", "고치기지우기", "수정하는법", "지우는법", "삭제하는법", "기록고치는법", "기록지우는법", "수정가이드", "수정방법", "삭제방법", "기록수정방법", "기록삭제방법"],
+});
+
+function kakaoManualCompact(text = "") {
+  return String(text || "")
+    .normalize("NFC")
+    .replace(/[\u200b-\u200d\ufeff\u{fe0f}\u{20e3}]/gu, "")
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/^@\S+\s*/, "")
+    .replace(/^\/+/, "")
+    .replace(/[\s?？!！.。~·ㆍ,'"‘’“”]/g, "")
+    .replace(/(?:좀)?(?:알려줘|알려주세요|보여줘|보여주세요|가르쳐줘|가르쳐주세요)$/, "")
+    .toLowerCase();
+}
+
+function kakaoManualTopic(text = "") {
+  const compact = kakaoManualCompact(text);
+  if (!compact || compact.length > 30) return "";
+  for (const [topic, words] of Object.entries(KAKAO_MANUAL_TRIGGERS)) {
+    if (words.includes(compact)) return topic;
+  }
+  return "";
+}
+
+function kakaoManualMessageButton(label, messageText) {
+  return { label: String(label).slice(0, KAKAO_MANUAL_BUTTON_LABEL_MAX), action: "message", messageText: String(messageText) };
+}
+
+function kakaoManualButtons(items = [], { group = false } = {}) {
+  const out = [];
+  for (const item of items) {
+    if (!item) continue;
+    if (item.plugin) {
+      // mention·inviteMember 는 그룹 챗봇 전용 플러그인이다. 1:1 에서는 같은 뜻의 메시지 버튼으로 바꾸거나 뺀다.
+      if (group) out.push({ label: String(item.label).slice(0, KAKAO_MANUAL_BUTTON_LABEL_MAX), action: item.plugin });
+      else if (item.fallback) out.push(kakaoManualMessageButton(item.fallback.messageText, item.fallback.messageText));
+      continue;
+    }
+    out.push(kakaoManualMessageButton(item.messageText, item.messageText));
+    if (out.length >= 5) break;
+  }
+  const seen = new Set();
+  return out.filter((button) => {
+    const key = button.messageText ? `m:${button.messageText}` : `p:${button.action}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 5);
+}
+
+const KAKAO_MANUAL_PAGES = Object.freeze({
+  home: {
+    title: "말해가계부 사용 설명서",
+    description: "궁금한 것을 눌러 보세요.",
+    buttons: [
+      { messageText: "기록하는 법" },
+      { messageText: "예산 정하는 법" },
+      { messageText: "리포트 보는 법" },
+      { messageText: "정기지출 방법" },
+      { messageText: "웹 관리 방법" },
+    ],
+  },
+  record: {
+    title: "기록하는 법",
+    description: [
+      "@말해가계부 점심 12000원",
+      "처럼 보내면 바로 기록돼요.",
+      "예) 어제 병원 15000원 국민카드",
+    ].join("\n"),
+    buttons: [
+      { label: "지금 기록하기", plugin: "mention" },
+      { messageText: "오늘 기록 보기" },
+      { messageText: "고치는 법" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  budget: {
+    title: "예산 정하는 법",
+    description: [
+      "‘예산 설정’을 누르고 버튼을 차례로 고르면 끝!",
+      "한 번에: 외식 예산설정 30만원",
+      "(가계부 주인·관리자만 가능)",
+    ].join("\n"),
+    buttons: [
+      { messageText: "예산 설정" },
+      { messageText: "남은 예산" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  report: {
+    title: "리포트 보는 법",
+    description: [
+      "버튼을 누르면 바로 보여 드려요.",
+      "다른 기간: 어제 요약 · 지난 달 요약",
+    ].join("\n"),
+    buttons: [
+      { messageText: "이번 달 요약" },
+      { messageText: "오늘 기록 보기" },
+      { messageText: "남은 예산" },
+      { messageText: "정산" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  recurring: {
+    title: "정기지출 방법",
+    description: [
+      "월세·통신비처럼 매달 나가는 돈은",
+      "웹 > 예산 > 정기 수입·지출에 한 번 등록하면",
+      "매월 정한 날 자동으로 기록돼요.",
+    ].join("\n"),
+    buttons: [
+      { messageText: "웹 가계부 열기" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  web: {
+    title: "웹 관리 방법",
+    description: [
+      "‘웹 가계부 열기’로 주소를 받아 로그인하면",
+      "내역 수정·통계·예산을 크게 볼 수 있어요.",
+    ].join("\n"),
+    buttons: [
+      { messageText: "웹 가계부 열기" },
+      { messageText: "함께 쓰는 법" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  together: {
+    title: "함께 쓰는 법",
+    description: [
+      "같은 단톡방에서 기록하면",
+      "모두 한 가계부를 함께 써요.",
+    ].join("\n"),
+    buttons: [
+      { label: "친구 초대하기", plugin: "inviteMember" },
+      { messageText: "내 이름 설정" },
+      { messageText: "단톡방 연결" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+  edit: {
+    title: "고치는 법",
+    description: [
+      "‘오늘 기록 보기’로 번호를 보고",
+      "수정 01번 금액 13000",
+      "삭제 01번 처럼 보내요.",
+    ].join("\n"),
+    buttons: [
+      { messageText: "오늘 기록 보기" },
+      KAKAO_MANUAL_HOME,
+    ],
+  },
+});
+function kakaoManualCard(page, { group = false, prefix = "" } = {}) {
+  const description = [prefix, page.description].filter(Boolean).join("\n\n").slice(0, KAKAO_MANUAL_CARD_DESCRIPTION_MAX);
+  return {
+    textCard: {
+      title: page.title,
+      description,
+      buttons: kakaoManualButtons(page.buttons, { group }),
+      buttonLayout: "vertical",
+    },
+  };
+}
+
+function kakaoManualOutputs(topic = "home", { group = false, statusLine = "" } = {}) {
+  const page = KAKAO_MANUAL_PAGES[topic] || KAKAO_MANUAL_PAGES.home;
+  const outputs = [kakaoManualCard(page, { group, prefix: topic === "home" ? statusLine : "" })];
+  if (page.more) {
+    const more = kakaoManualCard(page.more, { group });
+    if (more.textCard.buttons.length) outputs.push(more);
+  }
+  return outputs;
+}
+
+function kakaoManualReply(topic = "home", options = {}) {
+  return jsonResponse({ version: "2.0", template: { outputs: kakaoManualOutputs(topic, options) } }, 200);
+}
+
 
 function kakaoEditConversationScope(payload = {}) {
   return getKakaoBotGroupKey(payload) || "direct";
@@ -34569,7 +34792,7 @@ function isKakaoGuidedCommand(text = "") {
 
 function kakaoStartQuickReplies(hasHousehold = false) {
   if (!hasHousehold) return dedupeQuickReplies([
-    ["첫 기록 방법", "기록 방법"],
+    ["기록 방법", "기록 방법"],
     ["새 가계부 만들기", "새 가계부 만들기"],
     ["초대코드로 참여", "초대코드로 참여"],
     ["도움말", "도움말"],
@@ -34585,11 +34808,11 @@ function kakaoStartQuickReplies(hasHousehold = false) {
 
 function kakaoCreateKindQuickReplies() {
   return dedupeQuickReplies([
-    ["가족 생활비", "가계부 종류 가족 생활비"],
-    ["부부·커플", "가계부 종류 부부 커플"],
-    ["모임 회비", "가계부 종류 모임 회비"],
-    ["여행 경비", "가계부 종류 여행 경비"],
-    ["직접 입력", "가계부 종류 직접 입력"],
+    ["가족 생활비", "가족 생활비"],
+    ["부부 커플", "부부 커플"],
+    ["모임 회비", "모임 회비"],
+    ["여행 경비", "여행 경비"],
+    ["직접 입력", "직접 입력"],
     ["취소", "취소"],
   ]);
 }
@@ -34597,22 +34820,19 @@ function kakaoCreateKindQuickReplies() {
 function kakaoBudgetRootQuickReplies() {
   return dedupeQuickReplies([
     ["전체 월 예산", "전체 월 예산"],
-    ["카테고리별", "카테고리별 예산"],
-    ["지난달 복사", "지난달 예산 복사"],
-    ["예산 현황", "남은 예산"],
+    ["카테고리별 예산", "카테고리별 예산"],
+    ["지난달 예산 복사", "지난달 예산 복사"],
+    ["남은 예산", "남은 예산"],
     ["취소", "취소"],
   ]);
 }
 
 function kakaoBudgetCategoryQuickReplies() {
   return dedupeQuickReplies([
-    ["외식", "예산 카테고리 외식"],
-    ["교통", "예산 카테고리 교통"],
-    ["생활용품", "예산 카테고리 생활용품"],
-    ["의료·병원", "예산 카테고리 의료/병원"],
-    ["교육·학습", "예산 카테고리 교육/학습"],
-    ["문화·여가", "예산 카테고리 문화/여가"],
-    ["직접 입력", "예산 카테고리 직접 입력"],
+    ["외식", "외식"],
+    ["교통", "교통"],
+    ["생활용품", "생활용품"],
+    ["직접 입력", "직접 입력"],
     ["취소", "취소"],
   ]);
 }
@@ -34901,14 +35121,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
+  // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
   return [
-    "👥 이 단톡방에 연결된 가계부가 없습니다.",
-    !writeRejected ? "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다." : "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다.",
-    writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
-    "",
-    "기존 가계부를 쓰려면 소유자·관리자가 ‘단톡방 연결 초대코드’를 입력해 주세요.",
-    "같은 방에서는 거래를 기록하면 자동 참여합니다. 나갔거나 이용이 제한된 사람은 기존 권한 절차를 따라야 해요.",
-    "연결 방법: 단톡방 연결 · 자세한 사용법: 도움말",
+    "이 단톡방에 연결된 가계부가 없습니다.",
+    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요." : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
+    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
 
@@ -34927,40 +35144,15 @@ function kakaoDirectStartText(current = null, households = []) {
 
 function kakaoStartText(hasHousehold = false, householdName = "") {
   if (!hasHousehold) return [
-    "안녕하세요 😊",
-    "카카오톡에서 함께 쓰는 말해가계부입니다.",
-    "",
-    "‘커피 4500원’처럼 첫 기록을 보내면 개인 가계부를 자동으로 준비해요.",
-    "기록을 확인하려면 ‘오늘 기록 보기’를 입력해 주세요.",
-    "",
-    "다른 가계부를 쓰려면 ‘새 가계부 만들기’ 또는 ‘초대코드로 참여’를 선택해 주세요.",
+    "친구와 함께 말 한마디로 기록하는 말해가계부입니다.",
+    "‘커피 4500원’처럼 첫 기록을 보내면 바로 시작돼요.",
+    "다른 가계부는 ‘새 가계부 만들기’·‘초대코드로 참여’로 열어요.",
   ].join("\n");
   return [
     `📒 ${householdName || "가계부"}에서 무엇을 해볼까요?`,
     "",
-    "카카오톡에서 기록·예산·요약을 바로 사용할 수 있어요.",
+    "말 한마디로 기록·예산·요약을 바로 사용할 수 있어요.",
     "단톡방 첫 기록은 공동 가계부를 준비합니다. 기존 가계부를 연결할 때는 소유자·관리자가 초대코드를 사용해요.",
-  ].join("\n");
-}
-
-function guidedHelpText(hasHousehold = false) {
-  if (!hasHousehold) return [
-    "📒 말해가계부 시작하기",
-    "",
-    "개인 대화: 첫 기록을 보내면 개인 가계부를 준비합니다.",
-    "단톡방: 첫 기록으로 공동 가계부를 준비하고, 같은 방에서 기록하는 사람은 자동으로 참여합니다. 나갔거나 제한된 사람은 기존 권한 절차를 따릅니다.",
-    "기존 가계부: 외부 참여는 초대코드로 요청하고 승인을 기다립니다. 방 연결은 소유자·관리자가 초대코드를 사용합니다.",
-    "기록: 점심 12000원 국민카드 · 확인: 오늘 기록 보기",
-    "자세한 행동: 기록 방법 · 예산 설정 · 가계부 전환",
-  ].join("\n");
-  return [
-    "📒 말해가계부 사용법",
-    "",
-    "기록: 점심 12000원 국민카드",
-    "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
-    "관리: 예산 설정 · 가계부 전환 · 수정 01번 금액 13000원",
-    "내 이름: 내 이름 설정",
-    "공유: 초대코드 · 단톡방 연결 ABC123",
   ].join("\n");
 }
 
@@ -35346,6 +35538,19 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 }
 
 
+// V22.9.67: 같은 단계에서 알아듣지 못한 답이 두 번 이어지면 흐름을 끝내 같은 질문의 무한 반복을 막는다.
+async function kakaoFlowRetryOrExit(env, user, payload, state, reply, exitReply) {
+  const attempts = Number(state?.attempts || 0);
+  if (attempts >= 1) {
+    await clearKakaoFlowState(env, user.id, payload);
+    return exitReply;
+  }
+  await saveKakaoFlowState(env, user.id, payload, { flow: state.flow, step: state.step, data: state.data || {}, attempts: attempts + 1 });
+  return reply;
+}
+
+const KAKAO_BUDGET_FLOW_EXIT = Object.freeze({ text: "예산 설정을 멈췄어요. 다시 하려면 ‘예산 설정’을 눌러 주세요.", quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]] });
+
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["create_household", "join_household", "household_choice"].includes(state.flow)) return null;
@@ -35360,7 +35565,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         await clearKakaoFlowState(env, user.id, payload);
         return { text: "단톡방 연결 변경을 취소했어요.", quickReplies: [["시작", "시작"]] };
       }
-      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) return { text: "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요. 취소하려면 ‘취소’를 입력해 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "연결하려면 ‘연결하기’를 눌러 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] }, { text: "단톡방 연결을 멈췄어요. 다시 하려면 ‘단톡방 연결’을 눌러 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] });
       const targetId = String(state.data?.target_household_id || "");
       const all = kakaoManageableHouseholds(await fetchUserHouseholds(env, user.id));
       const target = all.find((h) => String(h.id) === targetId);
@@ -35402,10 +35607,10 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       };
     }
     if (!chosen) {
-      return {
-        text: ["가계부를 찾지 못했어요. 번호 또는 정확한 이름을 입력해 주세요.", "", ...kakaoHouseholdListLines(candidates)].join("\n"),
+      return kakaoFlowRetryOrExit(env, user, payload, state, {
+        text: "가계부를 찾지 못했어요. 아래에서 눌러 골라 주세요.",
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
-      };
+      }, { text: "가계부 선택을 멈췄어요. 다시 하려면 ‘가계부 전환’을 눌러 주세요.", quickReplies: [["가계부 전환", "가계부 전환"]] });
     }
     const action = String(state.data?.action || "select");
     if (action === "select") {
@@ -35455,7 +35660,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
           "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
           groupKey ? (linked?.id ? `이 단톡방은 계속 ‘${linked.name}’ 가계부에 연결되어 있어요. 새 가계부로 바꾸려면 ‘단톡방 연결’을 진행해 주세요.` : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. ‘단톡방 연결’을 진행해 주세요.") : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
         ].filter(Boolean).join("\n") + cta + cleanupNotice,
-        quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
+        quickReplies: dedupeQuickReplies([["초대코드", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"]]),
       };
     };
 
@@ -35531,9 +35736,9 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
   }
   if (state.flow === "join_household") {
     const code = parseBareInviteCode(utterance) || parseJoinCode(utterance);
-    if (!code) return { text: "초대코드를 입력해 주세요.\n예: ABC123", quickReplies: [["취소", "취소"]] };
+    if (!code) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "초대코드를 입력해 주세요.\n예: ABC123", quickReplies: [["취소", "취소"]] }, { text: "참여를 멈췄어요. 다시 하려면 ‘초대코드로 참여’를 눌러 주세요.", quickReplies: [["초대코드로 참여", "초대코드로 참여"]] });
     const joined = await joinHouseholdByCode(env, user.id, code);
-    if (!joined) return { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["다시 입력", "초대코드로 참여"], ["취소", "취소"]] };
+    if (!joined) return kakaoFlowRetryOrExit(env, user, payload, state, { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["취소", "취소"]] }, { text: "초대코드를 찾지 못해 참여를 멈췄어요. 코드를 확인한 뒤 ‘초대코드로 참여’를 다시 눌러 주세요.", quickReplies: [["초대코드로 참여", "초대코드로 참여"]] });
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
     if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
@@ -35569,7 +35774,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
-    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return { text: "가계부에서 표시할 이름을 2~20자로 입력해 주세요.\n예: 인남, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] };
+    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 인남, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘내 이름 설정’을 눌러 주세요.", quickReplies: [["내 이름 설정", "내 이름 설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
@@ -35578,7 +35783,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     const role = await getHouseholdMemberRole(env, user.id, household.id);
     if (!["owner","admin"].includes(role)) {
       await clearKakaoFlowState(env, user.id, payload);
-      return { text: "예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.", quickReplies: [["예산 현황", "남은 예산"], ["도움말", "도움말"]] };
+      return { text: "예산은 가계부 주인·관리자만 정할 수 있어요.", quickReplies: [["남은 예산", "남은 예산"]] };
     }
     const month = validMonth(state.data?.month) || currentMonthKst();
     if (state.step === "root") {
@@ -35607,9 +35812,9 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
           };
         }
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["예산 현황", "남은 예산"], ["다른 예산", "예산 설정"]] };
+        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은 예산", "남은 예산"], ["예산 설정", "예산 설정"]] };
       }
-      return { text: "어떤 예산을 설정할까요?", quickReplies: kakaoBudgetRootQuickReplies() };
+      return kakaoFlowRetryOrExit(env, user, payload, state, { text: "아래 버튼 중 하나를 눌러 주세요.", quickReplies: kakaoBudgetRootQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
     }
     if (state.step === "category") {
       let rawCategory = normalizeText(utterance).replace(/^예산 카테고리\s*/, "");
@@ -35618,20 +35823,20 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
         return { text: "예산을 설정할 카테고리 이름을 입력해 주세요.\n예: 육아/자녀", quickReplies: [["취소", "취소"]] };
       }
       const category = await resolveBudgetCategoryName(env, household.id, rawCategory);
-      if (!category) return { text: "등록된 카테고리를 찾지 못했어요. 다시 선택하거나 직접 입력해 주세요.", quickReplies: kakaoBudgetCategoryQuickReplies() };
+      if (!category) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "카테고리를 찾지 못했어요. 버튼에서 골라 주세요.", quickReplies: kakaoBudgetCategoryQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
       return { text: `${category} 예산을 얼마로 설정할까요?`, quickReplies: kakaoBudgetAmountQuickReplies() };
     }
     if (state.step === "category_custom") {
       const category = await resolveBudgetCategoryName(env, household.id, utterance);
-      if (!category) return { text: "웹에 등록된 기본·사용자 카테고리 이름으로 입력해 주세요.\n예: 외식, 육아/자녀", quickReplies: [["카테고리 선택", "예산 설정"], ["취소", "취소"]] };
+      if (!category) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "카테고리 이름을 다시 입력해 주세요.\n예: 외식, 육아/자녀", quickReplies: [["취소", "취소"]] }, KAKAO_BUDGET_FLOW_EXIT);
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
       return { text: `${category} 예산을 얼마로 설정할까요?`, quickReplies: kakaoBudgetAmountQuickReplies() };
     }
     if (state.step === "amount") {
       if (normalizeText(utterance) === "직접 입력") return { text: "금액을 직접 입력해 주세요.\n예: 80만원", quickReplies: [["취소", "취소"]] };
       const amount = parseAmountValue(utterance);
-      if (!amount) return { text: "금액을 확인하지 못했어요.\n예: 50만원, 1000000원", quickReplies: kakaoBudgetAmountQuickReplies() };
+      if (!amount) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "금액을 확인하지 못했어요.\n예: 50만원", quickReplies: kakaoBudgetAmountQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
       // V22.9.37 감사 NEW-8: "50억"은 예산으로 저장하지 않고 상한을 알리고 다시 묻는다(웹 예산 저장과 같은 20억 상한).
       if (amount > MAX_TRANSACTION_AMOUNT) return { text: kakaoBudgetAmountTooLargeText(amount), quickReplies: kakaoBudgetAmountQuickReplies() };
       const category = state.data?.category || "__total";
@@ -35648,7 +35853,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
         await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: state.data });
         return { text: "금액을 다시 입력해 주세요.", quickReplies: kakaoBudgetAmountQuickReplies() };
       }
-      if (t !== "설정하기" && !isKakaoCreateConfirmYes(t)) return { text: "설정하려면 ‘설정하기’ 또는 ‘응’이라고 입력해 주세요.", quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] };
+      if (t !== "설정하기" && !isKakaoCreateConfirmYes(t)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "‘설정하기’를 눌러 주세요.", quickReplies: [["설정하기", "설정하기"], ["다시 입력", "다시 입력"], ["취소", "취소"]] }, KAKAO_BUDGET_FLOW_EXIT);
       const category = state.data?.category || "__total";
       const amount = Number(state.data?.amount || 0);
       if (amount > MAX_TRANSACTION_AMOUNT) {
@@ -35661,7 +35866,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
       return {
         text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + totalNote + cta + cleanupNotice,
-        quickReplies: [["다른 카테고리", "예산 설정"], ["예산 현황", "남은 예산"], ["기록 방법", "기록 방법"]],
+        quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]],
       };
     }
   }
@@ -35759,7 +35964,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       !(trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, userKey))) {
     const scope = await readKakaoGroupFirstSnapshot(env, authenticatedGroupKey);
     if ((scope.done || scope.marker)?.candidate_id === scope.link?.household_id && scope.link) {
-      return kakaoGroupCompatibleResponse(kakaoText("이 방의 공동 가계부는 인증된 카카오 요청에서만 사용할 수 있어요. 이 요청으로 기록을 읽거나 저장하지 않았어요. 카카오톡에서 봇을 다시 호출해 주세요."), payload, origin);
+      return kakaoGroupCompatibleResponse(kakaoText("이 방의 공동 가계부는 인증된 카카오 요청에서만 사용할 수 있어요. 이 요청으로 기록을 읽거나 저장하지 않았어요. 봇을 다시 호출해 주세요."), payload, origin);
     }
   }
 
@@ -35853,11 +36058,28 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   return new Response(deferred.body, { status: deferred.status, statusText: deferred.statusText, headers: deferredHeaders });
 }
 
+// V22.9.67: 단톡방 메시지 버튼은 messageText 가 아니라 버튼 이름을 그대로 보낸다(2026-10-19 운영 확인).
+// 예전 말풍선에 남은 버튼 이름(이모지 포함)을 원래 명령으로 바꿔, 같은 질문을 되풀이하는 일을 막는다.
+const KAKAO_LEGACY_BUTTON_LABELS = Object.freeze({
+  "카테고리별": "카테고리별 예산", "지난달 복사": "지난달 예산 복사", "예산 현황": "남은 예산",
+  "다른 예산": "예산 설정", "다른 카테고리": "예산 설정", "카테고리 선택": "예산 설정",
+  "의료·병원": "의료/병원", "교육·학습": "교육/학습", "문화·여가": "문화/여가", "부부·커플": "부부 커플",
+  "첫 기록 방법": "기록 방법", "첫 기록 남기기": "기록 방법", "초대코드 보기": "초대코드", "초대코드 참여": "초대코드로 참여",
+  "코드로 참여": "초대코드로 참여", "새로 만들기": "새 가계부 만들기", "새 가계부": "새 가계부 만들기", "가계부 선택": "가계부 전환",
+  "연결 방법": "단톡방 연결", "내 표시 이름": "내 이름 설정", "내 이름 변경": "내 이름 설정", "가계부 이름": "가계부 관리",
+});
+
+function normalizeKakaoButtonLabel(text = "") {
+  const stripped = String(text || "").replace(/^[\p{Extended_Pictographic}\u{FE0F}\u{20E3}\u{200D}\s]+/u, "").trim();
+  const base = stripped || String(text || "").trim();
+  return KAKAO_LEGACY_BUTTON_LABELS[base] || base;
+}
+
 async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
-  const utterance = stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim());
+  const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
   if (!separatePurchaseCommand && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
@@ -35872,6 +36094,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     if (getKakaoBotGroupKey(payload)) return kakaoGroupEmptyMentionReply();
     return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
   }
+
+  // V22.9.65: 버튼형 사용 설명서. 읽기 전용이라 사용자·가계부 행을 만들지 않고 바로 답한다.
+  // 진행 중인 단계형 흐름·수정 세션은 그대로 두므로 설명서를 본 뒤 이어서 입력할 수 있다.
+  // "입력 예시"는 앞의 "입력"이 명령 접두어로 벗겨져 "예시"가 되므로, 멘션만 뺀 원문으로 먼저 판별한다.
+  const rawManualUtterance = String(payload?.userRequest?.utterance || payload?.utterance || "");
+  const manualTopic = strongTransactionInput ? ""
+    : kakaoManualTopic(rawManualUtterance) || kakaoManualTopic(utterance) || (isInputExampleCommand(utterance) ? "record" : "");
+  if (manualTopic) return kakaoManualReply(manualTopic, { group: !!getKakaoBotGroupKey(payload) });
 
   const bypassPublic = !!separatePurchaseCommand || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
@@ -35924,14 +36154,15 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-    if (!strongTransactionInput && isCommandMenuCommand(utterance)) return kakaoText(kakaoCommandMenuText(origin));
-    if (!strongTransactionInput && isKakaoStartCommand(utterance) || isHelpCommand(utterance)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    if (!strongTransactionInput && isCommandMenuCommand(utterance)) return kakaoManualReply("home", { group: !!botGroupKey });
+    if (!strongTransactionInput && isKakaoStartCommand(utterance)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+    if (isHelpCommand(utterance)) return kakaoManualReply("home", { group: !!botGroupKey });
     if (!strongTransactionInput && isBudgetCommand(utterance) || isKakaoBudgetSetupCommand(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
     return kakaoText(kakaoSkillSafeFallbackText(origin));
   }
 
   if (!kakaoUserKey) {
-    return kakaoText("사용자 식별정보를 확인하지 못했어요. 카카오톡에서 봇을 다시 호출해 주세요. 같은 문제가 계속되면 관리자에게 요청 ID와 함께 문의해 주세요.");
+    return kakaoText("사용자 식별정보를 확인하지 못했어요. 봇을 다시 호출해 주세요. 같은 문제가 계속되면 관리자에게 요청 ID와 함께 문의해 주세요.");
   }
   const earlyUser = earlyUserPromise ? await earlyUserPromise : null;
   if (earlyUser?.error) throw earlyUser.error;
@@ -35952,7 +36183,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
 
   if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
-    return kakaoText(kakaoCommandMenuText(origin));
+    return kakaoManualReply("home", { group: !!botGroupKey });
   }
 
   if (!strongTransactionInput && isKakaoStartCommand(utterance)) {
@@ -35994,13 +36225,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       settle(linkedGroupPromise),
     ]);
     const active = kakaoActiveHouseholds(households);
+    // V22.9.65: 도움말·사용법은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
     if (botGroupKey && !linkedGroupHousehold?.id) {
-      return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+      return kakaoManualReply("home", { group: true, statusLine: "📌 이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
     }
     if (botGroupKey && linkedGroupHousehold?.id) {
-      return kakaoText(`${guidedHelpText(true)}\n\n현재 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, kakaoStartQuickReplies(true));
+      return kakaoManualReply("home", { group: true, statusLine: `📌 이 방 가계부: ${linkedGroupHousehold.name}` });
     }
-    return kakaoText(guidedHelpText(!!active.length), kakaoStartQuickReplies(!!active.length));
+    return kakaoManualReply("home", { group: false, statusLine: active.length ? "" : "📌 첫 기록을 보내면 내 가계부가 바로 만들어져요." });
   }
 
   const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, routingSnapshot?.flow);
@@ -37881,7 +38113,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_group_first_record_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
     if (recordSaved) return kakaoText("공동 가계부에 기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘 기록 보기’에서 확인해 주세요.");
-    if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 카카오톡에서 봇을 다시 호출해 주세요.");
+    if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 봇을 다시 호출해 주세요.");
     if (isUncertainStorageWrite(err)) return kakaoText("공동 가계부 준비 결과를 아직 확정하지 못했어요. 이 요청의 거래 기록은 아직 보내지 않았어요. 같은 준비 요청을 반복하지 않고 고정된 가계부의 결과를 확인합니다. 잠시 후 ‘시작’으로 연결 상태를 확인해 주세요.");
     return kakaoText(/settings_rmw_busy|scope_changed/.test(safeError(err))
       ? "이 방의 공동 가계부를 준비하거나 변경하는 요청이 처리 중이에요. 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요."

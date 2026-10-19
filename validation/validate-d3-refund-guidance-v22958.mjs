@@ -163,7 +163,7 @@ await withClock("2026-10-15",async()=>{
   const group=await (await kakaoGroupCompatibleResponse(kakaoText(text,replies),{userRequest:{chat:{id:"synthetic-group",type:"botGroupKey",properties:{botGroupKey:"synthetic-group"}}}})).json();
   ok(!Object.hasOwn(group.template,"quickReplies"),"group removes unsupported replies "+kind);
   ok(group.template.outputs.every(o=>!o.commerceCard&&!o.carousel),"group keeps supported output types "+kind);
-  ok(group.template.outputs[0].simpleText.text.includes("일반 정산 금액과 완료 이력에는 반영하지 않습니다."),"group limitation retained after compatibility and length "+kind);
+  ok(String(group.template.outputs[0].simpleText?.text || group.template.outputs[0].textCard?.description || "").includes("일반 정산 금액과 완료 이력에는 반영하지 않습니다."),"group limitation retained after compatibility and length "+kind);
   eq(requests.filter(r=>r.path.endsWith("transactions")).length,1,"response compatibility adds no data read "+kind);
  });
 });

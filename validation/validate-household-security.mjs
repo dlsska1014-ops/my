@@ -45,7 +45,7 @@ async function callSkill(fixture, payload) {
 }
 
 function kakaoText(data) {
-  return (data?.template?.outputs || []).map((output) => output?.simpleText?.text || "").join("\n");
+  return (data?.template?.outputs || []).map((output) => output?.simpleText?.text || [output?.textCard?.title, output?.textCard?.description, ...(output?.textCard?.buttons || []).map((b) => b.label)].filter(Boolean).join("\n")).join("\n");
 }
 
 function cookiePairs(headers) {

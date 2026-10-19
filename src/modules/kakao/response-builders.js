@@ -101,8 +101,8 @@ function kakaoText(text, quickReplies = null, status = 200) {
 // guide(도움말 하단 창)와 mention(입력창에 챗봇 멘션 자동 입력)을 사용한다.
 const KAKAO_GROUP_EMPTY_MENTION_TITLE = "안녕하세요 😊 말해가계부예요";
 const KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION = [
-  "카카오톡에서 함께 쓰는 가계부 챗봇이에요.",
-  "아래 버튼으로 명령어를 고르거나 도움말에서 사용법을 확인해 주세요.",
+  "친구와 함께 말 한마디로 간단히 기록하는 가계부 챗봇이에요.",
+  "예) @말해가계부 점심 12000원",
 ].join("\n");
 
 function kakaoGroupEmptyMentionReply() {
@@ -115,8 +115,8 @@ function kakaoGroupEmptyMentionReply() {
             title: KAKAO_GROUP_EMPTY_MENTION_TITLE,
             description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
             buttons: [
-              { label: "도움말", action: "guide" },
               { label: "챗봇 멘션하기", action: "mention" },
+              { label: "도움말", action: "guide" },
             ],
           },
         },
@@ -142,16 +142,46 @@ function kakaoGroupTextChoices(quickReplies = []) {
     return command ? `${index + 1}. ${command}` : "";
   }).filter(Boolean);
   if (!lines.length) return "";
-  return ["선택하려면 아래 문구를 그대로 입력해 주세요.", ...lines].join("\n");
+  return ["더 고르려면 아래 문구를 보내 주세요.", ...lines].join("\n");
 }
 
+// V22.9.65: 그룹 챗봇은 QuickReplies 를 지원하지 않으므로 textCard 의 세로 메시지 버튼(카드당 최대 5개)으로 바꾼다.
+// V22.9.67: 단톡방 메시지 버튼은 messageText 가 아니라 버튼 이름을 그대로 보낸다. 그래서 버튼 이름을 보낼 명령과
+// 똑같이 맞춘다(14자 이하일 때). 안내 글이 짧으면 글과 버튼을 한 말풍선에 담아 대화창이 길어지지 않게 한다.
+const KAKAO_GROUP_CARD_TEXT_MAX = 400;
+
+function kakaoGroupChoiceButtons(quickReplies = []) {
+  return dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
+    .filter((reply) => reply.action === "message" && reply.messageText)
+    .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+}
+
+function kakaoGroupChoiceCards(quickReplies = [], outputs = []) {
+  const buttons = kakaoGroupChoiceButtons(quickReplies);
+  if (!buttons.length) return { outputs, rest: [] };
+  const merged = [...outputs];
+  let used = 0;
+  const lastIndex = merged.length - 1;
+  const lastText = merged[lastIndex]?.simpleText?.text;
+  if (typeof lastText === "string" && lastText.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+    const chunk = buttons.slice(0, 5);
+    merged[lastIndex] = { textCard: { description: lastText, buttons: chunk, buttonLayout: "vertical" } };
+    used = chunk.length;
+  }
+  while (used < buttons.length && merged.length < 3) {
+    const chunk = buttons.slice(used, used + 5);
+    merged.push({ textCard: { title: used ? "더 보기" : "골라 주세요", buttons: chunk, buttonLayout: "vertical" } });
+    used += chunk.length;
+  }
+  return { outputs: merged, rest: buttons.slice(used) };
+}
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return response;
   try {
     const raw = await response.clone().text();
     const data = JSON.parse(raw || "{}");
     const template = data?.template && typeof data.template === "object" ? { ...data.template } : {};
-    const textChoices = kakaoGroupTextChoices(template.quickReplies);
+    const quickReplies = template.quickReplies;
     delete template.quickReplies;
 
     const outputs = (Array.isArray(template.outputs) ? template.outputs : []).map((output) => {
@@ -161,6 +191,9 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
     }).filter(Boolean).slice(0, 3);
 
     if (!outputs.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
+    const choice = kakaoGroupChoiceCards(quickReplies, outputs);
+    outputs.splice(0, outputs.length, ...choice.outputs);
+    const textChoices = kakaoGroupTextChoices(choice.rest);
     if (textChoices) {
       const simpleTextOutput = outputs.find((output) => output?.simpleText?.text);
       if (simpleTextOutput) {

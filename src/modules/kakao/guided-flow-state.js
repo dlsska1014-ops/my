@@ -90,7 +90,7 @@ function isKakaoGuidedCommand(text = "") {
 
 function kakaoStartQuickReplies(hasHousehold = false) {
   if (!hasHousehold) return dedupeQuickReplies([
-    ["첫 기록 방법", "기록 방법"],
+    ["기록 방법", "기록 방법"],
     ["새 가계부 만들기", "새 가계부 만들기"],
     ["초대코드로 참여", "초대코드로 참여"],
     ["도움말", "도움말"],
@@ -106,11 +106,11 @@ function kakaoStartQuickReplies(hasHousehold = false) {
 
 function kakaoCreateKindQuickReplies() {
   return dedupeQuickReplies([
-    ["가족 생활비", "가계부 종류 가족 생활비"],
-    ["부부·커플", "가계부 종류 부부 커플"],
-    ["모임 회비", "가계부 종류 모임 회비"],
-    ["여행 경비", "가계부 종류 여행 경비"],
-    ["직접 입력", "가계부 종류 직접 입력"],
+    ["가족 생활비", "가족 생활비"],
+    ["부부 커플", "부부 커플"],
+    ["모임 회비", "모임 회비"],
+    ["여행 경비", "여행 경비"],
+    ["직접 입력", "직접 입력"],
     ["취소", "취소"],
   ]);
 }
@@ -118,22 +118,19 @@ function kakaoCreateKindQuickReplies() {
 function kakaoBudgetRootQuickReplies() {
   return dedupeQuickReplies([
     ["전체 월 예산", "전체 월 예산"],
-    ["카테고리별", "카테고리별 예산"],
-    ["지난달 복사", "지난달 예산 복사"],
-    ["예산 현황", "남은 예산"],
+    ["카테고리별 예산", "카테고리별 예산"],
+    ["지난달 예산 복사", "지난달 예산 복사"],
+    ["남은 예산", "남은 예산"],
     ["취소", "취소"],
   ]);
 }
 
 function kakaoBudgetCategoryQuickReplies() {
   return dedupeQuickReplies([
-    ["외식", "예산 카테고리 외식"],
-    ["교통", "예산 카테고리 교통"],
-    ["생활용품", "예산 카테고리 생활용품"],
-    ["의료·병원", "예산 카테고리 의료/병원"],
-    ["교육·학습", "예산 카테고리 교육/학습"],
-    ["문화·여가", "예산 카테고리 문화/여가"],
-    ["직접 입력", "예산 카테고리 직접 입력"],
+    ["외식", "외식"],
+    ["교통", "교통"],
+    ["생활용품", "생활용품"],
+    ["직접 입력", "직접 입력"],
     ["취소", "취소"],
   ]);
 }

@@ -79,9 +79,13 @@ ok(group.data.template.outputs.length <= 3, "group response stays within the out
 const supported = new Set(["simpleText", "simpleImage", "textCard", "basicCard", "listCard", "itemCard"]);
 ok(group.data.template.outputs.every((output) => Object.keys(output).length === 1 && supported.has(Object.keys(output)[0])), "group response only uses group-manual output components");
 const groupText = group.data.template.outputs.map((output) => output?.simpleText?.text || "").join("\n");
-ok(groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies become explicit typed-choice guidance");
-ok(groupText.includes("1. 기록 방법") && groupText.includes("2. 새 가계부 만들기"), "first record and create choices are preserved as text");
-ok(groupText.includes("3. 초대코드로 참여"), "join choice is preserved as text");
+// V22.9.65: 그룹에서 quickReplies 는 글자 목록이 아니라 textCard 세로 메시지 버튼으로 바뀐다.
+const choiceButtons = group.data.template.outputs.flatMap((output) => output?.textCard?.buttons || []);
+ok(!groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies no longer become a typed-choice list");
+ok(choiceButtons.length >= 3 && choiceButtons.every((b) => b.action === "message" && b.messageText && String(b.label || "").length <= 14), "quick replies become tappable message buttons");
+ok(choiceButtons.some((b) => b.messageText === "기록 방법") && choiceButtons.some((b) => b.messageText === "새 가계부 만들기"), "first record and create choices are preserved as buttons");
+ok(choiceButtons.some((b) => b.messageText === "초대코드로 참여"), "join choice is preserved as a button");
+ok(group.data.template.outputs.filter((o) => o.textCard).every((o) => o.textCard.buttons.length <= 5 && o.textCard.buttonLayout === "vertical"), "choice cards keep at most five vertical buttons");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
 
 // 카카오 심사 요청: 단톡방에서 봇만 멘션한 빈 발화는 짧은 안내와 도움말·챗봇 멘션하기 버튼으로 응답한다.

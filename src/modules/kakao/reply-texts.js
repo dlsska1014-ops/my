@@ -149,23 +149,12 @@ function kakaoNoMatchGuideText(utterance = "", origin = "") {
   }
   const maybeHasMoneyWord = /(원|만원|천원|카드|현금|페이|계좌|점심|커피|마트|병원|월급|수입|지출|결제|주유|택시|보험|세금)/.test(t);
   const firstLine = maybeHasMoneyWord
-    ? "금액과 내용을 한 문장으로 보내주시면 바로 기록할 수 있어요 😊"
-    : "말씀하신 내용을 정확히 이해하지 못했어요. 아래 예시처럼 보내주세요 😊";
+    ? "내용과 금액을 한 문장으로 보내면 바로 기록돼요."
+    : "무슨 뜻인지 이해하지 못했어요. 아래처럼 보내 주세요.";
+  // V22.9.67: 알아듣지 못했을 때도 짧게 답하고 버튼으로 다음 행동을 고르게 한다.
   return [
     firstLine,
-    "",
-    "기록 예시",
-    "• 점심 12000원 국민카드",
-    "• 커피 5000원 현금",
-    "• 어제 병원 15000원",
-    "• 월급 250만원",
-    "",
-    "자주 쓰는 말",
-    "• 이번 달 요약",
-    "• 오늘 기록 보기",
-    "• 내 이름 설정",
-    "• 초대코드",
-    "• 수정가이드",
+    "예) 점심 12000원 국민카드",
   ].filter(Boolean).join("\n");
 }
 
@@ -262,7 +251,7 @@ function kakaoNoMatchGuide(utterance = "", origin = "") {
   if (/가계부/.test(nlu.normalized)) {
     return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부 전환", "가계부 전환"]] };
   }
-  return { text, quickReplies: [] };
+  return { text, quickReplies: [["사용 설명서", "사용 설명서"], ["오늘 기록 보기", "오늘 기록 보기"]] };
 }
 
 function kakaoInputExampleText(origin = "") {

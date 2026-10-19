@@ -12,9 +12,12 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_62.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_67.sha256",
 );
 const validationScripts = [
+  ["V67 guided flow loop guard and legacy button labels", "validation/validate-flow-loop-guard-v22967.mjs"],
+  ["V65 button manual cards and group choice buttons", "validation/validate-manual-guides-v22965.mjs"],
+  ["V64 group empty-mention entry copy and button order", "validation/validate-group-entry-copy-v22964.mjs"],
   ["V61 lifecycle RPC/CAS, old-writer fences, administrator imports and compatible undo", "validation/validate-lifecycle-v22961.mjs"],
   ["V59 storage text, reconciliation, ownership and asset RPC contracts", "validation/validate-storage-contract-v22959.mjs"],
   ["D3 observations, strict reads and refund guidance", "validation/validate-d3-refund-guidance-v22958.mjs"],
@@ -257,7 +260,11 @@ function run(command, args, label) {
 // V22.9.58: retain every previous check and add 575 D3/refund assertions.
 // V22.9.59: retain previous minimum and add 486 independently counted contract assertions.
 // V22.9.60: add 17 independent R2 history and catalog assertions.
-const EXPECTED_MINIMUM_CHECKS = 20307;
+// V22.9.64: add 58 group entry copy / button order assertions.
+// V22.9.65: add 391 button manual assertions and 2 group choice-button assertions.
+// V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
+// V22.9.67: add loop-guard, button-label, emoji and length assertions.
+const EXPECTED_MINIMUM_CHECKS = 20874;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
