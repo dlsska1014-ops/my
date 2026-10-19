@@ -1465,6 +1465,7 @@ const CORS_HEADERS = {
 // 대체하지 않고 가계부 고르기 화면을 낸다 — 기준선 규칙 그대로). 그 화면이 나왔다는 것은
 // 쿠키가 낡았다는 뜻이므로 지운다. DB 왕복은 늘지 않는다. 로그아웃하면 함께 지운다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
+const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
 const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
 const AB_HOUSEHOLD_MEMORY_PATHS = new Set([
   "/my", "/app", "/m", "/menu", "/budgets", "/reports", "/my/analysis", "/my/settings", "/reserve-plans",
@@ -1488,7 +1489,11 @@ function rememberedHouseholdRequest(request) {
     const requested = String(url.searchParams.get("household_id") || "").trim();
     if (requested || !isRememberableHouseholdId(remembered)) return { request, eligible: true, injected: false, remembered };
     url.searchParams.set("household_id", remembered);
-    return { request: new Request(url.toString(), request), eligible: true, injected: true, remembered };
+    // V22.9.63 감사(웹 2): 쿠키로 채운 ID 는 사용자가 직접 적은 ID 와 구분한다. 낡은 기억은 404 가 아니라 예전처럼 고르기 화면(200)으로
+    // 가고 그 자리에서 지워진다. 직접 적은 남의 가계부 ID 만 찾을 수 없음(404)이다.
+    const headers = new Headers(request.headers);
+    headers.set(AB_HOUSEHOLD_MEMORY_HEADER, "1");
+    return { request: new Request(url.toString(), { method: "GET", headers }), eligible: true, injected: true, remembered };
   } catch (_) {
     return none;
   }
@@ -2891,7 +2896,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.62-LOAN-DISPLAY";
+const APP_VERSION = "V22.9.63-ROOM-REBIND";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -17675,8 +17680,9 @@ async function handleMyMembersPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   // V22.9.43: 구성원 권한은 참여자 목록과 함께 읽는다. 읽지 못하면 값을 추측하지 않고 확인 불가로 그린다.
@@ -18091,8 +18097,9 @@ async function handleMyBackupPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const msg = url.searchParams.get("msg") || "";
@@ -19201,8 +19208,9 @@ async function handleMyGroupsPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   const map = await fetchKakaoGroupLinkMap(env);
@@ -19413,8 +19421,9 @@ async function getMyPageContext(request, env, url, { observedComparison = false 
     getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
   ]);
   if (!user) return { redirect: handleMyLogout() };
-  const { households, selected, restricted } = access;
+  const { households, selected, restricted, invalidRequested } = access;
   if (restricted) return { redirect: myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month }) };
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return { redirect: householdNotFoundResponse({ env, user, requestedId: invalidRequested }) };
   if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
   // V22.9.16: 달력은 같은 달 거래를 한 번 더 읽어 만들고 있었다(같은 질의 2회). 이미 받은
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
@@ -20466,8 +20475,9 @@ async function handleMyInsightPage(request, env, url) {
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
 
   const dataStart = `${addMonthsYm(month, -11)}-01`;
@@ -22157,11 +22167,13 @@ async function handleMySettingsPage(request, env, url, budgetDraft = null) {
   if (!userId) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   // V22.9.16: 아홉 번을 줄줄이 기다리던 화면이다. 서로 필요 없는 조회는 함께 던진다.
-  const [user, { households, selected, restricted }] = await Promise.all([
+  const [user, { households, selected, restricted, invalidRequested }] = await Promise.all([
     fetchUserById(env, userId),
     getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
   ]);
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   // V22.8.81: 키워드 편집기는 /keyword-guide 한 곳으로 모았다. 여기서는 더 읽지 않는다.
@@ -22342,12 +22354,15 @@ async function handleMyRecurringDelete(request, env) {
   try {
     await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
       assertFresh();
-      await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      // V22.9.63 감사(웹 1): 지운 행이 없으면(다른 가계부 항목이거나 이미 지워짐) 성공이라고 하지 않는다. 관리자 경로와 같다.
+      const deleted = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      if (!Array.isArray(deleted) || !deleted.length) throw new Error("recurring_not_found");
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_recurring_delete_failed", severity: "warn", path: "/my/recurring/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_delete_failed" }));
+    const notFound = String(err?.message || "") === "recurring_not_found";
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: notFound ? "recurring_not_found" : isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_delete_failed" }));
   }
 }
 
@@ -22645,6 +22660,11 @@ function memberPolicyJoinLine(mode = "") {
   return mode === MEMBER_POLICY_RECORD_ONLY
     ? "내 권한: 기록만 (수정·삭제는 소유자·관리자가 해요)"
     : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
+}
+
+// V22.9.63 감사(웹 2): 라우터가 기억 쿠키(ab_hh)로 채운 household_id 는 사용자가 직접 적은 것이 아니다(config-readiness.js).
+function householdIdWasRemembered(request) {
+  try { return String(request?.headers?.get("x-ab-household-memory") || "") === "1"; } catch (_) { return false; }
 }
 
 async function getMySelectedHousehold(env, userId, householdId = "") {
@@ -23407,6 +23427,12 @@ async function handleMyPage(request, env, url) {
     if (msg) qs.set("msg", msg);
     if (err) qs.set("err", err);
     return redirectResponse(`/my/households${qs.toString() ? `?${qs.toString()}` : ""}#create`);
+  }
+  // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+  if (access.invalidRequested && !householdIdWasRemembered(request)) {
+    const user = await fetchUserById(env, userId);
+    if (!user) return handleMyLogout();
+    return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
   }
   const selectedHousehold = access.selected;
   if (selectedHousehold) {
@@ -29797,6 +29823,11 @@ async function handleMobileV8Page(request, env, url) {
     }
     households = access.households;
     selectedHousehold = access.selected;
+    // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+    if (access.invalidRequested && households.length && !householdIdWasRemembered(request)) {
+      const user = await fetchUserById(env, userId);
+      return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
+    }
     if (!selectedHousehold) {
       const user = await fetchUserById(env, userId);
       return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
@@ -32064,6 +32095,7 @@ function formatMessage(msg) {
     recurring_exists: "같은 반복 항목이 이미 등록되어 있어 중복 저장하지 않았습니다.",
     recurring_registered: "반복 항목을 등록했습니다.",
     recurring_save_failed: "반복 항목을 저장하지 못했습니다. 기존 데이터는 유지됩니다.",
+    recurring_not_found: "삭제할 반복 항목을 찾지 못했습니다. 이미 지워졌거나 이 가계부의 항목이 아닙니다.",
     regenerated: "초대코드를 새로 만들었습니다. 이전 코드는 더 이상 사용할 수 없습니다.",
     save_failed: "저장하지 못했습니다. 기존 데이터는 유지되므로 잠시 후 다시 시도해 주세요.",
     already_saved: "이미 저장된 기록이에요. 같은 기록을 한 번 더 만들지 않았어요.",
@@ -33234,6 +33266,11 @@ function parseKakaoEditCommandV4(text = "") {
   }
   // "01번 수정해줘"류의 동사만 남은 나머지는 메뉴 요청으로 정규화한다.
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
+  // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
+  rest = normalizeText(rest)
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
+    .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
 }
 
@@ -34201,7 +34238,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!rows.length) return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "기록이 없습니다."].join("\n"));
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), "", `수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -34286,6 +34323,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   const editTarget = parseKakaoEditCommandV4(raw);
   if (editTarget) {
+    // V22.9.63 감사(1:1 1): "수정 01번 02번 금액 5000"처럼 번호가 둘 이상이면 어느 기록인지 정하지 않고 한 건씩 적어 달라고 한다.
+    if (/^\d{1,2}\s*번(?=\s|$)/.test(String(editTarget.rest || ""))) return kakaoText("한 번에 한 건씩만 수정할 수 있어요. 번호 하나만 적어 주세요.\n예: 수정 01번 금액 5000");
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
@@ -34338,8 +34377,18 @@ function kakaoEditControlTextV4(text = "") {
 
 function looksLikeKakaoEditCommandV4(text = "") {
   const control = kakaoEditControlTextV4(text);
+  const original = normalizeText(stripKakaoBotMention(text)).replace(/^\/+\s*/, "");
   return /^(?:수정|삭제|복구)\s*\d+/.test(control)
     || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    // V22.9.63 감사(1:1 1): "수정 01번 금액을 13000원으로", "01번 가격 13200", "수정 01번 13300원으로"처럼 조사·동의어·값만 있는
+    // 수정 말이 새 지출로 저장됐다(stripLeadingCommand 가 앞의 ‘수정’을 떼고 나면 위 두 규칙이 못 알아봤다). 앞에 ‘수정 NN번’이
+    // 있었거나 번호 뒤에 수정 낱말(동의어·조사 포함)이 오면 수정 명령이다. "2번 출구 택시 8000원"처럼 수정 낱말이 없는 번호는 기록이다.
+    || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
+    // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
+    // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
+    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
     || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
 }
@@ -34347,7 +34396,7 @@ function looksLikeKakaoEditCommandV4(text = "") {
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
-  if (looksLikeKakaoEditCommandV4(raw)) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
@@ -34359,6 +34408,25 @@ function isStrongKakaoTransactionInput(text = "", parsedList = []) {
     .trim();
   // 금액만 보낸 단계형 답변(예: 100만원)은 빠른 거래 경로로 보내지 않습니다.
   return /[가-힣A-Za-z]{2,}/.test(remainder);
+}
+
+// V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록 자동 준비는 "밥 4500원", "물 1000원"처럼 한 글자 내용도 받는다. 강한 입력
+// 판정(내용 두 글자 이상)은 그대로 두고, 단위(원)가 분명한 한 건짜리 기록만 더 받는다. 첫 기록 자동 준비 자리에서만 쓴다.
+function isKakaoFirstRecordInput(text = "", parsedList = []) {
+  if (isStrongKakaoTransactionInput(text, parsedList)) return true;
+  const raw = normalizeText(stripLeadingCommand(text));
+  if (!raw || !Array.isArray(parsedList) || parsedList.length !== 1) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
+  if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
+  const amountInfo = extractAmount(raw);
+  if (!amountInfo?.amount || !/원\s*$/.test(String(amountInfo.raw || ""))) return false;
+  const remainder = raw
+    .replace(amountInfo.raw || "", " ")
+    .replace(/(국민|신한|현대|삼성|롯데|우리|하나|농협|카카오|토스)?\s*(카드|체크카드|신용카드)|현금|계좌이체|이체|페이/gi, " ")
+    .replace(/오늘|어제|그제|그저께|내일/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^[가-힣A-Za-z]+$/.test(remainder);
 }
 
 async function optionalWithin(promise, timeoutMs, fallback) {
@@ -34901,9 +34969,13 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
+  // V22.9.63 감사(단톡방 2): 안내는 방의 실제 상태를 따른다. 해제·삭제된 방(retired)에는 자동 준비를 약속하지 않고, 기록이 아닌
+  // 말(writeRejected 아님)에는 "방금 입력한 기록"이라고 하지 않는다. 거절된 기록에는 예전 문구(자동으로 다시 만들지 않음)를 그대로 둔다.
+  const retired = options?.retired === true;
   return [
     "👥 이 단톡방에 연결된 가계부가 없습니다.",
-    !writeRejected ? "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다." : "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다.",
+    retired || writeRejected ? "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다."
+      : "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다.",
     writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
     "",
     "기존 가계부를 쓰려면 소유자·관리자가 ‘단톡방 연결 초대코드’를 입력해 주세요.",
@@ -35346,6 +35418,41 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 }
 
 
+// V22.9.63: 단톡방에서 새 가계부를 만든 직후 이 방의 연결을 새 가계부로 바꿀지 묻는다. 현재 연결 가계부의 소유자·관리자가 아니면
+// 바꿀 수 없으니 묻지 않는다. 질문 상태는 가계부 선택 흐름의 confirm_bind 와 같은 모양이라 답은 그 처리기가 받고, 실제 연결 변경은
+// 예전과 같이 bindKakaoGroupByInviteCode(권한 재확인·방 잠금) 한 곳에서만 일어난다.
+async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = "", household = {}, linked = null }) {
+  if (!groupKey || !household?.id) return null;
+  if (linked?.id) {
+    if (String(linked.id) === String(household.id)) return null;
+    const currentRole = await getHouseholdMemberRole(env, user.id, linked.id);
+    if (!["owner", "admin"].includes(String(currentRole || ""))) return null;
+  }
+  await saveKakaoFlowState(env, user.id, payload, {
+    flow: "household_choice",
+    step: "confirm_bind",
+    attempts: 0,
+    data: {
+      action: "bind",
+      origin: "create",
+      group_key: groupKey,
+      target_household_id: household.id,
+      target_household_name: String(household.name || ""),
+      current_household_id: linked?.id || "",
+      current_household_name: String(linked?.name || ""),
+    },
+  });
+  return {
+    lines: [
+      linked?.id ? `이 단톡방의 기록은 아직 ‘${linked.name}’ 가계부에 저장돼요.` : "이 단톡방은 아직 어떤 가계부에도 연결되지 않았어요.",
+      `이 단톡방을 ‘${household.name}’ 가계부로 ${linked?.id ? "바꿀까요" : "연결할까요"}?`,
+      kakaoRoomBindConfirmLine(household.name),
+      `${linked?.id ? "바꾸려면" : "연결하려면"} ‘연결하기’, ${linked?.id ? `계속 ‘${linked.name}’에 기록하려면` : "나중에 연결하려면"} ‘아니요’를 입력해 주세요.`,
+    ],
+    quickReplies: [["연결하기", "연결하기"], ["아니요", "아니요"]],
+  };
+}
+
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["create_household", "join_household", "household_choice"].includes(state.flow)) return null;
@@ -35356,11 +35463,36 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
   if (state.flow === "household_choice") {
     if (state.step === "confirm_bind") {
       const t = normalizeText(utterance);
+      // V22.9.63: 새 가계부를 만든 직후의 질문(origin=create)은 ‘아니요’가 취소가 아니라 "현재 가계부 유지"다. 답하기 전에 보낸
+      // 다른 말(기록 포함)은 저장하지 않고 같은 질문을 다시 보여 준다 — 어느 가계부에 쌓일지 정해지기 전에는 쓰지 않는다.
+      const fromCreate = String(state.data?.origin || "") === "create";
+      const targetName = String(state.data?.target_household_name || "").trim();
+      const currentName = String(state.data?.current_household_name || "").trim();
       if (isKakaoCreateConfirmNo(t)) {
         await clearKakaoFlowState(env, user.id, payload);
+        if (fromCreate) {
+          return {
+            text: [
+              `알겠어요. ‘${targetName || "새"}’ 가계부는 만들어졌고, 이 단톡방의 기록은 ${currentName ? `계속 ‘${currentName}’ 가계부에 저장돼요.` : "연결 전이라 저장되지 않아요."}`,
+              `나중에 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부 전환’을 입력해 주세요.`,
+            ].join("\n"),
+            quickReplies: [["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"]],
+          };
+        }
         return { text: "단톡방 연결 변경을 취소했어요.", quickReplies: [["시작", "시작"]] };
       }
-      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) return { text: "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요. 취소하려면 ‘취소’를 입력해 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) {
+        if (fromCreate) {
+          return {
+            text: [
+              `아직 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꿀지" : "연결할지"} 답하지 않았어요. 방금 보낸 내용은 저장하지 않았어요.`,
+              `${currentName ? "바꾸려면" : "연결하려면"} ‘연결하기’, ${currentName ? `계속 ‘${currentName}’에 기록하려면` : "나중에 연결하려면"} ‘아니요’를 입력해 주세요.`,
+            ].join("\n"),
+            quickReplies: [["연결하기", "연결하기"], ["아니요", "아니요"]],
+          };
+        }
+        return { text: "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요. 취소하려면 ‘취소’를 입력해 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      }
       const targetId = String(state.data?.target_household_id || "");
       const all = kakaoManageableHouseholds(await fetchUserHouseholds(env, user.id));
       const target = all.find((h) => String(h.id) === targetId);
@@ -35394,10 +35526,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       };
     }
     if (!chosen && isHouseholdSwitchCommand(utterance)) {
-      const nextState = { ...state, data: { ...safeObject(state.data), action: "select" } };
+      // V22.9.63 감사(단톡방 1): 단톡방에서 시작한 연결 선택이 "가계부 바꾸기" 같은 말에 1:1 선택으로 바뀌어, 방에서 고른 가계부가
+      // 개인 대화의 선택 가계부가 되고 "이후 기록은 이 가계부 기준"이라는 틀린 안내가 나갔다. 방에서는 연결(bind)만 있다(V22.9.37 H2).
+      const roomChoice = !!(state.data?.group_key || getKakaoBotGroupKey(payload));
+      const nextState = { ...state, data: { ...safeObject(state.data), action: roomChoice ? "bind" : "select" } };
       await saveKakaoFlowState(env, user.id, payload, nextState);
       return {
-        text: ["사용할 가계부를 선택해 주세요.", "", ...kakaoHouseholdListLines(candidates), "", "번호 또는 가계부 이름을 입력해 주세요."].join("\n"),
+        text: [roomChoice ? "이 단톡방에 연결할 가계부를 선택해 주세요." : "사용할 가계부를 선택해 주세요.", "", ...kakaoHouseholdListLines(candidates), "", "번호 또는 가계부 이름을 입력해 주세요."].join("\n"),
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
       };
     }
@@ -35407,7 +35542,9 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
       };
     }
-    const action = String(state.data?.action || "select");
+    const storedAction = String(state.data?.action || "select");
+    // 단톡방 안에서는 어떤 경로로 왔든 1:1 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
+    const action = storedAction === "select" && (state.data?.group_key || getKakaoBotGroupKey(payload)) ? "bind" : storedAction;
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
@@ -35446,16 +35583,30 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const linked = groupKey ? await getLinkedKakaoGroupHousehold(env, groupKey) : null;
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "household", `${origin}/my/households`);
+      const headLines = [
+        `✅ ‘${household.name}’ 가계부를 만들었어요.`,
+        kind && kind !== "직접 입력" ? `용도: ${kind}` : "",
+        "",
+        `초대코드: ${household.invite_code}`,
+        "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
+      ];
+      // V22.9.63: 단톡방에서 새 가계부를 만든 사람은 거의 늘 이 방의 기록을 새 가계부에 쌓으려는 것이다. 예전에는 방 연결이
+      // 그대로라 다음 기록부터 옛 가계부에 계속 쌓였고, 안내한 ‘단톡방 연결’은 안내문만 보여 줘 바꿀 길이 없었다(2026-10-19 운영 보고).
+      // 연결을 바꿀 권한이 있으면 바로 묻는다. 답하기 전에는 연결도 바꾸지 않고 이 방의 기록도 저장하지 않는다(V22.9.37 H2 유지).
+      const rebind = groupKey ? await offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey, household, linked }) : null;
+      if (rebind) {
+        return { text: [...headLines, ...rebind.lines].filter(Boolean).join("\n") + cta + cleanupNotice, quickReplies: rebind.quickReplies };
+      }
       return {
         text: [
-          `✅ ‘${household.name}’ 가계부를 만들었어요.`,
-          kind && kind !== "직접 입력" ? `용도: ${kind}` : "",
-          "",
-          `초대코드: ${household.invite_code}`,
-          "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
-          groupKey ? (linked?.id ? `이 단톡방은 계속 ‘${linked.name}’ 가계부에 연결되어 있어요. 새 가계부로 바꾸려면 ‘단톡방 연결’을 진행해 주세요.` : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. ‘단톡방 연결’을 진행해 주세요.") : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
+          ...headLines,
+          groupKey
+            ? (linked?.id
+              ? `이 단톡방의 기록은 계속 ‘${linked.name}’ 가계부에 저장돼요. 새 가계부로 바꾸려면 ‘${linked.name}’의 소유자·관리자가 ‘가계부 전환’을 입력해야 해요.`
+              : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. 연결하려면 ‘가계부 전환’을 입력해 주세요.")
+            : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
         ].filter(Boolean).join("\n") + cta + cleanupNotice,
-        quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
+        quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
       };
     };
 
@@ -35863,6 +36014,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   if (!separatePurchaseCommand && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   if (!separatePurchaseCommand && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
+  // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
+  const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(utterance, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
 
@@ -35881,7 +36034,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const botGroupKey = getKakaoBotGroupKey(payload);
   const trustedIdentity = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
-  const groupFirstRecord = !!botGroupKey && trustedIdentity && strongTransactionInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
+  const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
@@ -35950,6 +36103,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     : routingSnapshot ? Promise.resolve({value:String(routingSnapshot.selected || "").trim()})
       : getKakaoSelectedHouseholdId(env, user.id).then((value) => ({ value }), (error) => ({ error }));
   const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
+  // V22.9.63 감사(단톡방 2): 연결 전 방 안내는 방의 실제 상태를 따른다. 해제·삭제된 방은 "기록을 보내면 자동으로 준비해요"라고
+  // 하지 않고, 기록이 아닌 말에는 "방금 입력한 기록은 저장하지 않았어요"라고 하지 않는다(읽기 실패는 연결 전 방 기본 안내).
+  const unlinkedRoomTextOptions = async (writeRejected = false) => {
+    let retired = false;
+    if (botGroupKey) {
+      try {
+        const roomState = await readKakaoGroupFirstSnapshot(env, botGroupKey);
+        retired = !roomState.link && (roomState.retired || !!roomState.done || roomState.marker?.phase === "complete");
+      } catch (_) {}
+    }
+    return { writeRejected: !!writeRejected, retired };
+  };
 
   if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
     return kakaoText(kakaoCommandMenuText(origin));
@@ -35965,7 +36130,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey) {
       if (!linkedGroupHousehold?.id) {
-        return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+        return kakaoText(kakaoUnlinkedGroupStartText(active, origin, await unlinkedRoomTextOptions(false)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
       }
       // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
       const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
@@ -35995,7 +36160,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey && !linkedGroupHousehold?.id) {
-      return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+      return kakaoText(kakaoUnlinkedGroupStartText(active, origin, await unlinkedRoomTextOptions(false)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
     }
     if (botGroupKey && linkedGroupHousehold?.id) {
       return kakaoText(`${guidedHelpText(true)}\n\n현재 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, kakaoStartQuickReplies(true));
@@ -36062,7 +36227,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   if (!strongTransactionInput && isGroupLinkInfoCommand(utterance)) {
-    return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["연결 방법", "단톡방 연결"], ["초대코드", "초대코드"]]);
+    // V22.9.63: 단톡방에서 소유자·관리자가 ‘단톡방 연결’을 보내면 안내문이 아니라 연결할 가계부 선택으로 바로 간다. 예전 안내문은
+    // 빠른 답장이 다시 ‘단톡방 연결’이라 같은 안내만 돌았고, 초대코드를 직접 쳐야만 연결이 바뀌었다(2026-10-19 운영 보고).
+    // ‘단톡방 정보’처럼 연결이라는 말이 없는 요청과, 관리할 가계부가 없는 사람에게는 예전처럼 상태만 보여 준다.
+    if (botGroupKey && /연결/.test(String(utterance || ""))) {
+      const [households, linkedGroupHousehold] = await Promise.all([settle(householdsPromise), settle(linkedGroupPromise)]);
+      if (kakaoManageableHouseholds(households).length) {
+        const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: "bind", origin, groupKey: botGroupKey, forceChoice: true });
+        const currentLine = linkedGroupHousehold?.id ? `현재 연결: ${linkedGroupHousehold.name}` : "현재 연결: 없음";
+        return kakaoText(`${currentLine}\n${choice.text}`, choice.quickReplies || []);
+      }
+    }
+    return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["새 가계부 만들기", "새 가계부 만들기"], ["초대코드", "초대코드"]]);
   }
 
   const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
@@ -36112,12 +36288,12 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     return kakaoText(`✅ ‘${pendingRows[0].name}’ 참여 요청을 취소했어요.\n다시 참여하려면 초대코드를 다시 보내 주세요.`);
   }
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
-    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
+    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
   }
   if (pendingHousehold && !activeHouseholds.length && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isInviteCommand(utterance)) {
     return kakaoText(`🕒 아직 승인 대기 중입니다.\n가계부: ${pendingHousehold.name}\n\n관리자가 참여자를 승인해야 기록할 수 있어요.`);
   }
-  if (!botGroupKey && seedChatFirst && strongTransactionInput && !selectedHouseholdId &&
+  if (!botGroupKey && seedChatFirst && firstRecordInput && !selectedHouseholdId &&
       (!households.length || (households.length === 1 && households[0].role === "owner"))) {
     const tooLarge = preParsedList.slice(0, boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80)).find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
@@ -36138,7 +36314,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
         const choice = await beginKakaoHouseholdChoice(env, { user, payload, households: activeHouseholds, action: "invite", origin, groupKey: botGroupKey });
         return kakaoText(choice.text, choice.quickReplies || []);
       }
-      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
+      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
@@ -37678,6 +37854,17 @@ async function preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId,
   await saveSettingValue(env, primaryKey, JSON.stringify({ version: 1, households: { ...primary.households, ...secondary.households } }));
 }
 
+// V22.9.63 감사(단톡방 3): 응답을 잃은 단계(create_sent·owner_sent·link_sent)에서 대상 행이 끝내 보이지 않으면 방이 영영 "결과
+// 미확정"에 머물렀고 소유자가 초대코드로 손수 연결해야 풀렸다. 고정 ID 와 on_conflict 무시 쓰기라 같은 요청을 다시 보내도 중복이
+// 생기지 않으므로, 예약 뒤 60초가 지난 표식은 같은 단계를 한 번 더 보낸다. 60초 안에는 예전처럼 재조회만 한다(아직 날아가는 중일 수
+// 있는 첫 요청과 겹치지 않게). 단계를 되돌리거나 새 UUID·보상 삭제를 하지는 않는다(V22.9.37 H6).
+const KAKAO_GROUP_PHASE_RETRY_MS = 60 * 1000;
+function kakaoGroupPhaseRetryable(marker = null, phase = "") {
+  if (!marker || marker.phase !== phase) return false;
+  const reservedAt = Date.parse(String(marker.created_at || ""));
+  return Number.isFinite(reservedAt) && Date.now() - reservedAt >= KAKAO_GROUP_PHASE_RETRY_MS;
+}
+
 async function tryKakaoGroupFirstRecord(env, context = {}) {
   const { user, groupKey, parsedList } = context;
   let recordSaved = false;
@@ -37745,7 +37932,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           };
           if (preparing) {
             if (!household) {
-              if (marker.phase !== "reserved") throw kakaoGroupPreparationUnknown();
+              if (marker.phase !== "reserved" && !kakaoGroupPhaseRetryable(marker, "create_sent")) throw kakaoGroupPreparationUnknown();
               await phase("create_sent");
               assertFresh();
               try {
@@ -37764,7 +37951,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             let ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
             if (ownerRole && ownerRole !== "owner" || members.some(row => row.role === "owner" && String(row.user_id) !== marker.owner_id)) throw new Error("kakao_group_first_owner_conflict");
             if (!ownerRole) {
-              if (marker.phase !== "create_sent") throw kakaoGroupPreparationUnknown();
+              if (marker.phase !== "create_sent" && !kakaoGroupPhaseRetryable(marker, "owner_sent")) throw kakaoGroupPreparationUnknown();
               await phase("owner_sent");
               assertFresh();
               let writeError;
@@ -37779,7 +37966,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
                 throw kakaoGroupPreparationUnknown(writeError);
               }
             }
-            if (marker.phase === "link_sent") throw kakaoGroupPreparationUnknown();
+            if (marker.phase === "link_sent" && !kakaoGroupPhaseRetryable(marker, "link_sent")) throw kakaoGroupPreparationUnknown();
             await phase("link_sent");
             assertFresh();
             let linkedValue;
@@ -38950,6 +39137,16 @@ function isSettlementCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "SETTLEMENT" || /^(정산|정산해줘|정산해 줘|정산하기|정산요약|정산 요약|정산현황|정산 현황|더치페이|더치 페이|1\/n정산|1\/n 정산|누가 얼마 보내|보낼 돈|받을 돈|내가 보낼 돈|내가 받을 돈)$/i.test(normalizeText(text));
 }
 
+// V22.9.63 감사(1:1 4): 정산 모델의 1인 기준은 반올림이라(V57 동결 계약) 배분된 몫(내림, 나머지는 마지막 참여자)과 맞지 않았다.
+// 모델은 그대로 두고 챗봇 안내만 배분과 같은 값으로 적는다.
+function kakaoSettlementShareLine(model = {}) {
+  const total = Math.max(0, Math.round(Number(model.totalExpense || 0)));
+  const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
+  const perHead = Math.floor(total / count);
+  const remainder = total - perHead * count;
+  return `1인 기준: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+}
+
 async function kakaoSettlementText(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
@@ -38970,7 +39167,7 @@ async function kakaoSettlementText(env, household = {}) {
     refundNotice,
     `총 지출: ${numberWithCommas(model.totalExpense)}원`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
-    `1인 기준: ${numberWithCommas(model.share)}원`,
+    kakaoSettlementShareLine(model),
     "",
     ...people,
     ...(transfers.length ? ["", "송금 제안", ...transfers] : []),
@@ -39030,10 +39227,14 @@ function parseGroupBindCommand(text = "") {
   return m ? m[1].trim().toUpperCase() : "";
 }
 
+// V22.9.63: 줄머리 목록 표식. 한 줄짜리("1. 점심 12000원")와 여러 줄 모두에서 뗀다.
+const KAKAO_LIST_MARKER_PREFIX = /^(?:\d{1,2}[.)]|[-•*])\s+/;
+
 function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
-    const one = parseTransaction(text, payload);
+    // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
+    const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
     return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
@@ -39072,12 +39273,16 @@ function splitTransactionClauses(text) {
   // 쪼개져 내용이 통째로 사라진다. 조사형(랑·하고)은 앞에 두 글자 이상 붙어 있을 때만 나눈다.
   // 숫자 사이의 쉼표는 자릿수 구분이지 문장 구분이 아니다. 그냥 나누면 "12,345원"이
   // "12" + "345원"으로 쪼개져 345원만 저장된다.
-  const firstPass = raw
+  // V22.9.63 감사(1:1 3): 줄바꿈은 normalizeText 가 공백으로 바꿔 아래 규칙의 \n 이 한 번도 쓰이지 않았다. 금액 없는 줄("커피")이
+  // 다음 줄에 붙어 "커피 택시 8100원"이 됐고, "1. 점심 12000원" 같은 번호 목록은 1원으로 읽혔다. 줄을 먼저 나누고 줄머리 목록
+  // 표식(1. · 2) · - · •)을 뗀 뒤, 예전 규칙을 줄마다 적용한다.
+  const lines = String(text || "").split(/\r?\n/).map((line) => normalizeText(line).replace(KAKAO_LIST_MARKER_PREFIX, "").trim()).filter(Boolean);
+  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
     .split(/\s*(?:(?<!\d)[,，](?!\d)|[,，](?!\d)|(?<!\d)[,，]|;|；|\n|(?<=\s)\/|\/(?=\s)|·|(?<=^|\s)(?:그리고|또|추가로|다음으로)\s+|(?<=[가-힣]{2})(?:랑|하고)\s+)\s*/)
     .map((x) => String(x || "").trim())
-    .filter(Boolean);
+    .filter(Boolean));
   const datePrefix = extractLeadingDateHint(raw);
   const clauses = [];
   for (const part of firstPass) {

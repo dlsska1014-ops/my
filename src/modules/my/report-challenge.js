@@ -16,7 +16,8 @@ import { fetchUserById } from "../data/users-household-create.js";
 import { parseJsonSetting, saveSettingValue } from "./reports-premium.js";
 import { shiftMonthString } from "./analysis-page.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
+  myAccessStatusResponse,
 } from "./access-control.js";
 import { budgetSummary, fetchBudgets, fetchObservationMonthRows } from "../domain/budgets.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -38,8 +39,9 @@ async function getMyPageContext(request, env, url, { observedComparison = false 
     getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
   ]);
   if (!user) return { redirect: handleMyLogout() };
-  const { households, selected, restricted } = access;
+  const { households, selected, restricted, invalidRequested } = access;
   if (restricted) return { redirect: myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month }) };
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return { redirect: householdNotFoundResponse({ env, user, requestedId: invalidRequested }) };
   if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
   // V22.9.16: 달력은 같은 달 거래를 한 번 더 읽어 만들고 있었다(같은 질의 2회). 이미 받은
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.

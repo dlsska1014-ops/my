@@ -47,6 +47,16 @@ function isSettlementCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "SETTLEMENT" || /^(정산|정산해줘|정산해 줘|정산하기|정산요약|정산 요약|정산현황|정산 현황|더치페이|더치 페이|1\/n정산|1\/n 정산|누가 얼마 보내|보낼 돈|받을 돈|내가 보낼 돈|내가 받을 돈)$/i.test(normalizeText(text));
 }
 
+// V22.9.63 감사(1:1 4): 정산 모델의 1인 기준은 반올림이라(V57 동결 계약) 배분된 몫(내림, 나머지는 마지막 참여자)과 맞지 않았다.
+// 모델은 그대로 두고 챗봇 안내만 배분과 같은 값으로 적는다.
+function kakaoSettlementShareLine(model = {}) {
+  const total = Math.max(0, Math.round(Number(model.totalExpense || 0)));
+  const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
+  const perHead = Math.floor(total / count);
+  const remainder = total - perHead * count;
+  return `1인 기준: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+}
+
 async function kakaoSettlementText(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
@@ -67,7 +77,7 @@ async function kakaoSettlementText(env, household = {}) {
     refundNotice,
     `총 지출: ${numberWithCommas(model.totalExpense)}원`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
-    `1인 기준: ${numberWithCommas(model.share)}원`,
+    kakaoSettlementShareLine(model),
     "",
     ...people,
     ...(transfers.length ? ["", "송금 제안", ...transfers] : []),

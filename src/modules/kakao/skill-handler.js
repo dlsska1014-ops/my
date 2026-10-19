@@ -35,9 +35,10 @@ import {
 } from "./edit-session-v4.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
 import {
-  armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoQaPayload,
-  isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRepeatGuardText,
-  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, stripLeadingCommand,
+  armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRecordCheckReply,
+  kakaoRepeatGuardText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse,
+  stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -50,10 +51,10 @@ import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
   guidedHelpText, inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
   kakaoCreateKindPromptText, kakaoDateSummaryText, kakaoDirectStartText, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText,
-  kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand,
-  parseKakaoSummaryRange, resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold,
+  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
+  kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
+  parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -255,6 +256,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   if (!separatePurchaseCommand && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   if (!separatePurchaseCommand && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
+  // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
+  const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(utterance, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
 
@@ -273,7 +276,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const botGroupKey = getKakaoBotGroupKey(payload);
   const trustedIdentity = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
-  const groupFirstRecord = !!botGroupKey && trustedIdentity && strongTransactionInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
+  const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
@@ -342,6 +345,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     : routingSnapshot ? Promise.resolve({value:String(routingSnapshot.selected || "").trim()})
       : getKakaoSelectedHouseholdId(env, user.id).then((value) => ({ value }), (error) => ({ error }));
   const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
+  // V22.9.63 감사(단톡방 2): 연결 전 방 안내는 방의 실제 상태를 따른다. 해제·삭제된 방은 "기록을 보내면 자동으로 준비해요"라고
+  // 하지 않고, 기록이 아닌 말에는 "방금 입력한 기록은 저장하지 않았어요"라고 하지 않는다(읽기 실패는 연결 전 방 기본 안내).
+  const unlinkedRoomTextOptions = async (writeRejected = false) => {
+    let retired = false;
+    if (botGroupKey) {
+      try {
+        const roomState = await readKakaoGroupFirstSnapshot(env, botGroupKey);
+        retired = !roomState.link && (roomState.retired || !!roomState.done || roomState.marker?.phase === "complete");
+      } catch (_) {}
+    }
+    return { writeRejected: !!writeRejected, retired };
+  };
 
   if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
     return kakaoText(kakaoCommandMenuText(origin));
@@ -357,7 +372,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey) {
       if (!linkedGroupHousehold?.id) {
-        return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+        return kakaoText(kakaoUnlinkedGroupStartText(active, origin, await unlinkedRoomTextOptions(false)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
       }
       // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
       const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
@@ -387,7 +402,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey && !linkedGroupHousehold?.id) {
-      return kakaoText(kakaoUnlinkedGroupStartText(active, origin), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
+      return kakaoText(kakaoUnlinkedGroupStartText(active, origin, await unlinkedRoomTextOptions(false)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]));
     }
     if (botGroupKey && linkedGroupHousehold?.id) {
       return kakaoText(`${guidedHelpText(true)}\n\n현재 단톡방 연결 가계부: ${linkedGroupHousehold.name}`, kakaoStartQuickReplies(true));
@@ -454,7 +469,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   if (!strongTransactionInput && isGroupLinkInfoCommand(utterance)) {
-    return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["연결 방법", "단톡방 연결"], ["초대코드", "초대코드"]]);
+    // V22.9.63: 단톡방에서 소유자·관리자가 ‘단톡방 연결’을 보내면 안내문이 아니라 연결할 가계부 선택으로 바로 간다. 예전 안내문은
+    // 빠른 답장이 다시 ‘단톡방 연결’이라 같은 안내만 돌았고, 초대코드를 직접 쳐야만 연결이 바뀌었다(2026-10-19 운영 보고).
+    // ‘단톡방 정보’처럼 연결이라는 말이 없는 요청과, 관리할 가계부가 없는 사람에게는 예전처럼 상태만 보여 준다.
+    if (botGroupKey && /연결/.test(String(utterance || ""))) {
+      const [households, linkedGroupHousehold] = await Promise.all([settle(householdsPromise), settle(linkedGroupPromise)]);
+      if (kakaoManageableHouseholds(households).length) {
+        const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: "bind", origin, groupKey: botGroupKey, forceChoice: true });
+        const currentLine = linkedGroupHousehold?.id ? `현재 연결: ${linkedGroupHousehold.name}` : "현재 연결: 없음";
+        return kakaoText(`${currentLine}\n${choice.text}`, choice.quickReplies || []);
+      }
+    }
+    return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["새 가계부 만들기", "새 가계부 만들기"], ["초대코드", "초대코드"]]);
   }
 
   const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
@@ -504,12 +530,12 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     return kakaoText(`✅ ‘${pendingRows[0].name}’ 참여 요청을 취소했어요.\n다시 참여하려면 초대코드를 다시 보내 주세요.`);
   }
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
-    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
+    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
   }
   if (pendingHousehold && !activeHouseholds.length && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isInviteCommand(utterance)) {
     return kakaoText(`🕒 아직 승인 대기 중입니다.\n가계부: ${pendingHousehold.name}\n\n관리자가 참여자를 승인해야 기록할 수 있어요.`);
   }
-  if (!botGroupKey && seedChatFirst && strongTransactionInput && !selectedHouseholdId &&
+  if (!botGroupKey && seedChatFirst && firstRecordInput && !selectedHouseholdId &&
       (!households.length || (households.length === 1 && households[0].role === "owner"))) {
     const tooLarge = preParsedList.slice(0, boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80)).find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
@@ -530,7 +556,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
         const choice = await beginKakaoHouseholdChoice(env, { user, payload, households: activeHouseholds, action: "invite", origin, groupKey: botGroupKey });
         return kakaoText(choice.text, choice.quickReplies || []);
       }
-      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, { writeRejected: true }), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
+      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부 선택", "가계부 전환"], ["연결 방법", "단톡방 연결"], ["가계부 만들기", "새 가계부 만들기"]]));
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));

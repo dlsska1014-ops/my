@@ -197,6 +197,17 @@ async function preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId,
   await saveSettingValue(env, primaryKey, JSON.stringify({ version: 1, households: { ...primary.households, ...secondary.households } }));
 }
 
+// V22.9.63 감사(단톡방 3): 응답을 잃은 단계(create_sent·owner_sent·link_sent)에서 대상 행이 끝내 보이지 않으면 방이 영영 "결과
+// 미확정"에 머물렀고 소유자가 초대코드로 손수 연결해야 풀렸다. 고정 ID 와 on_conflict 무시 쓰기라 같은 요청을 다시 보내도 중복이
+// 생기지 않으므로, 예약 뒤 60초가 지난 표식은 같은 단계를 한 번 더 보낸다. 60초 안에는 예전처럼 재조회만 한다(아직 날아가는 중일 수
+// 있는 첫 요청과 겹치지 않게). 단계를 되돌리거나 새 UUID·보상 삭제를 하지는 않는다(V22.9.37 H6).
+const KAKAO_GROUP_PHASE_RETRY_MS = 60 * 1000;
+function kakaoGroupPhaseRetryable(marker = null, phase = "") {
+  if (!marker || marker.phase !== phase) return false;
+  const reservedAt = Date.parse(String(marker.created_at || ""));
+  return Number.isFinite(reservedAt) && Date.now() - reservedAt >= KAKAO_GROUP_PHASE_RETRY_MS;
+}
+
 async function tryKakaoGroupFirstRecord(env, context = {}) {
   const { user, groupKey, parsedList } = context;
   let recordSaved = false;
@@ -264,7 +275,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           };
           if (preparing) {
             if (!household) {
-              if (marker.phase !== "reserved") throw kakaoGroupPreparationUnknown();
+              if (marker.phase !== "reserved" && !kakaoGroupPhaseRetryable(marker, "create_sent")) throw kakaoGroupPreparationUnknown();
               await phase("create_sent");
               assertFresh();
               try {
@@ -283,7 +294,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             let ownerRole = bestRoleFromRows(members.filter(row => String(row.user_id) === marker.owner_id));
             if (ownerRole && ownerRole !== "owner" || members.some(row => row.role === "owner" && String(row.user_id) !== marker.owner_id)) throw new Error("kakao_group_first_owner_conflict");
             if (!ownerRole) {
-              if (marker.phase !== "create_sent") throw kakaoGroupPreparationUnknown();
+              if (marker.phase !== "create_sent" && !kakaoGroupPhaseRetryable(marker, "owner_sent")) throw kakaoGroupPreparationUnknown();
               await phase("owner_sent");
               assertFresh();
               let writeError;
@@ -298,7 +309,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
                 throw kakaoGroupPreparationUnknown(writeError);
               }
             }
-            if (marker.phase === "link_sent") throw kakaoGroupPreparationUnknown();
+            if (marker.phase === "link_sent" && !kakaoGroupPhaseRetryable(marker, "link_sent")) throw kakaoGroupPreparationUnknown();
             await phase("link_sent");
             assertFresh();
             let linkedValue;

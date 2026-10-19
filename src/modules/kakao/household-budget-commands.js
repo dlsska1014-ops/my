@@ -143,9 +143,13 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
+  // V22.9.63 감사(단톡방 2): 안내는 방의 실제 상태를 따른다. 해제·삭제된 방(retired)에는 자동 준비를 약속하지 않고, 기록이 아닌
+  // 말(writeRejected 아님)에는 "방금 입력한 기록"이라고 하지 않는다. 거절된 기록에는 예전 문구(자동으로 다시 만들지 않음)를 그대로 둔다.
+  const retired = options?.retired === true;
   return [
     "👥 이 단톡방에 연결된 가계부가 없습니다.",
-    !writeRejected ? "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다." : "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다.",
+    retired || writeRejected ? "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 방은 자동으로 다시 만들지 않습니다."
+      : "처음 쓰는 방에서는 ‘커피 4500원’처럼 기록을 보내면 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 됩니다.",
     writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
     "",
     "기존 가계부를 쓰려면 소유자·관리자가 ‘단톡방 연결 초대코드’를 입력해 주세요.",

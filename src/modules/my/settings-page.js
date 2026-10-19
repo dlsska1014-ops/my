@@ -23,7 +23,8 @@ import {
   keywordEditorLocation, mySettingsLocation, recurringSummary, sumBudgetAmounts,
 } from "./groups-budget-bulk.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
+  myAccessStatusResponse,
 } from "./access-control.js";
 import { budgetDraftRows, renderBudgetPlanPreview } from "../client/lucian-d-budget.js";
 import {
@@ -51,11 +52,13 @@ async function handleMySettingsPage(request, env, url, budgetDraft = null) {
   if (!userId) return redirectResponse("/my");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   // V22.9.16: 아홉 번을 줄줄이 기다리던 화면이다. 서로 필요 없는 조회는 함께 던진다.
-  const [user, { households, selected, restricted }] = await Promise.all([
+  const [user, { households, selected, restricted, invalidRequested }] = await Promise.all([
     fetchUserById(env, userId),
     getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
   ]);
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   // V22.8.81: 키워드 편집기는 /keyword-guide 한 곳으로 모았다. 여기서는 더 읽지 않는다.
@@ -236,12 +239,15 @@ async function handleMyRecurringDelete(request, env) {
   try {
     await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
       assertFresh();
-      await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      // V22.9.63 감사(웹 1): 지운 행이 없으면(다른 가계부 항목이거나 이미 지워짐) 성공이라고 하지 않는다. 관리자 경로와 같다.
+      const deleted = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      if (!Array.isArray(deleted) || !deleted.length) throw new Error("recurring_not_found");
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_recurring_delete_failed", severity: "warn", path: "/my/recurring/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_delete_failed" }));
+    const notFound = String(err?.message || "") === "recurring_not_found";
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: notFound ? "recurring_not_found" : isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_delete_failed" }));
   }
 }
 

@@ -40,6 +40,41 @@ import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.63: 단톡방에서 새 가계부를 만든 직후 이 방의 연결을 새 가계부로 바꿀지 묻는다. 현재 연결 가계부의 소유자·관리자가 아니면
+// 바꿀 수 없으니 묻지 않는다. 질문 상태는 가계부 선택 흐름의 confirm_bind 와 같은 모양이라 답은 그 처리기가 받고, 실제 연결 변경은
+// 예전과 같이 bindKakaoGroupByInviteCode(권한 재확인·방 잠금) 한 곳에서만 일어난다.
+async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = "", household = {}, linked = null }) {
+  if (!groupKey || !household?.id) return null;
+  if (linked?.id) {
+    if (String(linked.id) === String(household.id)) return null;
+    const currentRole = await getHouseholdMemberRole(env, user.id, linked.id);
+    if (!["owner", "admin"].includes(String(currentRole || ""))) return null;
+  }
+  await saveKakaoFlowState(env, user.id, payload, {
+    flow: "household_choice",
+    step: "confirm_bind",
+    attempts: 0,
+    data: {
+      action: "bind",
+      origin: "create",
+      group_key: groupKey,
+      target_household_id: household.id,
+      target_household_name: String(household.name || ""),
+      current_household_id: linked?.id || "",
+      current_household_name: String(linked?.name || ""),
+    },
+  });
+  return {
+    lines: [
+      linked?.id ? `이 단톡방의 기록은 아직 ‘${linked.name}’ 가계부에 저장돼요.` : "이 단톡방은 아직 어떤 가계부에도 연결되지 않았어요.",
+      `이 단톡방을 ‘${household.name}’ 가계부로 ${linked?.id ? "바꿀까요" : "연결할까요"}?`,
+      kakaoRoomBindConfirmLine(household.name),
+      `${linked?.id ? "바꾸려면" : "연결하려면"} ‘연결하기’, ${linked?.id ? `계속 ‘${linked.name}’에 기록하려면` : "나중에 연결하려면"} ‘아니요’를 입력해 주세요.`,
+    ],
+    quickReplies: [["연결하기", "연결하기"], ["아니요", "아니요"]],
+  };
+}
+
 async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["create_household", "join_household", "household_choice"].includes(state.flow)) return null;
@@ -50,11 +85,36 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
   if (state.flow === "household_choice") {
     if (state.step === "confirm_bind") {
       const t = normalizeText(utterance);
+      // V22.9.63: 새 가계부를 만든 직후의 질문(origin=create)은 ‘아니요’가 취소가 아니라 "현재 가계부 유지"다. 답하기 전에 보낸
+      // 다른 말(기록 포함)은 저장하지 않고 같은 질문을 다시 보여 준다 — 어느 가계부에 쌓일지 정해지기 전에는 쓰지 않는다.
+      const fromCreate = String(state.data?.origin || "") === "create";
+      const targetName = String(state.data?.target_household_name || "").trim();
+      const currentName = String(state.data?.current_household_name || "").trim();
       if (isKakaoCreateConfirmNo(t)) {
         await clearKakaoFlowState(env, user.id, payload);
+        if (fromCreate) {
+          return {
+            text: [
+              `알겠어요. ‘${targetName || "새"}’ 가계부는 만들어졌고, 이 단톡방의 기록은 ${currentName ? `계속 ‘${currentName}’ 가계부에 저장돼요.` : "연결 전이라 저장되지 않아요."}`,
+              `나중에 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부 전환’을 입력해 주세요.`,
+            ].join("\n"),
+            quickReplies: [["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"]],
+          };
+        }
         return { text: "단톡방 연결 변경을 취소했어요.", quickReplies: [["시작", "시작"]] };
       }
-      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) return { text: "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요. 취소하려면 ‘취소’를 입력해 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      if (!isKakaoCreateConfirmYes(t) && !/^(연결하기|연결)$/i.test(t)) {
+        if (fromCreate) {
+          return {
+            text: [
+              `아직 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꿀지" : "연결할지"} 답하지 않았어요. 방금 보낸 내용은 저장하지 않았어요.`,
+              `${currentName ? "바꾸려면" : "연결하려면"} ‘연결하기’, ${currentName ? `계속 ‘${currentName}’에 기록하려면` : "나중에 연결하려면"} ‘아니요’를 입력해 주세요.`,
+            ].join("\n"),
+            quickReplies: [["연결하기", "연결하기"], ["아니요", "아니요"]],
+          };
+        }
+        return { text: "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요. 취소하려면 ‘취소’를 입력해 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      }
       const targetId = String(state.data?.target_household_id || "");
       const all = kakaoManageableHouseholds(await fetchUserHouseholds(env, user.id));
       const target = all.find((h) => String(h.id) === targetId);
@@ -88,10 +148,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       };
     }
     if (!chosen && isHouseholdSwitchCommand(utterance)) {
-      const nextState = { ...state, data: { ...safeObject(state.data), action: "select" } };
+      // V22.9.63 감사(단톡방 1): 단톡방에서 시작한 연결 선택이 "가계부 바꾸기" 같은 말에 1:1 선택으로 바뀌어, 방에서 고른 가계부가
+      // 개인 대화의 선택 가계부가 되고 "이후 기록은 이 가계부 기준"이라는 틀린 안내가 나갔다. 방에서는 연결(bind)만 있다(V22.9.37 H2).
+      const roomChoice = !!(state.data?.group_key || getKakaoBotGroupKey(payload));
+      const nextState = { ...state, data: { ...safeObject(state.data), action: roomChoice ? "bind" : "select" } };
       await saveKakaoFlowState(env, user.id, payload, nextState);
       return {
-        text: ["사용할 가계부를 선택해 주세요.", "", ...kakaoHouseholdListLines(candidates), "", "번호 또는 가계부 이름을 입력해 주세요."].join("\n"),
+        text: [roomChoice ? "이 단톡방에 연결할 가계부를 선택해 주세요." : "사용할 가계부를 선택해 주세요.", "", ...kakaoHouseholdListLines(candidates), "", "번호 또는 가계부 이름을 입력해 주세요."].join("\n"),
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
       };
     }
@@ -101,7 +164,9 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
       };
     }
-    const action = String(state.data?.action || "select");
+    const storedAction = String(state.data?.action || "select");
+    // 단톡방 안에서는 어떤 경로로 왔든 1:1 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
+    const action = storedAction === "select" && (state.data?.group_key || getKakaoBotGroupKey(payload)) ? "bind" : storedAction;
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
@@ -140,16 +205,30 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const linked = groupKey ? await getLinkedKakaoGroupHousehold(env, groupKey) : null;
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "household", `${origin}/my/households`);
+      const headLines = [
+        `✅ ‘${household.name}’ 가계부를 만들었어요.`,
+        kind && kind !== "직접 입력" ? `용도: ${kind}` : "",
+        "",
+        `초대코드: ${household.invite_code}`,
+        "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
+      ];
+      // V22.9.63: 단톡방에서 새 가계부를 만든 사람은 거의 늘 이 방의 기록을 새 가계부에 쌓으려는 것이다. 예전에는 방 연결이
+      // 그대로라 다음 기록부터 옛 가계부에 계속 쌓였고, 안내한 ‘단톡방 연결’은 안내문만 보여 줘 바꿀 길이 없었다(2026-10-19 운영 보고).
+      // 연결을 바꿀 권한이 있으면 바로 묻는다. 답하기 전에는 연결도 바꾸지 않고 이 방의 기록도 저장하지 않는다(V22.9.37 H2 유지).
+      const rebind = groupKey ? await offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey, household, linked }) : null;
+      if (rebind) {
+        return { text: [...headLines, ...rebind.lines].filter(Boolean).join("\n") + cta + cleanupNotice, quickReplies: rebind.quickReplies };
+      }
       return {
         text: [
-          `✅ ‘${household.name}’ 가계부를 만들었어요.`,
-          kind && kind !== "직접 입력" ? `용도: ${kind}` : "",
-          "",
-          `초대코드: ${household.invite_code}`,
-          "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
-          groupKey ? (linked?.id ? `이 단톡방은 계속 ‘${linked.name}’ 가계부에 연결되어 있어요. 새 가계부로 바꾸려면 ‘단톡방 연결’을 진행해 주세요.` : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. ‘단톡방 연결’을 진행해 주세요.") : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
+          ...headLines,
+          groupKey
+            ? (linked?.id
+              ? `이 단톡방의 기록은 계속 ‘${linked.name}’ 가계부에 저장돼요. 새 가계부로 바꾸려면 ‘${linked.name}’의 소유자·관리자가 ‘가계부 전환’을 입력해야 해요.`
+              : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. 연결하려면 ‘가계부 전환’을 입력해 주세요.")
+            : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
         ].filter(Boolean).join("\n") + cta + cleanupNotice,
-        quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
+        quickReplies: dedupeQuickReplies([["초대코드 보기", "초대코드"], ["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"], ["첫 기록 남기기", "점심 12000원 국민카드"]]),
       };
     };
 

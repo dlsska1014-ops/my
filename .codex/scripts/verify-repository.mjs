@@ -12,9 +12,11 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_62.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_63.sha256",
 );
 const validationScripts = [
+  ["V22.9.63 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22963.mjs"],
+  ["V22.9.63 출시 전 전체 점검 회귀(1:1 선택 불변·연결 전 방 문구·준비 단계 재시도·수정 말 비저장·한 글자 첫 기록·여러 줄·정산·오늘 기록·recurring_not_found·남의 가계부 ID 404)", "validation/validate-release-audit-v22963.mjs"],
   ["V61 lifecycle RPC/CAS, old-writer fences, administrator imports and compatible undo", "validation/validate-lifecycle-v22961.mjs"],
   ["V59 storage text, reconciliation, ownership and asset RPC contracts", "validation/validate-storage-contract-v22959.mjs"],
   ["D3 observations, strict reads and refund guidance", "validation/validate-d3-refund-guidance-v22958.mjs"],
@@ -257,7 +259,8 @@ function run(command, args, label) {
 // V22.9.58: retain every previous check and add 575 D3/refund assertions.
 // V22.9.59: retain previous minimum and add 486 independently counted contract assertions.
 // V22.9.60: add 17 independent R2 history and catalog assertions.
-const EXPECTED_MINIMUM_CHECKS = 20307;
+// V22.9.63: room-rebind question 241 and release-audit regression 166 checks; the minimum is raised to the measured total.
+const EXPECTED_MINIMUM_CHECKS = 20736;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -9,10 +9,14 @@ import {
 import { cleanMemo, inferCategory, normalizeCategoryName } from "./category-rules.js";
 // @build:imports-end
 
+// V22.9.63: 줄머리 목록 표식. 한 줄짜리("1. 점심 12000원")와 여러 줄 모두에서 뗀다.
+const KAKAO_LIST_MARKER_PREFIX = /^(?:\d{1,2}[.)]|[-•*])\s+/;
+
 function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
-    const one = parseTransaction(text, payload);
+    // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
+    const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
     return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
@@ -51,12 +55,16 @@ function splitTransactionClauses(text) {
   // 쪼개져 내용이 통째로 사라진다. 조사형(랑·하고)은 앞에 두 글자 이상 붙어 있을 때만 나눈다.
   // 숫자 사이의 쉼표는 자릿수 구분이지 문장 구분이 아니다. 그냥 나누면 "12,345원"이
   // "12" + "345원"으로 쪼개져 345원만 저장된다.
-  const firstPass = raw
+  // V22.9.63 감사(1:1 3): 줄바꿈은 normalizeText 가 공백으로 바꿔 아래 규칙의 \n 이 한 번도 쓰이지 않았다. 금액 없는 줄("커피")이
+  // 다음 줄에 붙어 "커피 택시 8100원"이 됐고, "1. 점심 12000원" 같은 번호 목록은 1원으로 읽혔다. 줄을 먼저 나누고 줄머리 목록
+  // 표식(1. · 2) · - · •)을 뗀 뒤, 예전 규칙을 줄마다 적용한다.
+  const lines = String(text || "").split(/\r?\n/).map((line) => normalizeText(line).replace(KAKAO_LIST_MARKER_PREFIX, "").trim()).filter(Boolean);
+  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
     .split(/\s*(?:(?<!\d)[,，](?!\d)|[,，](?!\d)|(?<!\d)[,，]|;|；|\n|(?<=\s)\/|\/(?=\s)|·|(?<=^|\s)(?:그리고|또|추가로|다음으로)\s+|(?<=[가-힣]{2})(?:랑|하고)\s+)\s*/)
     .map((x) => String(x || "").trim())
-    .filter(Boolean);
+    .filter(Boolean));
   const datePrefix = extractLeadingDateHint(raw);
   const clauses = [];
   for (const part of firstPass) {

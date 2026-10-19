@@ -358,7 +358,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!rows.length) return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "기록이 없습니다."].join("\n"));
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), "", `수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -443,6 +443,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   const editTarget = parseKakaoEditCommandV4(raw);
   if (editTarget) {
+    // V22.9.63 감사(1:1 1): "수정 01번 02번 금액 5000"처럼 번호가 둘 이상이면 어느 기록인지 정하지 않고 한 건씩 적어 달라고 한다.
+    if (/^\d{1,2}\s*번(?=\s|$)/.test(String(editTarget.rest || ""))) return kakaoText("한 번에 한 건씩만 수정할 수 있어요. 번호 하나만 적어 주세요.\n예: 수정 01번 금액 5000");
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }

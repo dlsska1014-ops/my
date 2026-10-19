@@ -332,6 +332,11 @@ function parseKakaoEditCommandV4(text = "") {
   }
   // "01번 수정해줘"류의 동사만 남은 나머지는 메뉴 요청으로 정규화한다.
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
+  // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
+  rest = normalizeText(rest)
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
+    .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
 }
 

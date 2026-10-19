@@ -1,3 +1,7 @@
+## V22.9.63 배포 준비
+
+Worker 모듈 20개(src/modules/kakao/guided-flows.js, skill-handler.js, household-budget-commands.js, group-links-first-record.js, request-guards.js, edit-session-v4.js, edit-flow-v4.js, simple-commands.js, reply-texts.js, nlu/transaction-parser.js, runtime/config-readiness.js, my/access-control.js, settings-page.js, members-page.js, groups-budget-bulk.js, backup-import.js, insight-page.js, report-challenge.js, mobile-home.js, households-lifecycle.js)과 버전 표기를 변경합니다. 검증된 전체 src/index.js로 교체하며, 기준은 운영 V22.9.62 versionId c824dc3a-1e57-42a3-9a97-e0a1542cb55a입니다. 신규 Secret·환경변수·DB 변경·1년 캐시 자산 주소 변경은 없습니다. 되돌리기는 V22.9.62 버전의 재승격입니다.
+
 ## V22.9.62 배포 준비
 
 Worker의 대출 행 표시 한 곳과 버전 표기를 변경합니다. 검증된 전체 src/index.js로 교체하며, 기준은 운영 V61 main c114abb2-386f-46cf-a0dc-8c5e997f9c45입니다. 신규 SQL·스키마·RPC·Secret·환경변수·Kakao/OpenBuilder 변경은 필요하지 않습니다. 기존 V61 DB와 호환되며 이전 V61 main을 복구 기준으로 보존합니다. 업로드·승격·운영 확인은 별도 실행 결과를 기록합니다.

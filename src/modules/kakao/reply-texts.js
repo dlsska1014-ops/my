@@ -46,6 +46,7 @@ function formatMessage(msg) {
     recurring_exists: "같은 반복 항목이 이미 등록되어 있어 중복 저장하지 않았습니다.",
     recurring_registered: "반복 항목을 등록했습니다.",
     recurring_save_failed: "반복 항목을 저장하지 못했습니다. 기존 데이터는 유지됩니다.",
+    recurring_not_found: "삭제할 반복 항목을 찾지 못했습니다. 이미 지워졌거나 이 가계부의 항목이 아닙니다.",
     regenerated: "초대코드를 새로 만들었습니다. 이전 코드는 더 이상 사용할 수 없습니다.",
     save_failed: "저장하지 못했습니다. 기존 데이터는 유지되므로 잠시 후 다시 시도해 주세요.",
     already_saved: "이미 저장된 기록이에요. 같은 기록을 한 번 더 만들지 않았어요.",
