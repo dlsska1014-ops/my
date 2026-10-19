@@ -32,7 +32,8 @@ import {
   importMappingClientMain, renderMyImportMappingEditor, renderMyImportSourceReselect,
 } from "../client/lucian-d-import.js";
 import {
-  canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold, householdIdWasRemembered,
+  householdNotFoundResponse, myAccessStatusResponse,
 } from "./access-control.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
@@ -51,8 +52,9 @@ async function handleMyBackupPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const msg = url.searchParams.get("msg") || "";

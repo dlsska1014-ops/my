@@ -21,7 +21,8 @@ import {
   renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
 } from "./analysis-page.js";
 import {
-  MEMBER_POLICY_RECORD_ONLY, canWriteMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  MEMBER_POLICY_RECORD_ONLY, canWriteMyHousehold, getMySelectedHousehold, householdIdWasRemembered,
+  householdNotFoundResponse, myAccessStatusResponse,
 } from "./access-control.js";
 import { activeSpenderExists, memberCanBeSpender } from "./transactions.js";
 import {
@@ -592,6 +593,11 @@ async function handleMobileV8Page(request, env, url) {
     }
     households = access.households;
     selectedHousehold = access.selected;
+    // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+    if (access.invalidRequested && households.length && !householdIdWasRemembered(request)) {
+      const user = await fetchUserById(env, userId);
+      return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
+    }
     if (!selectedHousehold) {
       const user = await fetchUserById(env, userId);
       return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));

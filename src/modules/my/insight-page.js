@@ -21,7 +21,8 @@ import {
 } from "../client/insight-main.js";
 import { computeFairMoM, renderMyAnalysisHtml } from "./analysis-page.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
+  myAccessStatusResponse,
 } from "./access-control.js";
 import {
   budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurring,
@@ -70,8 +71,9 @@ async function handleMyInsightPage(request, env, url) {
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
 
   const dataStart = `${addMonthsYm(month, -11)}-01`;

@@ -1,3 +1,7 @@
+## V22.9.68 배포 준비
+
+Worker 모듈 20개(src/modules/kakao/guided-flows.js, skill-handler.js, household-budget-commands.js, group-links-first-record.js, request-guards.js, edit-session-v4.js, edit-flow-v4.js, simple-commands.js, reply-texts.js, nlu/transaction-parser.js, runtime/config-readiness.js, my/access-control.js, settings-page.js, members-page.js, groups-budget-bulk.js, backup-import.js, insight-page.js, report-challenge.js, mobile-home.js, households-lifecycle.js)과 버전 표기를 변경합니다. 검증된 전체 src/index.js로 교체하며, 기준은 운영 V22.9.67 versionId 2428e81f-f616-4547-bb7b-4729ff854237입니다. 신규 Secret·환경변수·DB 변경·1년 캐시 자산 주소 변경은 없습니다. 되돌리기는 V22.9.67 버전(2428e81f)의 재승격입니다.
+
 ## V22.9.67 배포 판단
 
 | 항목 | 판단 |

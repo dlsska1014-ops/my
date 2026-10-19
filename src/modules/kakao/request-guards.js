@@ -64,8 +64,18 @@ function kakaoEditControlTextV4(text = "") {
 
 function looksLikeKakaoEditCommandV4(text = "") {
   const control = kakaoEditControlTextV4(text);
+  const original = normalizeText(stripKakaoBotMention(text)).replace(/^\/+\s*/, "");
   return /^(?:수정|삭제|복구)\s*\d+/.test(control)
     || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    // V22.9.63 감사(1:1 1): "수정 01번 금액을 13000원으로", "01번 가격 13200", "수정 01번 13300원으로"처럼 조사·동의어·값만 있는
+    // 수정 말이 새 지출로 저장됐다(stripLeadingCommand 가 앞의 ‘수정’을 떼고 나면 위 두 규칙이 못 알아봤다). 앞에 ‘수정 NN번’이
+    // 있었거나 번호 뒤에 수정 낱말(동의어·조사 포함)이 오면 수정 명령이다. "2번 출구 택시 8000원"처럼 수정 낱말이 없는 번호는 기록이다.
+    || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
+    // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
+    // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
+    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
     || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
 }
@@ -73,7 +83,7 @@ function looksLikeKakaoEditCommandV4(text = "") {
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
-  if (looksLikeKakaoEditCommandV4(raw)) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
@@ -85,6 +95,25 @@ function isStrongKakaoTransactionInput(text = "", parsedList = []) {
     .trim();
   // 금액만 보낸 단계형 답변(예: 100만원)은 빠른 거래 경로로 보내지 않습니다.
   return /[가-힣A-Za-z]{2,}/.test(remainder);
+}
+
+// V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록 자동 준비는 "밥 4500원", "물 1000원"처럼 한 글자 내용도 받는다. 강한 입력
+// 판정(내용 두 글자 이상)은 그대로 두고, 단위(원)가 분명한 한 건짜리 기록만 더 받는다. 첫 기록 자동 준비 자리에서만 쓴다.
+function isKakaoFirstRecordInput(text = "", parsedList = []) {
+  if (isStrongKakaoTransactionInput(text, parsedList)) return true;
+  const raw = normalizeText(stripLeadingCommand(text));
+  if (!raw || !Array.isArray(parsedList) || parsedList.length !== 1) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
+  if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
+  const amountInfo = extractAmount(raw);
+  if (!amountInfo?.amount || !/원\s*$/.test(String(amountInfo.raw || ""))) return false;
+  const remainder = raw
+    .replace(amountInfo.raw || "", " ")
+    .replace(/(국민|신한|현대|삼성|롯데|우리|하나|농협|카카오|토스)?\s*(카드|체크카드|신용카드)|현금|계좌이체|이체|페이/gi, " ")
+    .replace(/오늘|어제|그제|그저께|내일/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^[가-힣A-Za-z]+$/.test(remainder);
 }
 
 async function optionalWithin(promise, timeoutMs, fallback) {
@@ -233,8 +262,8 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 // @build:exports-start
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
-  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRecordCheckReply,
-  kakaoRepeatGuardText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin,
-  stripKakaoBotMention, stripLeadingCommand,
+  isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed,
+  kakaoRecordCheckReply, kakaoRepeatGuardText, looksLikeKakaoEditCommandV4,
+  normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention, stripLeadingCommand,
 };
 // @build:exports-end

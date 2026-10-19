@@ -10,8 +10,9 @@ import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import {
   MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, canManageMyHousehold,
-  fetchHouseholdMemberPolicy, getMySelectedHousehold, memberPolicyDescription, memberPolicyLabel,
-  myAccessStatusResponse, saveHouseholdMemberPolicy,
+  fetchHouseholdMemberPolicy, getMySelectedHousehold, householdIdWasRemembered,
+  householdNotFoundResponse, memberPolicyDescription, memberPolicyLabel, myAccessStatusResponse,
+  saveHouseholdMemberPolicy,
 } from "./access-control.js";
 import { householdPageMessage } from "./households-lifecycle.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -25,8 +26,9 @@ async function handleMyMembersPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   // V22.9.43: 구성원 권한은 참여자 목록과 함께 읽는다. 읽지 못하면 값을 추측하지 않고 확인 불가로 그린다.

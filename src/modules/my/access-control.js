@@ -189,6 +189,11 @@ function memberPolicyJoinLine(mode = "") {
     : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
 }
 
+// V22.9.63 감사(웹 2): 라우터가 기억 쿠키(ab_hh)로 채운 household_id 는 사용자가 직접 적은 것이 아니다(config-readiness.js).
+function householdIdWasRemembered(request) {
+  try { return String(request?.headers?.get("x-ab-household-memory") || "") === "1"; } catch (_) { return false; }
+}
+
 async function getMySelectedHousehold(env, userId, householdId = "") {
   const memberships = await fetchUserHouseholds(env, userId);
   const households = memberships.filter((h) => canReadMyHousehold(h.role));
@@ -206,9 +211,10 @@ export {
   MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, canChangeMyHouseholdRecords,
   canChangeMyHouseholdRecordsForView, canManageMyHousehold, canManageMyRecord, canReadMyHousehold,
   canWriteMyHousehold, fetchHouseholdMemberPolicy, getMySelectedHousehold, homeMemberPolicyValue,
-  householdNotFoundResponse, memberPolicyDescription, memberPolicyJoinLine, memberPolicyLabel,
-  memberPolicySettingsKey, memberRecordChangeError, memberRecordChangeMessage,
-  memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation, parseMemberPolicyValue,
-  renderHouseholdNotFoundHtml, renderMyAccessStatusHtml, saveHouseholdMemberPolicy,
+  householdIdWasRemembered, householdNotFoundResponse, memberPolicyDescription,
+  memberPolicyJoinLine, memberPolicyLabel, memberPolicySettingsKey, memberRecordChangeError,
+  memberRecordChangeMessage, memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation,
+  parseMemberPolicyValue, renderHouseholdNotFoundHtml, renderMyAccessStatusHtml,
+  saveHouseholdMemberPolicy,
 };
 // @build:exports-end

@@ -130,6 +130,7 @@ const CORS_HEADERS = {
 // 대체하지 않고 가계부 고르기 화면을 낸다 — 기준선 규칙 그대로). 그 화면이 나왔다는 것은
 // 쿠키가 낡았다는 뜻이므로 지운다. DB 왕복은 늘지 않는다. 로그아웃하면 함께 지운다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
+const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
 const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
 const AB_HOUSEHOLD_MEMORY_PATHS = new Set([
   "/my", "/app", "/m", "/menu", "/budgets", "/reports", "/my/analysis", "/my/settings", "/reserve-plans",
@@ -153,7 +154,11 @@ function rememberedHouseholdRequest(request) {
     const requested = String(url.searchParams.get("household_id") || "").trim();
     if (requested || !isRememberableHouseholdId(remembered)) return { request, eligible: true, injected: false, remembered };
     url.searchParams.set("household_id", remembered);
-    return { request: new Request(url.toString(), request), eligible: true, injected: true, remembered };
+    // V22.9.63 감사(웹 2): 쿠키로 채운 ID 는 사용자가 직접 적은 ID 와 구분한다. 낡은 기억은 404 가 아니라 예전처럼 고르기 화면(200)으로
+    // 가고 그 자리에서 지워진다. 직접 적은 남의 가계부 ID 만 찾을 수 없음(404)이다.
+    const headers = new Headers(request.headers);
+    headers.set(AB_HOUSEHOLD_MEMORY_HEADER, "1");
+    return { request: new Request(url.toString(), { method: "GET", headers }), eligible: true, injected: true, remembered };
   } catch (_) {
     return none;
   }

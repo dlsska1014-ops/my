@@ -12,9 +12,11 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_67.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_68.sha256",
 );
 const validationScripts = [
+  ["V22.9.68 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22968.mjs"],
+  ["V22.9.68 출시 전 전체 점검 회귀(1:1 선택 불변·연결 전 방 문구·준비 단계 재시도·수정 말 비저장·한 글자 첫 기록·여러 줄·정산·오늘 기록·recurring_not_found·남의 가계부 ID 404)", "validation/validate-release-audit-v22968.mjs"],
   ["V67 guided flow loop guard and legacy button labels", "validation/validate-flow-loop-guard-v22967.mjs"],
   ["V65 button manual cards and group choice buttons", "validation/validate-manual-guides-v22965.mjs"],
   ["V64 group empty-mention entry copy and button order", "validation/validate-group-entry-copy-v22964.mjs"],
@@ -264,7 +266,8 @@ function run(command, args, label) {
 // V22.9.65: add 391 button manual assertions and 2 group choice-button assertions.
 // V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
 // V22.9.67: add loop-guard, button-label, emoji and length assertions.
-const EXPECTED_MINIMUM_CHECKS = 20874;
+// V22.9.68: room-rebind question 241 and release-audit regression 167 checks on top of V22.9.67 (20,874).
+const EXPECTED_MINIMUM_CHECKS = 21282;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

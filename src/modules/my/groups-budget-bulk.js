@@ -10,7 +10,8 @@ import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import { handleMySettingsPage } from "./settings-page.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
+  myAccessStatusResponse,
 } from "./access-control.js";
 import { createBudgetPlanContract } from "../domain/budget-plan-contract.js";
 import { budgetPlanFingerprint, fetchBudgets, optionalSupabase } from "../domain/budgets.js";
@@ -51,8 +52,9 @@ async function handleMyGroupsPage(request, env, url) {
   if (!userId) return redirectResponse("/my");
   const user = await fetchUserById(env, userId);
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const { households, selected, restricted } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
+  const { households, selected, restricted, invalidRequested } = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
+  if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
   const map = await fetchKakaoGroupLinkMap(env);
