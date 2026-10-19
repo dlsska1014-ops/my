@@ -107,7 +107,7 @@ await withClock("2026-07-15", async () => {
 const BIN = "11111111-1111-4111-8111-111111111111";
 const WIFI = "22222222-2222-4222-8222-222222222222";
 const CSV = "날짜,구분,금액,분류,내용,결제수단\n2026-10-09,지출,12345,식비,점심,국민카드\n2026-10-09,지출,4500,카페/간식,커피,카카오페이";
-const isImport = ({ url }) => /accountbook_import_transactions_v227$/.test(url.pathname);
+const isImport = ({ url }) => /accountbook_commit_import_v22960$/.test(url.pathname);
 const importFixture = (task) => fixture(async (fx) => {
   for (const [name, rows] of Object.entries(fx.db)) {
     if (Array.isArray(rows)) fx.db[name] = JSON.parse(JSON.stringify(rows).replaceAll("user-bin", BIN).replaceAll("user-wifi", WIFI));

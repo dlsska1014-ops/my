@@ -2,7 +2,8 @@
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { appName } from "../public/site-config.js";
 import {
-  parseStrictSettingsObject, safeError, settingsDataError, withHouseholdDatabaseLease,
+  assertSettingsLeaseFresh, claimOperationLease, operationLeaseOwner, parseStrictSettingsObject,
+  releaseOperationLease, safeError, settingsDataError, withHouseholdDatabaseLease,
   withHouseholdSettingsRmw,
 } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
@@ -30,6 +31,7 @@ import {
   createUserHousehold, fetchUserById, fetchUserHouseholds, withHouseholdCreateLock,
   withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
+import { householdMyImportSources } from "./backup-import.js";
 import { reportChallengeSettingsKey } from "./report-challenge.js";
 import { cardTargetsKey, freeReportPreferenceKey } from "./reports-premium.js";
 import {
@@ -85,6 +87,9 @@ function householdPageMessage(code = "") {
     approval_pending: "참여 요청을 보냈습니다. 관리자가 승인하면 열 수 있습니다.",
     household_updated: "가계부 이름을 변경했습니다.",
     household_deleted: "가계부와 모든 기록을 삭제했습니다. 연결된 단톡방도 해제되어 이후 입력은 저장되지 않습니다.",
+    household_deleted_import_cleanup_pending: "가계부와 거래 기록을 삭제했지만 일부 가져오기 상태의 정리를 확인하지 못했습니다. 거래를 다시 가져오지 말고 고객지원에 정리 여부를 확인해 주세요.",
+    household_import_pending: "이전에 시작한 가져오기의 저장 결과를 확인하지 못해 가계부 삭제를 중단했습니다. 원래 미리보기와 기록을 보관하고 저장 결과를 먼저 확인해 주세요.",
+    household_import_busy: "다른 가져오기를 처리하고 있어 가계부를 삭제하지 않았습니다. 처리가 끝난 뒤 저장 결과를 확인하고 다시 시도해 주세요.",
     household_left: "가계부에서 나왔습니다. 기존 기록은 정산·감사를 위해 지출 당시 이름과 함께 유지됩니다.",
     backup_login_saved: "내 계정 로그인 비밀번호를 안전하게 변경했습니다.",
     household_name_invalid: "가계부 이름은 의미 있는 2~40자로 입력하세요.",
@@ -331,6 +336,15 @@ function householdSettingsKeys(householdId = "") {
 async function purgeHouseholdData(env, householdId = "") {
   const hid = String(householdId || "").trim();
   if (!hid) throw new Error("household_id_required");
+  const lease = await claimOperationLease(env, { key: `transaction-import:${hid}`, owner: operationLeaseOwner("household-import-purge"), leaseSeconds: 60 });
+  if (!lease.acquired) throw new Error("household_import_busy");
+  try { return await purgeHouseholdDataWithImportLease(env, hid, lease); }
+  finally { await releaseOperationLease(env, lease); }
+}
+
+async function purgeHouseholdDataWithImportLease(env, householdId, importLease) {
+  const hid = String(householdId || "").trim();
+  if (!hid) throw new Error("household_id_required");
   const readPurgeScope = async () => {
     const [members, markers, roomRows, linkRows, legacy] = await Promise.all([
       fetchPostgrestRows(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(hid)}&select=user_id&order=user_id.asc`, { maxRows: 1000 }),
@@ -355,16 +369,18 @@ async function purgeHouseholdData(env, householdId = "") {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await readPurgeScope();
     const work = async ({ assertFresh: lifecycleFresh }) => withKakaoGroupLifecycleLease(env, before.groupKeys, async ({ assertFresh: roomFresh }) => withHouseholdSettingsRmw(env, hid, async ({ assertFresh: householdFresh }) => {
-      const assertFresh = () => { lifecycleFresh(); roomFresh(); householdFresh(); };
+      const assertFresh = () => { assertSettingsLeaseFresh(importLease); lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
       if (JSON.stringify(current.userIds) !== JSON.stringify(before.userIds) || JSON.stringify(current.groupKeys) !== JSON.stringify(before.groupKeys)) throw new Error("household_purge_scope_changed");
+      assertFresh();
+      await householdMyImportSources(env, hid, assertFresh);
       assertFresh();
       // Actual members and server-confirmed provisional candidates are explicitly retired.
       // V22.9.37 감사 H5: 표식은 한 번의 upsert 로 쓴다. 참여자마다 한 건씩 쓰면 하위 요청이 참여자 수에 비례해 늘어난다.
       await markKakaoChatFirstHistoryBatch(env, current.userIds);
       for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
       assertFresh();
-      const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v227", {
+      const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", {
         method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ p_household_id: hid }),
       });
       const summary = Array.isArray(result) ? result[0] : result;
@@ -372,7 +388,7 @@ async function purgeHouseholdData(env, householdId = "") {
       // New settings are cleaned under the same lease that guards their writers.
       try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(cardTargetsKey(hid))}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); }
       catch (error) { rememberOpsEvent({ kind: "household_preference_cleanup_pending", severity: "warn", path: "/my/household/delete", method: "POST", detail: safeError(error) }); }
-      return { summary, affectedMembers: current.members };
+      return { summary: { ...summary, importCleanupPending: false }, affectedMembers: current.members };
     }));
     try {
       // V22.9.37 감사 H5: 참여자 한 명마다 사용자 잠금을 잡고 풀면 저장소 요청이 둘씩 늘어 17명부터 삭제가 되지 않고
@@ -443,11 +459,13 @@ async function handleMyHouseholdDelete(request, env) {
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }
   try {
-    await purgeHouseholdData(env, householdId);
-    return redirectResponseWithCookies(`/my/households?month=${encodeURIComponent(month)}&msg=household_deleted`, [clearHouseholdDeleteReauthCookie()]);
+    const result = await purgeHouseholdData(env, householdId);
+    const message = result.importCleanupPending ? "household_deleted_import_cleanup_pending" : "household_deleted";
+    return redirectResponseWithCookies(`/my/households?month=${encodeURIComponent(month)}&msg=${message}`, [clearHouseholdDeleteReauthCookie()]);
   } catch (err) {
     rememberOpsEvent({ kind: "household_delete_failed", severity: "error", path: "/my/household/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(back, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
+    const detail = String(err?.message || "");
+    return redirectResponse(addQueryToUrl(back, { err: /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
   }
 }
 

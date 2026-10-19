@@ -1,7 +1,7 @@
 // @build:imports-start
 import { accountbookAmountMaskClientMain } from "../client/lucian-e-mains.js";
 import {
-  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickInputDate,
+  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickAmountFieldState, quickInputDate,
   transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
@@ -219,7 +219,7 @@ function rawMobileHomeInlineRuntime() {
 function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
-      moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
+      quickAmountFieldState.toString(), moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
       rawMobileHomeInlineRuntime(),
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,

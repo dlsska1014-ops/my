@@ -23,6 +23,9 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 // 부른다. 모든 HTML 응답은 attachUiUxRuntime 을 거치며 그 UI 런타임이 두 함수를 싣고, 최적화된 모바일
 // 홈은 대신 모바일 홈 자산(mobileHomeJsAsset)이 같은 함수를 싣는다.
 const PAGE_GLOBALS = [
+  { client: "accountbookInputReviewClientMain", name: "quickAmountFieldState", providers: ["mobileHomeJsAsset"] },
+  { client: "quickSmartInputController", name: "quickAmountFieldState", providers: ["mobileHomeJsAsset"] },
+  { client: "mobileUiUxClientMain", name: "quickAmountFieldState", providers: ["attachUiUxRuntime"] },
   { client: "quickSmartInputController", name: "moneyTokenSpans", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
   { client: "quickSmartInputController", name: "explicitDateIntent", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
 ];

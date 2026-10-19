@@ -1,10 +1,17 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.46",
+  "version": "22.9.62",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22 <23" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
+    "validate:lifecycle": "node validation/validate-lifecycle-v22961.mjs",
+    "validate:storage-contract": "node validation/validate-storage-contract-v22959.mjs",
+    "validate:lucian-a": "node validation/validate-lucian-a-v22949.mjs && node validation/validate-lucian-a-native-contract-v22950.mjs",
+    "validate:input-prerequisites": "node validation/validate-lucian-a-prereq-v22948.mjs",
+    "validate:lucian-b": "node validation/validate-lucian-b-v22947.mjs",
     "validate:lucian-e": "node validation/validate-lucian-e-v22946.mjs",
     "validate:audit-hotfix": "node validation/validate-audit-hotfix-v22945.mjs",
     "validate:kakao-latency": "node validation/validate-kakao-latency-v22944.mjs",
@@ -109,6 +116,29 @@
     "validate:signup-kdf": "node validation/validate-signup-kdf-v22935.mjs",
     "validate:kakao-category-fallback": "node validation/validate-kakao-category-fallback-v22936.mjs",
     "validate:audit-batch": "node validation/validate-audit-batch-a-v22937.mjs && node validation/validate-audit-batch-b-v22937.mjs && node validation/validate-audit-batch-c-v22937.mjs && node validation/validate-audit-batch-d-v22937.mjs",
-    "validate:monitor-alerts": "node validation/validate-monitor-alerts-v22937.mjs"
+    "validate:monitor-alerts": "node validation/validate-monitor-alerts-v22937.mjs",
+    "validate:lucian-a-native": "node tools/check-lucian-a-native.mjs",
+    "validate:lucian-six-fixes": "node validation/validate-lucian-six-fixes-v22951.mjs",
+    "validate:lucian-six-native": "node tools/check-lucian-six-fixes.mjs",
+    "validate:lucian-d-budget": "node validation/validate-lucian-d-budget-v22952.mjs",
+    "validate:lucian-d-native": "node tools/check-lucian-d-budget.mjs",
+    "validate:budget-fingerprint": "node validation/validate-budget-fingerprint-v22953.mjs",
+    "validate:budget-privacy-native": "node tools/check-budget-privacy-v22953.mjs",
+    "validate:bot-diagnostics": "node validation/validate-bot-diagnostics-v22954.mjs",
+    "validate:bot-observation": "node validation/validate-bot-observation-v22954.mjs",
+    "validate:bot-state": "node validation/validate-bot-state-v22954.mjs",
+    "validate:bot-refund-preview": "node validation/validate-bot-refund-preview-v22954.mjs",
+    "validate:bot-guidance": "node validation/validate-bot-guidance-v22954.mjs",
+    "validate:bot-safety-native": "node tools/check-bot-safety-v22954.mjs",
+    "validate:import-prerequisites": "node validation/validate-import-prerequisites-v22955.mjs",
+    "validate:import-prerequisites-native": "node tools/check-import-prerequisites-v22955.mjs",
+    "measure:import-prerequisites": "node --expose-gc tools/measure-import-prerequisites-v22955.mjs",
+    "validate:import-mapping": "node validation/validate-import-mapping-v22956.mjs",
+    "validate:import-mapping-native": "node tools/check-import-mapping-v22956.mjs",
+    "measure:import-mapping": "node --expose-gc tools/measure-import-mapping-v22956.mjs",
+    "validate:lucian-c": "node validation/validate-lucian-c-comparison-v22957.mjs",
+    "validate:lucian-c-native": "node tools/check-lucian-c-comparison.mjs",
+    "validate:d3-refund-guidance": "node validation/validate-d3-refund-guidance-v22958.mjs",
+    "validate:d3-refund-native": "node tools/check-d3-refund-guidance-v22958.mjs"
   }
 }

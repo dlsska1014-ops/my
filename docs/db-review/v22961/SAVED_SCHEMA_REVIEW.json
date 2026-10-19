@@ -1,0 +1,2733 @@
+{
+  "source": "D:\\Github_Kakao_Account\\review-artifacts\\v58-db-contract-review-2026-10-16\\DB_CATALOG_RESULT.json",
+  "sourceSha256": "bf463532a8a26576405f611ee90b8ee316f45ef11f337f7974bd0457aa3a78dd",
+  "observedAt": "2026-10-16T14:00:26.741078+00:00",
+  "sourceScope": "Previously approved named-object catalog only; not a complete production schema export",
+  "functions": [
+    {
+      "function_name": "accountbook_apply_recurring_v227",
+      "identity_arguments": "p_household_id uuid, p_month text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_auth_attempt",
+      "identity_arguments": "p_key text, p_limit integer, p_window_seconds integer, p_success boolean",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_bulk_transactions_v227",
+      "identity_arguments": "p_transaction_ids uuid[], p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb, p_delete boolean",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_claim_operation",
+      "identity_arguments": "p_key text, p_owner text, p_lease_seconds integer",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_create_local_user_v227",
+      "identity_arguments": "p_login_name text, p_nickname text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_delete_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_import_transactions_v227",
+      "identity_arguments": "p_household_id uuid, p_rows jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_leave_household_v227",
+      "identity_arguments": "p_household_id uuid, p_user_id uuid",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_link_kakao_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_kakao_id text, p_nickname text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_merge_users_v227",
+      "identity_arguments": "p_primary_user_id uuid, p_secondary_user_id uuid",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_mutate_payment_assets_v2271",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public, pg_temp"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_mutate_payment_assets_v2280",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text, p_snapshot_month text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public, pg_temp"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_purge_household_v227",
+      "identity_arguments": "p_household_id uuid",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=\"\""
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_release_operation",
+      "identity_arguments": "p_key text, p_owner text",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_replace_budget_plan_v227",
+      "identity_arguments": "p_household_id uuid, p_month text, p_rows jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_set_local_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_login_name text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer, p_revoke_sessions boolean",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "accountbook_update_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "function_settings": [
+        "search_path=public"
+      ],
+      "explicit_acl": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=X/postgres",
+        "service_role=X/postgres"
+      ]
+    },
+    {
+      "function_name": "set_accountbook_settings_updated_at",
+      "identity_arguments": "",
+      "owner": "postgres",
+      "security_definer": false,
+      "function_settings": [],
+      "explicit_acl": [
+        "=X/postgres",
+        "postgres=X/postgres",
+        "anon=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ],
+      "acl_with_default": [
+        "=X/postgres",
+        "postgres=X/postgres",
+        "anon=X/postgres",
+        "authenticated=X/postgres",
+        "service_role=X/postgres"
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_admin_security",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_auth_attempts",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_budgets",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_operation_locks",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_recurring",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_settings",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_transaction_audit",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_user_identities",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "accountbook_user_security",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "household_members",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "households",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "nlu_failure_samples",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "nlu_intent_metrics_hourly",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "transactions",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "unrecognized_inputs",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    },
+    {
+      "owner": "postgres",
+      "relkind": "r",
+      "rls_forced": false,
+      "table_name": "users",
+      "rls_enabled": true,
+      "schema_name": "public",
+      "explicit_acl": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ],
+      "acl_with_default": [
+        "postgres=arwdDxtm/postgres",
+        "service_role=arwdDxtm/postgres"
+      ]
+    }
+  ],
+  "columns": [
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "boolean",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "singleton",
+      "default_expression": "true"
+    },
+    {
+      "ordinal": 2,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "password_hash",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "password_salt",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": false,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "password_iterations",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "password_version",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "session_version",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 7,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_admin_security",
+      "column_name": "updated_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_auth_attempts",
+      "column_name": "attempt_key",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_auth_attempts",
+      "column_name": "window_started_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_auth_attempts",
+      "column_name": "attempts",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 4,
+      "not_null": false,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_auth_attempts",
+      "column_name": "blocked_until",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_auth_attempts",
+      "column_name": "updated_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "id",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "household_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "month",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "category",
+      "default_expression": "'__total'::text"
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "amount",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_budgets",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_operation_locks",
+      "column_name": "operation_key",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_operation_locks",
+      "column_name": "owner",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_operation_locks",
+      "column_name": "locked_until",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_operation_locks",
+      "column_name": "updated_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "id",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "household_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "type",
+      "default_expression": "'expense'::text"
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "amount",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "category",
+      "default_expression": "'기타'::text"
+    },
+    {
+      "ordinal": 6,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "memo",
+      "default_expression": null
+    },
+    {
+      "ordinal": 7,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "payment_method",
+      "default_expression": null
+    },
+    {
+      "ordinal": 8,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "day_of_month",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 9,
+      "not_null": false,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 10,
+      "not_null": true,
+      "data_type": "boolean",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "is_active",
+      "default_expression": "true"
+    },
+    {
+      "ordinal": 11,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "last_applied_month",
+      "default_expression": null
+    },
+    {
+      "ordinal": 12,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_recurring",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_settings",
+      "column_name": "key",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_settings",
+      "column_name": "value",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_settings",
+      "column_name": "updated_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": false,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "transaction_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "household_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": false,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "actor_user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "actor_kind",
+      "default_expression": "'user'::text"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "action",
+      "default_expression": null
+    },
+    {
+      "ordinal": 7,
+      "not_null": false,
+      "data_type": "jsonb",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "before_value",
+      "default_expression": null
+    },
+    {
+      "ordinal": 8,
+      "not_null": false,
+      "data_type": "jsonb",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "after_value",
+      "default_expression": null
+    },
+    {
+      "ordinal": 9,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_transaction_audit",
+      "column_name": "created_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "provider",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "provider_subject",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "login_name",
+      "default_expression": null
+    },
+    {
+      "ordinal": 6,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "credential_hash",
+      "default_expression": null
+    },
+    {
+      "ordinal": 7,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "credential_salt",
+      "default_expression": null
+    },
+    {
+      "ordinal": 8,
+      "not_null": false,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "credential_iterations",
+      "default_expression": null
+    },
+    {
+      "ordinal": 9,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "credential_version",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 10,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "created_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 11,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_user_identities",
+      "column_name": "updated_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "accountbook_user_security",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "accountbook_user_security",
+      "column_name": "session_version",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 3,
+      "not_null": false,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_user_security",
+      "column_name": "password_changed_at",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "accountbook_user_security",
+      "column_name": "updated_at",
+      "default_expression": "clock_timestamp()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "household_members",
+      "column_name": "household_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "household_members",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "household_members",
+      "column_name": "role",
+      "default_expression": "'member'::text"
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "household_members",
+      "column_name": "joined_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "household_members",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "id",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "name",
+      "default_expression": "'내 가계부'::text"
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "invite_code",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "plan",
+      "default_expression": "'free'::text"
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "households",
+      "column_name": "updated_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "sample_hash",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "redacted_sample",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "intent",
+      "default_expression": "'UNKNOWN'::text"
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "result",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "reason",
+      "default_expression": "''::text"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "version",
+      "default_expression": "''::text"
+    },
+    {
+      "ordinal": 7,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "hit_count",
+      "default_expression": "1"
+    },
+    {
+      "ordinal": 8,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "first_seen",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 9,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "nlu_failure_samples",
+      "column_name": "last_seen",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "bucket_start",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "intent",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "result",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "version",
+      "default_expression": "''::text"
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "request_count",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "latency_sum_ms",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 7,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "nlu_intent_metrics_hourly",
+      "column_name": "latency_max_ms",
+      "default_expression": "0"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "id",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "household_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": false,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "type",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "amount",
+      "default_expression": null
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "category",
+      "default_expression": "'기타'::text"
+    },
+    {
+      "ordinal": 7,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "memo",
+      "default_expression": null
+    },
+    {
+      "ordinal": 8,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "payment_method",
+      "default_expression": null
+    },
+    {
+      "ordinal": 9,
+      "not_null": true,
+      "data_type": "date",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "transaction_date",
+      "default_expression": null
+    },
+    {
+      "ordinal": 10,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "source",
+      "default_expression": "'kakao_skill'::text"
+    },
+    {
+      "ordinal": 11,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "source_user_key",
+      "default_expression": null
+    },
+    {
+      "ordinal": 12,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "raw_text",
+      "default_expression": null
+    },
+    {
+      "ordinal": 13,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 14,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "transactions",
+      "column_name": "updated_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "bigint",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 2,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "room_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "user_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "entry_no",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "input",
+      "default_expression": null
+    },
+    {
+      "ordinal": 6,
+      "not_null": false,
+      "data_type": "integer",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "attempt",
+      "default_expression": null
+    },
+    {
+      "ordinal": 7,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "type",
+      "default_expression": null
+    },
+    {
+      "ordinal": 8,
+      "not_null": false,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "unrecognized_inputs",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 1,
+      "not_null": true,
+      "data_type": "uuid",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "id",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "ordinal": 2,
+      "not_null": true,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "kakao_user_key",
+      "default_expression": null
+    },
+    {
+      "ordinal": 3,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "kakao_account_id",
+      "default_expression": null
+    },
+    {
+      "ordinal": 4,
+      "not_null": false,
+      "data_type": "text",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "nickname",
+      "default_expression": null
+    },
+    {
+      "ordinal": 5,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "created_at",
+      "default_expression": "now()"
+    },
+    {
+      "ordinal": 6,
+      "not_null": true,
+      "data_type": "timestamp with time zone",
+      "column_acl": null,
+      "table_name": "users",
+      "column_name": "updated_at",
+      "default_expression": "now()"
+    }
+  ],
+  "constraints": [
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (singleton)",
+      "table_name": "accountbook_admin_security",
+      "constraint_name": "accountbook_admin_security_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (singleton)",
+      "table_name": "accountbook_admin_security",
+      "constraint_name": "accountbook_admin_security_singleton_check"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (attempt_key)",
+      "table_name": "accountbook_auth_attempts",
+      "constraint_name": "accountbook_auth_attempts_pkey"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE",
+      "table_name": "accountbook_budgets",
+      "constraint_name": "accountbook_budgets_household_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "accountbook_budgets",
+      "constraint_name": "accountbook_budgets_pkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (operation_key)",
+      "table_name": "accountbook_operation_locks",
+      "constraint_name": "accountbook_operation_locks_pkey"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE",
+      "table_name": "accountbook_recurring",
+      "constraint_name": "accountbook_recurring_household_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "accountbook_recurring",
+      "constraint_name": "accountbook_recurring_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (type = ANY (ARRAY['expense'::text, 'income'::text]))",
+      "table_name": "accountbook_recurring",
+      "constraint_name": "accountbook_recurring_type_check"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+      "table_name": "accountbook_recurring",
+      "constraint_name": "accountbook_recurring_user_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (key)",
+      "table_name": "accountbook_settings",
+      "constraint_name": "accountbook_settings_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (action = ANY (ARRAY['update'::text, 'delete'::text, 'bulk_update'::text]))",
+      "table_name": "accountbook_transaction_audit",
+      "constraint_name": "accountbook_transaction_audit_action_check"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "accountbook_transaction_audit",
+      "constraint_name": "accountbook_transaction_audit_pkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "accountbook_user_identities",
+      "constraint_name": "accountbook_user_identities_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (provider = ANY (ARRAY['local'::text, 'kakao'::text]))",
+      "table_name": "accountbook_user_identities",
+      "constraint_name": "accountbook_user_identities_provider_check"
+    },
+    {
+      "type": "u",
+      "definition": "UNIQUE (provider, provider_subject)",
+      "table_name": "accountbook_user_identities",
+      "constraint_name": "accountbook_user_identities_provider_provider_subject_key"
+    },
+    {
+      "type": "u",
+      "definition": "UNIQUE (provider, user_id)",
+      "table_name": "accountbook_user_identities",
+      "constraint_name": "accountbook_user_identities_provider_user_id_key"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "table_name": "accountbook_user_identities",
+      "constraint_name": "accountbook_user_identities_user_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (user_id)",
+      "table_name": "accountbook_user_security",
+      "constraint_name": "accountbook_user_security_pkey"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "table_name": "accountbook_user_security",
+      "constraint_name": "accountbook_user_security_user_id_fkey"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE",
+      "table_name": "household_members",
+      "constraint_name": "household_members_household_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (household_id, user_id)",
+      "table_name": "household_members",
+      "constraint_name": "household_members_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'viewer'::text, 'pending'::text, 'blocked'::text]))",
+      "table_name": "household_members",
+      "constraint_name": "household_members_role_allowed_v22846"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "table_name": "household_members",
+      "constraint_name": "household_members_user_id_fkey"
+    },
+    {
+      "type": "u",
+      "definition": "UNIQUE (invite_code)",
+      "table_name": "households",
+      "constraint_name": "households_invite_code_key"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "households",
+      "constraint_name": "households_pkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (sample_hash)",
+      "table_name": "nlu_failure_samples",
+      "constraint_name": "nlu_failure_samples_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (result = ANY (ARRAY['fallback'::text, 'clarify'::text, 'error'::text]))",
+      "table_name": "nlu_failure_samples",
+      "constraint_name": "nlu_failure_samples_result_check"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (bucket_start, intent, result)",
+      "table_name": "nlu_intent_metrics_hourly",
+      "constraint_name": "nlu_intent_metrics_hourly_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (result = ANY (ARRAY['ok'::text, 'fallback'::text, 'clarify'::text, 'error'::text]))",
+      "table_name": "nlu_intent_metrics_hourly",
+      "constraint_name": "nlu_intent_metrics_hourly_result_check"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (amount >= 0)",
+      "table_name": "transactions",
+      "constraint_name": "transactions_amount_check"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE",
+      "table_name": "transactions",
+      "constraint_name": "transactions_household_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "transactions",
+      "constraint_name": "transactions_pkey"
+    },
+    {
+      "type": "c",
+      "definition": "CHECK (type = ANY (ARRAY['income'::text, 'expense'::text]))",
+      "table_name": "transactions",
+      "constraint_name": "transactions_type_check"
+    },
+    {
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+      "table_name": "transactions",
+      "constraint_name": "transactions_user_id_fkey"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "unrecognized_inputs",
+      "constraint_name": "unrecognized_inputs_pkey"
+    },
+    {
+      "type": "u",
+      "definition": "UNIQUE (kakao_user_key)",
+      "table_name": "users",
+      "constraint_name": "users_kakao_user_key_key"
+    },
+    {
+      "type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "table_name": "users",
+      "constraint_name": "users_pkey"
+    }
+  ],
+  "policies": [],
+  "triggers": [
+    {
+      "tgenabled": "O",
+      "definition": "CREATE TRIGGER trg_accountbook_settings_updated_at BEFORE UPDATE ON accountbook_settings FOR EACH ROW EXECUTE FUNCTION set_accountbook_settings_updated_at()",
+      "table_name": "accountbook_settings",
+      "trigger_name": "trg_accountbook_settings_updated_at"
+    },
+    {
+      "tgenabled": "O",
+      "definition": "CREATE TRIGGER set_households_updated_at BEFORE UPDATE ON households FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "households",
+      "trigger_name": "set_households_updated_at"
+    },
+    {
+      "tgenabled": "O",
+      "definition": "CREATE TRIGGER set_transactions_updated_at BEFORE UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "transactions",
+      "trigger_name": "set_transactions_updated_at"
+    },
+    {
+      "tgenabled": "O",
+      "definition": "CREATE TRIGGER set_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "users",
+      "trigger_name": "set_users_updated_at"
+    }
+  ],
+  "tablePrivileges": [
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_admin_security"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_admin_security"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_admin_security"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_auth_attempts"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_auth_attempts"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_auth_attempts"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_budgets"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_budgets"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_budgets"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_operation_locks"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_operation_locks"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_operation_locks"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_recurring"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_recurring"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_recurring"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_settings"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_settings"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_settings"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_transaction_audit"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_transaction_audit"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_transaction_audit"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_user_identities"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_user_identities"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_user_identities"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_user_security"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "accountbook_user_security"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "accountbook_user_security"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "household_members"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "household_members"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "household_members"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "households"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "households"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "households"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "nlu_failure_samples"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "nlu_failure_samples"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "nlu_failure_samples"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "nlu_intent_metrics_hourly"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "nlu_intent_metrics_hourly"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "nlu_intent_metrics_hourly"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "transactions"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "transactions"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "transactions"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "unrecognized_inputs"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "unrecognized_inputs"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "unrecognized_inputs"
+    },
+    {
+      "role_name": "anon",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "users"
+    },
+    {
+      "role_name": "authenticated",
+      "can_delete": false,
+      "can_insert": false,
+      "can_select": false,
+      "can_update": false,
+      "table_name": "users"
+    },
+    {
+      "role_name": "service_role",
+      "can_delete": true,
+      "can_insert": true,
+      "can_select": true,
+      "can_update": true,
+      "table_name": "users"
+    }
+  ],
+  "functionPrivileges": [
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_apply_recurring_v227",
+      "identity_arguments": "p_household_id uuid, p_month text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_apply_recurring_v227",
+      "identity_arguments": "p_household_id uuid, p_month text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_apply_recurring_v227",
+      "identity_arguments": "p_household_id uuid, p_month text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_auth_attempt",
+      "identity_arguments": "p_key text, p_limit integer, p_window_seconds integer, p_success boolean"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_auth_attempt",
+      "identity_arguments": "p_key text, p_limit integer, p_window_seconds integer, p_success boolean"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_auth_attempt",
+      "identity_arguments": "p_key text, p_limit integer, p_window_seconds integer, p_success boolean"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_bulk_transactions_v227",
+      "identity_arguments": "p_transaction_ids uuid[], p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb, p_delete boolean"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_bulk_transactions_v227",
+      "identity_arguments": "p_transaction_ids uuid[], p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb, p_delete boolean"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_bulk_transactions_v227",
+      "identity_arguments": "p_transaction_ids uuid[], p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb, p_delete boolean"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_claim_operation",
+      "identity_arguments": "p_key text, p_owner text, p_lease_seconds integer"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_claim_operation",
+      "identity_arguments": "p_key text, p_owner text, p_lease_seconds integer"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_claim_operation",
+      "identity_arguments": "p_key text, p_owner text, p_lease_seconds integer"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_create_local_user_v227",
+      "identity_arguments": "p_login_name text, p_nickname text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_create_local_user_v227",
+      "identity_arguments": "p_login_name text, p_nickname text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_create_local_user_v227",
+      "identity_arguments": "p_login_name text, p_nickname text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_delete_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_delete_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_delete_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_import_transactions_v227",
+      "identity_arguments": "p_household_id uuid, p_rows jsonb"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_import_transactions_v227",
+      "identity_arguments": "p_household_id uuid, p_rows jsonb"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_import_transactions_v227",
+      "identity_arguments": "p_household_id uuid, p_rows jsonb"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_leave_household_v227",
+      "identity_arguments": "p_household_id uuid, p_user_id uuid"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_leave_household_v227",
+      "identity_arguments": "p_household_id uuid, p_user_id uuid"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_leave_household_v227",
+      "identity_arguments": "p_household_id uuid, p_user_id uuid"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_link_kakao_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_kakao_id text, p_nickname text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_link_kakao_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_kakao_id text, p_nickname text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_link_kakao_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_kakao_id text, p_nickname text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_merge_users_v227",
+      "identity_arguments": "p_primary_user_id uuid, p_secondary_user_id uuid"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_merge_users_v227",
+      "identity_arguments": "p_primary_user_id uuid, p_secondary_user_id uuid"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_merge_users_v227",
+      "identity_arguments": "p_primary_user_id uuid, p_secondary_user_id uuid"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2271",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2271",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2271",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2280",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text, p_snapshot_month text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2280",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text, p_snapshot_month text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_mutate_payment_assets_v2280",
+      "identity_arguments": "p_household_id uuid, p_action text, p_asset jsonb, p_asset_id text, p_snapshot_month text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_purge_household_v227",
+      "identity_arguments": "p_household_id uuid"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_purge_household_v227",
+      "identity_arguments": "p_household_id uuid"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_purge_household_v227",
+      "identity_arguments": "p_household_id uuid"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_release_operation",
+      "identity_arguments": "p_key text, p_owner text"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_release_operation",
+      "identity_arguments": "p_key text, p_owner text"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_release_operation",
+      "identity_arguments": "p_key text, p_owner text"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_replace_budget_plan_v227",
+      "identity_arguments": "p_household_id uuid, p_month text, p_rows jsonb"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_replace_budget_plan_v227",
+      "identity_arguments": "p_household_id uuid, p_month text, p_rows jsonb"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_replace_budget_plan_v227",
+      "identity_arguments": "p_household_id uuid, p_month text, p_rows jsonb"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_set_local_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_login_name text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer, p_revoke_sessions boolean"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_set_local_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_login_name text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer, p_revoke_sessions boolean"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_set_local_identity_v227",
+      "identity_arguments": "p_user_id uuid, p_login_name text, p_credential_hash text, p_credential_salt text, p_credential_iterations integer, p_revoke_sessions boolean"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_update_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb"
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": false,
+      "schema_usage": true,
+      "function_name": "accountbook_update_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb"
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "accountbook_update_transaction_v227",
+      "identity_arguments": "p_transaction_id uuid, p_household_id uuid, p_actor_user_id uuid, p_actor_kind text, p_patch jsonb"
+    },
+    {
+      "role_name": "anon",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "set_accountbook_settings_updated_at",
+      "identity_arguments": ""
+    },
+    {
+      "role_name": "authenticated",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "set_accountbook_settings_updated_at",
+      "identity_arguments": ""
+    },
+    {
+      "role_name": "service_role",
+      "can_execute": true,
+      "schema_usage": true,
+      "function_name": "set_accountbook_settings_updated_at",
+      "identity_arguments": ""
+    }
+  ],
+  "sqlInsertDeleteFunctions": [
+    {
+      "name": "accountbook_apply_recurring_v227",
+      "identityArguments": "p_household_id uuid, p_month text",
+      "normalizedDefinitionMd5": "ebce41f42601106a6fd7511840e019a7",
+      "operations": [
+        "insert into public.transactions"
+      ]
+    },
+    {
+      "name": "accountbook_import_transactions_v227",
+      "identityArguments": "p_household_id uuid, p_rows jsonb",
+      "normalizedDefinitionMd5": "0cd6e6d7742577d311564887fc583839",
+      "operations": [
+        "insert into public.transactions"
+      ]
+    },
+    {
+      "name": "accountbook_purge_household_v227",
+      "identityArguments": "p_household_id uuid",
+      "normalizedDefinitionMd5": "d17c52e9de4371f1beca31fb0dfaa921",
+      "operations": [
+        "delete from public.households"
+      ]
+    }
+  ],
+  "workerWritePaths": [
+    {
+      "file": "src/modules/my/backup-import.js",
+      "function": "handleMyImport",
+      "path": "signed user import",
+      "action": "new source/CAS + new commit + exact reconciliation"
+    },
+    {
+      "file": "src/modules/import/flexible-import-parser.js",
+      "function": "handleAdminImportJson",
+      "path": "administrator JSON",
+      "action": "new source-less commit + exact reconciliation; owned pending blocks it"
+    },
+    {
+      "file": "src/modules/admin/backup-apply.js",
+      "function": "applyCandidatePlanRows",
+      "path": "administrator candidate-plan apply",
+      "action": "new source-less commit per fixed-ID row; settings lease and exact reconciliation"
+    },
+    {
+      "file": "src/modules/my/households-lifecycle.js",
+      "function": "purgeHouseholdDataWithImportLease",
+      "path": "owner permanent deletion",
+      "action": "reconcile owned state; full-value CAS; new atomic purge; Kakao and non-import preference cleanup retained"
+    },
+    {
+      "file": "src/modules/data/users-household-create.js",
+      "function": "createUserHousehold",
+      "path": "definite failed-creation compensation",
+      "action": "new purge only after strict empty membership and transaction reads; no direct household DELETE"
+    },
+    {
+      "file": "src/modules/kakao/edit-flow-v4.js",
+      "function": "handleKakaoEditCommandV4",
+      "path": "Kakao undo",
+      "action": "my_import originals use new source-less commit and exact stored-field confirmation; other sources retain existing insert"
+    },
+    {
+      "file": "src/modules/domain/transactions-core.js",
+      "function": "createManualTransaction",
+      "path": "manual web/admin/API inserts",
+      "action": "existing REST; my_import source cannot bypass trigger; non-import writes retain PK/FK and authority contracts"
+    },
+    {
+      "file": "src/modules/kakao/transaction-save.js",
+      "function": "insertKakaoTransactions",
+      "path": "Kakao ordinary saves",
+      "action": "existing REST source kakao_skill; household FK prevents recreation after purge"
+    },
+    {
+      "file": "src/modules/kakao/separate-purchase.js",
+      "function": "handleKakaoSeparatePurchase",
+      "path": "Kakao separate purchase",
+      "action": "existing REST source kakao_skill and fixed ID; scope/role guards retained"
+    }
+  ],
+  "limitations": [
+    "Unlisted schemas/tables/views/functions/callers were not inventoried by the approved named-object SELECT.",
+    "Schema CREATE grants, sequence ACLs, identity defaults and omitted trigger helper definitions remain unverified.",
+    "Member-role changes, external writers, transaction UPDATE/DELETE and live PostgREST cutover need a complete production review.",
+    "No new catalog SELECT or production connection was made."
+  ]
+}

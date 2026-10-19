@@ -1,5 +1,6 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { moneyTokenSpans, quickInputDate } from "../client/shared-input-parsers.js";
 import { safeError } from "../runtime/leases.js";
 import { jsonResponse, redirectResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
@@ -7,14 +8,15 @@ import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { csvCell } from "../admin/import-history-rollback.js";
+import { reconcileImportedTransactionIds } from "../my/backup-import.js";
 import { activeSpenderExists } from "../my/transactions.js";
 import { readJson } from "../api/admin-api.js";
 import { supabase } from "../data/supabase-client.js";
 import { parseTransaction } from "../nlu/transaction-parser.js";
-import { detectType, normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { detectType, normalizeText } from "../nlu/amount-parser.js";
 import {
-  currentMonthKst, detectPaymentMethod, formatDate, normalizePaymentMethod, nowKstDate,
-  parseDateStrict, parseExplicitDateFromText, safeYmd, validMonth,
+  currentMonthKst, detectPaymentMethod, formatDate, nowKstDate, parseDateStrict, safeYmd,
+  validMonth,
 } from "../nlu/date-payment.js";
 import { cleanMemo, inferCategory } from "../nlu/category-rules.js";
 import { parseStrictAmount, parseStrictDate } from "../domain/strict-input.js";
@@ -51,6 +53,7 @@ async function handleImportTemplateXls(request, env) {
 }
 
 async function handleAdminImportJson(request, env) {
+  if (!MY_IMPORT_WRITES_ENABLED_V22959) return jsonResponse({ ok: false, error: "import_recovery_read_only", message: "복구 모드에서는 가져오기를 저장하지 않습니다. 원본과 기존 미리보기를 보관해 주세요." }, 503);
   try {
     if (!(await verifyAdminSession(request, env))) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인 세션이 만료되었습니다. 새로고침 후 다시 로그인하세요." }, 401);
     const body = await readJson(request);
@@ -66,17 +69,37 @@ async function handleAdminImportJson(request, env) {
     const rows = cleanImportedRowsForInsert(parsed.rows.slice(0, 1000)).map((row) => ({ ...row, id: row.id || crypto.randomUUID(), user_id: row.user_id || defaultUserId }));
     if (!rows.length) return jsonResponse({ ok: false, error: "no_valid_rows", message: "저장 가능한 행을 찾지 못했습니다.", skipped: parsed.skipped }, 400);
     if (rows.some((row) => !activeSpenderExists(members, row.user_id))) return jsonResponse({ ok: false, error: "spender_not_member", message: "가져오기 행의 지출자가 현재 가계부의 활성 참여자가 아닙니다." }, 400);
-    const result = await supabase(env, "/rest/v1/rpc/accountbook_import_transactions_v227", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ p_household_id: householdId, p_rows: rows }),
-    });
+    const result = await commitImportedTransactionRows(env, householdId, rows);
     const summary = Array.isArray(result) ? result[0] : result;
+    const found = await reconcileImportedTransactionIds(env, householdId, rows.map(row => ({ ...row, source: "my_import" })));
+    if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== rows.length || found.size !== rows.length) return jsonResponse({ ok: false, error: "import_write_unknown", message: "저장 결과를 확인하지 못했습니다. 거래 목록과 원본을 보관하고 같은 파일을 반복 제출하지 마세요." }, 503);
     return jsonResponse({ ok: true, inserted: Number(summary?.inserted || 0), skipped: parsed.skipped + Number(summary?.duplicates || 0), date_samples: rows.slice(0, 5).map(r => r.transaction_date), warnings: parsed.warnings.slice(0, 20) });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_import_failed", severity: "error", path: "/admin/import/json", method: "POST", detail: safeError(err) });
-    return jsonResponse({ ok: false, error: "import_failed", message: "업로드 내용을 저장하지 못했습니다. 기존 기록은 변경되지 않았으니 잠시 후 다시 시도해 주세요." }, 500);
+    return jsonResponse({ ok: false, error: "import_failed", message: "가져오기를 완료하지 못했습니다. 거래 목록에서 저장 결과를 확인한 뒤 같은 파일을 다시 제출해 주세요." }, 500);
   }
+}
+
+// Recovery candidates change only this build-time gate. No environment switch.
+const MY_IMPORT_WRITES_ENABLED_V22959 = true;
+
+async function commitImportedTransactionRows(env, householdId, rows, sourceHash = null, expectedValue = null) {
+  if (!MY_IMPORT_WRITES_ENABLED_V22959) throw new Error("import_recovery_read_only");
+  if (sourceHash !== null && (!/^[a-f0-9]{64}$/.test(sourceHash) || typeof expectedValue !== "string") || sourceHash === null && expectedValue !== null) throw new Error("import_source_scope_invalid");
+  return supabase(env, "/rest/v1/rpc/accountbook_commit_import_v22960", {
+    method: "POST", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ p_household_id: householdId, p_rows: rows, p_source_hash: sourceHash, p_expected_value: expectedValue }),
+  });
+}
+
+function importStorageTextIssue(row = {}) {
+  // PostgreSQL LEFT/text length counts Unicode code points, not UTF-16 units.
+  for (const [field, max, code] of [["memo", 160, "memo_too_long"], ["payment_method", 40, "payment_too_long"]]) {
+    const value = String(row[field] || "");
+    if (/\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)) return "invalid_field";
+    if (Array.from(value).length > max) return code;
+  }
+  return "";
 }
 
 function cleanImportedRowsForInsert(rows = []) {
@@ -93,15 +116,15 @@ function cleanImportedRowsForInsert(rows = []) {
     out.amount = parseStrictAmount(out.amount, { min: 1 });
     out.transaction_date = parseStrictDate(out.transaction_date);
     return out;
-  }).filter((row) => typeof row.household_id === "string" && row.household_id && (row.type === "income" || row.type === "expense") && row.amount !== null && row.transaction_date !== null);
+  }).filter((row) => typeof row.household_id === "string" && row.household_id && (row.type === "income" || row.type === "expense") && row.amount !== null && row.transaction_date !== null && !importStorageTextIssue(row));
 }
 
 const IMPORT_FIELD_ALIASES = Object.freeze({
   currency: ["currency","currencycode","통화","통화코드","거래통화"],
   date: ["날짜","일자","일시","기준일","거래일","거래일자","거래일시","거래시간","사용일","사용일자","사용일시","이용일","이용일자","이용일시","승인일","승인일자","승인일시","결제일","결제일자","결제일시","매입일","작성일","등록일","발생일","회계일","전표일","date","datetime","transactiondate","transactiondatetime","purchasedate","approvaldate","postingdate"],
   type: ["구분","유형","종류","거래구분","거래유형","수입지출","수입지출구분","입출금","입출금구분","차변대변","debitcredit","type","transactiontype","inout"],
-  income: ["수입","입금","입금액","수입액","수입금액","받은금액","대변","credit","income","deposit","moneyin"],
-  expense: ["지출","출금","출금액","지출액","지출금액","사용금액","사용액","이용액","실지출","실제지출","최종지출","승인금액","결제금액","매입금액","차변","debit","expense","withdrawal","withdraw","moneyout"],
+  income: ["수입","입금","입금액","수입액","수입금액","받은금액","대변","credit","income","deposit","moneyin","맡기신금액"],
+  expense: ["지출","출금","출금액","지출액","지출금액","사용금액","사용액","이용액","실지출","실제지출","최종지출","승인금액","결제금액","매입금액","차변","debit","expense","withdrawal","withdraw","moneyout","지급","지급액","찾으신금액"],
   amount: ["금액","거래금액","거래액","원화금액","최종금액","청구금액","합계금액","이용금액","이용액","승인액","amount","value","price","total","transactionamount"],
   memo: ["내용","내역","내역명","거래내용","상세내역","지출내용","수입내용","적요","메모","비고","사용처","가맹점","가맹점명","상호","상호명","품목","품명","제목","설명","거래처","거래처명","수취인","보낸곳","받는분","memo","note","description","details","merchant","payee","title","item"],
   category: ["분류","카테고리","항목","대분류","중분류","소분류","세부분류","상세분류","지출분류","수입분류","태그","category","classification","class","tag"],
@@ -127,30 +150,41 @@ const IMPORT_REJECTION_GUIDE = Object.freeze({
   both_income_expense: ["수입과 지출 금액이 한 행에 함께 있음", "한 거래 행에는 수입 또는 지출 금액 하나만 남겨 주세요."],
   unsupported_row: ["거래로 판단할 정보가 부족함", "날짜와 금액을 넣거나 ‘어제 점심 12000원 카드’처럼 한 문장으로 적어 주세요."],
   duplicate: ["기존 기록과 중복", "중복 건너뛰기가 켜져 있어 저장하지 않았습니다. 의도한 중복이면 옵션을 끄고 다시 가져오세요."],
-  over_limit: ["한 번에 처리할 수 있는 행 수 초과", "파일을 나누거나 MY_IMPORT_LIMIT을 안전 범위에서 조정한 뒤 다시 가져오세요."],
+  over_limit: ["한 번에 처리할 수 있는 행 수 초과", "분석 범위를 넘은 행은 파일을 나누어 다시 확인해 주세요. 앞의 저장 후보를 먼저 저장했다면 같은 연결로 다음 묶음을 분석할 수 있습니다."],
   write_failed: ["저장 안 됨", "이 행은 저장되지 않았어요. 원인을 확인한 뒤 이 행만 다시 가져와 주세요."],
   write_unknown: ["저장 여부 확인 필요", "저장됐는지 확인하지 못했어요. 다시 가져오기 전에 ‘가져온 기록 확인’에서 이 행이 있는지 먼저 확인해 주세요."],
+  invalid_csv: ["CSV 따옴표 문법 오류", "표시한 원본 줄의 닫는 큰따옴표와 구분자를 확인해 주세요. 이 구간은 저장하지 않았습니다."],
+  structure_limit: ["표 구조의 안전 한도 초과", "열이나 셀이 지나치게 많은 구간입니다. 필요한 거래 열만 남겨 표를 나눈 뒤 다시 확인해 주세요."],
+  invalid_field: ["명시한 필드 값 확인 필요", "분류는 80자, 결제수단은 40자 이내이며 제어 문자를 포함할 수 없습니다. 다른 열에서 대신 채우지 않았습니다."],
+  memo_too_long: ["메모 저장 한도 초과", "메모는 160자까지 저장할 수 있습니다. 원본을 자르거나 저장하지 않았습니다. 원본을 보관한 뒤 메모를 직접 수정해 다시 분석해 주세요."],
+  payment_too_long: ["결제수단 저장 한도 초과", "결제수단은 40자까지 저장할 수 있습니다. 원본을 자르거나 저장하지 않았습니다. 원본을 보관한 뒤 결제수단을 직접 수정해 다시 분석해 주세요."],
+  invalid_spender: ["지출자 권한 확인 필요", "현재 가계부의 기록 가능한 참여자 한 명을 지정해야 합니다. 다른 사람의 지출자는 소유자·관리자만 지정할 수 있습니다."],
 });
 
 function normalizeImportHeader(value) {
   return String(value ?? "").normalize("NFKC").replace(/^\ufeff/, "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 }
 
+// Only the finite, product-owned aliases live for the lifetime of an isolate.
+// User headers and source text are never retained in a global cache.
+const IMPORT_ALIAS_INDEX = (() => {
+  const exact = new Map(), fuzzy = [];
+  let rank = 0;
+  for (const [field, aliases] of Object.entries(IMPORT_FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      const key = normalizeImportHeader(alias), item = { field, key, rank: rank++ };
+      if (!exact.has(key)) exact.set(key, item);
+      if (key.length >= 2) fuzzy.push(item);
+    }
+  }
+  fuzzy.sort((a, b) => b.key.length - a.key.length || a.rank - b.rank);
+  return { exact, fuzzy };
+})();
+
 function canonicalImportField(value = "") {
   const key = normalizeImportHeader(value);
   if (!key) return "";
-  for (const [field, aliases] of Object.entries(IMPORT_FIELD_ALIASES)) {
-    if (aliases.some((alias) => normalizeImportHeader(alias) === key)) return field;
-  }
-  const candidates = [];
-  for (const [field, aliases] of Object.entries(IMPORT_FIELD_ALIASES)) {
-    for (const alias of aliases) {
-      const normalizedAlias = normalizeImportHeader(alias);
-      if (normalizedAlias.length >= 2 && (key.includes(normalizedAlias) || normalizedAlias.includes(key))) candidates.push({ field, alias: normalizedAlias });
-    }
-  }
-  candidates.sort((a, b) => b.alias.length - a.alias.length);
-  return candidates[0]?.field || "";
+  return IMPORT_ALIAS_INDEX.exact.get(key)?.field || IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || item.key.includes(key))?.field || "";
 }
 
 function canonicalImportHeaderField(value = "") {
@@ -158,22 +192,110 @@ function canonicalImportHeaderField(value = "") {
   if (!key) return "";
   const withoutBracketUnit = normalizeImportHeader(String(value || "").replace(/\([^)]*\)|\[[^\]]*\]/g, ""));
   const variants = [key, withoutBracketUnit, withoutBracketUnit.replace(/외화|원화|USD|EUR|JPY|KRW/gi,""), key.replace(/(?:kst|utc|서울시간|원화|krw|won|원|명|코드)$/i, "")].filter(Boolean);
-  for (const [field, aliases] of Object.entries(IMPORT_FIELD_ALIASES)) {
-    if (aliases.some((alias) => variants.includes(normalizeImportHeader(alias)))) return field;
+  let first = null;
+  for (const variant of variants) {
+    const item = IMPORT_ALIAS_INDEX.exact.get(variant);
+    if (item && (!first || item.rank < first.rank)) first = item;
   }
-  return "";
+  return first?.field || "";
 }
 
-function importHeaderScore(row = []) {
+function importColumnMetadata(headers = []) {
+  return headers.map((header) => {
+    const key = normalizeImportHeader(header);
+    const timeKey = (/[\[(]/.test(String(header)) ? normalizeImportHeader(String(header).replace(/\([^)]*\)|\[[^\]]*\]/g, "")) : key).replace(/(?:kst|utc|서울시간)$/, "");
+    const timeOnly = /^(?:거래시간|사용시간|이용시간|승인시간|결제시간|시간|time|transactiontime)$/.test(timeKey);
+    const field = timeOnly ? "time" : canonicalImportField(header);
+    return { key, field, original_money: ["amount", "income", "expense"].includes(field), exact: timeOnly ? "time" : canonicalImportHeaderField(header), foreign: /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(String(header)), local: /원화|KRW|won|\(원\)|\[원\]/i.test(String(header)) };
+  });
+}
+
+const IMPORT_EDITABLE_FIELDS = Object.freeze(["date", "amount", "type", "income", "expense", "memo", "category", "payment", "spender", "ignore"]);
+
+function isImportSheetMarker(cells = []) {
+  return /^(?:#\s*)?(?:시트|sheet)\s*[:：]/i.test(String(cells[0] || "").trim());
+}
+
+function importMappingPlan(table, headerIndex, maxRows, options = {}) {
+  const delta = options.mappingDelta === undefined ? [] : options.mappingDelta;
+  const fail = (message) => { throw new Error(`import_mapping_invalid:${message}`); };
+  if (!Array.isArray(delta) || delta.length > 256) fail("열 연결은 한 번에 256개 이하로 수정해 주세요.");
+  const sections = new Map();
+  if (headerIndex >= 0) {
+    let id = 1;
+    sections.set(id, { id, header_index: headerIndex, headers: table[headerIndex], base: importColumnMetadata(table[headerIndex]) });
+    for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
+      if (!table[i].csv_error && !isImportSheetMarker(table[i]) && looksLikeImportHeader(table[i], options)) {
+        id++;
+        sections.set(id, { id, header_index: i, headers: table[i], base: importColumnMetadata(table[i]) });
+      }
+    }
+  }
+  const seen = new Set(), normalized = [];
+  for (const item of delta) {
+    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).sort().join(",") !== "column_index,field,section") fail("열 연결 요청 형식을 확인해 주세요.");
+    if (!Number.isInteger(item.section) || !Number.isInteger(item.column_index) || item.section < 1 || item.column_index < 0 || typeof item.field !== "string" || !IMPORT_EDITABLE_FIELDS.includes(item.field)) fail("표 구간·열 번호와 연결할 항목을 확인해 주세요.");
+    const section = sections.get(item.section), key = `${item.section}:${item.column_index}`;
+    if (!section || item.column_index >= section.headers.length || seen.has(key)) fail("없는 열이나 중복된 열 연결을 요청했습니다. 연결을 다시 확인해 주세요.");
+    seen.add(key);
+    const original = section.base[item.column_index];
+    if (["currency", "raw_text", "time"].includes(original.field)) fail("통화·원문·시간 열은 자동 연결을 유지합니다. 이 열은 수정할 수 없습니다.");
+    if (original.field !== item.field) normalized.push({ section: item.section, column_index: item.column_index, field: item.field });
+  }
+  normalized.sort((a, b) => a.section - b.section || a.column_index - b.column_index);
+  for (const section of sections.values()) section.columns = section.base;
+  for (const item of normalized) {
+    const section = sections.get(item.section);
+    if (section.columns === section.base) section.columns = section.base.map(column => ({ ...column }));
+    Object.assign(section.columns[item.column_index], { field: item.field, exact: item.field });
+  }
+  for (const section of sections.values()) {
+    if (section.columns === section.base) continue;
+    const count = (columns, field) => columns.filter(column => column.field === field).length;
+    for (const field of ["date", "amount", "type", "income", "expense", "payment", "spender"]) {
+      if (count(section.columns, field) > Math.max(1, count(section.base, field))) fail(`${section.id}번째 표에서 ‘${IMPORT_FIELD_LABELS[field] || field}’ 연결이 겹칩니다. 기존 연결을 무시로 바꾸거나 새 연결을 해제해 주세요.`);
+    }
+    const mixed = columns => count(columns, "amount") > 0 && (count(columns, "income") > 0 || count(columns, "expense") > 0);
+    if (mixed(section.columns) && !mixed(section.base)) fail(`${section.id}번째 표에 단일 금액과 수입·지출 금액이 함께 연결되었습니다. 사용할 금액 방식 하나를 선택해 주세요.`);
+  }
+  return { sections, headerIndexes: new Set([...sections.values()].map(section => section.header_index)), delta: normalized };
+}
+
+function effectiveImportColumns(headers, section, options = {}) {
+  return options.mappingPlan?.sections.get(section)?.columns || importColumnMetadata(headers);
+}
+
+function importMappingSchema(table, plan, options = {}) {
+  const limit = 64, total = [...plan.sections.values()].reduce((sum, section) => sum + section.headers.length, 0);
+  const offset = Math.min(Math.max(0, Number.isInteger(options.mappingOffset) ? options.mappingOffset : 0), Math.max(0, total - 1));
+  const sections = [];
+  let position = 0;
+  for (const section of plan.sections.values()) {
+    const columns = [];
+    const next = plan.sections.get(section.id + 1)?.header_index ?? table.length;
+    const sample = table.slice(section.header_index + 1, Math.min(next, section.header_index + 4)).find(row => !row.csv_error && row.some(cell => String(cell).trim()));
+    const aligned = sample ? alignImportCells(section.headers, sample, section.columns) : null;
+    for (let index = 0; index < section.headers.length; index++, position++) {
+      if (position < offset || position >= offset + limit) continue;
+      const column = section.columns[index], base = section.base[index];
+      columns.push({ column_index: index, title: String(section.headers[index]).slice(0, 80), automatic: base.field || "", field: column.field || "", readonly: ["currency", "raw_text", "time"].includes(base.field), sample: String((aligned?.matched ? aligned.cells : sample)?.[index] ?? "").slice(0, 48).replace(/\s+/g, " ") });
+    }
+    if (columns.length) sections.push({ section: section.id, header_row: section.header_index + 1, total_columns: section.headers.length, columns });
+  }
+  return { total_columns: total, offset, limit, shown: Math.min(limit, Math.max(0, total - offset)), sections };
+}
+
+function importHeaderScore(row = [], options = {}) {
   const cells = safeArray(row);
-  const fields = new Set(cells.map(canonicalImportHeaderField).filter((field) => field && field !== "ignore"));
-  const hasMoney = ["amount", "income", "expense"].some((field) => fields.has(field));
   // V22.9.26: 날짜나 숫자 금액이 든 행은 제목 행이 아니다. "2026-07-01,지출,4500,스타벅스,카페/간식,카드"
   // 처럼 구분·결제수단 셀이 제목 별칭과 같은 가장 흔한 거래 행이 반복 제목으로 오인돼 저장 0건이 됐다.
-  const dataLike = !!findImportDateInValues(cells) || cells.some((cell) => {
+  const dataLike = cells.some((cell) => {
     const text = String(cell ?? "").trim();
     return /^[-+]?[\d,]+(?:\.\d+)?\s*원?$/.test(text) && Math.abs(Number(text.replace(/[^\d.-]/g, ""))) >= 1;
-  });
+  }) || !!findImportDateInValues(cells, options);
+  if (dataLike) return { score: 0, fields: new Set(), isHeader: false };
+  const fields = new Set(cells.map(canonicalImportHeaderField).filter((field) => field && field !== "ignore"));
+  const hasMoney = ["amount", "income", "expense"].some((field) => fields.has(field));
   let score = 0;
   if (fields.has("date")) score += 2;
   if (hasMoney) score += 3;
@@ -190,7 +312,7 @@ function detectImportDelimiter(text = "") {
   const candidates = ["\t", ",", ";", "|"];
   let best = { delimiter: "", score: 0 };
   for (const delimiter of candidates) {
-    const rows = parseDelimitedText(sample, delimiter).slice(0, 30);
+    const rows = parseDelimitedText(sample, delimiter, { retainRows: 30, sample: true });
     const widths = rows.map((row) => row.length).filter((n) => n > 1);
     if (!widths.length) continue;
     const common = widths.reduce((map, n) => (map[n] = (map[n] || 0) + 1, map), {});
@@ -201,25 +323,74 @@ function detectImportDelimiter(text = "") {
   return best.delimiter;
 }
 
-function parseDelimitedText(text, delimiter = "") {
+function parseDelimitedText(text, delimiter = "", options = {}) {
   const src = String(text || "").replace(/^\ufeff/, "");
   const delim = delimiter || detectImportDelimiter(src) || "\t";
-  const rows = [];
-  let row = [], cell = "", quote = false;
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i];
-    const next = src[i + 1];
-    if (quote) {
-      if (ch === '"' && next === '"') { cell += '"'; i += 1; }
-      else if (ch === '"') quote = false;
-      else cell += ch;
-    } else if (ch === '"') quote = true;
-    else if (ch === delim) { row.push(cell.trim()); cell = ""; }
-    else if (ch === "\n") { row.push(cell.trim()); if (row.some((v) => String(v).trim())) rows.push(row); row = []; cell = ""; }
-    else if (ch !== "\r") cell += ch;
+  const rows = [], retainRows = options.retainRows || 10100;
+  let row = [], state = "start", line = 1, startLine = 1, total = 0, cells = 0, error = "", firstBreak = -1, recovered = false;
+  let cellStart = 0, segmentStart = 0, parts = null, chunks = null, recordStart = 0;
+  // An escaped quote must not allocate an array entry for the entire cell's
+  // lifetime. Compact small fragments into bounded chunks while scanning.
+  const addPart = part => {
+    if (!part) return;
+    parts.push(part);
+    if (parts.length >= 1024) { chunks.push(parts.join("")); parts = []; }
+  };
+  const value = end => {
+    if (!parts) return src.slice(cellStart, end).trim();
+    if (segmentStart >= 0) addPart(src.slice(segmentStart, end));
+    chunks.push(parts.join(""));
+    return chunks.join("").trim();
+  };
+  const resetCell = start => { cellStart = start; segmentStart = start; parts = null; chunks = null; state = "start"; };
+  const finish = end => {
+    row.push(value(end));
+    if (row.some(item => String(item).trim()) || error) {
+      total++;
+      if (rows.length < retainRows) {
+        Object.defineProperties(row, { source_location: { value: { start_line: startLine, end_line: line, record: total } }, csv_error: { value: error } });
+        rows.push(row);
+      }
+    }
+    row = []; resetCell(end + 1); error = ""; firstBreak = -1;
+  };
+  for (let i = 0; i <= src.length; i++) {
+    if (i === src.length) {
+      if (state === "quoted") {
+        error = "unclosed_quote";
+        // Recover once at the first physical break. A second malformed tail is
+        // explicitly rejected as a range, avoiding quadratic rescans.
+        if (firstBreak >= 0 && !recovered && !options.sample) {
+          recovered = true;
+          const resume = firstBreak;
+          row = []; parts = null; cellStart = recordStart; state = "plain";
+          line = startLine; finish(resume);
+          i = resume; line++; startLine = line; recordStart = resume + 1;
+          continue;
+        }
+      }
+      finish(i); break;
+    }
+    const ch = src[i], next = src[i + 1];
+    if (state === "quoted") {
+      if (ch === '"' && next === '"') { addPart(src.slice(segmentStart, i)); addPart('"'); segmentStart = i + 2; i++; }
+      else if (ch === '"') { addPart(src.slice(segmentStart, i)); segmentStart = -1; state = "closed"; }
+      else if (ch === "\n" || ch === "\r") {
+        if (firstBreak < 0) firstBreak = ch === "\r" && next === "\n" ? i + 1 : i;
+        line++; if (ch === "\r" && next === "\n") i++;
+      }
+    } else if (ch === delim) {
+      row.push(value(i)); resetCell(i + 1); cells++;
+      if (row.length >= 4096 || cells >= 250000) { error = "structure_limit"; finish(i + 1); rows.limited = true; break; }
+    } else if (ch === "\n" || ch === "\r") {
+      finish(i); if (ch === "\r" && next === "\n") { i++; resetCell(i + 1); }
+      line++; startLine = line; recordStart = i + 1;
+      if (options.sample && rows.length >= retainRows) break;
+    } else if (ch === '"' && state === "start" && !src.slice(cellStart, i).trim()) { state = "quoted"; parts = []; chunks = []; segmentStart = i + 1; }
+    else if (state === "closed") { if (!/\s/.test(ch)) error = "unexpected_after_quote"; }
+    else state = "plain";
   }
-  row.push(cell.trim());
-  if (row.some((v) => String(v).trim())) rows.push(row);
+  rows.total_rows = total; rows.physical_lines = line;
   return rows;
 }
 
@@ -227,8 +398,8 @@ function splitDelimitedLine(line) {
   return parseDelimitedText(String(line || ""), detectImportDelimiter(line))[0] || [String(line || "").trim()];
 }
 
-function looksLikeImportHeader(row) {
-  return importHeaderScore(row).isHeader;
+function looksLikeImportHeader(row, options = {}) {
+  return importHeaderScore(row, options).isHeader;
 }
 
 function getImportValue(obj, patterns) {
@@ -244,6 +415,7 @@ function getImportValue(obj, patterns) {
 function canonicalImportValue(obj = {}, field = "") {
   const direct = safeObject(obj.__canonical)[field];
   if (direct !== undefined && String(direct ?? "").trim()) return String(direct).trim();
+  if (obj.__mapped === true) return "";
   for (const [key, value] of Object.entries(obj || {})) {
     if (key.startsWith("__")) continue;
     if (["amount","income","expense"].includes(field) && /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(key)) continue;
@@ -252,9 +424,9 @@ function canonicalImportValue(obj = {}, field = "") {
   return "";
 }
 
-function findImportDateInValues(values) {
+function findImportDateInValues(values, options = {}) {
   for (const value of values || []) {
-    const d = parseImportDateCell(value);
+    const d = parseImportDateCell(value, options);
     if (d) return d;
   }
   return "";
@@ -265,9 +437,17 @@ function findImportDateInValues(values) {
 // 52000 이 2004·2042년이 되지 않는다. (2) 두 자리 연도의 세 토막 날짜는 SheetJS 가 날짜 셀을 적는 M/D/YY 를 먼저
 // 본다(10/12/25 → 2025-10-12). 월이 13 이상이면 YY/MM/DD 다(25.10.12 → 2025-10-12). (3) 연도는 2000년부터
 // 내년까지만 받는다. 그 밖은 날짜가 아니라고 보고 행을 확인 필요(invalid_date)로 보낸다.
-function importDateYearAllowed(ymd = "") {
+function importDateContext(options = {}) {
+  if (options.dateContext) return options.dateContext;
+  const referenceDate = parseStrictDate(options.referenceDate) || formatDate(nowKstDate());
+  const explicit = Number.isInteger(Number(options.importYear)) && Number(options.importYear) >= 2000;
+  const mode = ["default", "selected", "file"].includes(options.dateBasisMode) ? options.dateBasisMode : explicit ? "selected" : "default";
+  return { reference_date: referenceDate, year: explicit ? Number(options.importYear) : Number(referenceDate.slice(0, 4)), mode, max_year: Number(referenceDate.slice(0, 4)) + 1 };
+}
+
+function importDateYearAllowed(ymd = "", options = {}) {
   const year = Number(String(ymd || "").slice(0, 4));
-  return Number.isFinite(year) && year >= 2000 && year <= nowKstDate().getFullYear() + 1 ? String(ymd) : "";
+  return Number.isFinite(year) && year >= 2000 && year <= importDateContext(options).max_year ? String(ymd) : "";
 }
 
 function isTwoDigitYearImportDate(value = "") {
@@ -277,25 +457,39 @@ function isTwoDigitYearImportDate(value = "") {
 function parseImportDateCell(value, options = {}) {
   const text = String(value ?? "").replace(/\ufeff/g, "").trim().replace(/^["']|["']$/g, "").trim();
   if (!text) return "";
-  if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text)) : "";
+  if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text), options) : "";
   const parts = text.match(/^(\d{1,2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})(?:\s|$)/);
   if (parts) {
     const monthDayYear = parts[3].length === 2 ? safeYmd(2000 + Number(parts[3]), Number(parts[1]), Number(parts[2])) : "";
     const yearMonthDay = parts[1].length === 2 ? safeYmd(2000 + Number(parts[1]), Number(parts[2]), Number(parts[3])) : "";
-    return importDateYearAllowed(monthDayYear || yearMonthDay);
+    return importDateYearAllowed(monthDayYear || yearMonthDay, options);
   }
-  return importDateYearAllowed(parseDateStrict(text));
+  const short = text.match(/^(\d{1,2})\s*(?:[./-]|월\s*)(\d{1,2})\s*일?$/);
+  if (short) {
+    const context = importDateContext(options);
+    let year = context.year;
+    const date = safeYmd(year, Number(short[1]), Number(short[2]));
+    if (date && context.mode === "default" && (Date.parse(date) - Date.parse(context.reference_date)) / 86400000 > 183) year--;
+    return importDateYearAllowed(safeYmd(year, Number(short[1]), Number(short[2])), options);
+  }
+  return importDateYearAllowed(parseDateStrict(text), options);
 }
 
 // 자연어·행 전체 텍스트에서 날짜를 찾을 때도 다섯 자리 숫자 하나뿐인 텍스트는 엑셀 일련번호로 읽지 않는다.
-function importDateFromFreeText(text = "") {
+function importDateFromFreeText(text = "", options = {}) {
   const raw = String(text ?? "").trim();
   if (!raw || /^\d{5}(?:\.\d+)?$/.test(raw)) return "";
-  return importDateYearAllowed(parseExplicitDateFromText(raw));
+  const strict = parseImportDateCell(raw, options);
+  if (strict) return strict;
+  const context = importDateContext(options);
+  const monthDay = raw.match(/(?:^|\s)(\d{1,2})\s*(?:월\s*|[./-])(\d{1,2})\s*일?(?=\s|$|[.,!?])/);
+  if (monthDay && context.mode !== "default" && !/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)/.test(raw)) return parseImportDateCell(`${monthDay[1]}/${monthDay[2]}`, options);
+  return importDateYearAllowed(quickInputDate(raw, context.reference_date), options);
 }
 
 // 날짜 열(제목 표의 date 필드, 키:값 행의 날짜 항목, 객체의 날짜 키)이 있는 행인지.
 function importHasDateField(obj = {}) {
+  if (obj.__mapped === true) return obj.__has_date === true;
   if (safeArray(obj.__headers).some((header) => canonicalImportField(header) === "date")) return true;
   if (Object.prototype.hasOwnProperty.call(safeObject(obj.__canonical), "date")) return true;
   return Object.keys(obj || {}).some((key) => !key.startsWith("__") && canonicalImportField(key) === "date");
@@ -305,29 +499,40 @@ function importHasDateField(obj = {}) {
 // 공백 경계 규칙에 걸리지 않았고, 날짜가 있으면 지출로 저장됐다. 합계·총계·소계·월계는 칸 하나가 그 말이면(앞에
 // "7월"·"지출"·"총" 같은 말, 뒤에 숫자·콜론만 허용) 날짜가 있어도 거래가 아니다. 누계·잔액은 메모에 섞일 수 있어
 // 예전처럼 날짜 없는 행에서만 본다.
-function isImportSummaryRow(cells = [], raw = "") {
-  const totalCell = /^(?:[0-9A-Za-z가-힣]+\s*){0,3}(?:합계|총계|소계|월계)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
-  const balanceCell = /^(?:[0-9A-Za-z가-힣]+\s*){0,3}(?:누계|잔액)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
+function isImportSummaryRow(cells = [], raw = "", options = {}) {
+  const summaryCell = (cell, pattern) => {
+    const match = cell.match(pattern);
+    if (!match) return false;
+    const prefix = cell.slice(0, match.index).trim();
+    return !prefix || /^[0-9A-Za-z가-힣\s]+$/.test(prefix) && prefix.split(/\s+/).length <= 3;
+  };
+  const totalCell = /(?:합계|총계|소계|월계)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
+  const balanceCell = /(?:누계|잔액)\s*[:：]?\s*(?:[-−]?[\d,.]+\s*원?)?$/;
   const values = safeArray(cells).map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
-  if (values.some((cell) => totalCell.test(cell))) return true;
-  if (findImportDateInValues(values)) return false;
-  return values.some((cell) => balanceCell.test(cell)) || /(?:^|\s)(합계|총계|소계|월계|누계|잔액)(?:\s|$)/.test(String(raw || ""));
+  if (values.some((cell) => summaryCell(cell, totalCell))) return true;
+  if (findImportDateInValues(values, options)) return false;
+  return values.some((cell) => summaryCell(cell, balanceCell)) || /(?:^|\s)(합계|총계|소계|월계|누계|잔액)(?:\s|$)/.test(String(raw || ""));
 }
 
 // V22.9.37 감사 T10: 파일 전체의 부호 규칙. 금액이 있는 행 중 둘 이상·절반 이상이 음수이고, 양수인데 지출로 적힌 행과
 // 음수인데 수입으로 적힌 행이 하나도 없으면 "음수 = 지출, 양수 = 수입"으로 내보낸 파일(signed)이다. 그 밖(양수 지출
 // 사이의 음수 몇 건)은 예전처럼 취소·환불로 본다(default). 제목 행이 없는 표·자연어는 규칙을 정하지 않는다.
-function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000) {
+function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000, options = {}) {
   const summary = { mode: "default", amount_rows: 0, negative_rows: 0 };
   if (headerIndex < 0 || !safeArray(table[headerIndex]).length) return summary;
   let headers = table[headerIndex];
-  let fields = headers.map(canonicalImportField);
+  let sectionId = 1;
+  let columns = effectiveImportColumns(headers, sectionId, options);
+  let fields = columns.map((column) => column.field);
   let positiveExpense = 0;
   let negativeIncome = 0;
   for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
     const cells = safeArray(table[i]);
     if (!cells.some((cell) => String(cell ?? "").trim())) continue;
-    const aligned = alignImportCells(headers, cells);
+    if (cells.csv_error) continue;
+    if (isImportSheetMarker(cells)) continue;
+    if (options.mappingPlan?.headerIndexes.has(i)) { headers = cells; columns = effectiveImportColumns(headers, ++sectionId, options); fields = columns.map(column => column.field); continue; }
+    const aligned = alignImportCells(headers, cells, columns);
     let money = null;
     let typed = "";
     if (aligned.matched) {
@@ -342,10 +547,11 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
     }
     // 금액이 없는 행만 제목 행인지 본다(제목 판정은 비싸고, 금액이 있는 행은 제목이 아니다).
     if (!money) {
-      if (looksLikeImportHeader(cells)) { headers = cells; fields = headers.map(canonicalImportField); }
+      if (!options.mappingPlan && looksLikeImportHeader(cells, options)) { headers = cells; columns = effectiveImportColumns(headers, ++sectionId, options); fields = columns.map((column) => column.field); }
       continue;
     }
-    if (isImportSummaryRow(aligned.cells, aligned.cells.join(" "))) continue;
+    const inferenceCells = aligned.cells.filter((_, index) => ["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(columns[index]?.field));
+    if (isImportSummaryRow(inferenceCells, inferenceCells.join(" "), options)) continue;
     summary.amount_rows += 1;
     if (money.negative) { summary.negative_rows += 1; if (typed === "income") negativeIncome += 1; }
     else if (typed === "expense") positiveExpense += 1;
@@ -356,15 +562,23 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
 
 function parseImportAmountCell(value = "") {
   const raw = String(value ?? "").normalize("NFKC").trim();
-  if (!raw || /^(?:-|—|–|0|0\.0+)$/.test(raw)) return { amount: 0, present: !!raw, valid: !raw || /^0/.test(raw), negative: false, raw };
-  const negative = /^\s*-/.test(raw) || /^\(.*\)$/.test(raw) || /-\s*$/.test(raw);
-  const numeric = raw.replace(/[()]/g, "").replace(/(?:krw|won|원)/gi, "").replace(/[₩￦,$\s]/g, "").replace(/^-|-$/g, "");
+  if (!raw || /^(?:-|—|–)$/.test(raw)) return { amount: 0, present: !!raw, valid: true, negative: false, raw };
+  let numeric = raw, negative = false, signs = 0;
+  if (/^\(.*\)$/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(1, -1).trim(); }
+  const stripCurrency = text => text.replace(/^(?:₩|￦|\$|krw(?=[\d\s−△▲-])|won(?=[\d\s−△▲-]))\s*/i, "").replace(/\s*(?:원|krw|won)$/i, "").trim();
+  numeric = stripCurrency(numeric);
+  if (/^[-−△▲]/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(1).trim(); }
+  if (/[-−]$/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(0, -1).trim(); }
+  numeric = stripCurrency(numeric);
   let amount = 0;
-  if (/^\d+(?:\.0+)?$/.test(numeric)) amount = Number(numeric);
-  // V22.9.37 감사 SIM-7: 원 단위에 소수(12.5)는 없다. 반올림해 13원으로 저장하지 않고 금액 형식 오류로 보낸다.
-  else if (/^\d+\.\d+$/.test(numeric)) amount = NaN;
-  else amount = parseAmountValue(raw);
-  return { amount: Number.isFinite(amount) ? Math.abs(Math.round(amount)) : 0, present: true, valid: Number.isFinite(amount) && amount > 0, negative, raw };
+  if (signs > 1) amount = NaN;
+  else if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.0+)?$/.test(numeric)) amount = Number(numeric.replace(/,/g, ""));
+  else if (numeric.length <= 120 && /^[0-9일이삼사오육칠팔구십백천만억영공.,\s]+$/.test(numeric) && /[십백천만억]/.test(numeric)) {
+    const spans = moneyTokenSpans(numeric);
+    amount = spans.length === 1 && spans[0].start === 0 && spans[0].end === numeric.length ? spans[0].amount : NaN;
+  }
+  else amount = NaN;
+  return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
 }
 
 function normalizeImportTypeValue(value = "") {
@@ -380,19 +594,21 @@ function importRejection(code = "unsupported_row", rowNumber = 0, raw = "") {
   return { row_number: rowNumber, reason_code: code, reason, suggestion, raw: String(raw || "").replace(/\s+/g, " ").trim().slice(0, 240) };
 }
 
-function importObjectFromHeaders(headers = [], cells = []) {
-  const obj = { __canonical: {}, __headers: headers.slice(), __cells: cells.slice() };
+function importObjectFromHeaders(headers = [], cells = [], columns = importColumnMetadata(headers)) {
+  const obj = Object.assign(Object.create(null), { __canonical: Object.create(null), __mapped: true, __has_date: columns.some((column) => column.field === "date"), __context: [], __headers: headers, __cells: cells });
   const localMoney = new Set();
   headers.forEach((header, index) => {
-    const key = normalizeImportHeader(header) || `col${index + 1}`;
+    const column = columns[index];
+    const key = column.key || `col${index + 1}`;
     const value = cells[index] ?? "";
-    const field = canonicalImportField(header);
+    const field = column.field;
     const moneyField = ["amount", "income", "expense"].includes(field);
-    const foreign = /외화|해외통화|USD|EUR|JPY|달러|엔화|유로/i.test(String(header));
-    if (foreign && (moneyField || /금액|amount|통화|currency/i.test(String(header)))) { obj.__foreign_money = true; return; }
+    const foreign = column.foreign;
+    if (foreign && (moneyField || column.original_money || /금액|amount|통화|currency/i.test(String(header)))) { obj.__foreign_money = true; return; }
     obj[key] = value;
-    const local = moneyField && /원화|KRW|won|\(원\)|\[원\]/i.test(String(header));
-    if (field && field !== "ignore" && String(value).trim()) {
+    const local = moneyField && column.local;
+    if (["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(field)) obj.__context.push(value);
+    if (field && !["ignore", "time"].includes(field) && String(value).trim()) {
       if (local || !obj.__canonical[field]) obj.__canonical[field] = String(value).trim();
       else if (field === "memo" || field === "category") obj.__canonical[field] = `${obj.__canonical[field]} / ${String(value).trim()}`;
       if (local) localMoney.add(field);
@@ -402,11 +618,12 @@ function importObjectFromHeaders(headers = [], cells = []) {
   return obj;
 }
 
-function alignImportCells(headers = [], cells = []) {
+function alignImportCells(headers = [], cells = [], columns = null) {
   const out = safeArray(cells).slice();
   const warnings = [];
   if (!headers.length || out.length <= headers.length) return { cells: out, warnings, matched: true };
-  const moneyIndexes = headers.map(canonicalImportHeaderField).map((field, index) => (["amount", "income", "expense"].includes(field) ? index : -1)).filter((index) => index >= 0);
+  const fields = (columns || importColumnMetadata(headers)).map((column) => column.exact);
+  const moneyIndexes = fields.map((field, index) => (["amount", "income", "expense"].includes(field) ? index : -1)).filter((index) => index >= 0);
   for (const index of moneyIndexes) {
     while (out.length > headers.length && index + 1 < out.length) {
       const left = String(out[index] || "").normalize("NFKC").trim().replace(/[₩￦$\s]/g, "");
@@ -417,7 +634,8 @@ function alignImportCells(headers = [], cells = []) {
     }
   }
   if (out.length > headers.length) {
-    const memoIndex = headers.map(canonicalImportHeaderField).findIndex((field) => field === "memo");
+    if (moneyIndexes.some(index => /^[-−]?\d+$/.test(String(out[index] || "").trim()) && /^\d{1,2}$/.test(String(out[index + 1] || "").trim()))) return { cells: out, warnings, matched: false };
+    const memoIndex = fields.findIndex((field) => field === "memo");
     if (memoIndex >= 0 && memoIndex < out.length) {
       const extra = out.length - headers.length;
       out.splice(memoIndex, extra + 1, out.slice(memoIndex, memoIndex + extra + 1).join(", "));
@@ -444,7 +662,7 @@ function importKeyValueObject(line = "") {
   return obj;
 }
 
-function parseImportJsonTable(text = "") {
+function parseImportJsonTable(text = "", options = {}) {
   const source = String(text || "").trim();
   if (!/^[\[{]/.test(source)) return null;
   try {
@@ -456,7 +674,9 @@ function parseImportJsonTable(text = "") {
       }
       if (!records.length && Object.values(parsed).some((value) => typeof value !== "object" || value === null)) records = [parsed];
     }
-    records = records.filter((record) => record && typeof record === "object" && !Array.isArray(record)).slice(0, 10000);
+    records = records.filter((record) => record && typeof record === "object" && !Array.isArray(record));
+    const totalRecords = records.length;
+    records = records.slice(0, (options.maxRows || 10000) + 100);
     if (!records.length) return null;
     const flatRecords = records.map((record) => {
       const out = Object.create(null);
@@ -468,7 +688,14 @@ function parseImportJsonTable(text = "") {
       return out;
     });
     const headers = [...new Set(flatRecords.flatMap((record) => Object.keys(record)))];
-    return [headers, ...flatRecords.map((record) => headers.map((header) => record[header] == null ? "" : String(record[header])))];
+    if (headers.length > 4096 || headers.length * flatRecords.length > 250000) {
+      const row = ["JSON structure limit"];
+      Object.defineProperty(row, "csv_error", { value: "structure_limit" });
+      const table = [row]; table.limited = true; table.total_rows = totalRecords + 1; return table;
+    }
+    const table = [headers, ...flatRecords.map((record) => headers.map((header) => record[header] == null ? "" : String(record[header])))];
+    table.total_rows = totalRecords + 1;
+    return table;
   } catch (err) {
     return null;
   }
@@ -476,6 +703,9 @@ function parseImportJsonTable(text = "") {
 
 function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", cells = [], defaultUserId = "", options = {}) {
   const rawText = String(raw || safeArray(cells).join(" ") || Object.values(obj).filter((v) => typeof v !== "object").join(" ")).replace(/\s+/g, " ").trim();
+  options = { ...options, dateContext: importDateContext(options) };
+  const contextCells = obj.__mapped === true ? obj.__context : cells;
+  const contextText = obj.__mapped === true ? contextCells.join(" ") : rawText;
   const warnings = [];
   const natural = !!options.natural;
   const currency = canonicalImportValue(obj,"currency");
@@ -485,13 +715,11 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.37 감사 N5·D6: 날짜 열이 있는 행은 그 칸에서만 날짜를 읽는다. 비었거나 해석되지 않으면 다른 칸(금액 38000 →
   // 2004년)에서 날짜를 찍어 내지 않고 missing_date·invalid_date 로 확인 필요에 보낸다. 날짜 열이 없는 행만 예전처럼
   // 행 안의 다른 값과 자연어에서 날짜를 찾는다(엑셀 일련번호 제외).
-  let transactionDate = dateVal ? parseImportDateCell(dateVal, { allowSerial: true }) : "";
-  const shortDate = String(dateVal || "").match(/^(\d{1,2})[./-](\d{1,2})$/);
-  if (shortDate) transactionDate = safeYmd(Number(options.importYear || nowKstDate().getFullYear()), Number(shortDate[1]), Number(shortDate[2]));
-  if (!transactionDate && dateVal && /[가-힣]/.test(dateVal)) transactionDate = importDateFromFreeText(dateVal);
-  if (!transactionDate && !importHasDateField(obj)) transactionDate = findImportDateInValues(cells) || importDateFromFreeText(rawText);
+  let transactionDate = dateVal ? parseImportDateCell(dateVal, { ...options, allowSerial: true }) : "";
+  if (!transactionDate && dateVal && /[가-힣]/.test(dateVal)) transactionDate = importDateFromFreeText(dateVal, options);
+  if (!transactionDate && !importHasDateField(obj)) transactionDate = findImportDateInValues(contextCells, options) || importDateFromFreeText(contextText, options);
   if (!transactionDate && natural) {
-    transactionDate = formatDate(nowKstDate());
+    transactionDate = options.dateContext.reference_date;
     warnings.push("날짜가 없어 오늘 날짜로 보정했습니다.");
   }
   if (!transactionDate) return { row: null, rejection: importRejection(dateVal ? "invalid_date" : "missing_date", options.rowNumber, rawText), warnings };
@@ -499,6 +727,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const incomeInfo = parseImportAmountCell(canonicalImportValue(obj, "income"));
   const expenseInfo = parseImportAmountCell(canonicalImportValue(obj, "expense"));
   const amountInfo = parseImportAmountCell(canonicalImportValue(obj, "amount"));
+  if ([incomeInfo, expenseInfo, amountInfo].some((info) => info.present && !info.valid)) return { row: null, rejection: importRejection("invalid_amount", options.rowNumber, rawText), warnings };
   if (incomeInfo.amount > 0 && expenseInfo.amount > 0) return { row: null, rejection: importRejection("both_income_expense", options.rowNumber, rawText), warnings };
 
   let chosen = incomeInfo.amount > 0 ? incomeInfo : expenseInfo.amount > 0 ? expenseInfo : amountInfo;
@@ -507,8 +736,8 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const anyAmountPresent = amountInfo.present || incomeInfo.present || expenseInfo.present;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
-    for (const cell of cells || []) {
-      if (!String(cell || "").trim() || parseImportDateCell(cell) || normalizeImportTypeValue(cell)) continue;
+    for (const cell of contextCells || []) {
+      if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
     }
@@ -519,7 +748,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
 
   let naturalParsed = null;
   if (!chosen.amount && !anyAmountPresent) {
-    naturalParsed = parseTransaction(rawText, {});
+    naturalParsed = parseTransaction(contextText, {});
     if (naturalParsed.ok) chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
   }
   if (!chosen.amount) return { row: null, rejection: importRejection(anyAmountPresent ? "invalid_amount" : "missing_amount", options.rowNumber, rawText), warnings };
@@ -531,7 +760,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const normalizedType = normalizeImportTypeValue(typeVal);
   // V22.9.37 감사 T9: 문맥으로 구분을 정할 때는 칸을 구분자 대신 공백으로 이어 본다. "…,급여,월급,…" 처럼 쉼표에
   // 붙은 수입 말은 단어 경계(공백) 규칙에 걸리지 않아 월급·판매가 지출이 됐다. 규칙 자체는 공용 detectType(D2)이다.
-  const cellsText = safeArray(cells).length > 1 ? cells.map((cell) => String(cell ?? "")).join(" ") : rawText;
+  const cellsText = safeArray(contextCells).length > 1 ? contextCells.map((cell) => String(cell ?? "")).join(" ") : contextText;
   // V22.9.37 감사 T10: 파일 전체가 부호로 수입·지출을 적은 내보내기(음수 = 지출, 양수 = 수입)면 음수를 환불로 뒤집지 않는다.
   const signedFile = options.signConvention === "signed";
   let type = normalizedType || forcedType || (chosen.negative ? "expense" : "");
@@ -547,7 +776,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.26: 구분 열이 지출인데 금액이 음수면 카드사 명세서의 취소·환불 표기다. 양수 지출로
   // 더하면 원거래와 취소가 둘 다 지출로 집계된다. 환급(수입)으로 돌리고 확인 표시를 남긴다.
   let refundFlipped = false;
-  const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(rawText);
+  const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
   if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
@@ -561,9 +790,12 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const categoryVal = canonicalImportValue(obj, "category");
   const memoVal = canonicalImportValue(obj, "memo");
   const rawField = canonicalImportValue(obj, "raw_text");
-  const payment = paymentVal ? (normalizePaymentMethod(paymentVal) || String(paymentVal).trim()) : (naturalParsed?.payment_method || detectPaymentMethod(rawText));
-  const category = refundFlipped ? "환급" : (categoryVal || naturalParsed?.category || inferCategory(`${rawText} ${memoVal}`, type));
-  const memo = memoVal || naturalParsed?.memo || cleanMemo(rawText, chosen.raw || String(chosen.amount), type, payment, category) || category;
+  if (categoryVal.length > 80 || [paymentVal, categoryVal].some((value) => /[\u0000-\u001f\u007f]/.test(value))) return { row: null, rejection: importRejection("invalid_field", options.rowNumber, rawText), warnings };
+  const payment = paymentVal ? String(paymentVal).trim() : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
+  const category = refundFlipped ? "환급" : (categoryVal || naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type));
+  const memo = memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category;
+  const textIssue = importStorageTextIssue({ memo, payment_method: payment });
+  if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
   const spender = canonicalImportValue(obj, "spender");
   const row = {
     household_id: householdId,
@@ -571,8 +803,8 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     type,
     amount: Math.abs(Math.round(chosen.amount)),
     category: String(category || (type === "income" ? "기타수입" : "기타지출")).slice(0, 80),
-    memo: String(memo || "").slice(0, 240),
-    payment_method: String(payment || "").slice(0, 80),
+    memo: String(memo || ""),
+    payment_method: String(payment || ""),
     transaction_date: transactionDate,
     source: options.source || "import_smart",
     raw_text: String(rawField || rawText).slice(0, 500),
@@ -584,35 +816,100 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
 }
 
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
-  const text = String(rawText || "").replace(/^\ufeff/, "").trim();
+  const text = String(rawText || "").replace(/^\ufeff/, "");
   const result = { rows: [], accepted: [], rejected: [], skipped: 0, warnings: [], mappings: [], delimiter: "", format: "natural_text", header_row: 0, total_rows: 0, sign_convention: { mode: "default", amount_rows: 0, negative_rows: 0 }, two_digit_year_rows: 0 };
-  if (!text) return result;
-  const jsonTable = parseImportJsonTable(text);
-  const delimiter = jsonTable ? "" : detectImportDelimiter(text);
-  const table = jsonTable || parseDelimitedText(text, delimiter);
+  if (!text.trim()) return result;
   const maxRows = Math.min(10000, Math.max(100, Number(options.maxRows || 5000)));
+  options = { ...options, dateContext: importDateContext(options) };
+  result.date_basis = { ...options.dateContext };
+  const requestedDateContext = { ...options.dateContext };
+  if (new TextEncoder().encode(text).length > 5 * 1024 * 1024) {
+    result.rejected.push(importRejection("over_limit", 1, "입력은 5 MiB 이하여야 합니다.")); result.skipped = 1; result.analysis_complete = false; return result;
+  }
+  const jsonTable = parseImportJsonTable(text, { maxRows });
+  const delimiter = jsonTable ? "" : detectImportDelimiter(text);
+  const table = jsonTable || parseDelimitedText(text, delimiter, { retainRows: maxRows + 100 });
   result.delimiter = jsonTable ? "JSON" : delimiter === "\t" ? "탭(TSV)" : delimiter === "," ? "쉼표(CSV)" : delimiter === ";" ? "세미콜론" : delimiter === "|" ? "파이프" : "자연어";
-  result.total_rows = table.length;
+  result.total_rows = table.total_rows ?? table.length;
+  result.physical_lines = table.physical_lines || 0;
+  result.analysis_complete = !table.limited && result.total_rows <= maxRows;
+  result.total_rows_known = !table.limited;
+  if (table.limited) result.warnings.push("표 구조의 안전 한도에 도달해 뒤 입력은 분석하지 않았습니다. 원본 전체 분석이 완료된 결과가 아닙니다.");
   let headerIndex = -1;
   for (let i = 0; i < Math.min(100, table.length); i++) {
-    if (looksLikeImportHeader(table[i])) { headerIndex = i; break; }
+    if (!table[i].csv_error && !isImportSheetMarker(table[i]) && looksLikeImportHeader(table[i], options)) { headerIndex = i; break; }
   }
   result.header_row = headerIndex >= 0 ? headerIndex + 1 : 0;
   result.format = headerIndex >= 0 ? "table" : (delimiter ? "headerless_table" : "natural_text");
   // V22.9.37 감사 T10: 본 해석 전에 파일 전체의 부호 규칙을 정한다(제목 행이 있는 표만).
-  const signConvention = detectImportSignConvention(table, headerIndex, maxRows);
-  result.sign_convention = signConvention;
-  if (signConvention.mode === "signed") result.warnings.push(`부호 규칙: 금액이 있는 ${signConvention.amount_rows}행 중 ${signConvention.negative_rows}행이 음수라 음수를 지출, 양수를 수입으로 읽었습니다.`);
+  let signConvention = detectImportSignConvention(table, headerIndex, maxRows, options);
   let twoDigitYearRows = 0;
 
-  const addRejected = (rejection) => { result.rejected.push(rejection); result.warnings.push(`${rejection.row_number}행: ${rejection.reason}`); };
+  const addRejected = (rejection) => {
+    const location = table[rejection.row_number - 1]?.source_location;
+    if (location) rejection.source_location = { ...location, section: sectionId };
+    result.rejected.push(rejection); result.warnings.push(`${location?.start_line || rejection.row_number}행: ${rejection.reason}`);
+  };
+  let sectionId = 1;
   let currentHeaders = headerIndex >= 0 ? table[headerIndex] : [];
+  let columns = effectiveImportColumns(currentHeaders, sectionId, options);
+  // An unambiguous explicit year in a dated table is stronger evidence than a
+  // missing year. No request-global clock or module-load year is used.
+  if (headerIndex >= 0 && !options.dateContext.file_year) {
+    const years = new Set();
+    let yearColumns = columns, yearSectionId = 1;
+    for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
+      if (table[i].csv_error || isImportSheetMarker(table[i])) continue;
+      if (looksLikeImportHeader(table[i], options)) { yearColumns = effectiveImportColumns(table[i], ++yearSectionId, options); continue; }
+      yearColumns.forEach((column, index) => {
+        const value = String(table[i][index] || "");
+        if (column.field !== "date" || !/(?:20\d{2})|^\d{1,2}[./-]\d{1,2}[./-]\d{2}(?:\s|$)/.test(value)) return;
+        const date = parseImportDateCell(value, options); if (date) years.add(Number(date.slice(0, 4)));
+      });
+    }
+    if (years.size === 1) {
+      const year = [...years][0];
+      options.dateContext = { ...options.dateContext, mode: "file", requested_mode: options.dateContext.mode, year, file_year: year };
+      result.date_basis = { ...options.dateContext };
+    }
+  }
+  if (options.mappingMetadata || options.mappingDelta !== undefined) {
+    // Freeze source header identities after the baseline file-year pass. A
+    // mapping edit must not silently retarget section IDs when a leap date
+    // changes whether a data row resembles another header.
+    options.mappingPlan = importMappingPlan(table, headerIndex, maxRows, options);
+    result.mapping_delta = options.mappingPlan.delta;
+    columns = effectiveImportColumns(currentHeaders, sectionId, options);
+    if (result.mapping_delta.length) {
+      const years = new Set();
+      let dateColumns = columns, dateHeaders = currentHeaders, dateSection = 1;
+      for (let i = headerIndex + 1; headerIndex >= 0 && i < Math.min(table.length, maxRows); i++) {
+        if (table[i].csv_error || isImportSheetMarker(table[i])) continue;
+        if (options.mappingPlan.headerIndexes.has(i)) { dateHeaders = table[i]; dateColumns = effectiveImportColumns(dateHeaders, ++dateSection, options); continue; }
+        const aligned = alignImportCells(dateHeaders, table[i], dateColumns);
+        if (!aligned.matched) continue;
+        dateColumns.forEach((column, index) => {
+          const value = String(aligned.cells[index] || "");
+          if (column.field !== "date" || !/(?:20\d{2})|^\d{1,2}[./-]\d{1,2}[./-]\d{2}(?:\s|$)/.test(value)) return;
+          const date = parseImportDateCell(value, options); if (date) years.add(Number(date.slice(0, 4)));
+        });
+      }
+      const mode = requestedDateContext.requested_mode || requestedDateContext.mode;
+      const basis = { reference_date: requestedDateContext.reference_date, max_year: requestedDateContext.max_year, mode, year: mode === "default" ? Number(requestedDateContext.reference_date.slice(0, 4)) : Number(options.importYear || requestedDateContext.year) };
+      options.dateContext = years.size === 1 ? { ...basis, mode: "file", requested_mode: mode, year: [...years][0], file_year: [...years][0] } : basis;
+      result.date_basis = { ...options.dateContext };
+      signConvention = detectImportSignConvention(table, headerIndex, maxRows, options);
+    }
+    if (options.mappingMetadata) result.mapping_schema = importMappingSchema(table, options.mappingPlan, options);
+  }
+  result.sign_convention = signConvention;
+  if (signConvention.mode === "signed") result.warnings.push(`부호 규칙: 금액이 있는 ${signConvention.amount_rows}행 중 ${signConvention.negative_rows}행이 음수라 음수를 지출, 양수를 수입으로 읽었습니다.`);
   const registerMappings = (headers) => {
-    for (const header of headers) {
-      const field = canonicalImportField(header);
+    for (const [index, header] of headers.entries()) {
+      const field = columns[index].field;
       if (!field) continue;
-      const key = `${normalizeImportHeader(header)}:${field}`;
-      if (!result.mappings.some((item) => item.key === key)) result.mappings.push({ key, source: String(header).trim(), field, label: IMPORT_FIELD_LABELS[field] || field });
+      const key = `${sectionId}:${index}`;
+      result.mappings.push({ key, section: sectionId, column_index: index, source: String(header).trim(), field, label: IMPORT_FIELD_LABELS[field] || field });
     }
   };
   if (currentHeaders.length) registerMappings(currentHeaders);
@@ -621,33 +918,43 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
     const rowNumber = i + 1;
     const cells = table[i];
     const raw = cells.join(delimiter || " | ").trim();
+    if (cells.csv_error) {
+      const rejection = importRejection(cells.csv_error === "structure_limit" ? "structure_limit" : "invalid_csv", rowNumber, raw);
+      rejection.syntax_error = cells.csv_error;
+      if (cells.csv_error === "unclosed_quote") rejection.suggestion = "이 줄에서 연 큰따옴표가 파일 끝까지 닫히지 않았습니다. 첫 줄바꿈 뒤의 거래는 따로 복구하여 분석했습니다.";
+      if (cells.csv_error === "unexpected_after_quote") rejection.suggestion = "닫는 큰따옴표 뒤에는 구분자나 줄바꿈만 올 수 있습니다. 뒤에 붙은 문자를 확인해 주세요.";
+      addRejected(rejection);
+      result.analysis_complete = false; continue;
+    }
     if (!raw) continue;
     if (i < headerIndex) { addRejected(importRejection("preamble", rowNumber, raw)); continue; }
     if (i === headerIndex) continue;
-    if (/^(?:#\s*)?(?:시트|sheet)\s*[:：]/i.test(raw)) { addRejected(importRejection("preamble", rowNumber, raw)); continue; }
-    if (looksLikeImportHeader(cells)) {
+    if (isImportSheetMarker(cells)) { addRejected(importRejection("preamble", rowNumber, raw)); continue; }
+    if (options.mappingPlan ? options.mappingPlan.headerIndexes.has(i) : looksLikeImportHeader(cells, options)) {
+      sectionId++;
       currentHeaders = cells;
+      columns = effectiveImportColumns(currentHeaders, sectionId, options);
       registerMappings(currentHeaders);
       addRejected(importRejection("repeated_header", rowNumber, raw));
       continue;
     }
     // V22.9.37 감사 T9: 합계 칸은 칸 단위로 본다(제목 행 판정 뒤 — "잔액" 열이 있는 제목 행을 합계로 오인하지 않는다).
-    if (isImportSummaryRow(cells, raw)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
-
     let obj = null;
     let natural = headerIndex < 0;
     let effectiveCells = cells;
     let alignmentWarnings = [];
     if (currentHeaders.length) {
-      const aligned = alignImportCells(currentHeaders, cells);
+      const aligned = alignImportCells(currentHeaders, cells, columns);
       if (!aligned.matched) { addRejected(importRejection("column_mismatch", rowNumber, raw)); continue; }
       effectiveCells = aligned.cells;
       alignmentWarnings = aligned.warnings;
-      obj = importObjectFromHeaders(currentHeaders, effectiveCells);
+      obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns);
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
+    const summaryCells = obj.__mapped === true ? obj.__context : cells;
+    if (isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
-    if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells)) effectiveCells = [raw];
-    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { natural, rowNumber, importYear: options.importYear, source: options.source || "import_smart", signConvention: signConvention.mode });
+    if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells, options)) effectiveCells = [raw];
+    const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { ...options, natural, rowNumber, source: options.source || "import_smart", signConvention: signConvention.mode });
     if (!detailed.row) { addRejected(detailed.rejection || importRejection("unsupported_row", rowNumber, raw)); continue; }
     if (detailed.twoDigitYear) twoDigitYearRows += 1;
     if (alignmentWarnings.length) {
@@ -655,11 +962,12 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
       detailed.row._import_warnings = [...alignmentWarnings, ...safeArray(detailed.row._import_warnings)];
     }
     result.rows.push(detailed.row);
-    result.accepted.push({ row_number: rowNumber, raw: raw.slice(0, 240), row: detailed.row, warnings: detailed.warnings || [] });
+    result.accepted.push({ row_number: rowNumber, source_location: { ...(cells.source_location || { record: rowNumber }), section: sectionId }, raw: raw.slice(0, 240), row: detailed.row, warnings: detailed.warnings || [] });
   }
-  if (table.length > maxRows) {
+  if (result.total_rows > maxRows) {
     for (let i = maxRows; i < Math.min(table.length, maxRows + 100); i++) addRejected(importRejection("over_limit", i + 1, table[i].join(delimiter || " | ")));
-    if (table.length > maxRows + 100) result.warnings.push(`${table.length - maxRows - 100}개 행은 표시 한도를 넘어 요약만 남겼습니다.`);
+    result.unprocessed_rows = result.total_rows - maxRows;
+    if (result.total_rows > maxRows + 100) result.warnings.push(`${result.total_rows - maxRows - 100}개 행은 표시 한도를 넘어 요약만 남겼습니다. 이 행들은 분석하지 않았습니다.`);
   }
   result.two_digit_year_rows = twoDigitYearRows;
   if (twoDigitYearRows) result.warnings.push(`두 자리 연도 날짜(예: 10/12/25) ${twoDigitYearRows}행은 월/일/연도 순서로 읽었습니다. 날짜 열을 확인해 주세요.`);
@@ -706,8 +1014,9 @@ async function handleAdminCsv(request, env, url) {
 }
 // @build:exports-start
 export {
-  IMPORT_REJECTION_GUIDE, alignImportCells, canonicalImportField, cleanImportedRowsForInsert,
-  handleAdminCsv, handleAdminImportJson, handleImportTemplateCsv, handleImportTemplateXls,
-  importRejection, normalizeImportedRecordDetailed, parseFlexibleImportRecords,
+  IMPORT_EDITABLE_FIELDS, IMPORT_REJECTION_GUIDE, MY_IMPORT_WRITES_ENABLED_V22959, alignImportCells,
+  canonicalImportField, cleanImportedRowsForInsert, commitImportedTransactionRows, handleAdminCsv,
+  handleAdminImportJson, handleImportTemplateCsv, handleImportTemplateXls, importRejection,
+  importStorageTextIssue, normalizeImportedRecordDetailed, parseFlexibleImportRecords,
 };
 // @build:exports-end

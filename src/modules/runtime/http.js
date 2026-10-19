@@ -27,6 +27,12 @@ function isJsonApiPath(pathname = "") {
   return path.startsWith("/api/") || path.startsWith("/u/api/") || path.startsWith("/internal/") || path.endsWith(".json");
 }
 
+// Explicit JSON is opt-in for transaction forms; existing HTML submissions keep redirects.
+function wantsTransactionDeleteJson(request) {
+  if (!request || request.method !== "POST" || new URL(request.url).pathname !== "/admin/delete") return false;
+  return String(request.headers.get("accept") || "").split(",").some((part) => part.split(";")[0].trim().toLowerCase() === "application/json");
+}
+
 function browserFormRequestFailed(request, url) {
   const path = String(url?.pathname || "");
   if (path === "/skill" || path.startsWith("/cron/") || isJsonApiPath(path)) return false;
@@ -217,6 +223,6 @@ export {
   browserFormRequestFailed, constantTimeTextEqual, csvResponse, emergencyReturnUrl, getCookie,
   headOnlyResponse, htmlResponse, htmlResponseWithCookies, isExplicitAdminUrl, isJsonApiPath,
   isMobileRequest, jsonResponse, mobileAppLocation, redirectPublicAwayFromAdmin, redirectResponse,
-  redirectResponseWithCookies, renderEmergencyErrorHtml, safeHtmlRoute,
+  redirectResponseWithCookies, renderEmergencyErrorHtml, safeHtmlRoute, wantsTransactionDeleteJson,
 };
 // @build:exports-end

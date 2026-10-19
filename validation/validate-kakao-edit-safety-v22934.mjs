@@ -90,7 +90,9 @@ await fixture(async (fx) => {
   await say(fx, "7/14 01번 삭제");
   ok(!tx(fx, "y1") && count() === before - 1, "D3 '7/14 01번 삭제' 는 어제 01번을 지우고 7원·14원 기록을 만들지 않는다");
   before = count();
-  ok((await say(fx, "7-13 01번 삭제")).includes("날짜를 알아듣지 못해서") && tx(fx, "d1") && count() === before, "D3 'M-D' 접두는 거절하고 아무것도 만들지 않는다");
+  ok((await say(fx, "7-13 01번 삭제")).includes("7월 13일 01번 기록을 삭제했어요") && !tx(fx, "d1") && tx(fx, "k1") && count() === before - 1, "D3 'M-D' 접두는 해당 날짜만 삭제하고 새 거래를 만들지 않는다");
+  before = count();
+  ok((await say(fx, "7-32 01번 삭제")).includes("날짜를 알아듣지 못해서") && tx(fx, "k1") && count() === before, "D3 불가능한 M-D 접두는 오늘 기록을 건드리지 않는다");
   ok((await say(fx, "지난주 금요일 01번 금액 5000")).includes("새 기록으로 저장하지 않았어요") && count() === before, "D3 수정 문법이 모르는 날짜 접두라도 새 기록으로 저장하지 않는다");
   ok((await say(fx, "3번 버스 1500원")).includes("저장했어요") && count() === before + 1, "D3 '3번 버스 1500원' 은 계속 기록이다");
 });

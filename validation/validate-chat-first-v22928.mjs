@@ -520,7 +520,7 @@ await withFixture(async (f) => {
   let purgePosted = false;
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(String(url));
-    if (u.pathname === "/rest/v1/rpc/accountbook_purge_household_v227") purgePosted = true;
+    if (u.pathname === "/rest/v1/rpc/accountbook_purge_household_v22960") purgePosted = true;
     const response = await original(url, init);
     if (u.pathname === "/rest/v1/accountbook_settings" && (u.searchParams.get("key") === `eq.kakao_first_record_history_v22928:${pending.user_id}` || String(u.searchParams.get("key") || "").startsWith("in.(") && String(u.searchParams.get("key")).includes(`kakao_first_record_history_v22928:${pending.user_id}`)) && (!init.method || init.method === "GET") && ++historyReads === 2) {
       reached();
@@ -551,7 +551,7 @@ await withFixture(async (f) => {
     const u = new URL(String(url));
     const body = init.body ? JSON.parse(String(init.body)) : {};
     if (u.pathname === "/rest/v1/household_members" && init.method === "POST" && body.role === "owner") return new Response(JSON.stringify({ message: "synthetic owner failure" }), { status: 400, headers: { "content-type": "application/json" } });
-    if (u.pathname === "/rest/v1/households" && init.method === "DELETE") return new Response(JSON.stringify({ message: "synthetic compensation failure" }), { status: 500, headers: { "content-type": "application/json" } });
+    if (u.pathname === "/rest/v1/rpc/accountbook_purge_household_v22960" && init.method === "POST") return new Response(JSON.stringify({ message: "synthetic compensation failure" }), { status: 500, headers: { "content-type": "application/json" } });
     return original(url, init);
   };
   await skill(f, "점심 만원");

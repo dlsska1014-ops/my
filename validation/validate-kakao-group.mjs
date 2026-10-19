@@ -80,8 +80,8 @@ const supported = new Set(["simpleText", "simpleImage", "textCard", "basicCard",
 ok(group.data.template.outputs.every((output) => Object.keys(output).length === 1 && supported.has(Object.keys(output)[0])), "group response only uses group-manual output components");
 const groupText = group.data.template.outputs.map((output) => output?.simpleText?.text || "").join("\n");
 ok(groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies become explicit typed-choice guidance");
-ok(groupText.includes("1. 새 가계부 만들기"), "first guided choice is preserved as text");
-ok(groupText.includes("2. 초대코드로 참여"), "second guided choice is preserved as text");
+ok(groupText.includes("1. 기록 방법") && groupText.includes("2. 새 가계부 만들기"), "first record and create choices are preserved as text");
+ok(groupText.includes("3. 초대코드로 참여"), "join choice is preserved as text");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
 
 // 카카오 심사 요청: 단톡방에서 봇만 멘션한 빈 발화는 짧은 안내와 도움말·챗봇 멘션하기 버튼으로 응답한다.

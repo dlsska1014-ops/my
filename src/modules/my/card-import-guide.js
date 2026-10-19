@@ -68,6 +68,7 @@ function cardImportClientMain(config) {
   var mainText = document.getElementById(config.textId);
   var opener = null;
   var xlsxPromise = null;
+  var revision = 0, staged = null, reader = null;
   if (!modal || !stepsBox || !fileInput || !go || !mainForm || !mainFile || !mainText) return;
 
   function setStatus(text, bad) {
@@ -96,6 +97,7 @@ function cardImportClientMain(config) {
     var tpl = document.getElementById("cgTpl-" + id);
     if (!tpl) return;
     opener = from || null;
+    revision++; staged = null;
     stepsBox.innerHTML = "";
     stepsBox.appendChild(tpl.content.cloneNode(true));
     title.textContent = (tpl.getAttribute("data-name") || "카드사") + " 사용내역 등록";
@@ -109,6 +111,8 @@ function cardImportClientMain(config) {
   }
 
   function close() {
+    revision++; staged = null; go.disabled = true;
+    if (reader && reader.readyState === 1) reader.abort();
     modal.hidden = true;
     document.documentElement.classList.remove("cgOpenLock");
     if (opener && opener.focus) opener.focus();
@@ -133,15 +137,20 @@ function cardImportClientMain(config) {
 
   fileInput.addEventListener("change", function () {
     var file = fileInput.files && fileInput.files[0];
+    var current = ++revision; staged = null;
+    if (reader && reader.readyState === 1) reader.abort();
     go.disabled = true;
     if (!file) { setStatus("파일을 선택해 주세요.", false); return; }
+    if (file.size > 5 * 1024 * 1024) { setStatus("파일은 5 MiB 이하여야 합니다. 기존 입력은 유지했습니다.", true); return; }
     var name = String(file.name || "").toLowerCase();
     if (/\.xlsx?$/.test(name)) {
       setStatus("엑셀 변환 모듈을 준비하고 있습니다…", false);
       loadXlsx().then(function () {
+        if (current !== revision || modal.hidden) return;
         setStatus("엑셀 파일을 읽는 중입니다…", false);
-        var reader = new FileReader();
+        reader = new FileReader();
         reader.onload = function (event) {
+          if (current !== revision || modal.hidden) return;
           try {
             var workbook = window.XLSX.read(new Uint8Array(event.target.result), { type: "array", cellDates: false });
             var chunks = [];
@@ -150,24 +159,23 @@ function cardImportClientMain(config) {
               if (String(tsv || "").trim()) chunks.push("# 시트: " + sheetName + "\n" + String(tsv).trim());
             });
             if (!chunks.length) throw new Error("값이 있는 시트를 찾지 못했습니다. 암호가 걸린 파일이면 엑셀에서 열어 CSV로 저장해 주세요.");
-            mainText.value = chunks.join("\n");
-            mainFile.value = "";
+            if (current !== revision || modal.hidden) return;
+            staged = { kind: "converted", text: chunks.join("\n"), file: file };
             setStatus(file.name + " · 시트 " + workbook.SheetNames.length + "개를 읽었습니다. 아래 버튼으로 미리보기를 확인하세요.", false);
             go.disabled = false;
           } catch (error) {
-            setStatus(error.message || String(error), true);
+            if (current === revision) setStatus(error.message || String(error), true);
           }
         };
-        reader.onerror = function () { setStatus("파일을 읽지 못했습니다. CSV로 저장해서 다시 올려주세요.", true); };
+        reader.onerror = function () { if (current === revision) setStatus("파일을 읽지 못했습니다. CSV로 저장해서 다시 올려주세요. 기존 입력은 유지했습니다.", true); };
         reader.readAsArrayBuffer(file);
-      }).catch(function (error) { setStatus(error.message || String(error), true); });
+      }).catch(function (error) { if (current === revision) setStatus(error.message || String(error), true); });
       return;
     }
     try {
       var transfer = new DataTransfer();
       transfer.items.add(file);
-      mainFile.files = transfer.files;
-      mainText.value = "";
+      staged = { kind: "file", files: transfer.files, file: file };
       setStatus(file.name + " 파일을 선택했습니다. 아래 버튼으로 미리보기를 확인하세요.", false);
       go.disabled = false;
     } catch (error) {
@@ -176,11 +184,20 @@ function cardImportClientMain(config) {
   });
 
   go.addEventListener("click", function () {
-    if (go.disabled) return;
+    if (go.disabled || !staged) return;
+    var chosen = staged;
     close();
+    if (chosen.kind === "converted") {
+      if (!mainForm.__abImportSource) { setStatus("창을 닫고 파일·붙여넣기 가져오기에서 다시 선택해 주세요.", true); return; }
+      mainForm.__abImportSource.converted(chosen.text, chosen.file.name);
+    } else {
+      mainFile.files = chosen.files;
+      mainFile.dispatchEvent(new Event("change", { bubbles: true }));
+    }
     if (typeof mainForm.requestSubmit === "function") mainForm.requestSubmit();
     else mainForm.submit();
   });
+  window.addEventListener("pagehide", function() { revision++; if (reader && reader.readyState === 1) reader.abort(); });
 }
 
 function cardImportCss() {

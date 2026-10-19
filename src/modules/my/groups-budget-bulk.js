@@ -4,15 +4,17 @@ import { appName } from "../public/site-config.js";
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { safeError, withSettingsRmwLease } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
-import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { maskKey } from "../admin/ops-diagnostics-pages.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
+import { handleMySettingsPage } from "./settings-page.js";
 import {
   canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
+import { createBudgetPlanContract } from "../domain/budget-plan-contract.js";
 import { budgetPlanFingerprint, fetchBudgets, optionalSupabase } from "../domain/budgets.js";
+import { handleBudgetCenterPage } from "../admin/budget-center-recurring.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
 import { DEFAULT_CATEGORIES } from "../admin/dashboard-fragments.js";
@@ -89,8 +91,8 @@ function amountOfBudget(budgets = [], category = "") {
 
 function incomeBudgetRows(budgets = []) {
   const rows = safeArray(budgets)
-    .filter((b) => isIncomeBudgetCategory(b.category) && Number(b.amount || 0) > 0)
-    .map((b) => ({ ...b, name: incomeBudgetName(b.category), amount: Number(b.amount || 0) }));
+    .filter((b) => isIncomeBudgetCategory(b.category))
+    .map((b) => ({ ...b, name: incomeBudgetName(b.category), amount: Number(b.amount || 0), stored: true }));
   const names = new Set(rows.map((r) => normalizeText(r.name)));
   for (const name of defaultIncomeBudgetNames()) {
     if (!names.has(normalizeText(name))) rows.push({ category: incomeBudgetCategory(name), name, amount: 0 });
@@ -99,21 +101,14 @@ function incomeBudgetRows(budgets = []) {
 }
 
 function expenseBudgetRows(budgets = [], customCategories = []) {
-  const defaults = defaultExpenseBudgetNames(customCategories);
-  const rows = [];
-  const seen = new Set();
-  for (const name of defaults) {
-    const amount = amountOfBudget(budgets, name);
-    rows.push({ category: name, name, amount });
-    seen.add(normalizeText(name));
-  }
-  for (const b of safeArray(budgets)) {
-    const cat = String(b.category || "");
-    if (!cat || cat === "__total" || cat === "__income" || isIncomeBudgetCategory(cat)) continue;
-    if (seen.has(normalizeText(cat))) continue;
-    rows.push({ category: cat, name: cat, amount: Number(b.amount || 0) });
-    seen.add(normalizeText(cat));
-  }
+  // Keep every saved raw row, including normalized aliases. A conflict must be
+  // visible for the user to resolve before whole-plan replacement.
+  const rows = safeArray(budgets).filter(b => {
+    const category = String(b.category || "");
+    return category && category !== "__total" && category !== "__income" && !isIncomeBudgetCategory(category);
+  }).map(b => ({ ...b, name: String(b.category), amount: Number(b.amount || 0), stored: true }));
+  const seen = new Set(rows.map(row => normalizeText(row.name)));
+  for (const name of defaultExpenseBudgetNames(customCategories)) if (!seen.has(normalizeText(name))) rows.push({ category: name, name, amount: 0 });
   return rows;
 }
 
@@ -168,11 +163,14 @@ async function clearMyBudgetPlan(env, householdId = "", month = currentMonthKst(
 // 금액으로 보지 않아 0원이 됐고, 0원은 그 분류 삭제였다. 순수 숫자는 그대로 읽고 "50만" 같은
 // 표기만 문장 파서에 맡긴다.
 function parseBudgetFormAmount(value = "") {
-  const raw = String(value ?? "").trim();
-  if (!raw) return 0;
-  if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?\s*원?$/.test(raw)) return Math.round(Number(raw.replace(/[^\d.]/g, "")));
-  const spans = moneyTokenSpans(raw);
-  return spans.length === 1 && spans[0].raw === raw ? spans[0].amount : NaN;
+  return createBudgetPlanContract(normalizeText, moneyTokenSpans).parseAmount(value);
+}
+
+function budgetFormInput(form) {
+  return {
+    incomeNames: form.getAll("income_name").map(String), incomeAmounts: form.getAll("income_amount").map(String),
+    expenseNames: form.getAll("budget_category").map(String), expenseAmounts: form.getAll("budget_amount").map(String),
+  };
 }
 
 async function handleMyBudgetBulkSave(request, env) {
@@ -189,67 +187,64 @@ async function handleMyBudgetBulkSave(request, env) {
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(addQueryToUrl(returnTo, { err: "write_not_allowed" }));
   // V22.9.26: 달이 깨진 폼은 현재 달 계획을 통째로 바꾸지 않고 거절한다.
-  if (monthInput && month !== monthInput) return redirectResponse(addQueryToUrl(returnTo, { err: "invalid_month" }));
+  if (!validMonth(monthInput) || !householdId || month !== monthInput) return redirectResponse(addQueryToUrl(returnTo, { err: "invalid_month" }));
 
-  const incomeNames = form.getAll("income_name").map((v) => String(v || "").trim().slice(0, 60));
-  const incomeAmounts = form.getAll("income_amount").map((v) => parseBudgetFormAmount(v));
-  const expenseNames = form.getAll("budget_category").map((v) => String(v || "").trim().slice(0, 80));
-  const expenseAmounts = form.getAll("budget_amount").map((v) => parseBudgetFormAmount(v));
-  if ([...incomeAmounts,...expenseAmounts].some(amount => !Number.isFinite(amount) || amount < 0 || amount > MAX_TRANSACTION_AMOUNT)) return redirectResponse(addQueryToUrl(returnTo, {err:"invalid_budget_amount"}));
+  const input = budgetFormInput(form);
+  const submittedFingerprint = String(form.get("plan_fingerprint") || "");
+  // Failure responses render the raw submitted editor in this request. They do
+  // not refresh the stale token, store a draft, or silently redirect away from it.
+  const fail = async (code) => {
+    const url = new URL(addQueryToUrl(returnTo, { err: code }), request.url);
+    const draft = { ...input, fingerprint: submittedFingerprint, error: code };
+    const response = url.pathname === "/budgets"
+      ? await handleBudgetCenterPage(request, env, url, draft)
+      : await handleMySettingsPage(request, env, url, draft);
+    const headers = new Headers(response.headers);
+    headers.set("location", url.pathname + url.search);
+    headers.set("x-budget-error", code);
+    return new Response(response.body, { status: ["budget_changed", "budget_form_stale", "budget_busy"].includes(code) ? 409 : ["budget_read_failed", "budget_save_failed", "db_write_unknown"].includes(code) ? 503 : 422, headers });
+  };
+  const calculation = createBudgetPlanContract(normalizeText, moneyTokenSpans).calculate(input);
+  if (!calculation.valid) return await fail(calculation.errors[0].code);
   // V22.9.34 감사 S3: 이 저장은 그 달 계획 전체를 바꾼다. 폼이 그려질 때의 계획 지문이 없거나
   // (읽기 실패로 빈 폼이 그려졌거나 배포 전에 열어 둔 화면) 지금 계획과 다르면 덮어쓰지 않는다.
-  const submittedFingerprint = String(form.get("plan_fingerprint") || "").trim();
-  if (!/^p1-\d+-[0-9a-f]{8}$/.test(submittedFingerprint)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_form_stale" }));
+  if (submittedFingerprint.length !== 67 || !/^p2-[0-9a-f]{64}$/.test(submittedFingerprint)) return await fail("budget_form_stale");
 
   try {
-    const plan = new Map();
-    // V22.9.37 감사 SIM-2: 같은 이름이 두 줄이면 뒤 줄이 앞 줄을 조용히 덮었다. 금액이 같으면 한 줄로 보고, 다르면
-    // 어느 쪽이 맞는지 알 수 없으므로 저장하지 않고 알린다.
-    const putPlanRow = (key, row) => {
-      const prior = plan.get(key);
-      if (prior && prior.amount !== row.amount) return false;
-      if (!prior) plan.set(key, row);
-      return true;
-    };
-    for (let i = 0; i < incomeNames.length; i++) {
-      const name = incomeNames[i] || defaultIncomeBudgetNames()[i] || `수입${i + 1}`;
-      const amount = Math.max(0, Math.min(2000000000, Math.round(Number(incomeAmounts[i] || 0))));
-      if (!amount) continue;
-      if (!putPlanRow(normalizeText(incomeBudgetCategory(name)), { category: incomeBudgetCategory(name), amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
-    }
-    for (let i = 0; i < expenseNames.length; i++) {
-      const name = expenseNames[i];
-      if (!name) continue;
-      const amount = Math.max(0, Math.min(2000000000, Math.round(Number(expenseAmounts[i] || 0))));
-      if (!amount) continue;
-      if (!putPlanRow(normalizeText(name), { category: name, amount })) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_duplicate_category" }));
-    }
-    const rows = [...plan.values()];
-    if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }));
+    const rows = calculation.rows;
     const outcome = await withBudgetPlanLease(env, selected.id, month, async ({ assertFresh }) => {
-      let current;
+      let currentFingerprint;
       try {
-        current = await fetchBudgets(env, selected.id, month, { strict: true });
+        const current = await fetchBudgets(env, selected.id, month, { strict: true });
+        currentFingerprint = await budgetPlanFingerprint(current);
       } catch (readErr) {
         rememberOpsEvent({ kind: "my_budget_bulk_read_failed", severity: "warn", path: "/my/budget-bulk/save", method: "POST", detail: safeError(readErr) });
         return "read_failed";
       }
-      if (budgetPlanFingerprint(current) !== submittedFingerprint) return "changed";
+      if (currentFingerprint !== submittedFingerprint) return "changed";
       assertFresh();
       await supabase(env, "/rest/v1/rpc/accountbook_replace_budget_plan_v227", {
         method: "POST",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify({ p_household_id: selected.id, p_month: month, p_rows: rows }),
       });
+      // Confirm the exact replaced set. A successful transport with an unreadable
+      // or unexpected result must not reset the user's editor as a success.
+      try {
+        const stored = await fetchBudgets(env, selected.id, month, { strict: true });
+        const exact = list => JSON.stringify(list.map(row => [String(row.category), Number(row.amount)]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+        if (exact(stored) !== exact(rows)) return "unknown";
+      } catch (_) { return "unknown"; }
       return "saved";
     });
-    if (outcome === "read_failed") return redirectResponse(addQueryToUrl(returnTo, { err: "budget_read_failed" }));
-    if (outcome === "changed") return redirectResponse(addQueryToUrl(returnTo, { err: "budget_changed" }));
+    if (outcome === "read_failed") return await fail("budget_read_failed");
+    if (outcome === "changed") return await fail("budget_changed");
+    if (outcome === "unknown") return await fail("db_write_unknown");
     return redirectResponse(addQueryToUrl(returnTo, { msg: "budget_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_budget_bulk_save_failed", severity: "warn", path: "/my/budget-bulk/save", method: "POST", detail: safeError(err) });
-    if (/settings_rmw_busy/.test(safeError(err))) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_busy" }));
-    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "budget_save_failed" }));
+    if (/settings_rmw_busy/.test(safeError(err))) return await fail("budget_busy");
+    return await fail(isUncertainStorageWrite(err) ? "db_write_unknown" : "budget_save_failed");
   }
 }
 
@@ -260,9 +255,9 @@ function withBudgetPlanLease(env, householdId, month, task) {
 }
 // @build:exports-start
 export {
-  categorySpentMap, defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows,
-  handleMyBudgetBulkSave, handleMyGroupsPage, incomeBudgetRows, isIncomeBudgetCategory,
-  keywordEditorLocation, mySettingsLocation, parseBudgetFormAmount, recurringSummary,
-  sumBudgetAmounts, upsertMyBudgetRow, withBudgetPlanLease,
+  defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, handleMyBudgetBulkSave,
+  handleMyGroupsPage, incomeBudgetRows, isIncomeBudgetCategory, keywordEditorLocation,
+  mySettingsLocation, parseBudgetFormAmount, recurringSummary, sumBudgetAmounts, upsertMyBudgetRow,
+  withBudgetPlanLease,
 };
 // @build:exports-end

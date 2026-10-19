@@ -5,11 +5,11 @@ import { detectType, normalizeText } from "./amount-parser.js";
 const CATEGORY_RULES = [
   // 수입 5(+기타수입 폴백) — recommendCategory 에는 "용돈"이 없었다. 갈래가 나뉜 게 아니라
   // 그냥 빠진 것이라 되살린다.
-  { name: "급여", type: "income", weight: 100, words: ["급여","월급","상여","보너스","성과급","수당","연봉","알바비","일당"] },
+  { name: "급여", type: "income", weight: 100, words: ["급여","월급","상여","상여금","보너스","성과급","수당","연봉","알바비","일당"] },
   { name: "용돈", type: "income", weight: 92, words: ["용돈","축하금","받은돈"] },
   { name: "환급", type: "income", weight: 90, words: ["환급","캐시백","환불","돌려받","돌려","정산받","반환"] },
   { name: "이자배당", type: "income", weight: 88, words: ["이자","배당","예금이자","주식배당"] },
-  { name: "부업/매출", type: "income", weight: 70, words: ["부업","매출","판매","수익","원고료","강의료"] },
+  { name: "부업/매출", type: "income", weight: 70, words: ["부업","부수입","매출","판매","수익","원고료","강의료"] },
 
   // 지출 32 — 30개 체계 + DEFAULT_CATEGORIES 에 이미 있는데 규칙이 없어 손으로만
   // 넣을 수 있던 둘(저축/투자·대출/이자)을 채웠다. 없으면 "적금 50만"이 기타지출로 간다.
@@ -84,7 +84,7 @@ const AB_TYPE_HINTS = Object.freeze({
 
 // 1년 캐시되는 불변 자산. 홈 HTML 안에 규칙을 인라인으로 싣던 2,248 B 가 여기로
 // 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다.
-const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22926.js";
+const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22948.js";
 const AB_CATEGORY_RULES_SCRIPT_TAG = `<script src="${AB_CATEGORY_RULES_ASSET_PATH}"></script>`;
 function abCategoryRulesJsAsset() {
   return `window.AB_CATEGORY_RULES=${JSON.stringify(CATEGORY_RULES)};window.AB_TYPE_HINTS=${JSON.stringify(AB_TYPE_HINTS)};`;
@@ -102,7 +102,16 @@ function inferCategory(text, type) {
   // 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓴다. 표의 낱말은
   // 소문자로 적어 두고 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
   const raw = normalizeText(text).toLowerCase();
-  const tokens = raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);
+  // Exact rules need only token membership, not an array containing every
+  // token in a potentially multi-megabyte import cell.
+  const hasExactToken = word => {
+    if (!word) return false;
+    for (let at = raw.indexOf(word); at >= 0; at = raw.indexOf(word, at + 1)) {
+      const end = at + word.length;
+      if ((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end]))) return true;
+    }
+    return false;
+  };
   let best = null;
   for (const rule of CATEGORY_RULES) {
     if (rule.type !== type) continue;
@@ -112,7 +121,7 @@ function inferCategory(text, type) {
       if (raw.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
     }
     for (const word of rule.exact || []) {
-      if (tokens.includes(word)) score += rule.weight + Math.min(word.length, 8);
+      if (hasExactToken(word)) score += rule.weight + Math.min(word.length, 8);
     }
     if (score > 0 && (!best || score > best.score)) best = { category: rule.name, score };
   }
@@ -124,11 +133,15 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   const removals = [
     amountRaw,
     "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부", "들어옴", "들어온", "입금됨", "받음", "받았",
-    "오늘", "금일", "어제", "전날", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
+    "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
     paymentMethod,
   ].filter(Boolean);
 
-  for (const item of removals) memo = memo.replace(new RegExp(escapeRegExp(item), "g"), " ");
+  for (const item of removals) {
+    const token = escapeRegExp(item);
+    const command = ["수입","입금","지출","출금","사용","결제","구매","납부","정산","기록","가계부"].includes(item);
+    memo = memo.replace(new RegExp(command ? "(^|\\s)" + token + "(?=\\s|\\d|$)" : token, "g"), " ");
+  }
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
@@ -167,7 +180,7 @@ function escapeRegExp(s) {
 }
 // @build:exports-start
 export {
-  AB_CATEGORY_RULES_ASSET_PATH, AB_CATEGORY_RULES_SCRIPT_TAG, abCategoryRulesJsAsset, cleanMemo,
-  inferCategory, normalizeCategoryName,
+  AB_CATEGORY_RULES_ASSET_PATH, AB_CATEGORY_RULES_SCRIPT_TAG, CATEGORY_RULES,
+  LEGACY_CATEGORY_SPLITS, abCategoryRulesJsAsset, cleanMemo, inferCategory, normalizeCategoryName,
 };
 // @build:exports-end

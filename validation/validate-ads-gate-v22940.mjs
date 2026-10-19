@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import vm from "node:vm";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
+import { beforeBotObservationRenderer } from "./lib-audit-v22934.mjs";
 
 const ORIGIN = "https://malhaebook.com";
 const PUBLISHER_CLIENT = "ca-pub-3546469870344416";
@@ -94,7 +95,8 @@ function functionBlock(name) {
 function functionBlockHash(marker) {
   const start = source.indexOf(marker);
   const end = source.indexOf("\nfunction ", start + marker.length);
-  return createHash("sha256").update(source.slice(start, end)).digest("hex");
+  const block = source.slice(start, end);
+  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : block).digest("hex");
 }
 
 // ── 0. 소스 ────────────────────────────────────────────────────────────────
@@ -133,8 +135,10 @@ for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/anal
   ok(!pageKeys.includes(key), `${key} 는 허용 화면 키가 아니다`);
 }
 // V22.9.40 통합: 패키지 A(U10)가 578·687행 aria-label 에 비율을 더해 해시가 c2b199d2…4dc8a 에서 바뀌었다(두 줄을 되돌리면 이전 해시와 같음 — validate-polish-v22940 이 확인). 광고 게이트는 이 클라이언트를 바꾸지 않는다.
-eq(functionBlockHash("function insightClientMain("), "0250d7aad1a8a540ed7e42a1f4c5b901828ef86b061195b738afd2b7bc0427a9", "고정 분석 화면 클라이언트는 광고 게이트가 바꾸지 않았다(A U10 aria-label 반영 해시)");
-eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "고정 분석 화면 렌더러는 바뀌지 않았다");
+// Authorized C/observed-period changes only; 37 unaffected V56 declarations are
+// protected by validate-lucian-c-comparison, independent of this whole hash.
+eq(functionBlockHash("function insightClientMain("), "754e8bb457aa52aabf5bb8f8b4e1f8d0c250056d761a68908395094b7fd0caad", "광고 게이트는 승인된 C·관측 기간 기준과 비대상 분석 보호를 유지합니다.");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "BOT-09 관측 표시 두 곳만 되돌리면 기존 분석 렌더러와 같다");
 for (const path of ["wrangler.toml", "wrangler.json", "wrangler.jsonc", "monitoring/wrangler.jsonc"]) {
   const file = new URL(`../${path}`, import.meta.url);
   ok(!existsSync(file) || !/ADS_MODE|ADS_SLOT_CONTENT/.test(readFileSync(file, "utf8")), `${path} 에 광고 변수를 넣지 않았다(운영 대시보드에서만 설정)`);

@@ -255,7 +255,7 @@ for (const stage of ["households", "owner", "member", "link"]) {
       eq(sent, 1, `${stage}/${commit}: next invocation never repeats unknown POST`);
       eq((await auto(f)).marker.candidate_id, candidate, `${stage}/${commit}: candidate ID remains fixed`);
       eq(f.db.households.length, initialHouseholds + (stage === "member" ? 0 : stage === "households" && !commit ? 0 : 1), `${stage}/${commit}: no compensation or replacement ledger`);
-      eq(f.trace.filter(call => call.method === "DELETE" && call.url.pathname === "/rest/v1/households").length, 0, `${stage}/${commit}: no compensation DELETE`);
+      eq(f.trace.filter(call => call.method === "DELETE" && call.url.pathname === "/rest/v1/households" || call.method === "POST" && call.url.pathname === "/rest/v1/rpc/accountbook_purge_household_v22960").length, 0, `${stage}/${commit}: no compensation through REST or purge RPC`);
       if (!commit) {
         await delayedCommit();
         await skill(f, "과자 2500", { key: actor });
@@ -464,7 +464,7 @@ await withFixture(async f => {
   try { await runtime.purgeHouseholdData(f.env, state.done.candidate_id); } catch (err) { failure = err; }
   ok(failure && failure.code === "settings_data_invalid", "purge rejects a persisted marker with missing room scope");
   ok(f.db.households.some(item => item.id === state.done.candidate_id), "malformed purge scope preserves the household");
-  eq(f.trace.filter(call => call.url.pathname === "/rest/v1/rpc/accountbook_purge_household_v227").length, 0, "malformed room scope never reaches purge RPC");
+  eq(f.trace.filter(call => call.url.pathname === "/rest/v1/rpc/accountbook_purge_household_v22960").length, 0, "malformed room scope never reaches purge RPC");
 });
 
 await withFixture(async f => {

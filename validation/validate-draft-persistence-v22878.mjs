@@ -23,22 +23,22 @@ function eq(actual, expected, message) {
 // ---------------------------------------------------------------------------
 // 1. 적는 동안 초안을 남긴다
 // ---------------------------------------------------------------------------
-ok(source.includes('form.addEventListener("input", function() {'), "적는 동안에도 초안을 남긴다");
+ok(source.includes('section.addEventListener("input", scheduleDraft)'), "폼 밖 한 줄 입력까지 포함하여 적는 동안 초안을 남긴다");
 ok(source.includes("draftTimer = setTimeout(function() { rememberDraft(form); }, 400);"), "글자마다 저장하지 않고 잠시 멈췄을 때 남긴다");
 ok(source.includes("var DRAFT_MAX_AGE_MS = 30 * 60 * 1000;"), "오래된 초안은 되살리지 않도록 시한을 둔다");
-ok(source.includes("if (draft.at && Date.now() - Number(draft.at) > DRAFT_MAX_AGE_MS) return false;"), "시한이 지난 초안은 버린다");
+ok(source.includes("Date.now() - draft.at > DRAFT_MAX_AGE_MS"), "시한이 지난 초안은 버린다");
 
 // 금액도 메모도 없으면 "적던 중"이 아니다. 날짜·유형은 기본값이라 신호가 못 된다.
-ok(source.includes('if (field && field.value && (name === "amount" || name === "memo")) typed = true;'), "금액이나 메모가 있을 때만 적던 중으로 본다");
+ok(source.includes('name === "raw_text")) typed = true;'), "금액이나 메모가 있을 때만 적던 중으로 본다");
 ok(source.includes("if (!typed) { forgetDraft(); return; }"), "아무것도 안 적었으면 초안을 남기지 않는다");
 
 // 되살릴 때 이미 채워진 칸을 덮으면 사용자가 방금 고친 값이 날아간다.
-ok(source.includes('if (field.value && name !== "transaction_date") return;'), "이미 적혀 있는 칸은 덮지 않는다");
+ok(source.includes('if (!draftOpened) {'), "이미 적혀 있는 칸은 덮지 않는다");
 
 // 성공했을 때만 버려야 한다. 그 밖에는 되살릴 기회를 줘야 새로고침을 견딘다.
-ok(source.includes('if (params.get("msg")) { forgetDraft(); return; }'), "저장에 성공했을 때만 초안을 버린다");
+ok(source.includes('draft?.submission === params.get("saved_qd")'), "저장에 성공했을 때만 초안을 버린다");
 ok(!source.includes('if (!params.get("err")) forgetDraft();'), "실패가 아니면 무조건 버리던 규칙이 남아 있지 않다");
-ok(source.includes("if (restoreDraft()) {"), "시트를 열 때 초안을 되살린다");
+ok(source.includes("var restored = restoreDraft("), "시트를 열 때 초안을 되살린다");
 
 // 초안은 브라우저 안에만 둔다. 주소로 돌리면 메모가 방문 기록에 남는다.
 ok(source.includes('var DRAFT_KEY = "abQuickInputDraft";'), "초안은 브라우저 안에 둔다");

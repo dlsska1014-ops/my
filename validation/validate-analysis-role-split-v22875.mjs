@@ -31,8 +31,10 @@ function headings(html) {
 // ---------------------------------------------------------------------------
 // 소스 수준: 역할이 코드에 고정되어 있는지
 // ---------------------------------------------------------------------------
-ok(source.includes("${renderReportDashboard(dashboard)}"), "summary screen still renders the shared cockpit");
-eq(source.split("${renderReportDashboard(dashboard)}").length - 1, 1, "the cockpit is rendered from exactly one screen");
+// C keeps the cockpit on complete input and explicitly withholds completeness-
+// dependent summaries on partial input. Check the actual new call contract.
+ok(source.includes('receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard)'), "complete summary still renders the shared cockpit through the explicit receipt guard");
+eq(source.split("renderReportDashboard(dashboard)").length - 1, 1, "the cockpit is rendered from exactly one screen");
 ok(!/renderMyAnalysisHtml\(\{[^}]*dashboard/.test(source), "deep report no longer receives the summary model it does not draw");
 ok(source.includes("빠르게 보는 요약 화면입니다"), "summary screen states its role in the hero");
 ok(source.includes("깊게 보는 분석 화면입니다"), "deep report states its role in the hero");
@@ -121,6 +123,12 @@ try {
   const bundle = await bundleResponse.text();
   ok(bundle.includes("renderPaceChart"), "client bundle keeps the pace chart");
   ok(!bundle.includes("cats.slice(0, 6)"), "client bundle no longer redraws per-category budget usage");
+  fixture.db.__omit_count_header = true;
+  const partialResponse = await request(`/my/analysis?${context}`);
+  eq(partialResponse.status, 200, "partial receipt retains the summary route");
+  const partialHtml = await partialResponse.text();
+  ok(partialHtml.includes("data-insight-incomplete") && !partialHtml.includes('class="reportCockpit"'), "unknown completeness withholds forecast cockpit and explains partial data");
+  ok(!partialHtml.includes('id="reportChallenge"'), "unknown completeness cannot claim challenge achievement");
 } finally {
   await fixture.cleanup?.();
 }

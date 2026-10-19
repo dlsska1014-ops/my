@@ -5,6 +5,7 @@ import { jsonResponse } from "../runtime/http.js";
 import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
 } from "../admin/transactions-households.js";
+import { resolveManualInputClassification } from "../settings/payment-assets.js";
 import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, attachSpenderNamesWithHistory, fetchAdminRows, fetchAdminRowsRange,
@@ -20,15 +21,51 @@ import {
   memberRecordChangeError, memberRecordChangeMessage,
 } from "../my/access-control.js";
 import { memberCanBeSpender } from "../my/transactions.js";
-import { fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import {
+  fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
+} from "../domain/budgets.js";
 import { detectRecurringCandidates } from "../admin/pc-analysis-calendar.js";
 import { addMonthsYm } from "../domain/analytics.js";
 import { formatMessage, isMissingCategory } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { readJson } from "./admin-api.js";
+import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
+
+async function handleUserQuickInputClassification(request, env) {
+  const body=await readJson(request);
+  const householdId=String(body?.household_id || "").trim();
+  if(!householdId || householdId.length>120 || !["income","expense"].includes(body?.type) || [body?.raw_text,body?.memo].some(value=>value!==undefined && (typeof value!=="string" || value.length>1000))) return jsonResponse({ok:false,error:"invalid_input"},400);
+  const scope=await getScopedHouseholdsForPage(request,env);
+  if(scope.scope==="none")return jsonResponse({ok:false,error:"unauthorized"},401);
+  const household=selectRequestedScopedHousehold(scope.households,householdId);
+  if(!household)return jsonResponse({ok:false,error:"no_household"},404);
+  if(scope.scope!=="admin" && !canWriteMyHousehold(household.role))return jsonResponse({ok:false,error:"forbidden"},403);
+  const result=await resolveManualInputClassification(env,household.id,body.type,{raw_text:body.raw_text || "",memo:body.memo || ""});
+  return jsonResponse({ok:true,household_id:household.id,category:result.category});
+}
+
+// A scoped exact-ID read reports current presence, never the outcome of a previous write.
+async function handleUserTransactionPresence(request, env, url) {
+  const householdId = String(url.searchParams.get("household_id") || "").trim();
+  const id = String(url.searchParams.get("id") || "").trim();
+  if (!householdId || !id || householdId.length > 120 || id.length > 120) {
+    return jsonResponse({ ok: false, error: "invalid_scope", message: "가계부와 거래 ID를 확인해 주세요." }, 400);
+  }
+  const scope = await getScopedHouseholdsForPage(request, env);
+  if (scope.scope === "none") return jsonResponse({ ok: false, error: "unauthorized", message: "다시 로그인해 주세요." }, 401);
+  const household = selectRequestedScopedHousehold(scope.households, householdId);
+  if (!household) return jsonResponse({ ok: false, error: "no_household", message: "이 가계부를 조회할 수 없습니다." }, 404);
+  try {
+    const rows = await supabase(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(household.id)}&id=eq.${encodeURIComponent(id)}&select=id&limit=1`, { method: "GET" });
+    if (!Array.isArray(rows) || rows.length > 1 || (rows.length && String(rows[0]?.id || "") !== id)) throw new Error("invalid_presence_response");
+    return jsonResponse({ ok: true, household_id: household.id, transaction_id: id, exists: rows.length === 1 });
+  } catch (_error) {
+    return jsonResponse({ ok: false, error: "lookup_failed", message: "현재 기록의 존재 여부를 확인하지 못했습니다." }, 503);
+  }
+}
 
 // V22.8.25 V5 통합 검색: user 세션 스코프로 활성 가계부의 전 기간 거래를 검색한다.
 // 기존 admin 전용 /api/* 와 분리된 user 스코프 엔드포인트.
@@ -237,9 +274,9 @@ async function handleUserNotifications(request, env, url) {
   }
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
-  const rows = attachSpenderNames(await fetchAdminRows(env, { month, householdId: household.id, type: "all" }), members);
-  const budgets = await fetchBudgets(env, household.id, month).catch(() => []);
-  const recurring = await fetchRecurring(env, household.id).catch(() => []);
+  const rows = attachSpenderNames(await fetchObservationMonthRows(env, household.id, month), members);
+  const budgets = await fetchBudgets(env, household.id, month, { strict: true });
+  const recurring = await fetchRecurringStrict(env, household.id).catch(() => null);
   const plans = await fetchReservePlans(env, household.id).catch(() => []);
   const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring });
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
@@ -250,13 +287,13 @@ async function handleUserNotifications(request, env, url) {
   // 1) 총 예산 상태 (danger: 초과 / warn: 월말초과·85%↑)
   if (model.totalBudget) {
     if (model.status === "over") {
-      notifs.push({ key: `budget-over:${month}`, level: "danger", banner: true, title: "이번 달 예산을 초과했어요",
-        body: `사용 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
+      notifs.push({ key: `budget-over:${month}`, level: "danger", banner: true, title: "선택 월 전체 등록액이 예산을 초과했어요",
+        body: `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
         href: `/budget-alerts?month=${mq}${hh}` });
     } else if (model.status === "forecast" || model.status === "warning") {
       notifs.push({ key: `budget-warn:${month}`, level: "warn", banner: true,
-        title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "예산의 85% 이상 사용했어요",
-        body: `사용 ${numberWithCommas(model.spent)}원 · 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
+        title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "월 전체 등록액이 예산의 85% 이상이에요",
+        body: model.status === "forecast" ? `오늘까지 관측 속도 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원` : `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
         href: `/budget-alerts?month=${mq}${hh}` });
     }
   }
@@ -264,7 +301,7 @@ async function handleUserNotifications(request, env, url) {
   // 2) 분류별 예산 초과 (상위 3)
   safeArray(model.dangerCategories).slice(0, 3).forEach((c) => {
     notifs.push({ key: `cat-${c.category}:${month}`, level: "danger", title: `${c.category || "미분류"} 예산 초과`,
-      body: `사용 ${numberWithCommas(c.spent)}원 / 예산 ${numberWithCommas(c.budget)}원 (${numberWithCommas(c.rate)}%)`,
+      body: `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(c.spent)}원 / 예산 ${numberWithCommas(c.budget)}원 (${numberWithCommas(c.rate)}%)`,
       href: `/app?month=${mq}${hh}&type=expense&category=${encodeURIComponent(c.category || "")}&feed=all#feed` });
   });
 
@@ -305,7 +342,8 @@ async function handleUserNotifications(request, env, url) {
       href: `/reserve-plans?month=${mq}${hh}` });
   });
 
-  return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs });
+  return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs,
+    budget_observation: { status: model.observation.status, observed_spent: model.observedSpent, average: model.avgDaily, forecast: model.forecastExpense, pending_state: model.pendingState, pending_total: model.pendingRecurringTotal, after_pending_assumption: model.afterPendingForecast } });
 }
 
 // V22.9.37 감사 H1: 저장(목표·즐겨찾기)은 가계부를 반드시 받는다. 가계부 없는 저장이 "첫 가계부"로 가서 화면과 다른
@@ -601,6 +639,7 @@ async function handleUserGoals(request, env, url) {
 // @build:exports-start
 export {
   goalsKey, handleUserDayTransactions, handleUserFavorites, handleUserGoals,
-  handleUserNotifications, handleUserRecentTransactions, handleUserTxSearch,
+  handleUserNotifications, handleUserQuickInputClassification, handleUserRecentTransactions,
+  handleUserTransactionPresence, handleUserTxSearch,
 };
 // @build:exports-end

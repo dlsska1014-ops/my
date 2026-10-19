@@ -56,7 +56,15 @@ for (const [label, path, action] of [
 
     const fresh = await page(fx, path);
     const { found, fields } = formFields(fresh.html, action);
-    ok(found && /^p1-\d+-[0-9a-f]{8}$/.test(fields.get("plan_fingerprint") || ""), `S3 ${label}: 일괄 저장 폼이 계획 지문을 싣는다`);
+    ok(found && fields.get("plan_fingerprint")?.length === 67 && /^p2-[0-9a-f]{64}$/.test(fields.get("plan_fingerprint") || ""), `S3 ${label}: 일괄 저장 폼이 SHA-256 p2 계획 지문을 싣는다`);
+
+    const legacy = new URLSearchParams(fields);
+    legacy.set("plan_fingerprint", "p1-13-4eddeb7f");
+    const legacySave = await post(fx, action, legacy);
+    eq(legacySave.status, 409, `S3 ${label}: p1 폼을 충돌로 거절한다`);
+    ok(legacySave.decoded.includes("err=budget_form_stale") && monthRows(fx, "2026-07") === before, `S3 ${label}: p1 폼이 현재 계획을 바꾸지 않는다`);
+    eq(formFields(legacySave.text, action).fields.get("plan_fingerprint"), "p1-13-4eddeb7f", `S3 ${label}: p1 지문을 새 지문으로 자동 교환하지 않는다`);
+    eq(fx.db.__rpc_calls.filter(row => row.name === "accountbook_replace_budget_plan_v227").length, 0, `S3 ${label}: p1 제출의 교체 RPC는 0회이다`);
 
     const stale = new URLSearchParams(fields);
     stale.delete("plan_fingerprint");

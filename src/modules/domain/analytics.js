@@ -1,4 +1,5 @@
 // @build:imports-start
+import { isValidTransactionDateString } from "../admin/transactions-households.js";
 import { chooseMemeCard } from "../features/meme-engine-premium.js";
 import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
 import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
@@ -99,7 +100,7 @@ function renderStrategyCards(ext, a) {
     { cls: ext.cleanupCount > 0 ? "danger" : "good", title: "분석 신뢰도", value: `${ext.cleanupCount}건`, desc: "미정리 데이터가 적을수록 고급 분석이 정확해집니다." },
     { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatSignedPercent(ext.topIncrease.rate)}` },
     { cls: a.weekendRate >= 45 ? "warn" : "good", title: "주말 소비", value: `${a.weekendRate}%`, desc: "주말 외식·여가성 소비 비중을 점검하세요." },
-    { cls: a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "가계부 경보", value: `${a.riskScore}점`, desc: "고정비, 쏠림, 미정리, 월말 예상치를 종합한 점수입니다." },
+    { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "가계부 경보", value: a.basisDays === 0 ? "관측 전" : `${a.riskScore}점`, desc: "고정비, 쏠림, 미정리, 월말 예상치를 종합한 점수입니다." },
   ];
   return cards.map((c) => `<div class="insight ${c.cls}"><b>${escapeHtml(c.title)}</b><div style="font-size:24px;font-weight:950;letter-spacing:-.04em">${escapeHtml(c.value)}</div><div class="muted">${escapeHtml(c.desc)}</div></div>`).join("");
 }
@@ -140,19 +141,51 @@ function renderWeekdayStats(items) {
   return `<div class="trendBars">${items.map((x) => `<div class="trendLine"><div class="trendLabel">${escapeHtml(x.name)}요일</div><div class="bar"><span style="width:${Math.round(x.expense / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(x.expense)}원 · ${x.count}건</div></div>`).join("")}</div>`;
 }
 
+// Explicit calendar bounds for the D-3 server comparisons and budget pace.
+// A complete empty array is an observed zero; missing data is never a zero.
+function monthObservation(month, rows, { receipt = null, endDay = null } = {}) {
+  const today = formatDate(nowKstDate());
+  const valid = /^20\d{2}-(?:0[1-9]|1[0-2])$/.test(String(month));
+  const daysInMonth = valid ? new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() : 0;
+  const sameMonth = valid && month === today.slice(0, 7);
+  const pastMonth = valid && month < today.slice(0, 7);
+  const days = endDay == null ? (pastMonth ? daysInMonth : sameMonth ? Number(today.slice(8, 10)) : 0) : Math.min(daysInMonth, endDay);
+  const end = days ? `${month}-${String(days).padStart(2, "0")}` : "";
+  const available = valid && Array.isArray(rows) && (!receipt || receipt.status === "complete") && rows.every(row => row && typeof row.transaction_date === "string" && row.transaction_date.length === 10 && isValidTransactionDateString(row.transaction_date) && row.amount != null && String(row.amount).trim() !== "" && Number.isFinite(Number(row.amount)));
+  const status = !available ? "unavailable" : !days ? "before" : "complete";
+  return { today, daysInMonth, sameMonth, pastMonth, days, end, status,
+    rows: status === "complete" ? rows.filter(row => row.transaction_date >= `${month}-01` && row.transaction_date <= end) : null };
+}
+
+function monthlyObservedSpending(rows, month) {
+  if (!Array.isArray(rows) || !/^20\d{2}-(?:0[1-9]|1[0-2])$/.test(String(month))) throw new Error("analysis_observation_invalid");
+  const today = formatDate(nowKstDate());
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const basisDays = month < today.slice(0, 7) ? daysInMonth : month === today.slice(0, 7) ? Number(today.slice(8, 10)) : 0;
+  const basisEnd = basisDays ? `${month}-${String(basisDays).padStart(2, "0")}` : "";
+  const observed = rows.filter((r) => r.type === "expense" && String(r.transaction_date || "") >= `${month}-01` && String(r.transaction_date || "") <= basisEnd);
+  const observedExpense = observed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const expenseDays = new Set(observed.filter((r) => Number(r.amount) > 0).map((r) => r.transaction_date)).size;
+  return {
+    observedExpense, basisDays, basisEnd, daysInMonth, hasObservation: basisDays > 0,
+    avgExpense: basisDays ? Math.round(observedExpense / basisDays) : null,
+    burnForecast: basisDays ? Math.round(observedExpense / basisDays * daysInMonth) : null,
+    expenseDays, noSpendDays: basisDays - expenseDays,
+  };
+}
+
+function renderObservedMoney(analysis, amount) {
+  return analysis.basisDays === 0 ? "관측 전" : `${numberWithCommas(amount || 0)}원`;
+}
+
 function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
   const stats = calculateStats(allRows);
   const expense = stats.totals.expense;
   const income = stats.totals.income;
   // V22.9.34 2차 점검 U01: 하루 평균·무지출일은 이번 달이면 오늘까지, 지난 달이면 그 달 전체, 앞으로 올 달이면
   // 0일을 기준으로 센다. 예전에는 이번 달도 아직 오지 않은 날까지 세어 무지출일이 부풀고 하루 평균이 낮아졌다.
-  const todayStr = formatDate(nowKstDate());
-  const basisCalendar = calendar.filter((d) => String(d.date || "") <= todayStr);
-  const basisDays = basisCalendar.length;
-  const avgExpense = basisDays ? Math.round(expense / basisDays) : 0;
-  const noSpendDays = basisCalendar.filter((d) => Number(d.expense || 0) === 0).length;
-  const expenseDays = basisCalendar.filter((d) => Number(d.expense || 0) > 0).length;
-  const basisEnd = basisCalendar.length ? String(basisCalendar[basisCalendar.length - 1].date || "") : "";
+  const observation = monthlyObservedSpending(allRows, month);
+  const { basisDays, basisEnd, avgExpense, noSpendDays, expenseDays, burnForecast } = observation;
   const topCategory = stats.categories.find((c) => c.expense > 0) || { category: "없음", expense: 0 };
   const maxDay = calendar.reduce((a, d) => Number(d.expense || 0) > Number(a.expense || 0) ? d : a, { date: "", expense: 0 });
   const missingCategory = allRows.filter((r) => isMissingCategory(r.category)).length;
@@ -197,15 +230,15 @@ function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
   const cultureAmount = sumAmount(cultureRows);
   const foodAmount = sumAmount(foodRows);
   const taxAmount = sumAmount(taxRows);
-  const burnForecast = forecastMonthlyExpense(expense, month);
-  const riskScore = Math.min(100, Math.round((fixedRate * 0.24) + (concentration * 0.22) + (maxDayRate * 0.18) + (weekendRate * 0.14) + (missingAny * 2.2) + (income > 0 && burnForecast > income ? 20 : 0)));
-  const analysisBase = { stats, income, expense, avgExpense, noSpendDays, expenseDays, basisDays, basisEnd, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, riskScore };
+  const riskScore = basisDays ? Math.min(100, Math.round((fixedRate * 0.24) + (concentration * 0.22) + (maxDayRate * 0.18) + (weekendRate * 0.14) + (missingAny * 2.2) + (income > 0 && burnForecast > income ? 20 : 0))) : null;
+  const analysisBase = { ...observation, stats, income, expense, avgExpense, noSpendDays, expenseDays, basisDays, basisEnd, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, riskScore };
   return { ...analysisBase, meme: chooseMemeCard(analysisBase) };
 }
 
 function forecastMonthlyExpense(currentExpense, month) {
   const today = nowKstDate();
   const currentMonth = currentMonthKst();
+  if (month > currentMonth) return null;
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const elapsed = month === currentMonth ? Math.max(1, today.getDate()) : daysInMonth;
   return Math.round(currentExpense / elapsed * daysInMonth);
@@ -213,8 +246,9 @@ function forecastMonthlyExpense(currentExpense, month) {
 // @build:exports-start
 export {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, categoryExpenseMap,
-  deltaClass, formatSignedPercent, percentChange, renderCategoryCompareTable,
-  renderCategoryTrendTable, renderMonthlyTrendMini, renderMonthlyTrendTable, renderStrategyCards,
-  renderWeekdayStats, renderYearlyMonthSummary,
+  deltaClass, formatSignedPercent, monthObservation, monthlyObservedSpending, percentChange,
+  renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
+  renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards, renderWeekdayStats,
+  renderYearlyMonthSummary,
 };
 // @build:exports-end

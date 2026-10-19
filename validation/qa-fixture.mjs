@@ -1,6 +1,7 @@
 // Cloudflare Workers 운영 런타임(workerd)은 PBKDF2 반복 횟수가 100,000 을 넘는 deriveBits·deriveKey 를
 // NotSupportedError 로 거절한다. Node 에는 이 상한이 없어 210,000 회 해시가 모든 검사를 통과했고 운영 가입만
 // 실패했다(V22.9.35). 이 픽스처를 쓰는 검사 프로세스에도 같은 상한을 둔다.
+import { createLifecycleContractModel } from "./lifecycle-fixture-v22961.mjs";
 export const WORKERS_PBKDF2_MAX_ITERATIONS = 100000;
 (function installWorkersPbkdf2Cap() {
   const proto = globalThis.crypto?.subtle && Object.getPrototypeOf(globalThis.crypto.subtle);
@@ -48,6 +49,8 @@ function matchesFilter(row, key, expression) {
   if (operator === "lte") return comparable[0] <= comparable[1];
   if (operator === "lt") return comparable[0] < comparable[1];
   if (operator === "like" || operator === "ilike") {
+    // Ordinary PostgREST pSingleVal filters retain quotes literally. Quoted
+    // operands are parsed separately only inside list/logic expressions.
     const regex = wildcardRegex(operator === "ilike" ? expected.toLowerCase() : expected);
     return regex.test(operator === "ilike" ? actual.toLowerCase() : actual);
   }
@@ -81,7 +84,7 @@ function filteredRows(db, table, url) {
     });
   }
   const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
-  const limit = Math.min(Number(db.__max_rows || Infinity), Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0)));
+  const limit = Math.min(Number(db.__max_rows || Infinity), table === "transactions" ? Number(db.__transaction_max_rows || Infinity) : Infinity, Math.max(0, Number(url.searchParams.get("limit") || rows.length || 0)));
   return rows.slice(offset, offset + (Number.isFinite(limit) ? limit : rows.length));
 }
 
@@ -227,6 +230,7 @@ export async function createV2265QaFixture(options = {}) {
     nlu_intent_metrics_hourly: [],
   };
   const sequence = { value: 1 };
+  const lifecycle = createLifecycleContractModel(db, upsert, sequence);
   db.__operation_rpc_available = true;
   db.__rpc_calls = [];
   db.__settings_write_count = 0;
@@ -246,7 +250,9 @@ export async function createV2265QaFixture(options = {}) {
       if (db.__operation_rpc_available === false || (db.__missing_rpcs || []).includes(rpcName)) {
         return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
       }
-      // Opt-in model of schema_v22_7_0_auth_atomicity.sql for import round-trip tests.
+      if (["accountbook_import_source_v22960", "accountbook_commit_import_v22960", "accountbook_purge_household_v22960"].includes(rpcName)) return lifecycle.rpc(rpcName, data || {});
+      if (lifecycle.installed() && ["accountbook_import_transactions_v227", "accountbook_purge_household_v227"].includes(rpcName)) return Response.json({ code: "P0001", message: "legacy_contract_upgrade_required" }, { status: 400 });
+      // Opt-in model of the pre-upgrade function for explicit historical cases.
       if (rpcName === "accountbook_import_transactions_v227" && db.__import_rpc_available === true) {
         const rows = data?.p_rows;
         const householdId = String(data?.p_household_id || "");
@@ -444,15 +450,22 @@ export async function createV2265QaFixture(options = {}) {
         const transactionId = String(data?.p_transaction_id || "");
         const householdId = String(data?.p_household_id || "");
         const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
-        if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        if (!row) return new Response(JSON.stringify({ code: "P0001", message: "transaction_not_found" }), { status: 400, headers: { "content-type": "application/json" } });
         db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
-        return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ deleted: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
       }
       return new Response(JSON.stringify({ code: "PGRST202", message: "RPC not found" }), { status: 404, headers: { "content-type": "application/json" } });
     }
     const table = url.pathname.split("/").filter(Boolean).at(-1);
+    if (lifecycle.protects(table, method, data ? (Array.isArray(data) ? data : [data]) : [], method === "GET" || method === "HEAD" ? [] : filteredRows(db, table, url))) return Response.json({ code: "P0001", message: "legacy_contract_upgrade_required" }, { status: 400 });
     if (table === "accountbook_categories" && !categoriesPresent) return new Response(JSON.stringify({ code: "PGRST205", message: "Could not find the table public.accountbook_categories in the schema cache" }), { status: 404, headers: { "content-type": "application/json" } });
     if (!db[table]) db[table] = [];
+    if (method === "HEAD" && /count=exact/i.test(new Headers(init.headers || {}).get("prefer") || "")) {
+      const countUrl = new URL(url);
+      countUrl.searchParams.delete("limit"); countUrl.searchParams.delete("offset");
+      const total = filteredRows({ ...db, __max_rows: Infinity, __transaction_max_rows: Infinity }, table, countUrl).length;
+      return new Response(null, { status: 200, headers: db.__omit_count_header ? {} : { "content-range": `*/${total}` } });
+    }
     if (method === "GET") {
       if (table === "accountbook_settings" && (db.__fail_next_settings_read || (db.__fail_settings_read_key && url.searchParams.get("key") === `eq.${db.__fail_settings_read_key}`))) {
         db.__fail_next_settings_read = false;
@@ -465,7 +478,16 @@ export async function createV2265QaFixture(options = {}) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
       const selectedRows = embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"));
-      return new Response(JSON.stringify(db.__honor_select ? projectSelectedColumns(selectedRows, url.searchParams.get("select")) : selectedRows), { status: 200, headers: { "content-type": "application/json" } });
+      const headers = { "content-type": "application/json" };
+      let status = 200;
+      if (/count=exact/i.test(new Headers(init.headers || {}).get("prefer") || "")) {
+        const countUrl = new URL(url); countUrl.searchParams.delete("limit"); countUrl.searchParams.delete("offset");
+        const total = filteredRows({ ...db, __max_rows: Infinity, __transaction_max_rows: Infinity }, table, countUrl).length;
+        const offset = Number(url.searchParams.get("offset") || 0);
+        if (!db.__omit_count_header) Object.assign(headers, { "content-range": selectedRows.length ? `${offset}-${offset + selectedRows.length - 1}/${total}` : `*/${total}`, "range-unit": "items", "preference-applied": "count=exact" });
+        status = total > selectedRows.length ? 206 : 200;
+      }
+      return new Response(JSON.stringify(db.__honor_select ? projectSelectedColumns(selectedRows, url.searchParams.get("select")) : selectedRows), { status, headers });
     }
     if (method === "POST") {
       const items = Array.isArray(data) ? data : [data];
@@ -525,7 +547,8 @@ export async function createV2265QaFixture(options = {}) {
       const matches = filteredRows(db, table, url);
       const ids = new Set(matches.map((row) => row.id || `${row.household_id}|${row.user_id}`));
       db[table] = db[table].filter((row) => !ids.has(row.id || `${row.household_id}|${row.user_id}`));
-      return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+      const representation = new Headers(init.headers || {}).get("Prefer")?.includes("return=representation");
+      return new Response(JSON.stringify(representation ? matches : []), { status: 200, headers: { "content-type": "application/json" } });
     }
     return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
   };

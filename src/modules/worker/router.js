@@ -94,6 +94,7 @@ import {
   handleMeetingHouseholdTemplatePage, handleOpsDashboardPage, handleReleaseCandidateCheckPage,
   handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
 } from "../features/settlement-ops-pages.js";
+import { handleSettlementRefundPreview } from "../features/settlement-refund-preview.js";
 import {
   handleKakaoStabilityGuidePage, handleNluFailuresCsv, handleNluOpsJson, handleNluOpsPage,
   handleOpenBuilderGuidePage, handleOpenBuilderReportPage, handleSkillOpsPage,
@@ -168,7 +169,8 @@ import { handleKakaoSkillStable } from "../kakao/skill-handler.js";
 import { handleKakaoRecentDebug } from "../kakao/transaction-save.js";
 import {
   handleUserDayTransactions, handleUserFavorites, handleUserGoals, handleUserNotifications,
-  handleUserRecentTransactions, handleUserTxSearch,
+  handleUserQuickInputClassification, handleUserRecentTransactions, handleUserTransactionPresence,
+  handleUserTxSearch,
 } from "../api/user-api.js";
 import { handleApi } from "../api/admin-api.js";
 import { handleIdentityAuditPage, handleIdentityMerge } from "../admin/identity-merge.js";
@@ -245,7 +247,7 @@ const ACCOUNTBOOK_WORKER = {
 
       if (!csrfOriginAllowed(request, url)) {
         rememberOpsEvent({ kind: "csrf_blocked", severity: "warn", path: url.pathname, method: request.method, detail: csrfSignalSummary(request, url) });
-        return csrfRejectedResponse(url);
+        return csrfRejectedResponse(url, request);
       }
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
@@ -1158,6 +1160,9 @@ const ACCOUNTBOOK_WORKER = {
         return await handleMeetingHouseholdTemplatePage(request, env, url);
       }
 
+      if (url.pathname === "/my/settlement/refund-preview" && ["GET","POST"].includes(request.method)) {
+        return await handleSettlementRefundPreview(request,env,url);
+      }
       if ((url.pathname === "/settlement-summary" || url.pathname === "/split-summary" || url.pathname === "/meeting-settlement") && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => handleSettlementSummaryPage(request, env, url), "모임 정산 요약");
       }
@@ -1288,6 +1293,14 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/u/api/tx/search" && request.method === "GET") {
         return await handleUserTxSearch(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/tx/presence" && request.method === "GET") {
+        return await handleUserTransactionPresence(request, env, url);
+      }
+
+      if (url.pathname === "/u/api/input-classification" && request.method === "POST") {
+        return await handleUserQuickInputClassification(request, env);
       }
 
       if (url.pathname === "/u/api/recent-transactions" && request.method === "GET") {

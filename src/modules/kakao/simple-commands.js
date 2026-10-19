@@ -52,17 +52,19 @@ async function kakaoSettlementText(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
+  const refundNotice = "환급 계산은 미리보기 전용이며 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
-    return [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "정산할 지출 기록이 아직 없어요."].join("\n");
+    return [`📊 ${month} 정산`, refundNotice, `가계부: ${household.name || "가계부"}`, "", "정산할 지출 기록이 아직 없어요."].join("\n");
   }
   const people = model.people.slice(0, 8).map((p) => {
     if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
     if (p.balance < 0) return `• ${p.name}: ${numberWithCommas(Math.abs(p.balance))}원 보내기`;
-    return `• ${p.name}: 정산 완료`;
+    return `• ${p.name}: 정산 차액 없음`;
   });
   const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
   return [
     `📊 ${month} 정산`,
+    refundNotice,
     `총 지출: ${numberWithCommas(model.totalExpense)}원`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
     `1인 기준: ${numberWithCommas(model.share)}원`,

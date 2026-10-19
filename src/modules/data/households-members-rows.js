@@ -238,7 +238,7 @@ function isRowLimitExceededError(error) {
 // 아래 `page.length < remaining` 판정이 이를 데이터 끝으로 오인해 조용히 잘린다.
 // 그래서 기존 클램프 상한(1000)을 넘기지 않는 범위에서만 기본값을 올린다.
 // 1000을 초과하려면 운영 PostgREST의 max-rows 설정을 먼저 확인해야 한다.
-async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, maxRows = 100000 } = {}) {
+async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, maxRows = 100000, analysisReceipt = false } = {}) {
   const parsed = new URL(String(path || ""), "https://postgrest.local");
   parsed.searchParams.delete("limit");
   parsed.searchParams.delete("offset");
@@ -246,18 +246,56 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
   const hardMax = Math.max(1000, Math.floor(Number(maxRows || 100000)));
   const size = Math.max(50, Math.min(1000, Math.floor(Number(pageSize || 500))));
   const rows = [];
+  const receipt = { status: "complete", total: null, received: 0, pages: 0 };
+  const ids = new Set();
+  function uncertain(status) {
+    if (receipt.status === "complete" || status === "inconsistent") receipt.status = status;
+  }
   let offset = 0;
   while (true) {
     const remaining = wanted === null ? size : Math.min(size, wanted - rows.length);
     if (remaining <= 0) break;
     parsed.searchParams.set("limit", String(remaining));
     parsed.searchParams.set("offset", String(offset));
-    const page = await supabase(env, `${parsed.pathname}${parsed.search}`, { method: "GET" });
+    const response = await supabase(env, `${parsed.pathname}${parsed.search}`, { method: "GET", ...(analysisReceipt ? {
+      analysisGetResponse: true, headers: { prefer: "count=exact" },
+    } : {}) });
+    const page = analysisReceipt ? response.data : response;
     if (!Array.isArray(page)) throw new Error("PostgREST 목록 응답 형식이 올바르지 않습니다.");
+    if (analysisReceipt) {
+      receipt.pages++;
+      const meta = response.meta;
+      const range = String(meta.contentRange || "");
+      const match = range.match(/^(?:(\d+)-(\d+)|\*)\/(\d+)$/);
+      // A short page alone is never evidence of completion. Exact total is
+      // requested on this same GET; missing/unknown metadata cannot prove zero.
+      if (!match) uncertain("unknown");
+      else {
+        const total = Number(match[3]);
+        const first = match[1] == null ? null : Number(match[1]);
+        const last = match[2] == null ? null : Number(match[2]);
+        if (![total, first, last].filter(value => value !== null).every(Number.isSafeInteger) ||
+            (page.length ? first !== offset || last < first || last - first + 1 !== page.length || last >= total : first !== null || total > offset) ||
+            (receipt.total !== null && receipt.total !== total)) uncertain("inconsistent");
+        if (receipt.total === null) receipt.total = total;
+      }
+      if ((meta.rangeUnit && meta.rangeUnit !== "items") ||
+          (meta.preferenceApplied && /count=(?!exact\b)/i.test(meta.preferenceApplied)) || ![200, 206].includes(meta.status)) uncertain("inconsistent");
+      if (page.length > remaining) uncertain("inconsistent");
+      for (const row of page) {
+        const id = row && typeof row.id === "string" ? row.id : "";
+        if (!id || ids.has(id)) uncertain("inconsistent");
+        ids.add(id);
+      }
+    }
     if (!page.length) break;
     rows.push(...page);
     offset += page.length;
-    if (page.length < remaining) break;
+    if (page.length < remaining) {
+      if (analysisReceipt && receipt.total !== null && offset < receipt.total) uncertain("response-cap");
+      break;
+    }
+    if (analysisReceipt && receipt.total !== null && offset >= receipt.total) break;
     if (wanted !== null && rows.length >= wanted) break;
     if (rows.length >= hardMax) {
       parsed.searchParams.set("limit", "1");
@@ -266,6 +304,12 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
       if (Array.isArray(probe) && probe.length) throw rowLimitExceededError(hardMax);
       break;
     }
+  }
+  if (analysisReceipt) {
+    receipt.received = rows.length;
+    if (receipt.status === "complete" && receipt.total === null) receipt.status = "unknown";
+    if (receipt.status === "complete" && rows.length < receipt.total) receipt.status = "limit";
+    return { rows: wanted === null ? rows : rows.slice(0, wanted), receipt };
   }
   return wanted === null ? rows : rows.slice(0, wanted);
 }
@@ -390,7 +434,7 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
 // complete(기본)는 한도를 넘는 기록이 있으면 조용히 자르지 않고 row_limit_exceeded 오류를 낸다(QA B05).
 // 합계·리포트·백업·검색은 이 방식이어야 한다. complete:false 는 호출부가 한도+1건을 받아 잘림을 직접
 // 감지하고 화면에 알리는 경우(분석 화면)나 일부여도 되는 추정(반복 거래 후보)에만 쓴다.
-async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true }) {
+async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true, analysisReceipt = false }) {
   const params = new URLSearchParams();
   params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
   if (start) params.set("transaction_date", `gte.${start}`);
@@ -402,7 +446,7 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   const path = `/rest/v1/transactions?${params.toString()}`;
   return complete
     ? fetchPostgrestRows(env, path, { maxRows: rowLimit })
-    : fetchPostgrestRows(env, path, { limit: rowLimit, maxRows: rowLimit });
+    : fetchPostgrestRows(env, path, { limit: rowLimit, maxRows: rowLimit, analysisReceipt });
 }
 // @build:exports-start
 export {

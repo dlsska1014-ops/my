@@ -14,6 +14,7 @@ import {
   isKakaoReservedCreateFlowReply, parseBareInviteCode, parseKakaoCreateKind, parseKakaoSummaryRange,
   plausibleHouseholdNameAtKindStep, sanitizeHouseholdNameInput,
 } from "./household-budget-commands.js";
+import { parseKakaoSeparatePurchaseCommand } from "./separate-purchase.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { stableShortHash } from "./identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
@@ -89,6 +90,7 @@ function isKakaoGuidedCommand(text = "") {
 
 function kakaoStartQuickReplies(hasHousehold = false) {
   if (!hasHousehold) return dedupeQuickReplies([
+    ["첫 기록 방법", "기록 방법"],
     ["새 가계부 만들기", "새 가계부 만들기"],
     ["초대코드로 참여", "초대코드로 참여"],
     ["도움말", "도움말"],
@@ -125,7 +127,7 @@ function kakaoBudgetRootQuickReplies() {
 
 function kakaoBudgetCategoryQuickReplies() {
   return dedupeQuickReplies([
-    ["식비", "예산 카테고리 식비"],
+    ["외식", "예산 카테고리 외식"],
     ["교통", "예산 카테고리 교통"],
     ["생활용품", "예산 카테고리 생활용품"],
     ["의료·병원", "예산 카테고리 의료/병원"],
@@ -173,7 +175,7 @@ function normalizeKakaoFlowStateV2254(value = null) {
 
 function isKakaoTopLevelCommandV2254(text = "") {
   const t = normalizeText(text);
-  return isKakaoStartCommand(t) || isCommandMenuCommand(t) || isHelpCommand(t) ||
+  return !!parseKakaoSeparatePurchaseCommand(t) || isKakaoStartCommand(t) || isCommandMenuCommand(t) || isHelpCommand(t) ||
     isKakaoCreateFlowCommand(t) || isKakaoJoinFlowCommand(t) || isHouseholdSwitchCommand(t) ||
     isKakaoBudgetSetupCommand(t) || isBudgetCommand(t) || isSummaryCommand(t) ||
     !!parseKakaoSummaryRange(t) || isRecentCommand(t) || isSettlementCommand(t) ||
@@ -186,6 +188,7 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   const t = normalizeText(text).trim();
   const compact = t.replace(/\s+/g, "");
   if (!t) return false;
+  if (parseKakaoSeparatePurchaseCommand(t)) return true;
   if (KAKAO_REPRESENTATIVE_COMMANDS.some((item) => normalizeText(item.messageText || item.command).replace(/\s+/g, "") === compact)) return true;
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
@@ -251,8 +254,8 @@ function kakaoFlowStateKey(userId = "", payload = {}) {
   return `kakao_flow_v215:${String(userId || "anonymous").slice(0, 80)}:${stableShortHash(group)}`;
 }
 
-async function getKakaoFlowState(env, userId = "", payload = {}) {
-  const raw = await getSettingValueStrict(env, kakaoFlowStateKey(userId, payload));
+async function getKakaoFlowState(env, userId = "", payload = {}, snapshotRaw = undefined) {
+  const raw = snapshotRaw === undefined ? await getSettingValueStrict(env, kakaoFlowStateKey(userId, payload)) : snapshotRaw;
   if (!raw) return null;
   try {
     const obj = typeof raw === "string" ? JSON.parse(raw || "{}") : raw;
@@ -314,7 +317,8 @@ export {
   isKakaoBudgetSetupCommand, isKakaoCreateFlowCommand, isKakaoFlowCancelCommand,
   isKakaoGuidedCommand, isKakaoJoinFlowCommand, isKakaoMemberAliasCommand, isKakaoStartCommand,
   isUnsafeKakaoNameInputV2254, kakaoBudgetAmountQuickReplies, kakaoBudgetCategoryQuickReplies,
-  kakaoBudgetRootQuickReplies, kakaoCreateKindQuickReplies, kakaoStartQuickReplies,
-  parseDirectMemberAliasCommand, saveKakaoFlowState, shouldInterruptKakaoFlowV2254,
+  kakaoBudgetRootQuickReplies, kakaoCreateKindQuickReplies, kakaoFlowStateKey,
+  kakaoStartQuickReplies, parseDirectMemberAliasCommand, saveKakaoFlowState,
+  shouldInterruptKakaoFlowV2254,
 };
 // @build:exports-end

@@ -46,7 +46,7 @@ function helpText(inviteCode = "", origin = "") {
   return [
     "📒 말해가계부 사용법",
     "",
-    "처음이라면 ‘시작’을 입력해 가계부 만들기 또는 초대코드 참여부터 진행하세요.",
+    "처음이라면 첫 기록을 보내 가계부를 준비합니다. 개인 대화에서는 개인 가계부, 단톡방에서는 공동 가계부를 사용해요.",
     "",
     "기록: 점심 12000원 국민카드",
     "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
@@ -112,12 +112,23 @@ async function listTransactions(env, url) {
 }
 
 async function createManualTransaction(env, body, options = {}) {
-  const row = sanitizeTransactionBody(body);
+  const row = sanitizeTransactionBody(body, false, options);
   // V22.9.34 proto (B13): a client-chosen UUID v4 becomes the primary key, so a retry hits the PK instead of a time window.
   const requestId = abTransactionRequestId(options.requestId);
   if (requestId) row.id = requestId;
   const source = String(row.source || body.source || "web_admin");
   const dedupSeconds = duplicateGuardSeconds(env, source);
+  const replay = existing => {
+    if (!sameTransactionCore(existing, row)) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
+    return { ...existing, __idempotent_replay: true, __replay_same: true };
+  };
+  // The request identity takes precedence over the content/time-window duplicate guard.
+  if (requestId) {
+    let existing;
+    try { existing = await findTransactionForRequest(env, row); }
+    catch (cause) { throw Object.assign(new Error("transaction_result_unconfirmed"), { uncertain_write: true, cause }); }
+    if (existing) return replay(existing);
+  }
   const insertRow = async () => {
     if (!row.id) {
       const created = await supabase(env, "/rest/v1/transactions", {
@@ -138,15 +149,17 @@ async function createManualTransaction(env, body, options = {}) {
       if (isUncertainStorageWrite(err)) {
         let found = null;
         try { found = await findTransactionForRequest(env, row); } catch (_) {}
-        if (found) return { ...found, __reconciled: true };
+        if (found) { replay(found); return { ...found, __reconciled: true }; }
       }
       throw err;
     }
     const inserted = Array.isArray(created) ? created[0] : created;
     if (inserted) return inserted;
-    const existing = await findTransactionForRequest(env, row);
+    let existing;
+    try { existing = await findTransactionForRequest(env, row); }
+    catch (cause) { throw Object.assign(new Error("transaction_result_unconfirmed"), { uncertain_write: true, cause }); }
     if (!existing) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
-    return { ...existing, __idempotent_replay: true, __replay_same: sameTransactionCore(existing, row) };
+    return replay(existing);
   };
   if (dedupSeconds > 0 && isDuplicateGuardSource(source) && env.DUPLICATE_GUARD_DISABLED !== "1") {
     const fingerprint = await sha256Hex([
@@ -172,7 +185,7 @@ async function createManualTransaction(env, body, options = {}) {
     }
     try {
       const dup = await findExactDuplicateTransaction(env, row, { withinSeconds: dedupSeconds });
-      if (dup && row.id && String(dup.id) === row.id) return { ...dup, __idempotent_replay: true, __replay_same: true };
+      if (dup && row.id && String(dup.id) === row.id) return replay(dup);
       if (dup) {
         rememberDuplicateEvent({ kind: "duplicate_skipped", source, household_id: row.household_id, user_id: row.user_id, amount: row.amount, transaction_date: row.transaction_date, detail: row.memo || row.raw_text || "" });
         return { ...dup, __duplicate_skipped: true };
@@ -191,14 +204,14 @@ function abTransactionRequestId(value) {
 }
 
 async function findTransactionForRequest(env, row) {
-  const params = new URLSearchParams({ select: "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,created_at", id: `eq.${row.id}`, household_id: `eq.${row.household_id}`, limit: "1" });
+  const params = new URLSearchParams({ select: "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,source_user_key,raw_text,created_at", id: `eq.${row.id}`, household_id: `eq.${row.household_id}`, limit: "1" });
   const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
   if (!Array.isArray(rows)) throw new Error("transaction_request_lookup_invalid");
   return rows[0] || null;
 }
 
 function sameTransactionCore(a = {}, b = {}) {
-  return String(a.user_id) === String(b.user_id) && String(a.type) === String(b.type) && Number(a.amount) === Number(b.amount) && String(a.transaction_date) === String(b.transaction_date);
+  return Number(a.amount) === Number(b.amount) && ["household_id", "user_id", "type", "transaction_date", "category", "memo", "payment_method", "source", "source_user_key", "raw_text"].every(key => String(a[key] ?? "") === String(b[key] ?? ""));
 }
 
 async function updateTransaction(env, id, body, options = {}) {
@@ -271,7 +284,7 @@ function isPrototypeKeyName(value) {
 // V22.9.34 감사 SIM-10·N3: 입력의 칸은 자기 속성만 본다. 원형이 오염됐을 때 상속된 값이 부분 수정의 칸으로
 // 들어가 금액이 0원이 되던 길을 막는다. 금액 상한(20억)은 카카오 수정처럼 다른 검증을 거치지 않는 경로를 위해
 // 저장 직전에도 지킨다.
-function sanitizeTransactionBody(body, partial = false) {
+function sanitizeTransactionBody(body, partial = false, options = {}) {
   const src = body && typeof body === "object" ? body : {};
   const own = (key) => Object.prototype.hasOwnProperty.call(src, key) ? src[key] : undefined;
   const out = {};
@@ -279,11 +292,17 @@ function sanitizeTransactionBody(body, partial = false) {
   if (!partial || own("household_id")) out.household_id = String(own("household_id") || "");
   if (own("user_id")) out.user_id = String(own("user_id"));
   if (!partial || own("type")) out.type = own("type") === "income" ? "income" : "expense";
-  if (!partial || own("amount") !== undefined) out.amount = Math.max(0, Math.round(Number(own("amount") || 0)));
+  if (!partial || own("amount") !== undefined) {
+    const amount = own("amount");
+    if (typeof amount !== "number" && (typeof amount !== "string" || !/^\d+$/.test(amount))) throw new Error("invalid_transaction_amount");
+    if (!Number.isSafeInteger(Number(amount)) || Number(amount) <= 0) throw new Error("invalid_transaction_amount");
+    out.amount = Number(amount);
+  }
   if (!partial || own("category") !== undefined) out.category = String(own("category") || "").slice(0, 80);
   if (!partial || own("memo") !== undefined) out.memo = String(own("memo") || "").slice(0, 160);
-  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${own("raw_text") || ""} ${own("payment_method") || ""}`, out.type);
-  if (!partial && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
+  const preserveEmptyCategory = options.preserveEmptyCategory === true && out.category === "";
+  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${own("raw_text") || ""} ${own("payment_method") || ""}`, out.type);
+  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
   if (!partial || own("payment_method") !== undefined) out.payment_method = String(own("payment_method") || "").slice(0, 40);
   if (!partial || own("transaction_date") !== undefined) {
     // V22.9.34 감사 N4·D5: 달력에 없는 날짜를 오늘로 바꿔 저장하지 않는다. 비어 있을 때만 오늘이다.
@@ -412,8 +431,9 @@ function escapeHtml(s) {
 // @build:exports-start
 export {
   abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
-  createManualTransaction, deleteTransactionWithAudit, escapeHtml, formatRecentTransactions,
-  formatSummary, getCalendar, getMonthSummary, getStats, helpText, jsonForInlineScript, linkText,
-  listTransactions, makeInviteCode, nextMonthStart, numberWithCommas, updateTransaction,
+  createManualTransaction, deleteTransactionWithAudit, escapeHtml, findTransactionForRequest,
+  formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
+  jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
+  sameTransactionCore, updateTransaction,
 };
 // @build:exports-end

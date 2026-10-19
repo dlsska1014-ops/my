@@ -246,7 +246,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           const roleRowsPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(user.id)}&select=role`;
           // V22.9.44: 준비 중이 아니면 가계부와 내 역할을 한 번에 읽는다. 이 잠금 안에서는 다른 요청이 역할을 바꾸지 못한다.
           // 준비 중이면 아래에서 가계부·소유자 행을 만든 뒤 역할을 다시 읽는다(예전과 같다).
-          const [householdRead, initialRoleRows] = await Promise.all([
+          let [householdRead, initialRoleRows] = await Promise.all([
             getHouseholdById(env, householdId),
             preparing ? Promise.resolve(null) : supabase(env, roleRowsPath, { method: "GET" }),
           ]);
@@ -325,6 +325,9 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             if (snapshot.link.linked_by !== marker.owner_id) throw new Error("kakao_group_first_link_conflict");
             const ownerRows = strictKakaoGroupMembershipRows(await fetchRawHouseholdMembers(env, householdId), true);
             if (bestRoleFromRows(ownerRows.filter(row => String(row.user_id) === marker.owner_id)) !== "owner") throw new Error("kakao_group_first_owner_conflict");
+            // These post-creation roles were read under the same household lease.
+            // Reuse the current owner's verified rows instead of another round trip.
+            if (marker.owner_id === String(user.id)) initialRoleRows = ownerRows.filter(row => String(row.user_id) === String(user.id));
             assertFresh();
             snapshot.done = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.done, { ...marker, phase: "complete" }), groupKey, true);
             await phase("complete");

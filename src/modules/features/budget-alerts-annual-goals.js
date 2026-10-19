@@ -8,60 +8,70 @@ import {
 import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { canWriteMyHousehold, memberRecordChangeError } from "../my/access-control.js";
-import { budgetCenterSummary, budgetStatusLabel, budgetSummary } from "../domain/budgets.js";
+import {
+  budgetCategoryMatches, budgetCenterSummary, budgetStatusLabel, budgetSummary,
+} from "../domain/budgets.js";
 import { ACCOUNTBOOK_GOALS_JS_ASSET_PATH } from "../assets/asset-registry.js";
-import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { monthObservation } from "../domain/analytics.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
-function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [] }) {
+function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", receipt = null }) {
+  if (!Array.isArray(rows) || !Array.isArray(budgets)) throw new Error("budget_observation_read_invalid");
   const budget = budgetSummary(rows, budgets);
   const center = budgetCenterSummary(rows, budgets);
-  const today = nowKstDate();
-  const todayStr = formatDate(today);
-  const sameMonth = todayStr.slice(0, 7) === month;
-  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() || 30;
-  const currentDay = sameMonth ? Number(todayStr.slice(8, 10)) : daysInMonth;
+  const observation = monthObservation(month, rows, { receipt });
+  const { today: todayStr, sameMonth, pastMonth, daysInMonth, days: currentDay } = observation;
   const remainingDays = sameMonth ? Math.max(1, daysInMonth - currentDay + 1) : 0;
   const spent = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const totalBudget = Number(budget.totalBudget || 0);
   const remainingBudget = totalBudget ? Math.max(0, totalBudget - spent) : 0;
-  const dailyAllowance = totalBudget && remainingDays ? Math.round(remainingBudget / remainingDays) : 0;
-  const avgDaily = currentDay ? Math.round(spent / currentDay) : 0;
-  const forecastExpense = sameMonth && currentDay ? Math.round((spent / currentDay) * daysInMonth) : spent;
-  const forecastDiff = totalBudget ? forecastExpense - totalBudget : 0;
+  const dailyAllowance = observation.status === "complete" && totalBudget && remainingDays ? Math.round(remainingBudget / remainingDays) : null;
+  const observedSpent = observation.status === "complete" ? budgetSummary(observation.rows, budgets).budgetedExpense : null;
+  const avgDaily = observedSpent == null ? null : Math.round(observedSpent / currentDay);
+  const forecastExpense = observedSpent == null ? null : sameMonth ? Math.round(observedSpent / currentDay * daysInMonth) : observedSpent;
+  const forecastDiff = totalBudget && forecastExpense != null ? forecastExpense - totalBudget : null;
   const rate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0;
-  const projectedRate = totalBudget ? Math.round((forecastExpense / totalBudget) * 100) : 0;
-  const activeRecurring = safeArray(recurring).filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => b.category === r.category)));
-  const pendingRecurring = activeRecurring.filter((r) => String(r.last_applied_month || "") !== month);
-  const recurringTotal = activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const pendingRecurringTotal = pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const afterPendingForecast = forecastExpense + pendingRecurringTotal;
-  const afterPendingDiff = totalBudget ? afterPendingForecast - totalBudget : 0;
-  const status = !totalBudget ? "setup" : spent > totalBudget ? "over" : forecastExpense > totalBudget ? "forecast" : rate >= 85 ? "warning" : "ok";
+  const projectedRate = totalBudget && forecastExpense != null ? Math.round(forecastExpense / totalBudget * 100) : null;
+  const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
+  const pendingState = !recurringAvailable ? "unavailable" : !sameMonth ? "deferred" : "complete";
+  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => budgetCategoryMatches(b.category, r.category)))) : null;
+  const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
+  const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
+  const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
+  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal : null;
+  const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
+  const status = observation.status === "unavailable" ? "unavailable" : !totalBudget ? "setup" : spent > totalBudget ? "over" : rate >= 85 ? "warning" : !sameMonth ? (pastMonth ? "closed" : "before") : forecastExpense > totalBudget ? "forecast" : "ok";
   const statusText = {
     setup: "예산 설정 필요",
     over: "예산 초과",
     forecast: "월말 초과 예상",
     warning: "주의 구간",
     ok: "정상 흐름",
+    closed: "월 전체 실적 확인",
+    before: "관측 전",
+    unavailable: "확인 불가",
   }[status] || "확인 필요";
   const statusMessage = {
     setup: "월 전체 예산이나 분류별 예산을 먼저 설정하면 오늘 사용 가능 금액과 월말 예상이 계산됩니다.",
-    over: "이미 이번 달 예산을 넘었습니다. 남은 기간에는 고정지출과 필수 지출만 먼저 확인하세요.",
+    over: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산을 넘었습니다. 관측 속도와 구분하여 확인해 주세요.",
     forecast: "현재 속도라면 월말에 예산을 넘을 수 있습니다. 이번 주 소비 속도를 낮추는 것이 좋습니다.",
-    warning: "아직 초과는 아니지만 예산의 85% 이상을 사용했습니다. 남은 기간 지출을 조금 보수적으로 잡으세요.",
+    warning: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산의 85% 이상입니다. 관측 속도와 구분하여 확인해 주세요.",
     ok: "현재 소비 속도는 예산 안에서 관리되고 있습니다. 오늘 사용 가능 금액 기준으로 기록하면 됩니다.",
+    closed: "종료된 달의 월 전체 실적입니다. 평균은 해당 월 전체 일수를 기준으로 계산하며 앞으로의 지출 예상이 아닙니다.",
+    before: "아직 오지 않은 달이므로 평균과 속도 예측을 계산하지 않습니다. 등록액과 남은 예산은 월 전체 기록을 기준으로 표시합니다.",
+    unavailable: "관측 자료를 확인하지 못해 평균과 속도 예측을 보류합니다. 자료를 다시 조회해 주세요.",
   }[status] || "예산 상태를 확인하세요.";
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
   const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
   const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
-  return { selectedHousehold, month, budget, center, todayStr, sameMonth, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
 function renderBudgetAlertStatusPill(status = "ok") {
-  const cls = status === "over" ? "bad" : status === "forecast" || status === "warning" ? "warn" : status === "setup" ? "setup" : "ok";
-  const label = { over: "초과", forecast: "예상초과", warning: "주의", setup: "설정필요", ok: "정상" }[status] || "확인";
+  const cls = status === "over" ? "bad" : status === "forecast" || status === "warning" ? "warn" : status === "ok" ? "ok" : "setup";
+  const label = { over: "초과", forecast: "예상초과", warning: "주의", setup: "설정필요", ok: "정상", closed: "월 실적", before: "관측 전", unavailable: "확인 불가" }[status] || "확인";
   return `<span class="pill ${cls}">${escapeHtml(label)}</span>`;
 }
 
@@ -77,6 +87,7 @@ function renderBudgetAlertRows(model) {
 }
 
 function renderPendingRecurringList(model) {
+  if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
   if (!list.length) return `<p class="muted">이번 달에 아직 반영 대기 중인 정기지출이 없습니다.</p>`;
   return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>`;
@@ -85,7 +96,8 @@ function renderPendingRecurringList(model) {
 function budgetAlertKakaoHint(model) {
   // V22.9.37 감사 D10: 카카오에 실제로 있는 명령만 말한다(오늘예산·이번달예상 명령은 없다).
   if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 ‘남은 예산’·‘예산 현황’으로 바로 확인할 수 있어요.";
-  if (model.status === "over") return `이번 달 예산을 ${numberWithCommas(Math.abs(model.budget.diff || 0))}원 초과했어요. 남은 기간은 필수 지출 위주로 관리해 주세요.`;
+  if (model.status === "over" || model.status === "warning") return model.statusMessage;
+  if (!model.sameMonth || model.observation.status !== "complete") return model.statusMessage;
   if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
 }

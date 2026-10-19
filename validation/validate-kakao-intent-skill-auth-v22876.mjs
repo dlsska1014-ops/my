@@ -272,11 +272,11 @@ eq(unknownSecond.slice(0, 20), unknownFirst.slice(0, 20), "같은 안내가 그�
 
 ok(source.includes('var DRAFT_KEY = "abQuickInputDraft";'), "입력 초안을 브라우저 안에 둔다");
 ok(source.includes("rememberDraft(form);"), "제출 직전에 초안을 남긴다");
-// V22.8.78 에서 규칙이 바뀌었다. 예전에는 "실패가 아니면 버린다"였는데, 그러면
-// 적다가 새로고침한 경우까지 버려진다. 이제 "성공했을 때만" 버린다.
-ok(source.includes('if (params.get("msg")) { forgetDraft(); return; }'), "저장에 성공했을 때만 초안을 버린다");
-ok(source.includes("if (restoreDraft()) {"), "실패로 돌아왔거나 적다가 떠났으면 초안을 되살린다");
-ok(source.includes("forgetDraft();\n    var draft = null;"), "되살린 초안은 곧바로 지운다");
+// V22.9.51: 성공 메시지 자체로는 삭제하지 않고 현재 초안의 요청 ID와
+// 제출 토큰에 연결된 저장 확인만 허용한다. 복원만으로 초안을 소비하지 않는다.
+ok(source.includes('draft?.request_id === params.get("saved_rid") && draft?.submission === params.get("saved_qd")'), "현재 초안의 요청과 제출이 모두 저장 확인에 일치할 때만 초안을 버린다");
+ok(source.includes("var restored = restoreDraft("), "실패로 돌아왔거나 적다가 떠났으면 첫 열기에서 초안을 되살린다");
+ok(!source.includes("forgetDraft();\n    var draft = null;") && source.includes('if (!draftOpened) {'), "초안을 복원해도 보존하며 이미 편집 중인 값을 다시 덮지 않는다");
 
 ok(source.includes("AB_KAKAO_INFLIGHT"), "처리 중 표시가 소스에 있다");
 ok(source.includes("clearKakaoInFlight(repeat.key);"), "처리가 끝나면 표시를 내린다");

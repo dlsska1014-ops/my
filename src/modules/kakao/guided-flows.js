@@ -318,7 +318,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     }
     if (state.step === "category_custom") {
       const category = await resolveBudgetCategoryName(env, household.id, utterance);
-      if (!category) return { text: "웹에 등록된 기본·사용자 카테고리 이름으로 입력해 주세요.\n예: 식비, 육아/자녀", quickReplies: [["카테고리 선택", "예산 설정"], ["취소", "취소"]] };
+      if (!category) return { text: "웹에 등록된 기본·사용자 카테고리 이름으로 입력해 주세요.\n예: 외식, 육아/자녀", quickReplies: [["카테고리 선택", "예산 설정"], ["취소", "취소"]] };
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
       return { text: `${category} 예산을 얼마로 설정할까요?`, quickReplies: kakaoBudgetAmountQuickReplies() };
     }

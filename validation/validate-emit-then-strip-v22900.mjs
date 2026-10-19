@@ -68,7 +68,7 @@ try {
 
   // 응답에 남아 있는 패널은 빠른 입력과 최근 내역 둘뿐이다. 지금 상태를 못 박아 두면,
   // 다시 만들었다 지우는 섹션이 끼어드는 순간 여기서 드러난다.
-  const panels = [...html.matchAll(/<section id="([a-z0-9_-]+)" class="panel">/g)].map((match) => match[1]);
+  const panels = [...html.matchAll(/<section id="([a-z0-9_-]+)" class="panel"(?:\s[^>]*)?>/g)].map((match) => match[1]);
   assert.deepEqual(panels, ["add", "feed"], `응답의 패널은 빠른 입력·최근 내역 둘뿐이다 (실제: ${panels.join(", ")})`);
   checks += 1;
 

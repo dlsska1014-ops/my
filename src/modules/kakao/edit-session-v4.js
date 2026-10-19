@@ -36,9 +36,9 @@ function hasKakaoEditSessionHint(kakaoUserKey = "", payload = {}) {
   return !!at && Date.now() - at < SESSION_TTL_MS + 60 * 1000;
 }
 
-async function getKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}) {
+async function getKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}, snapshotRaw = undefined) {
   // Failed state reads must not reroute a numeric edit reply into a new transaction.
-  const raw = await getSettingValueStrict(env, kakaoEditSessionKeyV4(kakaoUserKey, payload));
+  const raw = snapshotRaw === undefined ? await getSettingValueStrict(env, kakaoEditSessionKeyV4(kakaoUserKey, payload)) : snapshotRaw;
   if (!raw) return null;
   try {
     const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -397,11 +397,11 @@ export {
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
   isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
-  kakaoEditConversationScope, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,
-  kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
-  kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
-  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,
-  stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
+  kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4,
+  resolveKakaoEditDateV4, saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq,
+  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

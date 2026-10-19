@@ -57,7 +57,8 @@ ok(source.includes("household-settings-rmw:${hid}") && source.includes('"setting
 ok(!source.includes("const aliasSnapshots = []"), "identity merge no longer saves pre-merge alias snapshots");
 ok(source.includes("for (const hid of aliasHouseholdIds)") && source.includes("fetchMemberAliasMap(env, hid, { strict: true })"), "identity merge rereads aliases under sequential household locks");
 ok(!source.includes("[...plan.values()].slice(0, 100)"), "budget plan is not silently truncated");
-ok(source.includes('if (rows.length > 100) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_plan_too_many" }))'), "budget plan rejects more than 100 normalized entries before RPC");
+// V22.9.52: verify the 100-row boundary in the real request block below. The
+// shared contract no longer spells this guard as a redirect in this handler.
 ok(!source.includes("unsafeMonthEndRules") && source.includes("V22.9.29 requires the month-end RPC patch"), "manual recurring apply uses the repaired month-end RPC after SQL-first deployment");
 ok(source.includes("settings_rmw_lease_expired") && source.includes("locked_until"), "settings writes check the observed lease expiry before mutation");
 ok(source.includes("category_created_keywords_pending"), "category creation reports partial success instead of invoking duplicate fallback");
@@ -148,7 +149,7 @@ ok(source.includes("category_created_keywords_pending"), "category creation repo
     const purgeGate = new Promise((resolve) => { releasePurge = resolve; });
     const purgeStarted = new Promise((resolve) => { purgeReached = resolve; });
     fixture.db.__before_rpc = async (name) => {
-      if (name === "accountbook_purge_household_v227") {
+      if (name === "accountbook_purge_household_v22960") {
         purgeReached();
         await purgeGate;
       }
@@ -300,6 +301,7 @@ ok(source.includes("category_created_keywords_pending"), "category creation repo
     eq(fixture.db.accountbook_budgets.filter((item) => item.household_id === "house-home" && item.month === "2026-07").length, 100, "100-entry budget persists all entries");
     const budgetSnapshot = JSON.stringify(fixture.db.accountbook_budgets);
     response = await call(fixture, "POST", "/my/budget-bulk/save", { body: buildBudgetBody(101, await planFingerprint()) });
+    eq(response.status, 422, "the 101-entry boundary returns an editable validation failure before a write");
     ok(String(response.headers.get("location") || "").includes("err=budget_plan_too_many"), "101 normalized budget entries return a clear mapped error");
     eq(rpcCount(fixture.db, "accountbook_replace_budget_plan_v227"), 1, "101-entry budget performs zero additional RPC writes");
     eq(JSON.stringify(fixture.db.accountbook_budgets), budgetSnapshot, "101-entry rejection preserves the previous budget plan");

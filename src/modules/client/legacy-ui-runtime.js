@@ -1,7 +1,9 @@
 // @build:imports-start
 import {
-  parseMobileAmountText, quickInputDate, transactionTypeFromText,
+  parseMobileAmountText, quickAmountFieldState, quickInputDate, transactionTypeFromText,
 } from "./shared-input-parsers.js";
+import { importMappingClientMain } from "./lucian-d-import.js";
+import { importPreviewClientMain } from "../my/backup-import.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -16,7 +18,7 @@ function mobileUiUxClientMain() {
       .trim();
   }
 
-  function detectType(text) { return transactionTypeFromText(text); }
+  function detectType(text) { return transactionTypeFromText(text, window.AB_CATEGORY_RULES || []); }
 
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
@@ -134,10 +136,12 @@ function mobileUiUxClientMain() {
   }
   const amountInput = document.getElementById("amountInput");
   if (amountInput) {
-    amountInput.addEventListener("input", function() {
-      const raw = String(amountInput.value || "").replace(/[^0-9]/g, "");
-      amountInput.value = raw ? formatAmount(raw) : "";
-    });
+    let composing = false;
+    const update = event => { if (!composing && !event.isComposing) quickAmountFieldState(amountInput, true); };
+    amountInput.addEventListener("compositionstart", () => { composing = true; });
+    amountInput.addEventListener("compositionend", event => { composing = false; update(event); });
+    amountInput.addEventListener("input", update);
+    amountInput.addEventListener("change", update);
   }
 
   window.openEdit = function openEdit(id) {
@@ -1056,16 +1060,26 @@ function myBackupImportClientMain() {
   var status = document.getElementById("myImportFileStatus");
   var form = document.getElementById("myImportForm");
   var submit = document.getElementById("myImportSubmit");
-  var xlsxPromise = null;
+  var xlsxPromise = null, revision = 0, kind = "text", phase = "ready", reader = null;
   if (!input || !area || !status || !form) return;
-
+  var source = document.createElement("input");
+  source.type = "hidden"; source.name = "input_source"; source.value = kind; form.appendChild(source);
+  var sourceRevision = document.createElement("input");
+  sourceRevision.type = "hidden"; sourceRevision.name = "input_revision"; sourceRevision.value = "0"; form.appendChild(sourceRevision);
+  status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
   function setStatus(message, bad) {
-    status.textContent = message;
+    if (status.textContent !== message) status.textContent = message;
     status.style.background = bad ? "#fff7ed" : "#eff6ff";
     status.style.borderColor = bad ? "#fed7aa" : "#bfdbfe";
     status.style.color = bad ? "#9a3412" : "#1e3a8a";
   }
-
+  function choose(nextKind) {
+    revision++; kind = nextKind; phase = "ready";
+    source.value = kind; sourceRevision.value = String(revision);
+    if (reader && reader.readyState === 1) reader.abort();
+    form.dispatchEvent(new CustomEvent("ab:import-source-change", { detail: { revision: revision } }));
+    return revision;
+  }
   function loadXlsx() {
     if (window.XLSX) return Promise.resolve(window.XLSX);
     if (xlsxPromise) return xlsxPromise;
@@ -1077,69 +1091,66 @@ function myBackupImportClientMain() {
         if (window.XLSX) resolve(window.XLSX);
         else { xlsxPromise = null; reject(new Error("엑셀 변환 모듈 초기화에 실패했습니다.")); }
       };
-      script.onerror = function() {
-        // V22.9.26: 실패한 약속을 캐시하지 않는다. 그래야 다음 파일 선택에서 다시 시도한다.
-        xlsxPromise = null;
-        reject(new Error("엑셀 변환 모듈을 불러오지 못했습니다."));
-      };
+      script.onerror = function() { xlsxPromise = null; reject(new Error("엑셀 변환 모듈을 불러오지 못했습니다.")); };
       document.head.appendChild(script);
     });
     return xlsxPromise;
   }
-
+  form.__abImportSource = {
+    read: function() { return { kind: kind, phase: phase, revision: revision }; },
+    converted: function(text, name) {
+      choose("converted"); area.value = text;
+      setStatus(name + " 파일의 변환된 표를 분석합니다. 이전 파일과 붙여넣기는 사용하지 않습니다.", false);
+    }
+  };
+  area.addEventListener("input", function() {
+    choose("text"); setStatus("현재 붙여넣은 내용을 분석합니다. 선택했던 파일은 사용하지 않습니다.", false);
+  });
   input.addEventListener("change", async function() {
     var file = input.files && input.files[0];
-    if (!file) return;
-    var name = String(file.name || "").toLowerCase();
-    if (!/\.xlsx?$/.test(name)) {
-      setStatus("선택한 " + file.name + " 파일은 서버에서 제목 유사어와 자연어를 분석합니다.", false);
-      return;
+    var current = choose(file ? "file" : "text");
+    if (!file) { setStatus("파일 선택을 취소했습니다. 붙여넣은 내용은 유지했습니다.", false); return; }
+    if (file.size > 5 * 1024 * 1024) { phase = "error"; setStatus("파일은 5 MiB 이하여야 합니다. 기존 입력은 유지했습니다.", true); return; }
+    if (!/\.xlsx?$/.test(String(file.name || "").toLowerCase())) {
+      setStatus("선택한 " + file.name + " 파일을 분석합니다. 이전 붙여넣기는 사용하지 않습니다.", false); return;
     }
-    setStatus("엑셀 변환 모듈을 준비하고 있습니다…", false);
-    try {
-      await loadXlsx();
-    } catch (error) {
-      setStatus(error.message || String(error), true);
-      return;
-    }
-    var reader = new FileReader();
+    phase = "converting"; setStatus("엑셀 변환 모듈을 준비하고 있습니다…", false);
+    try { await loadXlsx(); }
+    catch (error) { if (current === revision) { phase = "error"; setStatus(error.message + " 기존 입력은 유지했습니다.", true); } return; }
+    if (current !== revision) return;
+    reader = new FileReader();
     setStatus("엑셀의 모든 시트를 변환하고 있습니다…", false);
     reader.onload = function(event) {
+      if (current !== revision) return;
       try {
         var workbook = window.XLSX.read(new Uint8Array(event.target.result), { type: "array", cellDates: false });
         var chunks = [];
         workbook.SheetNames.forEach(function(sheetName) {
-          var sheet = workbook.Sheets[sheetName];
-          var tsv = window.XLSX.utils.sheet_to_csv(sheet, { FS: "\t", RS: "\n", rawNumbers: false });
+          var tsv = window.XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { FS: "\t", RS: "\n", rawNumbers: false });
           if (String(tsv || "").trim()) chunks.push("# 시트: " + sheetName + "\n" + String(tsv).trim());
         });
         if (!chunks.length) throw new Error("값이 있는 시트를 찾지 못했습니다.");
-        area.value = chunks.join("\n");
-        input.value = "";
-        setStatus("엑셀 " + workbook.SheetNames.length + "개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.", false);
-      } catch (error) {
-        setStatus(error.message || String(error), true);
-      }
+        if (current !== revision) return;
+        area.value = chunks.join("\n"); kind = "converted"; source.value = kind; phase = "ready";
+        setStatus("선택한 엑셀 " + workbook.SheetNames.length + "개 시트의 변환된 표를 분석합니다.", false);
+      } catch (error) { if (current === revision) { phase = "error"; setStatus((error.message || String(error)) + " 기존 입력은 유지했습니다.", true); } }
     };
-    reader.onerror = function() {
-      setStatus("엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.", true);
-    };
+    reader.onerror = function() { if (current === revision) { phase = "error"; setStatus("엑셀 파일을 읽지 못했습니다. 기존 입력은 유지했습니다. CSV로 저장하거나 표를 붙여넣어 주세요.", true); } };
     reader.readAsArrayBuffer(file);
   });
-
+  form.addEventListener("formdata", function(event) {
+    if (kind === "file") event.formData.delete("csv_text");
+    else event.formData.delete("csv_file");
+  });
   form.addEventListener("submit", function(event) {
-    var file = input.files && input.files[0];
-    if (file && /\.xlsx?$/.test(String(file.name || "").toLowerCase())) {
-      event.preventDefault();
-      setStatus("엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.", true);
-      return;
+    if (phase !== "ready") {
+      event.preventDefault(); setStatus(phase === "converting" ? "엑셀 변환이 끝날 때까지 기다리거나 다른 원본을 선택해 주세요." : "선택한 파일을 읽지 못했습니다. 다른 파일을 선택하거나 내용을 붙여넣어 주세요.", true); return;
     }
     if (submit && !submit.disabled) {
-      submit.disabled = true;
-      submit.setAttribute("aria-busy", "true");
-      submit.textContent = "미리보기 분석 중…";
+      submit.disabled = true; submit.setAttribute("aria-busy", "true"); submit.textContent = "미리보기 분석 중…";
     }
   });
+  window.addEventListener("pagehide", function() { revision++; if (reader && reader.readyState === 1) reader.abort(); });
 }
 
 function deferHeavyBrowserTools(html = "") {
@@ -1151,7 +1162,7 @@ function deferHeavyBrowserTools(html = "") {
     const start = source.indexOf(marker);
     const end = start < 0 ? -1 : source.indexOf("</script>", start + marker.length);
     if (start >= 0 && end >= 0) {
-      source = source.slice(0, start) + `<script id="myBackupImportRuntime">(${myBackupImportClientMain.toString()})();</script>` + source.slice(end + 9);
+      source = source.slice(0, start) + `<script id="myBackupImportRuntime">(${myBackupImportClientMain.toString()})();(${importMappingClientMain.toString()})(${importPreviewClientMain.toString()});</script>` + source.slice(end + 9);
     }
   }
 
@@ -1172,6 +1183,7 @@ export {
   V2281_GUIDED_UIUX_STYLE, V2284_UI_REVALIDATION_STYLE, V2285_LOGIN_STYLE, V2285_MENU_STYLE,
   approximateWonLabel, attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
   inlineActionResultClientMain, kakaoLoginProgressClientMain, mobileShellUiClientMain,
-  mobileUiUxClientMain, passwordMatchFeedbackClientMain, v2284UiStyleFor, v2285NavStyleFor,
+  mobileUiUxClientMain, myBackupImportClientMain, passwordMatchFeedbackClientMain, v2284UiStyleFor,
+  v2285NavStyleFor,
 };
 // @build:exports-end

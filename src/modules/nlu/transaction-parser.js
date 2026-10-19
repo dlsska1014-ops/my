@@ -18,7 +18,7 @@ function parseMultipleTransactions(text, payload) {
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
-    if (parsed.message === "invalid_transaction_date" || parsed.message === "amount_unit_required") return blockedTransactionParse(parsed);
+    if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
@@ -27,20 +27,20 @@ function parseMultipleTransactions(text, payload) {
 // V22.9.34 감사 N11: 저장하지 않은 이유를 빈 결과에 붙여 둔다. 배열로만 쓰는 호출부는 그대로 빈 목록을 본다.
 function blockedTransactionParse(parsed = {}) {
   const out = [];
-  if (parsed.message === "invalid_transaction_date" || parsed.message === "amount_unit_required") out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
+  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
   return out;
 }
 
 function hasDateHint(text) {
   const t = normalizeText(text);
   // V22.9.34 감사 N6·D4·D8: 엊그제·그끄저께, 말일, "일주일/이틀/한 달 전" 도 날짜 표현이다(quickInputDate 와 같은 말).
-  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|말일|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/]\d{1,2}|[월화수목금토일]요일)/.test(t);
+  return /(오늘|금일|지금|방금|어제|전날|그제|그저께|엊그저께|어젯밤|엊저녁|엊그제|그끄저께|그끄제|내일|지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달|말일|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}|\d{1,2}\s*월\s*\d{1,2}|\d{1,2}[.\/-]\d{1,2}|[월화수목금토일]요일)/.test(t);
 }
 
 function extractLeadingDateHint(text) {
   const t = normalizeText(text);
-  if (/^(?:오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일)[가-힣A-Za-z]/.test(t)) return "";
-  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|엊그제|그끄저께|그끄제|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|(?:지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달)?\s*말일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}[.\/]\d{1,2})\s*)/);
+  if (/^(?:오늘|금일|지금|방금|어제|전날|그제|그저께|엊그저께|어젯밤|엊저녁|엊그제|그끄저께|그끄제|내일)(?!(?:아침|점심|저녁|밤|새벽|오전|오후)(?:\s|$))[가-힣A-Za-z]/.test(t)) return "";
+  const m = t.match(/^((오늘|금일|지금|방금|어제|전날|그제|그저께|엊그저께|어젯밤|엊저녁|엊그제|그끄저께|그끄제|내일|(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일|(?:지난\s*달|저번\s*달|이번\s*달|이달|다음\s*달|담달)?\s*말일|지난\s*달\s*\d{1,2}일?|저번\s*달\s*\d{1,2}일?|이번\s*달\s*\d{1,2}일?|이달\s*\d{1,2}일?|다음\s*달\s*\d{1,2}일?|담달\s*\d{1,2}일?|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)|(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)|20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일?|(?:(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}[.\/-]\d{1,2})\s*)/);
   return m ? m[1].trim() : "";
 }
 
@@ -96,6 +96,7 @@ function parseTransaction(text, payload) {
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
   const type = entityType || detectType(raw);
+  if (!entityType && /(?:결제|승인)\s*취소/.test(raw) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(raw)) return {ok:false,message:"transaction_type_confirmation_required"};
 
   const entityAmountValue = params.amount || params.amount_text || params.금액;
   const amountInfo = entityAmountValue ? { amount: parseAmountValue(entityAmountValue), raw: String(entityAmountValue) } : extractAmount(raw);

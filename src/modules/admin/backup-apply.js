@@ -4,6 +4,9 @@ import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { checkAdminPassword, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import {
+  MY_IMPORT_WRITES_ENABLED_V22959, cleanImportedRowsForInsert, commitImportedTransactionRows,
+} from "../import/flexible-import-parser.js";
+import {
   fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import {
@@ -11,13 +14,12 @@ import {
   validateBackupPayloadShape,
 } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
+import { reconcileImportedTransactionIds } from "../my/backup-import.js";
 import { activeSpenderExists } from "../my/transactions.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { stableShortHash } from "../kakao/identity-chat-first.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
-import {
-  createManualTransaction, escapeHtml, numberWithCommas,
-} from "../domain/transactions-core.js";
+import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 import { parseStrictAmount, parseStrictDate } from "../domain/strict-input.js";
 // @build:imports-end
 
@@ -174,6 +176,7 @@ async function handleImportFinalCheckPage(request, env, url) {
 }
 
 async function handleImportFinalCheckPost(request, env) {
+  if (!MY_IMPORT_WRITES_ENABLED_V22959) return htmlResponse("복구 모드에서는 가져오기 저장을 시작하지 않습니다. 원본과 기존 미리보기를 보관해 주세요.", 503);
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   let households = [];
   try { households = await fetchAdminHouseholds(env); } catch (_) {}
@@ -239,6 +242,7 @@ async function handleImportApplyPage(request, env, url) {
 }
 
 async function handleImportApplyPost(request, env) {
+  if (!MY_IMPORT_WRITES_ENABLED_V22959) return htmlResponse("복구 모드에서는 가져오기를 저장하지 않습니다. 원본과 기존 미리보기를 보관해 주세요.", 503);
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   let households = [];
   try { households = await fetchAdminHouseholds(env); } catch (_) {}
@@ -278,7 +282,7 @@ async function handleImportApplyPost(request, env) {
     }
     // V22.9.37 감사 SIM-6: 가계부 설정 잠금 안에서 현재 기록·참여자를 엄격하게 읽고(읽기 실패면 적용하지 않음) 중복
     // 확인과 저장을 한다. 같은 계획을 동시에 두 번 보내면 두 번째는 잠금 뒤에 이미 저장된 행을 중복으로 뺀다.
-    const outcome = await withHouseholdSettingsRmw(env, householdId, () => applyCandidatePlanRows(env, { householdId, month, validation }));
+    const outcome = await withHouseholdSettingsRmw(env, householdId, ({ assertFresh }) => applyCandidatePlanRows(env, { householdId, month, validation, assertFresh }));
     return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, finalCheck: outcome.finalCheck, result: outcome.result }));
   } catch (err) {
     const detail = safeError(err);
@@ -292,7 +296,7 @@ async function handleImportApplyPost(request, env) {
 }
 
 // 잠금 안에서 실행되는 실제 적용. 중복 비교는 선택한 달의 현재 기록과만 하므로 다른 달 날짜는 제외하고 알린다.
-async function applyCandidatePlanRows(env, { householdId = "", month = "", validation = {} }) {
+async function applyCandidatePlanRows(env, { householdId = "", month = "", validation = {}, assertFresh }) {
   const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
   const members = await fetchHouseholdMembers(env, householdId);
   const excludedRows = safeArray(validation.invalid).slice();
@@ -319,8 +323,11 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
       duplicateRows.push({ row, error: "적용 중 중복 재감지로 제외" });
       continue;
     }
+    let rpcSucceeded = false;
+    let importRow;
     try {
-      const created = await createManualTransaction(env, {
+      importRow = cleanImportedRowsForInsert([{
+        id: crypto.randomUUID(),
         household_id: householdId,
         user_id: row.user_id || "",
         type: row.type === "income" ? "income" : "expense",
@@ -330,18 +337,26 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
         memo: row.memo || "",
         payment_method: row.payment_method || "",
         raw_text: row.memo || "",
-        source: "backup_import_v19_3",
-      });
+        source: "my_import",
+        source_user_key: "",
+      }])[0];
+      if (!importRow) throw new Error("import_storage_fields_invalid");
+      assertFresh();
+      const response = await commitImportedTransactionRows(env, householdId, [importRow]);
+      rpcSucceeded = true;
+      const summary = Array.isArray(response) ? response[0] : response;
+      const found = await reconcileImportedTransactionIds(env, householdId, [importRow]);
+      if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== 1 || found.size !== 1) throw new Error("import_write_unknown");
       insertedSigs.add(sig);
-      success.push({ row, id: created?.id || "" });
+      success.push({ row, id: importRow.id });
     } catch (err) {
       rememberOpsEvent({ kind: "backup_import_row_failed", severity: "warn", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
       // V22.9.37 감사 SIM-6(B15 와 같은 결함): 응답을 잃은 저장(5xx·시간 초과)은 "저장하지 못함"이 아니다. 다시 읽어
       // 확인하고, 확인되지 않으면 확인 필요로 알린 뒤 남은 행은 적용하지 않는다(반복 제출의 중복을 막는 쪽으로 멈춘다).
-      if (isUncertainStorageWrite(err)) {
+      if (rpcSucceeded || isUncertainStorageWrite(err)) {
         let found = null;
-        try { found = (await fetchAdminRows(env, { month, householdId, type: "all" })).find((current) => transactionSignature(current) === sig) || null; } catch (_) { found = null; }
-        if (found) { insertedSigs.add(sig); success.push({ row, id: found.id || "" }); continue; }
+        try { if (importRow) found = await reconcileImportedTransactionIds(env, householdId, [importRow]); } catch (_) { found = null; }
+        if (found?.has(importRow.id)) { insertedSigs.add(sig); success.push({ row, id: importRow.id }); continue; }
         unknownRows.push({ row, error: "저장 여부 확인 필요 — 거래 목록에서 이 행을 확인한 뒤에만 다시 제출하세요", unknown: true });
         for (const rest of applyRows.slice(index + 1)) excludedRows.push({ row: rest, error: "앞선 저장 결과가 불명확해 적용하지 않음(기존 데이터 유지)", excluded: true });
         break;

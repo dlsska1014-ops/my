@@ -54,7 +54,15 @@ const entry = {
 {
   const saved = await post("/admin/transactions", { ...entry, memo: "뒤로가기시험" }, fixture.cookie);
   eq(saved.status, 303, "저장은 리다이렉트로 끝나 뒤로 가기가 재제출되지 않는다");
-  eq((await post("/my/budget-bulk/save", { household_id: "house-home", month: MONTH, budget_category: "식비", budget_amount: "1000" }, fixture.cookie)).status, 303, "예산 저장도 리다이렉트로 끝난다");
+  // V22.9.52: the old probe omitted the fingerprint and observed a rejection
+  // redirect, not a successful save. Verify the actual successful PRG boundary.
+  const opened = await (await app.fetch(new Request(`${ORIGIN}/budgets?household_id=house-home&month=${MONTH}`, { headers: { cookie: fixture.cookie } }), fixture.env, {})).text();
+  const fingerprint = opened.match(/name="plan_fingerprint" value="([^"]+)"/)?.[1];
+  ok(fingerprint, "예산 저장 검사는 실제 편집 폼의 지문을 사용한다");
+  const budgetSaved = await post("/my/budget-bulk/save", { household_id: "house-home", month: MONTH, plan_fingerprint: fingerprint, budget_category: "식비", budget_amount: "1000" }, fixture.cookie);
+  eq(budgetSaved.status, 303, "정상 예산 저장은 리다이렉트로 끝난다");
+  ok(String(budgetSaved.headers.get("location")).includes("msg=budget_saved"), "실패 복귀가 아닌 실제 예산 저장 성공을 확인한다");
+  eq(JSON.stringify(fixture.db.accountbook_budgets.filter(row => row.household_id === "house-home" && row.month === MONTH).map(row => [row.category, row.amount])), JSON.stringify([["식비", 1000]]), "리다이렉트 전에 정확한 월 계획을 저장했다");
 }
 
 // ---------------------------------------------------------------------------

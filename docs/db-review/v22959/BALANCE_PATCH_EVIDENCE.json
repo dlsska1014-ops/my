@@ -1,0 +1,26 @@
+{
+  "status": "review-only-not-executed",
+  "originalMd5": "95a2842401a677f918455a982c44487d",
+  "supersededR1Md5": "dab6cc93b5f3c444cc03ae86a8eafea3",
+  "proposedR2Md5": "31a2c7008b2a6d63dbab515b1b86e2ae",
+  "unchangedOutsideTwoBlocks": true,
+  "balanceGuardBefore": "    if coalesce(v_asset->>'balance', '0') !~ '^[0-9]+([.][0-9]+)?$' then\n      raise exception 'asset_balance_invalid';\n    end if;\n    if coalesce(v_asset->>'balance', '0')::numeric > 9000000000000 then\n      raise exception 'asset_balance_invalid';\n    end if;",
+  "balanceGuardAfter": "    if coalesce(v_asset->>'balance', '0') !~ '^-?[0-9]+([.][0-9]+)?$' then\n      raise exception 'asset_balance_invalid';\n    end if;\n    if abs(coalesce(v_asset->>'balance', '0')::numeric) > 9000000000000\n       or (coalesce(v_asset->>'balance', '0')::numeric < 0\n           and coalesce(v_asset->>'kind', '') not in ('loan', 'credit_card')) then\n      raise exception 'asset_balance_invalid';\n    end if;",
+  "loanHistoryBefore": "      case\n        when item->>'kind' = 'loan'\n        then case when coalesce(item->>'balance', '0') ~ '^[0-9]+([.][0-9]+)?$'\n          then least(9000000000000::numeric, round((item->>'balance')::numeric)) else 0 end\n        else 0\n      end",
+  "loanHistoryAfter": "      case\n        when item->>'kind' = 'loan'\n        then case when coalesce(item->>'balance', '0') ~ '^-?[0-9]+([.][0-9]+)?$'\n          then least(9000000000000::numeric, abs(round((item->>'balance')::numeric))) else 0 end\n        else 0\n      end",
+  "workerPolicy": "loan liability is abs(balance); credit_card/check_card are excluded from net worth",
+  "scope": "No historical backfill. Next successful asset mutation updates only the requested month, as before.",
+  "originalSourceSha256": "534d192899b3873a7be5a1ba8f0e3b19722cb82e314ca7a61b729dc996dba175",
+  "proposedR2Sha256": "19ed0966f25f0a5af5e6d4c1e449805c1e84f16bc696f68d306291d5be243f96",
+  "sqlExecuted": false,
+  "localExecutionEvidence": "D:/Github_Kakao_Account/review-artifacts/v59-postgres-execution-2026-10-17/EXECUTION_RESULT.json",
+  "owner": "postgres",
+  "securityDefiner": true,
+  "settings": [
+    "search_path=public, pg_temp"
+  ],
+  "acl": [
+    "postgres=X/postgres",
+    "service_role=X/postgres"
+  ]
+}

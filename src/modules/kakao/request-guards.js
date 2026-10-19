@@ -18,6 +18,7 @@ import {
 import {
   isKakaoReservedCreateFlowReply, parseKakaoSummaryRange,
 } from "./household-budget-commands.js";
+import { parseKakaoSeparatePurchaseCommand } from "./separate-purchase.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { getKakaoUserKey, stableShortHash } from "./identity-chat-first.js";
 import {
@@ -25,8 +26,9 @@ import {
   isInputExampleCommand, isInviteCommand, isLinkCommand, isRecentCommand, isSettlementCommand,
   isSummaryCommand, isUndoCommand, parseGroupBindCommand,
 } from "./simple-commands.js";
-import { extractLeadingDateHint } from "../nlu/transaction-parser.js";
+import { extractLeadingDateHint, parseMultipleTransactions } from "../nlu/transaction-parser.js";
 import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
+import { formatDate, nowKstDate } from "../nlu/date-payment.js";
 // @build:imports-end
 
 function stripKakaoBotMention(text = "") {
@@ -101,6 +103,7 @@ async function optionalWithin(promise, timeoutMs, fallback) {
 
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}, payload = {}) {
   const text = normalizeText(stripLeadingCommand(utterance));
+  if (parseKakaoSeparatePurchaseCommand(text)) return {ok:true,skipped:true};
   if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditCommandV4(text) || !!parseKakaoDeleteCommandV4(text) || !!parseKakaoRestoreCommandV4(text) || isKakaoTransactionSpenderChangeCommand(text) || hasKakaoEditSessionHint(userKey, payload) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
   const windowMs = boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600) * 1000;
   const now = Date.now();
@@ -150,6 +153,7 @@ function kakaoRepeatGuardText(origin = "") {
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
     "‘오늘 기록 보기’로 저장 결과를 확인해 주세요.",
+    "서로 다른 구매라면 ‘별도 구매 추가 커피 4500원’처럼 원래 내용을 보내 후보를 확인해 주세요.",
   ].join("\n");
 }
 
@@ -159,6 +163,20 @@ function kakaoSkillDeferredText() {
     "요청은 받았어요. 처리 결과 확인이 조금 늦어지고 있어요.",
     "같은 내용을 다시 보내지 말고 잠시 뒤 ‘오늘 기록 보기’로 확인해 주세요.",
   ].join("\n");
+}
+
+function kakaoRecordCheckCommands(utterance = "", payload = {}) {
+  const separate = parseKakaoSeparatePurchaseCommand(stripLeadingCommand(utterance));
+  if (separate?.token) return [`별도 구매 조회 ${separate.token}`];
+  const today = formatDate(nowKstDate());
+  const dates = [...new Set(parseMultipleTransactions(stripLeadingCommand(utterance), payload).map(row => row.transaction_date))].slice(0, 2);
+  return (dates.length ? dates : [today]).map(date => date === today ? "오늘 기록 보기" : `${date} 기록 보기`);
+}
+
+function kakaoRecordCheckReply(text, utterance = "", payload = {}) {
+  const commands = kakaoRecordCheckCommands(utterance, payload);
+  const body = `${text}\n${commands.map(command => `‘${command}’`).join(" 또는 ")}로 기록 목록을 확인해 주세요.\n목록이 비어 있어도 이 요청의 실패가 확정되는 것은 아닙니다.`;
+  return kakaoText(body, getKakaoBotGroupKey(payload) ? null : commands.map(command => [command, command]));
 }
 
 function buildKakaoSkillTestPayload(utterance = "메뉴") {
@@ -215,8 +233,8 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 // @build:exports-start
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
-  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRepeatGuardText,
-  kakaoSkillDeferredText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed, kakaoRecordCheckReply,
+  kakaoRepeatGuardText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin,
   stripKakaoBotMention, stripLeadingCommand,
 };
 // @build:exports-end

@@ -450,8 +450,10 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
   const rawText = normalizeText([fields.raw_text, fields.memo, fields.category, fields.payment_method].filter(Boolean).join(" "));
   const explicitCategory = String(fields.category || "").trim();
   const explicitPayment = String(fields.payment_method || "").trim();
-  const baseCategory = explicitCategory || inferCategory(rawText || fields.memo || "", cleanType) || "";
-  const basePayment = explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
+  const clearedCategory = fields.manual_category === true && !explicitCategory;
+  const clearedPayment = fields.manual_payment === true && !explicitPayment;
+  const baseCategory = clearedCategory ? "" : explicitCategory || inferCategory(rawText || fields.memo || "", cleanType) || "";
+  const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
       fetchCustomCategories(env, householdId),
@@ -459,8 +461,8 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
     ]);
     const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
     return {
-      category: String(explicitCategory || refined.category || baseCategory || "").trim(),
-      payment_method: String(explicitPayment || refined.payment_method || basePayment || "").trim(),
+      category: clearedCategory ? "" : String(explicitCategory || refined.category || baseCategory || "").trim(),
+      payment_method: clearedPayment ? "" : String(explicitPayment || refined.payment_method || basePayment || "").trim(),
     };
   } catch (err) {
     return { category: baseCategory, payment_method: basePayment };

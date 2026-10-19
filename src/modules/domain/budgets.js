@@ -1,8 +1,9 @@
 // @build:imports-start
+import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { normalizePaymentAssetList, paymentAssetsKey } from "../settings/payment-assets.js";
 import { normalizeReservePlanList, reservePlansKey } from "../settings/reserve-plans.js";
 import {
-  fetchAdminRows, memberAliasSettingsKey, normalizeMemberAliasMap,
+  fetchAdminRows, fetchAdminRowsRange, memberAliasSettingsKey, normalizeMemberAliasMap,
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { isIncomeBudgetCategory } from "../my/groups-budget-bulk.js";
@@ -12,7 +13,10 @@ import { homeMemberPolicyValue, memberPolicySettingsKey } from "../my/access-con
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
-import { calculateStats, escapeHtml, numberWithCommas } from "./transactions-core.js";
+import { LEGACY_CATEGORY_SPLITS } from "../nlu/category-rules.js";
+import {
+  calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
+} from "./transactions-core.js";
 // @build:imports-end
 
 async function optionalSupabase(env, path, init = {}, fallback = []) {
@@ -61,19 +65,34 @@ async function fetchBudgets(env, householdId, month, options = {}) {
 
 // V22.9.34 감사 S3: 예산 폼은 그린 순간의 월 계획 지문을 싣고, 저장은 지금 계획의 지문이
 // 같을 때만 통째로 바꾼다. 폼을 연 뒤 다른 관리자·카카오가 바꾼 예산을 덮어쓰지 않는다.
-function budgetPlanFingerprint(rows = []) {
-  const canonical = (Array.isArray(rows) ? rows : [])
-    .map((row) => [normalizeText(String(row?.category || "")), Math.round(Number(row?.amount || 0))])
-    .filter(([category, amount]) => category && Number.isFinite(amount) && amount > 0)
-    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]))
-    .map(([category, amount]) => `${category}=${amount}`)
-    .join("|");
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < canonical.length; i += 1) {
-    hash ^= canonical.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `p1-${canonical.length}-${hash.toString(16).padStart(8, "0")}`;
+async function budgetPlanFingerprint(rows) {
+  if (!Array.isArray(rows)) throw new Error("budgets_read_invalid");
+  // Stored numeric values are canonicalized as decimal coefficients/exponents,
+  // without rounding through Number or expanding large exponents. This is not
+  // the input contract's duplicate-name normalization or positive-row filter.
+  const amountKey = value => {
+    if (typeof value !== "string" && (typeof value !== "number" || !Number.isFinite(value))) throw new Error("budgets_read_invalid");
+    const match = String(value).match(/^([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:[eE]([+-]?\d+))?$/);
+    if (!match || match[0].length !== String(value).length) throw new Error("budgets_read_invalid");
+    const fraction = match[2].split(".")[1] || "";
+    const digits = match[2].replace(".", "").replace(/^0+/, "");
+    if (!digits) return "0";
+    const coefficient = digits.replace(/0+$/, "");
+    const exponent = BigInt(match[3] || "0") - BigInt(fraction.length) + BigInt(digits.length - coefficient.length);
+    return `${match[1] === "-" ? "-" : ""}${coefficient}e${exponent}`;
+  };
+  const canonical = Array.from(rows, row => {
+    if (!row || typeof row.category !== "string") throw new Error("budgets_read_invalid");
+    const category = row.category;
+    const kind = category === "__total" ? "total" : category === "__income" ? "income-total" : category.startsWith("__income:") ? "income" : "expense";
+    return [kind, category, amountKey(row.amount)];
+  }).sort((a, b) => {
+    // Ordinal comparison of original strings is deterministic even for names
+    // that collate equally. Keep duplicate rows and zero/special rows intact.
+    for (const index of [1, 0, 2]) { if (a[index] < b[index]) return -1; if (a[index] > b[index]) return 1; }
+    return 0;
+  });
+  return `p2-${await sha256Hex(JSON.stringify(canonical))}`;
 }
 
 async function fetchMobileHomeSettings(env, householdId = "", month = currentMonthKst(), options = {}) {
@@ -113,7 +132,17 @@ async function fetchRecurringStrict(env, householdId) {
   params.set("select", "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at");
   params.set("household_id", `eq.${householdId}`);
   params.set("order", "day_of_month.asc,created_at.asc");
-  return (await supabase(env, `/rest/v1/accountbook_recurring?${params.toString()}`, { method: "GET" })) || [];
+  const rows = await supabase(env, `/rest/v1/accountbook_recurring?${params.toString()}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_read_invalid");
+  return rows;
+}
+
+// Reuse the existing paged GET and its exact-count receipt, with no extra query.
+// These totals must not be calculated from a capped or unconfirmed page.
+async function fetchObservationMonthRows(env, householdId, month) {
+  const result = await fetchAdminRowsRange(env, { householdId, start: `${month}-01`, end: nextMonthStart(month), limit: 100000, complete: false, analysisReceipt: true });
+  if (result.receipt.status !== "complete") throw new Error("observation_read_incomplete");
+  return result.rows;
 }
 
 async function fetchRecurringRuleByIdStrict(env, id = "") {
@@ -121,6 +150,18 @@ async function fetchRecurringRuleByIdStrict(env, id = "") {
   if (!rid) return null;
   const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
+}
+
+// Compatibility belongs to budgets, not to the transaction classifier. A custom
+// category with the same normalized name follows this same interpretation.
+function budgetCategoryNames(category = "") {
+  const key = normalizeText(category);
+  const legacy = Object.keys(LEGACY_CATEGORY_SPLITS).find(name => normalizeText(name) === key);
+  return [...new Set([key, ...(legacy ? LEGACY_CATEGORY_SPLITS[legacy].map(normalizeText) : [])])];
+}
+
+function budgetCategoryMatches(category = "", transactionCategory = "") {
+  return budgetCategoryNames(category).includes(normalizeText(transactionCategory || "기타"));
 }
 
 function budgetSummary(rows = [], budgets = []) {
@@ -132,33 +173,31 @@ function budgetSummary(rows = [], budgets = []) {
   });
   const categoryBudgetTotal = categoryBudgets.reduce((a, b) => a + Number(b.amount || 0), 0);
   const explicitTotalBudget = Number((budgets.find((b) => String(b.category || "") === "__total") || {}).amount || 0);
-  // V22.6.5: 분류별 예산 합계를 월 예산의 기준으로 사용합니다.
-  // 예전 __total 값은 분류별 예산이 하나도 없을 때만 호환용으로 사용합니다.
   const totalBudget = categoryBudgetTotal || explicitTotalBudget;
   const byCategory = Object.create(null);
   for (const r of expenseRows) {
-    const c = r.category || "기타";
+    const c = normalizeText(r.category || "기타");
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
   }
+  const covered = new Set();
   const categoryAlerts = categoryBudgets.map((b) => {
-    const spent = Number(byCategory[b.category] || 0);
+    const categories = budgetCategoryNames(b.category);
+    categories.forEach(category => covered.add(category));
+    const spent = categories.reduce((sum, category) => sum + Number(byCategory[category] || 0), 0);
     const amount = Number(b.amount || 0);
-    return { category: b.category, budget: amount, spent, diff: spent - amount, rate: amount ? Math.round(spent / amount * 100) : 0 };
+    return { category: b.category, budget: amount, spent, diff: spent - amount, rate: amount ? Math.round(spent / amount * 100) : 0, categories };
   }).sort((a, b) => b.rate - a.rate);
-  // V22.8.81: 분류별 예산만 잡아 둔 달에는 그 분류들의 지출만 견준다.
-  // 예전에는 식비 예산 하나만 잡아도 "전체 지출 ÷ 식비 예산" 이 되어
-  // 아무 관계 없는 지출까지 얹힌 채 예산 초과 경보가 떴다.
   const basis = categoryBudgetTotal ? "category" : "total";
-  // V22.8.92: 같은 분류의 예산 행이 둘이면 그 분류의 지출이 두 번 더해졌다.
-  // 사용액이 실제 지출보다 커지고, 남은 예산은 그만큼 작게 나왔다. 7.5 에서
-  // 남은 예산을 이 화면의 대표 숫자로 올리므로 분류 이름 기준으로 한 번만 센다.
+  // A transaction contributes once to the union even when parent/child rows overlap.
+  // Allocations retain their original sum; row-level usage may overlap.
   const budgetedExpense = basis === "category"
-    ? [...new Set(categoryBudgets.map((b) => b.category))].reduce((a, category) => a + Number(byCategory[category] || 0), 0)
+    ? [...covered].reduce((sum, category) => sum + Number(byCategory[category] || 0), 0)
     : expense;
+  const coveredCategories = [...new Set([...covered, ...categoryBudgets.map(row => String(row.category)), ...expenseRows.filter(row => covered.has(normalizeText(row.category || "기타"))).map(row => String(row.category || "기타"))])];
   const uncoveredExpense = Math.max(0, expense - budgetedExpense);
   return {
     totalBudget, explicitTotalBudget, categoryBudgetTotal, expense,
-    basis, budgetedExpense, uncoveredExpense,
+    basis, budgetedExpense, uncoveredExpense, coveredCategories,
     remaining: totalBudget ? Math.max(0, totalBudget - budgetedExpense) : 0,
     diff: budgetedExpense - totalBudget,
     rate: totalBudget ? Math.round(budgetedExpense / totalBudget * 100) : 0,
@@ -204,7 +243,7 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
 }
 
 function renderBudgetCategoryUsageTree(category = "", rows = []) {
-  const filtered = safeArray(rows).filter((r) => r.type !== "income" && normalizeText(r.category || "기타") === normalizeText(category || "기타"));
+  const filtered = safeArray(rows).filter((r) => r.type !== "income" && budgetCategoryMatches(category, r.category));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
   const groups = Object.create(null);
   for (const r of filtered) {
@@ -253,7 +292,7 @@ function renderBudgetConsistencyAlert(budgets = [], center = {}) {
     return `<div class="budgetOk"><b>월 예산 자동 산정</b><span>분류별 예산 합계 ${numberWithCommas(categoryTotal)}원이 이번 달 예산으로 자동 적용됩니다. 월 총액을 따로 입력하지 않습니다.</span></div>`;
   }
   const hint = explicitTotal && !categoryTotal
-    ? "식비·교통 등 필요한 지출 분류를 추가하면 이전 월 총액 대신 분류 합계가 사용됩니다."
+    ? "외식·교통 등 필요한 지출 분류를 추가하면 이전 월 총액 대신 분류 합계가 사용됩니다."
     : "예상 수입 종류 또는 지출 분류별 금액을 조정해 계획을 맞추세요.";
   return `<div class="budgetWarn"><b>예산 설정 확인 필요</b><span>${warnings.map(escapeHtml).join("<br/>")}</span><small>${escapeHtml(hint)}</small></div>`;
 }
@@ -265,7 +304,9 @@ function renderBudgetRows(budgets = [], budget = {}, rowsForDetails = [], canMan
   });
   if (!rows.length) return `<tr><td colspan="7">아직 분류 예산이 없습니다.</td></tr>`;
   return rows.map((b) => {
-    const alert = safeArray(budget.categoryAlerts).find((x) => normalizeText(x.category) === normalizeText(b.category)) || { spent: 0, budget: Number(b.amount || 0), rate: 0 };
+    const alert = safeArray(budget.categoryAlerts).find((x) => x.category === b.category)
+      || safeArray(budget.categoryAlerts).find((x) => normalizeText(x.category) === normalizeText(b.category))
+      || { spent: 0, budget: Number(b.amount || 0), rate: 0 };
     const remain = Math.max(0, Number(b.amount || 0) - Number(alert.spent || 0));
     const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails);
     return `<tr><td><details class="catUse"><summary><b>${escapeHtml(b.category)}</b><small>사용 내역 보기</small></summary>${tree}</details></td><td>${numberWithCommas(b.amount)}원</td><td>${numberWithCommas(alert.spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${alert.rate || 0}%</td><td><span class="status ${alert.rate >= 100 ? "bad" : alert.rate >= 85 ? "warn" : "ok"}">${budgetStatusLabel(alert.rate || 0, alert.spent, alert.budget)}</span></td><td>${canManage ? `<form method="post" action="/admin/budget/delete"><input type="hidden" name="household_id" value="${escapeHtml(b.household_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(b.month || currentMonthKst())}"/><input type="hidden" name="category" value="${escapeHtml(b.category)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(b.month || currentMonthKst())}&household_id=${escapeHtml(b.household_id || "")}"/><button class="mini danger" type="submit">삭제</button></form>` : `<span class="status ok">조회 전용</span>`}</td></tr>`;
@@ -287,16 +328,15 @@ function budgetStageInfo(spent = 0, budget = 0) {
 function budgetAlertText(rows = [], budgets = [], category = "") {
   // Returns a short staged alert string for the *saved category* (or total fallback).
   // Empty when under 80% — we only surface 주의/초과 as an alert.
-  const expenseRows = safeArray(rows).filter((r) => r.type !== "income");
-  const byCategory = Object.create(null);
-  for (const r of expenseRows) { const c = r.category || "기타"; byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0); }
-  const catBudget = safeArray(budgets).find((b) => b.category && b.category !== "__total" && normalizeText(b.category) === normalizeText(category));
+  const summary = budgetSummary(rows, budgets);
+  const catBudget = summary.categoryAlerts.find(b => b.category === category)
+    || summary.categoryAlerts.find(b => normalizeText(b.category) === normalizeText(category))
+    || summary.categoryAlerts.find(b => b.categories.includes(normalizeText(category)));
   let name = "", info = null;
-  if (catBudget) { name = catBudget.category; info = budgetStageInfo(byCategory[catBudget.category] || 0, catBudget.amount); }
+  if (catBudget) { name = catBudget.category; info = budgetStageInfo(catBudget.spent, catBudget.budget); }
   else {
-    const summary = budgetSummary(rows, budgets);
     if (!summary.totalBudget) return "";
-    name = "\uC608\uC0B0 \uAE30\uC900";
+    name = "예산 기준";
     info = budgetStageInfo(summary.budgetedExpense, summary.totalBudget);
   }
   if (!info || info.stage === "ok") return "";
@@ -305,22 +345,18 @@ function budgetAlertText(rows = [], budgets = [], category = "") {
 }
 
 function budgetFeedbackLine(rows = [], budgets = [], category = "") {
-  const expenseRows = safeArray(rows).filter((r) => r.type !== "income");
-  const byCategory = Object.create(null);
-  for (const r of expenseRows) {
-    const c = r.category || "기타";
-    byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
-  }
-  const categoryBudget = safeArray(budgets).find((b) => b.category && b.category !== "__total" && normalizeText(b.category) === normalizeText(category));
+  const summary = budgetSummary(rows, budgets);
+  const categoryBudget = summary.categoryAlerts.find(b => b.category === category)
+    || summary.categoryAlerts.find(b => normalizeText(b.category) === normalizeText(category))
+    || summary.categoryAlerts.find(b => b.categories.includes(normalizeText(category)));
   if (categoryBudget) {
-    const budget = Number(categoryBudget.amount || 0);
-    const spent = Number(byCategory[categoryBudget.category] || 0);
+    const budget = Number(categoryBudget.budget || 0);
+    const spent = Number(categoryBudget.spent || 0);
     const info = budgetStageInfo(spent, budget);
     const head = info.stage === "over" ? `🚨 ${categoryBudget.category} 예산 초과` : info.stage === "warn" ? `⚠️ ${categoryBudget.category} 예산 주의` : `📊 ${categoryBudget.category} 예산`;
     const tail = info.stage === "over" ? `\n${numberWithCommas(info.over)}원 초과했어요.` : `\n남은 예산: ${numberWithCommas(info.remain)}원`;
     return `\n\n${head}\n사용: ${numberWithCommas(spent)}원 / ${numberWithCommas(budget)}원 (${info.rate}%)${tail}`;
   }
-  const summary = budgetSummary(rows, budgets);
   const totalBudget = summary.totalBudget;
   if (totalBudget) {
     const spent = summary.budgetedExpense;
@@ -365,7 +401,7 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
       `사용 금액: ${numberWithCommas(expense)}원`,
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,
       `사용률: ${rate}% (${status})`,
-      ...(categoryLines.length ? ["", "카테고리별", ...categoryLines] : []),
+      ...(categoryLines.length ? ["", "카테고리별", ...categoryLines, "상위·하위 행의 사용액은 겹칠 수 있어요. 전체 사용액은 거래마다 한 번만 셉니다."] : []),
     ].join("\n");
   } catch (err) {
     return "💰 예산 현황을 불러오지 못했어요. 잠시 후 ‘남은 예산’을 다시 입력해 주세요.";
@@ -403,10 +439,10 @@ function budgetPlanMessage(code = "") {
 }
 // @build:exports-start
 export {
-  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint,
-  budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary, fetchBudgets,
-  fetchMobileHomeSettings, fetchRecurring, fetchRecurringRuleByIdStrict, fetchRecurringStrict,
-  kakaoBudgetStatusText, optionalSupabase, renderBudgetBasisRows, renderBudgetConsistencyAlert,
-  renderBudgetRows,
+  budgetAlertText, budgetCategoryMatches, budgetCenterSummary, budgetFeedbackLine,
+  budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
+  fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurring,
+  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusText, optionalSupabase,
+  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };
 // @build:exports-end

@@ -3,7 +3,7 @@ async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
   if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-  const { timeoutMs, rawHeadResponse = false, optionalTable = "", ...fetchInit } = init;
+  const { timeoutMs, rawHeadResponse = false, analysisGetResponse = false, optionalTable = "", ...fetchInit } = init;
   const method = String(fetchInit.method || "GET").toUpperCase();
   const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
   if (!readOnly && !/\/rpc\/accountbook_(?:auth_attempt|claim_operation|release_operation)/.test(path)) env.__AB_REQUEST_USER_ROWS?.clear();
@@ -44,8 +44,15 @@ async function supabase(env, path, init = {}) {
         }
         throw new Error(`Supabase ${res.status}: ${text.slice(0, 500)}`);
       }
-      if (!text) return null;
-      try { return JSON.parse(text); } catch (_) { return text; }
+      let data = null;
+      if (text) { try { data = JSON.parse(text); } catch (_) { data = text; } }
+      // Explicit opt-in for the insight GET only; ordinary JSON and HEAD callers
+      // retain their return contract. No extra count/HEAD request is dispatched.
+      if (analysisGetResponse && method === "GET") return { data, meta: {
+        status, contentRange: res.headers.get("content-range"),
+        rangeUnit: res.headers.get("range-unit"), preferenceApplied: res.headers.get("preference-applied"),
+      } };
+      return data;
     };
     // Bound safe reads first. Mutating deadlines require end-to-end result
     // reconciliation; no automatic write retry or cancellation is introduced here.

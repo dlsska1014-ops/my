@@ -162,7 +162,8 @@ try {
   // 걷어내져 응답에 없다. indexOf 가 -1 을 돌려주면 slice 는 "끝에서 한 글자 앞"
   // 까지를 뜻하므로, 이 조각은 사실상 문서 나머지 전체였다 — includes 검사는 그래도
   // 통과했지만 정지점 하한은 아무것도 재지 못하고 있었다. 실제로 있는 경계로 바꾼다.
-  const addStart = html.indexOf('<section id="add" class="panel">');
+  // Authenticated draft-scope attributes may follow the panel class.
+  const addStart = html.indexOf('<section id="add" class="panel"');
   const addEnd = html.indexOf('<section id="feed"');
   ok(addStart > 0 && addEnd > addStart, "빠른 입력 구간의 경계가 응답에 실제로 있다");
   const addPanel = html.slice(addStart, addEnd);
