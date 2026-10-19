@@ -27,6 +27,25 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  "/assets/accountbook-budget-preview-v22953.js": "63cc3b79b6549d57f73312109fb5589d7c0a71c644bdf41f93d65f1ae749af1c",
+  "/assets/accountbook-budget-preview-v22952.js": "ff0696632937cbc2ff8812b47d4812cf9137b39f20455f1cd01d57c7589efffb",
+  "/assets/accountbook-quick-input-v22951.js": "59dd629ed042aa52e2c3e6be5f143d327d4a8e5e65bac7ebf3da8821fd722e82",
+  "/assets/accountbook-v5-v22951.js": "fbebec4df463d6c132a4055272bedfa821b29cee61a8ca2d3d4dae224f7a2e11",
+  "/assets/mobile-home-shell-v22951.js": "ac38c554719a7a189815cf49c0a932afdfbc1bfac30fdc00add8f38229501386",
+  "/assets/mobile-home-v22951.js": "ca2237d2cc10bc3642bc9e6c63d88d8273524f565a803a97e93aadae38eaa88e",
+  "/assets/mobile-home-shell-v22950.js": "0f7fb958766dcb576e64c39137ed7c59c988a2455d222bcfb5e7a20f16728faf",
+  "/assets/mobile-home-v22950.js": "96ef23c0174cbc08f638cf21182b3fcef08cc79c382761b5092f0cd48ebe3693",
+  "/assets/accountbook-v5-v22950.js": "f3653ad9c0f23f63132674b000306fd2881fe9fe4f974dd653bf4104f9a0fbcf",
+  "/assets/accountbook-quick-input-v22950.js": "4b219f3e8603567ba3732231291adeec58a7adb1b180a45a27b6217fcf63f586",
+  "/assets/accountbook-quick-input-v22949.js": "3314d1d2722aa2fdc3da46f24efa0e40f92a53b51eebcf308613174a590db7fd",
+  "/assets/accountbook-v5-v22949.js": "32676f8caacd0586dc04f687315e69d17a81fdddd3dca191e3a2c519176bc539",
+  "/assets/accountbook-v5-v22948.js": "c7ba792cb558e130dd97e0332fe91de9b054ab7d56d753665a64dbc70973c79b",
+  "/assets/mobile-home-shell-v22948.js": "ea56220c0468a98afd3576ee1e356ef5b3ec009a1f86373d8dbf5ba55e2a55df",
+  "/assets/mobile-home-v22948.js": "80b8aa3a54257a6cf12e17e966231e1e1998d1be94a5e40d9e1a761beccceeee",
+  "/assets/ab-category-rules-v22948.js": "c1ff1f648deaf995fdbb90df4a617135cd441defacaf941ed9a0e3c4c1f362f9",
+  // V22.9.47 B changes only these new addresses; every historical pin remains.
+  "/assets/accountbook-shell-v22947.css": "62f4857fec1ff1b02822f6c5ee047bdb73c9abea5217fc7fcee2d1e934dce142",
+  "/assets/accountbook-v5-v22947.js": "24f55267777b7069b2f1c21e3d045abf9764e53d9ce714cefe83f75dd51597eb",
   // V22.9.46 Lucian E: new bytes use four new URLs; all previous pins remain.
   "/assets/accountbook-shell-v22946.css": "3653eb214c33fe4223b8f0bc414c63b3e8292c85bd6f9eb59a4adfcb97fde08c",
   "/assets/accountbook-v5-v22946.js": "d8b25695573233145372dba77ee457bbf9a27c98f6875269664056ed02e28f03",

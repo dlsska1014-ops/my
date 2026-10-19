@@ -340,7 +340,7 @@ function kakaoSaveDelayText(origin = "") {
 // @build:exports-start
 export {
   detectKakaoNaturalIntent, hasKakaoImageAttachment, isCommandMenuCommand, isHouseholdSwitchCommand,
-  kakaoCommandMenuText, kakaoImageNotSupportedText, kakaoNluRegistrySummary, kakaoNluRuntimeConfig,
+  kakaoImageNotSupportedText, kakaoNluRegistrySummary, kakaoNluRuntimeConfig,
   kakaoPublicCommandReply, kakaoSaveDelayText, normalizeHouseholdNameText, normalizeKakaoIntentText,
   parseCreateHouseholdCommand,
 };

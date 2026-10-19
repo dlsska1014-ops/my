@@ -4,7 +4,7 @@ import {
 } from "./global-state.js";
 import { APP_MODE, APP_VERSION, publicBaseUrl } from "../public/site-config.js";
 import { safeError } from "./leases.js";
-import { getCookie, htmlResponse, jsonResponse } from "./http.js";
+import { getCookie, htmlResponse, jsonResponse, wantsTransactionDeleteJson } from "./http.js";
 import { myReturnLocation } from "../my/access-control.js";
 import { isUncertainStorageWrite, kakaoText } from "../kakao/response-builders.js";
 import { KAKAO_RETRY_DEDUP_SECONDS } from "../kakao/transaction-save.js";
@@ -18,8 +18,28 @@ function nluOpsConfig(env = {}) {
     failure_samples_enabled: String(env.NLU_PERSIST_FAILURE_SAMPLES || "0") === "1",
     store_redacted_text: String(env.NLU_STORE_REDACTED_TEXT || "0") === "1",
     failure_sample_rate: boundedRuntimeNumber(env.NLU_FAILURE_SAMPLE_RATE, 1, 0, 1),
-    retention_days: boundedRuntimeNumber(env.NLU_FAILURE_RETENTION_DAYS, 14, 1, 90),
+    retention_days: nluRetentionDays(env),
     memory_event_limit: boundedRuntimeNumber(env.NLU_MEMORY_EVENT_LIMIT, 600, 100, 2000),
+  };
+}
+
+function nluRetentionDays(env = {}) {
+  if (env.NLU_FAILURE_RETENTION_DAYS === undefined) return 14;
+  const value = String(env.NLU_FAILURE_RETENTION_DAYS).trim();
+  if (!/^[1-9]\d?$/.test(value) || Number(value) > 90) return null;
+  return Number(value);
+}
+
+// Only server-owned classifications cross the diagnostic persistence boundary.
+// The legacy redacted-text flag never authorizes a new text sample.
+function nluDiagnosticFields(event = {}) {
+  const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION"];
+  const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error"];
+  const reason = String(event.reason || "");
+  return {
+    intent: intents.includes(event.intent) ? event.intent : "UNKNOWN",
+    result: ["ok", "fallback", "clarify", "error"].includes(event.result) ? event.result : "error",
+    reason: reasons.includes(reason) || /^edit_(?:unrecognized|unrecognized_final|duplicate_reply_guard|restore_error):attempt_[0-3]$/.test(reason) ? reason : "handler_error",
   };
 }
 
@@ -161,14 +181,15 @@ async function persistNluMetricAggregate(env = {}, event = {}) {
   const cfg = nluOpsConfig(env);
   if (!cfg.aggregate_metrics_enabled || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
   const at = String(event.at || new Date().toISOString());
+  const fields = nluDiagnosticFields(event);
   return supabase(env, "/rest/v1/rpc/record_nlu_metric", {
     method: "POST",
     body: JSON.stringify({
       p_bucket_start: `${at.slice(0, 13)}:00:00.000Z`,
-      p_intent: String(event.intent || "UNKNOWN").slice(0, 80),
-      p_result: String(event.result || "error").slice(0, 20),
+      p_intent: fields.intent,
+      p_result: fields.result,
       p_latency_ms: Math.max(0, Math.round(Number(event.latency_ms || 0))),
-      p_version: String(event.version || APP_VERSION).slice(0, 100),
+      p_version: APP_VERSION,
     }),
   });
 }
@@ -177,17 +198,16 @@ async function persistNluFailureSample(env = {}, event = {}) {
   const cfg = nluOpsConfig(env);
   if (!cfg.failure_samples_enabled || !["fallback", "clarify", "error"].includes(String(event.result || ""))) return { skipped: true };
   if (Math.random() > cfg.failure_sample_rate || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
-  const normalized = normalizeText(event.utterance || "");
-  const redacted = redactNluOpsSample(event.utterance || "");
+  const fields = nluDiagnosticFields(event);
   return supabase(env, "/rest/v1/rpc/record_nlu_failure_sample", {
     method: "POST",
     body: JSON.stringify({
-      p_sample_hash: nluOpsFingerprint(normalized),
-      p_redacted_sample: cfg.store_redacted_text ? redacted : null,
-      p_intent: String(event.intent || "UNKNOWN").slice(0, 80),
-      p_result: String(event.result || "error").slice(0, 20),
-      p_reason: String(event.reason || "").slice(0, 120),
-      p_version: String(event.version || APP_VERSION).slice(0, 100),
+      p_sample_hash: nluOpsFingerprint(JSON.stringify(fields)),
+      p_redacted_sample: null,
+      p_intent: fields.intent,
+      p_result: fields.result,
+      p_reason: fields.reason,
+      p_version: APP_VERSION,
     }),
   });
 }
@@ -197,7 +217,7 @@ function scheduleNluOpsPersistence(ctx, env = {}, event = {}) {
     persistNluMetricAggregate(env, event),
     persistNluFailureSample(env, event),
   ]).then((results) => {
-    for (const r of results) if (r.status === "rejected") rememberOpsEvent({ kind: "nlu_persist_error", severity: "warn", path: "/skill", method: "POST", detail: safeError(r.reason) });
+    for (const r of results) if (r.status === "rejected") rememberOpsEvent({ kind: "nlu_persist_error", severity: "warn", path: "/skill", method: "POST", detail: "diagnostic_storage_failed" });
   });
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(job);
   else job.catch(() => {});
@@ -205,8 +225,11 @@ function scheduleNluOpsPersistence(ctx, env = {}, event = {}) {
 
 async function cleanupNluOpsRetention(env = {}) {
   const cfg = nluOpsConfig(env);
-  if (!cfg.failure_samples_enabled || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
-  const cutoff = new Date(Date.now() - cfg.retention_days * 86400000).toISOString();
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
+  if (cfg.retention_days === null) throw new Error("nlu_retention_days_invalid");
+  const now = Date.now();
+  if (!Number.isSafeInteger(now) || now < cfg.retention_days * 86400000 || !Number.isFinite(new Date(now).getTime())) throw new Error("nlu_retention_clock_invalid");
+  const cutoff = new Date(now - cfg.retention_days * 86400000).toISOString();
   await supabase(env, `/rest/v1/nlu_failure_samples?last_seen=lt.${encodeURIComponent(cutoff)}`, { method: "DELETE", headers: { prefer: "return=minimal" } });
   return { ok: true, cutoff };
 }
@@ -569,8 +592,8 @@ function csrfOriginAllowed(request, url) {
   return true;
 }
 
-function csrfRejectedResponse(url) {
-  if (String(url?.pathname || "").startsWith("/api/")) {
+function csrfRejectedResponse(url, request = null) {
+  if (String(url?.pathname || "").startsWith("/api/") || wantsTransactionDeleteJson(request)) {
     return jsonResponse({ ok: false, error: "cross_site_request_blocked", reason: "cross_site_request_blocked", message: "보안 확인에 실패했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요." }, 403);
   }
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>요청을 확인할 수 없습니다</title></head><body><main style="max-width:680px;margin:48px auto;padding:20px;font-family:system-ui,sans-serif"><h1>요청을 안전하게 차단했습니다.</h1><p>다른 사이트에서 전송된 변경 요청으로 확인됐습니다. 가계부 화면을 새로 열어 다시 시도해주세요.</p><p><a href="/my">내 가계부로 이동</a></p></main></body></html>`, 403);
@@ -594,7 +617,7 @@ function getTrafficOpsSnapshot() {
 function trafficLimitedResponse(url, request, result = {}, env = {}) {
   const retry = Math.max(1, Math.ceil(Number(result.resetInMs || 0) / 1000));
   if (url?.pathname === "/skill") return rateLimitedKakaoText(publicBaseUrl(env, url));
-  if (String(url?.pathname || "").startsWith("/api/")) return jsonResponse({ ok: false, error: "rate_limited", reason: "rate_limited", message: "요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.", retry_after_seconds: retry }, 429);
+  if (String(url?.pathname || "").startsWith("/api/") || wantsTransactionDeleteJson(request)) return jsonResponse({ ok: false, error: "rate_limited", reason: "rate_limited", message: "요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.", retry_after_seconds: retry }, 429);
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>요청이 잠시 제한되었어요</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:720px;margin:38px auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:22px;box-shadow:0 18px 44px rgba(15,23,42,.08)}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.muted{color:#64748b;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>잠시 후 다시 시도해주세요</h1><p class="muted">짧은 시간에 저장·수정 요청이 많아 데이터 중복을 막기 위해 잠깐 제한했습니다. 약 ${retry}초 뒤 다시 시도해주세요.</p><a class="btn" href="/my">내 가계부로 이동</a></section></main></body></html>`, 429, { "retry-after": String(retry) });
 }
 

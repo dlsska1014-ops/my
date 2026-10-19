@@ -4,7 +4,7 @@
 // (validation/qa-fixture.mjs)와 app.fetch 로 확인한다. 네트워크를 쓰지 않는다.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { BASE, api, app, counter, ctx, failure, fixture, intercept, page, withClock } from "./lib-audit-v22934.mjs";
+import { BASE, api, app, beforeBotObservationRenderer, counter, ctx, failure, fixture, intercept, page, withClock } from "./lib-audit-v22934.mjs";
 
 // AB_AUDIT_SOFT=1 로 돌리면 실패를 모아 보고만 하고 멈추지 않는다(고치기 전 빌드의 재현 기록용). 기본은 첫 실패에서 멈춘다.
 const LABEL = "V22.9.40 패키지 A 화면 다듬기 검사 통과";
@@ -111,9 +111,11 @@ await fixture(async (fx) => {
   const reverted = block
     .replace(legendLabel, 'row.setAttribute("aria-label", s.name + " " + won(s.amt) + ", 누르면 이 분류만 필터");')
     .replace(barLabel, 'row.setAttribute("aria-label", it.name + " " + won(it.amt) + ", 누르면 필터 적용");');
-  eq(sha256(reverted), "c2b199d2e5f352475b7893101582bf6072e217335f9d578613b7c85070b4dc8a", "A2 두 줄을 되돌리면 V22.9.34 고정 해시와 같다(그 외 변경 없음)");
+  // Keep the historical two-label normalization, now relative to the expressly
+  // authorized C baseline; its 37 unaffected declarations are pinned separately.
+  eq(sha256(reverted), "e11b22ab07bb95de80293da85d08b52740eb65b62012ea79e628b1127fc434bb", "A2 두 접근성 이름을 정규화한 승인 C 기준과 일치하며 비대상 선언은 별도로 보호합니다.");
   const renderStart = source.indexOf("function renderMyAnalysisHtml(");
-  eq(sha256(source.slice(renderStart, source.indexOf("\nfunction ", renderStart + 10))), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "A2 고정 분석 화면(renderMyAnalysisHtml)은 바뀌지 않았다");
+  eq(sha256(beforeBotObservationRenderer(source.slice(renderStart, source.indexOf("\nfunction ", renderStart + 10)))), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "A2 BOT-09 관측 표시 두 곳만 되돌리면 기존 고정 분석 화면과 같다");
 });
 
 // ── A3 감사 U9: 모바일 홈 11px 라벨 대비(라이트·다크) ───────────────────────────
@@ -132,7 +134,7 @@ await fixture(async (fx) => {
   ok(contrast("#475467", "#f8fafc") >= 7, `A3 라벨이 읽기 전용 칸(#f8fafc) 위 7:1 이상이다 (${contrast("#475467", "#f8fafc").toFixed(2)}:1)`);
   ok(contrast("#475467", "#f2f4f6") >= 4.5, `A3 감사가 잰 회색 표면(#f2f4f6) 위에서도 4.5:1 이상이다 (${contrast("#475467", "#f2f4f6").toFixed(2)}:1)`);
   ok(contrast("#687385", "#f2f4f6") < 4.5, `A3 고치기 전 색은 감사가 잰 표면 위 4.5:1 미만이었다 (${contrast("#687385", "#f2f4f6").toFixed(2)}:1, 감사 U9 4.35:1 재현)`);
-  const shell = await asset("/assets/accountbook-shell-v22946.css");
+  const shell = await asset("/assets/accountbook-shell-v22947.css");
   const darkTokens = (shell.text.match(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell\{([^}]*--ab12-surface-raised:[^}]*)\}/) || [])[1] || "";
   const token = (name) => (darkTokens.match(new RegExp(`--${name}:(#[0-9a-fA-F]{6})`)) || [])[1] || "";
   const [muted, raised, text, line] = ["ab12-muted", "ab12-surface-raised", "ab12-text", "ab12-line"].map(token);

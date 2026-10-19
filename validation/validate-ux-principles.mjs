@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
+import { beforeBotObservationRenderer } from "./lib-audit-v22934.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -15,7 +16,8 @@ function functionBlockHash(marker) {
   assert.ok(start >= 0, `${marker} source block exists`);
   const end = source.indexOf("\nfunction ", start + marker.length);
   assert.ok(end > start, `${marker} source block has an end marker`);
-  return createHash("sha256").update(source.slice(start, end)).digest("hex");
+  const block = source.slice(start, end);
+  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : block).digest("hex");
 }
 
 // V22.9.7: type 이 자바스크립트가 아닌 <script> 도 생겼다(speculation rules 는 JSON).
@@ -179,7 +181,10 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime repor
 // /budgets. The table itself and renderBudgetGaugeRows stay untouched.
 // V22.9.34 감사 SIM-10·SIM-12: 분류별 집계 맵을 원형 없는 객체(Object.create(null))로 바꿔 기준이 갱신됐다.
 // V22.9.40 U10: 578·687행 aria-label 에 비율 추가, 그 외 변경 없음 (두 줄을 되돌리면 이전 해시 c2b199d2…4dc8a 와 같다).
-eq(functionBlockHash("function insightClientMain("), "0250d7aad1a8a540ed7e42a1f4c5b901828ef86b061195b738afd2b7bc0427a9", "analysis client matches the V22.8.75 role-split baseline");
+// V22.9.57 explicitly authorizes observed KPI/insight periods, the C pace model,
+// focus and unreceived-range display guards. The C suite separately pins 37 V56
+// declarations; report renderer/BOT-09 protection below remains unchanged.
+eq(functionBlockHash("function insightClientMain("), "754e8bb457aa52aabf5bb8f8b4e1f8d0c250056d761a68908395094b7fd0caad", "analysis client matches the authorized C/observed-period baseline with separate V56 declaration guards");
 // V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
 // 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을
 // 확인했다). `.meme` 의 #f59e0b 은 히어로가 아니라 그대로 둔다.
@@ -191,7 +196,7 @@ eq(functionBlockHash("function insightClientMain("), "0250d7aad1a8a540ed7e42a1f4
 // 전체를 고정해 보는 화면"). V22.8.75 가 정한 역할 자체는 그대로이고, 무엇이
 // 실제로 다른지를 덧붙였을 뿐이다. 계산·필터 로직은 손대지 않았다(7.4 규칙).
 // V22.9.34 2차 점검 U01: 평균·무지출 기준 문구(오늘까지·월 전체·아직 오지 않은 달)가 바뀌어 기준이 갱신됐다.
-eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "analysis renderer matches the V22.8.92 role-sentence baseline");
+eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "reversing only the two BOT-09 observed-money expressions preserves the V22.8.92 renderer baseline");
 
 const fixture = await createV2265QaFixture();
 try {

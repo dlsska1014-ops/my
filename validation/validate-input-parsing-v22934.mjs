@@ -151,7 +151,7 @@ await withClock("2026-10-09", async () => {
             return match ? radios[match[1]] : null;
           },
         };
-        vm.runInContext(script.slice(0, end), vm.createContext({ document, window: { addEventListener() {} }, location: { hash: "" }, navigator: {}, Intl, Date: ClockDate }));
+        vm.runInContext(script.slice(0, end), vm.createContext({ document, window: { addEventListener() {} }, location: { hash: "" }, navigator: {}, Intl, Date: ClockDate, setTimeout, clearTimeout }));
         const fire = (field, kind) => { for (const fn of field.handlers[kind] || []) fn.call(field, { target: field }); };
         return { fields, fill(text) { fields.smartInput.value = text; fire(fields.smartInput, "input"); } };
       };

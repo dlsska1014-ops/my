@@ -94,8 +94,8 @@ try {
   // -------------------------------------------------------------------------
   // 여기가 이 기능의 값어치다. 입력칸에 글자만 들어가고 금액·분류가 안 붙으면
   // 사용자는 어차피 손으로 다시 쳐야 한다.
-  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22926.js`), {}, {})).text();
-  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22934.js`), {}, {})).text();
+  const rulesJs = await (await app.fetch(new Request(`${ORIGIN}/assets/ab-category-rules-v22948.js`), {}, {})).text();
+  const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home-shell-v22951.js`), {}, {})).text();
   const win = {};
   new Function("window", rulesJs)(win);
   const end = shellJs.indexOf("\n(function mobileShellUiClientMain");
@@ -111,7 +111,7 @@ try {
       querySelectorAll(selector){return selector==="input[name=type]"?Object.values(radios):[];},
       querySelector(selector){if(selector==="#add form.form")return form;if(selector==="input[name=type][value=income]:checked")return fields.type==="income"?radios.income:null;const match=selector.match(/input\[name=type\]\[value="?(income|expense)"?\]/);return match?radios[match[1]]:null;}
     };
-    vm.runInContext(shellJs.slice(0,end),vm.createContext({document,window:{...win,addEventListener(){}},location:{hash:""},navigator:{},Intl,Date}));
+    vm.runInContext(shellJs.slice(0,end),vm.createContext({document,window:{...win,addEventListener(){}},location:{hash:""},navigator:{},Intl,Date,setTimeout,clearTimeout}));
     return {amount:Number(fields.amountInput.value.replace(/,/g,"")),type:fields.type,category:fields.catInput.value,payment:fields.payInput.value};
   };
 

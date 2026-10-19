@@ -1,9 +1,19 @@
 // @build:imports-start
 import { moneyTokenSpans, transactionTypeFromText } from "../client/shared-input-parsers.js";
+import { CATEGORY_RULES } from "./category-rules.js";
 // @build:imports-end
 
 function normalizeText(text) {
-  return String(text || "")
+  function normalizeTextSymbols(value) {
+    const chunks = [];
+    for (let i = 0; i < value.length; i += 16384) {
+      let part = value.slice(i, i + 16384).replace(/[~!@#$^&*_=\`|\\{}\[\]:;"'<>?()]+/g, " ").replace(/\s+/g, " ");
+      if (chunks.length && chunks[chunks.length - 1].endsWith(" ") && part.startsWith(" ")) part = part.slice(1);
+      if (part) chunks.push(part);
+    }
+    return chunks.join("").trim();
+  }
+  return normalizeTextSymbols(String(text || "")
     .replace(/^@[\w가-힣_-]+\s*/, "")
     .replace(/^\/+/, "")
     .replace(/[，]/g, ",")
@@ -22,10 +32,7 @@ function normalizeText(text) {
     .replace(/\d{2,4}(?:[-\s]?[*＊xX]{2,})+(?:[-\s]?\d{2,4})?/g, " ")
     .replace(/[*＊xX]{2,}[-\s]?\d{2,4}/g, " ")
     .replace(/(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,]+\s*원?/g, " ")
-    .replace(/[~!@#$^&*_=+\`|\\{}\[\]:;"'<>?]/g, " ")
-    .replace(/[()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  );
 }
 
 function normalizeType(value) {
@@ -38,10 +45,10 @@ function normalizeType(value) {
   return "";
 }
 
-function detectType(text) { return transactionTypeFromText(normalizeText(text)); }
+function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
 
 function parseAmountValue(value) {
-  if (typeof value === "number") return Math.round(value);
+  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
   const found = extractAmount(String(value));
   return found ? found.amount : 0;
 }

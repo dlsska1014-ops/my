@@ -18,16 +18,18 @@ import { shiftMonthString } from "./analysis-page.js";
 import {
   canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
-import { budgetSummary, fetchBudgets } from "../domain/budgets.js";
+import { budgetSummary, fetchBudgets, fetchObservationMonthRows } from "../domain/budgets.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
-import { calculateDashboardAnalysis } from "../domain/analytics.js";
+import {
+  calculateDashboardAnalysis, monthlyObservedSpending, renderObservedMoney,
+} from "../domain/analytics.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import {
   calculateStats, calendarDaysFromRows, escapeHtml, nextMonthStart, numberWithCommas,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
-async function getMyPageContext(request, env, url) {
+async function getMyPageContext(request, env, url, { observedComparison = false } = {}) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return { redirect: redirectResponse("/my") };
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
@@ -43,7 +45,7 @@ async function getMyPageContext(request, env, url) {
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
   const [members, rawRows, budgets] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
-    fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
+    observedComparison ? fetchObservationMonthRows(env, selected.id, month) : fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
     fetchBudgets(env, selected.id, month),
   ]);
   const rows = attachSpenderNames(rawRows, members);
@@ -270,14 +272,18 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   const budgetRate = totalBudget ? Math.round(budgetedExpense / totalBudget * 100) : 0;
   const elapsedRate = Math.round(elapsedDays / daysInMonth * 100);
   const remainingBudget = Math.max(0, totalBudget - budgetedExpense);
-  const forecast = elapsedDays ? Math.round(expense / elapsedDays * daysInMonth) : 0;
-  const paceGap = totalBudget ? budgetRate - elapsedRate : 0;
+  const observation = monthlyObservedSpending(rows, safeMonth);
+  const forecast = observation.burnForecast;
+  const coveredRows = budget.basis === "category" && Array.isArray(budget.coveredCategories) ? rows.filter((row) => budget.coveredCategories.includes(row.category)) : rows;
+  const observedBudgetedExpense = monthlyObservedSpending(coveredRows, safeMonth).observedExpense;
+  const paceGap = elapsedDays ? (totalBudget ? Math.round(observedBudgetedExpense / totalBudget * 100) - elapsedRate : 0) : null;
   const categoryAlerts = safeArray(budget.categoryAlerts).filter((item) => Number(item.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0)).slice(0, 4);
   let insight = "예산을 설정하면 현재 소비 속도와 남은 하루 한도를 함께 안내합니다.";
-  if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
+  if (!elapsedDays) insight = "아직 관측 기간이 없는 달입니다. 월 합계에는 미래 날짜 기록도 포함하며 평균·소비 속도는 계산하지 않습니다.";
+  else if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
   else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
   else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
-  return { month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, paceGap, categoryAlerts, insight };
+  return { ...observation, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, paceGap, categoryAlerts, insight };
 }
 
 function renderReportDashboard(summary = {}) {
@@ -287,7 +293,7 @@ function renderReportDashboard(summary = {}) {
     const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
     return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
   }).join("");
-  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${numberWithCommas(summary.forecast || 0)}원</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
 }
 
 function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {

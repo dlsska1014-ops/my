@@ -7,7 +7,9 @@ import {
   claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
   withHouseholdDatabaseLease,
 } from "../runtime/leases.js";
-import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import {
+  htmlResponse, jsonResponse, redirectResponse, wantsTransactionDeleteJson,
+} from "../runtime/http.js";
 import {
   checkAdminPassword, makeAdminSession, recordAuthAttempt, safeAdminReturnPath, trafficClientIp,
   verifyAdminSession,
@@ -132,10 +134,10 @@ const MAX_TRANSACTION_AMOUNT = 2_000_000_000;
 // 제외하는데, 그 규칙이 전용 입력 칸까지 적용되면 500원 같은 정상 입력이
 // 거부된다.
 function parseFormAmountValue(value) {
-  const raw = String(value ?? "").replace(/[,\s]/g, "");
-  if (!/^\d+(?:\.\d+)?$/.test(raw)) return 0;
-  const amount = Math.round(Number(raw));
-  return Number.isFinite(amount) ? amount : 0;
+  const match = String(value ?? "").match(/^\s*(?:[₩￦]\s*)?(\d+|\d{1,3}(?:,\d{3})+)(?:\s*원)?\s*$/);
+  if (!match) return 0;
+  const amount = Number(match[1].replace(/,/g, ""));
+  return Number.isSafeInteger(amount) ? amount : 0;
 }
 
 function readTransactionAmount(form) {
@@ -146,14 +148,16 @@ function readTransactionAmount(form) {
 // 0으로 뭉개면 잘못된 입력이 기존 예산을 조용히 0원으로 덮어쓰면서도
 // 저장 성공으로 안내된다.
 function readOptionalFormAmount(form, field = "amount") {
-  const raw = String(form.get(field) ?? "").replace(/[,\s]/g, "");
-  return /^\d+(?:\.\d+)?$/.test(raw) ? parseFormAmountValue(raw) : null;
+  const raw = String(form.get(field) ?? "");
+  if (!/^\s*(?:[₩￦]\s*)?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\s*원)?\s*$/.test(raw)) return null;
+  const amount = parseFormAmountValue(raw);
+  return Number.isSafeInteger(Number(raw.replace(/[₩￦원,\s]/g, ""))) ? amount : null;
 }
 
 function validateRecordFormFields({ id = "", householdId = "", amount = 0, transactionDate = "", mode = "add" }) {
   if ((mode === "update" || mode === "delete") && !String(id || "").trim()) return "거래 ID가 없습니다.";
   if (mode !== "delete" && !String(householdId || "").trim()) return "가계부를 선택하세요.";
-  if (mode !== "delete" && (!Number.isFinite(Number(amount)) || Number(amount) <= 0)) return "금액을 입력하세요.";
+  if (mode !== "delete" && (!Number.isSafeInteger(Number(amount)) || Number(amount) <= 0)) return "금액을 입력하세요.";
   if (mode !== "delete" && Number(amount) > MAX_TRANSACTION_AMOUNT) return `금액은 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원 이하로 입력하세요.`;
   if (mode !== "delete" && !isValidTransactionDateString(transactionDate)) return "날짜 형식이 올바르지 않습니다.";
   return "";
@@ -224,9 +228,13 @@ async function handleAdminAddTransaction(request, env) {
     return redirectResponse(signedOutWriteRedirect(form));
   }
   const txType = normalizeTransactionType(form.get("type"));
-  const transactionDate = String(form.get("transaction_date") || formatDate(nowKstDate())).trim();
+  const transactionDate = String(form.get("transaction_date") || (form.get("quick_manual_date") === "1" ? "" : formatDate(nowKstDate()))).trim();
   const amount = readTransactionAmount(form);
   const smartText=String(form.get("raw_text") || "");
+  if (/(?:결제|승인)\s*취소/.test(smartText) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(smartText) && form.get("quick_manual_type")!=="1") {
+    const err="취소 내역은 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.";
+    return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err}),transactionAddRedirectExtras(form,{err},"error")));
+  }
   if (/\d+,\d{1,2}(?!\d)/.test(smartText) && form.get("quick_manual_amount")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"amount_required"}),transactionAddRedirectExtras(form,{err:"amount_required"},"error")));
   if (explicitDateIntent(smartText) && !extractDate(smartText) && form.get("quick_manual_date")!=="1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"invalid_date"}),transactionAddRedirectExtras(form,{err:"invalid_date"},"error")));
   // 문장 속 날짜를 서버에서도 다시 풀어, 날짜를 직접 고치지 않았는데 폼 날짜와 다르면 저장하지 않는다(QA B04).
@@ -235,6 +243,9 @@ async function handleAdminAddTransaction(request, env) {
   // V22.9.34 감사 N11: 문장 속 금액이 단위 없는 한 자리 숫자("택시 7")뿐이면 7원으로 저장하지 않는다.
   // 정말 그 금액이면 "7원"처럼 원을 붙이거나 금액 칸을 직접 고치면 저장된다.
   const smartSpans = smartText ? moneyTokenSpans(smartText) : [];
+  if (smartText && !smartSpans.length && form.get("quick_manual_amount") !== "1" && (form.get("quick_manual_amount") === "0" || /[+\-\u2212\uFE63\uFF0D\uFF0B]\s*(?:[₩￦원]\s*)?\d|\d+\.\d+|\d[eE][+-]?\d/.test(smartText))) {
+    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "amount_required" }), transactionAddRedirectExtras(form, { err: "amount_required" }, "error")));
+  }
   if (smartSpans.length === 1 && smartSpans[0].amount < 10 && !/[원십백천만억]/.test(smartSpans[0].raw) && form.get("quick_manual_amount") !== "1") return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err:"amount_unit_required"}),transactionAddRedirectExtras(form,{err:"amount_unit_required"},"error")));
   const validationError = validateRecordFormFields({ householdId, amount, transactionDate, mode: "add" });
   if (validationError) {
@@ -262,6 +273,8 @@ async function handleAdminAddTransaction(request, env) {
       memo: memoText,
       category: String(form.get("category") || "").trim(),
       payment_method: String(form.get("payment_method") || "").trim(),
+      manual_category: form.get("quick_manual_category") === "1",
+      manual_payment: form.get("quick_manual_payment") === "1",
     });
     const savedTransaction = await createManualTransaction(env, {
       household_id: householdId,
@@ -274,7 +287,8 @@ async function handleAdminAddTransaction(request, env) {
       user_id: isManager ? (requestedUserId || access.userId) : access.userId,
       source: access.admin ? "web_admin" : "web_user",
       raw_text: rawText,
-    }, { requestId });
+    }, { requestId, preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    if (savedTransaction?.__idempotent_replay && !savedTransaction.__replay_same) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
     const msg = savedTransaction?.__idempotent_replay ? "already_saved" : savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
     let balert = "";
     try {
@@ -287,7 +301,10 @@ async function handleAdminAddTransaction(request, env) {
         balert = budgetAlertText(rowsNow, budgets, savedCategory);
       }
     } catch (_) {}
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, balert ? { msg, balert } : { msg }, "success")));
+    const receipt = String(savedTransaction?.id || "") === requestId && !savedTransaction?.__duplicate_skipped
+      ? { saved_rid: requestId, saved_qd: abTransactionRequestId(form.get("quick_draft_token")) } : {};
+    const saved = { msg, ...receipt, ...(balert ? { balert } : {}) };
+    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, saved, "success")));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_create_failed", severity: "warn", path: "/admin/transactions", method: "POST", detail: safeError(err) });
     const message = isUncertainStorageWrite(err) ? "db_write_unknown" : err?.code === "transaction_request_conflict" ? "request_conflict" : "거래내역을 저장하지 못했습니다. 기존 데이터는 변경되지 않았습니다.";
@@ -296,15 +313,25 @@ async function handleAdminAddTransaction(request, env) {
 }
 
 async function handleAdminDeleteTransaction(request, env) {
+  const wantsJson = wantsTransactionDeleteJson(request);
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const householdId = String(form.get("household_id") || "").trim();
+  if (wantsJson && (!id || !householdId || id.length > 120 || householdId.length > 120)) {
+    return jsonResponse({ ok: false, error: "invalid_scope", message: "가계부와 거래 ID를 확인해 주세요." }, 400);
+  }
   const targetRow = await fetchTransactionRowById(env, id);
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  if (wantsJson) {
+    if (!access.admin && !access.userId) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인이 만료되었습니다. 다시 로그인해 주세요." }, 401);
+    if (!access.ok) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
+    if (!targetRow || rowHousehold !== householdId) return jsonResponse({ ok: false, error: "record_not_found", message: "이 가계부에서 기록을 찾지 못했습니다." }, 404);
+    if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
+  }
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
     if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
     return redirectResponse(signedOutWriteRedirect(form));
@@ -312,18 +339,28 @@ async function handleAdminDeleteTransaction(request, env) {
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
-    if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
+    if (policyError) return wantsJson ? jsonResponse({ ok: false, error: "record_policy_denied", message: memberRecordChangeMessage(policyError) }, 403) : redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
   }
   const validationError = validateRecordFormFields({ id, mode: "delete" });
   if (validationError) {
+    if (wantsJson) return jsonResponse({ ok: false, error: "invalid_record", message: validationError }, 400);
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
   }
   try {
-    await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" }));
+    const result = await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    if (!result || result.deleted !== true || String(result.id || "") !== id) {
+      const error = new Error("transaction_delete_confirmation_missing");
+      error.uncertain_write = true;
+      throw error;
+    }
+    const location = returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" });
+    if (wantsJson) return jsonResponse({ ok: true, deleted: true, transaction_id: id, household_id: rowHousehold, location });
+    return redirectResponse(location);
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_delete_failed", severity: "warn", path: "/admin/transactions/delete", method: "POST", detail: safeError(err) });
-    const message = "거래내역을 삭제하지 못했습니다. 기존 기록은 유지됩니다.";
+    const uncertain = isUncertainStorageWrite(err);
+    const message = uncertain ? "삭제 결과를 확인하지 못했습니다. 같은 기록을 다시 삭제하지 말고 목록에서 확인해 주세요." : "거래내역을 삭제하지 못했습니다. 기존 기록은 유지됩니다.";
+    if (wantsJson) return jsonResponse({ ok: false, error: uncertain ? "db_write_unknown" : "record_delete_failed", uncertain, message }, 503);
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
   }
 }

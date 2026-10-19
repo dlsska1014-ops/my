@@ -120,11 +120,13 @@ for(let i=0;i<40;i++) {
   const nodes={budgetCard:{},budgetBox:{children:[],appendChild(node){this.children.push(node);}}};
   const el=(tag,cls,text)=>({tag,className:cls||"",textContent:text||"",style:{},children:[],appendChild(node){this.children.push(node);}});
   let paceRows=[];
-  new Function("BUDGET","ROWS","state","MONTH","$","el","won","sumAmt","ymOf","C","renderPaceChart",helper+"\n"+budgetFunction+"\nrenderBudget();")(payload.budget,payload.rows.map(row=>({date:row[0],income:row[1]===1,amount:row[2],cat:row[3]})),{start:"2026-07-01",end:"2026-07-31",type:"all"},"2026-07",id=>nodes[id],el,n=>Number(n).toLocaleString("ko-KR")+"원",rows=>rows.reduce((sum,row)=>sum+row.amount,0),date=>date.slice(0,7),{crit:"critical",warn:"warning",ex:"normal"},(_host,rows)=>{paceRows=rows;});
+  // C preserves this whole-month/category gauge; focus restoration now has an
+  // explicit client state. The actual chart and full bundle run in the C suite.
+  new Function("BUDGET","ROWS","state","MONTH","$","el","won","sumAmt","ymOf","C","renderPaceChart","paceState","document",helper+"\n"+budgetFunction+"\nrenderBudget();")(payload.budget,payload.rows.map(row=>({date:row[0],income:row[1]===1,amount:row[2],cat:row[3]})),{start:"2026-07-01",end:"2026-07-31",type:"all"},"2026-07",id=>nodes[id],el,n=>Number(n).toLocaleString("ko-KR")+"원",rows=>rows.reduce((sum,row)=>sum+row.amount,0),date=>date.slice(0,7),{crit:"critical",warn:"warning",ex:"normal"},(_host,rows)=>{paceRows=rows;},{restoreFocus:false},{activeElement:null});
   const textContent=node=>[node.textContent||"",...(node.children||[]).map(textContent)].join(" ");const gauge=textContent(nodes.budgetBox);
   ok(gauge.includes("800,000"),"actual analysis renderer retains matching budget remainder");ok(gauge.includes("200,000")&&!gauge.includes("170%"),"actual analysis renderer does not count uncovered expense");eq(paceRows.length,1,"actual analysis pace curve follows configured-category scope");
   const r=await app.fetch(new Request(BASE+"/skill",{method:"POST",headers:{"content-type":"application/json","user-agent":"audit-budget-unique"},body:JSON.stringify({userRequest:{utterance:"남은 예산",user:{id:"kakao_login:2265",properties:{}}}})}),f.env,{waitUntil(){}});const text=(await r.json()).template.outputs.map(o=>o.simpleText?.text||"").join("\n");ok(text.includes("800,000원"),"actual Kakao remaining budget matches web: "+text);ok(text.includes("200,000원"),"actual Kakao budgeted usage matches web");
-  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22934.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
+  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22951.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
  }finally{globalThis.__AB_QA_FIXED_NOW_MS=oldNow;f.restore();}
 }
 {
@@ -146,7 +148,7 @@ for(let i=0;i<40;i++) {
  try {
   f.db.transactions=[];f.db.accountbook_budgets=[{id:"food-only",household_id:"house-home",month:"2026-07",category:"식비",amount:100000}];
   const html=await(await call(f,"GET","/app?month=2026-07&household_id=house-home")).text();
-  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22934.js"),{},{})).text();
+  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22951.js"),{},{})).text();
   const end=script.indexOf("\n(function mobileShellUiClientMain");ok(end>0,"actual shipped quick-input IIFE boundary exists");
   const afterTag=html.match(/<p[^>]*id="quickAfter"[^>]*>/)[0];
   const afterAttrs=Object.fromEntries([...afterTag.matchAll(/([a-z-]+)="([^"]*)"/g)].map(match=>[match[1],decode(match[2])]));
@@ -156,7 +158,7 @@ for(let i=0;i<40;i++) {
    const fields={smartInput:node(),amountInput:node(),memoInput:node(),payInput:node(),catInput:node(),txDate:node("2026-07-15"),rawTextInput:node(),quickAfter:node("",{...afterAttrs}),type:"expense"};
    const radios={expense:node(),income:node()};for(const [kind,radio]of Object.entries(radios))Object.defineProperty(radio,"checked",{get(){return fields.type===kind;},set(value){if(value)fields.type=kind;}});
    const document={getElementById(id){return fields[id]||null;},createElement(){return node();},addEventListener(){},querySelectorAll(selector){return selector==="#categoryList option"?[{value:"식비"},{value:"쇼핑"}]:selector==="input[name=type]"?Object.values(radios):[];},querySelector(selector){if(selector==="#add form.form")return form;if(selector==="input[name=type][value=income]:checked")return fields.type==="income"?radios.income:null;const match=selector.match(/input\[name=type\]\[value="?(income|expense)"?\]/);return match?radios[match[1]]:null;}};
-   vm.runInContext(script.slice(0,end),vm.createContext({document,window:{addEventListener(){}},location:{hash:""},navigator:{},Intl,Date}));
+   vm.runInContext(script.slice(0,end),vm.createContext({document,window:{addEventListener(){}},location:{hash:""},navigator:{},Intl,Date,setTimeout,clearTimeout}));
    const fire=(field,kind)=>{for(const fn of field.handlers[kind]||[])fn.call(field,{target:field});};
    return {fields,form,fill(text){fields.smartInput.value=text;fire(fields.smartInput,"input");},manual(id,value){fields[id].value=value;fire(fields[id],"input");},submit(){const event={defaultPrevented:false,preventDefault(){this.defaultPrevented=true;}};for(const fn of form.handlers.submit||[])fn.call(form,event);return !event.defaultPrevented;},values(){return {household_id:"house-home",month:"2026-07",type:fields.type,transaction_date:fields.txDate.value,amount:fields.amountInput.value,memo:fields.memoInput.value,category:fields.catInput.value,payment_method:fields.payInput.value,raw_text:fields.rawTextInput.value,user_id:"user-bin",return_to:"/app?month=2026-07&household_id=house-home",...Object.fromEntries(form.hidden.map(node=>[node.name,node.value]))};}};
   }

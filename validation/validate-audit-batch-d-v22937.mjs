@@ -169,6 +169,9 @@ await withClock("2026-07-15", async () => {
 
 // ── SIM-6 관리자 백업 적용: 잠금·불명확 저장·읽기 실패 ───────────────
 const adminLogin = async (fx) => {
+  const spender = "11111111-1111-4111-8111-111111111111";
+  if (!fx.db.users.some(r => r.id === spender)) fx.db.users.push({ ...fx.db.users.find(r => r.id === "user-bin"), id: spender });
+  if (!fx.db.household_members.some(r => r.household_id === "house-home" && r.user_id === spender)) fx.db.household_members.push({ household_id: "house-home", user_id: spender, role: "owner" });
   fx.env.ADMIN_PASSWORD = "qa-admin-123";
   fx.env.ADMIN_SESSION_SECRET = "qa-admin-session";
   const login = await post(fx, "/login", { password: "qa-admin-123" }, { cookie: "" });
@@ -182,7 +185,7 @@ const multipart = async (fx, cookie, path, fields) => {
 };
 const planFile = (rows) => new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected: rows })], "plan.json", { type: "application/json" });
 const applyPlan = (fx, cookie, rows, extra = {}) => multipart(fx, cookie, "/backup/apply", { plan_file: planFile(rows), household_id: extra.household_id ?? "house-home", month: extra.month ?? "2026-07", admin_password: "qa-admin-123", confirm_text: "가져오기 적용" });
-const planRow = (memo, amount, extra = {}) => ({ type: "expense", transaction_date: "2026-07-20", amount, category: "식비", memo, payment_method: "카드", user_id: "user-bin", ...extra });
+const planRow = (memo, amount, extra = {}) => ({ type: "expense", transaction_date: "2026-07-20", amount, category: "식비", memo, payment_method: "카드", user_id: "11111111-1111-4111-8111-111111111111", ...extra });
 await fixture(async (fx) => {
   const cookie = await adminLogin(fx);
   ok(cookie.length > 10, "관리자로 로그인한다");

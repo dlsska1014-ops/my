@@ -2,6 +2,7 @@
 import { appName } from "../public/site-config.js";
 import { dashboardQuery } from "./transactions-households.js";
 import { renderSpenderOptions } from "../data/households-members-rows.js";
+import { renderObservedMoney } from "../domain/analytics.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -26,8 +27,8 @@ function renderPublicShareCardHtml(url, env) {
 
 function renderInsightCards(a) {
   const cards = [];
-  const forecastClass = a.income > 0 && a.burnForecast > a.income ? "danger" : a.burnForecast > a.expense ? "warn" : "good";
-  cards.push({ cls: forecastClass, title: "월말 예상 지출", value: `${numberWithCommas(a.burnForecast)}원`, desc: a.income > 0 ? `현재 속도 기준 수입 대비 ${Math.round(a.burnForecast / Math.max(1, a.income) * 100)}%` : "수입 기록을 넣으면 위험도가 더 정확해집니다." });
+  const forecastClass = a.basisDays === 0 ? "" : a.income > 0 && a.burnForecast > a.income ? "danger" : a.burnForecast > a.expense ? "warn" : "good";
+  cards.push({ cls: forecastClass, title: "월말 예상 지출", value: renderObservedMoney(a, a.burnForecast), desc: a.basisDays === 0 ? "관측 기간 없음" : a.income > 0 ? `현재 속도 기준 수입 대비 ${Math.round(a.burnForecast / Math.max(1, a.income) * 100)}%` : "수입 기록을 넣으면 위험도가 더 정확해집니다." });
   cards.push({ cls: a.fixedRate >= 50 ? "danger" : a.fixedRate >= 35 ? "warn" : "good", title: "고정비 압박도", value: `${a.fixedRate}%`, desc: `고정비 ${numberWithCommas(a.fixedExpense)}원. 50% 이상이면 예산 여유가 급격히 줄어듭니다.` });
   cards.push({ cls: a.concentration >= 45 ? "danger" : a.concentration >= 30 ? "warn" : "good", title: "카테고리 쏠림", value: `${a.concentration}%`, desc: `TOP 분류: ${a.topCategory.category}. 특정 항목 쏠림을 확인하세요.` });
   cards.push({ cls: a.maxDayRate >= 35 ? "danger" : a.maxDayRate >= 20 ? "warn" : "good", title: "하루 집중 지출", value: `${a.maxDayRate}%`, desc: a.maxDay.date ? `${a.maxDay.date}에 ${numberWithCommas(a.maxDay.expense)}원 사용` : "지출 기록이 없습니다." });

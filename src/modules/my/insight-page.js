@@ -2,7 +2,7 @@
 import { APP_VERSION, appName } from "../public/site-config.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import {
-  attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  attachSpenderNames, fetchAdminRowsRange, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import { getSettingValue } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -15,12 +15,17 @@ import {
   renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
   reportChallengeSettingsKey, reportUxCss,
 } from "./report-challenge.js";
-import { budgetExpenseRows, insightClientMain } from "../client/insight-main.js";
+import {
+  budgetExpenseRows, insightClientMain, insightObservedWindow, insightPaceComparison,
+  insightPeriodCoverage,
+} from "../client/insight-main.js";
 import { computeFairMoM, renderMyAnalysisHtml } from "./analysis-page.js";
 import {
   canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
 } from "./access-control.js";
-import { budgetSummary, fetchBudgets, fetchRecurring } from "../domain/budgets.js";
+import {
+  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurring,
+} from "../domain/budgets.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
 } from "../admin/pc-analysis-calendar.js";
@@ -31,12 +36,12 @@ import { escapeHtml, nextMonthStart } from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function handleMyAnalysisPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url);
+  const ctx = await getMyPageContext(request, env, url, { observedComparison: true });
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
   const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
-    householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
+    householdId ? fetchObservationMonthRows(env, householdId, addMonthsYm(month, -1)) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
     householdId ? fetchRecurring(env, householdId) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
@@ -71,14 +76,17 @@ async function handleMyInsightPage(request, env, url) {
 
   const dataStart = `${addMonthsYm(month, -11)}-01`;
   const dataEnd = nextMonthStart(month);
-  // 30만 사용자 운영을 고려해 불필요한 캘린더·통계 쿼리를 생략하고 3개 요청만 병렬 수행한다.
-  const [members, budgets, rawRows, challengeValue] = await Promise.all([
+  // Reuse the existing paged transaction GETs, including their exact-count
+  // metadata. Members, budget and settings still use the existing parallel read.
+  const [members, budgets, history, challengeValue] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
-    fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false }),
+    fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false, analysisReceipt: true }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
   ]);
+  const rawRows = history.rows;
   const truncated = rawRows.length > 9000;
+  const receipt = { ...history.receipt, ...(truncated ? { status: "limit" } : {}) };
   const rows = attachSpenderNames(rawRows.slice(0, 9000), members);
   const currentStart = `${month}-01`;
   const currentEnd = nextMonthStart(month);
@@ -86,18 +94,18 @@ async function handleMyInsightPage(request, env, url) {
   const budget = budgetSummary(currentRows, budgets);
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
   const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month), householdId: selected.id };
-  return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated }));
+  return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
 }
 
 function insightAppJsResponse() {
-  const body = `${budgetExpenseRows.toString()}\n(${insightClientMain.toString()})();`;
+  const body = `${budgetExpenseRows.toString()}\n${insightPeriodCoverage.toString()}\n${insightObservedWindow.toString()}\n${insightPaceComparison.toString()}\n(${insightClientMain.toString()})();`;
   return new Response(body, {
     status: 200,
     headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=600", "x-content-type-options": "nosniff" },
   });
 }
 
-function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], budget = {}, dashboard = {}, challenge = {}, dataStart, truncated = false }) {
+function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], budget = {}, dashboard = {}, challenge = {}, dataStart, truncated = false, receipt = { status: "unknown" } }) {
   const title = escapeHtml(appName(env));
   const qs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const slim = safeArray(rows).map((r) => [
@@ -119,10 +127,11 @@ function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], bud
       month,
       total: Number(budget.totalBudget || 0),
       basis: budget.basis,
-      cats: safeArray(budget.categoryAlerts).map((a) => [String(a.category || ""), Number(a.budget || 0)]),
+      cats: safeArray(budget.coveredCategories).map((category) => [category, 0]),
     },
     rows: slim,
     truncated: !!truncated,
+    receipt,
   };
   const dataJson = JSON.stringify(payload).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>
@@ -230,6 +239,26 @@ a.txRow:hover{background:#F5F7F9}
 .csvBtn{border:1px solid #E5E8EB;background:#fff;border-radius:11px;padding:8px 11px;font:inherit;font-size:12px;font-weight:800;color:#4E5968;cursor:pointer}
 .emptyBox{padding:26px 10px;text-align:center;color:#8B95A1;font-size:13px;line-height:1.6}
 details.twin{margin-top:10px}
+.paceChart{min-width:0;--pace-current:#246bbd;--pace-previous:#7544b5;--pace-budget:#647083;--pace-ink:#4e5968;--pace-grid:#d9dee4}
+html[data-ab-resolved-theme="dark"] .paceChart{--pace-current:#7eb9ff;--pace-previous:#c5a5ff;--pace-budget:#b3bdc9;--pace-ink:#d2dbe6;--pace-grid:#455164}
+.paceScope,.paceSelection,.paceUnavailable{overflow-wrap:anywhere}
+.paceLegend{display:flex;gap:8px 16px;flex-wrap:wrap;font-size:12px;line-height:1.6;color:var(--pace-ink)}
+.paceLegend>span{display:inline-flex;align-items:center;gap:6px}
+.paceLegend i{width:24px;border-top:3px solid var(--pace-current)}
+.paceLegend i.previous{border-color:var(--pace-previous);border-top-style:dashed}
+.paceLegend i.budget{border-color:var(--pace-budget);border-top-style:dotted}
+.paceDateLabel{display:block;font-weight:800;font-size:13px}
+.paceDate{display:block;min-height:44px;width:100%;margin:0;accent-color:var(--pace-current)}
+#budgetCard .paceDate:focus-visible,#budgetCard .paceTableScroll:focus-visible,#budgetCard .paceTable summary:focus-visible{outline:3px solid var(--pace-current)!important;outline-offset:3px!important;border-radius:6px}
+.paceSelection{font-size:13px;line-height:1.6;color:var(--pace-ink);font-variant-numeric:tabular-nums}
+.paceSelection p,.paceTip p{margin:4px 0}
+.paceTip{max-width:calc(100% - 8px);white-space:normal!important;pointer-events:none}
+.paceTable{min-width:0;max-width:100%}
+.paceTable summary{display:flex;align-items:center;min-height:44px}
+.paceTableScroll{overflow-x:auto;max-width:100%;min-width:0;overscroll-behavior-x:contain}
+.paceTableScroll table{min-width:900px}
+.paceTableScroll caption{text-align:left;white-space:normal;line-height:1.6;color:var(--pace-ink)}
+.paceTableScroll th,.paceTableScroll td{color:var(--pace-ink)}
 details.twin summary{cursor:pointer;font-size:12px;font-weight:900;color:#1D6BF3;list-style:none}
 details.twin summary::-webkit-details-marker{display:none}
 details.twin table{width:100%;border-collapse:collapse;margin-top:8px}
@@ -244,8 +273,8 @@ ${reportUxCss()}
 </style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
 <section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
-${renderReportDashboard(dashboard)}
-${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) })}
+${receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard) : '<section class="card" data-insight-incomplete><b>자료를 모두 확인하지 못했습니다.</b><p class="dataNote">아래 합계·구성·목록은 현재 수신한 자료만 표시합니다. 관측 평균·소비 속도·챌린지 달성은 확인을 보류합니다. 새로고침한 뒤 다시 확인해 주세요.</p></section>'}
+${receipt.status === "complete" && !truncated ? renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) }) : ""}
 <section class="filterBar abV5FilterBar" id="filterBar">
   <div class="chipScroll" id="periodChips"></div>
   <div class="fRow">
@@ -278,10 +307,10 @@ ${renderReportChallenge(challenge, { householdId: selected.id, canManage: canMan
   <section class="card"><div class="cardHead"><h2 id="payTitle">결제수단별</h2></div><div id="payChart"></div></section>
   <section class="card" id="whoCard"><div class="cardHead"><h2 id="whoTitle">구성원별</h2></div><div id="whoChart"></div></section>
 </div>
-<section class="card" id="budgetCard" hidden><div class="cardHead"><h2>예산 소비 페이스</h2><span class="sub">한눈에 보기의 예산 요약을 날짜별 속도로 펼쳐 봅니다. 필터와 무관하게 이 달 전체 지출 기준</span></div><div id="budgetBox"></div></section>
+<section class="card" id="budgetCard" hidden><div class="cardHead"><h2>예산 소비 페이스</h2><span class="sub">한눈에 보기의 예산 요약을 날짜별 속도로 펼쳐 봅니다. 비교 범위는 아래에서 확인해 주세요.</span></div><div id="budgetBox"></div></section>
 <section class="card"><div class="cardHead"><h2 id="topTitle">큰 금액 TOP</h2><span class="sub" id="topSub"></span></div><div id="topList"></div></section>
 <section class="card"><div class="cardHead"><h2>기록 <span class="sub" id="txCount"></span></h2><button class="csvBtn" id="csvBtn" type="button">CSV 내려받기</button></div><div id="txList"></div><button class="moreBtn" id="moreBtn" type="button" hidden>더 보기</button></section>
-<p class="dataNote">${truncated ? "최근 12개월 중 최신 9,000건을 기준으로 계산합니다. 기록이 많은 가계부는 필터 결과 CSV와 종합 리포트를 함께 확인해 주세요." : `이 화면은 ${escapeHtml(dataStart)} 이후 최근 12개월 기록을 기준으로 계산합니다.`} 그 이전 기록은 백업·가져오기에서 CSV로 확인할 수 있어요. 주간 리포트·반복지출 탐지는 <a href="/my/analysis?view=report&${qs}">종합 리포트</a>에 있습니다.</p>
+<p class="dataNote">${truncated ? "최근 12개월 중 최신 9,000건만 수신했습니다. 비교·관측 평균·무지출 일수는 확정하지 않습니다." : receipt.status !== "complete" ? "자료 완전성을 확인하지 못했습니다. 표시된 합계와 그래프는 현재 수신한 자료의 범위이며, 비교·관측 평균·무지출 일수는 확정하지 않습니다. 새로고침해 주세요." : `이 화면은 ${escapeHtml(dataStart)} 이후 최근 12개월 기록을 기준으로 계산합니다.`} 그 이전 기록은 백업·가져오기에서 CSV로 확인할 수 있어요. 주간 리포트·반복지출 탐지는 <a href="/my/analysis?view=report&${qs}">종합 리포트</a>에 있습니다.</p>
 </div></main>
 <noscript><p style="text-align:center;color:#6B7280">분석 화면은 자바스크립트가 필요합니다. <a href="/my/analysis?view=report&${qs}">종합 리포트</a>를 이용해 주세요.</p></noscript>
 <script>window.__INSIGHT__=${dataJson};</script>

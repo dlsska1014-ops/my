@@ -113,12 +113,12 @@ async function say(utterance) {
   }), fixture.env, ctx);
   eq(response.status, 200, `skill 200: ${utterance}`);
   const data = JSON.parse(await response.text());
-  return (data?.template?.outputs || []).map((o) => o?.simpleText?.text || "").join("\n");
+  return (data?.template?.outputs || []).map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description, ...(o?.textCard?.buttons || []).map((b) => b.label)].filter(Boolean).join("\n")).join("\n");
 }
 
 // 멘션이 붙은 요청은 단톡방 응답 형태(링크 블록 없음)로 나가므로 멘션 없는 답과 글자
 // 그대로 같지는 않다. 지키는 성질은 "옛 멘션 == 새 멘션" 이고, 둘 다 본문을 이해했다는 것이다.
-for (const [request, marker] of [["도움말", "사용법"], ["오늘 요약", "오늘 요약"]]) {
+for (const [request, marker] of [["도움말", "사용 설명서"], ["오늘 요약", "오늘 요약"]]) {
   const plain = await say(request);
   const withNew = await say(`@${NEW_NAME} ${request}`);
   const withOld = await say(`@${OLD_NAME} ${request}`);

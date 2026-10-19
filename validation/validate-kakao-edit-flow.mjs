@@ -39,7 +39,7 @@ ok(!source.includes("extractKakaoEditPatch"), "구 정규식 패치 파서가 �
 eq((source.match(/kakaoEditMenuTextV4\(/g) || []).length, 2, "I8: 메뉴 출력은 정의 1곳 + 신규 세션 시작 1곳뿐(실패 분기에 메뉴 재출력 없음)");
 ok(source.includes("sendKakaoEditReplyV4"), "5-2장: 전송 직전 중복응답 가드 존재");
 ok(source.includes("duplicate_reply_guard"), "5-2장: duplicate_reply_guard 텔레메트리 존재");
-ok(source.includes("unrecognized_inputs"), "6장: 미인식 입력 텔레메트리 적재 존재");
+ok(!source.includes('"/rest/v1/unrecognized_inputs"'), "6장: 수정 실패 원문을 별도 적재하지 않음");
 ok(!source.includes("결제자: ${payerName}"), "1-1장: 저장 응답의 결제자 표기가 지출자로 통일됨");
 ok(source.includes("지출자: ${payerName}"), "1-1장: 저장 응답이 지출자 표기를 사용");
 
@@ -317,8 +317,8 @@ try {
   ok(/삭제: "삭제 \d{2}번"/.test(saveReply), "[E2E·1-1장] 저장 응답 삭제 안내 문구");
 
   // 미인식 텔레메트리 적재 (6장)
-  ok(fixture.db.unrecognized_inputs?.length >= 3, "[E2E·6장] unrecognized_inputs 적재");
-  ok(fixture.db.unrecognized_inputs.some((r) => r.type === "unrecognized_final"), "[E2E·6장] unrecognized_final 적재");
+  eq(fixture.db.unrecognized_inputs?.length || 0, 0, "[E2E·6장] 수정 실패 원문 별도 적재 0건");
+  ok(!fixture.db.unrecognized_inputs?.some((r) => r.user_id || r.room_id || r.input), "[E2E·6장] 진단에 직접 사용자·방·입력 없음");
 } finally {
   fixture.restore();
 }

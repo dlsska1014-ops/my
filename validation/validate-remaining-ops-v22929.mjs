@@ -136,11 +136,13 @@ for (const mode of ["late-owner", "not-yet-committed", "reread-outage", "definit
   const id = "qa-household-" + mode;
   let ownerAttempted = false;
   let deletes = 0;
+  let directDeletes = 0;
   try {
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === "string" ? input : input.url);
       const method = String(init.method || "GET").toUpperCase();
-      if (url.pathname === "/rest/v1/households" && method === "DELETE") deletes++;
+      if (url.pathname === "/rest/v1/households" && method === "DELETE") directDeletes++;
+      if (url.pathname === "/rest/v1/rpc/accountbook_purge_household_v22960" && method === "POST") deletes++;
       if (url.pathname === "/rest/v1/household_members" && method === "POST") {
         ownerAttempted = true;
         if (mode === "late-owner") await baseFetch(input, init);
@@ -155,6 +157,7 @@ for (const mode of ["late-owner", "not-yet-committed", "reread-outage", "definit
     else if (mode === "definite-reject") await rejects(work, e => /Supabase 400/.test(e.message), "definite rejection remains error");
     else await rejects(work, e => isUncertainStorageWrite(e), "unknown ownership remains pending rather than compensated");
     eq(deletes, mode === "definite-reject" ? 1 : 0, "only definite empty-household rejection permits cleanup");
+    eq(directDeletes, 0, "creation compensation never falls back to direct household DELETE");
     eq(fixture.db.households.some(h => h.id === id), mode !== "definite-reject", "committed or unresolved candidate is retained");
   } finally { fixture.restore(); }
 }
@@ -197,7 +200,7 @@ for (const mode of ["late-owner", "not-yet-committed", "reread-outage", "definit
     for (let i = 0; i < 1001; i++) fixture.db.accountbook_settings.push({ key: "kakao_first_record_v22928:overflow-" + i, value: JSON.stringify({ version: 1, state: "pending", user_id: "overflow-" + i, candidate_id: overflowId, created_at: new Date().toISOString() }) });
     const before = JSON.stringify(fixture.db.transactions);
     await rejects(purgeHouseholdData(fixture.env, overflowId), e => /안전 한도|안전한도/.test(e.message), "candidate scope overflow fails closed before purge");
-    eq(fixture.db.__rpc_calls.filter(c => c.name === "accountbook_purge_household_v227").length, 0, "overflow performs zero purge RPC writes");
+    eq(fixture.db.__rpc_calls.filter(c => c.name === "accountbook_purge_household_v22960").length, 0, "overflow performs zero purge RPC writes");
     eq(JSON.stringify(fixture.db.transactions), before, "overflow leaves all financial rows untouched");
   } finally { fixture.restore(); }
 }
@@ -207,7 +210,7 @@ for (const mode of ["late-owner", "not-yet-committed", "reread-outage", "definit
   try {
     for (let i = 0; i < 1001; i++) fixture.db.household_members.push({ household_id: "member-overflow", user_id: "overflow-" + i, role: "member" });
     await rejects(purgeHouseholdData(fixture.env, "member-overflow"), e => /안전 한도|안전한도/.test(e.message), "actual member overflow fails closed before purge");
-    eq(fixture.db.__rpc_calls.filter(c => c.name === "accountbook_purge_household_v227").length, 0, "member overflow performs zero purge RPC writes");
+    eq(fixture.db.__rpc_calls.filter(c => c.name === "accountbook_purge_household_v22960").length, 0, "member overflow performs zero purge RPC writes");
   } finally { fixture.restore(); }
 }
 

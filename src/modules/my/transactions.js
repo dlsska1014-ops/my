@@ -150,6 +150,8 @@ async function handleMyAddTransaction(request, env) {
     memo: memoText,
     category: String(form.get("category") || "").trim(),
     payment_method: String(form.get("payment_method") || "").trim(),
+    manual_category: form.get("quick_manual_category") === "1",
+    manual_payment: form.get("quick_manual_payment") === "1",
   });
   const body = {
     household_id: selected.id,
@@ -164,7 +166,7 @@ async function handleMyAddTransaction(request, env) {
     raw_text: rawText,
   };
   try {
-    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || "") });
+    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
     if (created?.__duplicate_skipped) {
       return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
     }

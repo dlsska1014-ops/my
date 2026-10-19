@@ -121,6 +121,6 @@ ok(purgeSql.includes("revoke all on function public.accountbook_purge_household_
 ok(purgeSql.includes("grant execute on function public.accountbook_purge_household_v227(uuid) to service_role;"), "service_role 에만 실행 권한을 준다");
 ok(purgeSql.includes("purge_rpc_count"), "적용 후 확인용 조회가 들어 있다");
 // 이 RPC 는 이미 /ready 필수 목록에 있다. 새로 만드는 것이 아니라 내용만 고친다.
-ok(source.includes('"accountbook_purge_household_v227"'), "삭제 RPC 는 이미 준비 점검 대상이다");
+ok(source.includes('"accountbook_purge_household_v22960"'), "삭제 RPC 는 이미 준비 점검 대상이다");
 
 console.log(`PASS: V22.8.73 skill auth, readiness split, and purge completeness (${checks} checks)`);

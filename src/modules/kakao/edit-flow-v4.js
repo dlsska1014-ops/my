@@ -1,10 +1,15 @@
 // @build:imports-start
+import { scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
 import { isUniqueConstraintError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import {
+  commitImportedTransactionRows, importStorageTextIssue,
+} from "../import/flexible-import-parser.js";
 import { fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
+import { myImportStoredValue, reconcileImportedTransactionIds } from "../my/backup-import.js";
 import {
   canChangeMyHouseholdRecords, canManageMyHousehold, canWriteMyHousehold,
   memberRecordOnlyRefusalText,
@@ -14,10 +19,10 @@ import {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
-  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditConversationScope,
-  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4,
-  kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
+  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
+  kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
   parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
   saveKakaoEditSessionV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 } from "./edit-session-v4.js";
@@ -76,17 +81,10 @@ async function buildKakaoEditConfigV4(env, householdId = "") {
 // 6장: 미인식 입력 텔레메트리 — 실패해도 응답 흐름을 막지 않는다.
 async function logKakaoEditTelemetryV4(env, payload = {}, entry = {}) {
   try {
-    await supabase(env, "/rest/v1/unrecognized_inputs", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({
-        room_id: kakaoEditConversationScope(payload).slice(0, 120),
-        user_id: String(entry.userKey || "").slice(0, 120),
-        entry_no: String(entry.entryNo || "").slice(0, 10),
-        input: String(entry.input || "").slice(0, 300),
-        attempt: Number(entry.attempt || 0) || null,
-        type: String(entry.type || "unrecognized").slice(0, 40),
-      }),
+    const type = ["unrecognized", "unrecognized_final", "duplicate_reply_guard", "restore_error"].includes(entry.type) ? entry.type : "unrecognized";
+    const attempt = Math.max(0, Math.min(3, Math.trunc(Number(entry.attempt) || 0)));
+    scheduleNluOpsPersistence(null, env, {
+      intent: "EDIT", result: "error", reason: `edit_${type}:attempt_${attempt}`,
     });
   } catch (err) {}
 }
@@ -260,8 +258,8 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
 }
 
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
-async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false }) {
-  const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload);
+async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, sessionRaw = undefined }) {
+  const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
   if (!session) return null;
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
@@ -384,8 +382,16 @@ async function handleKakaoEditCommandV4(env, ctx) {
         if (!restored) {
           assertFresh();
           try {
-            const inserted = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
-            restored = (Array.isArray(inserted) && inserted[0]) || body;
+            if (["my_import", "backup_import_v19_3"].includes(body.source)) {
+              if (!body.id || importStorageTextIssue(body)) throw new Error("import_restore_fields_invalid");
+              await commitImportedTransactionRows(env, targetHouseholdId, [body]);
+              const found = await reconcileImportedTransactionIds(env, targetHouseholdId, [body]);
+              if (!found.has(String(body.id))) throw Object.assign(new Error("import_restore_unconfirmed"), { uncertain_write: true });
+              restored = body;
+            } else {
+              const inserted = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+              restored = (Array.isArray(inserted) && inserted[0]) || body;
+            }
           } catch (err) {
             // T4: 결과를 모르거나 같은 id 가 이미 있으면 다시 넣지 않고 id 로 확인한다. id 를 뺀 재삽입은 중복을 만든다.
             if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err };
@@ -393,6 +399,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
             if (!restored) return { kind: "failed", undo, error: err };
           }
         }
+        if (["my_import", "backup_import_v19_3"].includes(body.source) && myImportStoredValue(restored) !== myImportStoredValue(body)) return { kind: "failed", undo, error: new Error("import_restore_unconfirmed") };
         // 실제 복구가 확인된 이 한 건만 뺀다. 같은 잠금 안에서 읽은 목록을 쓰므로 다른 삭제분을 지우지 않는다.
         try {
           assertFresh();

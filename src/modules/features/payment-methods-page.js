@@ -178,6 +178,7 @@ function renderPaymentAssetRow(a, ctx = {}) {
     valueMain = `${numberWithCommas(usage.amount)}원`;
     valueSub = usage.count ? `이번 달 ${numberWithCommas(usage.count)}건 사용` : "이번 달 사용 없음";
   } else if (isLoan) {
+    valueMain = `${numberWithCommas(Math.abs(Number(a.balance || 0)))}원`;
     valueSub = "남은 원금";
   } else if (excluded) {
     valueSub = "합계 제외";

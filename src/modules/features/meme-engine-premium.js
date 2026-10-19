@@ -6,6 +6,13 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
 function chooseMemeCard(a) {
+  if (a.basisDays === 0) return {
+    key: "BEFORE_OBSERVATION", rarity: "N", emoji: "📅", title: "관측 전",
+    tagline: "아직 오지 않은 달에는 소비 성과를 판정하지 않습니다.",
+    subline: "미래 날짜의 기록은 월 전체 합계에서 확인할 수 있습니다.",
+    share: "아직 관측 기간이 없는 달입니다.", power: "관측 전",
+    label: "월간 관측 상태", styleClass: "rarity-N", animation: "",
+  };
   const key = detectMonthlyCardKey(a);
   return buildMemeCardFromKey(key, { ...a, scale: "monthly" });
 }
@@ -228,15 +235,17 @@ function isPremiumUnlocked(env) {
 
 function buildPremiumState({ env, month, allRows, analysis, extended }) {
   const unlocked = isPremiumUnlocked(env);
+  const hasObservation = analysis.basisDays !== 0;
   const expense = Number(analysis.expense || 0);
   const income = Number(analysis.income || 0);
-  const forecast = Number(analysis.burnForecast || 0);
-  const savingPotential = estimateSavingPotential({ analysis, extended });
-  const missions = buildPremiumMissions({ allRows, analysis, extended });
+  const forecast = hasObservation ? Number(analysis.burnForecast || 0) : null;
+  const savingPotential = hasObservation ? estimateSavingPotential({ analysis, extended }) : null;
+  const missions = hasObservation ? buildPremiumMissions({ allRows, analysis, extended }) : [];
   const budgets = buildSmartBudgets(allRows || [], expense);
-  const premiumScore = Math.max(0, Math.min(100, Math.round(100 - Number(analysis.riskScore || 0) * 0.55 + Math.min(20, Number(analysis.noSpendDays || 0)))));
+  const premiumScore = hasObservation ? Math.max(0, Math.min(100, Math.round(100 - Number(analysis.riskScore || 0) * 0.55 + Math.min(20, Number(analysis.noSpendDays || 0))))) : null;
   return {
     month,
+    hasObservation,
     unlocked,
     planName: "성장 리포트",
     premiumScore,
@@ -246,12 +255,12 @@ function buildPremiumState({ env, month, allRows, analysis, extended }) {
     report: {
       forecast,
       income,
-      overIncome: income > 0 && forecast > income,
-      forecastGap: income > 0 ? forecast - income : 0,
-      riskScore: analysis.riskScore || 0,
+      overIncome: hasObservation && income > 0 && forecast > income,
+      forecastGap: hasObservation ? (income > 0 ? forecast - income : 0) : null,
+      riskScore: hasObservation ? analysis.riskScore || 0 : null,
       fixedRate: analysis.fixedRate || 0,
       concentration: analysis.concentration || 0,
-      noSpendDays: analysis.noSpendDays || 0,
+      noSpendDays: hasObservation ? analysis.noSpendDays || 0 : null,
     },
     availableFeatures: [
       "가족별 소비 비교 리포트",
@@ -293,11 +302,11 @@ function buildSmartBudgets(rows, totalExpense) {
 }
 
 function renderInlinePremiumTeaser(state) {
-  return `<section class="premiumHero"><h3>✨ 무료 스마트 도구</h3><p>이번 달 절약 후보 <b>${numberWithCommas(state.savingPotential)}원</b> · 관리 점수 <b>${state.premiumScore}점</b></p><div class="premiumCta"><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">스마트 도구 보기</a><span>월말 예측</span><span>반복지출 탐지</span><span>스마트 예산 추천</span></div></section>`;
+  return `<section class="premiumHero"><h3>✨ 무료 스마트 도구</h3><p>이번 달 절약 후보 <b>${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</b> · 관리 점수 <b>${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</b></p><div class="premiumCta"><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">스마트 도구 보기</a><span>월말 예측</span><span>반복지출 탐지</span><span>스마트 예산 추천</span></div></section>`;
 }
 
 function renderPremiumTab(state) {
-  return `<section class="premiumHero"><span class="premiumRibbon">모두 무료</span><h3>✨ 지출을 기록하는 데서 끝내지 않고, 다음 행동까지 알려드립니다</h3><p>월말 예상, 반복지출, 이상지출, 예산 추천을 현재 기록에서 계산합니다. 별도 결제나 구독 등급이 없습니다.</p><div class="premiumCta"><span>관리 점수 ${state.premiumScore}점</span><span>절약 후보 ${numberWithCommas(state.savingPotential)}원</span><span>월말 예상 ${numberWithCommas(state.report.forecast)}원</span><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">전체 무료 도구</a></div></section><section class="premiumGrid"><div class="premiumCard"><span class="premiumRibbon">월말 예측</span><div class="premiumTitle">예상 지출</div><div class="premiumValue">${numberWithCommas(state.report.forecast)}원</div><div class="premiumDesc">현재 속도를 기준으로 월말 지출을 미리 확인합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">절약 분석</span><div class="premiumTitle">줄일 수 있는 후보</div><div class="premiumValue">${numberWithCommas(state.savingPotential)}원</div><div class="premiumDesc">고정비, 카페, 주말 소비, 급증 항목을 기준으로 계산합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">위험 점검</span><div class="premiumTitle">소비 위험 점수</div><div class="premiumValue">${numberWithCommas(state.report.riskScore)}점</div><div class="premiumDesc">예산·지출 집중도·고정비 비중을 함께 살펴봅니다.</div></div></section><section class="layout2"><div class="card"><h3>🎯 스마트 절약 미션</h3><div class="premiumGrid">${state.missions.map((m)=>`<div class="premiumMission"><div class="missionTop"><b>${escapeHtml(m.title)}</b><span class="missionBadge">${escapeHtml(m.reward)}</span></div><div class="premiumDesc">${escapeHtml(m.desc)}</div></div>`).join("")}</div></div><div class="card"><h3>📊 스마트 예산 추천</h3>${renderPremiumBudgetTable(state.budgets)}</div></section>`;
+  return `<section class="premiumHero"><span class="premiumRibbon">모두 무료</span><h3>✨ 지출을 기록하는 데서 끝내지 않고, 다음 행동까지 알려드립니다</h3><p>월말 예상, 반복지출, 이상지출, 예산 추천을 현재 기록에서 계산합니다. 별도 결제나 구독 등급이 없습니다.</p><div class="premiumCta"><span>관리 점수 ${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</span><span>절약 후보 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</span><span>월말 예상 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</span><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">전체 무료 도구</a></div></section><section class="premiumGrid"><div class="premiumCard"><span class="premiumRibbon">월말 예측</span><div class="premiumTitle">예상 지출</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</div><div class="premiumDesc">현재 속도를 기준으로 월말 지출을 미리 확인합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">절약 분석</span><div class="premiumTitle">줄일 수 있는 후보</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</div><div class="premiumDesc">고정비, 카페, 주말 소비, 급증 항목을 기준으로 계산합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">위험 점검</span><div class="premiumTitle">소비 위험 점수</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.riskScore)}점`}</div><div class="premiumDesc">예산·지출 집중도·고정비 비중을 함께 살펴봅니다.</div></div></section><section class="layout2"><div class="card"><h3>🎯 스마트 절약 미션</h3><div class="premiumGrid">${state.missions.map((m)=>`<div class="premiumMission"><div class="missionTop"><b>${escapeHtml(m.title)}</b><span class="missionBadge">${escapeHtml(m.reward)}</span></div><div class="premiumDesc">${escapeHtml(m.desc)}</div></div>`).join("")}</div></div><div class="card"><h3>📊 스마트 예산 추천</h3>${renderPremiumBudgetTable(state.budgets)}</div></section>`;
 }
 
 function renderPremiumBudgetTable(items) {
@@ -314,7 +323,7 @@ function buildAffiliateState({ env, month, allRows, analysis, extended, origin }
       emoji: "🧠",
       title: "이번 달 소비 점검",
       desc: "월말 예상, 고정비 압박, 소비몬 카드를 같이 보며 이번 달 흐름을 확인합니다.",
-      reason: `현재 위험점수 ${analysis.riskScore || 0}점 · 먼저 확인하면 좋은 관리 포인트`,
+      reason: analysis.basisDays === 0 ? "관측 전 · 아직 위험점수를 계산하지 않습니다." : `현재 위험점수 ${analysis.riskScore || 0}점 · 먼저 확인하면 좋은 관리 포인트`,
       score: 90 + Number(analysis.riskScore || 0),
       href: affiliateLink(env, "TIP_ANALYSIS_URL"),
       label: "분석",
@@ -384,7 +393,7 @@ function buildAffiliateState({ env, month, allRows, analysis, extended, origin }
       emoji: "🐷",
       title: "무지출 챌린지",
       desc: "무지출일이 쌓이면 소비몬 카드가 더 재미있어지고, 월말 잔액도 방어됩니다.",
-      reason: `무지출일 ${analysis.noSpendDays || 0}일 · 이번 달 방어력 체크`,
+      reason: analysis.basisDays === 0 ? "관측 전 · 아직 무지출일을 계산하지 않습니다." : `무지출일 ${analysis.noSpendDays || 0}일 · 이번 달 방어력 체크`,
       score: Number(analysis.noSpendDays || 0) * 8,
       href: affiliateLink(env, "TIP_SAVING_URL"),
       label: "절약",

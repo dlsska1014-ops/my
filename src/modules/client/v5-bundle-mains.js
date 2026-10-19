@@ -4,6 +4,9 @@ import {
   accountbookEmptyFolderClientMain, accountbookTourClientMain,
 } from "./lucian-e-mains.js";
 import {
+  accountbookTransactionDeleteClientMain, accountbookTransactionFilterClientMain,
+} from "./lucian-b-mains.js";
+import {
   AB_ACCOUNTBOOK_FAVROWS_JS_CACHE, AB_ACCOUNTBOOK_GOALS_JS_CACHE, AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE,
   ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML, ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML,
 } from "../assets/asset-registry.js";
@@ -367,7 +370,12 @@ function accountbookQuickInputClientMain() {
   var returnFocus = null;
   var lockedScrollY = 0;
   var scrollLocked = false;
-  function validDate(value) { return /^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(String(value || "")); }
+  function validDate(value) {
+    var text = String(value || "");
+    if (!/^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(text)) return false;
+    var parsed = new Date(text + "T00:00:00Z");
+    return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+  }
   // 모바일 사파리·인앱 브라우저는 body의 overflow:hidden만으로 스크롤이 잠기지 않는다.
   // 시트를 밀면 뒤 배경이 대신 올라가므로 스크롤 위치를 고정했다가 닫을 때 되돌린다.
   function isMobileViewport() { return !window.matchMedia || window.matchMedia("(max-width:899px)").matches; }
@@ -442,19 +450,32 @@ function accountbookQuickInputClientMain() {
     if (originalTitle) { originalTitle.classList.add("abQuickInputOriginalTitle"); originalTitle.setAttribute("aria-hidden", "true"); }
     body.appendChild(section);
     var form = section.querySelector("form");
+    if (form && !form.querySelector('[name="request_id"]') && window.crypto?.randomUUID) {
+      var requestId = document.createElement("input");
+      requestId.type = "hidden"; requestId.name = "request_id"; requestId.value = window.crypto.randomUUID(); form.appendChild(requestId);
+    }
     if (form) form.addEventListener("submit", function() {
       var input = section.querySelector('input[name="transaction_date"],#txDate');
       if (input) syncReturnTarget(input.value);
-      rememberDraft(form);
+      var token = form.querySelector('[name="quick_draft_token"]');
+      if (!token) { token = document.createElement("input"); token.type = "hidden"; token.name = "quick_draft_token"; form.appendChild(token); }
+      token.value = window.crypto?.randomUUID ? window.crypto.randomUUID() : "";
+      submittingDraft = true;
+      rememberDraft(form, true);
     });
     // 새로고침이나 화면 이탈은 경고 없이 일어난다. 적는 동안에도 남겨 둬야
     // 돌아왔을 때 이어서 쓸 수 있다.
     if (form) {
       var draftTimer = null;
-      form.addEventListener("input", function() {
+      var scheduleDraft = function() {
+        submittingDraft = false;
         if (draftTimer) clearTimeout(draftTimer);
         draftTimer = setTimeout(function() { rememberDraft(form); }, 400);
-      });
+      };
+      section.addEventListener("input", scheduleDraft);
+      section.addEventListener("change", scheduleDraft);
+      document.addEventListener("ab:quick-update", function() { if (draftOpened) rememberDraft(form, submittingDraft); syncDateDescription(); });
+      window.addEventListener("pagehide", function() { if (draftOpened) rememberDraft(form, submittingDraft); });
     }
     overlay.addEventListener("click", function(event) {
       if (event.target && event.target.closest && event.target.closest("[data-ab-quick-close]")) close();
@@ -464,74 +485,124 @@ function accountbookQuickInputClientMain() {
   // 저장에 실패하면 지금까지는 적은 내용이 전부 사라져 처음부터 다시 써야 했다.
   // 주소로 돌려보내면 메모가 주소창과 방문 기록에 남으므로 브라우저 안에만 둔다.
   var DRAFT_KEY = "abQuickInputDraft";
-  var DRAFT_FIELDS = ["amount", "memo", "category", "payment_method", "transaction_date", "type", "user_id"];
+  var DRAFT_FIELDS = ["amount", "memo", "category", "payment_method", "transaction_date", "type", "user_id", "raw_text", "request_id"];
+  var draftOpened = false, submittingDraft = false, dateConflict = "", dateConflictValue = "";
+  function draftScope() {
+    var node = section || findSection();
+    var user = node?.getAttribute("data-ab-draft-user") || "";
+    var household = node?.getAttribute("data-ab-draft-household") || "";
+    if (!user || !household || !node.querySelector("form")) return null;
+    return { user: user, household: household, key: DRAFT_KEY + ":v2:" + encodeURIComponent(user) + ":" + encodeURIComponent(household) };
+  }
   function draftStore() {
     try { return window.sessionStorage; } catch (_error) { return null; }
   }
   var DRAFT_MAX_AGE_MS = 30 * 60 * 1000;
-  function rememberDraft(form) {
+  function rememberDraft(form, submitted) {
     var store = draftStore();
-    if (!store || !form) return;
-    var draft = { at: Date.now() };
+    var scope = draftScope();
+    if (!store || !form || !scope) return;
+    var draft = { version: 2, user: scope.user, household: scope.household, at: Date.now(), manual: {}, submission: submitted ? form.querySelector('[name="quick_draft_token"]')?.value || "" : "" };
+    ["amount", "date", "type", "memo", "category", "payment"].forEach(function(key) { draft.manual[key] = form.querySelector('[name="quick_manual_' + key + '"]')?.value || "0"; });
     var typed = false;
     DRAFT_FIELDS.forEach(function (name) {
       var field = form.querySelector('[name="' + name + '"]:checked') || form.querySelector('[name="' + name + '"]');
-      if (field && field.value) { draft[name] = String(field.value).slice(0, 200); }
-      if (field && field.value && (name === "amount" || name === "memo")) typed = true;
+      if (field) draft[name] = String(field.value).slice(0, name === "raw_text" ? 1000 : 200);
+      if (field && field.value && (name === "amount" || name === "memo" || name === "raw_text")) typed = true;
     });
+    draft.smart_text = section.querySelector("#smartInput")?.value || "";
+    typed = typed || !!draft.smart_text || Object.keys(draft.manual).some(function(key) { return draft.manual[key] === "1"; });
     // 날짜·유형은 기본값이라 그것만으로는 "적던 중"이 아니다.
     if (!typed) { forgetDraft(); return; }
-    try { store.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_error) {}
+    try { store.setItem(scope.key, JSON.stringify(draft)); } catch (_error) {}
   }
   function forgetDraft() {
     var store = draftStore();
-    if (store) { try { store.removeItem(DRAFT_KEY); } catch (_error) {} }
+    var scope = draftScope();
+    if (store && scope) { try { store.removeItem(scope.key); } catch (_error) {} }
   }
-  function restoreDraft() {
+  function restoreDraft(selectedDate) {
     var store = draftStore();
-    if (!store || !section) return false;
+    var scope = draftScope();
+    if (!store || !section || !scope) return false;
     var raw = "";
-    try { raw = store.getItem(DRAFT_KEY) || ""; } catch (_error) { return false; }
+    try { raw = store.getItem(scope.key) || ""; } catch (_error) { return false; }
     if (!raw) return false;
-    forgetDraft();
     var draft = null;
     try { draft = JSON.parse(raw); } catch (_error) { return false; }
-    if (!draft || typeof draft !== "object") return false;
+    if (!draft || draft.version !== 2 || draft.user !== scope.user || draft.household !== scope.household) return false;
     // 오래된 초안이 되살아나면 지난번에 그만둔 입력이 엉뚱하게 끼어든다.
-    if (draft.at && Date.now() - Number(draft.at) > DRAFT_MAX_AGE_MS) return false;
+    if (!Number.isFinite(draft.at) || Date.now() - draft.at < 0 || Date.now() - draft.at > DRAFT_MAX_AGE_MS) return false;
     var restored = false;
     DRAFT_FIELDS.forEach(function (name) {
       var value = draft[name];
-      if (!value) return;
+      if (typeof value !== "string") return;
       var radio = section.querySelector('[name="' + name + '"][value="' + String(value).replace(/"/g, "") + '"]');
-      if (radio && (radio.type === "radio" || radio.type === "checkbox")) { radio.checked = true; restored = true; return; }
+      if (radio && (radio.type === "radio" || radio.type === "checkbox")) {
+        radio.checked = true;
+        restored = true; return;
+      }
       var field = section.querySelector('[name="' + name + '"]');
       if (!field || field.type === "radio" || field.type === "checkbox") return;
-      // 이미 적혀 있는 칸은 덮지 않는다.
-      if (field.value && name !== "transaction_date") return;
       field.value = value;
-      field.dispatchEvent(new Event("change", { bubbles: true }));
       restored = true;
     });
+    var smart = section.querySelector("#smartInput");
+    if (smart) smart.value = typeof draft.smart_text === "string" ? draft.smart_text : draft.raw_text || "";
+    if (validDate(selectedDate) && selectedDate !== draft.transaction_date) {
+      dateConflictValue = draft.transaction_date || "";
+      dateConflict = "달력에서 선택한 날짜는 " + selectedDate + "입니다. 초안의 거래일 " + (draft.transaction_date || "미입력") + "을 유지했습니다. 날짜를 확인해 주세요.";
+    }
+    section.querySelector("form").dispatchEvent(new CustomEvent("ab:quick-restore", { detail: { manual: draft.manual } }));
     return restored;
   }
-  function setDate(date) {
+  function syncDateDescription() {
+    var input = section && section.querySelector('input[name="transaction_date"],#txDate');
+    if (dateConflict && input?.value !== dateConflictValue) dateConflict = "";
+    var description = overlay && overlay.querySelector("#abQuickInputDescription");
+    if (description) description.textContent = (validDate(input?.value) ? input.value + " 기록을 현재 가계부에 추가합니다." : "거래일을 확인한 뒤 저장해 주세요.") + (dateConflict ? " " + dateConflict : "");
+  }
+  function setDate(date, manual = true) {
     var input = section && section.querySelector('input[name="transaction_date"],#txDate');
     if (input && validDate(date)) {
       input.value = date;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { abQuickDefault: !manual } }));
       syncReturnTarget(date);
     }
-    var description = overlay && overlay.querySelector("#abQuickInputDescription");
-    if (description) description.textContent = validDate(date) ? date + " 기록을 현재 가계부에 추가합니다." : "현재 가계부에 지출 또는 수입을 기록합니다.";
+    syncDateDescription();
+  }
+  function loadInputReview() {
+    if (!section?.querySelector("#amountInput") || document.getElementById("abInputReviewRuntime")) return;
+    var script = document.createElement("script");
+    script.id = "abInputReviewRuntime";
+    script.src = "/assets/accountbook-quick-input-v22951.js";
+    script.async = true;
+    script.onerror = function() { script.remove(); };
+    document.head.appendChild(script);
   }
   function open(date, trigger) {
     var node = ensure();
     if (!node) { location.href = fallbackUrl(date); return; }
     returnFocus = trigger || document.activeElement;
+    var params = new URLSearchParams(location.search);
+    if (params.get("err") === "request_conflict" && !section.querySelector(".abQuickConflict")) {
+      var conflict = document.createElement("p"), link = document.createElement("a");
+      conflict.className = "abQuickConflict"; conflict.setAttribute("role", "status");
+      conflict.textContent = "같은 요청에 저장된 기록과 내용이 다릅니다. 수정한 초안을 보존했습니다. ";
+      link.textContent = "기존 기록을 확인하고 수정하기";
+      var scope = draftScope();
+      link.href = "/transactions/edit?" + new URLSearchParams({ id: params.get("rid") || "", household_id: scope?.household || "", month: currentContext().month }).toString();
+      conflict.appendChild(link); section.prepend(conflict);
+    }
     var dateInput = section.querySelector('input[name="transaction_date"],#txDate');
     var selectedDate = validDate(date) ? date : (dateInput ? dateInput.value : "");
-    setDate(selectedDate);
+    if (!draftOpened) {
+      var restored = restoreDraft(validDate(date) ? date : "");
+      draftOpened = true;
+      if (!restored) setDate(selectedDate, validDate(date));
+    } else if (validDate(date)) { dateConflict = ""; setDate(date, true); }
+    syncDateDescription();
+    loadInputReview();
     node.removeAttribute("hidden");
     node.setAttribute("aria-hidden", "false");
     document.body.classList.add("abQuickInputOpen");
@@ -553,7 +624,7 @@ function accountbookQuickInputClientMain() {
     if (validDate(direct)) return direct;
     var params = new URLSearchParams(location.search);
     var queryDate = params.get("date") || "";
-    return validDate(queryDate) ? queryDate : "";
+    return !draftOpened && validDate(queryDate) ? queryDate : "";
   }
   window.openAbQuickInput = function(date, trigger) { open(date, trigger); };
   window.closeAbQuickInput = close;
@@ -576,15 +647,14 @@ function accountbookQuickInputClientMain() {
   function autoOpen() {
     var params = new URLSearchParams(location.search);
     var hash = String(location.hash || "");
-    // 저장에 성공했으면 남은 초안은 버린다. 그 밖에는 되살릴 기회를 준다 —
-    // 저장 실패로 돌아온 경우와, 적다가 새로고침한 경우가 모두 여기에 해당한다.
-    if (params.get("msg")) { forgetDraft(); return; }
+    // Only the confirmed submission token may clear its scoped draft; legacy drafts remain untouched.
+    if (params.get("saved_rid") && params.get("saved_qd")) {
+      var scope = draftScope(), store = draftStore(), draft = null;
+      try { draft = scope && store && JSON.parse(store.getItem(scope.key) || "null"); } catch (_error) {}
+      if (draft?.request_id === params.get("saved_rid") && draft?.submission === params.get("saved_qd")) forgetDraft();
+    }
     if (location.pathname !== "/app" || !(params.get("quick") === "1" || hash === "#add" || hash === "#quick")) return;
     open(requestedDate(null), null);
-    if (restoreDraft()) {
-      var dateField = section && section.querySelector('input[name="transaction_date"],#txDate');
-      setDate(dateField ? dateField.value : "");
-    }
     if (params.get("quick") === "1" && window.history && window.history.replaceState) {
       params.delete("quick");
       var query = params.toString();
@@ -1269,7 +1339,9 @@ function accountbookDetailExperienceClientMain() {
     summaryQueued = false;
     var form = document.querySelector("#add form.form");
     if (!form) return;
-    var amount = Number(String(form.elements.amount?.value || "").replace(/[^0-9]/g, ""));
+    var rawAmount = String(form.elements.amount?.value || "");
+    var amount = /^[\d,]+$/.test(rawAmount) ? Number(rawAmount.replace(/,/g, "")) : 0;
+    if (!Number.isSafeInteger(amount) || amount < 1 || amount > 2000000000) amount = 0;
     var memo = String(form.elements.memo?.value || "").trim();
     var summary = form.querySelector(".abQuickValue");
     if (!summary) {
@@ -1280,12 +1352,13 @@ function accountbookDetailExperienceClientMain() {
     }
     summary.hidden = !amount && !memo;
     var income = form.querySelector('input[name="type"][value="income"]:checked');
-    summary.querySelector("b").textContent = (income ? "수입 " : "지출 ") + (amount ? amount.toLocaleString("ko-KR") + "원" : "금액을 입력하세요");
+    summary.querySelector("b").textContent = (income ? "수입 " : "지출 ") + (amount ? amount.toLocaleString("ko-KR") + "원" : rawAmount ? "금액 형식을 확인하세요" : "금액을 입력하세요");
     summary.querySelector("small").textContent = memo || "내용을 입력하면 이곳에 표시됩니다.";
   }
   function scheduleSummary() { if (!summaryQueued) { summaryQueued = true; queueMicrotask(syncQuickSummary); } }
   document.addEventListener("input", scheduleSummary);
   document.addEventListener("change", scheduleSummary);
+  document.addEventListener("ab:quick-update", syncQuickSummary);
   document.addEventListener("click", function(event) {
     if (event.target.closest && event.target.closest("#add,[data-ab-quick-open]")) scheduleSummary();
     if (event.target.closest && event.target.closest("[data-ab-quick-open]")) dismissHelp();
@@ -1315,7 +1388,7 @@ function accountbookDetailExperienceClientMain() {
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookTransactionDeleteClientMain.toString()})();(${accountbookTransactionFilterClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }

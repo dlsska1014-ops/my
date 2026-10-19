@@ -45,7 +45,7 @@ async function callSkill(fixture, payload) {
 }
 
 function kakaoText(data) {
-  return (data?.template?.outputs || []).map((output) => output?.simpleText?.text || "").join("\n");
+  return (data?.template?.outputs || []).map((output) => output?.simpleText?.text || [output?.textCard?.title, output?.textCard?.description, ...(output?.textCard?.buttons || []).map((b) => b.label)].filter(Boolean).join("\n")).join("\n");
 }
 
 function cookiePairs(headers) {
@@ -172,7 +172,7 @@ try {
   const readyResponse = await app.fetch(new Request("https://malhaebook.com/ready"), operationsAuthFixture.env, {});
   eq(readyResponse.status, 503, "readiness endpoint fails closed when a required RPC is absent");
   const readiness = await readyResponse.json();
-  eq(readiness.checked_rpcs, 17, "readiness endpoint checks required authentication, write, and asset mutation RPCs");
+  eq(readiness.checked_rpcs, 18, "readiness endpoint checks authentication, lifecycle source/CAS/commit/purge, and asset mutation RPCs");
   ok(readiness.missing_rpcs.includes("accountbook_set_local_identity_v227"), "readiness response identifies a missing required RPC");
 
   const missingRpcFetch = globalThis.fetch;

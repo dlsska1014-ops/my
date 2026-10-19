@@ -143,17 +143,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
+  // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
   return [
-    "👥 이 단톡방에 연결된 가계부가 없습니다.",
-    !writeRejected ? "처음 사용하는 방에서는 ‘커피 4500’처럼 봇에게 기록을 보내면 웹 로그인 없이 이 방의 공동 가계부를 자동으로 준비해요. 첫 입력자는 소유자가 되고, 함께 기록하는 방 참여자들은 같은 가계부를 사용해요." : "",
-    "기존 연결 가계부가 삭제됐거나 단톡방 연결이 해제된 상태일 수 있습니다.",
-    writeRejected ? "방금 입력한 기록은 어디에도 저장하지 않았어요." : "연결 전에는 이 방의 기록을 다른 가계부에 임의로 저장하지 않습니다.",
-    "",
-    manageable.length ? "내가 연결할 수 있는 가계부" : "현재 연결 가능한 내 가계부가 없습니다.",
-    ...kakaoHouseholdListLines(manageable),
-    "",
-    manageable.length ? "‘가계부 전환’을 입력해 연결할 가계부를 고르거나, ‘단톡방 연결 초대코드’를 입력해 주세요." : "먼저 새 가계부를 만들거나 초대코드로 참여해 주세요.",
-    origin ? `가계부 관리\n${origin}/my/households` : "",
+    "이 단톡방에 연결된 가계부가 없습니다.",
+    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요." : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
+    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
 
@@ -172,40 +166,15 @@ function kakaoDirectStartText(current = null, households = []) {
 
 function kakaoStartText(hasHousehold = false, householdName = "") {
   if (!hasHousehold) return [
-    "안녕하세요 😊",
-    "카카오톡에서 함께 쓰는 말해가계부입니다.",
-    "",
-    "먼저 가계부를 만들어 보세요!",
-    "가족 생활비, 부부·커플, 모임 회비, 여행 경비처럼 용도에 맞게 만들 수 있어요.",
-    "",
-    "이미 초대코드가 있다면 기존 가계부에 바로 참여할 수 있습니다.",
+    "친구와 함께 말 한마디로 기록하는 말해가계부입니다.",
+    "‘커피 4500원’처럼 첫 기록을 보내면 바로 시작돼요.",
+    "다른 가계부는 ‘새 가계부 만들기’·‘초대코드로 참여’로 열어요.",
   ].join("\n");
   return [
     `📒 ${householdName || "가계부"}에서 무엇을 해볼까요?`,
     "",
-    "카카오톡에서 기록·예산·요약을 바로 사용할 수 있어요.",
-    "단톡방에서는 봇을 추가한 뒤 관리자 한 명이 초대코드로 한 번만 연결하면 됩니다.",
-  ].join("\n");
-}
-
-function guidedHelpText(hasHousehold = false) {
-  if (!hasHousehold) return [
-    "📒 말해가계부 시작하기",
-    "",
-    "1. 새 가계부를 만들거나 초대코드로 참여합니다.",
-    "2. 초대코드로 참여하면 관리자 승인을 기다립니다.",
-    "3. 단톡방에서는 봇에게 거래를 보내면 그 방 가계부에 승인 없이 참여합니다. 기존 가계부를 쓰려면 소유자·관리자가 초대코드로 연결합니다.",
-    "4. 기록 예시를 확인한 뒤 ‘점심 12000원 국민카드’처럼 첫 기록을 남깁니다.",
-    "5. ‘오늘 기록 보기’로 저장 결과를 확인합니다. 예산은 이후에 설정해도 됩니다.",
-  ].join("\n");
-  return [
-    "📒 말해가계부 사용법",
-    "",
-    "기록: 점심 12000원 국민카드",
-    "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
-    "관리: 예산 설정 · 가계부 전환 · 수정 01번 금액 13000원",
-    "내 이름: 내 이름 설정",
-    "공유: 초대코드 · 단톡방 연결 ABC123",
+    "말 한마디로 기록·예산·요약을 바로 사용할 수 있어요.",
+    "단톡방 첫 기록은 공동 가계부를 준비합니다. 기존 가계부를 연결할 때는 소유자·관리자가 초대코드를 사용해요.",
   ].join("\n");
 }
 
@@ -594,15 +563,15 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 export {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
   findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
-  guidedHelpText, inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
+  inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
   kakaoDirectStartText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines,
   kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
-  kakaoMemberPolicyReply, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
-  maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind,
-  parseKakaoHouseholdChoice, parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput,
-  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand,
+  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

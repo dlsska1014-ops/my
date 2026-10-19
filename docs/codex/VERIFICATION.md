@@ -1,3 +1,95 @@
+## V22.9.61 수명주기 검증
+
+새 RPC/CAS·구형 쓰기 차단·관리자 가져오기·카카오 복구는 validate:lifecycle과 관련 저장 회귀로 확인합니다. 실제 PostgreSQL 결과는 외부 lifecycle/attempt-*에 별도로 기록하며 Node 모형을 실제 SQL 결과로 보고하지 않습니다. 최종 두 하네스·SQLite·Git/ESM·체크섬과 원본 보존 개수는 VERIFICATION_V22_9_61.md가 연결하는 외부 RESULT.json을 확인합니다.
+
+## V22.9.59 검증 방법
+
+`npm run validate:storage-contract`는 Unicode 경계·정확한 저장 확인·구형 토큰·소속/삭제 부분 실패·자산 RPC 존재/부재와 SQL 검토문을 486개 assertion으로 검사합니다. 실제 Worker HTTP와 합성 메모리 DB를 사용하며 실제 SQL을 실행하지 않습니다. 승인된 160/40자 거절 정책 때문에 기존 5 MiB 메모 수용 기대값만 명시적 거절로 바꾸고 입력 상한·전체 분석 검사와 기존 518개 수를 유지합니다.
+
+`node tools/prepare-import-recovery-v22959.mjs --out=<새 절대 경로>`는 실제 추적·미추적 소스를 독립 복사하고 가져오기 쓰기를 차단하여 빌드합니다. `node validation/validate-storage-contract-v22959.mjs --case=recovery --recovery=<복구 후보 절대 경로>`는 같은 토큰·이미 열린 탭·만료/소실 토큰·원래 요청의 지연 완료를 검증합니다.
+
+최종 두 하네스는 기존 하한19,691개에 새486개를 더한20,177개를 보호하며 활성 manifest 540개 경로와 ESM을 확인합니다. Node 22 SQLite 84개와 두 git diff --check도 별도로 실행합니다. 전체 로그는 후보 밖 review-artifacts/v59-local-contract-2026-10-17에 보관합니다.
+
+## V22.9.58 검증 방법
+
+`npm run validate:d3-refund-guidance`는 새575개를 실행합니다. 기존 하한19,116에575개를 더한19,691를 보호하며 검사 목록과 checksum 경로를 줄이지 않습니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_58.sha256의529개입니다.
+
+`npm run validate:d3-refund-native -- --out <저장소 밖 경로>`는 외부 요청을 차단한 합성 Worker/메모리 DB와 Chrome에서 실제 클릭·키보드·HTTP를 검사합니다. OS 클립보드와 대체 대화상자는 모형입니다. 두 전체 모드·SQLite·한글/공백 동일 후보·최종 해시·독립 검토는 VERIFICATION_V22_9_58.md가 연결하는 외부 보고서를 확인합니다.
+
+## V22.9.57 C 검증 방법
+
+`npm run validate:lucian-c`는 새 행동/보호 회귀 621개를 실행합니다. 기존 역할 분리의 부분 자료 검사 3개도 추가합니다. 기존 하한 18,492개에 총 624개를 추가하여 전체 하한은 19,116개이며 기존 검사는 유지합니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_57.sha256입니다.
+
+`npm run validate:lucian-c-native -- --out <저장소 밖 절대 경로>`는 외부 fetch를 차단한 합성 Worker/HTTP 서버와 Chrome CDP의 실제 키·마우스·터치를 검사합니다. 기존 V53~V56 회귀, 두 전체 모드, Node 22 SQLite와 diff 검사를 최종 소스에서 실행합니다. 한글/공백 사본·원본/사본·독립 리뷰 해시와 실제 결과는 VERIFICATION_V22_9_57.md가 연결하는 외부 FINAL_REPORT를 정본으로 사용합니다.
+
+## V22.9.56 검증 방법
+
+`npm run validate:import-mapping`의 새 행동 회귀 407개를 기존 하한 18,085개에 더해 18,492개를 보호합니다. 기존 검사와 manifest 경로는 삭제하지 않습니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_56.sha256입니다.
+
+`npm run validate:import-mapping-native -- --out <저장소 밖 경로> --sheetjs <로컬 0.20.3 스크립트>`는 실제 Chrome DOM/키보드/파일/HTTP/Worker/메모리 RPC를 검사합니다. `npm run measure:import-mapping -- --boundaries --out <증거>`는 같은 입력의 로컬 시간/메모리/분석 완전성을 측정합니다.
+
+최종 빌드에서 일반·분류 표 부재 전체 하네스, Node 22 SQLite, 기존 V55/V54/V53 Chrome을 실행합니다. 소스/한글·공백 검증 사본/독립 리뷰 해시와 실제 수치는 VERIFICATION_V22_9_56.md의 외부 증거에 연결합니다.
+
+## V22.9.55 검증 방법
+
+`npm run validate:import-prerequisites`는 실제 assertion 518개를 전체 하네스에 추가합니다. 기존 하한 17,567개에 518개를 더해 18,085개를 보호하며 기존 검사를 줄이지 않습니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_55.sha256입니다.
+
+`npm run validate:import-prerequisites-native -- --out <저장소 밖 경로> --sheetjs <로컬 0.20.3 스크립트>`는 실제 Chrome 파일 입력·키 입력·마우스/키보드·multipart·미리보기·선택·RPC/행을 검증합니다. 모듈/네이티브 FileReader 데이터의 전달 지연만 CDP 모형으로 제어합니다. OS 선택 대화상자와 클립보드, 휴대전화 검사는 아닙니다.
+
+`npm run measure:import-prerequisites -- --repo <검증 대상> --boundaries --out <증거>`는 1/10/120/1,000행 반복 wall/process CPU·호출 수와 상한 메모리/시간을 기록합니다. Node 측정은 Cloudflare Free 한도 통과의 증거가 아닙니다. 전체 두 모드는 최종 manifest와 같은 한글·공백 사본에서 실행하고 실제 수치는 저장소 밖 FINAL_REPORT에 남깁니다.
+
+## V22.9.54 검증 방법
+
+기존 검사 목록에 BOT 진단 92개·관측 기간 87개·상태 177개·환급 미리보기 114개·안내 61개, 총 531개를 추가합니다. 기존 오류 주입 검사에 실제 쓰기 도달 확인 3개도 추가합니다. 하한은 17,567개이며 기존 검사와 성능 예산은 낮추지 않습니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_54.sha256이고 기존 483개 경로를 모두 포함합니다.
+
+빌드 후 `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 각각 실행합니다. Node 22의 `node monitoring/test-d1.mjs`, `npm run validate:bot-safety-native -- --out <증거>`, `npm run validate:budget-privacy-native -- --out <증거>`도 실행합니다. 실제 수치·한글/공백 사본·해시·독립 리뷰·보존은 VERIFICATION_V22_9_54.md의 증거를 따릅니다. Chrome 챗봇 페이지는 실제 Worker 응답을 사용하는 합성 UI이며 카카오 앱 검증이 아닙니다.
+
+## V22.9.53 검증 방법
+
+`npm run validate:budget-fingerprint -- --out <저장소 밖 경로>`는 독립 JSON·Node SHA-256 기대값, 두 폼의 A/B·p1 거절·전체 행·RPC·원문 보존과 해시 실패를 검사합니다. `--repo <시작 사본>`으로 수정 전 실패를 재현합니다. 기존 D 서버 521개는 유지합니다.
+
+`npm run validate:budget-privacy-native -- --out <저장소 밖 경로>`는 실제 Chrome 키 입력·눈 아이콘·같은 출처 두 탭과 모든 상태 영역 쓰기 시점을 확인합니다. IME·lifecycle·행 상한용 DOM 준비는 모형으로 구분합니다. 기존 Chrome D·A·V51 검사도 별도로 유지합니다.
+
+두 독립 리뷰 뒤 전체 일반·분류 표 부재 모드와 Node.js 22 SQLite를 실행합니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_53.sha256의 483개 경로이며 기존 477개를 모두 포함합니다. 전체 하한은 17,033개입니다. 실제 결과·소스 해시·독립 리뷰는 VERIFICATION_V22_9_53.md의 증거와 FINAL_RESULT.json을 확인합니다.
+
+## V22.9.52 검증 방법
+
+`npm run validate:lucian-d-budget`는 독립 기대값으로 D0 호환 집계·예산 입력·직접 서버 제출·실패 보존·정확한 전체 행 집합을 검사합니다. `--out <저장소 밖 경로>`를 주면 원문 제출·저장 전후 행·소스 해시를 JSON으로 남깁니다. 새 배열·원시 200행·예약 이름 검증을 기존 최종 100행 제한과 구분합니다.
+
+`npm run validate:lucian-d-native -- --out <저장소 밖 경로>`는 로컬 합성 HTTP 픽스처와 Chrome CDP의 실제 키 입력·문자열 삽입·좌표 클릭·폼 POST를 사용합니다. 실제 문서 전환과 응답 소비를 기다립니다. IME는 CDP 에뮬레이션, pageshow persisted=true 직접 호출은 모형으로 구분하며 실제 OS 클립보드와 실제 보조기기를 검증했다고 기록하지 않습니다.
+
+일반·분류 표 부재 전체 하네스, 기존 Chrome 233개·113개와 Node.js 22 SQLite 84개를 별도로 실행합니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_52.sha256이며 이전 468개 경로를 모두 유지합니다. 새 JS 한 주소만 pin을 추가하며 이전 pin은 변경하지 않습니다. 실제 최종 수치와 실패 후 수정 기록은 VERIFICATION_V22_9_52.md에 기록합니다.
+
+## V22.9.51 검증 방법
+
+기존 Chrome 233개는 npm run validate:lucian-a-native -- --out <저장소 밖 절대 경로>로 유지합니다. 추가 여섯 묶음은 npm run validate:lucian-six-native -- --out <별도 저장소 밖 절대 경로>로 검사합니다. CDP Input.insertText·키 입력·좌표 클릭·실제 폼 제출과 응답 소비·문서 전이를 기다립니다. 클릭 좌표를 읽기 전에는 실제 유한 애니메이션과 문서 전환 완료를 기다립니다. 제품 코드에 지연을 추가하지 않습니다.
+
+npm run validate:lucian-six-fixes는 서버 추가·수정·재시도 충돌·정확한 원 단위 환산을 검사합니다. --out <저장소 밖 경로>를 주면 제출값·저장 행과 소스 해시를 JSON으로 남깁니다. 전체 두 모드와 Node.js 22 SQLite는 별도로 실행합니다. 활성 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_51.sha256의 468개 경로이며 이전 461개 경로를 모두 유지합니다.
+
+최종 일반·분류 표 부재 모드는 각각 16,119개이며 하한도 16,119개로 올렸습니다. Chrome은 기존 233개와 추가 113개, SQLite는 84개입니다. 제출값·실제 행·독립 리뷰·소스 해시는 VERIFICATION_V22_9_51.md를 확인합니다. 실제 뒤로 가기와 BFCache cache-hit를 구분하고, no-store 등의 미복원 사유가 있으면 cache-hit를 통과로 기록하지 않습니다.
+
+## V22.9.50 검증 방법
+
+`npm run validate:lucian-a`는 기존 72개와 제공 Worker 자산을 사용하는 새 계약 검사 140개를 실행합니다. `npm run validate:lucian-a-native -- --out <저장소 밖 절대 경로>`는 실제 Chrome의 Input.insertText·키 입력·좌표 클릭을 사용합니다. 이 검사는 합성 이벤트로 금액을 교체하지 않으며 입력 직후 상태를 확인합니다. 초안·자산·저장 완료는 조건을 관찰하여 기다립니다.
+
+현재 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_50.sha256의 461개 경로입니다. V22.9.49의 454개 경로를 모두 유지하고 이전 manifest 자체와 새 도구·검사·기록을 추가했습니다. 전체 하한은 15,940개이며 이전 하한을 낮추지 않았습니다. 일반·분류 표 부재 모드를 각각 실행하고 Node.js 22 SQLite 검사와 Chrome을 별도로 기록합니다. 실제 전체 검사는 일반·분류 표 부재에서 각각 15,942개·15,942개, Chrome 233개·SQLite 84개입니다. 최종 결과는 VERIFICATION_V22_9_50.md를 확인합니다.
+
+## V22.9.49 검증 방법
+
+현재 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_49.sha256의 454개 경로이며 선행 수정의 446개 경로를 보존합니다. `npm run validate:lucian-a`는 실제 제공 자산으로 입력값·결과 버튼·초점·금액 변경·오류·예산 안내·지연 자산을 검사합니다. 공용 파서와 초안은 `npm run validate:input-prerequisites`로 함께 확인합니다. 일반·분류 표 부재 전체 하네스는 각각 15,785개·15,785개이며 하한은 15,783개입니다. 해시·Chrome 219개·SQLite 84개와 실기기 경계는 VERIFICATION_V22_9_49.md에 기록합니다.
+
+## V22.9.48 검증 방법
+
+현재 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_48.sha256의 446개 경로입니다. B의 440개 경로를 모두 보호합니다. `npm run validate:input-prerequisites`는 공용 파서·실제 서버 쓰기 거절과 사용자 분류·직렬화 런타임·실제 초안 복원 함수를 검증합니다. 전체 하네스는 일반·분류 표 부재 모드를 각각 실행합니다. 실제 개수·해시·Chrome와 SQLite 결과는 VERIFICATION_V22_9_48.md에 기록합니다. 실기기와 운영 확인은 자동 검증과 구분합니다.
+
+## V22.9.47 검증 방법
+
+현재 manifest는 BUNDLE_FILE_CHECKSUMS_V22_9_47.sha256의 440개 경로이며 기존 430개 경로를 모두 보존합니다. B 전용 검사 161개, 직렬화 함수·모듈·새 불변 자산 검사를 포함한 전체 하한은 15,390개입니다.
+
+`npm run validate:lucian-b`는 실제 메모리 RPC와 직렬화된 클라이언트의 대기·취소·재조회·초점을 검사합니다. 독립 리뷰에서 발견한 모달 접근, 정책 문구, 관련 없는 BFCache 재로드, 별도 거래 수정 화면의 요청 복원 회귀도 포함합니다. 최종 단계에서는 `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 각각 실행합니다. Node.js 22의 SQLite 84개 검사와 실제 Chrome 상호작용 검사는 별도로 기록합니다. 운영·실기기는 자동 통과로 간주하지 않습니다.
+
+검증 원본·소스 SHA-256·바이트·건수는 VERIFICATION_V22_9_47.md를 확인합니다.
+
 ## V22.9.45 검증 방법
 
 현재 manifest는 `BUNDLE_FILE_CHECKSUMS_V22_9_45.sha256`의 422개 경로입니다. 직전 415개 경로를 보존하고 새 검사기·판 문서 3개·직전 manifest·감사·인계 문서 2개를 더합니다. 새 회귀 검사는 224개이며 전체 하한은 15,005개입니다.

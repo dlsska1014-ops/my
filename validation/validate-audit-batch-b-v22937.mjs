@@ -201,7 +201,7 @@ await fixture(async (fx) => {
   const leftover = fx.db.accountbook_operation_locks.filter((lock) => Date.parse(lock.locked_until) > Date.now());
   eq(leftover.length, 0, `H5 삭제 뒤 남는 잠금이 없다 (${leftover.map((lock) => lock.operation_key).join(",")})`);
   ok(!fx.db.accountbook_settings.some((r) => r.key.startsWith("kakao_selected_household_v2251:") && String(r.value || "") === "house-big"), "H5 참여자의 선택 상태가 지워진 가계부를 가리키지 않는다");
-  eq(rpc(fx, "accountbook_purge_household_v227").length, 1, "H5 purge RPC 는 한 번이다");
+  eq(rpc(fx, "accountbook_purge_household_v22960").length, 1, "H5 purge RPC 는 한 번이다");
 });
 
 // ── H6 공동방 준비의 확정 실패는 되돌린다 ─────────────────────────────

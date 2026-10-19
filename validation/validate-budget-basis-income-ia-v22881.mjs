@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import app from "../src/index.js";
+import app, { budgetSummary } from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
 let checks = 0;
@@ -21,7 +21,13 @@ ok(source.includes('const basis = categoryBudgetTotal ? "category" : "total";'),
 // 을 훑는다. 같은 분류의 예산 행이 둘이면 그 분류의 지출이 두 번 더해져 사용액이
 // 실제 지출보다 커졌고, 남은 예산은 그만큼 작게 나왔다. V22.8.81 이 지키려던
 // "예산을 잡은 분류의 지출만 견준다"는 그대로이고, 중복만 사라진다.
-ok(source.includes("const budgetedExpense = basis === \"category\"\n    ? [...new Set(categoryBudgets.map((b) => b.category))].reduce((a, category) => a + Number(byCategory[category] || 0), 0)\n    : expense;"), "the budgeted spend only sums categories that carry a budget");
+// V22.9.52: legacy compatibility expands the covered set. Protect the original
+// behavior directly instead of pinning the old exact-category implementation.
+const scoped = budgetSummary(
+  [{ type: "expense", category: "식비", amount: 100 }, { type: "expense", category: "외식", amount: 50 }, { type: "expense", category: "여행", amount: 900 }],
+  [{ category: "식비", amount: 500 }, { category: "식비", amount: 500 }, { category: "외식", amount: 200 }],
+);
+ok(scoped.budgetedExpense === 150 && scoped.uncoveredExpense === 900 && scoped.totalBudget === 1200, "the covered union excludes unbudgeted spend and counts duplicate/parent-child transactions once without reducing allocations");
 ok(!/categoryBudgets\.reduce\(\(a, b\) => a \+ Number\(byCategory\[b\.category\] \|\| 0\), 0\)/.test(source), "a duplicated budget row can no longer double-count its category");
 ok(source.includes("const uncoveredExpense = Math.max(0, expense - budgetedExpense);"), "spend outside the budgeted categories is kept as a separate figure");
 ok(source.includes("basis, budgetedExpense, uncoveredExpense,"), "the summary exposes the new fields");
@@ -118,7 +124,7 @@ fixture.db.transactions.push(
 const alertsHtml = await (await get("/budget-alerts?month=2026-08&household_id=house-home")).text();
 const metric = (label) => (alertsHtml.match(new RegExp(`<span>${label}</span><b>([^<]*)</b>`)) || [])[1];
 eq(metric("예산 사용률"), "20%", "the rate compares the budgeted category only (100,000 / 500,000)");
-eq(metric("이번 달 사용"), "100,000원", "the spend figure counts only the budgeted category");
+eq(metric("월 전체 등록액"), "100,000원", "the spend figure counts only the budgeted category, including future monthly records");
 eq(metric("남은 예산"), "400,000원", "the remaining budget is not eaten by unbudgeted spend");
 eq(/예산 초과/.test(alertsHtml), false, "no false over-budget alarm is raised");
 ok(alertsHtml.includes("예산 밖 지출 900,000원 별도"), "the unbudgeted spend is disclosed instead of hidden");

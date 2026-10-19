@@ -3,6 +3,9 @@ runtime/global-state.js
 web/lucian-onboarding.js
 assets/lucian-e-css.js
 client/lucian-e-mains.js
+assets/lucian-b-css.js
+client/lucian-b-mains.js
+client/lucian-a-mains.js
 runtime/ops-telemetry.js
 runtime/config-readiness.js
 runtime/ops-monitor.js
@@ -39,6 +42,7 @@ admin/meme-content-pages.js
 features/budget-alerts-annual-goals.js
 client/v5-bundle-mains.js
 features/settlement-ops-pages.js
+features/settlement-refund-preview.js
 admin/nlu-openbuilder-ops.js
 web/menu-and-guides.js
 auth/user-session.js
@@ -48,6 +52,7 @@ data/users-household-create.js
 import/csv-duplicates.js
 my/members-page.js
 my/card-import-guide.js
+client/lucian-d-import.js
 my/backup-import.js
 cron/recurring-auto-apply.js
 my/groups-budget-bulk.js
@@ -60,6 +65,8 @@ my/settings-page.js
 my/access-control.js
 my/transactions.js
 my/households-lifecycle.js
+domain/budget-plan-contract.js
+client/lucian-d-budget.js
 domain/budgets.js
 my/home-sections.js
 features/meme-cards.js
@@ -88,6 +95,7 @@ admin/dashboard-fragments.js
 kakao/reply-texts.js
 kakao/intent-nlu.js
 kakao/response-builders.js
+kakao/manual-guides.js
 kakao/edit-session-v4.js
 kakao/edit-state-machine.js
 kakao/edit-flow-v4.js
@@ -97,6 +105,7 @@ kakao/household-budget-commands.js
 kakao/guided-flows.js
 kakao/skill-handler.js
 kakao/transaction-save.js
+kakao/separate-purchase.js
 api/user-api.js
 api/admin-api.js
 kakao/group-links-first-record.js

@@ -149,7 +149,8 @@ async function createUserHousehold(env, userId, name, nickname, options = {}) {
       if (transactions.length) throw membershipErr;
       try {
         options.assertFresh?.();
-        await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(household.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+        const purged = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", { method: "POST", body: JSON.stringify({ p_household_id: household.id }) });
+        if (!purged?.deleted) throw new Error("household_delete_not_confirmed");
       } catch (cleanupErr) {
         rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} membership=${safeError(membershipErr)} cleanup=${safeError(cleanupErr)}` });
       }

@@ -25,15 +25,19 @@ import {
 } from "../my/access-control.js";
 import { kakaoNoMatchGuide } from "./reply-texts.js";
 import { kakaoSaveDelayText } from "./intent-nlu.js";
-import { isUncertainStorageWrite, kakaoSaveFailedText, kakaoText } from "./response-builders.js";
+import {
+  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoSaveFailedText, kakaoText,
+} from "./response-builders.js";
 import {
   dailySeqForKakaoRow, kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
 } from "./edit-session-v4.js";
-import { optionalWithin } from "./request-guards.js";
+import { kakaoRecordCheckReply, optionalWithin } from "./request-guards.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
-import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+import {
+  abTransactionRequestId, escapeHtml, numberWithCommas, sameTransactionCore,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
@@ -44,12 +48,15 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
 
   // V22.9.16: 지출자 이름표는 저장 뒤 응답 문구에만 쓰지만, 읽는 데 저장 결과가 필요 없다.
   // 분류·결제수단과 같이 던져 두고 응답을 만들 때 받는다(왕복 한 단계 절감).
+  const messageKey = "kakao-message:" + await sha256Hex(JSON.stringify([household.id,user.id,parsedList]));
+  const messageLeasePromise = claimOperationLease(env, {key:kakaoWriteLeaseKey(household.id, user.id),owner:operationLeaseOwner("kakao-message"),leaseSeconds:90});
+  // Read beside the lease claim. A stale pending snapshot cannot overwrite a
+  // newer marker: writeKakaoPendingWrite atomically compares its server IDs (or
+  // inserts only if absent), and no transaction is sent if that comparison fails.
   const inputSettingsPromise = fetchKakaoInputSettings(env, household.id, user.id);
   // V22.9.36: 아래 allSettled 가 붙기 전에(sha256 을 기다리는 사이) 거절되면 "처리되지 않은 거절"이 된다. 결과는
   // allSettled 가 그대로 받으므로 여기서는 거절을 표시만 해 둔다.
   inputSettingsPromise.catch(() => {});
-  const messageKey = "kakao-message:" + await sha256Hex(JSON.stringify([household.id,user.id,parsedList]));
-  const messageLeasePromise = claimOperationLease(env, {key:messageKey,owner:operationLeaseOwner("kakao-message"),leaseSeconds:90});
   let messageLease = null, releasePromise = null;
   try {
   const settled = await Promise.allSettled([inputSettingsPromise,messageLeasePromise]);
@@ -57,7 +64,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (settled[0].status === "rejected") throw settled[0].reason;
   if (settled[1].status === "rejected") throw settled[1].reason;
   if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
-  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite} = settled[0].value;
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite, pendingWriteExists, pendingWriteEmptyValue} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
@@ -82,18 +89,18 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (Date.now() - handlerStartedAt >= preparationBudgetMs) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
   let savedRows = [];
-  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:()=>{releasePromise=releaseOperationLease(env,messageLease);} }); }
+  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, pendingWriteExists, pendingWriteEmptyValue, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:(cleanup)=>{releasePromise=Promise.all([cleanup,releaseOperationLease(env,messageLease)]);} }); }
   catch (err) {
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
     rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
-    return kakaoText(isUncertainStorageWrite(err) ? kakaoSaveDelayText(origin) : kakaoSaveFailedText(origin));
+    return isUncertainStorageWrite(err) ? kakaoRecordCheckReply("지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.", utterance) : kakaoText(kakaoSaveFailedText(origin));
   }
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원`;
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원` + (duplicateCount ? "\n서로 다른 구매라면 ‘별도 구매 추가’ 뒤에 원래 기록문장을 보내 후보를 확인해 주세요." : "");
 
   let finalizeNotice = "";
   if (onSaved) {
@@ -153,15 +160,26 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
-  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null};
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
 
+function kakaoWriteLeaseKey(householdId, userId) {
+  return `kakao-message:writer:${householdId}:${userId}`;
+}
+
+function kakaoUnknownWriteError() {
+  const error = new Error("kakao_pending_write_unresolved");
+  error.uncertain_write = true;
+  return error;
+}
+
 async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const existing = [];
   const fresh = [];
-  if (!cleanRows.length) return {existing, fresh};
+  const resolved = [];
+  if (!cleanRows.length) return {existing, fresh, resolved};
   const first = cleanRows[0];
   if (cleanRows.some(row => row.household_id !== first.household_id || row.user_id !== first.user_id)) throw new Error("kakao_batch_scope_invalid");
   const params = new URLSearchParams({household_id: `eq.${first.household_id}`, user_id: `eq.${first.user_id}`, amount: `in.(${[...new Set(cleanRows.map(row => row.amount))].join(",")})`, created_at: `gte.${new Date(Date.now() - KAKAO_RETRY_DEDUP_SECONDS*1000).toISOString()}`, select: "*", limit: "1000"});
@@ -170,9 +188,9 @@ async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const norm = value => normalizeText(value || "");
   for (const row of cleanRows) {
     const duplicate = candidates.find(r => r.transaction_date === row.transaction_date && r.type === row.type && Number(r.amount) === Number(row.amount) && ((norm(row.raw_text) && norm(r.raw_text) === norm(row.raw_text)) || (norm(r.category) === norm(row.category) && norm(r.memo) === norm(row.memo) && norm(r.payment_method) === norm(row.payment_method))));
-    if (duplicate) existing.push({...duplicate, __duplicate_skipped: true}); else fresh.push(row);
+    if (duplicate) {const found={...duplicate,__duplicate_skipped:true};existing.push(found);resolved.push(found);} else {fresh.push(row);resolved.push(row);}
   }
-  return { existing, fresh };
+  return { existing, fresh, resolved };
 }
 
 async function insertKakaoTransactions(env, rows, options = {}) {
@@ -203,11 +221,28 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   // V22.9.34 proto (B13 Kakao): row ids are chosen here. When the same message (same fingerprint) had an UNKNOWN result
   // before, its ids were parked in a pending marker and are reused now, so a late-landing first write collides on the PK.
   const pending = options.pendingWrite;
-  const reuse = !!(pending && options.fingerprint && pending.fp === options.fingerprint && Array.isArray(pending.ids) && pending.ids.length === cleanRows.length);
-  cleanRows.forEach((row, index) => { row.id = reuse ? String(pending.ids[index]) : crypto.randomUUID(); });
+  if (pending && pending.fp !== options.fingerprint) {
+    const recovered = await kakaoRowsByIds(env, cleanRows[0].household_id, pending.ids);
+    if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) throw kakaoUnknownWriteError();
+  }
+  const replayIds = pending?.replay_ids || pending?.ids;
+  const reuse = !!(pending && options.fingerprint && pending.fp === options.fingerprint && Array.isArray(replayIds) && replayIds.length === cleanRows.length);
+  cleanRows.forEach((row, index) => { row.id = reuse ? String(replayIds[index]) : crypto.randomUUID(); });
+  if (reuse && pending.rows && cleanRows.some(expected => !pending.rows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) throw kakaoUnknownWriteError();
 
   options.assertFresh?.();
-  const { existing, fresh } = await dedupeKakaoRowsBeforeInsert(env, cleanRows);
+  // Persist stable IDs before any transaction POST. The duplicate scan is independent
+  // and runs in parallel; failure of either prevents the write.
+  const initialMarker = kakaoPendingMarker(options.fingerprint || "",cleanRows);
+  const [deduped] = await Promise.all([
+    dedupeKakaoRowsBeforeInsert(env, cleanRows),
+    writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, initialMarker, {exists:!!options.pendingWriteExists,marker:pending,emptyValue:options.pendingWriteEmptyValue}),
+  ]);
+  const { existing, fresh, resolved } = deduped;
+  // A skipped duplicate uses its actual stored ID. Persist that correspondence
+  // before a partial write, so failed cleanup never strands unsent UUIDs.
+  const finalMarker = kakaoPendingMarker(options.fingerprint || "",resolved);
+  if (existing.length) await writeKakaoPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker,{exists:true,marker:initialMarker});
   for (const dup of existing) rememberDuplicateEvent({ kind: "duplicate_skipped", source: "kakao_skill", household_id: dup.household_id, user_id: dup.user_id, amount: dup.amount, transaction_date: dup.transaction_date, detail: dup.memo || dup.raw_text || "", path: "/skill", method: "POST" });
   let insertedRows = [];
   if (fresh.length) {
@@ -220,11 +255,13 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       });
       insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
     } catch (err) {
-      if (!isUncertainStorageWrite(err)) throw err;
+      if (!isUncertainStorageWrite(err)) {
+        if (isDefiniteStorageFailure(err)) await clearKakaoConfirmedPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker).catch(()=>{});
+        throw err;
+      }
       let found = [];
       try { found = await kakaoRowsByIds(env, fresh[0].household_id, fresh.map((row) => row.id)); } catch (_) { found = null; }
       if (!found || found.length < fresh.length) {
-        await writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, { fp: options.fingerprint || "", ids: cleanRows.map((row) => row.id), at: Date.now() }).catch(() => {});
         throw err;
       }
       insertedRows = found;
@@ -236,9 +273,11 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       for (const row of already) existing.push({ ...row, __duplicate_skipped: true, __pending_replay: true });
     }
   }
-  if (reuse) await writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, null).catch(() => {});
-
-  options.onConfirmed?.();
+  const actualRows = [...existing, ...insertedRows];
+  if (actualRows.length !== cleanRows.length || !fresh.every(expected => actualRows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) throw kakaoUnknownWriteError();
+  const cleanup = clearKakaoConfirmedPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, finalMarker).catch(() => {});
+  if (options.onConfirmed) options.onConfirmed(cleanup);
+  else await cleanup;
   return [...existing, ...insertedRows];
 }
 
@@ -247,21 +286,49 @@ function kakaoPendingWriteKey(householdId, userId) {
   return `kakao_edit_v2254:${householdId}:pending_write:${userId}`;
 }
 
-async function writeKakaoPendingWrite(env, householdId, userId, marker) {
-  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ key: kakaoPendingWriteKey(householdId, userId), value: marker ? JSON.stringify(marker) : "" }),
-  });
+function kakaoPendingMarker(fp, rows) {
+  const unique = [...new Map(rows.map(row=>[row.id,row])).values()];
+  return {fp,ids:unique.map(row=>row.id),rows:unique.map(({__duplicate_skipped,__pending_replay,...row})=>row),replay_ids:rows.map(row=>row.id),at:Date.now()};
+}
+
+async function clearKakaoConfirmedPendingWrite(env, householdId, userId, marker) {
+  // Match only this confirmed action's server IDs. Cleanup may overlap lease
+  // release, but can never erase a newer action's pending marker. No text goes
+  // into this filter, only a server fingerprint and fixed UUIDs.
+  const prefix = JSON.stringify({fp:marker.fp,ids:marker.ids}).slice(0,-1) + ",";
+  const params = new URLSearchParams({key:`eq.${kakaoPendingWriteKey(householdId,userId)}`,value:`like.${prefix}*`});
+  await supabase(env,`/rest/v1/accountbook_settings?${params}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});
+}
+
+async function writeKakaoPendingWrite(env, householdId, userId, marker, expected = {exists:false}) {
+  const key = kakaoPendingWriteKey(householdId,userId), value = JSON.stringify(marker);
+  let rows;
+  if (!expected.exists) {
+    rows = await supabase(env,"/rest/v1/accountbook_settings?on_conflict=key",{
+      method:"POST",headers:{Prefer:"resolution=ignore-duplicates,return=representation"},body:JSON.stringify({key,value}),
+    });
+  } else {
+    const prefix = expected.marker ? JSON.stringify({fp:expected.marker.fp,ids:expected.marker.ids}).slice(0,-1)+"," : "";
+    const filter = expected.marker ? `like.${prefix}*` : expected.emptyValue == null ? "is.null" : "eq.";
+    const params = new URLSearchParams({key:`eq.${key}`,value:filter});
+    rows = await supabase(env,`/rest/v1/accountbook_settings?${params}`,{
+      method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({value}),
+    });
+  }
+  // An empty result means a newer action won the compare-and-set. Never turn
+  // that into a new UUID, a blind upsert, or a transaction POST.
+  if (!Array.isArray(rows) || rows.length!==1 || rows[0].key!==key || rows[0].value!==value) throw kakaoUnknownWriteError();
 }
 
 function parseKakaoPendingWrite(value) {
+  if (value === undefined || value === null || value === "") return null;
   try {
     const parsed = typeof value === "string" ? JSON.parse(value || "null") : value;
-    if (!parsed || !parsed.fp || !Array.isArray(parsed.ids)) return null;
-    if (Date.now() - Number(parsed.at || 0) > 24 * 60 * 60 * 1000) return null;
+    if (!parsed || typeof parsed.fp !== "string" || !parsed.fp || !Array.isArray(parsed.ids) || !parsed.ids.length || parsed.ids.length > 80 || !parsed.ids.every(id => abTransactionRequestId(id)) || new Set(parsed.ids).size !== parsed.ids.length || !Number.isSafeInteger(parsed.at) || parsed.at < 0) throw new Error("invalid");
+    if (parsed.rows && (!Array.isArray(parsed.rows) || parsed.rows.length !== parsed.ids.length || parsed.rows.some((row, index) => row.id !== parsed.ids[index]))) throw new Error("invalid");
+    if (parsed.replay_ids && (!Array.isArray(parsed.replay_ids) || parsed.replay_ids.length>80 || !parsed.replay_ids.length || !parsed.replay_ids.every(id=>parsed.ids.includes(id)))) throw new Error("invalid");
     return parsed;
-  } catch (_) { return null; }
+  } catch (_) { throw kakaoUnknownWriteError(); }
 }
 
 async function kakaoRowsByIds(env, householdId, ids = []) {
@@ -282,5 +349,9 @@ async function handleKakaoRecentDebug(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>Kakao Recent</title><style>body{font-family:system-ui,sans-serif;background:#f6f7f9;margin:0;padding:20px}table{width:100%;border-collapse:collapse;background:#fff}th,td{border:1px solid #ddd;padding:8px;font-size:13px}th{background:#f1f5f9}code{font-size:12px}</style></head><body><h2>최근 카카오 저장 내역</h2><p>최근 ${rows.length}건 · <a href="/ledger?all=1">기록 전체 보기</a></p><table><thead><tr><th>created</th><th>date</th><th>type</th><th>amount</th><th>category</th><th>memo</th><th>household</th><th>user key(마스킹)</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${escapeHtml(r.created_at || "")}</td><td>${escapeHtml(r.transaction_date || "")}</td><td>${escapeHtml(r.type || "")}</td><td>${numberWithCommas(r.amount)}</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td><code>${escapeHtml(r.household_id || "")}</code></td><td><code>${escapeHtml(maskKey(r.source_user_key || ""))}</code></td></tr>`).join("")}</tbody></table></body></html>`);
 }
 // @build:exports-start
-export { KAKAO_RETRY_DEDUP_SECONDS, handleKakaoRecentDebug, saveKakaoParsedTransactionsReply };
+export {
+  KAKAO_RETRY_DEDUP_SECONDS, clearKakaoConfirmedPendingWrite, fetchKakaoInputSettings,
+  handleKakaoRecentDebug, kakaoPendingWriteKey, kakaoRowsByIds, kakaoUnknownWriteError,
+  kakaoWriteLeaseKey, parseKakaoPendingWrite, saveKakaoParsedTransactionsReply,
+};
 // @build:exports-end

@@ -19,6 +19,9 @@ import {
 } from "../data/households-members-rows.js";
 import { buildBudgetAlertPolishModel } from "../features/budget-alerts-annual-goals.js";
 import { buildSettlementModel } from "../features/settlement-ops-pages.js";
+import {
+  buildSettlementRefundPreview, settlementRefundPreviewDigest,
+} from "../features/settlement-refund-preview.js";
 import { resolveEffectiveUserId } from "../auth/user-session.js";
 import {
   boundedFormRequest, ensureKakaoLoginUser, fetchUserIdentityLinks, makeCredentialProof,
@@ -163,5 +166,7 @@ export { runRecurringAutoApply, runAutomaticReports, buildBudgetAlertPolishModel
 export { budgetExpenseRows };
 
 export { explicitDateIntent };
+
+export { buildSettlementRefundPreview, settlementRefundPreviewDigest };
 
 export { kakaoGroupFirstKeys, kakaoGroupLinkItemSettingsKey, getExplicitKakaoBotGroupKey, readKakaoGroupFirstSnapshot, removeKakaoGroupLink, bindKakaoGroupByInviteCode };

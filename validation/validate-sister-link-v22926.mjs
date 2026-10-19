@@ -1,6 +1,6 @@
 // V22.9.26 — 공개 페이지 푸터의 형제 사이트 링크.
 //
-// 한국어 생활 계산기(everyday-tools-ko)는 말해가계부와 함께 운영하는 별도 정적 사이트다.
+// 생활 계산기는 말해가계부와 함께 운영하는 별도 정적 사이트다.
 // 그쪽 푸터와 금융·일 도구 하단에는 말해가계부 링크가 있고, 이 검사는 그 역방향 링크가
 // 공개 페이지 푸터에만, 정확히 한 번, 새 창·noopener 로 들어 있는지 지킨다.
 // 개인 데이터 화면(/my, /app)에는 외부 링크를 넣지 않는다.
@@ -14,7 +14,7 @@ const ok = (value, label) => { if (!value) throw new Error(`FAIL: ${label}`); pa
 const eq = (actual, expected, label) => { if (actual !== expected) throw new Error(`FAIL: ${label} (expected ${expected}, got ${actual})`); passed += 1; };
 const countOf = (text, needle) => String(text || "").split(needle).length - 1;
 
-const SISTER_URL = "https://everyday-tools-ko.pages.dev";
+const SISTER_URL = "https://tools.malhaebook.com/";
 const LINK = `<a href="${SISTER_URL}" target="_blank" rel="noopener">생활 계산기</a>`;
 const PUBLIC_PATHS = ["/", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/faq", "/how-it-works", "/security"];
 const EXISTING_LINKS = ['<a href="/about">서비스 소개</a>', '<a href="/contact">문의 안내</a>', '<a href="/privacy">개인정보처리방침</a>', '<a href="/terms">이용약관</a>', '<a href="/cookies">쿠키 정책</a>', '<a href="/site-map">사이트맵</a>'];
@@ -36,6 +36,7 @@ try {
   const footer = source.slice(start, source.indexOf("\nfunction ", start + 1));
   eq(countOf(footer, LINK), 1, "공개 푸터 함수에 형제 사이트 링크가 정확히 한 번 있다");
   eq(countOf(source, SISTER_URL), 1, "형제 사이트 주소는 소스 전체에서 푸터 한 곳에만 적는다");
+  ok(!source.includes("everyday-tools-ko.pages.dev"), "공개 소스에 이전 계산기 호스트가 없다");
   ok(LINK.includes('target="_blank"') && LINK.includes('rel="noopener"'), "새 창으로 여는 외부 링크는 noopener 를 붙인다");
   let cursor = -1;
   for (const existing of EXISTING_LINKS) {

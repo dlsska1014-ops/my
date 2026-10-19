@@ -6,6 +6,51 @@ function budgetExpenseRows(rows = [], categories = [], basis = "total") {
   return rows.filter(row => !row.income && row.type !== "income" && (basis !== "category" || covered.has(row.cat || row.category)));
 }
 
+// V22.9.57: shared by the actual bundle and the pure-model regression. Receipt
+// completeness describes the existing paged read, not an atomic DB snapshot.
+function insightPeriodCoverage({ start, end, dataStart, dataEnd, receipt, truncated = false }) {
+  if (!start || !end || start > end || start < dataStart || end > dataEnd) return "unreceived";
+  if (truncated) return "limit";
+  return receipt && receipt.status === "complete" ? "complete" : receipt && receipt.status || "unknown";
+}
+
+function insightObservedWindow({ start, end, today, dataStart, dataEnd, receipt, truncated = false }) {
+  if (start > today) return { start, end: null, span: 0, status: "before" };
+  const observedEnd = end > today ? today : end;
+  const span = Math.round((Date.parse(observedEnd + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000) + 1;
+  return { start, end: observedEnd, span, status: insightPeriodCoverage({ start, end: observedEnd, dataStart, dataEnd, receipt, truncated }) };
+}
+
+function insightPaceComparison({ month, today, rows = [], budget = {}, dataStart, dataEnd, receipt, truncated = false }) {
+  const year = Number(month.slice(0, 4)), monthNumber = Number(month.slice(5, 7));
+  const previousMonth = new Date(Date.UTC(year, monthNumber - 2, 1)).toISOString().slice(0, 7);
+  const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const previousDays = new Date(Date.UTC(year, monthNumber - 1, 0)).getUTCDate();
+  const covered = budgetExpenseRows(rows, budget.cats || [], budget.basis);
+  const sums = Object.create(null);
+  covered.forEach(row => { sums[row.date] = (sums[row.date] || 0) + row.amount; });
+  let currentSum = 0, previousSum = 0;
+  const points = [];
+  for (let day = 1; day <= days; day++) {
+    const suffix = "-" + String(day).padStart(2, "0");
+    const date = month + suffix, previousDate = day <= previousDays ? previousMonth + suffix : null;
+    currentSum += sums[date] || 0;
+    if (previousDate) previousSum += sums[previousDate] || 0;
+    const currentStatus = date > today ? "before" : insightPeriodCoverage({ start: month + "-01", end: date, dataStart, dataEnd, receipt, truncated });
+    const previousStatus = !previousDate ? "no-date" : date > today ? "before" : insightPeriodCoverage({ start: previousMonth + "-01", end: previousDate, dataStart, dataEnd, receipt, truncated });
+    const current = currentStatus === "complete" ? currentSum : null;
+    const previous = previousStatus === "complete" ? previousSum : null;
+    const difference = current !== null && previous !== null ? current - previous : null;
+    points.push({ day, date, previousDate, current, previous, difference,
+      percent: difference !== null && previous > 0 ? Math.round(difference / previous * 100) : null,
+      currentStatus, previousStatus, status: currentStatus !== "complete" ? currentStatus : previousStatus,
+      pace: Math.round(Number(budget.total || 0) * day / days) });
+  }
+  return { month, previousMonth, days, points, basis: budget.basis || "total",
+    categories: (budget.cats || []).map(row => Array.isArray(row) ? row[0] : row.category),
+    observedDay: month > today.slice(0, 7) ? 0 : month === today.slice(0, 7) ? Number(today.slice(8, 10)) : days };
+}
+
 function insightClientMain() {
   "use strict";
   var DATA = window.__INSIGHT__ || {};
@@ -91,6 +136,8 @@ function insightClientMain() {
   var DATA_END = monthEnd(MONTH);
   var IS_CUR = MONTH === ymOf(TODAY);
   var BUDGET = DATA.budget || { total: 0, cats: [] };
+  var RECEIPT = DATA.receipt || { status: "unknown" };
+  var paceState = { day: null, showTip: false, restoreFocus: "", tableOpen: false, scrollLeft: 0 };
 
   // 분류 색상: 현재 조회 결과의 금액 순위 기준으로 배정.
   // 전체 기간 고정 배정은 이번 달 상위 분류가 장기 순위 밖이면 전부 회색이 되는 문제가 있어,
@@ -282,26 +329,53 @@ function insightClientMain() {
     }
     return d;
   }
+  function observationReason(status) {
+    var reasons = {
+      before: "관측 전입니다. 기간이 시작된 뒤 확인해 주세요.",
+      unreceived: "조회 범위 밖의 자료입니다. 기준 월을 바꿔 주세요.",
+      limit: "최신 9,000건만 수신하여 비교를 보류합니다. 기록 범위를 확인해 주세요.",
+      "response-cap": "응답 제한으로 일부 자료만 수신했습니다. 새로고침한 뒤 다시 확인해 주세요.",
+      inconsistent: "수신 자료가 서로 맞지 않아 비교를 보류합니다. 새로고침해 주세요.",
+      unknown: "자료 완전성을 확인하지 못했습니다. 새로고침해 주세요.",
+      "no-date": "비교할 날짜 없음: 지난달에는 해당 날짜가 없습니다.",
+    };
+    return reasons[status] || reasons.unknown;
+  }
+  function observedPeriod() {
+    var observed = insightObservedWindow({ start: state.start, end: state.end, today: TODAY, dataStart: DATA_START, dataEnd: DATA_END, receipt: RECEIPT, truncated: DATA.truncated });
+    var pw = prevWindow();
+    var previousStatus = observed.status === "before" ? "before" : insightPeriodCoverage({ start: pw.start, end: pw.end, dataStart: DATA_START, dataEnd: DATA_END, receipt: RECEIPT, truncated: DATA.truncated });
+    return { observed: observed, previous: pw, previousStatus: previousStatus,
+      rows: observed.status === "complete" ? rowsIn(observed.start, observed.end, false) : [],
+      previousRows: previousStatus === "complete" ? rowsIn(pw.start, pw.end, false) : [],
+      comparable: observed.status === "complete" && previousStatus === "complete" };
+  }
   function renderKpis() {
     var box = $("kpis");
     box.textContent = "";
+    if (state.start < DATA_START || state.end > DATA_END) {
+      ["지출", "수입", "수입-지출", "관측 기간 하루 평균 지출", "기록"].forEach(function (label) { box.appendChild(kpiTile(label, "미수신", null, false, observationReason("unreceived"))); });
+      return;
+    }
     var rows = rangeRows();
     var ex = sumAmt(rows.filter(function (r) { return !r.income; }));
     var inc = sumAmt(rows.filter(function (r) { return r.income; }));
-    var pw = prevWindow();
-    var hasPrev = pw.start >= DATA_START;
-    var pex = null, pinc = null;
-    if (hasPrev) {
-      var prows = rowsIn(pw.start, pw.end, false);
-      pex = sumAmt(prows.filter(function (r) { return !r.income; }));
-      pinc = sumAmt(prows.filter(function (r) { return r.income; }));
+    var model = observedPeriod(), ow = model.observed, pw = model.previous;
+    function totalFor(rows2, income) { return sumAmt(rows2.filter(function (r) { return r.income === income; })); }
+    function amountTile(label, monthly, income, bad) {
+      var current = totalFor(model.rows, income), previous = totalFor(model.previousRows, income);
+      var extra = model.comparable ? previous === 0 ? current === 0 ? "관측 기간도 같은 금액" : "관측 기간 금액 증가 " + won(current) + " (지난 기간 0원)" : "" : observationReason(ow.status !== "complete" ? ow.status : model.previousStatus);
+      var tile = kpiTile(label, won(monthly), model.comparable ? pct(current, previous) : null, bad, extra, "관측 기간 · " + pw.label);
+      if (model.comparable) tile.appendChild(el("small", "comparisonPeriod", "비교: " + ow.start + " ~ " + ow.end + " " + won(current) + " / " + pw.start + " ~ " + pw.end + " " + won(previous)));
+      return tile;
     }
-    var elapsed = pw.span;
-    box.appendChild(kpiTile("지출", won(ex), hasPrev ? pct(ex, pex) : null, true, "", pw.label));
-    box.appendChild(kpiTile("수입", won(inc), hasPrev ? pct(inc, pinc) : null, false, "", pw.label));
+    box.appendChild(amountTile("지출", ex, false, true));
+    box.appendChild(amountTile("수입", inc, true, false));
     var net = inc - ex;
     box.appendChild(kpiTile("수입-지출", (net < 0 ? "-" : "") + won(Math.abs(net)), null, false, inc > 0 ? "저축률 " + Math.round(net / inc * 100) + "%" : ""));
-    box.appendChild(kpiTile("조회기간 하루 평균 지출", won(elapsed > 0 ? Math.round(ex / elapsed) : 0), null, false, state.start + " ~ " + (state.end > TODAY && state.start <= TODAY ? TODAY : state.end) + " (" + elapsed + "일 기준)"));
+    var observedExpense = totalFor(model.rows, false);
+    box.appendChild(kpiTile("관측 기간 하루 평균 지출", ow.status === "complete" ? won(Math.round(observedExpense / ow.span)) : "확인 보류", null, false,
+      ow.status === "complete" ? ow.start + " ~ " + ow.end + " (" + ow.span + "일 · 지출 " + won(observedExpense) + " 기준)" : observationReason(ow.status)));
     box.appendChild(kpiTile("기록", fmt(viewRows().length) + "건", null, false, compLabel() + " 기준 목록"));
   }
 
@@ -311,16 +385,19 @@ function insightClientMain() {
     box.textContent = "";
     var rows = viewRows();
     var comp = compRows(rows);
+    var model = observedPeriod();
+    if (!model.comparable) box.appendChild(el("span", "iChip", observationReason(model.observed.status !== "complete" ? model.observed.status : model.previousStatus)));
     if (!comp.length) return;
     var total = sumAmt(comp);
-    var pw = prevWindow();
-    var span = pw.span;
-    if (pw.start >= DATA_START) {
-      var prev = sumAmt(compRows(rowsIn(pw.start, pw.end, true)));
-      var d = pct(total, prev);
+    var pw = model.previous;
+    var span = model.observed.span;
+    if (model.comparable) {
+      var prev = sumAmt(compRows(model.previousRows));
+      var observedTotal = sumAmt(compRows(model.rows));
+      var d = pct(observedTotal, prev);
       if (d != null && d !== 0) {
         var bad = state.type === "income" ? d < 0 : d > 0;
-        box.appendChild(el("span", "iChip " + (bad ? "bad" : "good"), pw.label + "보다 " + compLabel() + " " + Math.abs(d) + "% " + (d > 0 ? "증가" : "감소")));
+        box.appendChild(el("span", "iChip " + (bad ? "bad" : "good"), pw.label + "보다 관측 " + compLabel() + " " + Math.abs(d) + "% " + (d > 0 ? "증가" : "감소") + " (" + model.observed.start + " ~ " + model.observed.end + " / " + pw.start + " ~ " + pw.end + ")"));
       }
     }
     var byCat = Object.create(null);
@@ -331,7 +408,7 @@ function insightClientMain() {
     comp.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
     var maxDay = Object.keys(byDay).sort(function (a, b) { return byDay[b] - byDay[a]; })[0];
     if (maxDay) box.appendChild(el("span", "iChip", "최대 " + compLabel() + "일 " + fmtMD(maxDay) + " · " + shortWon(byDay[maxDay]) + "원"));
-    if (state.type !== "income" && span <= 62) {
+    if (state.type !== "income" && model.observed.status === "complete" && span <= 62) {
       var endCount = state.end > TODAY ? TODAY : state.end;
       if (endCount >= state.start) {
         var days = dayDiff(state.start, endCount) + 1;
@@ -694,10 +771,16 @@ function insightClientMain() {
   // ---------- 예산 (이번 달 전체 기준, 필터 무관)
   function renderBudget() {
     var card = $("budgetCard");
+    var focusId = document.activeElement && document.activeElement.id;
+    paceState.restoreFocus = ["paceDate", "paceTableSummary", "paceTableScroll"].indexOf(focusId) >= 0 ? focusId : "";
+    var oldTable = $("paceTable");
+    if (oldTable) paceState.tableOpen = oldTable.open;
+    var oldScroll = $("paceTableScroll");
+    if (oldScroll) paceState.scrollLeft = oldScroll.scrollLeft;
     var inMonth = ymOf(state.start) === MONTH && ymOf(state.end) === MONTH;
     // 총액이 없으면 그릴 페이스 곡선도 없다. 분류만 있는 예산은 한눈에 보기가 맡는다.
     var hasBudget = BUDGET && Number(BUDGET.total) > 0;
-    if (!inMonth || !hasBudget || state.type === "income") { card.hidden = true; return; }
+    if (!inMonth || !hasBudget || state.type === "income") { card.hidden = true; paceState.showTip = false; return; }
     card.hidden = false;
     var box = $("budgetBox");
     box.textContent = "";
@@ -729,104 +812,130 @@ function insightClientMain() {
     // 그리면 어느 쪽이 최신인지 헷갈리므로 여기서는 페이스 곡선만 맡는다.
   }
 
-  // ---------- 예산 페이스 차트: 누적 지출 곡선 vs 일정 속도 기준선
+  // ---------- One date model for the graph, selection, tooltip and table.
   function renderPaceChart(host, monthRows, total) {
-    var daysIn = Number(monthEnd(MONTH).slice(8, 10));
+    var model = insightPaceComparison({ month: MONTH, today: TODAY, rows: ROWS, budget: BUDGET, dataStart: DATA_START, dataEnd: DATA_END, receipt: RECEIPT, truncated: DATA.truncated });
+    var daysIn = model.days;
     if (daysIn < 2 || total <= 0) return;
-    var byDay = Object.create(null);
-    monthRows.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
-    var cum = [], run = 0;
-    for (var d = 1; d <= daysIn; d++) {
-      run += byDay[MONTH + "-" + String(d).padStart(2, "0")] || 0;
-      cum.push(run);
-    }
-    var todayDay = IS_CUR ? Math.max(1, Math.min(daysIn, Number(TODAY.slice(8, 10)))) : daysIn;
-    var yMax = niceCeil(Math.max(total, cum[todayDay - 1] || 0) * 1.08);
-    var box = el("div", "chartBox");
+    var box = el("div", "chartBox paceChart");
     box.style.marginTop = "14px";
     host.appendChild(box);
-    var W = Math.max(300, host.clientWidth || 560), H = 190;
-    var padL = 46, padR = 14, padT = 16, padB = 22;
+    var scope = model.basis === "category" ? "선택 월 예산의 대상 분류 지출: " + model.categories.join(", ") + ". 기준 월과 지난달에 같은 분류를 적용합니다." : "월 전체 지출을 비교합니다.";
+    scope += " 기간·분류·구성원·결제수단·금액·검색 필터와 무관합니다.";
+    box.appendChild(el("p", "dataNote paceScope", scope));
+    if (RECEIPT.status !== "complete" || DATA.truncated) box.appendChild(el("p", "dataNote paceUnavailable", observationReason(DATA.truncated ? "limit" : RECEIPT.status) + " 위 사용액·잔액과 다른 그래프도 현재 수신한 자료의 범위입니다."));
+    if (!monthRows.length && RECEIPT.status === "complete" && model.observedDay) box.appendChild(el("p", "dataNote", "이 월의 예산 대상 지출 기록이 없습니다. 다른 기준 월을 선택하거나 기록을 확인해 주세요."));
+    var legend = el("div", "paceLegend");
+    [["current", MONTH + " 누적 지출 · 실선"], ["previous", model.previousMonth + " 누적 지출 · 긴 점선"], ["budget", "예산 페이스 · 짧은 점선"]].forEach(function (item) {
+      var entry = el("span"), swatch = el("i", item[0]); swatch.setAttribute("aria-hidden", "true"); entry.appendChild(swatch); entry.appendChild(el("span", null, item[1])); legend.appendChild(entry);
+    });
+    box.appendChild(legend);
+    var W = Math.max(280, host.clientWidth || 560), H = 210;
+    var padL = 48, padR = 16, padT = 22, padB = 26;
     var plotW = W - padL - padR, plotH = H - padT - padB;
+    var displayed = [total];
+    model.points.forEach(function (p) { if (p.current !== null) displayed.push(p.current); if (p.previous !== null) displayed.push(p.previous); });
+    var yMax = niceCeil(Math.max.apply(null, displayed) * 1.08);
     function xOf(day) { return padL + (day - 1) / (daysIn - 1) * plotW; }
-    function yOf(v) { return padT + plotH - Math.min(1, v / yMax) * plotH; }
-    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", height: H, role: "img" });
-    svg.setAttribute("aria-label", "이번 달 누적 지출과 예산 기준선 비교 차트");
-    [0, 0.5, 1].forEach(function (f) {
-      var y = padT + plotH - plotH * f;
-      svg.appendChild(svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: f === 0 ? C.axis : C.grid, "stroke-width": 1 }));
-      var t = svgEl("text", { x: padL - 6, y: y + 4, "text-anchor": "end", "font-size": 10, fill: C.muted });
-      t.textContent = f === 0 ? "0" : shortWon(yMax * f);
-      svg.appendChild(t);
+    function yOf(value) { return padT + plotH - value / yMax * plotH; }
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", height: H, role: "img", "data-pace-chart": "", "data-pace-y-max": yMax });
+    svg.setAttribute("aria-label", MONTH + "과 " + model.previousMonth + "의 같은 날짜 누적 지출 및 예산 페이스. 아래 날짜 선택과 표에서 같은 값을 확인할 수 있습니다.");
+    [0, 0.5, 1].forEach(function (fraction) {
+      var y = padT + plotH - plotH * fraction;
+      svg.appendChild(svgEl("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "var(--pace-grid)", "stroke-width": 1 }));
+      var text = svgEl("text", { x: padL - 6, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "var(--pace-ink)", "data-ab-num-unit": "원" });
+      text.textContent = fraction === 0 ? "0" : shortWon(yMax * fraction); svg.appendChild(text);
     });
-    [1, 10, 20, daysIn].forEach(function (d2) {
-      var t = svgEl("text", { x: xOf(d2), y: H - 6, "text-anchor": "middle", "font-size": 10, fill: C.muted });
-      t.textContent = d2 + "일";
-      svg.appendChild(t);
+    [1, 10, 20, daysIn].forEach(function (day) {
+      var text = svgEl("text", { x: xOf(day), y: H - 6, "text-anchor": "middle", "font-size": 11, fill: "var(--pace-ink)" });
+      text.textContent = day + "일"; svg.appendChild(text);
     });
-    // 기준선: 한 달 동안 일정한 속도로 쓸 때의 누적 예산
-    svg.appendChild(svgEl("line", { x1: xOf(1), y1: yOf(total / daysIn), x2: xOf(daysIn), y2: yOf(total), stroke: "#C6CDD5", "stroke-width": 1.5 }));
-    var paceLabel = svgEl("text", { x: W - padR, y: Math.max(padT + 10, yOf(total) - 6), "text-anchor": "end", "font-size": 10, "font-weight": 700, fill: C.muted });
-    paceLabel.textContent = "예산 페이스";
-    svg.appendChild(paceLabel);
-    // 누적 지출 곡선 + 면 채움
-    var lineP = "", areaP = "";
-    for (var i = 1; i <= todayDay; i++) {
-      var px = xOf(i), py = yOf(cum[i - 1]);
-      lineP += (i === 1 ? "M" : "L") + px + " " + py;
-      areaP += (i === 1 ? "M" + px + " " + (padT + plotH) + "L" : "L") + px + " " + py;
+    svg.appendChild(svgEl("line", { x1: xOf(1), y1: yOf(total / daysIn), x2: xOf(daysIn), y2: yOf(total), stroke: "var(--pace-budget)", "stroke-width": 1.5, "stroke-dasharray": "3 4", "data-pace-series": "budget" }));
+    var paceLabel = svgEl("text", { x: W - padR, y: Math.max(padT, yOf(total) - 6), "text-anchor": "end", "font-size": 11, fill: "var(--pace-ink)" });
+    paceLabel.textContent = "예산 페이스"; svg.appendChild(paceLabel);
+    function drawSeries(key, color, dash) {
+      var path = "", segment = false, valid = [];
+      model.points.forEach(function (p) {
+        if (p[key] === null) { segment = false; return; }
+        path += (segment ? "L" : "M") + xOf(p.day) + " " + yOf(p[key]); segment = true; valid.push(p);
+      });
+      if (!valid.length) return;
+      var last = valid[valid.length - 1];
+      if (key === "current") svg.appendChild(svgEl("path", { d: "M" + xOf(valid[0].day) + " " + (padT + plotH) + "L" + path.slice(1) + "L" + xOf(last.day) + " " + (padT + plotH) + "Z", fill: color, opacity: 0.10 }));
+      svg.appendChild(svgEl("path", { d: path, fill: "none", stroke: color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-dasharray": dash || "none", "data-pace-series": key }));
+      svg.appendChild(svgEl("circle", { cx: xOf(last.day), cy: yOf(last[key]), r: 4, fill: color }));
+      if (key === "current") {
+        var label = svgEl("text", { x: Math.min(xOf(last.day), W - padR - 4), y: Math.max(padT + 10, yOf(last[key]) - 10), "text-anchor": xOf(last.day) > W - 80 ? "end" : "middle", "font-size": 12, "font-weight": 700, fill: "var(--pace-ink)", "data-ab-num-unit": "원", "data-pace-end": "" });
+        label.textContent = shortWon(last[key]); svg.appendChild(label);
+      }
     }
-    areaP += "L" + xOf(todayDay) + " " + (padT + plotH) + "Z";
-    svg.appendChild(svgEl("path", { d: areaP, fill: C.ex, opacity: 0.1 }));
-    svg.appendChild(svgEl("path", { d: lineP, fill: "none", stroke: C.ex, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-    var endX = xOf(todayDay), endY = yOf(cum[todayDay - 1]);
-    svg.appendChild(svgEl("circle", { cx: endX, cy: endY, r: 4.5, fill: C.ex, stroke: "#fff", "stroke-width": 2 }));
-    var endLabel = svgEl("text", { x: Math.min(endX, W - padR - 4), y: Math.max(padT + 10, endY - 9), "text-anchor": endX > W - 80 ? "end" : "middle", "font-size": 11, "font-weight": 700, fill: C.sub });
-    endLabel.textContent = shortWon(cum[todayDay - 1]);
-    svg.appendChild(endLabel);
-    // 세로 크로스헤어 + 툴팁
-    var tip = makeTip(box);
-    var hair = svgEl("line", { y1: padT, y2: padT + plotH, stroke: C.axis, "stroke-width": 1, opacity: 0 });
+    drawSeries("previous", "var(--pace-previous)", "8 5");
+    drawSeries("current", "var(--pace-current)", "");
+    var hair = svgEl("line", { y1: padT, y2: padT + plotH, stroke: "var(--pace-ink)", "stroke-width": 1, "stroke-dasharray": "2 3" });
     svg.appendChild(hair);
-    var hit = svgEl("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent" });
-    function showAt(clientX) {
+    var hit = svgEl("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent", "data-pace-hit": "" });
+    svg.appendChild(hit); box.appendChild(svg);
+    var instruction = el("p", "dataNote", "날짜를 터치하거나 아래 날짜 선택에서 방향키·Home·End로 이동하세요. 현재 월은 오늘까지만 관측합니다. 월 전체 예산 사용액에는 미래 날짜의 기록도 포함됩니다.");
+    instruction.id = "paceInstructions"; box.appendChild(instruction);
+    var label = el("label", "paceDateLabel", "비교 날짜 선택"); label.htmlFor = "paceDate"; box.appendChild(label);
+    var slider = el("input", "paceDate"); slider.id = "paceDate"; slider.type = "range"; slider.min = "1"; slider.max = String(daysIn); slider.step = "1";
+    slider.setAttribute("aria-describedby", "paceInstructions paceReadout"); box.appendChild(slider);
+    var readout = el("div", "paceSelection"); readout.id = "paceReadout"; readout.setAttribute("aria-live", "off"); box.appendChild(readout);
+    var tip = el("div", "tt paceTip"); tip.setAttribute("aria-hidden", "true"); box.appendChild(tip);
+    function amountOrReason(value, status) { return value === null ? observationReason(status) : won(value); }
+    function differenceText(point) {
+      if (point.difference === null) return observationReason(point.status);
+      if (point.difference === 0) return "같은 금액 (차액 0원)";
+      return "지출 " + (point.difference > 0 ? "증가 " : "감소 ") + won(Math.abs(point.difference)) + (point.percent === null ? " · 지난달 0원으로 증감률을 계산하지 않습니다." : " (" + (point.percent > 0 ? "+" : "") + point.percent + "%)");
+    }
+    function selectionLines(point) {
+      return [point.date + " 누적 지출: " + amountOrReason(point.current, point.currentStatus), (point.previousDate || "지난달 대응 날짜 없음") + " 누적 지출: " + amountOrReason(point.previous, point.previousStatus), differenceText(point), "예산 페이스: " + won(point.pace)];
+    }
+    function choose(day, showTip) {
+      day = Math.max(1, Math.min(daysIn, day)); paceState.day = day; paceState.showTip = showTip;
+      var point = model.points[day - 1], lines = selectionLines(point);
+      slider.value = String(day); slider.setAttribute("aria-valuetext", lines.join(". "));
+      readout.textContent = ""; readout.setAttribute("data-pace-day", String(day));
+      lines.forEach(function (line) { readout.appendChild(el("p", null, line)); });
+      hair.setAttribute("x1", xOf(day)); hair.setAttribute("x2", xOf(day));
+      tip.textContent = ""; lines.forEach(function (line) { tip.appendChild(el("p", null, line)); });
+      tip.style.opacity = showTip ? "1" : "0";
       var rect = svg.getBoundingClientRect();
-      var frac = (clientX - rect.left) / rect.width;
-      var day = Math.max(1, Math.min(daysIn, Math.round(frac * W <= padL ? 1 : ((frac * W - padL) / plotW) * (daysIn - 1) + 1)));
-      hair.setAttribute("x1", xOf(day));
-      hair.setAttribute("x2", xOf(day));
-      hair.setAttribute("opacity", "1");
-      var pace = total * day / daysIn;
-      var cv = day <= todayDay ? cum[day - 1] : null;
-      var rows = [];
-      if (cv != null) rows.push({ color: C.ex, label: "누적 지출", value: won(cv) });
-      rows.push({ color: "#C6CDD5", label: "예산 페이스", value: won(Math.round(pace)) });
-      if (cv != null) rows.push({ color: "transparent", label: cv > pace ? "기준보다 초과" : "기준보다 여유", value: won(Math.abs(Math.round(cv - pace))) });
-      var bRect = box.getBoundingClientRect();
-      var sRect = svg.getBoundingClientRect();
-      tip.show(sRect.left - bRect.left + xOf(day) / W * sRect.width, sRect.top - bRect.top + padT, fmtDateK(MONTH + "-" + String(day).padStart(2, "0")), rows);
+      tip.style.left = Math.max(4, Math.min(box.clientWidth - tip.offsetWidth - 4, xOf(day) / W * rect.width - tip.offsetWidth / 2)) + "px";
+      tip.style.top = Math.max(0, svg.offsetTop - tip.offsetHeight) + "px";
     }
-    hit.addEventListener("pointermove", function (ev) { showAt(ev.clientX); });
-    hit.addEventListener("pointerleave", function () { hair.setAttribute("opacity", "0"); tip.hide(); });
-    svg.appendChild(hit);
-    box.appendChild(svg);
-    var twin = el("details", "twin");
-    twin.appendChild(el("summary", null, "표로 보기"));
-    var t2 = el("table"), th = el("tr");
-    ["날짜", "누적 지출", "예산 페이스"].forEach(function (h2) { th.appendChild(el("th", null, h2)); });
-    var thead = el("thead"); thead.appendChild(th); t2.appendChild(thead);
-    var tb = el("tbody");
-    for (var d3 = 1; d3 <= todayDay; d3++) {
-      var tr = el("tr");
-      tr.appendChild(el("td", null, d3 + "일"));
-      tr.appendChild(el("td", null, won(cum[d3 - 1])));
-      tr.appendChild(el("td", null, won(Math.round(total * d3 / daysIn))));
-      tb.appendChild(tr);
+    function showPointer(event) {
+      var rect = svg.getBoundingClientRect(), x = (event.clientX - rect.left) / rect.width * W;
+      choose(Math.round((x - padL) / plotW * (daysIn - 1) + 1), true);
     }
-    t2.appendChild(tb);
-    twin.appendChild(t2);
-    box.appendChild(twin);
+    hit.addEventListener("pointermove", function (event) { if (event.pointerType !== "touch") showPointer(event); });
+    hit.addEventListener("pointerdown", showPointer);
+    hit.addEventListener("pointerleave", function () { paceState.showTip = false; tip.style.opacity = "0"; });
+    slider.addEventListener("input", function () { choose(Number(slider.value), false); });
+    slider.addEventListener("keydown", function (event) {
+      var next = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[event.key];
+      if (next || event.key === "Home" || event.key === "End") { event.preventDefault(); choose(event.key === "Home" ? 1 : event.key === "End" ? daysIn : paceState.day + next, false); }
+    });
+    choose(paceState.day === null ? Math.max(1, model.observedDay) : paceState.day, false);
+    var twin = el("details", "twin paceTable"); twin.id = "paceTable"; twin.open = paceState.tableOpen;
+    twin.addEventListener("toggle", function () { paceState.tableOpen = twin.open; });
+    var summary = el("summary", null, "표로 보기"); summary.id = "paceTableSummary"; twin.appendChild(summary);
+    var scroll = el("div", "paceTableScroll"); scroll.id = "paceTableScroll"; scroll.tabIndex = 0; scroll.setAttribute("role", "region"); scroll.setAttribute("aria-label", "누적 비교 표. 가로로 이동하여 모든 열을 확인하세요.");
+    var table = el("table"), caption = el("caption", null, scope); table.appendChild(caption);
+    var thead = el("thead"), th = el("tr");
+    ["기준 날짜", "지난달 대응 날짜", "기준 월 누적 지출", "지난달 누적 지출", "차액·증감", "예산 페이스", "비교 상태"].forEach(function (heading) { var cell = el("th", null, heading); cell.setAttribute("scope", "col"); th.appendChild(cell); });
+    thead.appendChild(th); table.appendChild(thead);
+    var tbody = el("tbody");
+    model.points.forEach(function (point) {
+      var tr = el("tr"); tr.setAttribute("data-pace-date", point.date);
+      [point.date, point.previousDate || "해당 날짜 없음", amountOrReason(point.current, point.currentStatus), amountOrReason(point.previous, point.previousStatus), differenceText(point), won(point.pace), point.status === "complete" ? "관측 완료" : observationReason(point.status)].forEach(function (value) { tr.appendChild(el("td", null, value)); });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody); scroll.appendChild(table); twin.appendChild(scroll); box.appendChild(twin);
+    scroll.scrollLeft = paceState.scrollLeft;
+    if (paceState.restoreFocus) $(paceState.restoreFocus).focus({ preventScroll: true });
   }
+
 
   // ---------- 큰 금액 TOP
   function renderTop() {
@@ -1012,6 +1121,20 @@ function insightClientMain() {
   }
 
   // ---------- 전체 렌더
+  function renderUnreceivedRange() {
+    var outside = state.start < DATA_START || state.end > DATA_END;
+    $("csvBtn").disabled = outside;
+    $("csvBtn").title = outside ? "수신 범위 안의 기간을 선택한 뒤 내려받을 수 있습니다." : "";
+    if (!outside) return false;
+    var message = "선택 기간의 자료를 수신하지 못했습니다. 기준 월을 바꾸거나 조회 기간을 다시 선택해 주세요.";
+    ["insights", "trendChart", "trendTable", "catChart", "weekChart", "payChart", "whoChart", "topList", "txList"].forEach(function (id) { var box = $(id); box.textContent = ""; box.appendChild(el("div", "emptyBox", message)); });
+    ["catSub", "weekSub", "topSub", "txCount"].forEach(function (id) { $(id).textContent = "미수신"; });
+    $("trendLegend").textContent = "";
+    $("moreBtn").hidden = true;
+    $("budgetCard").hidden = true;
+    paceState.showTip = false;
+    return true;
+  }
   function renderAll() {
     rebuildViewColors();
     renderPeriodChips();
@@ -1019,6 +1142,7 @@ function insightClientMain() {
     renderPanel();
     renderActiveChips();
     renderKpis();
+    if (renderUnreceivedRange()) { syncUrl(); return; }
     renderInsights();
     renderTrend();
     renderCat();
@@ -1072,7 +1196,7 @@ function insightClientMain() {
     renderList();
   });
   $("csvBtn").addEventListener("click", downloadCsv);
-  window.addEventListener("resize", debounce(function () { renderTrend(); renderWeek(); renderBudget(); }, 180));
+  window.addEventListener("resize", debounce(function () { if (renderUnreceivedRange()) return; renderTrend(); renderWeek(); renderBudget(); }, 180));
 
   // ---------- 초기 진입
   if (!ROWS.length) {
@@ -1087,5 +1211,8 @@ function insightClientMain() {
   renderAll();
 }
 // @build:exports-start
-export { budgetExpenseRows, insightClientMain };
+export {
+  budgetExpenseRows, insightClientMain, insightObservedWindow, insightPaceComparison,
+  insightPeriodCoverage,
+};
 // @build:exports-end

@@ -7,6 +7,7 @@
 //   6) 한 가계부의 입력이 같은 인스턴스의 다른 가계부 기록(분류·금액)으로 번지지 않는다(감사 재현 t09).
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as acorn from "../tools/vendor/acorn.mjs";
 import { budgetSummary } from "../src/index.js";
 import { counter, fixture, page, post, skill, withClock } from "./lib-audit-v22934.mjs";
@@ -17,7 +18,7 @@ const scrubEvents = () => (globalThis.__AB_OPS_EVENTS || []).filter((event) => e
 
 // ── 1) 정적 검사 ────────────────────────────────────────────
 {
-  const root = new URL("../src/modules/", import.meta.url);
+  const root = fileURLToPath(new URL("../src/modules/", import.meta.url));
   const files = [];
   (function walk(dir) {
     for (const name of readdirSync(dir)) {
@@ -25,7 +26,7 @@ const scrubEvents = () => (globalThis.__AB_OPS_EVENTS || []).filter((event) => e
       if (statSync(path).isDirectory()) walk(path);
       else if (path.endsWith(".js")) files.push(path);
     }
-  })(root.pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+  })(root);
   const FUNCTIONS = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "Program"]);
   const visit = (node, fn, stack = []) => {
     if (!node || typeof node.type !== "string") return;
@@ -50,7 +51,7 @@ const scrubEvents = () => (globalThis.__AB_OPS_EVENTS || []).filter((event) => e
       if (node.property.type === "Literal" || (node.property.type === "TemplateLiteral" && node.property.expressions.length === 0)) return;
       for (let i = stack.length - 1; i >= 0; i -= 1) {
         const decl = decls.find((d) => d.name === node.object.name && d.fn === stack[i]);
-        if (decl) { offenders.push(`${relative(root.pathname.replace(/^\/([A-Za-z]:)/, "$1"), file).replace(/\\/g, "/")}:${decl.line} ${decl.name}`); break; }
+        if (decl) { offenders.push(`${relative(root, file).replace(/\\/g, "/")}:${decl.line} ${decl.name}`); break; }
       }
     });
   }

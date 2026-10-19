@@ -12,9 +12,30 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_46.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_67.sha256",
 );
 const validationScripts = [
+  ["V67 guided flow loop guard and legacy button labels", "validation/validate-flow-loop-guard-v22967.mjs"],
+  ["V65 button manual cards and group choice buttons", "validation/validate-manual-guides-v22965.mjs"],
+  ["V64 group empty-mention entry copy and button order", "validation/validate-group-entry-copy-v22964.mjs"],
+  ["V61 lifecycle RPC/CAS, old-writer fences, administrator imports and compatible undo", "validation/validate-lifecycle-v22961.mjs"],
+  ["V59 storage text, reconciliation, ownership and asset RPC contracts", "validation/validate-storage-contract-v22959.mjs"],
+  ["D3 observations, strict reads and refund guidance", "validation/validate-d3-refund-guidance-v22958.mjs"],
+  ["Lucian C observed period, completeness and cumulative comparison", "validation/validate-lucian-c-comparison-v22957.mjs"],
+  ["Import mapping, reanalysis and source revision fences", "validation/validate-import-mapping-v22956.mjs"],
+  ["Import prerequisites: authority, source, multiplicity, parser and bounds", "validation/validate-import-prerequisites-v22955.mjs"],
+  ["BOT minimal diagnostics and retention", "validation/validate-bot-diagnostics-v22954.mjs"],
+  ["BOT observed period and actual HTML", "validation/validate-bot-observation-v22954.mjs"],
+  ["BOT separate purchase, deferred lookup and duplicate guards", "validation/validate-bot-state-v22954.mjs"],
+  ["BOT explicit refund settlement read-only preview", "validation/validate-bot-refund-preview-v22954.mjs"],
+  ["BOT parsing, budget and onboarding regression", "validation/validate-bot-guidance-v22954.mjs"],
+  ["V22.9.53 budget fingerprint safety", "validation/validate-budget-fingerprint-v22953.mjs"],
+  ["Lucian D 예산 집계·입력·전체 교체 계약", "validation/validate-lucian-d-budget-v22952.mjs"],
+  ["V22.9.51 초안·재시도·금액·저장 경계", "validation/validate-lucian-six-fixes-v22951.mjs"],
+  ["Lucian A 실제 입력 처리 계약", "validation/validate-lucian-a-native-contract-v22950.mjs"],
+  ["Lucian A 입력 결과와 금액 버튼", "validation/validate-lucian-a-v22949.mjs"],
+  ["A 입력 선행 수정", "validation/validate-lucian-a-prereq-v22948.mjs"],
+  ["Lucian B 빈 거래 목록·삭제 대기·취소(070·071·092)", "validation/validate-lucian-b-v22947.mjs"],
   ["Lucian E 온보딩·축하·금액 가리기(088·197·093·138)", "validation/validate-lucian-e-v22946.mjs"],
   ["V22.9.45 감사 긴급 수정(B-1·C-1·G-1·G-18·G-16)", "validation/validate-audit-hotfix-v22945.mjs"],
   ["V22.9.44 카카오 5초 제한 대응(방 기록 순차 왕복·응답 예산)", "validation/validate-kakao-latency-v22944.mjs"],
@@ -231,7 +252,19 @@ function run(command, args, label) {
 // V22.9.44: 카카오 5초 제한 대응 검사 36개를 더해 14,781개가 됐다.
 // V22.9.45: B-1, C-1, G-1, G-18 and G-16 add 224 deterministic regression checks.
 // V22.9.46 Lucian E: 192 feature checks, including 46 PR80 review regressions.
-const EXPECTED_MINIMUM_CHECKS = 15218;
+// B: 161 interaction/domain checks, new asset pins, modules and serialized clients.
+// V22.9.51: 163 storage/input checks, 2 serialization checks and 12 asset-pin checks.
+// V22.9.53: exact fingerprint 370, legacy rejection 8, immutable pin 3.
+// V22.9.54: 531 additional BOT and 3 independent error-injection assertions; prior checks and budgets retained.
+// V22.9.57: add 621 C checks and 3 partial-receipt role checks; retain the prior minimum.
+// V22.9.58: retain every previous check and add 575 D3/refund assertions.
+// V22.9.59: retain previous minimum and add 486 independently counted contract assertions.
+// V22.9.60: add 17 independent R2 history and catalog assertions.
+// V22.9.64: add 58 group entry copy / button order assertions.
+// V22.9.65: add 391 button manual assertions and 2 group choice-button assertions.
+// V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
+// V22.9.67: add loop-guard, button-label, emoji and length assertions.
+const EXPECTED_MINIMUM_CHECKS = 20874;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

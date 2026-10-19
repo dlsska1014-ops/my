@@ -8,6 +8,34 @@ export { app };
 export const BASE = "https://malhaebook.com";
 export const ctx = { waitUntil() {}, passThroughOnException() {} };
 
+// V22.9.54 changes only these two money expressions in renderMyAnalysisHtml.
+// Reversing them lets existing whole-renderer hashes keep guarding all other
+// bytes. Actual future-month output is covered by validate-bot-observation.
+export function beforeBotObservationRenderer(block) {
+  // V22.9.58 authorizes exactly two comparison spans and one local declaration.
+  const reversals = [
+    [
+        "  const comparisonDisplay = fairMoMDisplay(fair);\n",
+        ""
+    ],
+    [
+        "<span class=\"${comparisonDisplay.expense.cls}\">${escapeHtml(comparisonDisplay.expense.text)}</span>",
+        "<span class=\"${deltaClass(fair.expense)}\">${escapeHtml(fair.label)} ${formatSignedPercent(fair.expense)}</span>"
+    ],
+    [
+        "<span class=\"${comparisonDisplay.income.cls}\">${escapeHtml(comparisonDisplay.income.text)}</span>",
+        "<span class=\"${fair.income > 0 ? \"deltaDown\" : fair.income < 0 ? \"deltaUp\" : \"deltaFlat\"}\">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span>"
+    ]
+];
+  for (const [current, previous] of reversals) {
+    assert.equal(block.split(current).length - 1, 1, "D-3 renderer exception must occur exactly once: " + current);
+    block = block.replace(current, previous);
+  }
+  return block
+    .replace('${renderObservedMoney(analysis, analysis.avgExpense)}', '${numberWithCommas(analysis.avgExpense || 0)}원')
+    .replace('${renderObservedMoney(analysis, analysis.burnForecast)}', '${numberWithCommas(analysis.burnForecast || 0)}원');
+}
+
 export function counter(label) {
   let checks = 0;
   return {
