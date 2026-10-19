@@ -105,7 +105,7 @@ ok(emptyCard && typeof emptyCard === "object", "group empty mention uses a textC
 const emptyButtons = Array.isArray(emptyCard?.buttons) ? emptyCard.buttons : [];
 eq(emptyButtons.length, 2, "group empty mention offers exactly two buttons");
 // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(단톡방은 버튼 이름을 그대로 보낸다).
-ok(emptyButtons.some((b) => b.action === "message" && b.label === "도움말" && b.messageText === "도움말"), "group empty mention has the 도움말 message button that opens the manual");
+ok(emptyButtons.some((b) => b.action === "message" && b.label === "사용 설명서" && b.messageText === "사용 설명서"), "group empty mention has the 사용 설명서 message button that opens the manual");
 ok(emptyButtons.some((b) => b.action === "mention" && b.label === "챗봇 멘션하기"), "group empty mention has the mention (챗봇 멘션하기) action button");
 ok(emptyButtons.every((b) => String(b.label || "").length <= 8), "group empty mention button labels fit the horizontal 8-character limit");
 const emptyText = `${emptyCard?.title || ""}\n${emptyCard?.description || ""}`;

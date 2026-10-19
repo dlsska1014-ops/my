@@ -116,8 +116,9 @@ function kakaoGroupEmptyMentionReply() {
             description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
             buttons: [
               { label: "챗봇 멘션하기", action: "mention" },
-              // V22.9.68: 도움말은 글만 있는 하단 창(guide) 대신, 버튼으로 모든 기능에 닿는 사용 설명서를 연다.
-              { label: "도움말", action: "message", messageText: "도움말" },
+              // V22.9.70: ‘도움말’ 발화는 OpenBuilder 기본 도움말 블록(고정 패턴, 글만 있는 하단 창)으로 가므로,
+              // 버튼으로 모든 기능에 닿는 설명서는 ‘사용 설명서’로 연다. 단톡방은 버튼 이름을 그대로 보낸다.
+              { label: "사용 설명서", action: "message", messageText: "사용 설명서" },
             ],
           },
         },
