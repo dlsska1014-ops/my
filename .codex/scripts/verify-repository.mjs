@@ -267,7 +267,8 @@ function run(command, args, label) {
 // V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
 // V22.9.67: add loop-guard, button-label, emoji and length assertions.
 // V22.9.68: room-rebind question 241 and release-audit regression 167 checks on top of V22.9.67 (20,874).
-const EXPECTED_MINIMUM_CHECKS = 21282;
+// 2026-10-19 정비: 배포 스크립트의 이전 판 폴더 기록 조회 검사(213개, +6).
+const EXPECTED_MINIMUM_CHECKS = 21288;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
