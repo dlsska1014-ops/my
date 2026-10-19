@@ -35,8 +35,8 @@ import { householdMyImportSources } from "./backup-import.js";
 import { reportChallengeSettingsKey } from "./report-challenge.js";
 import { cardTargetsKey, freeReportPreferenceKey } from "./reports-premium.js";
 import {
-  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, memberPolicySettingsKey,
-  myAccessStatusResponse,
+  canManageMyHousehold, canReadMyHousehold, getMySelectedHousehold, householdIdWasRemembered,
+  householdNotFoundResponse, memberPolicySettingsKey, myAccessStatusResponse,
 } from "./access-control.js";
 import { transactionEditHistoryKey } from "./transactions.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -587,6 +587,12 @@ async function handleMyPage(request, env, url) {
     if (msg) qs.set("msg", msg);
     if (err) qs.set("err", err);
     return redirectResponse(`/my/households${qs.toString() ? `?${qs.toString()}` : ""}#create`);
+  }
+  // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
+  if (access.invalidRequested && !householdIdWasRemembered(request)) {
+    const user = await fetchUserById(env, userId);
+    if (!user) return handleMyLogout();
+    return householdNotFoundResponse({ env, user, requestedId: access.invalidRequested });
   }
   const selectedHousehold = access.selected;
   if (selectedHousehold) {

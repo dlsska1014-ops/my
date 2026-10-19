@@ -144,9 +144,14 @@ function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {})
   const manageable = kakaoManageableHouseholds(households);
   const writeRejected = options?.writeRejected === true;
   // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
+  // V22.9.68 감사(단톡방 2): 안내는 방의 실제 상태를 따른다. 해제·삭제된 방(retired)에는 자동 준비를 약속하지 않고, 기록이 아닌
+  // 말(writeRejected 아님)에는 "방금 기록"이라고 하지 않는다.
+  const retired = options?.retired === true;
   return [
     "이 단톡방에 연결된 가계부가 없습니다.",
-    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요." : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
+    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요."
+      : retired ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 기록을 보내도 자동으로 다시 만들지 않아요."
+      : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
     "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
