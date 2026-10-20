@@ -2,10 +2,10 @@
 
 | 항목 | 판단 |
 |---|---|
-| 앱 Worker | V22.9.71 위에서 카카오 응답 문구·버튼 이름·빈 결과·지연 답만 바꾼 후보(GitHub main 2026-10-19 정비 커밋 병합 포함). 활성 V22.9.71 해시 대조 후 승격합니다. |
+| 앱 Worker | 2026-10-20 운영 반영 완료(ASIDE): version `c17bb5fb-4564-4848-8f3f-47c9427bc736`, 배포 `db638aff-8e52-407b-a8c0-1021e4ad4061`, 소스 SHA-256 `a15e9b10…`(커밋 662c337). 승격 전 활성 V22.9.71 해시·최신 버전 일치, 바인딩 30개·runtime·handlers 동일. 승격 후 /health 5회 연속·공개 검사 117/117. |
 | SQL·스키마·RPC·환경변수·Secret | 변경 없음. 지연 답이 재발하면 `KAKAO_RESPONSE_BUDGET_MS`(기본 4000, 상한 4700)를 올려 볼 수 있습니다. |
-| 카카오 OpenBuilder | v3.3: 봇 입장 블록 문구·버튼(웹가계부·도움말 보기·기록하기), 기본 도움말 하단 창, 대표 명령어(짧은 이름), `01_도움말_전체안내` 패턴 추가. `docs/kakao-manual/OPENBUILDER_V3_3_CHAT_FEEDBACK_2026_10_20.md`. Worker 승격 뒤에 반영합니다. |
-| 되돌리기 | V22.9.71-NAME-EXAMPLE(운영 중). version id 는 `output/deploy/` 기록 또는 Codex 클론의 배포 기록을 봅니다. |
+| 카카오 OpenBuilder | v3.3: 봇 입장 블록 문구·버튼(웹가계부·도움말 보기·기록하기), 기본 도움말 하단 창, 대표 명령어(짧은 이름), `01_도움말_전체안내` 패턴 추가. `docs/kakao-manual/OPENBUILDER_V3_3_CHAT_FEEDBACK_2026_10_20.md`. 2026-10-20 18:53 v3.4 로 전체 배포 완료(ASIDE). |
+| 되돌리기 | V22.9.71-NAME-EXAMPLE `bb845660-1f6e-4a6d-91ed-57c113d1df3b`. |
 
 ## V22.9.71 배포 판단
 

@@ -1,7 +1,7 @@
 ## V22.9.72 다음 단계
 
-1. 하네스 양쪽 모드를 마친 뒤 PR 을 main 에 머지하고 Worker 를 승격합니다(활성 V22.9.71 해시 대조).
-2. OpenBuilder v3.3 지시문(docs/kakao-manual/OPENBUILDER_V3_3_CHAT_FEEDBACK_2026_10_20.md) A·B·D 를 부분 배포하고, C(대표 명령어)는 전체 배포 때 반영합니다.
+1. (완료 2026-10-20) Worker V22.9.72 승격과 OpenBuilder v3.4 전체 배포(ASIDE). PR #85 머지로 main 을 운영과 맞춥니다.
+2. **V22.9.73 후보 — Worker→Supabase 요청 멈춤**: 12:07~12:09 의 세 요청이 10초 조회 제한에 걸려 실패했고 저장 요청 하나가 Supabase 에 도착하지 않았습니다. 조회 요청에 짧은 시한과 한 번의 재시도(멱등 GET 만), 쓰기 요청에 시한(결과 불확실 처리)을 두는 안을 검토·구현하고, 원인(동시 연결 6개 제한·연결 재사용·네트워크 구간)은 Cloudflare Worker 로그로 좁힙니다.
 3. 실제 단톡방에서 요구사항 문서 5절 순서를 돌리고, ‘도움말 보기’ 가로채기 여부와 ‘기록하기’ 위치를 테스터에게 확인합니다.
 4. 관리자 `/nlu-ops.json?hours=24` 와 Supabase Reports 로 2026-10-20 12:07~12:10 KST 지연의 원인을 확인합니다. 재발하면 KAKAO_RESPONSE_BUDGET_MS 조정 또는 방 경로 왕복 축소(V22.9.44 결론 재검토)를 검토합니다.
 5. 피드백 요구사항 R1~R13 의 상태는 docs/codex/CHAT_FEEDBACK_REQUIREMENTS_2026_10_20.md 3절 표로 관리합니다.
