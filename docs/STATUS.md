@@ -1,14 +1,14 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-20 (V22.9.73 준비본, 운영은 V22.9.72). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-20 (V22.9.73 운영 반영 23:29 KST). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
 | 항목 | 값 |
 |---|---|
 | 운영 Worker | `kakao-accountbook`, 도메인 https://malhaebook.com |
-| 운영 판 | **V22.9.72-CHAT-FEEDBACK** (2026-10-20, ASIDE 배포), version `c17bb5fb-4564-4848-8f3f-47c9427bc736`, 배포 `db638aff-8e52-407b-a8c0-1021e4ad4061`, 소스 SHA-256 `a15e9b10…`(커밋 662c337). 기록 docs/deployments/V22_9_72_OPENBUILDER_V3_4_2026_10_20.md |
-| 되돌리기 대상 | V22.9.71-NAME-EXAMPLE `bb845660-1f6e-4a6d-91ed-57c113d1df3b` |
+| 운영 판 | **V22.9.73-DB-STALL-GUARD** (2026-10-20 23:29 KST, 배포 스크립트), version `eef80108-602d-409d-aa32-907b77da8b16`, 배포 `60812fcd-f4d3-4919-9b31-5451cd2a6713`, 소스 SHA-256 `77de4fd3…`(커밋 555d9aa). 기록 docs/deployments/V22_9_73_2026_10_20.md |
+| 되돌리기 대상 | V22.9.72-CHAT-FEEDBACK `c17bb5fb-4564-4848-8f3f-47c9427bc736` |
 | 운영 DB | Supabase. 2026-10-18 V61 수명주기 migration 적용 완료. 재실행·V44 복귀·구형 RPC 권한 복원 금지 |
 | 외부 콘솔 | OpenBuilder v3.4 전체 배포(2026-10-20 18:53, ASIDE): 봇 입장 블록(웹가계부·도움말 보기·기록하기), 도움말 하단 창, 대표 명령어 13개(짧은 이름), 01 블록 패턴 34개. Kakao Developers·채널 변경 없음 |
 | 확인 명령 | `curl -s https://malhaebook.com/health` 의 `version`; 배포 기록 `docs/deployments/`, 로컬 `output/deploy/<판>/` |
@@ -17,16 +17,15 @@
 
 | 항목 | 값 |
 |---|---|
-| GitHub main | PR #85(`claude/v22972-chat-feedback`, V22.9.69~72 + 2026-10-19 정비 병합) 머지 뒤 = 운영 V22.9.72 소스. 머지 전 main 은 `5876619`(V22.9.68 + 정비) |
-| 진행 중 | `claude/v22973-db-stall`(V22.9.73-DB-STALL-GUARD: 조회 짧은 시한·1회 재시도, 쓰기 시한, 관제 db_retries — PR #87). 기록 정정은 PR #86, 운영 소스는 PR #85 |
+| GitHub main | `555d9aa` = 운영 V22.9.73 소스(PR #85 V22.9.69~72 → #86 기록 정정 → #87 V22.9.73 순서로 머지, 2026-10-20). main CI 4개 통과 |
+| 진행 중 | 없음(이 운영 반영 기록 PR `claude/v22973-records` 만) |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256` |
 
 ## 열린 일
 
-- **Worker→Supabase 요청 멈춤**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. V22.9.73 이 조회 재시도·쓰기 시한으로 완화하지만 원인은 미확정 — 반영 뒤 `/nlu-ops.json` 의 db_retries 와 Cloudflare Workers 로그로 좁힌다.
+- **Worker→Supabase 요청 멈춤**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. V22.9.73(23:29 반영)이 조회 재시도·쓰기 시한으로 완화하지만 원인은 미확정 — 하루 뒤 `/nlu-ops.json?hours=24` 의 db_retries·supabase_read_timeout 실패를 보고, 남으면 Cloudflare Workers 로그로 좁힌다.
 - 실제 새 단톡방 확인(요구사항 문서 5절: 빈 멘션 → 도움말 보기 → 참여 전 오늘기록 → 기록 → 이번달요약·남은예산·정산), ‘도움말 보기’ 머신러닝 매칭, ‘기록하기’ 위치는 테스터 확인 전까지 가정. 테스터에게 반영 알림(R13).
-- CI 흔들림: `validate-audit-hotfix-v22945` B-1 타이밍 검사가 ubuntu 푸시 실행에서 한 번 실패(같은 커밋 PR 실행·로컬은 통과).
 - V22.9.68 실제 단톡방 확인(‘새 가계부 만들기 → 연결하기 → 기록’)은 미실시.
 - KNOWN-ISSUES 의 V22.9.68 절: 낮은 항목 5건(‘예산’ 낱말 문장, 메모 토큰, 묶음 번호 순서, 아이폰 분류, 삭제 뒤 잔여 표식).
 - Lucian UX/UI 미적용 9개(081·097·163·165·151·134·029·008·178)는 별도 묶음.
