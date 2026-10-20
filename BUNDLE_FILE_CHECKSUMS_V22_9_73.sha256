@@ -466,7 +466,7 @@ eec681ab18ddc493ec11f3970b0dba3e6ff9550f7a34feeea885262986598ed1  ./validation/v
 3b973c5d34dc3c97c2de2c5da6eddcac5efeeca79d936c8707847b9fd080bb03  ./validation/validate-controls-fixture-v22938.mjs
 4e40de396ae1003116526f6dbf010bf3fc81da2fc726e3c6fd13e408d0d2cf50  ./validation/validate-core-write-smoke.mjs
 b35934ecf91f3749a6f866e51057740aef8f704a727e21aac7762f5d5dbd15ba  ./validation/validate-d3-refund-guidance-v22958.mjs
-6f2b0020b65f6257c75aed85b6ad6aec93f5d8acc387b6ed657cfb4629da728c  ./validation/validate-db-stall-guard-v22973.mjs
+5252c4cf6ca14e2f089879335a9dae876cf34541711aeee22b9b05d130badd4c  ./validation/validate-db-stall-guard-v22973.mjs
 e313f3c07fb313ef96590b3601df0bd461fedb9db6fa06dba52a0901b498a482  ./validation/validate-deferred-edit-forms-v22886.mjs
 3df91adaa53cf67312fbec8f1d9895918f9cf66d49a75d66fb93f92d20093ef6  ./validation/validate-deploy-worker-v22932.mjs
 c0f20636e5cd65ce58155b3cdea6f46695342984be9f3cae6d51353097a81097  ./validation/validate-design-tokens-v22885.mjs

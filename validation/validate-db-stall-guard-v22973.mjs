@@ -35,9 +35,18 @@ async function withFetch(stub, run) {
   globalThis.fetch = (input, init = {}) => { calls.push({ url: String(typeof input === "string" ? input : input.url), method: init.method || "GET", signal: init.signal }); return stub(calls.length, init, input); };
   try { return await run(calls); } finally { globalThis.fetch = realFetch; }
 }
-const timed = async (fn) => { const started = Date.now(); let error = null, value; try { value = await fn(); } catch (e) { error = e; } return { ms: Date.now() - started, error, value }; };
+// 시간은 단조 시계로 잰다. 2026-10-20 GitHub windows-latest 러너에서 첫 검사가 1272ms(기대 약 500ms, 재시도 없음)로 재여
+// 실패했다 — 러너 멈춤이나 벽시계 보정이 섞인 값이다. 상한은 그런 멈춤을 견디게 두되, 잘못된 기본값(조회 첫 시한 3초·
+// 쓰기 시한 15초)이 쓰이면 걸리게 잡는다. 하한(설정 경계값의 핵심)은 그대로다.
+const timed = async (fn) => { const started = performance.now(); let error = null, value; try { value = await fn(); } catch (e) { error = e; } return { ms: Math.round(performance.now() - started), error, value }; };
 
 try {
+  // 첫 사용 비용(Node 가 처음 쓸 때 불러오는 Headers·Response·AbortController, 첫 호출)이 첫 시간 검사에 섞이지 않게
+  // 정상 경로와 멈춤(중단) 경로를 미리 한 번씩 부른다. 이 검증기는 하네스 맨 앞에서 돌아 그 비용을 혼자 떠안는다.
+  new Headers(); new Response(null);
+  await withFetch(() => okJson(), () => supabase(makeEnv(), "/rest/v1/warmup?select=id", { method: "GET" }));
+  await withFetch((n, init) => stalled(init), () => supabase(makeEnv(), "/rest/v1/warmup?select=id", { method: "GET", timeoutMs: 1 }).catch(() => null));
+
   // 0. 설정 경계값(동작으로 확인): 조회 첫 시한은 500ms 아래로 내려가지 않고, 쓰기 시한은 3초 아래로 내려가지 않는다.
   //    (설정 함수는 다른 모듈이 쓰지 않아 내보내지 않는다 — annotate 단계가 내보내기 목록을 사용처로 만든다.)
   await withFetch((n, init) => stalled(init), async (calls) => {
@@ -45,21 +54,21 @@ try {
     const result = await timed(() => supabase(env, "/rest/v1/x?select=id", { method: "GET", timeoutMs: 700 }));
     eq(result.error?.code, "supabase_read_timeout", "read attempt floor: still a read timeout");
     eq(calls.length, 1, "read attempt floor: a 200ms setting does not produce a shorter first attempt (no retry room)");
-    between(result.ms, 450, 1200, "read attempt floor is about 500ms");
+    between(result.ms, 450, 2500, "read attempt floor is about 500ms");
   });
   await withFetch((n, init) => stalled(init), async (calls) => {
     const env = makeEnv({ SUPABASE_WRITE_TIMEOUT_MS: "100" });
     const result = await timed(() => supabase(env, "/rest/v1/transactions", { method: "POST", body: "{}" }));
     eq(result.error?.code, "supabase_write_result_unknown", "write timeout floor: still uncertain");
     eq(calls.length, 1, "write timeout floor: one dispatch");
-    between(result.ms, 2900, 4500, "write timeout floor is about 3000ms");
+    between(result.ms, 2900, 8000, "write timeout floor is about 3000ms");
   });
   await withFetch((n, init) => stalled(init), async (calls) => {
     const env = makeEnv({ SUPABASE_READ_ATTEMPT_MS: "abc" });
     const result = await timed(() => supabase(env, "/rest/v1/x?select=id", { method: "GET", timeoutMs: 1200 }));
     eq(result.error?.code, "supabase_read_timeout", "junk attempt setting: still a read timeout");
     eq(calls.length, 1, "junk attempt setting falls back to the 3000ms default (no retry room in 1200ms)");
-    between(result.ms, 1100, 2000, "junk attempt setting: ends at the total budget");
+    between(result.ms, 1100, 3500, "junk attempt setting: ends at the total budget");
   });
 
   // 1. 평소 조회: 한 번만 보내고 재시도 기록이 없다.
@@ -81,7 +90,7 @@ try {
     eq(result.error, null, "stalled first read recovers");
     eq(JSON.stringify(result.value), JSON.stringify([{ recovered: true }]), "retry returns the second response");
     eq(calls.length, 2, "stalled read dispatches twice");
-    between(result.ms, 450, 1500, "recovery takes about one attempt budget");
+    between(result.ms, 450, 2500, "recovery takes about one attempt budget");
     ok(calls[0].signal?.aborted, "the stalled first attempt was aborted");
     ok(!calls[1].signal?.aborted, "the second attempt was not aborted");
     eq(env.__AB_MONITOR_REQUEST.db_retries, 1, "one retry recorded");
@@ -102,10 +111,11 @@ try {
   // 4. 두 번 다 멈추면 전체 시한 안에서 supabase_read_timeout 으로 끝난다(재시도는 한 번뿐).
   await withFetch((n, init) => stalled(init), async (calls) => {
     const env = makeEnv();
-    const result = await timed(() => supabase(env, "/rest/v1/transactions?select=id", { method: "GET", timeoutMs: 1200 }));
+    // 전체 시한 2초: 첫 시도(500ms) 타이머가 러너 사정으로 늦어도 재시도 여유(300ms)가 남게 한다.
+    const result = await timed(() => supabase(env, "/rest/v1/transactions?select=id", { method: "GET", timeoutMs: 2000 }));
     eq(result.error?.code, "supabase_read_timeout", "double stall ends as read timeout");
     eq(calls.length, 2, "double stall dispatches exactly twice");
-    between(result.ms, 1100, 2000, "double stall respects the total budget");
+    between(result.ms, 1900, 4500, "double stall respects the total budget");
     eq(env.__AB_MONITOR_REQUEST.db_failures, 1, "double stall is one failure");
     eq(env.__AB_MONITOR_REQUEST.db_retries, 1, "double stall recorded one retry");
   });
@@ -116,7 +126,7 @@ try {
     const result = await timed(() => supabase(env, "/rest/v1/x?select=id", { method: "GET", timeoutMs: 700 }));
     eq(result.error?.code, "supabase_read_timeout", "short budget stall ends as read timeout");
     eq(calls.length, 1, "no retry when the remaining budget is under 300ms");
-    between(result.ms, 450, 1200, "short budget stall ends after the first attempt");
+    between(result.ms, 450, 2500, "short budget stall ends after the first attempt");
     eq(env.__AB_MONITOR_REQUEST.db_retries, 0, "no retry recorded for a short budget");
   });
 
@@ -144,7 +154,7 @@ try {
     eq(result.error?.code, "supabase_write_result_unknown", "stalled write ends as uncertain write");
     eq(result.error?.uncertain_write, true, "stalled write carries the uncertain flag");
     eq(calls.length, 1, "stalled write is never retried");
-    between(result.ms, 2900, 4500, "stalled write ends at the write timeout");
+    between(result.ms, 2900, 8000, "stalled write ends at the write timeout");
     ok(calls[0].signal?.aborted, "stalled write was aborted at the deadline");
     eq(env.__AB_MONITOR_REQUEST.db_failures, 1, "stalled write is a failure");
     eq(env.__AB_MONITOR_REQUEST.db_retries, 0, "stalled write records no retry");
@@ -198,12 +208,14 @@ try {
     const skill = async (utterance) => {
       const jobs = [];
       const payload = { bot: { id: "667e5382f2b2f84cb555091c", name: "말해가계부" }, userRequest: { utterance, user: { id: owner, type: "botUserKey", properties: { botUserKey: owner } }, chat: { id: room, type: "botGroupKey", properties: { botGroupKey: room } } } };
-      const started = Date.now();
+      const started = performance.now();
       const response = await app.fetch(new Request("https://malhaebook.com/skill", { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": f.env.KAKAO_SKILL_SECRET }, body: JSON.stringify(payload) }), f.env, { waitUntil(job) { jobs.push(job); } });
       const body = await response.json();
+      // 답이 나간 시간만 잰다. 뒤에 도는 waitUntil 작업은 카카오 4초 예산 밖이다.
+      const ms = Math.round(performance.now() - started);
       await Promise.allSettled(jobs);
       const text = (body.template?.outputs || []).map((o) => o.simpleText?.text || o.textCard?.description || "").join("\n");
-      return { ms: Date.now() - started, result: response.headers.get("x-accountbook-nlu-result"), text };
+      return { ms, result: response.headers.get("x-accountbook-nlu-result"), text };
     };
     try {
       ok((await skill("@말해가계부 점심 5만원")).text.includes("준비했어요"), "room ledger prepared without stalls");
