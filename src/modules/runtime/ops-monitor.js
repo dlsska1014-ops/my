@@ -25,7 +25,7 @@ function abMonitorRequestContext(request, env = {}) {
   if (/^\/(?:health|ready|internal|ops-|assets|icon-|favicon|apple-touch|manifest|ads\.txt|robots|sitemap)/.test(path)) return null;
   if (!AB_MONITOR_ROUTE_PREFIXES.some(prefix => path === prefix || path.startsWith(prefix + "/"))) return null;
   const route = path === "/skill" ? "skill" : /login|signup|auth/.test(path) ? "auth" : /import/.test(path) ? "import" : /^\/(?:u\/api|api|admin)\//.test(path) ? "api" : "web";
-  return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, outcome: "unknown" };
+  return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, db_retries: 0, outcome: "unknown" };
 }
 
 function abMonitorOutcome(env, outcome) {
@@ -40,13 +40,13 @@ function abMonitorCompleted(env, ctx, response) {
   const status = response ? response.status : 500;
   const outcome = response?.headers.get("x-accountbook-nlu-result") || record.outcome;
   const randomSample = Math.random() < 0.02;
-  const incident = status >= 500 || status === 403 || record.db_failures > 0 || outcome === "error" || duration >= 3500;
+  const incident = status >= 500 || status === 403 || record.db_failures > 0 || (record.db_retries || 0) > 0 || outcome === "error" || duration >= 3500;
   if (!randomSample && !incident) return;
   const minute = Math.floor(Date.now() / 60000);
   if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
   if (AB_MONITOR_SEND_BUDGET.count >= 100) return;
   AB_MONITOR_SEND_BUDGET.count += 1;
-  const event = { id: crypto.randomUUID(), at: Date.now(), route: record.route, method: record.method, status, duration_ms: duration, db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, outcome: outcome === "unknown" && status < 400 ? "ok" : outcome, sample_kind: randomSample ? "random" : "incident" };
+  const event = { id: crypto.randomUUID(), at: Date.now(), route: record.route, method: record.method, status, duration_ms: duration, db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, db_retries: record.db_retries || 0, outcome: outcome === "unknown" && status < 400 ? "ok" : outcome, sample_kind: randomSample ? "random" : "incident" };
   // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
   const persistence = (async () => {
     try {

@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_72.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_73.sha256",
 );
 const validationScripts = [
+  ["V22.9.73 요청 멈춤 대비(조회 짧은 시한·1회 재시도·쓰기 시한·결과 불확실·관제 재시도 기록)", "validation/validate-db-stall-guard-v22973.mjs"],
   ["V22.9.72 단톡방 피드백(짧은 버튼 이름·도움말 워딩·맨 아래 기록하기·참여 전·빈 결과·지연 답)", "validation/validate-chat-feedback-v22972.mjs"],
   ["V71 no operator real name in user-facing copy", "validation/validate-no-real-name-v22971.mjs"],
   ["V22.9.68 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22968.mjs"],
@@ -273,7 +274,8 @@ function run(command, args, label) {
 // V22.9.71: add 125 real-name absence assertions.
 // 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
-const EXPECTED_MINIMUM_CHECKS = 21784;
+// V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
+const EXPECTED_MINIMUM_CHECKS = 21851;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
