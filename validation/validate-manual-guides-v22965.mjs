@@ -13,7 +13,8 @@ import { kakaoManualTopic } from "../src/modules/kakao/manual-guides.js";
 import {
   isBudgetCommand, isGroupLinkInfoCommand, isInviteCommand, isLinkCommand, isRecentCommand, isSettlementCommand, isSummaryCommand,
 } from "../src/modules/kakao/simple-commands.js";
-import { isKakaoBudgetSetupCommand, isKakaoMemberAliasCommand } from "../src/modules/kakao/guided-flow-state.js";
+import { isKakaoBudgetSetupCommand, isKakaoCreateFlowCommand, isKakaoJoinFlowCommand, isKakaoMemberAliasCommand } from "../src/modules/kakao/guided-flow-state.js";
+import { isHouseholdSwitchCommand } from "../src/modules/kakao/intent-nlu.js";
 
 let checks = 0;
 const ok = (value, label) => { if (!value) throw new Error(`FAIL: ${label}`); checks += 1; };
@@ -43,9 +44,13 @@ async function callSkill(utterance, group) {
   return { response, data: JSON.parse(await response.text()) };
 }
 
+// V22.9.72: 띄어쓰기 없는 짧은 버튼 이름 가운데 판별기가 직접 읽지 않는 것은 skill-handler 의 KAKAO_LEGACY_BUTTON_LABELS 가
+// 원래 명령으로 바꿔 읽는다(도움말 보기 → 도움말, 웹가계부 → 웹 가계부 열기, 초대코드참여 → 초대코드로 참여, 이름설정 → 내 이름 설정).
+const MAPPED_BUTTON_LABELS = new Set(["도움말", "도움말 보기", "웹가계부", "초대코드참여", "이름설정"]);
 const KNOWN_COMMAND = (text) => isKakaoBudgetSetupCommand(text) || isBudgetCommand(text) || isRecentCommand(text) || isSummaryCommand(text)
   || isSettlementCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isKakaoMemberAliasCommand(text) || isGroupLinkInfoCommand(text)
-  || /^단톡방 연결$/.test(text);
+  || isKakaoCreateFlowCommand(text) || isKakaoJoinFlowCommand(text) || isHouseholdSwitchCommand(text) || /^단톡방 연결$/.test(text)
+  || MAPPED_BUTTON_LABELS.has(text);
 const GROUP_PLUGINS = new Set(["mention", "inviteMember", "guide"]);
 
 const ENTRY = {
@@ -91,7 +96,8 @@ try {
         }
       }
       if (topic !== "home") {
-        ok(outputs[0].textCard.buttons.some((b) => b.messageText === "사용 설명서"), `${where} ${topic}: 설명서 처음으로 돌아가는 버튼`);
+        // V22.9.72: 처음으로 돌아가는 버튼은 ‘도움말’(1:1) / ‘도움말 보기’(단톡방 — OpenBuilder 가 ‘도움말’을 가로채므로).
+        ok(outputs[0].textCard.buttons.some((b) => b.messageText === (group ? "도움말 보기" : "도움말")), `${where} ${topic}: 설명서 처음으로 돌아가는 버튼`);
       }
     }
   }
@@ -108,12 +114,14 @@ try {
   // 단계 내용: 초등학생도 따라 하도록 번호 단계와 예시를 담는다.
   const record = (await callSkill("기록하는 법", true)).data.template.outputs[0].textCard;
   ok(record.description.includes("점심 12000원") && record.description.split("\n").length <= 4, "기록하는 법: 예시를 담은 짧은 안내");
-  eq(record.buttons[0].action, "mention", "기록하는 법(단톡방): 첫 버튼은 바로 써 보는 챗봇 멘션");
+  // V22.9.72: ‘기록하기’(멘션)는 맨 아래 버튼이다(2026-10-20 디자이너 피드백).
+  eq(record.buttons.at(-1).action, "mention", "기록하는 법(단톡방): 맨 아래 버튼은 바로 써 보는 기록하기 멘션");
+  eq(record.buttons.at(-1).label, "기록하기", "기록하는 법(단톡방): 멘션 버튼 이름은 기록하기");
   const recordDirect = (await callSkill("기록하는 법", false)).data.template.outputs[0].textCard;
   ok(recordDirect.buttons.every((b) => b.action === "message"), "기록하는 법(1:1): 플러그인 없이 메시지 버튼만");
   const budget = (await callSkill("예산 정하는 법", true)).data.template.outputs[0].textCard;
   ok(budget.description.includes("외식 예산설정"), "예산 정하는 법: 한 번에 설정하는 예시");
-  eq(budget.buttons[0].messageText, "예산 설정", "예산 정하는 법: 첫 버튼은 실제 예산 설정 흐름");
+  eq(budget.buttons[0].messageText, "예산설정", "예산 정하는 법: 첫 버튼은 실제 예산 설정 흐름");
   const recurring = (await callSkill("정기지출 설정 방법", true)).data.template.outputs[0].textCard;
   ok(recurring.description.includes("정기 수입·지출") && recurring.description.includes("매월"), "정기지출: 웹 정기 수입·지출 화면과 매월 자동 기록");
   const together = (await callSkill("함께 쓰는 법", true)).data.template.outputs[0].textCard;
@@ -126,14 +134,14 @@ try {
     for (const group of [true, false]) {
       const { data } = await callSkill(utterance, group);
       const first = data.template?.outputs?.[0]?.textCard;
-      ok(first && first.title === "말해가계부 사용 설명서", `${group ? "단톡방" : "1:1"} ${utterance}: 설명서 첫 화면`);
+      ok(first && first.title === "말해가계부 도움말", `${group ? "단톡방" : "1:1"} ${utterance}: 설명서 첫 화면`);
     }
   }
 
   // OpenBuilder 블록 발화가 스킬로 넘어와도 설명서로 답한다(01_도움말_전체안내 → 첫 화면, 02_기록예시 → 기록하는 법).
   const firstTitle = async (utterance) => (await callSkill(utterance, true)).data.template?.outputs?.[0]?.textCard?.title || "";
   for (const utterance of ["처음 사용하는 법", "멍령어 알려줘", "가계부 사용법", "무엇을 할 수 있어", "명령어 알려줘", "가계부 사용법 알려줘", "사용법 알려줘", "메뉴 보여줘", "/도움말", "뭐할수있어", "뭐 할 수 있어", "안내", "설명", "가이드", "사용 방법", "사용법", "사용 설명서", "설명서"]) {
-    eq(await firstTitle(utterance), "말해가계부 사용 설명서", `01 블록 발화 ‘${utterance}’ → 설명서 첫 화면`);
+    eq(await firstTitle(utterance), "말해가계부 도움말", `01 블록 발화 ‘${utterance}’ → 설명서 첫 화면`);
   }
   for (const utterance of ["수입 입력 예시", "지출 입력 예시", "어떻게 입력해", "가계부 입력 예시", "카톡 입력", "어떻게 입력", "수입 입력", "수입입력", "지출 입력", "지출입력", "입력하기", "입력 예시", "입력예시", "기록예시", "@말해가계부 입력 예시", "기록 방법"]) {
     eq(await firstTitle(utterance), "기록하는 법", `02 블록 발화 ‘${utterance}’ → 기록하는 법`);
@@ -155,17 +163,19 @@ try {
     eq(data.template.outputs.length, 1, `${topic}: 말풍선 하나`);
   }
   // 예전 말풍선의 이모지 버튼 이름과 짧은 선택지 이름도 원래 화면·명령으로 이어진다.
-  eq(await firstTitle("💰 예산 정하는 법"), "예산 정하는 법", "이모지가 붙은 예전 버튼 이름도 설명서로");
+  // V22.9.72: 화면 제목도 짧은 버튼 이름(예산정하기·리포트보기·정기지출)으로 바뀌었다.
+  eq(await firstTitle("💰 예산 정하는 법"), "예산정하기", "이모지가 붙은 예전 버튼 이름도 설명서로");
   eq(await firstTitle("@말해가계부 ✏️ 기록하는 법"), "기록하는 법", "멘션+이모지 버튼 이름도 설명서로");
-  eq(await firstTitle("📊 리포트 보는 법"), "리포트 보는 법", "리포트 버튼 이름도 설명서로");
-  eq(await firstTitle("🔁 매달 나가는 돈"), "정기지출 방법", "예전 매달 나가는 돈 버튼도 정기지출 화면으로");
+  eq(await firstTitle("📊 리포트 보는 법"), "리포트보기", "리포트 버튼 이름도 설명서로");
+  eq(await firstTitle("🔁 매달 나가는 돈"), "정기지출", "예전 매달 나가는 돈 버튼도 정기지출 화면으로");
 
   // 단톡방 선택지는 글과 버튼을 한 말풍선에 담고, 버튼 이름은 보낼 명령과 같다.
   {
     const start = (await callSkill("시작", true)).data.template.outputs;
     eq(start.length, 1, "단톡방 시작: 글과 버튼을 한 말풍선에");
     ok(start[0].textCard && start[0].textCard.description && start[0].textCard.buttons.length >= 3, "단톡방 시작: textCard 설명 + 버튼");
-    ok(start[0].textCard.buttons.every((b) => b.label === b.messageText), "단톡방 시작: 버튼 이름 = 명령");
+    // V22.9.72: 맨 아래 ‘기록하기’는 멘션 플러그인이라 messageText 가 없다. 메시지 버튼만 본다.
+    ok(start[0].textCard.buttons.filter((b) => b.action === "message").every((b) => b.label === b.messageText), "단톡방 시작: 버튼 이름 = 명령");
     ok(!start.some((o) => o.textCard?.title === "👇 눌러서 골라 주세요"), "별도 ‘눌러서 골라 주세요’ 말풍선 없음");
   }
 
@@ -179,7 +189,8 @@ try {
   const startOutputs = start.data.template.outputs;
   ok(startOutputs.length <= 3, "단톡방 시작: 말풍선 3개 이내");
   const startButtons = startOutputs.flatMap((o) => o.textCard?.buttons || []);
-  ok(startButtons.length >= 3 && startButtons.every((b) => b.action === "message" && b.messageText), "단톡방 시작: 선택지가 메시지 버튼으로 바뀐다");
+  const startMessageButtons = startButtons.filter((b) => b.action === "message");
+  ok(startMessageButtons.length >= 3 && startMessageButtons.every((b) => b.messageText) && startButtons.every((b) => b.action === "message" || GROUP_PLUGINS.has(b.action)), "단톡방 시작: 선택지가 메시지 버튼으로 바뀐다");
   ok(!startOutputs.some((o) => String(o.simpleText?.text || "").includes("선택하려면 아래 문구를 그대로 입력해 주세요.")), "단톡방 시작: 글자 선택 목록 없음");
   ok(startOutputs.filter((o) => o.textCard).every((o) => o.textCard.buttons.length <= 5), "단톡방 시작: 카드당 버튼 5개 이하");
 

@@ -149,7 +149,7 @@ await withFixture("v2", async (f) => {
   await createTrip(f);
   const kept = await say(f, "아니요");
   ok(kept.text.includes(`‘${TRIP}’ 가계부는 만들어졌고, 이 단톡방의 기록은 계속 ‘${SHARED}’ 가계부에 저장돼요.`), "v2: 아니요 keeps the current link and says so");
-  ok(kept.text.includes("‘가계부 전환’을 입력해 주세요"), "v2: 아니요 tells how to switch later");
+  ok(kept.text.includes("‘가계부전환’을 입력해 주세요"), "v2: 아니요 tells how to switch later");
   ok(!kept.text.includes("취소했어요"), "v2: keeping is not worded as a cancel");
   eq(linkedHouseholdId(f, "room-v2"), householdNamed(f, SHARED).id, "v2: link unchanged");
   ok(!flowStates(f).some((s) => s.step === "confirm_bind"), "v2: question cleared");
@@ -166,7 +166,7 @@ await withFixture("v3", async (f) => {
   ok(joined.text.includes("참여했어요"), "v3: second user auto-joins the room's book");
   const created = await createTrip(f, member);
   ok(!created.text.includes(CREATE_PROMPT), "v3: member is not asked to switch the room");
-  ok(created.text.includes(`새 가계부로 바꾸려면 ‘${SHARED}’의 소유자·관리자가 ‘가계부 전환’을 입력해야 해요.`), "v3: member is told who can switch");
+  ok(created.text.includes(`새 가계부로 바꾸려면 ‘${SHARED}’의 소유자·관리자가 ‘가계부전환’을 입력해야 해요.`), "v3: member is told who can switch");
   ok(!flowStates(f).some((s) => s.step === "confirm_bind"), "v3: no pending question for the member");
   const saved = await say(f, "숙소 150000원", member);
   ok(saved.text.includes(`가계부: ${SHARED}`), "v3: member's record still goes to the shared book");
@@ -216,7 +216,7 @@ await withFixture("v6", async (f) => {
   const info = await say(f, "단톡방 연결", member);
   ok(info.text.includes("👥 단톡방 연결 상태") && info.text.includes(`연결 가계부: ${SHARED}`), "v6: member gets the status text");
   ok(!info.text.includes("연결할 가계부를 선택"), "v6: member cannot start the bind choice");
-  ok(buttonsOf(info.body).includes("새 가계부 만들기"), "v6: follow-up buttons offer creating a book instead of repeating the same command");
+  ok(buttonsOf(info.body).includes("가계부만들기"), "v6: follow-up buttons offer creating a book instead of repeating the same command");
   ok(!buttonsOf(info.body).includes("단톡방 연결"), "v6: no self-referencing 단톡방 연결 button");
 });
 

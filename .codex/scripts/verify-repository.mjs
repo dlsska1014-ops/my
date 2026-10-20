@@ -12,9 +12,11 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_68.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_72.sha256",
 );
 const validationScripts = [
+  ["V22.9.72 단톡방 피드백(짧은 버튼 이름·도움말 워딩·맨 아래 기록하기·참여 전·빈 결과·지연 답)", "validation/validate-chat-feedback-v22972.mjs"],
+  ["V71 no operator real name in user-facing copy", "validation/validate-no-real-name-v22971.mjs"],
   ["V22.9.68 단톡방 새 가계부 연결 질문(만들기 직후 질문·답 전 기록 보류·맨 단톡방 연결 선택)", "validation/validate-room-rebind-v22968.mjs"],
   ["V22.9.68 출시 전 전체 점검 회귀(1:1 선택 불변·연결 전 방 문구·준비 단계 재시도·수정 말 비저장·한 글자 첫 기록·여러 줄·정산·오늘 기록·recurring_not_found·남의 가계부 ID 404)", "validation/validate-release-audit-v22968.mjs"],
   ["V67 guided flow loop guard and legacy button labels", "validation/validate-flow-loop-guard-v22967.mjs"],
@@ -267,8 +269,11 @@ function run(command, args, label) {
 // V22.9.66: add 35 OpenBuilder block-utterance routing assertions.
 // V22.9.67: add loop-guard, button-label, emoji and length assertions.
 // V22.9.68: room-rebind question 241 and release-audit regression 167 checks on top of V22.9.67 (20,874).
-// 2026-10-19 정비: 배포 스크립트의 이전 판 폴더 기록 조회 검사(213개, +6).
-const EXPECTED_MINIMUM_CHECKS = 21288;
+// V22.9.69: button hub merged on V22.9.68-ROOM-REBIND.
+// V22.9.71: add 125 real-name absence assertions.
+// 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
+// V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
+const EXPECTED_MINIMUM_CHECKS = 21784;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

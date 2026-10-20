@@ -185,10 +185,11 @@ await withFixture(async (f) => {
 
   const outsiderKey = `${f.key}-outsider`;
   const summary = await skill(f, "이번 달 요약", { key: outsiderKey });
-  ok(summary.text.includes("거래를 한 번 보내면 자동으로 참여"), "non-member query explains joining by recording");
+  ok(summary.text.includes("기록을 한 번 보내면 바로 참여돼요"), "non-member query explains joining by recording");
   ok(!roleOf(f, userIdOf(f, outsiderKey), "house-home"), "a query alone never joins");
   const start = await skill(f, "시작", { key: outsiderKey });
-  ok(start.text.includes("아직 참여 전"), "start shows the not-yet-joined state instead of pending");
+  // V22.9.68: 시작은 버튼형 설명서 첫 화면이며, 상태 줄에 기록 한 번으로 참여한다고 알린다.
+  ok(start.text.includes("자동으로 참여") && !start.text.includes("승인 대기"), "start shows the not-yet-joined state instead of pending");
   const info = await skill(f, "단톡방 연결 상태", { key: outsiderKey });
   ok(!info.text.includes("내 권한: member") && !info.text.includes("내 권한: owner"), "room info never shows raw role codes");
 

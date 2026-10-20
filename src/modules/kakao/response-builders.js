@@ -64,10 +64,10 @@ function kakaoDefaultQuickReplies() {
   // 실제 일반 응답에는 자동 첨부하지 않습니다.
   return dedupeQuickReplies([
     ["시작", "시작"],
-    ["가계부 만들기", "새 가계부 만들기"],
-    ["초대코드 참여", "초대코드로 참여"],
-    ["예산 설정", "예산 설정"],
-    ["내 이름 설정", "내 이름 설정"],
+    ["가계부만들기", "가계부만들기"],
+    ["초대코드참여", "초대코드참여"],
+    ["예산설정", "예산설정"],
+    ["이름설정", "이름설정"],
   ]);
 }
 
@@ -115,12 +115,35 @@ function kakaoGroupEmptyMentionReply() {
             title: KAKAO_GROUP_EMPTY_MENTION_TITLE,
             description: KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION,
             buttons: [
-              { label: "챗봇 멘션하기", action: "mention" },
-              { label: "도움말", action: "guide" },
+              // V22.9.70: ‘도움말’ 발화는 OpenBuilder 기본 도움말 블록(고정 패턴, 글만 있는 하단 창)으로 가므로,
+              // 버튼형 설명서는 ‘도움말 보기’로 연다(단톡방은 버튼 이름을 그대로 보낸다 → 스킬이 ‘도움말’로 읽는다).
+              // V22.9.72: 디자이너 피드백(2026-10-20) — ‘챗봇 멘션하기’는 ‘기록하기’로, 맨 아래에 둔다.
+              { label: KAKAO_MANUAL_HOME_GROUP_LABEL, action: "message", messageText: KAKAO_MANUAL_HOME_GROUP_LABEL },
+              { ...KAKAO_RECORD_MENTION_BUTTON },
             ],
           },
         },
       ],
+    },
+  }, 200);
+}
+
+// V22.9.72: 버튼 이름 상수. 단톡방 메시지 버튼은 이름을 그대로 보내므로 이름 = 명령이다.
+const KAKAO_MANUAL_HOME_GROUP_LABEL = "도움말 보기";
+const KAKAO_RECORD_MENTION_BUTTON = Object.freeze({ label: "기록하기", action: "mention" });
+const KAKAO_NEXT_STEP_CARD_TEXT_MAX = 400;
+
+// V22.9.72: 다음 행동으로 이어지는 답(2026-10-20 디자이너 피드백: 빈 결과·참여 전·예산 없음 안내는 짧게 쓰고 버튼으로 잇는다).
+// 단톡방은 textCard 세로 버튼(메시지 버튼 + 맨 아래 ‘기록하기’ 멘션 플러그인), 1:1 은 바로가기(quickReplies)로 보낸다.
+function kakaoNextStepReply(text, payload = {}, quickReplies = [], { record = true } = {}) {
+  const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : []).map((q) => [q.label, q.messageText]);
+  if (!getKakaoBotGroupKey(payload)) return kakaoText(text, record ? [...replies, ["기록방법", "기록방법"]] : replies);
+  const buttons = replies.slice(0, record ? 4 : 5).map(([label, messageText]) => ({ label: messageText.length <= 14 ? messageText : label, action: "message", messageText }));
+  if (record) buttons.push({ ...KAKAO_RECORD_MENTION_BUTTON });
+  return jsonResponse({
+    version: "2.0",
+    template: {
+      outputs: [{ textCard: { description: kakaoSafeText(text).slice(0, KAKAO_NEXT_STEP_CARD_TEXT_MAX), buttons, buttonLayout: "vertical" } }],
     },
   }, 200);
 }
@@ -221,7 +244,7 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 // @build:exports-start
 export {
   dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
-  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoQr, kakaoSaveFailedText,
-  kakaoText,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr,
+  kakaoSaveFailedText, kakaoText,
 };
 // @build:exports-end

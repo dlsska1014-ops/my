@@ -7,7 +7,9 @@ import {computeFairMoM, renderMyAnalysisHtml} from "../src/modules/my/analysis-p
 import {buildBudgetAlertPolishModel, renderPendingRecurringList} from "../src/modules/features/budget-alerts-annual-goals.js";
 import {fetchBudgets, fetchRecurringStrict} from "../src/modules/domain/budgets.js";
 import {buildSettlementModel} from "../src/modules/features/settlement-ops-pages.js";
-import {kakaoSettlementText} from "../src/modules/kakao/simple-commands.js";
+import {kakaoSettlementParts} from "../src/modules/kakao/simple-commands.js";
+// V22.9.72: 카카오 정산 문구는 parts(빈 결과 표식) 로 바뀌었다. 문구만 쓴다.
+const kakaoSettlementText=async (...args)=>(await kakaoSettlementParts(...args)).text;
 import {kakaoText, kakaoGroupCompatibleResponse} from "../src/modules/kakao/response-builders.js";
 const {ok,eq,deepEq,done}=counter("D3 and refund guidance V22.9.58");
 globalThis.fetch=async()=>{throw Error("Native external fetch forbidden");};

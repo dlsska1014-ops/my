@@ -1,3 +1,37 @@
+## V22.9.72 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | V22.9.71 위에서 카카오 응답 문구·버튼 이름·빈 결과·지연 답만 바꾼 후보(GitHub main 2026-10-19 정비 커밋 병합 포함). 활성 V22.9.71 해시 대조 후 승격합니다. |
+| SQL·스키마·RPC·환경변수·Secret | 변경 없음. 지연 답이 재발하면 `KAKAO_RESPONSE_BUDGET_MS`(기본 4000, 상한 4700)를 올려 볼 수 있습니다. |
+| 카카오 OpenBuilder | v3.3: 봇 입장 블록 문구·버튼(웹가계부·도움말 보기·기록하기), 기본 도움말 하단 창, 대표 명령어(짧은 이름), `01_도움말_전체안내` 패턴 추가. `docs/kakao-manual/OPENBUILDER_V3_3_CHAT_FEEDBACK_2026_10_20.md`. Worker 승격 뒤에 반영합니다. |
+| 되돌리기 | V22.9.71-NAME-EXAMPLE(운영 중). version id 는 `output/deploy/` 기록 또는 Codex 클론의 배포 기록을 봅니다. |
+
+## V22.9.71 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | V22.9.70 위에서 예시 이름 3곳만 바꾼 후보. 활성 V22.9.70 해시 대조 후 승격합니다. |
+| SQL·스키마·RPC·환경변수·Secret | 변경 없음. |
+| 되돌리기 | V22.9.70 `2aad16a6-2bcc-40ea-a2a8-e6c2109beed5`. |
+
+## V22.9.70 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | V22.9.69 위에서 빈 멘션 두 번째 버튼만 `사용 설명서`로 바꾼 후보. |
+| 카카오 OpenBuilder | 대표 명령어 `도움말`을 `사용 설명서`로 바꾸고, `00_시작_메뉴`(스킬 전환)와 함께 부분/전체 배포. 기본 도움말 블록의 `도움말` 패턴은 고정이라 하단 창 문구에서 `사용 설명서`를 안내한다. |
+| 되돌리기 | V22.9.69 `dc6395bc-eb06-46af-b13a-4493c695730b`. |
+
+## V22.9.69 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | 운영 V22.9.68-ROOM-REBIND(`52a83dd5-24e7-4e33-8a78-44ea0412373c`) 소스 위에 설명서 허브 변경을 3-way 병합한 후보. 활성 버전·해시 대조 후 승격합니다. |
+| SQL·스키마·RPC·환경변수·Secret | 변경 없음. |
+| 카카오 OpenBuilder | `00_시작_메뉴`를 스킬 응답으로, `01_도움말_전체안내`에 `도움말` 패턴 추가. 해당 블록만 부분 배포. 봇 입장 블록 제외. |
+| 되돌리기 | V22.9.68-ROOM-REBIND `52a83dd5-24e7-4e33-8a78-44ea0412373c`. |
+
 ## V22.9.68 배포 준비
 
 Worker 모듈 20개(src/modules/kakao/guided-flows.js, skill-handler.js, household-budget-commands.js, group-links-first-record.js, request-guards.js, edit-session-v4.js, edit-flow-v4.js, simple-commands.js, reply-texts.js, nlu/transaction-parser.js, runtime/config-readiness.js, my/access-control.js, settings-page.js, members-page.js, groups-budget-bulk.js, backup-import.js, insight-page.js, report-challenge.js, mobile-home.js, households-lifecycle.js)과 버전 표기를 변경합니다. 검증된 전체 src/index.js로 교체하며, 기준은 운영 V22.9.67 versionId 2428e81f-f616-4547-bb7b-4729ff854237입니다. 신규 Secret·환경변수·DB 변경·1년 캐시 자산 주소 변경은 없습니다. 되돌리기는 V22.9.67 버전(2428e81f)의 재승격입니다.

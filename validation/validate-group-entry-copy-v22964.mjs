@@ -67,10 +67,15 @@ try {
     ok(text.length <= 80, `${utterance}: 짧은 안내 유지 (${text.length}자)`);
     const buttons = Array.isArray(card.buttons) ? card.buttons : [];
     eq(buttons.length, 2, `${utterance}: 버튼 두 개`);
-    eq(buttons[0]?.action, "mention", `${utterance}: 첫 버튼은 바로 행동하는 챗봇 멘션`);
-    eq(buttons[0]?.label, "챗봇 멘션하기", `${utterance}: 첫 버튼 이름`);
-    eq(buttons[1]?.action, "guide", `${utterance}: 두 번째 버튼은 도움말`);
-    eq(buttons[1]?.label, "도움말", `${utterance}: 두 번째 버튼 이름`);
+    // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(버튼 이름 = 보낼 명령).
+    // V22.9.72: 디자이너 피드백(2026-10-20) — ‘도움말 보기’가 먼저, ‘기록하기’(멘션)는 맨 아래. 단톡방 ‘도움말’ 그대로는
+    // OpenBuilder 기본 도움말 블록이 가로채므로 버튼 이름은 ‘도움말 보기’.
+    eq(buttons[0]?.action, "message", `${utterance}: 첫 버튼은 설명서 메시지`);
+    eq(buttons[0]?.messageText, "도움말 보기", `${utterance}: 설명서 버튼이 보낼 명령`);
+    eq(buttons[0]?.label, "도움말 보기", `${utterance}: 첫 버튼 이름`);
+    eq(buttons[1]?.action, "mention", `${utterance}: 맨 아래 버튼은 바로 행동하는 기록하기 멘션`);
+    eq(buttons[1]?.label, "기록하기", `${utterance}: 맨 아래 버튼 이름`);
+    ok(!buttons.some((b) => b.label === "챗봇 멘션하기" || b.label === "사용 설명서"), `${utterance}: 옛 버튼 이름 없음`);
     ok(!Object.hasOwn(result.data.template, "quickReplies"), `${utterance}: 단톡방 응답에 quickReplies 없음`);
   }
 

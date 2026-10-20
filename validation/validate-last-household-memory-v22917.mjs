@@ -136,7 +136,7 @@ const hhCookie = (result) => result.setCookies.find((cookie) => cookie.startsWit
 
   const hello = await say("안녕");
   ok(/안녕하세요/.test(hello.text) && !/이해하지 못했어요/.test(hello.text), `인사에 인사로 답한다 (${hello.text.slice(0, 40)})`);
-  ok(hello.quick.includes("기록 방법") && hello.quick.includes("이번 달 요약"), "인사 뒤에 다음 행동을 붙인다");
+  ok(hello.quick.includes("기록방법") && hello.quick.includes("이번달요약"), "인사 뒤에 다음 행동을 붙인다");
   const thanks = await say("고마워");
   ok(/고마워요/.test(thanks.text), `고맙다는 말에는 짧게 받는다 (${thanks.text.slice(0, 30)})`);
   const notGreeting = await say("안녕 커피 4500");

@@ -296,7 +296,7 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
     });
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_first_record_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
-    if (recordSaved) return kakaoText("기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘 기록 보기’에서 확인해 주세요.");
+    if (recordSaved) return kakaoText("기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘기록’에서 확인해 주세요.");
     return kakaoText(/settings_rmw_busy/.test(safeError(err))
       ? "개인 가계부를 준비하는 요청이 처리 중이에요. 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요."
       : "개인 가계부 준비를 완료하지 못했어요. 이 요청의 기록은 저장하지 않았어요. 잠시 후 같은 내용을 다시 보내 주세요.");

@@ -2,7 +2,8 @@ import { app, BASE, counter, fixture, intercept, failure, putSetting } from "./l
 import { AB_KAKAO_REPEAT_GUARD, AB_KAKAO_INFLIGHT } from "../src/modules/runtime/ops-telemetry.js";
 const {ok,eq,deepEq,done}=counter("BOT confirmation state V22.9.54");
 globalThis.fetch=async()=>{throw new Error("External fetch forbidden");};
-const textOf=body=>(body.template?.outputs||[]).map(o=>o.simpleText?.text||"").join("\n");
+// V22.9.72: 단톡방 지연 답은 확인 버튼이 붙은 textCard 로 나가므로 description 도 읽는다.
+const textOf=body=>(body.template?.outputs||[]).map(o=>o.simpleText?.text||o.textCard?.description||"").join("\n");
 async function say(fx,text,{user="kakao_login:2265",room="",context}={}) {
   const jobs=[];
   const payload={bot:{id:"synthetic-bot"},userRequest:{utterance:text,user:{id:user,type:"botUserKey",properties:{botUserKey:user,...(room?{botGroupKey:room}:{})}},...(room?{chat:{type:"botGroupKey",id:room,properties:{botGroupKey:room}}}:{})}};
@@ -177,7 +178,7 @@ await setup(async fx=>{
   eq(result.body.template.quickReplies[0].messageText,"별도 구매 조회 "+p.token,"delayed confirmation uses safe status lookup");
   release();await Promise.allSettled(result.jobs);undo();
   const status=await say(fx,"별도 구매 조회 "+p.token);
-  eq(status.body.template.quickReplies[0].messageText,"2026-10-01 기록 보기","status lookup restores persisted original date");
+  eq(status.body.template.quickReplies[0].messageText,"2026-10-01 기록","status lookup restores persisted original date");
   eq(fx.db.transactions.length,2,"status lookup adds no record");
 });
 await setup(async fx=>{
@@ -207,10 +208,10 @@ for(const room of ["","deferred-room"]) for(const outcome of ["success","definit
   });
   const response=await say(fx,"2026-10-01 지난기록 7533원 현금",{room});
   eq(response.response.headers.get("x-accountbook-nlu-result"),"deferred","delayed response state");
-  ok(response.text.includes("2026-10-01 기록 보기"),"deferred route uses input date");
+  ok(response.text.includes("2026-10-01 기록"),"deferred route uses input date");
   ok(!response.text.includes("저장했어요"),"deferred result is not success");
   if(room) ok(!response.body.template.quickReplies,"deferred group no quick replies");
-  else eq(response.body.template.quickReplies[0].messageText,"2026-10-01 기록 보기","direct deferred lookup button");
+  else eq(response.body.template.quickReplies[0].messageText,"2026-10-01 기록","direct deferred lookup button");
   release();await Promise.allSettled(response.jobs);undo();
   eq(fx.db.transactions.length,outcome==="success"?1:0,"background outcome "+outcome);
   eq(response.body.template.outputs.length,1,"no automatic final notification appended");

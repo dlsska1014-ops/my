@@ -42,7 +42,7 @@ for(const text of [kakaoStartText(false),kakaoStartText(true),kakaoUnlinkedGroup
 }
 ok(kakaoStartText(false).includes("첫 기록"),"personal entry explains first record");
 // V22.9.65: 도움말은 버튼형 설명서로 바뀌었다(validate-manual-guides-v22965). 외부 참여 안내는 시작·미연결 안내에 남는다.
-ok(kakaoStartText(false).includes("초대코드로 참여")&&kakaoUnlinkedGroupStartText([],"https://example.test").includes("초대코드"),"external participation explanation retained");
+ok(/초대코드(로 )?참여/.test(kakaoStartText(false))&&kakaoUnlinkedGroupStartText([],"https://example.test").includes("초대코드"),"external participation explanation retained");
 await fixture(async fx=>{
   fx.db.transactions=[{id:"food",household_id:"house-home",user_id:"user-bin",transaction_date:"2026-10-10",type:"expense",amount:20000,category:"외식"}];
   fx.db.accountbook_budgets=[{household_id:"house-home",month:"2026-10",category:"식비",amount:100000}];
