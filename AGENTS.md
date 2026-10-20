@@ -5,8 +5,11 @@
 
 ## 작업 시작
 
-- 먼저 `VERSION.txt`, `BASELINE.md`, `KNOWN-ISSUES.md`를 읽는다.
-- 다음 버전 작업은 `NEXT_UPDATE_PLAN.md`와 `DEPLOYMENT_MATRIX.md`를 확인한다.
+- 먼저 `VERSION.txt`와 `docs/STATUS.md`(운영 판·브랜치·열린 PR·배포 절차·열린 일, 약 4 KB)를 읽는다.
+- `BASELINE.md`, `KNOWN-ISSUES.md`, `NEXT_UPDATE_PLAN.md`, `DEPLOYMENT_MATRIX.md`, `CHANGELOG.md`,
+  `SQL_HISTORY.md`는 통째로 읽지 않는다. 작업 범위의 판 절만 찾아 읽는다(`grep -n "^## V22.9" <파일>`로
+  위치를 찾은 뒤 그 절만 읽는다). 첫 절은 늘 현재 판이다. V22.8 이력은 `docs/archive/`에 있다.
+- 판을 올리거나 운영에 반영하면 `docs/STATUS.md`의 표를 먼저 갱신한다.
 - 카카오 동작은 `docs/kakao-manual/PROJECT_MEMORY_V22_8_10.md`와 관련 문서를
   기준으로 판단한다.
 - UX 변경은 `docs/ux/UX_PRINCIPLES_BRUNCH_110_PROJECT_MEMORY.md`를 확인한다.
@@ -28,6 +31,8 @@
 - `tools/vendor/`: 분석에 쓰는 acorn 8.16.0 원본과 라이선스·출처 기록.
 - `docs/refactor/modularization-v1/`: 모듈 분리 설계·분할 명세와 재생산 스크립트.
 - `validation/`: 현재 릴리스의 독립 회귀 검증.
+- `docs/STATUS.md`: 운영 판·브랜치·배포 절차·열린 일 요약. 작업 시작 때 읽는 유일한 상태 문서.
+- `docs/archive/`: V22.8 이력(CHANGELOG·KNOWN-ISSUES·DEPLOYMENT_MATRIX·SQL_HISTORY)의 보관본. 현재 판 문서에서 옮겼다.
 - `docs/kakao-manual/`: 카카오 1:1·그룹 응답과 가계부 규칙.
 - `docs/ux/`: 화면·행동·상태 피드백 원칙.
 - `BASELINE.md`: 후속 버전에서 보호해야 할 제품 기준.
@@ -68,7 +73,7 @@
   기존 참여자 행, RLS, GRANT, RPC, 인덱스, 환경변수, Kakao Developers, OpenBuilder는 변경하지 않는다.
 - 비밀키, 토큰, 실제 사용자 데이터, `.env`, 빌드 결과, `node_modules`,
   스크린샷, 중첩 ZIP을 커밋하지 않는다.
-- 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `CHANGELOG.md`,
+- 버전 또는 배포 판단이 바뀌면 `VERSION.txt`, `docs/STATUS.md`, `CHANGELOG.md`,
   `DEPLOYMENT_MATRIX.md`, `SQL_HISTORY.md`, 관련 검증·체크리스트를 함께 검토한다.
 - Windows에서도 체크섬이 유지되도록 `.gitattributes`의 LF 정책을 보존한다.
 

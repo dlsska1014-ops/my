@@ -41,7 +41,7 @@
 // - Snapshots go to <out-dir>/<APP_VERSION>/ (untracked). Binding fields other than identifiers
 //   are stored as SHA-256 digests; the API never returns Secret values.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildFromModulesRoot, sha256 } from "./build-worker.mjs";
@@ -335,6 +335,21 @@ function releaseDirectory(deps, options, label) {
   return resolve(deps.root, options.outDir, label || "unknown");
 }
 
+// 2026-10-19 (V22.9.68 배포 뒤): 최신 버전의 업로드 기록이 다른 판 폴더에 남을 수 있다. 저장만 하고 승격하지 않은 업로드
+// (V22.9.63-ROOM-REBIND, 3fe22ed1…) 뒤에 판이 V22.9.68 로 올라가자 현재 판 폴더에서만 찾던 기록을 못 찾아 업로드를 거부했다.
+// 현재 판 폴더를 먼저 보고, 없으면 out-dir 아래 모든 판 폴더를 본다. 기록이 어느 배포 버전에서 올린 것인지는 예전처럼
+// inheritSourceCheck 가 판정하므로 다른 폴더의 기록이라고 더 믿는 것은 없다.
+function findUploadRecord(deps, options, label, versionId) {
+  const name = `upload-${versionId}.json`;
+  const base = resolve(deps.root, options.outDir);
+  const siblings = typeof deps.listDirectories === "function" ? deps.listDirectories(base) : [];
+  for (const folder of [...new Set([label || "unknown", ...siblings])]) {
+    const path = join(base, folder, name);
+    if (deps.exists(path)) return { path, folder, record: JSON.parse(deps.readFile(path, "utf8")) };
+  }
+  return null;
+}
+
 function writeRecord(deps, directory, name, data) {
   deps.mkdir(directory);
   const path = join(directory, name);
@@ -391,11 +406,12 @@ async function runUpload(options, deps, client) {
   const directory = releaseDirectory(deps, options, local.appVersion);
   writeRecord(deps, directory, `live-${live.versionId}.json`, liveSnapshot(deps, options, live, liveVersion));
   const latestId = latestVersionIdOf(await client.listVersions());
-  const latestRecordPath = join(directory, `upload-${latestId}.json`);
-  const latestRecord = latestId !== live.versionId && deps.exists(latestRecordPath) ? JSON.parse(deps.readFile(latestRecordPath, "utf8")) : null;
+  const latestFound = latestId !== live.versionId ? findUploadRecord(deps, options, local.appVersion, latestId) : null;
+  const latestRecord = latestFound?.record || null;
+  const latestRecordPath = latestFound?.path || "";
   const inherit = inheritSourceCheck({ liveVersionId: live.versionId, latestVersionId: latestId, record: latestRecord });
   if (!inherit.ok) { deps.error(inherit.reason); return 1; }
-  deps.log(`현재 배포 ${live.deploymentId} → 버전 ${live.versionId} (바인딩 ${metadata.bindings.length}개). 최신 버전 ${latestId}${inherit.basis === "live" ? " = 현재 배포 버전" : ` = 이 스크립트가 현재 배포 버전에서 올린 버전(${latestRecordPath})`}. ${local.appVersion} 업로드 — 배포 아님`);
+  deps.log(`현재 배포 ${live.deploymentId} → 버전 ${live.versionId} (바인딩 ${metadata.bindings.length}개). 최신 버전 ${latestId}${inherit.basis === "live" ? " = 현재 배포 버전" : ` = 이 스크립트가 현재 배포 버전에서 올린 버전(${latestFound?.folder === local.appVersion ? "" : "이전 판 폴더 "}${latestRecordPath})`}. ${local.appVersion} 업로드 — 배포 아님`);
   const created = await client.uploadVersion(buildUploadForm(metadata, local.sourceBytes));
   if (!created?.id || !UUID.test(created.id)) throw new Error("업로드 응답에 버전 ID 가 없습니다");
   const uploaded = await client.getVersion(created.id);
@@ -531,6 +547,7 @@ export function defaultDeps(root) {
     writeFile: writeFileSync,
     exists: existsSync,
     mkdir: (directory) => mkdirSync(directory, { recursive: true }),
+    listDirectories: (directory) => existsSync(directory) ? readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort() : [],
     now: () => new Date(),
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
     log: (line) => console.log(line),
