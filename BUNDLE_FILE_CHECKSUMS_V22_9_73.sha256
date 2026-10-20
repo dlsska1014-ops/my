@@ -446,7 +446,7 @@ b19a54269a3ca8f6d9f987d11cca7ff3dbe277a822da882ec5c71e7201753127  ./validation/v
 34f8608138837a2a8f519f84a2cd094a1c268b9fe6245469280efa096db60ab1  ./validation/validate-audit-batch-c-v22937.mjs
 15628fb143f2a31ccecd24fee9aee0c24febe306ee097dae0c84452ca48d16e1  ./validation/validate-audit-batch-d-v22937.mjs
 41f17b38beef3b943c6ef8b30a64971231fc87c5b012f11538de5c3abe39061f  ./validation/validate-audit-corrections-v22930.mjs
-b054c32a9e18913be1e9b25f30e796151db377f2c4e262ca792d7937bba279c9  ./validation/validate-audit-hotfix-v22945.mjs
+88ae7f12021711df472c2309e5ec07126e016cf758e4d37689164dab72b2c996  ./validation/validate-audit-hotfix-v22945.mjs
 4350034c06357f922711adeae05adabe3448e7dfb9963eb6a7341c9b30e1ee39  ./validation/validate-bot-diagnostics-v22954.mjs
 a3c881e3185ba7a66264c1c34eb6ca230ae34f05b3a21a8a1b2d12151e42385c  ./validation/validate-bot-guidance-v22954.mjs
 c264c5bbaa63cb8caf080e241a6eb302540c833796979877184594d9af5059cc  ./validation/validate-bot-observation-v22954.mjs
@@ -459,7 +459,7 @@ d19dbba745a96b62feae491d9aef24520e349a7268b3b6bcaa9c3a49fe2a99a6  ./validation/v
 d4763c0890e155d83806cba8981f2e21a3ad5bcd7c8fa4bd256b0a74a91824de  ./validation/validate-build-identity-v22932.mjs
 dae71b72155c156cd1da896a61d4635424f7d69d75ccabf72816a38636835fe6  ./validation/validate-category-rules-single-source-v2296.mjs
 43ffcf9be9e62e8ecfb95eb15c5725897eb5b64880d3dd60090685eb98c04681  ./validation/validate-challenge-activity-ux-v22858.mjs
-b8ead0e419b16ef30365abf2d2752a95148dd802412acc0f024e076aa03fc532  ./validation/validate-chat-feedback-v22972.mjs
+a7d64ce31daea9102a99ed83dbcbf9b2a6b23ea0d420e8921b0d05d20850fc48  ./validation/validate-chat-feedback-v22972.mjs
 eec681ab18ddc493ec11f3970b0dba3e6ff9550f7a34feeea885262986598ed1  ./validation/validate-chat-first-v22928.mjs
 2d81a2103c1e84db9a642e02b1da9ac7fffed772e450b57e30bd130dc898d965  ./validation/validate-client-serialization-v22932.mjs
 63fbeae21c0d41bd746767ae7435d79c00f3d54199a5da60783facc96e16fd3b  ./validation/validate-component-css-travels-v22914.mjs

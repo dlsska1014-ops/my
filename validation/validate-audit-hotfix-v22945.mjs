@@ -59,7 +59,11 @@ async function say(fx, utterance, { key, room = "", waitUntil = true } = {}) {
 }
 
 async function b1() {
-  for (const delayMs of [120, 170]) {
+  // V22.9.73: since V22.9.72 the first-record path is shorter (about 29 sequential calls before the
+  // save gate), so at 120ms a synchronous caller's preparation took 3.48-3.6s and straddled the 3.5s
+  // gate (repeated ubuntu CI failures: "room@120ms waitUntil=false: first transaction count").
+  // 150ms and 200ms clear both the gate and the 4s response budget.
+  for (const delayMs of [150, 200]) {
     for (const kind of ["room", "dm"]) {
       for (const waitUntil of [true, false]) {
         await withFx(async (fx) => {

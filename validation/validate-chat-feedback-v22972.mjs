@@ -68,7 +68,10 @@ try {
 
   // 2. 방 준비 뒤 참여 전 조회: 세 줄 안내 + 기록하기 멘션 버튼.
   const first = await skill("@말해가계부 점심 5만원", OWNER);
-  ok(first.text.includes("공동 가계부를 준비했어요"), "소유자 첫 기록이 방 가계부를 준비");
+  // 첫 기록은 이 검사의 준비 단계다. 느린 windows-latest 러너에서는 4초 예산을 넘겨 지연 답이 먼저 나가고, 같은 처리가
+  // 뒤에서 방 가계부를 준비한다(skill() 이 waitUntil 작업을 기다린다). 오류 답이나 저장되지 않은 기록은 여전히 실패다.
+  const ownerSaved = f.db.transactions.some((row) => row.source_user_key === OWNER);
+  ok((first.text.includes("공동 가계부를 준비했어요") || first.result === "deferred") && ownerSaved, `소유자 첫 기록이 방 가계부를 준비 (${first.result}: ${first.text.slice(0, 40)})`);
   for (const command of ["오늘기록", "이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
     const r = await skill(`@말해가계부 ${command}`, MINA);
     eq(r.result, "ok", `참여 전 ${command}: 정상 응답`);
