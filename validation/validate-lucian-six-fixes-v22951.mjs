@@ -98,16 +98,17 @@ await withClock("2026-07-15", async () => {
   await fixture(async fx => {
     const fetchFixture = globalThis.fetch;
     const request_id = crypto.randomUUID();
-    let drop = true, rejectRead = false, inserts = 0;
+    let drop = true, rejectReads = 0, inserts = 0;
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input?.url || input)), method = String(init.method || "GET");
       if (url.pathname === "/rest/v1/transactions" && method === "POST") {
         inserts++;
         const response = await fetchFixture(input, init);
-        if (drop) { drop = false; rejectRead = true; throw new TypeError("fixture response lost after commit"); }
+        if (drop) { drop = false; rejectReads = 2; throw new TypeError("fixture response lost after commit"); }
         return response;
       }
-      if (rejectRead && url.pathname === "/rest/v1/transactions" && url.searchParams.has("id")) { rejectRead = false; throw new TypeError("fixture reconciliation unavailable"); }
+      // V22.9.73: 조회는 응답이 없으면 한 번 더 보내므로, 조회 불가 상황은 두 시도 모두 끊어야 한다.
+      if (rejectReads > 0 && url.pathname === "/rest/v1/transactions" && url.searchParams.has("id")) { rejectReads -= 1; throw new TypeError("fixture reconciliation unavailable"); }
       return fetchFixture(input, init);
     };
     try {

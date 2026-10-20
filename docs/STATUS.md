@@ -1,6 +1,6 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-20 (V22.9.72 운영 반영·OpenBuilder v3.4 뒤). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-20 (V22.9.73 준비본, 운영은 V22.9.72). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
@@ -18,13 +18,13 @@
 | 항목 | 값 |
 |---|---|
 | GitHub main | PR #85(`claude/v22972-chat-feedback`, V22.9.69~72 + 2026-10-19 정비 병합) 머지 뒤 = 운영 V22.9.72 소스. 머지 전 main 은 `5876619`(V22.9.68 + 정비) |
-| 진행 중 | `claude/v22972-records`(이 기록·진단 정정, PR #86). 다음 후보 V22.9.73: Worker→Supabase 요청 멈춤 조사·완화(NEXT_UPDATE_PLAN) |
+| 진행 중 | `claude/v22973-db-stall`(V22.9.73-DB-STALL-GUARD: 조회 짧은 시한·1회 재시도, 쓰기 시한, 관제 db_retries — PR #87). 기록 정정은 PR #86, 운영 소스는 PR #85 |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256` |
 
 ## 열린 일
 
-- **Worker→Supabase 요청 멈춤(V22.9.73 조사)**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. 조회 재시도·쓰기 시한 안 검토(KNOWN-ISSUES V22.9.72 절).
+- **Worker→Supabase 요청 멈춤**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. V22.9.73 이 조회 재시도·쓰기 시한으로 완화하지만 원인은 미확정 — 반영 뒤 `/nlu-ops.json` 의 db_retries 와 Cloudflare Workers 로그로 좁힌다.
 - 실제 새 단톡방 확인(요구사항 문서 5절: 빈 멘션 → 도움말 보기 → 참여 전 오늘기록 → 기록 → 이번달요약·남은예산·정산), ‘도움말 보기’ 머신러닝 매칭, ‘기록하기’ 위치는 테스터 확인 전까지 가정. 테스터에게 반영 알림(R13).
 - CI 흔들림: `validate-audit-hotfix-v22945` B-1 타이밍 검사가 ubuntu 푸시 실행에서 한 번 실패(같은 커밋 PR 실행·로컬은 통과).
 - V22.9.68 실제 단톡방 확인(‘새 가계부 만들기 → 연결하기 → 기록’)은 미실시.

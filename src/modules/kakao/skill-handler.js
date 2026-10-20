@@ -204,7 +204,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: intentMatch.intent, confidence: intentMatch.confidence, result: outcome.result, reason: outcome.reason, latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "ok", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; result=${outcome.result}; status=${response.status}; normalized=${safeResponse.status}; latency_ms=${latencyMs}` });
+    rememberSkillEvent({ kind: "ok", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; result=${outcome.result}; status=${response.status}; normalized=${safeResponse.status}; latency_ms=${latencyMs}; db_retries=${env.__AB_MONITOR_REQUEST?.db_retries || 0}` });
     const safeHeaders = new Headers(safeResponse.headers || {});
     safeHeaders.set("x-kakao-skill-latency-ms", String(latencyMs));
     safeHeaders.set("x-accountbook-latency-ms", String(latencyMs));
