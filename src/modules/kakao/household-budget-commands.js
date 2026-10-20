@@ -107,9 +107,9 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
         "👥 이 단톡방에 연결할 수 있는 내 가계부가 없어요.",
         "가계부 소유자 또는 관리자가 새 가계부를 만들거나 초대코드로 연결해 주세요.",
       ].join("\n"),
-      quickReplies: dedupeQuickReplies([["가계부 만들기", "새 가계부 만들기"], ["초대코드 참여", "초대코드로 참여"]]),
+      quickReplies: dedupeQuickReplies([["가계부만들기", "가계부만들기"], ["초대코드참여", "초대코드참여"]]),
     };
-    if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말", "도움말"]] };
+    if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말 보기", "도움말 보기"]] };
     return { text: kakaoStartText(false), quickReplies: kakaoStartQuickReplies(false) };
   }
   if (candidates.length === 1 && !forceChoice) {
@@ -118,11 +118,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.`, quickReplies: kakaoStartQuickReplies(true) };
     }
-    if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] };
+    if (action === "invite") return { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방연결", "단톡방연결"], ["도움말 보기", "도움말 보기"]] };
     if (action === "bind") {
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, chosen.invite_code || "");
-      if (result.ok) return { text: await kakaoRoomBindDoneText(env, chosen), quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
-      return { text: "단톡방 연결을 완료하지 못했어요. 초대코드를 확인해 주세요.", quickReplies: [["연결 방법", "단톡방 연결"]] };
+      if (result.ok) return { text: await kakaoRoomBindDoneText(env, chosen), quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
+      return { text: "단톡방 연결을 완료하지 못했어요. 초대코드를 확인해 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] };
     }
   }
   await saveKakaoFlowState(env, user.id, payload, {
@@ -152,7 +152,7 @@ function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {})
     writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요."
       : retired ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 기록을 보내도 자동으로 다시 만들지 않아요."
       : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
-    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방 연결 초대코드’를 보내 주세요.",
+    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
 
@@ -165,7 +165,7 @@ function kakaoDirectStartText(current = null, households = []) {
     ...lines,
     "",
     "기록·예산·요약 응답에는 처리된 가계부 이름을 함께 표시합니다.",
-    households.length > 1 ? "다른 가계부를 쓰려면 ‘가계부 전환’을 입력해 주세요." : "",
+    households.length > 1 ? "다른 가계부를 쓰려면 ‘가계부전환’을 입력해 주세요." : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -173,7 +173,7 @@ function kakaoStartText(hasHousehold = false, householdName = "") {
   if (!hasHousehold) return [
     "친구와 함께 말 한마디로 기록하는 말해가계부입니다.",
     "‘커피 4500원’처럼 첫 기록을 보내면 바로 시작돼요.",
-    "다른 가계부는 ‘새 가계부 만들기’·‘초대코드로 참여’로 열어요.",
+    "다른 가계부는 ‘가계부만들기’·‘초대코드참여’로 열어요.",
   ].join("\n");
   return [
     `📒 ${householdName || "가계부"}에서 무엇을 해볼까요?`,
@@ -490,13 +490,21 @@ function kakaoInviteManagementText(household = {}, origin = "") {
 }
 
 async function kakaoDateSummaryText(env, household = {}, user = {}, range = null, origin = "") {
+  return (await kakaoDateSummaryParts(env, household, user, range, origin)).text;
+}
+
+// V22.9.72: 기간에 기록이 없으면 짧은 안내만 돌려주고(empty) 호출부가 ‘기록하기’ 버튼을 붙인다(2026-10-20 디자이너 피드백).
+async function kakaoDateSummaryParts(env, household = {}, user = {}, range = null, origin = "") {
   let rows;
   try {
     rows = await fetchAdminRowsRange(env, { householdId: household.id, start: range.start, end: range.end, type: "all", limit: 6000 });
   } catch (err) {
     if (!isRowLimitExceededError(err)) throw err;
     // 일부 기록만으로 합계를 말하지 않는다(QA B05).
-    return "이 기간에는 기록이 너무 많아 합계를 정확히 계산하지 못했어요. 기간을 줄여(예: 이번주, 9월) 다시 물어봐 주세요.";
+    return { empty: false, text: "이 기간에는 기록이 너무 많아 합계를 정확히 계산하지 못했어요. 기간을 줄여(예: 이번주, 9월) 다시 물어봐 주세요." };
+  }
+  if (!rows.length) {
+    return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
   }
   const members = await fetchHouseholdMembers(env, household.id);
   const names = memberNameMap(members);
@@ -512,7 +520,7 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
   const categories = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
   const users = Object.entries(byUser).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
   const cta = await maybeKakaoCta(env, user.id, household.id, origin, "analysis", `${origin}/my/analysis?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(range.month)}`);
-  return [
+  return { empty: false, text: [
     `📊 ${range.label} 요약`,
     `가계부: ${household.name || "가계부"}`,
     "",
@@ -521,7 +529,7 @@ async function kakaoDateSummaryText(env, household = {}, user = {}, range = null
     "",
     categories.length ? "카테고리" : "", ...categories,
     users.length ? "" : "", users.length ? "지출자" : "", ...users,
-  ].filter(Boolean).join("\n") + cta;
+  ].filter(Boolean).join("\n") + cta };
 }
 
 // V22.9.37 감사 H7·H13: "같은 이름의 가계부"는 내가 소유한 가계부와만 비교한다. 참여만 한(조회 전용 포함) 가계부와
@@ -570,7 +578,7 @@ export {
   findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
-  kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryText,
+  kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryParts,
   kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
   kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
   kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,

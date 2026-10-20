@@ -107,7 +107,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     try { await onSaved(); }
     catch (err) {
       rememberOpsEvent({ kind: "kakao_first_record_finalize_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
-      finalizeNotice = "\n\n기록 저장은 완료되었지만 선택 상태 준비가 지연됐어요. ‘가계부 전환’에서 내 개인 가계부를 선택할 수 있어요.";
+      finalizeNotice = "\n\n기록 저장은 완료되었지만 선택 상태 준비가 지연됐어요. ‘가계부전환’에서 내 개인 가계부를 선택할 수 있어요.";
     }
   }
 
@@ -118,7 +118,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
       return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
     });
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
-      ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘 기록 보기’에서 확인해 주세요.";
+      ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
     return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
   }
 

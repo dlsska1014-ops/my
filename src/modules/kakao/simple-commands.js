@@ -58,13 +58,19 @@ function kakaoSettlementShareLine(model = {}) {
 }
 
 async function kakaoSettlementText(env, household = {}) {
+  return (await kakaoSettlementParts(env, household)).text;
+}
+
+// V22.9.72: 정산할 지출이 없으면 짧은 안내만 돌려주고(empty) 호출부가 ‘기록하기’ 버튼을 붙인다(2026-10-20 디자이너 피드백).
+async function kakaoSettlementParts(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
   const refundNotice = "환급 계산은 미리보기 전용이며 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
-    return [`📊 ${month} 정산`, refundNotice, `가계부: ${household.name || "가계부"}`, "", "정산할 지출 기록이 아직 없어요."].join("\n");
+    // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
   }
   const people = model.people.slice(0, 8).map((p) => {
     if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
@@ -72,7 +78,7 @@ async function kakaoSettlementText(env, household = {}) {
     return `• ${p.name}: 정산 차액 없음`;
   });
   const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
-  return [
+  return { empty: false, text: [
     `📊 ${month} 정산`,
     refundNotice,
     `총 지출: ${numberWithCommas(model.totalExpense)}원`,
@@ -81,7 +87,7 @@ async function kakaoSettlementText(env, household = {}) {
     "",
     ...people,
     ...(transfers.length ? ["", "송금 제안", ...transfers] : []),
-  ].join("\n");
+  ].join("\n") };
 }
 
 function isSummaryCommand(text) {
@@ -142,6 +148,6 @@ export {
   isGroupLinkInfoCommand, isHelpCommand, isInputExampleCommand, isInviteCommand,
   isJoinCancelCommand, isKeywordGuideCommand, isLinkCommand, isOpenBuilderGuideCommand,
   isRecentCommand, isReserveGuideCommand, isSettlementCommand, isSummaryCommand, isUndoCommand,
-  kakaoSettlementText, parseGroupBindCommand, parseJoinCode, parseKakaoMemberPolicyCommand,
+  kakaoSettlementParts, parseGroupBindCommand, parseJoinCode, parseKakaoMemberPolicyCommand,
 };
 // @build:exports-end

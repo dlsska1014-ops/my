@@ -147,7 +147,7 @@ const menu = await callSkill("메뉴");
 eq(menu.response.status, 200, "Kakao menu command succeeds without database configuration");
 const menuText = responseText(menu.data);
 // V22.9.67: 메뉴는 짧은 버튼형 설명서 첫 화면으로 답하고, 웹 진입은 ‘웹 관리 방법’ 화면의 ‘웹 가계부 열기’ 버튼으로 이어진다.
-ok(menuText.includes("웹 관리 방법") || menuText.includes("웹 가계부 열기"), "Kakao menu leads to the representative web-entry command");
+ok(menuText.includes("웹관리하기") || menuText.includes("웹가계부"), "Kakao menu leads to the representative web-entry command");
 ok(!/https?:\/\//i.test(menuText) && !menuText.includes("/kakao-command-system"), "Kakao menu contains no URL");
 ok(!menuText.includes("—"), "Kakao menu copy contains no em dash");
 

@@ -49,10 +49,10 @@ function helpText(inviteCode = "", origin = "") {
     "처음이라면 첫 기록을 보내 가계부를 준비합니다. 개인 대화에서는 개인 가계부, 단톡방에서는 공동 가계부를 사용해요.",
     "",
     "기록: 점심 12000원 국민카드",
-    "조회: 오늘 기록 보기 · 이번 달 요약 · 남은 예산",
-    "관리: 예산 설정 · 가계부 전환 · 수정 01번 금액 13000원",
-    "내 이름: 내 이름 설정",
-    "공유: 초대코드 · 단톡방 연결 ABC123",
+    "조회: 오늘기록 · 이번달요약 · 남은예산",
+    "관리: 예산설정 · 가계부전환 · 수정 01번 금액 13000원",
+    "내 이름: 이름설정",
+    "공유: 초대코드 · 단톡방연결 ABC123",
   ].join("\n");
 }
 
@@ -84,7 +84,7 @@ function formatRecentTransactions(rows) {
     const memo = r.memo || r.category || "-";
     return `${i + 1}. ${r.transaction_date} ${typeText} ${numberWithCommas(r.amount)}원 · ${memo}`;
   });
-  return ["🧾 최근 입력 내역", ...lines, "", "오늘 번호로 수정하려면 '오늘 기록 보기'를 보내세요.", "예: 01번 금액 13000원 / 01번 삭제"].join("\n");
+  return ["🧾 최근 입력 내역", ...lines, "", "오늘 번호로 수정하려면 '오늘기록'을 보내세요.", "예: 01번 금액 13000원 / 01번 삭제"].join("\n");
 }
 
 async function listTransactions(env, url) {

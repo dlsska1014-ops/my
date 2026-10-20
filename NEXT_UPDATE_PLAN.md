@@ -1,3 +1,11 @@
+## V22.9.72 다음 단계
+
+1. 하네스 양쪽 모드를 마친 뒤 PR 을 main 에 머지하고 Worker 를 승격합니다(활성 V22.9.71 해시 대조).
+2. OpenBuilder v3.3 지시문(docs/kakao-manual/OPENBUILDER_V3_3_CHAT_FEEDBACK_2026_10_20.md) A·B·D 를 부분 배포하고, C(대표 명령어)는 전체 배포 때 반영합니다.
+3. 실제 단톡방에서 요구사항 문서 5절 순서를 돌리고, ‘도움말 보기’ 가로채기 여부와 ‘기록하기’ 위치를 테스터에게 확인합니다.
+4. 관리자 `/nlu-ops.json?hours=24` 와 Supabase Reports 로 2026-10-20 12:07~12:10 KST 지연의 원인을 확인합니다. 재발하면 KAKAO_RESPONSE_BUDGET_MS 조정 또는 방 경로 왕복 축소(V22.9.44 결론 재검토)를 검토합니다.
+5. 피드백 요구사항 R1~R13 의 상태는 docs/codex/CHAT_FEEDBACK_REQUIREMENTS_2026_10_20.md 3절 표로 관리합니다.
+
 ## V22.9.68 다음 단계
 
 단톡방 연결 질문·점검 수정본의 전체 하네스를 마치고 운영 반영합니다. 점검 결과와 증거는 review-artifacts/v63-release-audit-2026-10-19 에 있고, 이 판에 넣지 않은 낮은 항목은 KNOWN-ISSUES 의 V22.9.63 절에 적었습니다. 그 다음은 AGENTS.md 시작 목록 축소와 docs/archive 정리입니다.

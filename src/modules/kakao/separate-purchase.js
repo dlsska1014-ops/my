@@ -129,7 +129,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       }
       if (command.action === "confirm" && state.state === "confirmed") return kakaoText("이미 처리한 별도 구매 확인입니다. 다시 추가하지 않았어요. 기록 목록에서 확인해 주세요.");
       if (command.action === "status") {
-        const recordCommand=`${state.row.transaction_date} 기록 보기`;
+        const recordCommand=`${state.row.transaction_date} 기록`; // V22.9.72: 짧은 명령 형식(두 형식 모두 날짜 목록으로 읽힌다)
         const description=state.state === "confirmed" ? "이미 저장을 확인한 별도 구매입니다." : state.state === "candidate" ? "아직 추가하지 않은 별도 구매 후보입니다." : "취소·만료 또는 저장이 거절된 후보입니다.";
         return kakaoText(`${description}\n${state.row.transaction_date} · ${state.row.memo||state.row.category} · ${numberWithCommas(state.row.amount)}원\n‘${recordCommand}’로 해당 날짜의 기록 목록을 확인해 주세요. 목록만으로 이번 요청의 실패를 단정하지 않습니다.`,groupKey?null:[["해당 날짜 기록",recordCommand]]);
       }

@@ -10,7 +10,8 @@ let checks = 0, sequence = 0;
 const eq = (actual, expected, label) => { assert.equal(actual, expected, label); checks++; };
 const ok = (actual, label) => { assert.ok(actual, label); checks++; };
 const BASE = "https://malhaebook.com";
-const textOf = (body) => (body?.template?.outputs || []).map((output) => output.simpleText?.text || "").join("\n");
+// V22.9.72: 단톡방 지연 답은 확인 버튼이 붙은 textCard 로 나가므로 description 도 읽는다.
+const textOf = (body) => (body?.template?.outputs || []).map((output) => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const userIdOf = (f, key) => f.db.users.find((u) => u.kakao_user_key === key)?.id;
 const roleOf = (f, userId, hid) => f.db.household_members.find((m) => String(m.user_id) === String(userId) && m.household_id === hid)?.role;
 
@@ -101,8 +102,8 @@ await withFixture(async (f) => {
   const households = f.db.households.length;
   const slow = await skill(f, "@말해가계부 점심 5만원", { key: owner });
   ok(slow.answeredMs < 1500, `slow request is answered near the budget (${slow.answeredMs}ms)`);
-  ok(slow.text.includes("처리 결과 확인이 조금 늦어지고 있어요"), "deferred answer explains the delay");
-  ok(slow.text.includes("오늘 기록 보기"), "deferred answer says how to check the result");
+  ok(slow.text.includes("늦어지고 있어요"), "deferred answer explains the delay");
+  ok(/오늘기록|\d{4}-\d{2}-\d{2} 기록|버튼을 눌러 다시/.test(slow.text), "deferred answer says how to check the result");
   eq(slow.response.status, 200, "deferred answer is HTTP 200 for Kakao");
   eq(slow.response.headers.get("x-accountbook-nlu-result"), "deferred", "deferred answer is marked");
   ok(!slow.body.template?.quickReplies, "deferred group answer has no quickReplies");

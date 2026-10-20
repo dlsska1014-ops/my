@@ -369,6 +369,12 @@ function budgetFeedbackLine(rows = [], budgets = [], category = "") {
 }
 
 async function kakaoBudgetStatusText(env, householdId, month, origin = "", householdName = "") {
+  return (await kakaoBudgetStatusParts(env, householdId, month, origin, householdName)).text;
+}
+
+// V22.9.72: 예산이 없을 때는 "예산을 정하고 지출을 기록하면 남은 예산을 볼 수 있다"는 짧은 안내만 돌려주고(noBudget),
+// 호출부가 예산설정·기록하기 버튼을 붙인다(2026-10-20 디자이너 피드백).
+async function kakaoBudgetStatusParts(env, householdId, month, origin = "", householdName = "", { canManage = true } = {}) {
   try {
     const budgets = await fetchBudgets(env, householdId, month);
     const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
@@ -381,7 +387,12 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
     if (!totalBudget) {
       // V22.9.37 감사 D7: 지출 예산이 0원이면(예상 수입만 저장된 달 포함) "남은 예산 0원(초과)"가 아니라 예산 없음이다.
       const incomeOnly = budgets.some((b) => isIncomeBudgetCategory(String(b.category || "")) || String(b.category || "") === "__income");
-      return [`💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "", incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 지출 예산이 설정되지 않았어요.", `현재 사용 금액: ${numberWithCommas(expense)}원`, "", "‘예산 설정’을 입력하면 카카오톡에서 단계별로 설정할 수 있어요."].join("\n");
+      return { noBudget: true, text: [
+        `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
+        incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 예산이 없어요.",
+        canManage ? "예산을 정하고 지출을 기록하면 남은 예산을 바로 볼 수 있어요." : "가계부 주인·관리자가 ‘예산설정’으로 예산을 정하면 남은 예산을 볼 수 있어요.",
+        `이번 달 지출: ${numberWithCommas(expense)}원`,
+      ].filter(Boolean).join("\n") };
     }
     // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이
     // 왜 보이지 않는지 알 수 있게 그 사실을 적는다.
@@ -394,7 +405,7 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
       const leftText = left >= 0 ? `${numberWithCommas(left)}원 남음` : `${numberWithCommas(Math.abs(left))}원 초과`;
       return `• ${x.category}: ${numberWithCommas(x.spent)}원 사용 / ${leftText} · ${x.rate || 0}%`;
     });
-    return [
+    return { noBudget: false, text: [
       `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
       `전체 예산: ${numberWithCommas(totalBudget)}원${budget.basis === "category" ? " (분류별 예산 합계)" : ""}`,
       ...(ignoredTotal ? [ignoredTotal] : []),
@@ -402,9 +413,9 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,
       `사용률: ${rate}% (${status})`,
       ...(categoryLines.length ? ["", "카테고리별", ...categoryLines, "상위·하위 행의 사용액은 겹칠 수 있어요. 전체 사용액은 거래마다 한 번만 셉니다."] : []),
-    ].join("\n");
+    ].join("\n") };
   } catch (err) {
-    return "💰 예산 현황을 불러오지 못했어요. 잠시 후 ‘남은 예산’을 다시 입력해 주세요.";
+    return { noBudget: false, text: "💰 예산 현황을 불러오지 못했어요. 잠시 후 ‘남은예산’을 다시 입력해 주세요." };
   }
 }
 
@@ -442,7 +453,7 @@ export {
   budgetAlertText, budgetCategoryMatches, budgetCenterSummary, budgetFeedbackLine,
   budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
   fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurring,
-  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusText, optionalSupabase,
+  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase,
   renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };
 // @build:exports-end

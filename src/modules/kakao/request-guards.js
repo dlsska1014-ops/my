@@ -181,16 +181,17 @@ function kakaoRepeatGuardText(origin = "") {
   return [
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
-    "‘오늘 기록 보기’로 저장 결과를 확인해 주세요.",
+    "‘오늘기록’로 저장 결과를 확인해 주세요.",
     "서로 다른 구매라면 ‘별도 구매 추가 커피 4500원’처럼 원래 내용을 보내 후보를 확인해 주세요.",
   ].join("\n");
 }
 
 // V22.9.44: 처리가 응답 예산(기본 4초)을 넘길 때 카카오에 먼저 보내는 답. 처리는 뒤에서 끝까지 진행된다.
+// V22.9.72: 문구를 두 줄로 줄이고 짧은 명령(오늘기록)으로 맞춘다(2026-10-20 디자이너 피드백).
 function kakaoSkillDeferredText() {
   return [
-    "요청은 받았어요. 처리 결과 확인이 조금 늦어지고 있어요.",
-    "같은 내용을 다시 보내지 말고 잠시 뒤 ‘오늘 기록 보기’로 확인해 주세요.",
+    "확인이 조금 늦어지고 있어요 😊",
+    "같은 내용을 다시 보내지 말고 잠시 뒤 ‘오늘기록’에서 확인해 주세요.",
   ].join("\n");
 }
 
@@ -199,13 +200,32 @@ function kakaoRecordCheckCommands(utterance = "", payload = {}) {
   if (separate?.token) return [`별도 구매 조회 ${separate.token}`];
   const today = formatDate(nowKstDate());
   const dates = [...new Set(parseMultipleTransactions(stripLeadingCommand(utterance), payload).map(row => row.transaction_date))].slice(0, 2);
-  return (dates.length ? dates : [today]).map(date => date === today ? "오늘 기록 보기" : `${date} 기록 보기`);
+  // V22.9.72: 버튼 이름이 곧 명령이므로 짧은 형태(오늘기록 · 2026-10-19 기록)로 맞춘다. 두 형태 모두 날짜 목록 명령으로 읽힌다.
+  return (dates.length ? dates : [today]).map(date => date === today ? "오늘기록" : `${date} 기록`);
 }
 
 function kakaoRecordCheckReply(text, utterance = "", payload = {}) {
   const commands = kakaoRecordCheckCommands(utterance, payload);
-  const body = `${text}\n${commands.map(command => `‘${command}’`).join(" 또는 ")}로 기록 목록을 확인해 주세요.\n목록이 비어 있어도 이 요청의 실패가 확정되는 것은 아닙니다.`;
-  return kakaoText(body, getKakaoBotGroupKey(payload) ? null : commands.map(command => [command, command]));
+  // V22.9.72: 단톡방도 버튼(textCard)으로 바뀌므로 확인 명령을 같이 보낸다. 긴 면책 문장은 한 줄로 줄인다.
+  const body = `${text}\n${commands.map(command => `‘${command}’`).join(" 또는 ")}에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요.`;
+  return kakaoText(body, commands.map(command => [command, command]));
+}
+
+// V22.9.72: 응답 예산을 넘긴 요청의 답(2026-10-20 디자이너 피드백 — 짧게, 다음 행동으로). 기록이면 중복 저장을 막는
+// 확인 안내와 확인 버튼, 조회·명령이면 같은 명령을 잠시 뒤 다시 보내라는 안내와 그 명령 버튼을 준다. 조회 결과는 뒤에서
+// 계산돼도 사용자에게 다시 보낼 길이 없으므로, 버튼 한 번으로 같은 질문을 되풀이할 수 있게 한다.
+function kakaoDeferredReply(utterance = "", payload = {}) {
+  const text = stripLeadingCommand(utterance);
+  const separate = parseKakaoSeparatePurchaseCommand(text);
+  const recordRows = separate ? [] : parseMultipleTransactions(text, payload);
+  if (separate?.token || recordRows.length) {
+    const commands = kakaoRecordCheckCommands(utterance, payload);
+    return kakaoText(`기록 저장 확인이 조금 늦어지고 있어요 😊\n같은 내용을 다시 보내지 말고 잠시 뒤 ${commands.map(command => `‘${command}’`).join(" 또는 ")}에서 확인해 주세요.`, commands.map(command => [command, command]));
+  }
+  const command = String(text || "").replace(/\s+/g, " ").trim();
+  // 단톡방 버튼은 이름(14자 이하)을 그대로 보내므로 긴 말은 잘라서 버튼에 넣지 않고 다시 보내 달라고만 한다.
+  if (!command || command.length > 14) return kakaoText("확인이 조금 늦어지고 있어요 😊\n잠시 뒤 같은 내용을 다시 보내 주세요.", [["도움말 보기", "도움말 보기"]]);
+  return kakaoText(`확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘${command}’ 버튼을 눌러 다시 물어봐 주세요.`, [[command, command]]);
 }
 
 function buildKakaoSkillTestPayload(utterance = "메뉴") {
@@ -262,8 +282,8 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 // @build:exports-start
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
-  isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoQaRequestAllowed,
-  kakaoRecordCheckReply, kakaoRepeatGuardText, looksLikeKakaoEditCommandV4,
+  isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoDeferredReply,
+  kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRepeatGuardText, looksLikeKakaoEditCommandV4,
   normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention, stripLeadingCommand,
 };
 // @build:exports-end

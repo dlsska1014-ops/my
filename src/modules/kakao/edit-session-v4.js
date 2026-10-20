@@ -152,7 +152,7 @@ function kakaoEditDayPrefixV4(date = "") {
 // N1·D4: 풀리지 않는 날짜 접두와 01 미만 번호는 아무것도 바꾸지 않고 거절한다.
 function kakaoEditTargetRejectTextV4(target = {}) {
   if (target.dateError) return `‘${target.prefix || "날짜"}’ 날짜를 알아듣지 못해서 아무것도 바꾸지 않았어요.\n달력에 있는 날짜로 다시 보내 주세요.\n예: 그제 삭제 01번 · 7월 13일 수정 01번 금액 13000`;
-  if (!target.latest && !(Number(target.seq) >= 1)) return "번호는 01번부터예요. 아무것도 바꾸지 않았어요.\n‘오늘 기록 보기’로 번호를 확인해 주세요.";
+  if (!target.latest && !(Number(target.seq) >= 1)) return "번호는 01번부터예요. 아무것도 바꾸지 않았어요.\n‘오늘기록’로 번호를 확인해 주세요.";
   return "";
 }
 
@@ -374,7 +374,7 @@ function kakaoEditGuideText(origin = "") {
     "✏️ 챗봇 수정 방법",
     "",
     "저장된 기록은 매일 00시 기준으로 01번부터 번호가 붙습니다.",
-    "번호는 ‘오늘 기록 보기’로 확인해요.",
+    "번호는 ‘오늘기록’로 확인해요.",
     "",
     "메뉴로 차근차근:",
     "수정 01번",

@@ -83,9 +83,11 @@ const groupText = group.data.template.outputs.map((output) => output?.simpleText
 // V22.9.65: 그룹에서 quickReplies 는 글자 목록이 아니라 textCard 세로 메시지 버튼으로 바뀐다.
 const choiceButtons = group.data.template.outputs.flatMap((output) => output?.textCard?.buttons || []);
 ok(!groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies no longer become a typed-choice list");
-ok(choiceButtons.length >= 3 && choiceButtons.every((b) => b.action === "message" && b.messageText && String(b.label || "").length <= 14), "quick replies become tappable message buttons");
-ok(choiceButtons.some((b) => b.messageText === "기록하는 법") && choiceButtons.some((b) => b.messageText === "웹 관리 방법"), "start shows the manual topics as buttons");
-ok(choiceButtons.some((b) => b.messageText === "함께 쓰는 법"), "start reaches the together topic");
+// V22.9.72: 맨 아래 ‘기록하기’는 멘션 플러그인(messageText 없음)이라 메시지 버튼만 센다.
+const choiceMessageButtons = choiceButtons.filter((b) => b.action === "message");
+ok(choiceMessageButtons.length >= 3 && choiceMessageButtons.every((b) => b.messageText && String(b.label || "").length <= 14) && choiceButtons.every((b) => b.action === "message" || b.action === "mention"), "quick replies become tappable message buttons");
+ok(choiceButtons.some((b) => b.label === "기록하기" && b.action === "mention") && choiceButtons.some((b) => b.messageText === "웹관리하기"), "start shows the manual topics as buttons");
+ok(choiceButtons.some((b) => b.messageText === "함께쓰기"), "start reaches the together topic");
 ok(group.data.template.outputs.filter((o) => o.textCard).every((o) => o.textCard.buttons.length <= 5 && o.textCard.buttonLayout === "vertical"), "choice cards keep at most five vertical buttons");
 ok(groupText.length <= 950, "group simpleText remains within the safe length");
 
@@ -105,8 +107,8 @@ ok(emptyCard && typeof emptyCard === "object", "group empty mention uses a textC
 const emptyButtons = Array.isArray(emptyCard?.buttons) ? emptyCard.buttons : [];
 eq(emptyButtons.length, 2, "group empty mention offers exactly two buttons");
 // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(단톡방은 버튼 이름을 그대로 보낸다).
-ok(emptyButtons.some((b) => b.action === "message" && b.label === "사용 설명서" && b.messageText === "사용 설명서"), "group empty mention has the 사용 설명서 message button that opens the manual");
-ok(emptyButtons.some((b) => b.action === "mention" && b.label === "챗봇 멘션하기"), "group empty mention has the mention (챗봇 멘션하기) action button");
+ok(emptyButtons.some((b) => b.action === "message" && b.label === "도움말 보기" && b.messageText === "도움말 보기"), "group empty mention has the 도움말 보기 message button that opens the manual");
+ok(emptyButtons.some((b) => b.action === "mention" && b.label === "기록하기"), "group empty mention has the mention (챗봇 멘션하기) action button");
 ok(emptyButtons.every((b) => String(b.label || "").length <= 8), "group empty mention button labels fit the horizontal 8-character limit");
 const emptyText = `${emptyCard?.title || ""}\n${emptyCard?.description || ""}`;
 ok(!emptyText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "group empty mention drops the typed-choice list");

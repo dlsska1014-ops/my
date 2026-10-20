@@ -51,7 +51,7 @@ async function kakaoFlowRetryOrExit(env, user, payload, state, reply, exitReply)
   return reply;
 }
 
-const KAKAO_BUDGET_FLOW_EXIT = Object.freeze({ text: "예산 설정을 멈췄어요. 다시 하려면 ‘예산 설정’을 눌러 주세요.", quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]] });
+const KAKAO_BUDGET_FLOW_EXIT = Object.freeze({ text: "예산 설정을 멈췄어요. 다시 하려면 ‘예산설정’을 눌러 주세요.", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]] });
 
 // V22.9.63: 단톡방에서 새 가계부를 만든 직후 이 방의 연결을 새 가계부로 바꿀지 묻는다. 현재 연결 가계부의 소유자·관리자가 아니면
 // 바꿀 수 없으니 묻지 않는다. 질문 상태는 가계부 선택 흐름의 confirm_bind 와 같은 모양이라 답은 그 처리기가 받고, 실제 연결 변경은
@@ -109,9 +109,9 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
           return {
             text: [
               `알겠어요. ‘${targetName || "새"}’ 가계부는 만들어졌고, 이 단톡방의 기록은 ${currentName ? `계속 ‘${currentName}’ 가계부에 저장돼요.` : "연결 전이라 저장되지 않아요."}`,
-              `나중에 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부 전환’을 입력해 주세요.`,
+              `나중에 이 단톡방을 ‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부전환’을 입력해 주세요.`,
             ].join("\n"),
-            quickReplies: [["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"]],
+            quickReplies: [["가계부전환", "가계부전환"], ["기록방법", "기록방법"]],
           };
         }
         return { text: "단톡방 연결 변경을 취소했어요.", quickReplies: [["시작", "시작"]] };
@@ -129,28 +129,28 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
           }, {
             text: [
               `연결 질문을 닫았어요. 이 단톡방의 기록은 ${currentName ? `계속 ‘${currentName}’ 가계부에 저장돼요.` : "연결 전이라 저장되지 않아요."}`,
-              `‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부 전환’을 눌러 주세요.`,
+              `‘${targetName || "새"}’ 가계부로 ${currentName ? "바꾸려면" : "연결하려면"} ‘가계부전환’을 눌러 주세요.`,
             ].join("\n"),
-            quickReplies: [["가계부 전환", "가계부 전환"], ["기록 방법", "기록 방법"]],
+            quickReplies: [["가계부전환", "가계부전환"], ["기록방법", "기록방법"]],
           });
         }
-        return kakaoFlowRetryOrExit(env, user, payload, state, { text: "연결하려면 ‘연결하기’를 눌러 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] }, { text: "단톡방 연결을 멈췄어요. 다시 하려면 ‘단톡방 연결’을 눌러 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] });
+        return kakaoFlowRetryOrExit(env, user, payload, state, { text: "연결하려면 ‘연결하기’를 눌러 주세요.", quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] }, { text: "단톡방 연결을 멈췄어요. 다시 하려면 ‘단톡방연결’을 눌러 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] });
       }
       const targetId = String(state.data?.target_household_id || "");
       const all = kakaoManageableHouseholds(await fetchUserHouseholds(env, user.id));
       const target = all.find((h) => String(h.id) === targetId);
       if (!target) {
         await clearKakaoFlowState(env, user.id, payload);
-        return { text: "연결할 가계부가 삭제되었거나 관리 권한이 없어졌어요. ‘단톡방 연결’을 다시 진행해 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] };
+        return { text: "연결할 가계부가 삭제되었거나 관리 권한이 없어졌어요. ‘단톡방연결’을 다시 진행해 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] };
       }
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
       const result = await bindKakaoGroupByInviteCode(env, user, groupKey, target.invite_code || "", { allowReplace: true });
       if (result.ok) {
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+        return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
       }
       await clearKakaoFlowState(env, user.id, payload);
-      return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방 연결", "단톡방 연결"]] };
+      return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] };
     }
     const all = await fetchUserHouseholds(env, user.id);
     const ids = safeArray(state.data?.household_ids).map(String);
@@ -183,7 +183,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return kakaoFlowRetryOrExit(env, user, payload, state, {
         text: "가계부를 찾지 못했어요. 아래에서 눌러 골라 주세요.",
         quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
-      }, { text: "가계부 선택을 멈췄어요. 다시 하려면 ‘가계부 전환’을 눌러 주세요.", quickReplies: [["가계부 전환", "가계부 전환"]] });
+      }, { text: "가계부 선택을 멈췄어요. 다시 하려면 ‘가계부전환’을 눌러 주세요.", quickReplies: [["가계부전환", "가계부전환"]] });
     }
     const storedAction = String(state.data?.action || "select");
     // 단톡방 안에서는 어떤 경로로 왔든 1:1 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
@@ -195,7 +195,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     }
     await clearKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.
-    if (action === "invite") return canManageMyHousehold(chosen.role) ? { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방 연결", "단톡방 연결"], ["도움말", "도움말"]] } : { text: kakaoInviteNotAllowedText(chosen), quickReplies: [["도움말", "도움말"]] };
+    if (action === "invite") return canManageMyHousehold(chosen.role) ? { text: kakaoInviteManagementText(chosen, origin), quickReplies: [["단톡방연결", "단톡방연결"], ["도움말 보기", "도움말 보기"]] } : { text: kakaoInviteNotAllowedText(chosen), quickReplies: [["도움말 보기", "도움말 보기"]] };
     if (action === "bind") {
       const groupKey = String(state.data?.group_key || getKakaoBotGroupKey(payload) || "");
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
@@ -218,7 +218,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
         return {
           text: [`같은 이름의 가계부가 이미 있어 새로 만들지 않았어요.`, `가계부: ${existing.name}`, groupKey ? "현재 단톡방 연결은 자동으로 바뀌지 않습니다." : "기존 가계부를 현재 가계부로 선택했어요."].join("\n") + cleanupNotice,
-          quickReplies: groupKey ? [["단톡방 연결", "단톡방 연결"], ["가계부 전환", "가계부 전환"]] : kakaoStartQuickReplies(true),
+          quickReplies: groupKey ? [["단톡방연결", "단톡방연결"], ["가계부전환", "가계부전환"]] : kakaoStartQuickReplies(true),
         };
       }
       const household = result.household;
@@ -234,7 +234,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         "구성원에게 초대코드를 보내면 같은 가계부에 참여할 수 있어요.",
       ];
       // V22.9.63: 단톡방에서 새 가계부를 만든 사람은 거의 늘 이 방의 기록을 새 가계부에 쌓으려는 것이다. 예전에는 방 연결이
-      // 그대로라 다음 기록부터 옛 가계부에 계속 쌓였고, 안내한 ‘단톡방 연결’은 안내문만 보여 줘 바꿀 길이 없었다(2026-10-19 운영 보고).
+      // 그대로라 다음 기록부터 옛 가계부에 계속 쌓였고, 안내한 ‘단톡방연결’은 안내문만 보여 줘 바꿀 길이 없었다(2026-10-19 운영 보고).
       // 연결을 바꿀 권한이 있으면 바로 묻는다. 답하기 전에는 연결도 바꾸지 않고 이 방의 기록도 저장하지 않는다(V22.9.37 H2 유지).
       const rebind = groupKey ? await offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey, household, linked }) : null;
       if (rebind) {
@@ -245,11 +245,11 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
           ...headLines,
           groupKey
             ? (linked?.id
-              ? `이 단톡방의 기록은 계속 ‘${linked.name}’ 가계부에 저장돼요. 새 가계부로 바꾸려면 ‘${linked.name}’의 소유자·관리자가 ‘가계부 전환’을 입력해야 해요.`
-              : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. 연결하려면 ‘가계부 전환’을 입력해 주세요.")
+              ? `이 단톡방의 기록은 계속 ‘${linked.name}’ 가계부에 저장돼요. 새 가계부로 바꾸려면 ‘${linked.name}’의 소유자·관리자가 ‘가계부전환’을 입력해야 해요.`
+              : "새 가계부가 이 단톡방에 자동 연결되지는 않아요. 연결하려면 ‘가계부전환’을 입력해 주세요.")
             : "단톡방에서는 소유자 또는 관리자가 한 번 연결해 주세요.",
         ].filter(Boolean).join("\n") + cta + cleanupNotice,
-        quickReplies: dedupeQuickReplies([["초대코드", "초대코드"], ["단톡방 연결", "단톡방 연결"], ["기록 방법", "기록 방법"]]),
+        quickReplies: dedupeQuickReplies([["초대코드", "초대코드"], ["단톡방연결", "단톡방연결"], ["기록방법", "기록방법"]]),
       };
     };
 
@@ -325,13 +325,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
   }
   if (state.flow === "join_household") {
     const code = parseBareInviteCode(utterance) || parseJoinCode(utterance);
-    if (!code) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "초대코드를 입력해 주세요.\n예: ABC123", quickReplies: [["취소", "취소"]] }, { text: "참여를 멈췄어요. 다시 하려면 ‘초대코드로 참여’를 눌러 주세요.", quickReplies: [["초대코드로 참여", "초대코드로 참여"]] });
+    if (!code) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "초대코드를 입력해 주세요.\n예: ABC123", quickReplies: [["취소", "취소"]] }, { text: "참여를 멈췄어요. 다시 하려면 ‘초대코드참여’를 눌러 주세요.", quickReplies: [["초대코드참여", "초대코드참여"]] });
     const joined = await joinHouseholdByCode(env, user.id, code);
-    if (!joined) return kakaoFlowRetryOrExit(env, user, payload, state, { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["취소", "취소"]] }, { text: "초대코드를 찾지 못해 참여를 멈췄어요. 코드를 확인한 뒤 ‘초대코드로 참여’를 다시 눌러 주세요.", quickReplies: [["초대코드로 참여", "초대코드로 참여"]] });
+    if (!joined) return kakaoFlowRetryOrExit(env, user, payload, state, { text: `초대코드 ${code}를 찾지 못했어요. 다시 확인해 주세요.`, quickReplies: [["취소", "취소"]] }, { text: "초대코드를 찾지 못해 참여를 멈췄어요. 코드를 확인한 뒤 ‘초대코드참여’를 다시 눌러 주세요.", quickReplies: [["초대코드참여", "초대코드참여"]] });
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
     if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말", "도움말"]] };
+    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말 보기", "도움말 보기"]] };
     return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
   return null;
@@ -363,16 +363,16 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
-    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘내 이름 설정’을 눌러 주세요.", quickReplies: [["내 이름 설정", "내 이름 설정"]] });
+    if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘이름설정’을 눌러 주세요.", quickReplies: [["이름설정", "이름설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"]] };
+    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
   }
   if (state.flow === "budget_setup") {
     const role = await getHouseholdMemberRole(env, user.id, household.id);
     if (!["owner","admin"].includes(role)) {
       await clearKakaoFlowState(env, user.id, payload);
-      return { text: "예산은 가계부 주인·관리자만 정할 수 있어요.", quickReplies: [["남은 예산", "남은 예산"]] };
+      return { text: "예산은 가계부 주인·관리자만 정할 수 있어요.", quickReplies: [["남은예산", "남은예산"]] };
     }
     const month = validMonth(state.data?.month) || currentMonthKst();
     if (state.step === "root") {
@@ -401,7 +401,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
           };
         }
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은 예산", "남은 예산"], ["예산 설정", "예산 설정"]] };
+        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은예산", "남은예산"], ["예산설정", "예산설정"]] };
       }
       return kakaoFlowRetryOrExit(env, user, payload, state, { text: "아래 버튼 중 하나를 눌러 주세요.", quickReplies: kakaoBudgetRootQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
     }
@@ -455,7 +455,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
       return {
         text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + totalNote + cta + cleanupNotice,
-        quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]],
+        quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]],
       };
     }
   }

@@ -191,28 +191,28 @@ function kakaoAmbiguityGuide(utterance = "", origin = "") {
   if (ambiguity.type === "name_target") {
     return {
       text: "어떤 이름을 바꾸시려는 건가요?",
-      quickReplies: [["내 표시 이름", "내 이름 설정"], ["가계부 이름", "가계부 관리"]],
+      quickReplies: [["이름설정", "이름설정"], ["가계부 이름", "가계부 관리"]],
       reason: ambiguity.type,
     };
   }
   if (ambiguity.type === "invite_action") {
     return {
       text: "구성원을 초대할까요, 받은 초대코드로 참여할까요?",
-      quickReplies: [["초대코드 보기", "초대코드"], ["코드로 참여", "초대코드로 참여"]],
+      quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]],
       reason: ambiguity.type,
     };
   }
   if (ambiguity.type === "budget_action") {
     return {
       text: "예산을 새로 설정할까요, 현재 예산을 확인할까요?",
-      quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]],
+      quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]],
       reason: ambiguity.type,
     };
   }
   if (ambiguity.type === "household_action") {
     return {
       text: "가계부에서 무엇을 하시려는 건가요?",
-      quickReplies: [["새로 만들기", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부 전환", "가계부 전환"]],
+      quickReplies: [["새로 만들기", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]],
       reason: ambiguity.type,
     };
   }
@@ -235,24 +235,24 @@ function kakaoGreetingReply(utterance = "") {
   const text = thanks
     ? "저도 고마워요 😊 오늘 쓴 돈이 있으면 바로 적어 주세요.\n예: 커피 4500원"
     : "안녕하세요 😊 무엇을 도와드릴까요?\n\n지출은 이렇게 보내면 바로 기록돼요.\n• 점심 12000원 국민카드\n• 어제 병원 15000원";
-  return { text, quickReplies: [["기록 방법", "기록 방법"], ["이번 달 요약", "이번 달 요약"], ["도움말", "도움말"]] };
+  return { text, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"], ["도움말 보기", "도움말 보기"]] };
 }
 
 function kakaoNoMatchGuide(utterance = "", origin = "") {
   if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
   const nlu = detectKakaoNaturalIntent(utterance);
   const text = kakaoNoMatchGuideText(utterance, origin);
-  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["내 이름 변경", "내 이름 설정"], ["취소", "취소"]] };
+  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["이름설정", "이름설정"], ["취소", "취소"]] };
   if (["INVITE_CODE_SHOW","INVITE_MEMBER"].includes(nlu.intent) || /(초대|코드|구성원|멤버)/.test(nlu.normalized)) {
-    return { text, quickReplies: [["초대코드 보기", "초대코드"], ["코드로 참여", "초대코드로 참여"]] };
+    return { text, quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]] };
   }
   if (["BUDGET_SETUP","BUDGET_STATUS"].includes(nlu.intent) || /예산/.test(nlu.normalized)) {
-    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산 설정", "예산 설정"], ["남은 예산", "남은 예산"]] };
+    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]] };
   }
   if (/가계부/.test(nlu.normalized)) {
-    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부 전환", "가계부 전환"]] };
+    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]] };
   }
-  return { text, quickReplies: [["사용 설명서", "사용 설명서"], ["오늘 기록 보기", "오늘 기록 보기"]] };
+  return { text, quickReplies: [["도움말 보기", "도움말 보기"], ["오늘기록", "오늘기록"]] };
 }
 
 function kakaoInputExampleText(origin = "") {
@@ -295,7 +295,7 @@ function kakaoEditSimpleGuideText(origin = "") {
   return [
     "✏️ 수정가이드",
     "",
-    "먼저 ‘오늘 기록 보기’를 입력해 번호를 확인해 주세요.",
+    "먼저 ‘오늘기록’를 입력해 번호를 확인해 주세요.",
     "",
     "예시",
     "• 수정 01번  ← 메뉴로 하나씩 선택",
@@ -321,9 +321,9 @@ function kakaoBudgetGuideText(origin = "") {
   return [
     "💰 예산 사용법",
     "",
-    "설정: ‘예산 설정’ 또는 ‘/예산설정’",
+    "설정: ‘예산설정’ 또는 ‘/예산설정’",
     "직접 설정: ‘외식 예산설정 100만원’",
-    "확인: ‘남은 예산’ 또는 ‘예산 현황’",
+    "확인: ‘남은예산’ 또는 ‘예산 현황’",
   ].join("\n");
 }
 
