@@ -15,7 +15,8 @@ const SOURCES = [
   { key: "V44", path: "docs/codex/AUDIT_FINDINGS_V22_9_44.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([A-G]-[0-9]+)(?=[ *]|$)/gm, expected: 105 },
   { key: "V75", path: "docs/codex/PRELAUNCH_AUDIT_V22_9_75.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([RKWMO]-[0-9]+)(?=[ *]|$)/gm, expected: null },
 ];
-const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가"]);
+// '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
+const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);
 const FIXED = new Set(["고침", "일부 고침"]);
 const SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
 
@@ -48,7 +49,7 @@ const versionOf = (text) => { const m = /V22[.]9[.]([0-9]+)/.exec(String(text ||
 for (const row of rows) {
   ok(row.cells.length === 7, `${row.id}: 칸이 7개다 (${row.cells.length}개)`);
   ok(SEVERITIES.has(row.severity), `${row.id}: 등급이 P0~P3 중 하나다 (${row.severity})`);
-  ok(STATUSES.has(row.status), `${row.id}: 상태가 고침·일부 고침·남음·결정 필요·확인 불가 중 하나다 (${row.status})`);
+  ok(STATUSES.has(row.status), `${row.id}: 상태가 고침·일부 고침·남음·결정 필요·확인 불가·결함 아님 중 하나다 (${row.status})`);
   ok(String(row.title || "").length >= 4, `${row.id}: 제목이 있다`);
   if (row.status !== "고침") ok(String(row.note || "").replace(/[—-]/g, "").trim().length >= 4, `${row.id}: '${row.status}' 항목은 메모에 이유나 다음 행동을 적는다`);
   // 이번 판부터 고친 코드 결함은 하네스에 등록된 동작 검사로 다시 못 돌아오게 묶는다. 문서만 고친 항목은 메모에 '문서'라고 적는다.
@@ -64,8 +65,8 @@ for (const row of rows) {
 }
 
 const count = (filter) => rows.filter(filter).length;
-const openSevere = rows.filter((r) => r.status !== "고침" && (r.severity === "P0" || r.severity === "P1"));
-console.log(`추적표 ${rows.length}건: 고침 ${count((r) => r.status === "고침")}, 일부 고침 ${count((r) => r.status === "일부 고침")}, 남음 ${count((r) => r.status === "남음")}, 결정 필요 ${count((r) => r.status === "결정 필요")}, 확인 불가 ${count((r) => r.status === "확인 불가")}`);
+const openSevere = rows.filter((r) => r.status !== "고침" && r.status !== "결함 아님" && (r.severity === "P0" || r.severity === "P1"));
+console.log(`추적표 ${rows.length}건: 고침 ${count((r) => r.status === "고침")}, 일부 고침 ${count((r) => r.status === "일부 고침")}, 남음 ${count((r) => r.status === "남음")}, 결정 필요 ${count((r) => r.status === "결정 필요")}, 확인 불가 ${count((r) => r.status === "확인 불가")}, 결함 아님 ${count((r) => r.status === "결함 아님")}`);
 if (openSevere.length) console.log(`열린 P0·P1: ${openSevere.map((r) => r.id).join(", ")}`);
 if (failures.length) {
   console.error(`FAIL: V22.9.75 findings ledger (${failures.length} of ${checks} checks)`);
