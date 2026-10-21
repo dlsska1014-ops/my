@@ -18502,7 +18502,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const projectedRate = totalBudget && forecastExpense != null ? Math.round(forecastExpense / totalBudget * 100) : null;
   const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
   const pendingState = !recurringAvailable ? "unavailable" : !sameMonth ? "deferred" : "complete";
-  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => budgetCategoryMatches(b.category, r.category)))) : null;
+  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))) : null;
   const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
@@ -18519,7 +18519,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   // V22.9.75 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
   // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
   const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
-    ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => budgetCategoryMatches(b.category, r.category)))
+    ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
     : [];
   const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
@@ -28912,8 +28912,24 @@ async function fetchRecurringRuleByIdStrict(env, id = "") {
 
 // Compatibility belongs to budgets, not to the transaction classifier. A custom
 // category with the same normalized name follows this same interpretation.
-function budgetCategoryNames(category = "") {
+// V22.9.75 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
+// 따로 분류되므로 권하는 대로 예산을 잡으면 교통비 대부분이 예산 밖으로 빠졌다(교통 예산 30만 원에 사용 10,900원).
+// ‘교통’ 예산은 옛 ‘교통/차량’과 같은 갈래(교통·택시·주유/충전·차량관리, 옛 기록의 ‘교통/차량’)를 센다. 웹·홈·카카오가 모두
+// budgetSummary 를 쓰므로 한곳에서 맞춘다.
+const BUDGET_CATEGORY_PARENT_ALIASES = Object.freeze({ "교통": "교통/차량" });
+
+function budgetCategoryNames(category = "", explicit = null) {
   const key = normalizeText(category);
+  const alias = Object.keys(BUDGET_CATEGORY_PARENT_ALIASES).find((name) => normalizeText(name) === key);
+  const aliasParent = alias ? normalizeText(BUDGET_CATEGORY_PARENT_ALIASES[alias]) : "";
+  // 진짜 상위 행(교통/차량)이 같은 달 예산에 함께 있으면 ‘교통’은 그 아래 하위 행으로 남는다(V22.9.52 상위·하위 규칙).
+  if (aliasParent && !(explicit && explicit.has(aliasParent))) {
+    // ‘교통’ 한 줄로 교통비를 잡은 경우다. 따로 예산 행이 있는 갈래(예: 주유/충전)는 그 행에서만 세어, 형제 분류의 지출로
+    // 교통 행이 초과 알림을 내지 않게 한다. 진짜 상위 행(식비·교통/차량)의 겹침 규칙은 그대로다.
+    const family = Object.keys(LEGACY_CATEGORY_SPLITS).find(name => normalizeText(name) === aliasParent);
+    return [...new Set([key, aliasParent, ...(family ? LEGACY_CATEGORY_SPLITS[family].map(normalizeText) : [])])]
+      .filter((name) => name === key || !(explicit && explicit.has(name)));
+  }
   const legacy = Object.keys(LEGACY_CATEGORY_SPLITS).find(name => normalizeText(name) === key);
   return [...new Set([key, ...(legacy ? LEGACY_CATEGORY_SPLITS[legacy].map(normalizeText) : [])])];
 }
@@ -28938,8 +28954,9 @@ function budgetSummary(rows = [], budgets = []) {
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
   }
   const covered = new Set();
+  const explicitCategories = new Set(categoryBudgets.map((b) => normalizeText(b.category)));
   const categoryAlerts = categoryBudgets.map((b) => {
-    const categories = budgetCategoryNames(b.category);
+    const categories = budgetCategoryNames(b.category, explicitCategories);
     categories.forEach(category => covered.add(category));
     const spent = categories.reduce((sum, category) => sum + Number(byCategory[category] || 0), 0);
     const amount = Number(b.amount || 0);
@@ -29000,8 +29017,9 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
   return "여유";
 }
 
-function renderBudgetCategoryUsageTree(category = "", rows = []) {
-  const filtered = safeArray(rows).filter((r) => r.type !== "income" && budgetCategoryMatches(category, r.category));
+function renderBudgetCategoryUsageTree(category = "", rows = [], categories = null) {
+  // V22.9.75 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
+  const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
   const groups = Object.create(null);
   for (const r of filtered) {
@@ -29066,7 +29084,7 @@ function renderBudgetRows(budgets = [], budget = {}, rowsForDetails = [], canMan
       || safeArray(budget.categoryAlerts).find((x) => normalizeText(x.category) === normalizeText(b.category))
       || { spent: 0, budget: Number(b.amount || 0), rate: 0 };
     const remain = Math.max(0, Number(b.amount || 0) - Number(alert.spent || 0));
-    const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails);
+    const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails, alert.categories || null);
     return `<tr><td><details class="catUse"><summary><b>${escapeHtml(b.category)}</b><small>사용 내역 보기</small></summary>${tree}</details></td><td>${numberWithCommas(b.amount)}원</td><td>${numberWithCommas(alert.spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${alert.rate || 0}%</td><td><span class="status ${alert.rate >= 100 ? "bad" : alert.rate >= 85 ? "warn" : "ok"}">${budgetStatusLabel(alert.rate || 0, alert.spent, alert.budget)}</span></td><td>${canManage ? `<form method="post" action="/admin/budget/delete"><input type="hidden" name="household_id" value="${escapeHtml(b.household_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(b.month || currentMonthKst())}"/><input type="hidden" name="category" value="${escapeHtml(b.category)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(b.month || currentMonthKst())}&household_id=${escapeHtml(b.household_id || "")}"/><button class="mini danger" type="submit">삭제</button></form>` : `<span class="status ok">조회 전용</span>`}</td></tr>`;
   }).join("");
 }

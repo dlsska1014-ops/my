@@ -8,7 +8,7 @@
 //   P2-1 분류 예산 밖에만 반영 대기 정기지출이 있을 때 "대기 중인 정기지출이 없습니다"라고 단정하지 않는다.
 //   D-26 예약 실행 주소의 잘못된 today·month 는 오늘로 바꿔 실행하지 않고 거절한다.
 import app, { parseFlexibleImportRecords, runRecurringAutoApply } from "../src/index.js";
-import { fixture, withClock, post, page, api, formFields, counter, intercept, BASE, ctx } from "./lib-audit-v22934.mjs";
+import { fixture, withClock, post, page, api, formFields, counter, intercept, BASE, ctx, putSetting, skill } from "./lib-audit-v22934.mjs";
 
 const { ok, eq, done } = counter("V22.9.75 돈 계산·정기 반영 수정 검사");
 const KST = (ymd, hm = "09:10") => Date.parse(`${ymd}T${hm}:00+09:00`);
@@ -280,6 +280,33 @@ await fixture(async (fx) => {
   const current = await post(fx, "/admin/recurring/apply", { household_id: "house-home", month: "2026-10", return_to: "/reserve-plans?household_id=house-home&month=2026-10#fixed" });
   ok(current.status === 303 && /고정항목 1건 기록/.test(current.decoded.replace(/[+]/g, " ")), `D-11 이번 달은 확인 없이 바로 기록한다 (${current.decoded})`);
   eq(recurringTx(fx, "d11-cur", "2026-10").map((t) => t.transaction_date).join(","), "2026-10-05", "D-11 이번 달 기록 날짜");
+});
+
+// ── D-4: ‘교통’ 예산은 교통 갈래 전체를 세고, 홈·예산 화면·카카오 남은예산이 같은 숫자를 낸다 ─────────
+await fixture(async (fx) => {
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-10-14", "12:00");
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", "house-home");
+  fx.db.transactions = fx.db.transactions.filter((r) => r.household_id !== "house-home");
+  fx.db.accountbook_budgets = fx.db.accountbook_budgets.filter((b) => b.household_id !== "house-home");
+  const budget = (category, amount) => fx.db.accountbook_budgets.push({ id: `d4-b-${category}`, household_id: "house-home", month: "2026-10", category, amount, created_at: "2026-10-01T00:00:00.000Z" });
+  budget("외식", 200000); budget("교통", 100000); budget("주유/충전", 200000); budget("카페/간식", 50000);
+  const tx = (id, date, category, amount, memo) => fx.db.transactions.push({ id: `d4-${id}`, household_id: "house-home", user_id: "user-bin", transaction_date: date, type: "expense", amount, category, memo, payment_method: "현대카드", source: "kakao", raw_text: `${memo} ${amount}` });
+  tx("lunch", "2026-10-02", "외식", 12000, "점심"); tx("delivery", "2026-10-03", "배달", 23000, "배달 치킨");
+  tx("bus", "2026-10-05", "교통", 1500, "버스"); tx("taxi", "2026-10-06", "택시", 18000, "택시");
+  tx("fuel", "2026-10-07", "주유/충전", 150000, "주유"); tx("coffee", "2026-10-08", "카페/간식", 4500, "커피");
+  tx("legacy", "2026-10-09", "교통/차량", 5000, "하이패스");
+  // 교통 행: 교통 1,500 + 택시 18,000 + 옛 교통/차량 5,000 = 24,500(주유는 따로 예산 행이 있어 주유/충전 행에서만 센다).
+  // 예산을 잡은 사용액 191,000원 / 전체 예산 550,000원 = 35%, 남은 예산 359,000원, 예산 밖(배달) 23,000원.
+  const kakao = await skill(fx, "남은예산");
+  ok(kakao.includes("사용 금액: 191,000원") && kakao.includes("남은 예산: 359,000원") && kakao.includes("사용률: 35%"), `D-4 카카오 남은예산 합계 (${kakao.split(String.fromCharCode(10)).join(" ").slice(0, 160)})`);
+  ok(kakao.includes("• 교통: 24,500원 사용 / 75,500원 남음 · 25%"), "D-4 카카오 교통 행은 택시·옛 교통/차량까지 센다");
+  ok(kakao.includes("• 주유/충전: 150,000원 사용 / 50,000원 남음 · 75%"), "D-4 따로 예산을 잡은 주유/충전은 교통 행에서 빼고 자기 행에서 센다");
+  const budgets = strip((await page(fx, "/budgets?month=2026-10&household_id=house-home")).html);
+  ok(budgets.includes("이번 달 남은 예산 359,000 원 전체 예산 550,000원 · 사용 191,000원 (35%)"), `D-4 예산 화면 합계가 카카오와 같다 (${(budgets.match(/이번 달 남은 예산 .{0,80}/) || [""])[0]})`);
+  ok(/교통 [가-힣]+ 예산 100,000원 사용 24,500원/.test(budgets), `D-4 예산 화면 교통 카드도 24,500원 (${(budgets.match(/교통 [가-힣]+ 예산 [0-9,]+원 사용 [0-9,]+원/) || [""])[0]})`);
+  ok(/예산 밖 지출 23,000원/.test(budgets), "D-4 예산 밖 지출은 배달 23,000원만 남는다");
+  const home = strip((await page(fx, "/app?month=2026-10&household_id=house-home")).html);
+  ok(/예산 사용률 35%/.test(home) && home.includes("359,000") && /지출 191,000원/.test(home), `D-4 홈 대표 숫자도 같다 (${(home.match(/이번 달 쓸 수 있는 돈 .{0,110}/) || [""])[0]})`);
 });
 
 // ── P1-1: 지정일 전에 '반영'을 눌러도 추가 가정값이 그대로 ──────────────────────
