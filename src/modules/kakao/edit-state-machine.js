@@ -28,7 +28,7 @@ const FIELD_SYNONYMS = {
   method:   ["결제수단", "결재수단", "수단", "지불수단", "지불방법", "결제방법", "카드변경"],
   content:  ["내용", "이름", "품목", "제목", "메모"],
   date:     ["날짜", "일자", "날자"],
-  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람"],
+  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람", "수입자", "받은사람"],
   delete:   ["삭제", "지우기", "지워", "삭제해줘"],
 };
 
@@ -41,6 +41,18 @@ const FIELD_LABEL = {
   amount: "금액", category: "분류", method: "결제수단",
   content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
 };
+
+// V22.9.75 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
+// 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
+function payerWord(session = {}) { return session && session.rowType === "income" ? "수입자" : "지출자"; }
+function fieldLabel(field, session = {}) { return field === "payer" ? payerWord(session) : FIELD_LABEL[field]; }
+
+// V22.9.75 카카오 감사 2: 분류 목록의 기본값은 구분별 표준 분류 이름(CATEGORY_RULES 이름과 기타수입·기타지출)이다.
+// 예전 기본 목록은 구분 없이 지출 이름뿐이었고 "의료"·"생활"처럼 표준이 아닌 이름이라 예산 집계에서 빠졌다.
+const KAKAO_EDIT_DEFAULT_CATEGORIES = Object.freeze({
+  expense: Object.freeze(["외식", "배달", "카페/간식", "장보기", "편의점", "교통", "생활용품", "쇼핑", "의료/병원", "문화/여가", "기타지출"]),
+  income: Object.freeze(["급여", "용돈", "환급", "이자배당", "부업/매출", "기타수입"]),
+});
 
 const FILLER_TOKENS = new Set([
   "변경", "바꿔", "바꾸기", "바꿔줘", "수정", "수정해줘",
@@ -130,6 +142,16 @@ function tokenToFieldFuzzy(tokenRaw) {
 
 // T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
 // 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
+// V22.9.75 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
+// 새 기록의 첫 낱말이 우연히 필드 이름으로 시작하는 경우("사람들 회식 5만원")는 피하려고, 앞 낱말이 필드 이름이나
+// 메뉴 번호와 똑같을 때만 맞다고 본다.
+function isExactKakaoEditFieldStart(textRaw = "") {
+  const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
+  if (/^[1-7]$/.test(token)) return true;
+  const c = compact(token);
+  return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
+}
+
 function startsWithKakaoEditField(textRaw = "") {
   const first = normalize(textRaw).split(" ")[0] || "";
   return !!(tokenToField(first) || tokenToFieldFuzzy(first));
@@ -228,13 +250,13 @@ function failMessage(session, userText) {
   const no = session.entryNo;
   const variants = [
     // 1회차: 짧은 재안내
-    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: 지출자 엄마 / 금액 13000 / 6`,
+    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: ${payerWord(session)} 엄마 / 금액 13000 / 6`,
     // 2회차: 원문 echo + 근접 후보 + 복사용 완성 예시 [L9]
     (() => {
       const guess = nearestField(userText);
       let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
-      if (guess) msg += `\n혹시 ${FIELD_LABEL[guess]} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess)}`;
-      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제`;
+      if (guess) msg += `\n혹시 ${fieldLabel(guess, session)} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess, session)}`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제`;
       return msg;
     })(),
     // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
@@ -256,10 +278,10 @@ function nearestField(text) {
   return bestDist <= 2 ? best : null;
 }
 
-function exampleFor(field) {
+function exampleFor(field, session = {}) {
   return {
     amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
-    content: "내용 점심", date: "날짜 어제", payer: "지출자 엄마", delete: "삭제",
+    content: "내용 점심", date: "날짜 어제", payer: `${payerWord(session)} 엄마`, delete: "삭제",
   }[field];
 }
 
@@ -272,14 +294,14 @@ function buildValuePrompt(field, config = {}) {
 
   if (field === "payer") {
     const options = config.members || ["아빠", "엄마"];
-    return { prompt: `지출자를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
+    return { prompt: `${config.rowType === "income" ? "수입자" : "지출자"}를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "method") {
     const options = [...new Set([...(config.methods || []), "현금", "체크카드", "신용카드", "계좌이체"])];
     return { prompt: `결제수단을 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "category") {
-    const options = config.categories || ["식비", "카페/간식", "교통", "생활", "의료", "교육", "문화", "기타"];
+    const options = config.categories || [...KAKAO_EDIT_DEFAULT_CATEGORIES[config.rowType === "income" ? "income" : "expense"]];
     return { prompt: `분류를 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "date") {
@@ -293,13 +315,13 @@ function buildValuePrompt(field, config = {}) {
   return { prompt: "내용을 무엇으로 바꿀까요? 예: 점심", options: null };
 }
 
-const HELP_TEXT = (no) =>
+const HELP_TEXT = (no, session = {}) =>
   `📖 수정 방법 안내\n` +
   `① 숫자로 차근차근 (가장 안전):\n` +
   `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
-  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제\n` +
   `② 한 줄로 바로 (가장 빠름):\n` +
-  `👉 지출자 엄마 / 금액 13000 / 날짜 어제\n` +
+  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제\n` +
   `그만하려면: 취소`;
 
 // ------------------------- 세션 상태머신 -------------------------
@@ -323,7 +345,7 @@ function expiredReply(session) {
     action: "cancel",
     reply:
       `⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 종료했어요.\n` +
-      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 지출자 엄마`,
+      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마`,
     nextSession: null,
   };
 }
@@ -342,7 +364,7 @@ function handleEditMessage(session, textRaw, config = {}) {
       reply:
         `😅 대화가 길어져 ${session.entryNo}번 수정을 종료했어요.\n` +
         `한 줄로 다시 보내주시면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000`,
       nextSession: null,
     };
@@ -364,7 +386,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (HELP_WORDS.has(c)) {
     return finish(session, {
       action: "reprompt",
-      reply: HELP_TEXT(session.entryNo),
+      reply: HELP_TEXT(session.entryNo, session),
       nextSession: { ...session, updatedAt: now }, // 도움말은 실패 카운트 증가 없음
     });
   }
@@ -379,7 +401,7 @@ function handleEditMessage(session, textRaw, config = {}) {
         action: "reprompt",
         // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
         // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
-        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
+        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -426,7 +448,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.field === "delete") {
     return finish(session, {
       action: "delete",
-      reply: `🗑️ ${session.entryNo}번 지출을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
+      reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
       nextSession: null,
     });
   }
@@ -435,7 +457,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${fieldLabel(parsed.field, session)}${josa(fieldLabel(parsed.field, session), "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -445,7 +467,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.value) return applyResult(session, parsed.field, parsed.value);
 
   // 필드만 → 값 되묻기 [V4: 선택형은 숫자 옵션 제시]
-  const vp = buildValuePrompt(parsed.field, config);
+  const vp = buildValuePrompt(parsed.field, { ...config, rowType: config.rowType || session.rowType });
   return finish(session, {
     action: "ask_value",
     reply: `✏️ ${vp.prompt}\n(그만하려면: 취소)`,
@@ -465,7 +487,7 @@ function applyResult(session, field, value) {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${fieldLabel(field, session)}${josa(fieldLabel(field, session), "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -481,7 +503,7 @@ function fail(session, now, userText, customMsg) {
       reply:
         `😅 계속 이해하지 못해서 ${session.entryNo}번 수정을 취소했어요.\n` +
         `아래 예시를 그대로 복사해서 한 줄로 보내면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000\n` +
         `👉 수정 ${session.entryNo}번 날짜 어제`,
       nextSession: null,
@@ -520,6 +542,7 @@ const MENU_EXAMPLES = [
   { input: "지출자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결재자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결제자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "수입자 엄마",      expect: { field: "payer", value: "엄마" } },   // V22.9.75 수입 기록 안내
   { input: "지츨자 엄마",      expect: { field: "payer", value: "엄마" } },   // fuzzy
   { input: "6",               expect: { field: "payer", value: null } },
   { input: "6번 엄마",         expect: { field: "payer", value: "엄마" } },
@@ -589,8 +612,9 @@ function loopFuzzTest(config = {}, rounds = 200) {
 }
 // @build:exports-start
 export {
-  FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, MAX_FAILS, MAX_TOTAL_TURNS, SESSION_TTL_MS,
-  buildValuePrompt, compact, handleEditMessage, isSessionExpired, josa, loopFuzzTest,
-  normalizeKakaoEditAmountValue, parseEditInput, selfTest, startsWithKakaoEditField,
+  FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS,
+  MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact, handleEditMessage,
+  isExactKakaoEditFieldStart, isSessionExpired, josa, loopFuzzTest, normalizeKakaoEditAmountValue,
+  parseEditInput, selfTest, startsWithKakaoEditField,
 };
 // @build:exports-end

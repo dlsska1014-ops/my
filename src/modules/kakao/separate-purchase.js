@@ -37,11 +37,12 @@ import {
 // A confirmation is a server-issued action, never a platform event identity.
 function parseKakaoSeparatePurchaseCommand(text = "") {
   const value = String(text).trim();
-  const add = value.match(/^별도\s+구매\s+추가\s+([\s\S]+)$/);
+  // V22.9.75 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
+  const add = value.match(/^별도\s+(?:구매|기록)\s+추가\s+([\s\S]+)$/);
   if (add) return { action: "prepare", text: add[1].trim() };
-  const control = value.match(/^별도\s+구매\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
+  const control = value.match(/^별도\s+(?:구매|기록)\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
   if (control) return { action: control[1] === "확인" ? "confirm" : control[1] === "취소" ? "cancel" : "status", token: control[2] };
-  return /^별도\s*구매/.test(value) ? { action: "invalid" } : null;
+  return /^별도\s*(?:구매|기록)/.test(value) ? { action: "invalid" } : null;
 }
 
 async function kakaoSeparateStateKey(householdId, userId, scope) {
@@ -79,15 +80,16 @@ async function saveKakaoSeparateState(env, key, state, assertFresh) {
 
 function kakaoSeparateCandidateReply(state, household, payload) {
   const row = state.row;
-  const confirm = `별도 구매 확인 ${state.confirmation_id}`;
-  const cancel = `별도 구매 취소 ${state.confirmation_id}`;
+  const word = row.type === "income" ? "기록" : "구매";
+  const confirm = `별도 ${word} 확인 ${state.confirmation_id}`;
+  const cancel = `별도 ${word} 취소 ${state.confirmation_id}`;
   return kakaoText([
-    "같은 내용의 별도 구매 후보입니다. 아직 추가하지 않았어요.",
+    `같은 내용의 별도 ${word} 후보입니다. 아직 추가하지 않았어요.`,
     `가계부: ${household.name}`, `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${numberWithCommas(row.amount)}원`,
     `${row.category} · ${row.memo || "내용 없음"} · ${row.payment_method || "결제수단 없음"}`,
     "5분 안에 내용을 확인한 뒤 확정해 주세요.",
     ...(getKakaoBotGroupKey(payload) ? [confirm,cancel] : []),
-  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [["별도 구매 확정",confirm],["추가 취소",cancel]]);
+  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [[`별도 ${word} 확정`,confirm],["추가 취소",cancel]]);
 }
 
 async function recoverKakaoPendingForSeparate(env, householdId, userId, assertFresh) {
@@ -188,7 +190,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       }
       state.state="confirmed";
       await saveKakaoSeparateState(env,key,state,assertFresh);
-      return kakaoText(`별도 구매 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
+      return kakaoText(`별도 ${state.row.type === "income" ? "기록" : "구매"} 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
     },{localMutex:false}));
   try {
     return await withKakaoUserLifecycleLease(env,user.id,async ({assertFresh:userFresh}) => groupKey

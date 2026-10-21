@@ -177,7 +177,7 @@ function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
 // T2: 수정 답장에 바뀐 기록을 적는다.
 function kakaoEditRecordLineV4(row = {}) {
   const memo = row.memo || row.raw_text || row.category || "기록";
-  return `기록: ${memo} / ${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
+  return `기록: ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
 }
 
 // T12: 지울 때 읽은 칸으로 행을 다시 만든다. 예전 버퍼에 source 가 없으면 카카오 기록으로 본다.
@@ -189,11 +189,15 @@ function kakaoRestoreRowV4(row = {}, fallbackHouseholdId = "") {
   return out;
 }
 
+// V22.9.75 카카오 감사 12: 목록 줄에서 수입을 지출과 구별한다. 예전에는 "01번 - 월급 / 2,500,000원 / - / 급여"처럼
+// 지출과 똑같이 보였다. 금액 칸에 ‘수입’을 붙인다("01번 - 월급 / 수입 2,500,000원 / - / 급여"). 지출 줄의 모양은 그대로다.
+function kakaoIncomeMarkV4(row = {}) { return row.type === "income" ? "수입 " : ""; }
+
 function kakaoRowLabel(row = {}, seq = 0) {
   const memo = row.memo || row.raw_text || row.category || "기록";
   const pay = row.payment_method || "-";
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
-  return `${twoDigitSeq(seq)}번 - ${memo} / ${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+  return `${twoDigitSeq(seq)}번 - ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {
@@ -264,10 +268,14 @@ function isKakaoEditCancelCommand(text = "") {
 // "수정 NN번 [나머지]"가 표준 문법이고, 안내되어 온 레거시 "NN번 [나머지]"와
 // 날짜 접두("어제 01번 …")도 같은 단일 경로로 흡수한다.
 
+// V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"그제삭제 01번"·"10월20일수정 01번 …"처럼 띄어 쓰지 않은 날짜 접두도
+// 뗀다. 예전에는 날짜를 못 떼서 수정 명령으로 알아보지 못했고, 금액이 있으면 새 지출로 저장됐다. 날짜 숫자 바로 뒤에
+// 번호가 붙은 "10월 12번 삭제"는 "10월 1" + "2번"으로 잘못 떼지 않도록 일·띄어쓰기·수정 낱말이 있을 때만 뗀다.
 function stripKakaoEditDatePrefixV4(text = "") {
   return normalizeText(text)
     .replace(/^(오늘|어제|그제|그저께|엊그제)\s+/, "")
-    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}\s*일?\s+(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(오늘|어제|그제|그저께|엊그제)(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}(?:\s*일\s*|\s+|(?=수정|삭제|복구))(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
     .trim();
 }
 
@@ -313,6 +321,14 @@ function parseKakaoRestoreCommandV4(text = "") {
   return { seq: m[1] ? Number(m[1]) : 0, invalidSeq: m[1] !== undefined && !(Number(m[1]) >= 1) };
 }
 
+// V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
+// 옛 문법("N번 …" = 오늘의 N번 기록 수정)과 모양이 같아서, 열린 세션이 있으면 이 말을 세션에 먼저 넘긴다.
+// 수정·삭제·복구 말이 들어 있거나 날짜로 시작하는 말은 기록을 고르는 명령이라 여기에 들지 않는다.
+function isKakaoSessionSeqReplyV4(text = "") {
+  const raw = normalizeText(text);
+  return /^\d{1,2}\s*번(?:\s|$)/.test(raw) && !/(?:수정|삭제|제거|지워|지우기|복구)/.test(raw);
+}
+
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
@@ -324,7 +340,7 @@ function parseKakaoEditCommandV4(text = "") {
   if (m) {
     seq = Number(m[1]);
     rest = m[2] || "";
-  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)/.test(body)) {
+  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)/.test(body)) {
     latest = true;
     rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
   } else {
@@ -334,7 +350,7 @@ function parseKakaoEditCommandV4(text = "") {
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
   // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
   rest = normalizeText(rest)
-    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
     .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
     .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
@@ -342,14 +358,14 @@ function parseKakaoEditCommandV4(text = "") {
 
 function isKakaoTransactionSpenderChangeCommand(text = "") {
   const t = normalizeText(text).replace(/\s+/g, " ").trim();
-  return /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
+  return /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
 }
 
 function parseKakaoSpenderChoiceValue(text = "") {
   let t = normalizeText(text).replace(/\s+/g, " ").trim();
   t = t.replace(/(?:^|\s)\d{1,2}\s*번/g, " ").replace(/방금|최근|마지막/g, " ");
-  t = t.replace(/^(?:지출자|결제자)(?:\s*이름)?\s*/, "");
-  t = t.replace(/(?:지출자|결제자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/^(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
   t = t.replace(/\s*(?:으로|로)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘|해줘|해주세요)\s*$/g, "");
   return t.trim();
 }
@@ -359,12 +375,14 @@ function kakaoActiveSpenderMembers(members = []) {
 }
 
 // V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
+// V22.9.75 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
 function kakaoEditMenuTextV4(row = {}, seq = 0) {
+  const person = row.type === "income" ? "수입자" : "지출자";
   return [
     kakaoRowLabel(row, seq),
     "무엇을 바꿀까요? 번호를 보내주세요.",
-    "1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. 지출자  7. 삭제",
-    "한 줄로도 돼요: 지출자 엄마 / 금액 13000",
+    `1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. ${person}  7. 삭제`,
+    `한 줄로도 돼요: ${person} 엄마 / 금액 13000`,
     "(그만하려면: 취소)",
   ].join("\n");
 }
@@ -386,6 +404,7 @@ function kakaoEditGuideText(origin = "") {
     "수정 01번 내용 점심",
     "수정 01번 날짜 어제",
     "수정 01번 지출자 엄마",
+    "(수입 기록은 ‘수정 01번 수입자 엄마’)",
     "",
     "삭제: 삭제 01번",
     "되돌리기: 복구 01번",
@@ -401,12 +420,13 @@ export {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
-  isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
-  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
-  kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
-  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4,
-  resolveKakaoEditDateV4, saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq,
-  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
+  kakaoActiveSpenderMembers, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,
+  kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
+  kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
+  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
+  writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

@@ -1,7 +1,7 @@
 // @build:imports-start
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import {
-  detectType, extractAmount, normalizeText, normalizeType, parseAmountValue,
+  detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
 } from "./amount-parser.js";
 import {
   detectPaymentMethod, extractDate, normalizeDateValue, normalizePaymentMethod,
@@ -17,21 +17,30 @@ function parseMultipleTransactions(text, payload) {
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
     const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
+    if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
     return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
     if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
+    if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
 }
 
+// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
+// 저장하지 않고 묻는다. parseTransaction 은 가져오기와 같이 쓰므로 ok 를 그대로 두고 표식만 붙이며, 카카오가 쓰는
+// 이 함수만 막는다.
+function mixedTypeConfirmation(parsed = {}) {
+  return { message: "transaction_type_confirmation_required", reason: parsed.type_confirmation, amount: parsed.amount };
+}
+
 // V22.9.34 감사 N11: 저장하지 않은 이유를 빈 결과에 붙여 둔다. 배열로만 쓰는 호출부는 그대로 빈 목록을 본다.
 function blockedTransactionParse(parsed = {}) {
   const out = [];
-  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
+  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0), ...(parsed.reason ? { reason: parsed.reason } : {}) };
   return out;
 }
 
@@ -103,7 +112,8 @@ function parseTransaction(text, payload) {
   const raw = normalizeText(text);
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
-  const type = entityType || detectType(raw);
+  const typeDetail = entityType ? null : detectTypeDetail(raw);
+  const type = entityType || typeDetail.type;
   if (!entityType && /(?:결제|승인)\s*취소/.test(raw) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(raw)) return {ok:false,message:"transaction_type_confirmation_required"};
 
   const entityAmountValue = params.amount || params.amount_text || params.금액;
@@ -133,6 +143,7 @@ function parseTransaction(text, payload) {
     memo,
     payment_method: paymentMethod,
     transaction_date: transactionDate,
+    ...(typeDetail && typeDetail.ambiguous ? { type_confirmation: "mixed_cues" } : {}),
   };
 }
 
