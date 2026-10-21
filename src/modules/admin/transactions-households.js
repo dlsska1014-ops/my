@@ -603,7 +603,15 @@ async function handleAdminHouseholdDelete(request, env) {
   const id = String(form.get("id") || "").trim();
   const confirmText = String(form.get("confirm_text") || "").trim();
   if (!id || confirmText !== "삭제") return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=delete_confirm_required`);
-  await purgeHouseholdData(env, id);
+  // V22.9.75 감사 G-2: 삭제가 거절되거나 실패하면 500 안전모드 대신 이유를 알린다.
+  try {
+    await purgeHouseholdData(env, id);
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_delete_failed", severity: "error", path: "/admin/household/delete", method: "POST", detail: safeError(err) });
+    const detail = String(err?.message || "");
+    const code = /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : detail === "household_purge_too_large" ? "household_delete_too_large" : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed";
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${code}`);
+  }
   return redirectResponse("/households?msg=deleted");
 }
 

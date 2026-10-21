@@ -11630,7 +11630,15 @@ async function handleAdminHouseholdDelete(request, env) {
   const id = String(form.get("id") || "").trim();
   const confirmText = String(form.get("confirm_text") || "").trim();
   if (!id || confirmText !== "삭제") return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=delete_confirm_required`);
-  await purgeHouseholdData(env, id);
+  // V22.9.75 감사 G-2: 삭제가 거절되거나 실패하면 500 안전모드 대신 이유를 알린다.
+  try {
+    await purgeHouseholdData(env, id);
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_delete_failed", severity: "error", path: "/admin/household/delete", method: "POST", detail: safeError(err) });
+    const detail = String(err?.message || "");
+    const code = /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : detail === "household_purge_too_large" ? "household_delete_too_large" : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed";
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${code}`);
+  }
   return redirectResponse("/households?msg=deleted");
 }
 
@@ -27806,6 +27814,8 @@ function householdPageMessage(code = "") {
     household_delete_name_mismatch: "확인용 가계부 이름이 현재 이름과 일치하지 않습니다.",
     household_delete_ack_required: "참여자와 모든 기록이 삭제된다는 확인이 필요합니다.",
     household_delete_failed: "가계부 삭제를 완료하지 못했습니다. 데이터는 임의로 숨기지 않았습니다.",
+    // V22.9.75 감사 G-2: 연결된 단톡방이 아주 많으면 한 요청의 저장소 호출 한도(50회) 안에 끝낼 수 없어 시작하지 않는다.
+    household_delete_too_large: "연결된 단톡방이나 정리할 항목이 많아 한 번에 삭제할 수 없습니다. 아무것도 지우지 않았습니다. 운영자에게 알려 주시면 정리를 도와드릴게요.",
     household_leave_owner_blocked: "소유자는 바로 나갈 수 없습니다. 소유권 이전 기능이 준비되기 전에는 가계부를 삭제하거나 고객지원에 요청해 주세요.",
     household_leave_not_member: "현재 이 가계부의 참여자가 아닙니다.",
     household_leave_ack_required: "가계부에서 나가기 전 확인 항목에 동의해 주세요.",
@@ -28036,6 +28046,42 @@ function householdSettingsKeys(householdId = "") {
   ];
 }
 
+// V22.9.75 감사 G-2: 단톡방 2개 이상에 연결된 가계부를 지우면 저장소 호출이 한 요청 한도(50회)를 넘어, 잠금 해제와
+// 방 연결 정리가 빠진 채 "삭제됨"으로 끝났다(방마다 잠금을 다시 잡고 표식·연결 행·옛 연결표를 하나씩 고쳤다).
+// 이제 (1) 방 은퇴 표식은 한 번에 쓰고, (2) 방 연결 행은 이미 잡은 방 잠금 안에서 한 번에 지우고, 옛 연결표도 한 번만
+// 고친다. (3) 남은 호출 수가 모자라면 잠금을 하나도 잡기 전에 거절하고, 되돌릴 수 없는 삭제 직전에 한 번 더 본다.
+// 측정(가짜 저장소, 웹 삭제 요청 전체): 방 0개 28회, 방 n개 35 + 2n회(옛 연결표 정리 포함) — 방 2개 39회, 방 5개 45회
+// (이전: 방 0개 29회, 1개 43회, 2개 이상 51회에서 한도 초과). 방과 자동 준비 사용자마다 잠금 잡기·풀기 2회가 든다.
+// 잠금을 잡은 뒤 남은 고정 호출은 22회이고, 저장소가 아닌 하위 요청(운영 알림) 몫으로 2회를 더 남긴다.
+const HOUSEHOLD_PURGE_FIXED_REQUESTS = 24;
+
+async function markKakaoGroupsRetiredBatch(env, groupKeys = [], assertFresh = () => {}) {
+  const keys = [...new Set((groupKeys || []).map(String).filter(Boolean))].sort();
+  if (!keys.length) return;
+  const rows = [];
+  for (const groupKey of keys) {
+    const firstKeys = await kakaoGroupFirstKeys(groupKey);
+    rows.push({ key: firstKeys.retired, value: JSON.stringify({ version: 1, group_hash: firstKeys.hash }) });
+  }
+  assertFresh();
+  let inserted = null;
+  try {
+    // 은퇴 표식은 바뀌지 않는 행이다. 이미 있으면 그대로 두고(ignore-duplicates) 없는 것만 넣는다.
+    inserted = await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify(rows),
+    });
+  } catch (err) {
+    if (isDefiniteStorageFailure(err)) throw err;
+    inserted = null; // 응답을 잃었으면 아래에서 다시 읽어 확인한다.
+  }
+  const confirmed = new Set(Array.isArray(inserted) ? inserted.filter((row) => row?.key && row?.value).map((row) => String(row.key)) : []);
+  const unconfirmed = rows.map((row) => row.key).filter((key) => !confirmed.has(key));
+  if (!unconfirmed.length) return;
+  const present = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${unconfirmed.map((key) => encodeURIComponent(`"${key}"`)).join(",")})&select=key,value`, { method: "GET" });
+  const seen = new Set(Array.isArray(present) ? present.filter((row) => row?.key && String(row.value || "").trim()).map((row) => String(row.key)) : []);
+  if (unconfirmed.some((key) => !seen.has(key))) throw new Error("household_purge_room_retire_unconfirmed");
+}
+
 async function purgeHouseholdData(env, householdId = "") {
   const hid = String(householdId || "").trim();
   if (!hid) throw new Error("household_id_required");
@@ -28059,10 +28105,13 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
     const candidateUsers = markers.map((row) => parseKakaoChatFirstMarker(row.value)).filter((item) => item?.candidate_id === hid && item.user_id).map((item) => String(item.user_id));
     const roomMarkers = roomRows.map(row => { const raw = parseStrictSettingsObject(row.value, "kakao_group_first"); return parseKakaoGroupFirstMarker(raw, raw.group_key, row.key.startsWith("kakao_group_first_done_v22931:")); }).filter(item => item?.candidate_id === hid);
     const links = linkRows.map(row => { const link = normalizeKakaoGroupLinkItem(row.value); if (!link) throw settingsDataError("kakao_group_link", "invalid_shape"); return link; });
+    // V22.9.75 감사 G-2: 지울 방 연결 행과 옛 연결표 항목을 범위와 함께 기억해 잠금 안에서 한 번에 정리한다.
+    const linkKeys = linkRows.filter((row, index) => links[index].household_id === hid).map((row) => String(row.key)).sort();
+    const legacyKeys = Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key).sort();
     const groupKeys = [...new Set([...roomMarkers.map(item => item.group_key), ...links.filter(item => item.household_id === hid).map(item => item.group_key), ...Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key)])].sort();
     if (groupKeys.length > 1000) throw new Error("household_purge_scope_too_large");
     return {
-      members, groupKeys,
+      members, groupKeys, linkKeys, legacyKeys,
       userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort(),
       // V22.9.37 감사 H5: 사용자 잠금은 자동 준비 흐름이 잡는 사용자(개인 첫 기록 후보·방 표식 소유자)에만 잡는다.
       leaseUserIds: [...new Set([...candidateUsers, ...roomMarkers.map(item => String(item.owner_id || ""))].filter(Boolean))].sort(),
@@ -28071,6 +28120,9 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
   let purge;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await readPurgeScope();
+    const budget = env.__AB_DB_BUDGET;
+    const projected = HOUSEHOLD_PURGE_FIXED_REQUESTS + 2 * (before.groupKeys.length + before.leaseUserIds.length) + (before.legacyKeys.length ? 4 : 0);
+    if (budget && budget.used + projected > budget.limit) throw new Error("household_purge_too_large");
     const work = async ({ assertFresh: lifecycleFresh }) => withKakaoGroupLifecycleLease(env, before.groupKeys, async ({ assertFresh: roomFresh }) => withHouseholdSettingsRmw(env, hid, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { assertSettingsLeaseFresh(importLease); lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
@@ -28081,8 +28133,13 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
       // Actual members and server-confirmed provisional candidates are explicitly retired.
       // V22.9.37 감사 H5: 표식은 한 번의 upsert 로 쓴다. 참여자마다 한 건씩 쓰면 하위 요청이 참여자 수에 비례해 늘어난다.
       await markKakaoChatFirstHistoryBatch(env, current.userIds);
-      for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
+      await markKakaoGroupsRetiredBatch(env, current.groupKeys, assertFresh);
       assertFresh();
+      // V22.9.75 감사 G-2: 가져오기 기록 정리 등으로 예상보다 많이 썼으면 지우기 전에 멈춘다. 멈춰도 잠금을 풀 몫은 남아 있다.
+      // 남은 일: 삭제 1 + 설정 정리 1 + 연결 행 1 + 옛 연결표 4 + 잠금 풀기(방·사용자·가계부) + 접두 정리 2 + 권한 줄 1 + 늦은 연결 1
+      // + 1:1 선택 2 + 가져오기 잠금 1, 그리고 저장소가 아닌 하위 요청 몫 2.
+      const tail = 11 + current.groupKeys.length + current.leaseUserIds.length + (current.legacyKeys.length ? 4 : 0) + 2;
+      if (budget && budget.limit - budget.used < tail) throw new Error("household_purge_too_large");
       const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", {
         method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ p_household_id: hid }),
       });
@@ -28091,6 +28148,27 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
       // New settings are cleaned under the same lease that guards their writers.
       try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(cardTargetsKey(hid))}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); }
       catch (error) { rememberOpsEvent({ kind: "household_preference_cleanup_pending", severity: "warn", path: "/my/household/delete", method: "POST", detail: safeError(error) }); }
+      // V22.9.75 감사 G-2: 방 연결 행은 이미 잡은 방 잠금 안에서 한 번에 지운다. 값에 이 가계부가 적힌 행만 지우므로
+      // 그사이 다른 가계부로 다시 연결된 방은 건드리지 않는다. 실패해도 삭제는 이미 끝났으니 기록만 남긴다
+      // (남은 연결은 그 방의 다음 메시지가 가계부 없음을 보고 지운다).
+      const linkCleanupPending = () => rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
+      if (current.linkKeys.length) {
+        try {
+          await supabase(env, `/rest/v1/accountbook_settings?key=in.(${current.linkKeys.map((key) => encodeURIComponent(`"${key}"`)).join(",")})&value=like.${encodeURIComponent(`*${hid}*`)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+        } catch (error) { linkCleanupPending(); }
+      }
+      if (current.legacyKeys.length) {
+        try {
+          await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh: mapFresh }) => {
+            const map = await fetchLegacyKakaoGroupLinkMap(env, true);
+            const stale = Object.keys(map).filter((key) => String(map[key]?.household_id || "") === hid);
+            if (!stale.length) return;
+            for (const key of stale) delete map[key];
+            assertFresh(); mapFresh();
+            await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
+          });
+        } catch (error) { linkCleanupPending(); }
+      }
       return { summary: { ...summary, importCleanupPending: false }, affectedMembers: current.members };
     }));
     try {
@@ -28116,7 +28194,19 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
 
   // Relational data is already committed atomically. External lookup mappings
   // are cleaned afterwards and never make the successful deletion look failed.
-  try { await removeKakaoGroupLinksForHousehold(env, hid); } catch (err) {
+  // V22.9.75 감사 G-2: 방 연결은 잠금 안에서 이미 지웠다. 그사이 새로 연결된 방만 한 번의 조회로 찾아 정리한다
+  // (예전에는 모든 방의 연결 행 5,000줄과 옛 연결표를 다시 읽고 방마다 잠금을 잡았다).
+  try {
+    const late = await fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_group_link_v2254:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 });
+    for (const row of late) {
+      const link = normalizeKakaoGroupLinkItem(row.value);
+      if (link?.household_id !== hid) continue;
+      // 방 하나를 정리하는 데 약 10회, 뒤의 선택 정리와 잠금 해제에 3회가 든다. 모자라면 남겨 두고 기록만 한다.
+      const budget = env.__AB_DB_BUDGET;
+      if (budget && budget.limit - budget.used < 14) throw new Error("household_link_cleanup_budget");
+      await removeKakaoGroupLink(env, link.group_key, { expectedHouseholdId: hid });
+    }
+  } catch (err) {
     rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
   }
   // V22.9.37 감사 H5: 참여자마다 선택 상태를 읽고 지우던 왕복(참여자 수에 비례)을 조회 한 번·upsert 한 번으로 줄인다.
@@ -28168,7 +28258,7 @@ async function handleMyHouseholdDelete(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "household_delete_failed", severity: "error", path: "/my/household/delete", method: "POST", detail: safeError(err) });
     const detail = String(err?.message || "");
-    return redirectResponse(addQueryToUrl(back, { err: /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
+    return redirectResponse(addQueryToUrl(back, { err: /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : detail === "household_purge_too_large" ? "household_delete_too_large" : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
   }
 }
 

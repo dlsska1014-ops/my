@@ -10,6 +10,7 @@
 //   D-8  자산 잔액만 저장해도 꺼 둔 "총자산에 포함"이 다시 켜지던 것
 //   F-9  가입 오류 뒤 폼이 빈 채로 다시 그려지던 것(비밀번호는 다시 쓰지 않는다)
 //   D-27 운영 화면 역할 선택의 admin 누락, 역할 조회 실패를 "권한 없음"으로 답하던 것, 이름 바꾸기 500
+//   G-2  단톡방 2개 이상에 연결된 가계부를 지우면 호출 한도를 넘어 잠금·연결 행이 남던 것
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
@@ -475,6 +476,125 @@ await section("D-27", async () => {
     ok((await errorBox(fx, rejected.location)).includes("데이터베이스 역할 규칙"), "참여자 화면이 DB 역할 규칙 때문에 저장하지 못했다고 안내한다");
     eq(fx.db.household_members.find((m) => m.user_id === "user-c")?.role, "member", "기존 역할은 그대로다");
   }));
+});
+
+// ── G-2 단톡방 여러 개에 연결된 가계부 삭제 ──
+// 방마다 잠금을 다시 잡고 표식·연결 행·옛 연결표를 하나씩 고치느라 방 2개부터 저장소 호출이 한 요청 한도(50회)를 넘었다.
+// 그러면 잠금 해제와 연결 정리가 빠진 채 "삭제됨"으로 끝나, 그 방은 잠금이 풀릴 때까지 쓸 수 없고 삭제된 가계부를 가리키는
+// 연결 행이 남았다. 이제 방 6개까지는 한도 안에서 끝나고, 그보다 많으면 아무것도 지우지 않고 이유를 알린다.
+const jsonResponse = (value) => new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+const cookiePairs = (headers) => headers.getSetCookie().map((value) => value.split(";")[0]);
+async function householdDeleteReauthCookie(fx) {
+  Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", KAKAO_REDIRECT_URI: "https://malhaebook.com/auth/kakao/callback" });
+  const stop = intercept(({ url }) => {
+    if (url.hostname === "kauth.kakao.com") return jsonResponse({ access_token: "synthetic-token", token_type: "bearer" });
+    if (url.hostname === "kapi.kakao.com") return jsonResponse({ id: 2265, properties: { nickname: "Bin" } });
+    return undefined;
+  });
+  try {
+    const returnTo = `/my/households?month=2026-07&household_id=${HH}&manage=${HH}#manage`;
+    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start?reauth=household-delete&household_id=${HH}&return_to=${encodeURIComponent(returnTo)}`, { headers: { cookie: fx.cookie } }), fx.env, ctx);
+    const state = new URL(start.headers.get("location")).searchParams.get("state");
+    const callback = await app.fetch(new Request(`${BASE}/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, { headers: { cookie: [fx.cookie, ...cookiePairs(start.headers)].join("; ") } }), fx.env, ctx);
+    return cookiePairs(callback.headers).find((value) => value.startsWith("ab_household_delete_reauth=")) || "";
+  } finally { stop(); }
+}
+const activeLocks = (fx) => fx.db.accountbook_operation_locks.filter((row) => Date.parse(row.locked_until) > Date.now()).map((row) => row.operation_key);
+const linkRowsFor = (fx, householdId) => fx.db.accountbook_settings
+  .filter((row) => (row.key.startsWith("kakao_group_link_v2254:") || row.key === "kakao_group_links") && String(row.value || "").includes(householdId))
+  .map((row) => row.key);
+const homeExists = (fx) => fx.db.households.some((row) => row.id === HH);
+async function linkRooms(fx, prefix, count) {
+  const rooms = [];
+  for (let index = 0; index < count; index += 1) {
+    const room = `${prefix}-${index}`;
+    if (/연결 완료/.test(await skill(fx, "@말해가계부 방 연결 HOME2265", { groupKey: room }))) rooms.push(room);
+  }
+  return rooms;
+}
+async function deleteHome(fx, { inject } = {}) {
+  const reauth = await householdDeleteReauthCookie(fx);
+  let requests = 0;
+  const stop = intercept((request) => { requests += 1; return inject ? inject(request) : undefined; });
+  try {
+    const response = await post(fx, "/my/household/delete", { household_id: HH, month: "2026-07", confirm_name: "우리집 생활비", understand_members: "1" }, { cookie: [fx.cookie, reauth].join("; ") });
+    return { ...response, requests };
+  } finally { stop(); }
+}
+
+await section("G-2", async () => {
+  for (const count of [0, 2, 5]) {
+    await fixture(async (fx) => withClock("2026-07-15", async () => {
+      const rooms = await linkRooms(fx, `g2-room-${count}`, count);
+      eq(rooms.length, count, `G-2 방 ${count}개를 이 가계부에 연결했다`);
+      const del = await deleteHome(fx);
+      ok(del.decoded.includes("msg=household_deleted"), `G-2 방 ${count}개: 삭제가 끝났다고 답한다 (${del.decoded.slice(0, 90)})`);
+      ok(!homeExists(fx), `G-2 방 ${count}개: 가계부가 지워졌다`);
+      ok(del.requests <= 46, `G-2 방 ${count}개: 저장소 호출이 한 요청 한도(50회) 안에서 여유 있게 끝난다 (${del.requests}회)`);
+      eq(activeLocks(fx).join(","), "", `G-2 방 ${count}개: 삭제 뒤 풀리지 않은 잠금이 없다`);
+      eq(linkRowsFor(fx, HH).join(","), "", `G-2 방 ${count}개: 삭제된 가계부를 가리키는 방 연결 행(옛 연결표 포함)이 남지 않는다`);
+      for (const room of rooms) {
+        const before = fx.db.transactions.length;
+        const reply = await skill(fx, "@말해가계부 택시 7100", { groupKey: room });
+        ok(!/처리 중|잠시 후/.test(reply), `G-2 방 ${count}개: 삭제 뒤 그 방이 "처리 중"이라 답하지 않는다 (${reply.slice(0, 70)})`);
+        eq(fx.db.transactions.length, before, `G-2 방 ${count}개: 삭제 뒤 그 방 기록은 어디에도 저장되지 않는다`);
+      }
+    }), { categoriesPresent: false });
+  }
+
+  // 한도 안에 끝낼 수 없으면 잠금을 잡기 전에 거절한다. 가계부·기록·연결은 그대로이고 방도 바로 쓸 수 있다.
+  await fixture(async (fx) => withClock("2026-07-15", async () => {
+    const rooms = await linkRooms(fx, "g2-many", 7);
+    eq(rooms.length, 7, "G-2 방 7개를 연결했다");
+    const txBefore = fx.db.transactions.filter((row) => row.household_id === HH).length;
+    const linksBefore = linkRowsFor(fx, HH).length;
+    const del = await deleteHome(fx);
+    ok(del.decoded.includes("err=household_delete_too_large"), `G-2 방 7개: 한도 안에 끝낼 수 없으면 시작하지 않고 이유를 알린다 (${del.decoded.slice(0, 90)})`);
+    ok(homeExists(fx), "G-2 방 7개: 가계부는 그대로다");
+    eq(fx.db.transactions.filter((row) => row.household_id === HH).length, txBefore, "G-2 방 7개: 기록은 하나도 지워지지 않았다");
+    eq(linkRowsFor(fx, HH).length, linksBefore, "G-2 방 7개: 방 연결도 그대로다");
+    eq(activeLocks(fx).join(","), "", "G-2 방 7개: 거절한 뒤 잠금이 남지 않는다");
+    ok(del.requests <= 15, `G-2 방 7개: 방 잠금을 하나도 잡기 전에 거절한다 (${del.requests}회)`);
+    const shown = await page(fx, del.location.replace(BASE, ""));
+    ok(decode(shown.html).includes("연결된 단톡방이나 정리할 항목이 많아 한 번에 삭제할 수 없습니다"), "G-2 방 7개: 가계부 화면이 거절 이유를 한국어로 보여 준다");
+    const before = fx.db.transactions.length;
+    const reply = await skill(fx, "@말해가계부 택시 7200", { groupKey: rooms[0] });
+    ok(!/처리 중|잠시 후/.test(reply) && fx.db.transactions.length === before + 1, `G-2 방 7개: 거절 뒤에도 방은 바로 기록할 수 있다 (${reply.slice(0, 60)})`);
+  }), { categoriesPresent: false });
+
+  // 잠금 안의 방 연결 행 정리가 한 번 실패해도 잠금은 남지 않고, 남은 연결은 정리하거나 그 방의 다음 메시지가 지운다.
+  await fixture(async (fx) => withClock("2026-07-15", async () => {
+    const rooms = await linkRooms(fx, "g2-fail", 2);
+    let fired = 0;
+    const del = await deleteHome(fx, { inject: ({ url, method }) => {
+      if (fired || method !== "DELETE" || !decodeURIComponent(url.search).includes("kakao_group_link_v2254:")) return undefined;
+      fired += 1;
+      return failure(503);
+    } });
+    eq(fired, 1, "G-2 방 연결 행 정리 실패를 한 번 흉내 냈다");
+    ok(del.decoded.includes("msg=household_deleted"), `G-2 연결 정리 실패: 이미 끝난 삭제는 삭제됨으로 답한다 (${del.decoded.slice(0, 90)})`);
+    ok(del.requests <= 50, `G-2 연결 정리 실패: 다시 정리하더라도 한도(50회)를 넘지 않는다 (${del.requests}회)`);
+    eq(activeLocks(fx).join(","), "", "G-2 연결 정리 실패: 잠금이 남지 않는다");
+    for (const room of rooms) {
+      const reply = await skill(fx, "@말해가계부 택시 7300", { groupKey: room });
+      ok(!/처리 중|잠시 후/.test(reply), `G-2 연결 정리 실패: 그 방이 "처리 중"이라 답하지 않는다 (${reply.slice(0, 60)})`);
+    }
+    eq(linkRowsFor(fx, HH).join(","), "", "G-2 연결 정리 실패: 남은 연결은 그 방의 다음 메시지까지 모두 정리된다");
+  }), { categoriesPresent: false });
+
+  // 관리자 화면 삭제가 실패하면 500 안전 화면 대신 가계부 관리 화면으로 돌아가 이유를 보여 준다.
+  await fixture(async (fx) => withClock("2026-07-15", async () => {
+    const admin = await adminFixture(fx);
+    const restore = intercept(({ url }) => url.pathname.endsWith("/rpc/accountbook_purge_household_v22960") ? failure(400, "rejected") : undefined);
+    const res = await post(fx, "/admin/household/delete", { id: HH, confirm_text: "삭제" }, { cookie: admin });
+    restore();
+    eq(res.status, 303, "G-2 관리자 삭제 실패: 오류 화면 대신 가계부 관리 화면으로 돌려보낸다");
+    ok(res.decoded.includes("err=household_delete_failed"), `G-2 관리자 삭제 실패: 실패 코드를 넘긴다 (${res.decoded.slice(0, 90)})`);
+    ok(homeExists(fx), "G-2 관리자 삭제 실패: 가계부는 그대로다");
+    eq(activeLocks(fx).join(","), "", "G-2 관리자 삭제 실패: 잠금이 남지 않는다");
+    const shown = await page(fx, res.location.replace(BASE, ""), { cookie: admin });
+    ok(decode(shown.html).includes("가계부 삭제를 완료하지 못했습니다"), "G-2 관리자 삭제 실패: 관리 화면이 이유를 한국어로 보여 준다");
+  }), { categoriesPresent: false });
 });
 
 if (failures.length) {
