@@ -8,11 +8,10 @@ import {
 import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { canWriteMyHousehold, memberRecordChangeError } from "../my/access-control.js";
-import {
-  budgetCategoryMatches, budgetCenterSummary, budgetStatusLabel, budgetSummary,
-} from "../domain/budgets.js";
+import { budgetCenterSummary, budgetStatusLabel, budgetSummary } from "../domain/budgets.js";
 import { ACCOUNTBOOK_GOALS_JS_ASSET_PATH } from "../assets/asset-registry.js";
 import { monthObservation } from "../domain/analytics.js";
+import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -36,11 +35,26 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const projectedRate = totalBudget && forecastExpense != null ? Math.round(forecastExpense / totalBudget * 100) : null;
   const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
   const pendingState = !recurringAvailable ? "unavailable" : !sameMonth ? "deferred" : "complete";
-  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => budgetCategoryMatches(b.category, r.category)))) : null;
+  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))) : null;
   const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
-  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal : null;
+  // V22.9.75 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
+  // 반영 대기 목록에도 없어서 가정값에서 사라졌다(반영 전 1,425,000원 → 반영 후 775,000원). 이번 달의 오늘 뒤 날짜 정기 기록은
+  // 대기 항목과 같은 자리에 더한다. 관측 속도(forecastExpense)는 그대로 오늘까지만 본다.
+  // 대기 목록에 남은 규칙의 기록(표식 저장이 늦은 경우)은 두 번 더하지 않는다.
+  const pendingKeys = new Set(safeArray(pendingRecurring).map((r) => `recurring:${r.id}:${month}`));
+  const scheduledRecurring = pendingState === "complete" && observation.status === "complete"
+    ? safeArray(rows).filter((r) => r && r.type !== "income" && ["recurring", "recurring_auto"].includes(String(r.source || "")) && String(r.transaction_date || "").slice(0, 7) === month && String(r.transaction_date || "") > observation.end && !pendingKeys.has(String(r.raw_text || "")))
+    : [];
+  const scheduledRecurringTotal = scheduledRecurring.length ? Number(budgetSummary(scheduledRecurring, budgets).budgetedExpense || 0) : 0;
+  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal + scheduledRecurringTotal : null;
+  // V22.9.75 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
+  // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
+  const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
+    ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
+    : [];
+  const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
   const status = observation.status === "unavailable" ? "unavailable" : !totalBudget ? "setup" : spent > totalBudget ? "over" : rate >= 85 ? "warning" : !sameMonth ? (pastMonth ? "closed" : "before") : forecastExpense > totalBudget ? "forecast" : "ok";
   const statusText = {
@@ -66,7 +80,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
   const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
   const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
-  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, outsidePendingRecurring, outsidePendingTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
 function renderBudgetAlertStatusPill(status = "ok") {
@@ -89,8 +103,16 @@ function renderBudgetAlertRows(model) {
 function renderPendingRecurringList(model) {
   if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
-  if (!list.length) return `<p class="muted">이번 달에 아직 반영 대기 중인 정기지출이 없습니다.</p>`;
-  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>`;
+  // V22.9.75 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
+  // 지정일 전에 미리 반영한 정기지출은 목록에서 빠져도 가정값에는 남는다.
+  const outside = safeArray(model.outsidePendingRecurring);
+  const scheduled = safeArray(model.scheduledRecurring);
+  const notes = [];
+  if (outside.length) notes.push(`예산 밖 분류의 반영 대기 정기지출 ${numberWithCommas(outside.length)}건(${numberWithCommas(model.outsidePendingTotal || 0)}원)은 이 목록과 추가 가정값에 넣지 않았습니다.`);
+  if (scheduled.length) notes.push(`날짜가 아직 오지 않은 반영된 정기지출 ${numberWithCommas(scheduled.length)}건(${numberWithCommas(model.scheduledRecurringTotal || 0)}원)은 추가 가정값에 넣었습니다.`);
+  const noteHtml = notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("");
+  if (!list.length) return `<p class="muted">${outside.length ? "예산을 정한 분류에는 반영을 기다리는 정기지출이 0건입니다." : "이번 달에 아직 반영 대기 중인 정기지출이 없습니다."}</p>${noteHtml}`;
+  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>${noteHtml}`;
 }
 
 function budgetAlertKakaoHint(model) {

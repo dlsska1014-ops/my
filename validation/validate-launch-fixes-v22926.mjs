@@ -42,7 +42,8 @@ globalThis.fetch = async (input, init = {}) => {
       hooks.settingsGetFail -= 1;
       return new Response(JSON.stringify({ message: "upstream unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
     }
-    if (hooks.householdsFail && method === "GET" && url.pathname.endsWith("/households")) {
+    // V22.9.75: 정기 자동 반영은 가계부 목록 대신 정기 규칙 목록을 바로 읽는다. 같은 단계 실패를 만들려고 규칙 목록 조회도 함께 막는다.
+    if (hooks.householdsFail && method === "GET" && (url.pathname.endsWith("/households") || url.pathname.endsWith("/accountbook_recurring"))) {
       return new Response(JSON.stringify({ message: "upstream unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
     }
     if (hooks.txPostMode && method === "POST" && url.pathname.endsWith("/transactions")) {
