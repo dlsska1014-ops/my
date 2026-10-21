@@ -161,7 +161,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: "선택하려던 가계부가 삭제되었거나 권한이 변경됐어요. ‘시작’을 입력해 현재 목록을 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
     const chosen = parseKakaoHouseholdChoice(utterance, candidates);
-    // V22.9.75 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
+    // V22.9.76 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
     if (chosen?.ambiguous) {
       return {
         text: [`‘${chosen.name}’ 이름의 가계부가 ${chosen.count}개예요. 어느 가계부인지 번호로 골라 주세요.`, "", ...kakaoHouseholdListLines(candidates)].join("\n"),

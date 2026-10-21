@@ -372,7 +372,7 @@ eq(formatMessage("계정이 잠겼습니다. 여기서 확인하세요"), "요�
   eq(result.row.type, "income", "explicit expense negative remains refund income");
   eq(result.row._import_needs_confirmation, true, "explicit expense negative carries the confirmation flag");
   result = normalize("-12000", "수입");
-  // V22.9.75 감사 P1-3: 음수 수입은 수입 취소·정정이다. 예전 기대값(양수 수입·확인 없음)이 바로 그 결함이라 바꾼다.
+  // V22.9.76 감사 P1-3: 음수 수입은 수입 취소·정정이다. 예전 기대값(양수 수입·확인 없음)이 바로 그 결함이라 바꾼다.
   // 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고 확인을 받는다. 환급 분류는 붙이지 않는다.
   eq(result.row.type, "expense", "explicit negative income becomes a reviewed income reversal");
   eq(result.row._import_needs_confirmation, true, "explicit negative income is held for confirmation");
@@ -398,13 +398,13 @@ ok((source.match(/withHouseholdDatabaseLease\(env,/g) || []).length >= 6, "manua
         await applyGate;
       }
     };
-    // V22.9.75 감사 D-11: 이번 달이 아닌 달의 반영은 확인 화면을 거치므로 확인한 요청(confirmed=yes)으로 보낸다.
+    // V22.9.76 감사 D-11: 이번 달이 아닌 달의 반영은 확인 화면을 거치므로 확인한 요청(confirmed=yes)으로 보낸다.
     const applyBody = new URLSearchParams({ household_id: "house-home", month: "2026-07", confirmed: "yes" }).toString();
     const applyPromise = call(fixture, "POST", "/admin/recurring/apply", { body: applyBody });
     await applyStarted;
     const createBody = new URLSearchParams({ household_id: "house-home", month: "2026-07", type: "expense", memo: "경합말일", amount: "31000", category: "보험", payment_method: "계좌", day_of_month: "31" }).toString();
     let response = await call(fixture, "POST", "/my/recurring/save", { body: createBody });
-    // V22.9.75 감사 D-25: 잠금을 못 얻은 저장은 저장 공간 장애(recurring_table_required)가 아니라 진행 중(recurring_busy)으로 안내한다.
+    // V22.9.76 감사 D-25: 잠금을 못 얻은 저장은 저장 공간 장애(recurring_table_required)가 아니라 진행 중(recurring_busy)으로 안내한다.
     ok(String(response.headers.get("location") || "").includes("err=recurring_busy"), "concurrent day-31 mutation fails closed while manual apply owns the household lease");
     ok(!fixture.db.accountbook_recurring.some((item) => item.memo === "경합말일"), "busy concurrent day-31 mutation performs zero recurring writes");
     releaseApply();

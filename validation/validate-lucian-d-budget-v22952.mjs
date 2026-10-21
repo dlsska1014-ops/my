@@ -27,7 +27,7 @@ const tx = [["식비",1000],["외식",12000],["배달",13000],["편의점",2000]
 const aggregate = budgetSummary(tx, [{category:"식비",amount:100000},{category:"외식",amount:50000},{category:"교통/차량",amount:80000},{category:"교통",amount:10000},{category:"__total",amount:999999}]);
 eq([aggregate.expense, aggregate.totalBudget, aggregate.budgetedExpense, aggregate.uncoveredExpense], [64500,240000,50500,14000], "overlapping budgets retain allocations and union expense");
 eq(Object.fromEntries(aggregate.categoryAlerts.map(row => [row.category, row.spent])), {교통:3000,식비:28000,"교통/차량":22500,외식:12000}, "parent own transactions and child row usage");
-// V22.9.75 감사 D-4: 예산이 권하는 시작 분류 ‘교통’ 한 줄만 있으면 교통 갈래(교통·택시·주유/충전·차량관리·옛 교통/차량)를 센다.
+// V22.9.76 감사 D-4: 예산이 권하는 시작 분류 ‘교통’ 한 줄만 있으면 교통 갈래(교통·택시·주유/충전·차량관리·옛 교통/차량)를 센다.
 // 예전 기대값 3,000(교통만)은 권하는 대로 예산을 잡으면 택시·주유가 예산 밖으로 빠지던 D-4 결함이었다.
 // 진짜 상위 행 교통/차량이 함께 있으면 교통은 하위 행으로 남는다(위의 {교통:3000} 기대값 그대로).
 eq(budgetSummary(tx,[{category:"교통",amount:10000}]).budgetedExpense,22500,"교통 alone counts the transport family (D-4)");

@@ -149,7 +149,7 @@ await fixture(async (fx) => {
 });
 
 // PR #68: 거래가 저장된 뒤 적용월 저장이나 다음 규칙이 실패해도 미변경으로 안내하지 않는다.
-// V22.9.75 감사 D-11: 이번 달이 아닌 달의 반영은 확인 화면을 거친다. 아래의 지난달 반영은 확인한 요청(confirmed=yes)으로 보낸다.
+// V22.9.76 감사 D-11: 이번 달이 아닌 달의 반영은 확인 화면을 거친다. 아래의 지난달 반영은 확인한 요청(confirmed=yes)으로 보낸다.
 for (const scenario of ["mixed-marker", "rpc-marker", "later-rule"]) {
   await withClock("2026-07-15", () => fixture(async (fx) => {
     const month = scenario === "rpc-marker" ? "2026-06" : "2026-07";
@@ -177,7 +177,7 @@ await fixture(async (fx) => {
   const before = fx.db.transactions.length;
   const restore = intercept(({ url, method }) => url.pathname === "/rest/v1/accountbook_recurring" && method === "GET" ? failure(400, "read rejected") : null);
   let result;
-  try { result = await post(fx, "/admin/recurring/apply", { household_id: HOME, month: "2026-07", confirmed: "yes" }); } // V22.9.75 D-11: 지난달 반영은 확인한 요청으로 보낸다
+  try { result = await post(fx, "/admin/recurring/apply", { household_id: HOME, month: "2026-07", confirmed: "yes" }); } // V22.9.76 D-11: 지난달 반영은 확인한 요청으로 보낸다
   finally { restore(); }
   eq(fx.db.transactions.length, before, "쓰기 전 조회 실패는 거래를 바꾸지 않는다");
   ok(locParam(result, "err").includes("기존 기록은 변경하지 않았습니다"), "쓰기 전 실패만 미변경으로 안내한다");
@@ -299,7 +299,7 @@ await withClock("2026-07-15", async () => {
     const home = await page(fx, "/app?month=2026-07&household_id=house-home");
     ok(/지난달 1~15일보다 238,600원 더 썼어요/.test(home.html), "D12 이번 달은 지난달 1~15일(같은 기간)과 견주고 그 기준을 문장에 적는다(예전에는 6월 전체 51만원과 견줘 덜 썼다고 했다)");
     ok(!/지난달보다 261,400원 덜 썼어요/.test(home.html), "D12 지난달 전체와 견준 옛 문장이 남지 않는다");
-    // V22.9.75: 6월 화면의 지난달(5월)은 기록이 0건이다. 예전 검사는 0원과 견준 "지난달보다 510,000원 더 썼어요"를
+    // V22.9.76: 6월 화면의 지난달(5월)은 기록이 0건이다. 예전 검사는 0원과 견준 "지난달보다 510,000원 더 썼어요"를
     // 기대했는데, 그것이 고친 결함(지난 기간 기록이 없어도 '더 썼어요')이다. 5월 기록이 없을 때는 비교하지 않음을,
     // 5월 기록을 넣은 뒤에는 월 전체끼리 견줌을 확인한다.
     const past = await page(fx, "/app?month=2026-06&household_id=house-home");
@@ -406,7 +406,7 @@ await withClock("2026-07-15", async () => {
 });
 
 // ── 공통: 자격 규칙은 저장·자동·수동이 한 함수를 쓴다 ─────────
-// V22.9.75 P0-1: 자동 반영이 규칙 목록을 묶음으로 처리해 참여자 목록을 가계부별로 꺼내 쓴다. 자격 판정은 같은 함수다.
+// V22.9.76 P0-1: 자동 반영이 규칙 목록을 묶음으로 처리해 참여자 목록을 가계부별로 꺼내 쓴다. 자격 판정은 같은 함수다.
 ok(source.includes("if (!recurringSpenderEligible(members.get(String(rule.household_id || \"\")) || [], rule.user_id)) { stats.skipped++;"), "T7 자동 반영이 공용 자격 함수를 쓴다");
 eq((source.match(/recurringSpenderEligible\(/g) || []).length >= 5, true, `T7 저장·화면·수동 반영도 같은 자격 함수를 쓴다 (${(source.match(/recurringSpenderEligible\(/g) || []).length}곳)`);
 

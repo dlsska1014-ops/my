@@ -23,7 +23,7 @@ ok(source.includes("accountbook_apply_recurring_v227"), "the apply RPC is unchan
 // 정기 관리 페이지가 고정지출을 함께 읽는다.
 ok(source.includes("fetchRecurring(env, householdId),"), "the reserve plans page loads recurring rows");
 ok(source.includes('<section class="card" id="fixed">'), "the fixed-expense section lives on the reserve plans page");
-// V22.9.75: 이 구역에는 월급·수당 같은 고정 수입도 들어가므로 제목이 "고정 수입·지출"이 됐다(예전 제목은 수입 행에도 "고정지출").
+// V22.9.76: 이 구역에는 월급·수당 같은 고정 수입도 들어가므로 제목이 "고정 수입·지출"이 됐다(예전 제목은 수입 행에도 "고정지출").
 ok(source.includes("매월 자동 반영되는 고정 수입·지출"), "the section is labelled");
 
 // 지출자 선택은 기존 헬퍼를 재사용한다(활성 참여자만 고를 수 있어야 저장이 통과한다).

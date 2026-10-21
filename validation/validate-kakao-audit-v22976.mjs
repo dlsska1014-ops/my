@@ -1,4 +1,4 @@
-// V22.9.75 — 2026-10-14 전체 점검(docs/codex/AUDIT_FINDINGS_V22_9_44.md)에서 아직 재현되던 카카오 결함의 동작 검사.
+// V22.9.76 — 2026-10-14 전체 점검(docs/codex/AUDIT_FINDINGS_V22_9_44.md)에서 아직 재현되던 카카오 결함의 동작 검사.
 //
 // ── 이 파일이 왜 생겼는지 ──
 // 2026-10-21 다시 돌려 본 재현 스크립트에서: 수정 세션의 메뉴에 "1번"이라고 답하면 오늘의 01번 기록이 바뀌었고(B-2),
@@ -13,7 +13,7 @@ import vm from "node:vm";
 import { app, BASE, ctx, counter, fixture, intercept, withClock } from "./lib-audit-v22934.mjs";
 import { quickInputDate } from "../src/modules/client/shared-input-parsers.js";
 
-const t = counter("V22.9.75 카카오 점검 잔여 결함(B-2·A-04·B-4·B-3·A-07·A-12·D-7·A-13·D-6·B-6) 검사");
+const t = counter("V22.9.76 카카오 점검 잔여 결함(B-2·A-04·B-4·B-3·A-07·A-12·D-7·A-13·D-6·B-6) 검사");
 const HH = "house-home";
 const DAY = "2026-08-05";
 
@@ -48,7 +48,7 @@ function scenario(task, { day = DAY, selections = [["user-bin", HH]] } = {}) {
     globalThis.__AB_KAKAO_REPEAT_GUARD?.clear();
     globalThis.__AB_KAKAO_INFLIGHT?.clear();
     for (const [userId, householdId] of selections) {
-      fx.db.accountbook_settings.push({ id: `sel-${userId}-v22975-audit`, key: `kakao_selected_household_v2251:${userId}`, value: householdId, created_at: "2026-07-01T00:00:00Z" });
+      fx.db.accountbook_settings.push({ id: `sel-${userId}-v22976-audit`, key: `kakao_selected_household_v2251:${userId}`, value: householdId, created_at: "2026-07-01T00:00:00Z" });
     }
     await task(fx);
   }));
@@ -243,7 +243,7 @@ await scenario(async (fx) => {
 // ── B-6. 이미 연결된 식별 별칭은 전역 잠금 없이 지나간다. 잠금이 바빠 멈추면 저장하지 않았다고 말한다 ─────────
 // 다른 isolate 가 settings-rmw:user_identity_links 잠금을 쥐고 있는 상황을, 그 잠금 요청만 ‘못 잡음’으로 돌려 만든다.
 await scenario(async (fx) => {
-  fx.env.KAKAO_SKILL_SECRET = "audit-secret-v22975";
+  fx.env.KAKAO_SKILL_SECRET = "audit-secret-v22976";
   await say(fx, "커피 7100", { appUserId: "2265" });
   t.ok(newest(fx).amount === 7100, "B-6 준비: appUserId 가 실린 첫 기록으로 별칭이 연결된다");
   let identityClaims = 0;

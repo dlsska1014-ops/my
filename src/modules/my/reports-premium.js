@@ -55,7 +55,7 @@ function freeReportSnapshotKey(householdId = "", kind = "weekly", period = "") {
   return `free_report_snapshot:${String(householdId || "").trim()}:${kind}:${period}`.slice(0, 180);
 }
 
-// V22.9.75 감사 C-3: 안내 문구 표에서 그 표에 직접 적은 코드만 꺼낸다. 주소의 ?msg=constructor·toString 같은 값은
+// V22.9.76 감사 C-3: 안내 문구 표에서 그 표에 직접 적은 코드만 꺼낸다. 주소의 ?msg=constructor·toString 같은 값은
 // 객체가 물려받은 함수라 "function Object() { [native code] }"가 화면에 나왔다.
 function ownMessage(table, key) {
   return key && Object.hasOwn(table, String(key)) ? table[key] : undefined;
@@ -449,7 +449,7 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const subscriptionRows = cur.filter((r) => LIVING_REPORT_SUBSCRIPTION.test(`${r.category || ""} ${r.memo || ""} ${r.raw_text || ""}`));
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
-  // V22.9.75: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
+  // V22.9.76: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
   const upcoming = safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
     .map((s) => ({ name: String(s.plan?.name || "적립 계획"), amount: Number(s.plan?.amount || 0), due_date: s.due_date, days_left: s.days_left, monthly_reserve: s.monthly_reserve }));
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
@@ -596,7 +596,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const won = (n) => `${numberWithCommas(Math.round(Number(n) || 0))}원`;
   const deltaText = (delta, prev) => !report.comparisonAvailable ? "비교 확인 불가" : !(prev > 0) && delta === 0 ? "비교 기록 없음" : delta === 0 ? "같음" : `${delta > 0 ? "+" : "−"}${numberWithCommas(Math.abs(delta))}원`;
   const deltaClass = (delta) => delta > 0 ? "lrDelta isUp" : delta < 0 ? "lrDelta isDown" : "lrDelta";
-  // V22.9.75: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
+  // V22.9.76: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
   // "…보다 N원 늘었어요"를 적었다. 요약과 같이 항목별 증감과 '가장 늘어난 항목' 문장도 숨긴다.
   const noPrevious = report.comparisonAvailable && !(report.prevExpense > 0);
   const topDaysText = report.topDays.length ? report.topDays.map((d) => `${ymdWithWeekday(d.date)} ${won(d.amount)}`).join(" · ") : "아직 지출한 날이 없어요";
@@ -605,7 +605,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const bars = report.days.map((d) => `<span><i class="${topSet.has(d.date) ? "isTop" : d.future ? "isFuture" : ""}" style="height:${Math.max(3, Math.round(d.amount / maxDay * 100))}%" title="${escapeHtml(ymdWithWeekday(d.date))} ${escapeHtml(won(d.amount))}"></i><b>${p.range === "week" ? escapeHtml(LIVING_REPORT_WEEKDAYS[weekdayIndexOfYmd(d.date)] || "") : Number(d.date.slice(8, 10)) % 5 === 1 || d.date.slice(8, 10) === "01" ? Number(d.date.slice(8, 10)) : ""}</b></span>`).join("");
   const segment = `<div class="lrSeg noPrint" role="group" aria-label="리포트 기간 단위"><a href="${escapeHtml(hrefMonth)}"${range === "month" ? ' aria-current="true"' : ""}>월간</a><a href="${escapeHtml(hrefWeek)}"${range === "week" ? ' aria-current="true"' : ""}>주간</a></div>`;
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
-  // V22.9.75 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
+  // V22.9.76 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
   const flash = ownMessage({ card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }, msg);
   const flashErr = ownMessage({ card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }, err) || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
   const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;

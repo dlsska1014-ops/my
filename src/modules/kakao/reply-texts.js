@@ -77,7 +77,7 @@ function formatMessage(msg) {
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
-  // V22.9.75 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
+  // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
   if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
@@ -288,7 +288,7 @@ function kakaoKeywordGuideText(origin = "") {
     "• 주유 → 주유/충전 · 하이패스 → 차량관리",
     "• 병원, 치과 → 의료/병원 · 약국 → 약국",
     "",
-    // V22.9.75 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
+    // V22.9.76 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
     "키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.",
     ...(origin ? [`${origin}/my/settings`] : []),
   ].join("\n");
@@ -309,7 +309,7 @@ function kakaoEditSimpleGuideText(origin = "") {
 }
 
 function kakaoReserveSimpleGuideText(origin = "") {
-  // V22.9.75 (감사 A-11): 예전 입력 예시("자동차보험 120만원 8월")를 그대로 보내면 정기 항목이 아니라
+  // V22.9.76 (감사 A-11): 예전 입력 예시("자동차보험 120만원 8월")를 그대로 보내면 정기 항목이 아니라
   //   오늘 날짜 지출 1,200,000원이 저장됐다. 정기 항목 등록은 웹에서만 되므로 카카오에서 되는 일만 적는다.
   return [
     "📌 정기 수입·지출",

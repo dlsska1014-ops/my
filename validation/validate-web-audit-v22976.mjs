@@ -1,4 +1,4 @@
-// V22.9.75 — 2026-10-14 전체 점검(docs/codex/AUDIT_FINDINGS_V22_9_44.md)에서 2026-10-21 에도 재현된 웹 결함의 동작 검사.
+// V22.9.76 — 2026-10-14 전체 점검(docs/codex/AUDIT_FINDINGS_V22_9_44.md)에서 2026-10-21 에도 재현된 웹 결함의 동작 검사.
 //
 // ── 이 파일이 왜 생겼는지 ──
 // 점검 때 만든 재현 스크립트를 오늘 코드에 다시 돌리니 아래 결함이 그대로였다(재현: D-web-domain/t2-future·s3-reserve-plans·
@@ -18,7 +18,7 @@
 // 예전처럼 맞아야 하는 쪽(지난 기간 기록이 있는 비교, 그 달에 없는 항목, 직접 적은 남의 가계부 ID 404 등)도 함께 본다.
 import { counter, fixture, withClock, page, api, putSetting } from "./lib-audit-v22934.mjs";
 
-const t = counter("V22.9.75 2026-10-14 점검 재현 결함(웹) 검사");
+const t = counter("V22.9.76 2026-10-14 점검 재현 결함(웹) 검사");
 const HH = "house-home";
 const strip = (html) => String(html || "").replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
 const after = (text, marker, length = 160) => { const i = text.indexOf(marker); return i < 0 ? "" : text.slice(i, i + length); };

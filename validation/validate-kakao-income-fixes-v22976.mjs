@@ -1,4 +1,4 @@
-// V22.9.75 — 카카오 챗봇이 수입을 지출처럼(또는 그 반대로) 다루던 결함의 동작 검사.
+// V22.9.76 — 카카오 챗봇이 수입을 지출처럼(또는 그 반대로) 다루던 결함의 동작 검사.
 //
 // ── 이 파일이 왜 생겼는지 ──
 // 2026-10-21 카카오 감사에서 /skill 로 직접 보내 본 결과: "부모님께 용돈 30만원 지출"·"이자 납부 30만원"이 수입으로
@@ -13,7 +13,7 @@ import vm from "node:vm";
 import { app, BASE, ctx, counter, fixture, withClock } from "./lib-audit-v22934.mjs";
 import { transactionTypeFromText } from "../src/index.js";
 
-const t = counter("V22.9.75 카카오 수입·지출 혼동 수정 검사");
+const t = counter("V22.9.76 카카오 수입·지출 혼동 수정 검사");
 const HH = "house-home";
 const DAY = "2026-08-05";
 const YESTERDAY = "2026-08-04";
@@ -41,7 +41,7 @@ function scenario(task) {
   return withClock(DAY, () => fixture(async (fx) => {
     globalThis.__AB_KAKAO_REPEAT_GUARD?.clear();
     globalThis.__AB_KAKAO_INFLIGHT?.clear();
-    fx.db.accountbook_settings.push({ id: "sel-bin-v22975-kakao", key: "kakao_selected_household_v2251:user-bin", value: HH, created_at: "2026-07-01T00:00:00Z" });
+    fx.db.accountbook_settings.push({ id: "sel-bin-v22976-kakao", key: "kakao_selected_household_v2251:user-bin", value: HH, created_at: "2026-07-01T00:00:00Z" });
     await task(fx);
   }));
 }
@@ -141,6 +141,23 @@ await scenario(async (fx) => {
 
 // ── 2. 사용자 분류도 구분별로 나눈다. 같은 구분이면 표준 이름과 겹쳐도 받는다 ─────────────────────
 await scenario(async (fx) => {
+  if (process.env.AB_QA_CATEGORIES_ABSENT === "1") {
+    // 분류 표가 없는 운영(404/PGRST205)에는 사용자 분류가 없다. 표준 분류만으로 구분을 나누는지 본다.
+    await say(fx, "월급 250만원 들어옴");
+    const incomeRow = newest(fx);
+    await say(fx, "점심 12000원");
+    await say(fx, "수정 01번");
+    const incomeOptions = await say(fx, "2");
+    t.ok(incomeOptions.text.includes("기타수입") && !incomeOptions.text.includes("외식"), "2 (분류 표 없음) 수입 기록 목록에는 수입 분류만");
+    await say(fx, "취소");
+    await say(fx, "수정 02번");
+    const expenseOptions = await say(fx, "2");
+    t.ok(expenseOptions.text.includes("외식") && !expenseOptions.text.includes("기타수입"), "2 (분류 표 없음) 지출 기록 목록에는 지출 분류만");
+    await say(fx, "취소");
+    await say(fx, "수정 01번 분류 외식");
+    t.eq(rowById(fx, incomeRow.id).category, "급여", "2 (분류 표 없음) 지출 분류는 수입 기록에 들어가지 않는다");
+    return;
+  }
   fx.db.accountbook_categories.push(
     { id: "cat-pet", household_id: HH, name: "반려동물", type: "expense", sort_order: 1, created_at: "2026-07-01T00:00:00Z" },
     { id: "cat-allow", household_id: HH, name: "용돈", type: "expense", sort_order: 2, created_at: "2026-07-01T00:00:00Z" },

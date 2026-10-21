@@ -188,7 +188,7 @@ function normalizeRecurringDay(value) {
 function renderRecurringEditForm(row, householdId, month, members, action) {
   // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
   const spenders = eligibleRecurringSpenders(members);
-  // V22.9.75: 수입 항목(예: 수당)의 사람 칸은 "수입자"다. 거래 목록·수정 화면과 같은 말을 쓴다.
+  // V22.9.76: 수입 항목(예: 수당)의 사람 칸은 "수입자"다. 거래 목록·수정 화면과 같은 말을 쓴다.
   const spenderWord = row.type === "income" ? "수입자" : "지출자";
   return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${spenders.length ? `<label>${spenderWord}<select name="user_id">${renderSpenderOptions(spenders,row.user_id,`${spenderWord} 선택`)}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
 }
@@ -225,16 +225,16 @@ async function handleRecurringSave(request, env) {
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
   if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
   try {
-    // V22.9.75 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
+    // V22.9.76 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
     // 같은 판정). 예전에는 이 경로(정기 수입·지출 화면)만 이 확인이 없어 다음 자동 반영이 같은 달을 한 번 더 넣었다.
     if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, householdId, row);
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
-      // V22.9.75 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
+      // V22.9.76 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
       if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     });
@@ -308,7 +308,7 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
-  // V22.9.75 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
+  // V22.9.76 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
   // "이번 달"이라 10월에 9월 화면에서 누르면 10월에 만든 규칙까지 2026-09-15 자로 들어갔다. 단추에 대상 달을 적고(정기 화면),
   // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
   if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);

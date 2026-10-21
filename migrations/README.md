@@ -37,7 +37,7 @@ pg_dump \
 정본 덤프를 `0001_baseline_schema.sql` 로 커밋하면, 이후 스키마 변경은
 번호가 매겨진 마이그레이션(`0002_*.sql` …)으로 관리하면 됩니다.
 
-## `/ready` 가 점검하는 것 (V22.9.75 기준)
+## `/ready` 가 점검하는 것 (V22.9.76 기준)
 
 정본은 코드다: `src/modules/runtime/config-readiness.js` 의 `READINESS_CORE_RPCS`(핵심 RPC 16개),
 `READINESS_ALTERNATIVE_RPC_GROUPS`(둘 중 하나만 있으면 되는 자산 RPC), `READINESS_REQUIRED_TABLES`(필수 표 13개),

@@ -78,7 +78,7 @@ const hhCookie = (result) => result.setCookies.find((cookie) => cookie.startsWit
 // ---------------------------------------------------------------------------
 {
   const stale = await get("/my/settings", { extraCookie: "ab_hh=house-gone" });
-  // V22.9.75 감사 D-24: 예전 '고르기 화면'은 실제로는 '가계부 시작' 화면(200)이라 다른 가계부가 있어도 없다고 했다.
+  // V22.9.76 감사 D-24: 예전 '고르기 화면'은 실제로는 '가계부 시작' 화면(200)이라 다른 가계부가 있어도 없다고 했다.
   // 이제 가계부 고르기 화면(/my/households)으로 보낸다. 첫 가계부로 대체하지 않는 기준선은 그대로다.
   ok(stale.status === 303 && stale.location === "/my/households?msg=household_memory_stale", `낡은 쿠키면 가계부 고르기 화면으로 보낸다(500 아님) (${stale.status} ${stale.location})`);
   ok(!stale.text.includes("household_id=house-gone"), "존재하지 않는 가계부를 그리지 않는다");

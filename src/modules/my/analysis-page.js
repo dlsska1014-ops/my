@@ -71,7 +71,7 @@ function renderBudgetGaugeCards(budget = {}) {
   const total = Number(budget.totalBudget || 0);
   const expense = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const remain = Math.max(0, total - expense);
-  // V22.9.75 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
+  // V22.9.76 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
   // 홈·예산 화면(507%)과 달랐다. 예산이 없으면 지출 전부를 '초과'로 적지 않는다.
   const rate = total ? Math.round(expense / total * 100) : 0;
   const over = total ? Math.max(0, expense - total) : 0;
@@ -95,7 +95,7 @@ function shortWonLabel(amount = 0) {
   const abs = Math.abs(n);
   // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 억·조는 소수 첫째 자리까지 둔다.
   const tenth = (v) => { const r = Math.round(v * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
-  // V22.9.75 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
+  // V22.9.76 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
   // 99,995,000원 "10000만" → "1억"). 1조 이상은 "10020억"이 아니라 "1조"로 쓴다.
   if (Math.round(abs / 1e7) / 10 >= 10000) return `${sign}${tenth(abs / 1e12)}조`;
   if (abs >= 1e8 || Math.round(abs / 1e4) >= 10000) return `${sign}${tenth(abs / 1e8)}억`;

@@ -29,7 +29,7 @@ function parseKakaoMemberPolicyCommand(text = "") {
   return { show: true, unknown: true };
 }
 
-// V22.9.75 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
+// V22.9.76 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
 // "점심 메뉴 12000" 같은 기록이 도움말로 바뀌고 저장되지 않았다. 자연어 판정은 금액이 없는 말에만 쓰고,
 // 아래의 짧은 도움말 명령은 그대로 받는다.
 function isHelpCommand(text) {
@@ -71,7 +71,7 @@ async function kakaoSettlementParts(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  // V22.9.75 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
+  // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
@@ -128,7 +128,7 @@ function isReserveGuideCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "RESERVE_GUIDE" || /^(정기지출|정기 지출|자동차세|재산세|자동차보험|보험준비|보험 준비|준비금|알림|납부알림|납부 알림)$/i.test(normalizeText(text));
 }
 
-// V22.9.75: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
+// V22.9.76: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
 // '카카오 설정'·'봇 설정'·'심사'·'운영 점검'·'챗봇 점검'·'블록 설정'에도 이 안내가 나갔다.
 function isOpenBuilderGuideCommand(text) {
   return /^(오픈빌더|openbuilder|폴백|스킬연결|스킬 연결|발화목록|발화 목록)$/i.test(normalizeText(text));

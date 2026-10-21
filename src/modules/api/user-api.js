@@ -308,7 +308,7 @@ async function handleUserNotifications(request, env, url) {
   });
 
   // 3) 미분류 지출
-  // V22.9.75: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
+  // V22.9.76: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
     notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 지출 ${uncategorized.length}건`,
@@ -337,7 +337,7 @@ async function handleUserNotifications(request, env, url) {
   }
 
   // 5) 정기 항목 기한 임박 (상위 3)
-  // V22.9.75: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
+  // V22.9.76: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
     const income = isIncomeReservePlan(s.plan);
@@ -532,7 +532,7 @@ function enrichGoal(g) {
     const [dy, dm] = g.deadline.split("-").map(Number);
     const left = (dy - ny) * 12 + (dm - nm) + 1;
     if (left < 1) {
-      // V22.9.75 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
+      // V22.9.76 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
       // 남은 달·월 필요액을 비워 화면에서 빼고, 상태는 '부족'으로 둔다.
       overdue = true;
       status = "behind";
@@ -550,7 +550,7 @@ function goalsPayload(householdId, list) {
   const goals = list.map(enrichGoal);
   const totalTarget = goals.reduce((a, g) => a + g.target, 0);
   const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
-  // V22.9.75 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
+  // V22.9.76 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
   // 채워 "100%"가 되던 것(비상금 200% + 휴가 0% → 100%)을 막는다. 모은 돈 합계(total_saved)는 그대로다.
   const totalCountedSaved = goals.reduce((a, g) => a + Math.min(Math.max(0, Number(g.saved || 0)), Math.max(0, Number(g.target || 0))), 0);
   return {

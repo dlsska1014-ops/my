@@ -25,7 +25,7 @@ function normalizeText(text) {
     .replace(/처눤/g, "천원")
     .replace(/백 원/g, "백원")
     .replace(/십 원/g, "십원")
-    // V22.9.75 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
+    // V22.9.76 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
     // 앞뒤가 두 금액으로 읽혀 두 건(10,000원 + 기타지출 5,000원)으로 저장되거나 뒤의 금액이 사라졌다. 앞이 만·억·천·백으로
     // 끝나고, 뒤가 그보다 작은 단위(천·백·십)의 수이며 ‘원’이 붙거나 문장이 끝날 때만 붙인다. 앞이 숫자 단위("3만 5천원")면
     // 예전부터 한 금액으로 읽으므로 건드리지 않는다.
@@ -59,7 +59,7 @@ function normalizeType(value) {
 }
 
 function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
-// V22.9.75: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
+// V22.9.76: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
 function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
 
 function parseAmountValue(value) {

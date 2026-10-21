@@ -160,7 +160,7 @@ function kakaoSkillSecretMatches(request, expected = "") {
 function kakaoSkillCallerAuthorized(request, env = {}) {
   const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
   const at = new Date().toISOString();
-  // V22.9.75 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
+  // V22.9.76 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
   // /skill 은 누구에게나 열려 있었다. 필수로 정한 배포는 막고, 필수가 아니면 기존처럼 열어 둔다.
   if (!expected) {
     if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") !== "1") return true;

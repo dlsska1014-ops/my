@@ -177,7 +177,7 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
   return true;
 }
 
-// V22.9.75 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
+// V22.9.76 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
 function kakaoRepeatGuardText(origin = "", utterance = "") {
   const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
   const example = text && extractAmount(text)?.amount ? text : "";

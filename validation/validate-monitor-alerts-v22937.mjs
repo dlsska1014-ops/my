@@ -104,7 +104,7 @@ for (const task of ["recurring", "reports", "bounded-partial"]) {
   await withClock("2026-07-19", () => fixture(async (fx) => {
     fx.db.accountbook_recurring = [];
     if (task === "reports") putSetting(fx, "free_report_preference:house-home", JSON.stringify({ enabled: true, weekly: true }));
-    // V22.9.75 P0-1: 정기 반영은 가계부 수가 아니라 한 실행의 저장소 호출 한도로 나눈다. 정상 분할을 만들려고
+    // V22.9.76 P0-1: 정기 반영은 가계부 수가 아니라 한 실행의 저장소 호출 한도로 나눈다. 정상 분할을 만들려고
     // 오늘까지 지정일이 지난 규칙을 한 실행 몫(약 240개)보다 많이 둔다.
     if (task === "bounded-partial") for (let index = 0; index < 300; index++) {
       const id = `partial-${index}`;
@@ -123,7 +123,7 @@ for (const task of ["recurring", "reports", "bounded-partial"]) {
     const events = (globalThis.__AB_OPS_EVENTS || []).slice(before);
     const partial = events.find((event) => event.kind === "scheduled_partial");
     eq(outcome.status, task === "bounded-partial" ? "fulfilled" : "rejected", `${task}: 실제 실패와 정상 분할의 결과를 구분한다`);
-    // V22.9.75 P0-1: 정기 단계는 규칙 목록 한 번으로 읽으므로 그 조회가 실패하면 단계 오류(scheduled_error)로 남는다.
+    // V22.9.76 P0-1: 정기 단계는 규칙 목록 한 번으로 읽으므로 그 조회가 실패하면 단계 오류(scheduled_error)로 남는다.
     if (task === "recurring") ok(events.some((event) => event.kind === "scheduled_error" && event.path === "/cron/recurring/apply" && event.detail.includes("400")), `${task}: 단계 오류 이벤트에 실제 실패가 남는다`);
     else ok(partial?.detail.includes(task === "bounded-partial" ? "failed=0" : "failed=1"), `${task}: 부분 처리 이벤트에 실제 실패 건수가 남는다`);
     ok(events.some((event) => event.kind === "scheduled" && event.detail.endsWith(task === "bounded-partial" ? "completed" : "completed with errors")), `${task}: 최종 완료 이벤트도 실제 결과를 반영한다`);

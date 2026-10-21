@@ -73,7 +73,7 @@ async function handleAdminImportJson(request, env) {
       return jsonResponse({ ok: false, error: "spender_required", message: "업로드 기본 지출자를 현재 가계부 참여자 중에서 선택해주세요." }, 400);
     }
     const parsed = parseImportedRecords(rawText, householdId, defaultUserId);
-    // V22.9.75 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
+    // V22.9.76 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
     // 같은 파일을 다시 내면 두 번 저장됐다. 이제 id 를 (가계부·기본 지출자·원문, 행 순서)로 정해 같은 파일을 다시 제출해도 이미
     // 저장된 행은 건너뛴다. 저장은 1,000행씩 나눠 최대 ADMIN_IMPORT_MAX_ROWS 행까지 하고(저장소 호출: 묶음당 1번 + 확인 80행당 1번),
     // 그보다 많거나 파일을 끝까지 읽지 못했으면 아무것도 저장하지 않고 나눠 올리라고 답한다.
@@ -753,7 +753,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     return value;
   };
   let transactionDate = resolveImportRowDate(options);
-  // V22.9.75 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
+  // V22.9.76 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
   // 뒤면 전년, 웹·카카오와 같음)과 다르면(1월에 가져온 12/28 → 올해 12월) 미래 날짜로 조용히 저장하지 않게 경고와 확인 필요를 남긴다.
   let yearBasisReview = false;
   if (transactionDate && options.dateContext.mode === "selected") {
@@ -830,7 +830,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
   }
-  // V22.9.75 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
+  // V22.9.76 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
   // 수입이 오히려 늘었다. 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고, 확인 표시를 남겨 미리보기에서 기본 선택하지 않는다.
   let incomeReversed = false;
   if (!signedFile && chosen.negative && !refundFlipped && (normalizedType === "income" || (!normalizedType && forcedType === "income"))) {

@@ -39,7 +39,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
-  // V22.9.75 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
+  // V22.9.76 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
   // 반영 대기 목록에도 없어서 가정값에서 사라졌다(반영 전 1,425,000원 → 반영 후 775,000원). 이번 달의 오늘 뒤 날짜 정기 기록은
   // 대기 항목과 같은 자리에 더한다. 관측 속도(forecastExpense)는 그대로 오늘까지만 본다.
   // 대기 목록에 남은 규칙의 기록(표식 저장이 늦은 경우)은 두 번 더하지 않는다.
@@ -49,7 +49,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
     : [];
   const scheduledRecurringTotal = scheduledRecurring.length ? Number(budgetSummary(scheduledRecurring, budgets).budgetedExpense || 0) : 0;
   const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal + scheduledRecurringTotal : null;
-  // V22.9.75 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
+  // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
   // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
   const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
     ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
@@ -103,7 +103,7 @@ function renderBudgetAlertRows(model) {
 function renderPendingRecurringList(model) {
   if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
-  // V22.9.75 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
+  // V22.9.76 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
   // 지정일 전에 미리 반영한 정기지출은 목록에서 빠져도 가정값에는 남는다.
   const outside = safeArray(model.outsidePendingRecurring);
   const scheduled = safeArray(model.scheduledRecurring);

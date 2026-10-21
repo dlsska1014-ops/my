@@ -51,8 +51,8 @@ const post=(f,path,fields)=>app.fetch(new Request(BASE+path,{method:"POST",heade
   calls=0;const before=f.db.transactions.length;await runRecurringAutoApply(f.env,{today:"2026-07-31",month:"2026-07"});eq(f.db.transactions.length,before,"next cycle does not duplicate already applied month");
   calls=0;const shared={...f.env,__AB_DB_BUDGET:{used:0,limit:50}};await runRecurringAutoApply(shared,{today:"2026-08-01",month:"2026-08"});await runAutomaticReports(shared,{today:"2026-08-01"});ok(calls<=50,"recurring and reports share one invocation budget");
   f.db.households=f.db.households.slice(0,30);f.db.transactions=[];for(const rule of f.db.accountbook_recurring)delete rule.last_applied_month;
-  f.db.accountbook_settings=f.db.accountbook_settings.filter(row=>row.key!=="cron_recurring_cursor_v22930"&&row.key!=="cron_recurring_state_v22975");
-  // V22.9.75 P0-1: 규칙 30개는 이제 한 번에 끝난다. 말일 실행이 다 못 끝낸 경우를 만들려고 이미 호출을 많이 쓴 실행으로 부른다.
+  f.db.accountbook_settings=f.db.accountbook_settings.filter(row=>row.key!=="cron_recurring_cursor_v22930"&&row.key!=="cron_recurring_state_v22976");
+  // V22.9.76 P0-1: 규칙 30개는 이제 한 번에 끝난다. 말일 실행이 다 못 끝낸 경우를 만들려고 이미 호출을 많이 쓴 실행으로 부른다.
   calls=0;const july=await runRecurringAutoApply({...f.env,__AB_DB_BUDGET:{used:26,limit:50}},{today:"2026-07-31"});ok(july.partial&&july.remaining===30,"month-end run retains unfinished work");
   let continuation;let remainingTicks=0;
   do{calls=0;continuation=await runRecurringAutoApply(f.env,{today:"2026-08-01"});ok(calls<=50,"cross-month continuation respects shared request budget");remainingTicks++;}while(continuation.partial&&remainingTicks<20);
@@ -66,7 +66,7 @@ const post=(f,path,fields)=>app.fetch(new Request(BASE+path,{method:"POST",heade
   const USER="11111111-1111-4111-8111-111111111111";
   f.db.users[0].id=USER;f.db.households=[{id:"first-house",name:"first-house"}];f.db.household_members=[{household_id:"first-house",user_id:USER,role:"owner"}];f.db.transactions=[];
   f.db.accountbook_recurring=Array.from({length:20},(_,i)=>({id:"twenty-"+String(i).padStart(2,"0"),household_id:"first-house",user_id:USER,memo:"item "+i,amount:1000+i,day_of_month:31,is_active:true,type:"expense"}));
-  // V22.9.75 P0-1: 규칙 20개는 한 번(묶음 저장)에 끝나므로 호출 한도에 걸린 말일 실행을 이미 호출을 쓴 실행으로 만든다. 커서는 없어졌다.
+  // V22.9.76 P0-1: 규칙 20개는 한 번(묶음 저장)에 끝나므로 호출 한도에 걸린 말일 실행을 이미 호출을 쓴 실행으로 만든다. 커서는 없어졌다.
   const first=await runRecurringAutoApply({...f.env,__AB_DB_BUDGET:{used:26,limit:50}},{today:"2026-07-31"});ok(first.partial,"first household remains pending on per-invocation cutoff");eq(first.remaining,20,"unfinished rules are reported instead of a cursor position");ok(calls<=50,"first large household invocation retains budget");
   let result,ticks=0;do{calls=0;result=await runRecurringAutoApply(f.env,{today:"2026-08-01"});ok(calls<=50,"large-household cross-month continuation retains budget");eq(result.month,"2026-07","pending empty-position scope remains July");ticks++;}while(result.partial&&ticks<10);
   ok(!result.partial&&ticks<10,"all20 first-household rules eventually complete");eq(f.db.transactions.length,20,"July rules all save exactly once");eq(new Set(f.db.transactions.map(row=>row.raw_text)).size,20,"every item/month key is distinct");ok(f.db.transactions.every(row=>row.transaction_date==="2026-07-31"),"large household continuation does not move July dates into August");
@@ -78,7 +78,7 @@ const post=(f,path,fields)=>app.fetch(new Request(BASE+path,{method:"POST",heade
   const snapshots=f.db.accountbook_settings.filter(row=>row.key.startsWith("free_report_snapshot:")&&row.key.endsWith(":2026-07"));eq(snapshots.length,3,"all three July snapshots are persisted");ok(!f.db.accountbook_settings.some(row=>row.key.startsWith("free_report_snapshot:")&&row.key.endsWith(":2026-08")),"old work is never mislabeled as an August snapshot");
   calls=0;await runAutomaticReports(f.env,{today:"2026-08-01"});eq(f.db.accountbook_settings.filter(row=>row.key.startsWith("free_report_snapshot:")&&row.key.endsWith(":2026-07")).length,3,"daily retry does not duplicate July snapshots");
   f.db.transactions=[];for(const rule of f.db.accountbook_recurring)delete rule.last_applied_month;
-  f.db.accountbook_settings=f.db.accountbook_settings.filter(row=>row.key!=="cron_recurring_cursor_v22930"&&row.key!=="cron_recurring_state_v22975");
+  f.db.accountbook_settings=f.db.accountbook_settings.filter(row=>row.key!=="cron_recurring_cursor_v22930"&&row.key!=="cron_recurring_state_v22976");
   let lostResult=false;globalThis.fetch=async(input,init={})=>{if(new URL(String(input)).pathname==="/rest/v1/transactions"&&init.method==="POST"&&!lostResult){calls++;lostResult=true;await original(input,init);throw Error("synthetic committed recurring result lost");}if(String(input).includes("mock.supabase")){calls++;if(calls>50)throw Error("synthetic50");}return original(input,init);};
   calls=0;const unknown=await runRecurringAutoApply(f.env,{today:"2026-07-31"});ok(!unknown.ok&&unknown.partial,"unknown recurring write never reports complete or advances scope");
   let resumed,iterations=0;do{calls=0;resumed=await runRecurringAutoApply(f.env,{today:"2026-08-01"});iterations++;}while(resumed.partial&&iterations<10);eq(f.db.transactions.length,20,"confirmed re-read after lost result does not duplicate or drop an item");ok(f.db.transactions.every(row=>row.transaction_date==="2026-07-31"),"unknown result retains target month through continuation");

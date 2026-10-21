@@ -1,6 +1,6 @@
 # 운영 설정 이름 (Cloudflare Worker `kakao-accountbook`)
 
-V22.9.75 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때의 동작만 적는다. 바꿀 때는 Cloudflare 대시보드에서 바꾸고,
+V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때의 동작만 적는다. 바꿀 때는 Cloudflare 대시보드에서 바꾸고,
 바꾼 뒤에는 배포 스크립트로 새 판을 올리기 전에 다시 업로드한다(업로드 뒤 Secret 을 바꾸면 승격이 거절된다, 감사 G-4).
 
 ## 필수 (없으면 `/ready` 503)
@@ -20,7 +20,7 @@ V22.9.75 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 | 이름 | 동작 |
 |---|---|
 | `KAKAO_SKILL_SECRET` | OpenBuilder 가 보내는 `x-api-key`(또는 `x-kakao-skill-secret`, `Bearer`) 와 비교. 없으면 인증 꺼짐 |
-| `KAKAO_SKILL_AUTH_REQUIRED` | `1` 이면 Secret 이 없을 때 `/ready` 503 이고, V22.9.75 부터 `/skill` 도 403 으로 막는다 |
+| `KAKAO_SKILL_AUTH_REQUIRED` | `1` 이면 Secret 이 없을 때 `/ready` 503 이고, V22.9.76 부터 `/skill` 도 403 으로 막는다 |
 | `KAKAO_SKILL_AUTH_MODE` | `observe` 면 틀린 헤더도 세기만 하고 통과(헤더를 맞추는 동안의 비상용). 켠 채 두지 않는다. 현재 값은 `/ready` 의 `skill_caller_auth.mode` |
 
 ## 카카오 로그인 (웹)

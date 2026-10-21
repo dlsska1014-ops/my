@@ -1,4 +1,4 @@
-// V22.9.75 돈 계산·정기 반영 감사 수정 검사. 메모리 픽스처(validation/qa-fixture.mjs)로 재현하며 네트워크를 쓰지 않는다.
+// V22.9.76 돈 계산·정기 반영 감사 수정 검사. 메모리 픽스처(validation/qa-fixture.mjs)로 재현하며 네트워크를 쓰지 않는다.
 //   P0-1 예약 자동 반영이 가계부 5개씩 도는 커서 때문에 월말 규칙을 잃던 문제(가계부 32개·28일 규칙, 10~11월 매일 실행).
 //        월말 실행이 멈추거나 한도에 걸린 지난달 몫은 새 달 첫 실행이 따라잡되, 지난달이 끝난 뒤 만든 규칙과
 //        지난달 지정일에 꺼 두었던 규칙은 지난달로 넣지 않는다(D-10). 겹친 실행·수동 반영·응답 유실에도 한 건만 들어간다.
@@ -10,7 +10,7 @@
 import app, { parseFlexibleImportRecords, runRecurringAutoApply } from "../src/index.js";
 import { fixture, withClock, post, page, api, formFields, counter, intercept, BASE, ctx, putSetting, skill, failure } from "./lib-audit-v22934.mjs";
 
-const { ok, eq, done } = counter("V22.9.75 돈 계산·정기 반영 수정 검사");
+const { ok, eq, done } = counter("V22.9.76 돈 계산·정기 반영 수정 검사");
 const KST = (ymd, hm = "09:10") => Date.parse(`${ymd}T${hm}:00+09:00`);
 const nextDay = (ymd) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 const strip = (html) => String(html).replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");

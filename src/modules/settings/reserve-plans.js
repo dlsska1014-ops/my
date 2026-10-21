@@ -264,7 +264,7 @@ function nextReserveDue(plan = {}, fromDate = nowKstDate()) {
   return candidates[0] || new Date(year + 1, 11, 1);
 }
 
-// V22.9.75 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
+// V22.9.76 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
 // (납부 월이 없으면 12월, 날짜는 1~28일).
 function reserveDueDateInMonth(plan = {}, month = "") {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return "";
@@ -300,7 +300,7 @@ function reservePlanStatus(plan = {}, fromDate = nowKstDate()) {
   };
 }
 
-// V22.9.75: 분류를 비운 정기 항목의 기본 분류. 수입 항목(예: 수당)이 "세금/수수료"로 저장되던 것을 막는다.
+// V22.9.76: 분류를 비운 정기 항목의 기본 분류. 수입 항목(예: 수당)이 "세금/수수료"로 저장되던 것을 막는다.
 function defaultReservePlanCategory(type = "expense") {
   return String(type) === "income" ? "기타수입" : "세금/수수료";
 }
@@ -315,7 +315,7 @@ function updatedReservePlanCategory(plan = {}, nextType = "expense", requested =
   return category;
 }
 
-// V22.9.75: 정기 항목이 수입인지는 이 함수 하나로 판별한다. 화면마다 따로 판별하다가 알림센터·홈·리포트가
+// V22.9.76: 정기 항목이 수입인지는 이 함수 하나로 판별한다. 화면마다 따로 판별하다가 알림센터·홈·리포트가
 // 수입 항목(예: 수당)을 "납부 N일 전 · 월 준비"로 안내했다.
 function isIncomeReservePlan(plan = {}) {
   return String(plan?.type || "expense") === "income";
@@ -328,7 +328,7 @@ function reserveDashboard(plans = [], fromDate = nowKstDate()) {
   const monthlyReserveTotal = statuses.filter((s) => !isIncome(s)).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyIncomeTotal = statuses.filter(isIncome).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyNetTotal = monthlyIncomeTotal - monthlyReserveTotal;
-  // V22.9.75: "준비 알림"·"나갈 돈"은 지출 항목만 센다. 수입 항목은 "입금 예정"으로 따로 보여 준다.
+  // V22.9.76: "준비 알림"·"나갈 돈"은 지출 항목만 센다. 수입 항목은 "입금 예정"으로 따로 보여 준다.
   const upcomingExpense = upcoming.filter((s) => !isIncome(s));
   const upcomingIncome = upcoming.filter(isIncome);
   const incomeCount = statuses.filter(isIncome).length;
@@ -341,7 +341,7 @@ function reserveAlertText(plans = [], limit = 3) {
   if (!d.upcoming.length) return "";
   const lines = d.upcoming.slice(0, limit).map((s) => {
     const p = s.plan;
-    // V22.9.75: 기한 당일은 "0일 후"가 아니라 "오늘"이다(알림센터·홈과 같은 말).
+    // V22.9.76: 기한 당일은 "0일 후"가 아니라 "오늘"이다(알림센터·홈과 같은 말).
     const when = Number(s.days_left) > 0 ? `${s.days_left}일 후` : "오늘";
     // 수입 항목에 "준비" 라고 하면 말이 안 된다. 나갈 돈과 들어올 돈을 나눠 쓴다.
     if (isIncomeReservePlan(p)) {
@@ -413,10 +413,10 @@ async function handleReservePlansPage(request, env, url) {
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
-  // V22.9.75: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
+  // V22.9.76: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
   const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
-  // V22.9.75 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
+  // V22.9.76 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
   // 12월을 봐도 10·11월 날짜만 나와 0원이었고, 이번 달도 납부일이 지난 항목은 빠졌다.
   const monthDue = safeArray(plans)
     .map((plan) => ({ plan, due_date: reserveDueDateInMonth(plan, month) }))
@@ -426,7 +426,7 @@ async function handleReservePlansPage(request, env, url) {
   const monthDueIncome = monthDue.filter((st) => String(st.plan?.type || "expense") === "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueTotal = monthDueExpense;
   const monthDueNet = monthDueIncome - monthDueExpense;
-  // V22.9.75: "이번 달 나갈 정기지출" 아래 건수·이름에는 지출 항목만 쓴다(수당이 나갈 돈으로 적혔다).
+  // V22.9.76: "이번 달 나갈 정기지출" 아래 건수·이름에는 지출 항목만 쓴다(수당이 나갈 돈으로 적혔다).
   const monthDueOut = monthDue.filter((st) => !isIncomeReservePlan(st.plan));
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
@@ -457,7 +457,7 @@ async function handleReservePlanCreate(request, env) {
       recurrence,
       due_months: dueMonths,
       due_day: form.get("due_day") || 1,
-      // V22.9.75: 비운 분류는 저장 함수가 구분(수입·지출)에 맞춰 채운다. 여기서 "세금/수수료"를 넣으면 수입 항목도 그 분류가 됐다.
+      // V22.9.76: 비운 분류는 저장 함수가 구분(수입·지출)에 맞춰 채운다. 여기서 "세금/수수료"를 넣으면 수입 항목도 그 분류가 됐다.
       category: form.get("category") || "",
       payment_method: form.get("payment_method") || "",
       alert_days: [90, 60, 30],

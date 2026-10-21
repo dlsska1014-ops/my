@@ -42,7 +42,7 @@ import { numberWithCommas, updateTransaction } from "../domain/transactions-core
 // V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
 // =====================================================================
 
-// V22.9.75 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
+// V22.9.76 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
 // 상관없도록 처음 쓸 때 만든다. 사용자 분류는 같은 구분이면 이름이 겹쳐도 받는다(예: 지출 분류 "용돈").
 let kakaoEditCategoryTypeSetsCacheV4 = null;
 function kakaoEditCategoryTypeSetsV4() {
@@ -67,7 +67,7 @@ function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}
 }
 
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
-// V22.9.75: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
+// V22.9.76: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
 async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense") {
   const [members, paymentAssets, categoryRows] = await Promise.all([
     fetchHouseholdMembers(env, householdId).catch(() => []),
@@ -178,7 +178,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     }
     patch.amount = amount;
   } else if (field === "category") {
-    // V22.9.75 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
+    // V22.9.76 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
     const rowType = row.type === "income" ? "income" : "expense";
     const conflict = kakaoEditCategoryConflictV4(value, rowType, config);
     if (conflict) {
@@ -319,7 +319,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
-    // V22.9.75 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
+    // V22.9.76 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
     // 01번을 바로 바꿀 수 있었다. 세션이 끝난 지 30분 안에 온 수정 값 모양의 말은 끝났다고 알리고 한 줄 명령을 보여 준다.
     const sinceUpdateMs = Date.now() - Number(session.updatedAt || 0);
     if (session.updatedAt && sinceUpdateMs <= 35 * 60 * 1000 && (isExactKakaoEditFieldStart(utterance) || isKakaoSessionSeqReplyV4(utterance))) {
@@ -338,7 +338,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
 
-// V22.9.75 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
+// V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
 // 보낸 말로 만들어 보여 준다(어제 기록이면 ‘어제’·‘8월 4일’을 앞에 붙인다).
 function kakaoEditExpiredTextV4(session = {}, utterance = "") {
   const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
@@ -376,7 +376,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
     entryNo: twoDigitSeq(seq),
     entryId: row.id,
     entryDate: row.transaction_date || "",
-    // V22.9.75 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
+    // V22.9.76 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
     rowType: row.type === "income" ? "income" : "expense",
     householdId: household.id,
     householdName: String(household.name || "").slice(0, 60),
@@ -426,13 +426,13 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
   if (isKakaoDailyListCommand(raw)) {
-    // V22.9.75 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
+    // V22.9.76 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
     // 날짜 부분과 뒤의 ‘기록·내역·목록’을 띄어 읽는다.
     const date = extractDate(raw.replace(/\s*(기록|내역|목록)(\s*보기)?$/, " $1"));
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    // V22.9.75 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
+    // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
     const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
     if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
@@ -534,7 +534,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
-    // V22.9.75 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
+    // V22.9.76 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
     // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });

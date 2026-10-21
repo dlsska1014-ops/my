@@ -2,7 +2,7 @@
 // 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 CSS 형식(contentType)으로 남아 그대로 내려간다.
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22940.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22975.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22976.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.

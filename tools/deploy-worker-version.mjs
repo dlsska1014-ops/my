@@ -477,7 +477,7 @@ async function runPromote(options, deps, client) {
   const target = await client.getVersion(options.versionId);
   const refuse = compareVersionResources(liveVersion, target);
   const etag = target?.resources?.script?.etag ?? null;
-  // V22.9.75 (감사 G-4): 업로드 뒤 대시보드에서 Secret·설정을 바꾸면 새 버전이 만들어져 배포된다. 그 뒤 이 버전을
+  // V22.9.76 (감사 G-4): 업로드 뒤 대시보드에서 Secret·설정을 바꾸면 새 버전이 만들어져 배포된다. 그 뒤 이 버전을
   //   승격하면 업로드 때 이어받은 옛 Secret 값으로 되돌아간다(Secret 값은 API 로 비교할 수 없어 위 대조는 통과한다).
   if (record.live?.version_id && live.versionId !== record.live.version_id) refuse.push(`업로드 뒤 현재 배포가 바뀌었습니다 (${record.live.version_id} → ${live.versionId}). 그사이 대시보드에서 Secret·설정을 바꿨다면 이 버전은 옛 값을 담고 있으니 다시 업로드하세요`);
   if (record.uploaded?.etag && etag !== record.uploaded.etag) refuse.push(`저장된 버전의 etag 가 업로드 때와 다릅니다 (${record.uploaded.etag} → ${etag})`);

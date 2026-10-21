@@ -37,7 +37,7 @@ import {
 // A confirmation is a server-issued action, never a platform event identity.
 function parseKakaoSeparatePurchaseCommand(text = "") {
   const value = String(text).trim();
-  // V22.9.75 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
+  // V22.9.76 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
   const add = value.match(/^별도\s+(?:구매|기록)\s+추가\s+([\s\S]+)$/);
   if (add) return { action: "prepare", text: add[1].trim() };
   const control = value.match(/^별도\s+(?:구매|기록)\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);

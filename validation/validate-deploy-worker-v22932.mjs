@@ -437,7 +437,7 @@ for (const [label, tamper, pattern] of [
   ["업로드 뒤 HEAD 가 바뀜", (ctx) => { ctx.h.deps.git.head = () => "b".repeat(40); }, /HEAD/],
   ["업로드 뒤 대시보드에서 바인딩이 추가됨", (ctx) => { ctx.fake.versions.get(LIVE_ID).resources.bindings.push({ name: "NEW_FLAG", type: "plain_text", text: "1" }); }, /바인딩 없음: NEW_FLAG/],
   ["저장된 버전의 etag 가 바뀜", (ctx) => { ctx.fake.versions.get(ctx.newId).resources.script.etag = "tampered"; }, /etag/],
-  // V22.9.75 (감사 G-4): 업로드 뒤 대시보드에서 Secret 을 바꾸면 바인딩 이름은 같은 새 버전이 배포된다.
+  // V22.9.76 (감사 G-4): 업로드 뒤 대시보드에서 Secret 을 바꾸면 바인딩 이름은 같은 새 버전이 배포된다.
   ["업로드 뒤 대시보드에서 Secret 을 바꿈(새 버전 배포)", (ctx) => {
     const rotated = structuredClone(ctx.fake.versions.get(LIVE_ID));
     rotated.id = "33333333-3333-4333-8333-333333333333";

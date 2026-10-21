@@ -39,7 +39,7 @@ const READINESS_REQUIRED_TABLES = [
   "accountbook_auth_attempts",
   "accountbook_transaction_audit",
   "accountbook_operation_locks",
-  // V22.9.75 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
+  // V22.9.76 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
   "users",
   "accountbook_budgets",
   "accountbook_recurring",
@@ -132,7 +132,7 @@ const CORS_HEADERS = {
 // `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
 // 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 고르기·시작 화면이 나온다).
 // 그 화면이 나왔다는 것은 쿠키가 낡았다는 뜻이므로 지운다. 로그아웃하면 함께 지운다.
-// V22.9.75 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
+// V22.9.76 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
 // 보낸다. 첫 가계부로 대체하지 않는 기준선 규칙(V22.9.17)은 그대로다. 주소에 직접 적은 남의 가계부 ID 는 예전처럼 404 다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
 const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
@@ -206,7 +206,7 @@ async function withRememberedHouseholdCookie(routed, response) {
     // H4: 기억한 가계부가 더 읽을 수 없게 됐으면(승인 대기·이용 제한) 접근 안내 화면(403)이 나온다. 그 자리에서 기억을
     // 지워 다음 화면은 기본 규칙으로 열리게 한다. 예전에는 승인 전까지 모든 화면이 403 이었다.
     if (routed.injected && response.status === 403) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
-    // V22.9.75 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
+    // V22.9.76 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
     // (/menu 는 찾을 수 없음 404)이 나왔다. 다른 가계부로 몰래 바꾸지 않고(V22.9.17 기준선) 고르기 화면으로 보내며 기억을 지운다.
     const staleFallback = async () => {
       if (url.pathname === "/my/households") return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);

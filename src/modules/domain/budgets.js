@@ -154,7 +154,7 @@ async function fetchRecurringRuleByIdStrict(env, id = "") {
 
 // Compatibility belongs to budgets, not to the transaction classifier. A custom
 // category with the same normalized name follows this same interpretation.
-// V22.9.75 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
+// V22.9.76 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
 // 따로 분류되므로 권하는 대로 예산을 잡으면 교통비 대부분이 예산 밖으로 빠졌다(교통 예산 30만 원에 사용 10,900원).
 // ‘교통’ 예산은 옛 ‘교통/차량’과 같은 갈래(교통·택시·주유/충전·차량관리, 옛 기록의 ‘교통/차량’)를 센다. 웹·홈·카카오가 모두
 // budgetSummary 를 쓰므로 한곳에서 맞춘다.
@@ -260,7 +260,7 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
 }
 
 function renderBudgetCategoryUsageTree(category = "", rows = [], categories = null) {
-  // V22.9.75 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
+  // V22.9.76 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
   const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
   const groups = Object.create(null);

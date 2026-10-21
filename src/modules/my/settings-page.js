@@ -199,7 +199,7 @@ async function handleMyRecurringSave(request, env) {
     household_id: selected.id,
     type,
     amount,
-    // V22.9.75: 분류를 비우면 구분에 맞는 기본값을 쓴다. 예전에는 폼이 "정기지출"을 미리 채우고 서버도 같은 값을 넣어,
+    // V22.9.76: 분류를 비우면 구분에 맞는 기본값을 쓴다. 예전에는 폼이 "정기지출"을 미리 채우고 서버도 같은 값을 넣어,
     // 구분만 수입으로 바꾼 정기 수입(예: 수당)이 매달 분류 "정기지출"인 수입 거래로 기록됐다.
     category: String(form.get("category") || "").trim().slice(0, 80) || defaultRecurringCategory(type),
     memo,
@@ -221,7 +221,7 @@ async function handleMyRecurringSave(request, env) {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
       if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
@@ -232,7 +232,7 @@ async function handleMyRecurringSave(request, env) {
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
-    // V22.9.75 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
+    // V22.9.76 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
     return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_table_required" }));
   }
 }
@@ -276,7 +276,7 @@ async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, ro
   return recorded;
 }
 
-// V22.9.75 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
+// V22.9.76 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
 // 금액은 음수를 받지 않는다(예전에는 0·32·빈칸이 1·31로, "-5000"이 5,000원으로 저장됐다). 문제가 없으면 빈 문자열.
 function recurringFormProblem(form) {
   const day = String(form.get("day_of_month") ?? "").trim();
@@ -286,7 +286,7 @@ function recurringFormProblem(form) {
   return "";
 }
 
-// V22.9.75 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
+// V22.9.76 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
 // 가계부 쓰기 잠금 안에서 부른다. 같은 구분·금액·지정일·메모·분류·지출자의 켜진 규칙이 10분 안에 만들어졌으면(만든 시각을
 // 모르면 있는 것만으로) 같은 요청으로 보고 새로 만들지 않는다.
 const RECURRING_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
@@ -362,7 +362,7 @@ async function handleRecurringCandidateConfirm(request, env) {
   }
 }
 
-// V22.9.75: 정기 항목 분류의 기본값과 수입 분류 선택지. 지출은 예전 기본값("정기지출")을 그대로 쓴다.
+// V22.9.76: 정기 항목 분류의 기본값과 수입 분류 선택지. 지출은 예전 기본값("정기지출")을 그대로 쓴다.
 // 수입은 빠른 입력·가져오기가 분류를 모를 때 쓰는 "기타수입"이다(미분류로 보여 나중에 고를 수 있다).
 const RECURRING_INCOME_CATEGORIES = ["급여", "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입"];
 function defaultRecurringCategory(type = "expense") {
@@ -400,7 +400,7 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
   const categoryRows = defaultExpenseBudgetNames(customCategories);
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryRows.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
-  // V22.9.75: 정기 항목 추가 폼에서 구분을 수입으로 고르면 분류 추천이 수입 분류로 바뀐다(지출 분류만 보였다).
+  // V22.9.76: 정기 항목 추가 폼에서 구분을 수입으로 고르면 분류 추천이 수입 분류로 바뀐다(지출 분류만 보였다).
   const recurringIncomeCategoryOptions = RECURRING_INCOME_CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td data-label="내용">${escapeHtml(r.memo || "")}</td><td data-label="구분">${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td data-label="금액">${numberWithCommas(r.amount)}원</td><td data-label="분류">${escapeHtml(r.category || "")}</td><td data-label="일자">매월 ${escapeHtml(r.day_of_month || 1)}일</td><td data-label="최근 적용월">${escapeHtml(r.last_applied_month || "-")}</td><td data-label="관리">${renderRecurringEditForm(r, selected.id, month, [], "/my/recurring/save")}<form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
   const incomeInputs = incomeRows.map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${escapeHtml(typeof r.amount === "number" ? String(r.amount || "") : String(r.amount ?? ""))}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");

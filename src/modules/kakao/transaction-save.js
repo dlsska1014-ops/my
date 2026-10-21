@@ -100,13 +100,13 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  // V22.9.75 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
+  // V22.9.76 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
   const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const expenseTotal = totalOf("expense");
   const incomeTotal = totalOf("income");
   const totalText = incomeTotal && expenseTotal ? `지출 합계 ${numberWithCommas(expenseTotal)}원 · 수입 합계 ${numberWithCommas(incomeTotal)}원`
     : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
-  // V22.9.75 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
+  // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
   const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
   const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const duplicateNotice = !duplicateCount ? ""

@@ -35,7 +35,7 @@ try {
   delete fixture.env.KAKAO_SKILL_SECRET;
   delete fixture.env.KAKAO_SKILL_AUTH_REQUIRED;
   eq((await app.fetch(skillRequest(), fixture.env, {})).status, 200, "비밀값이 없으면 기존처럼 열려 있다");
-  // V22.9.75 (감사 G-8): 인증을 필수로 정해 놓고 비밀값을 빼먹은 배포는 열어 두지 않는다.
+  // V22.9.76 (감사 G-8): 인증을 필수로 정해 놓고 비밀값을 빼먹은 배포는 열어 두지 않는다.
   fixture.env.KAKAO_SKILL_AUTH_REQUIRED = "1";
   eq((await app.fetch(skillRequest(), fixture.env, {})).status, 403, "인증 필수인데 비밀값이 없으면 /skill 을 막는다");
   eq((await app.fetch(skillRequest({ "x-api-key": "anything" }), fixture.env, {})).status, 403, "인증 필수인데 비밀값이 없으면 어떤 헤더도 통과하지 않는다");
@@ -82,7 +82,7 @@ try {
   fixture.env.ADMIN_SESSION_SECRET = "qa-admin-session-secret";
   fixture.env.ADMIN_API_TOKEN = "qa-admin-api-token";
   const ready = await (await app.fetch(new Request(`${ORIGIN}/ready`), fixture.env, {})).json();
-  // V22.9.75 (감사 G-12): users·accountbook_budgets·accountbook_recurring 을 더해 필수 13개다.
+  // V22.9.76 (감사 G-12): users·accountbook_budgets·accountbook_recurring 을 더해 필수 13개다.
   eq(ready.checked_required_tables, 13, `/ready 가 필수 표 13개를 확인한다 (${JSON.stringify(ready).slice(0, 90)})`);
   eq(ready.checked_optional_tables, 1, "/ready 가 선택 표 1개를 확인한다");
   eq(ready.checked_tables, 14, "/ready 가 표 14개를 보고한다");

@@ -30,7 +30,7 @@ function parseMultipleTransactions(text, payload) {
   return out;
 }
 
-// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
 // 저장하지 않고 묻는다. parseTransaction 은 가져오기와 같이 쓰므로 ok 를 그대로 두고 표식만 붙이며, 카카오가 쓰는
 // 이 함수만 막는다.
 function mixedTypeConfirmation(parsed = {}) {

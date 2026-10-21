@@ -186,7 +186,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 새 질의는 없다 — budget 과 rows 는 이미 위에서 받아 둔 값이다.
   const budgetOverAmt = Math.max(0, Number(budget.budgetedExpense ?? budget.expense ?? 0) - Number(budget.totalBudget || 0));
   // 지금까지의 하루 평균. 지난달을 보고 있으면 그 달 전체로 나눈다.
-  // V22.9.75: 속도와 월말 예상은 예산 알림·알림센터와 같은 관측 기준으로 센다 — 이번 달은 오늘까지의 기록만,
+  // V22.9.76: 속도와 월말 예상은 예산 알림·알림센터와 같은 관측 기준으로 센다 — 이번 달은 오늘까지의 기록만,
   // 예산을 잡은 분류만(buildBudgetAlertPolishModel 의 forecastExpense 와 같은 식). 예전에는 미래 날짜로 미리 적은
   // 지출까지 지난 날수로 나눠 속도가 부풀었고, "이 속도면 …원이 남습니다"가 예산 알림의 '관측 속도 월말 예상'과 달랐다.
   const paceObservedSpent = isCurrentMonth
@@ -233,7 +233,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   ];
   const inputChips = (freqChips.length >= 3 ? freqChips : defaultChips).map((c) => `<button type="button" data-memo="${escapeHtml(c.label)}" data-cat="${escapeHtml(c.category || "")}" data-pay="${escapeHtml(c.payment || "")}">${escapeHtml(c.label)}${c.count ? `<em>${numberWithCommas(c.count)}</em>` : ""}</button>`).join("");
   const payFreq = Object.create(null);
-  // V22.9.75: 결제수단 칩은 지출 기록에서만 고른다. 월급이 들어오는 통장이 결제수단 첫 칩으로 올라왔다.
+  // V22.9.76: 결제수단 칩은 지출 기록에서만 고른다. 월급이 들어오는 통장이 결제수단 첫 칩으로 올라왔다.
   for (const r of rows) { if (r.type === "income") continue; const pm = String(r.payment_method || "").trim(); if (pm) payFreq[pm] = (payFreq[pm] || 0) + 1; }
   const payChips = Object.entries(payFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([pm]) => `<button type="button" data-pay-only="${escapeHtml(pm)}">${escapeHtml(pm)}</button>`).join("");
   const feedLabel = feedMode === "all" ? `전체 ${feedSource.length}건` : `최근 ${Math.min(feedLimit, feedSource.length)}건`;
@@ -283,7 +283,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const homeReserveHref = `/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
   // 정기항목은 이번 달을 볼 때만 불러온다(과거 달에서 질의를 늘리지 않으려는 기존 판단).
   // 안 불러온 달에서 "없음" 이라고 말하면 거짓이 되므로 건수를 단정하지 않는다.
-  // V22.9.75: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
+  // V22.9.76: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
   const homeReserveOutHeadline = homeReserve.expenseCount
     ? `${numberWithCommas(homeReserve.expenseCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
     : "";
@@ -389,7 +389,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetTotal = Number(budgetCenter.totalBudget || 0);
   // 분류별 예산만 잡은 달에는 그 분류들의 지출만 견준다(budgetSummary 와 같은 기준).
   const budgetUsed = Number(budget.budgetedExpense ?? stats.totals.expense ?? 0);
-  // V22.9.75 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
+  // V22.9.76 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
   // 보여 "이번 달 쓸 수 있는 돈 3,835,234원"처럼 읽혔다. 숫자 대신 "예산 미설정"을 보인다(아래 템플릿).
   const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : 0;
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
@@ -485,7 +485,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? `전체 예산을 ${budgetPercent}% 사용했습니다. 오늘부터 지출을 줄이는 게 좋아요.`
     : budgetTotal && budgetPercent >= 85
       ? `전체 예산의 ${budgetPercent}%를 사용했습니다. 남은 예산은 ${numberWithCommas(budgetRemaining)}원입니다.`
-      // V22.9.75: 수입 항목에 "납부·준비하세요"라고 하지 않는다. 지출 기한을 먼저, 없으면 들어올 돈을 알린다.
+      // V22.9.76: 수입 항목에 "납부·준비하세요"라고 하지 않는다. 지출 기한을 먼저, 없으면 들어올 돈을 알린다.
       : reserveInfo.upcomingExpense.length
         ? (reserveInfo.upcomingExpense[0].days_left > 0
           ? `${reserveInfo.upcomingExpense[0].plan.name} 납부가 ${reserveInfo.upcomingExpense[0].days_left}일 남았습니다. 월 ${numberWithCommas(reserveInfo.upcomingExpense[0].monthly_reserve)}원씩 준비하세요.`
@@ -498,7 +498,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetAlert = budget.totalBudget ? (budget.diff > 0 ? `<div class="appAlert danger">예산보다 <b>${numberWithCommas(budget.diff)}원</b> 초과 지출 중입니다.</div>` : `<div class="appAlert good">예산까지 <b>${numberWithCommas(Math.abs(budget.diff))}원</b> 남았습니다.</div>`) : `<div class="appAlert">월 예산을 설정하면 초과 지출 알림이 표시됩니다.</div>`;
   const categoryList = categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
   const paymentList = paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("");
-  // V22.9.75 감사 D-3: 이번 달은 오늘까지의 기록만 지난달 같은 기간과 견준다. 미래 날짜로 미리 적은 지출(지정일 전에 반영한
+  // V22.9.76 감사 D-3: 이번 달은 오늘까지의 기록만 지난달 같은 기간과 견준다. 미래 날짜로 미리 적은 지출(지정일 전에 반영한
   // 고정지출 등)까지 더하면 "지난달 1~3일보다 170,000원 더"처럼 아직 나가지 않은 돈을 쓴 것으로 말했다(/reports 는 "덜").
   const comparableExpense = isCurrentMonth
     ? Number(calculateStats(safeArray(rows).filter((r) => String(r.transaction_date || "") <= todayStr)).totals.expense || 0)
@@ -511,7 +511,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
   const deltaToday = formatDate(nowKstDate());
   const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
-  // V22.9.75: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
+  // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
   // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
   const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;
   const expenseDeltaText = !prevStats

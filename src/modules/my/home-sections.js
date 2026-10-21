@@ -241,7 +241,7 @@ function renderHomeReportCards(options = {}) {
   const budgetCard = `<article class="homeReport${budgetCardState}"><div class="homeReportTop"><span>예산 항목</span><a href="${escapeHtml(budgetsHref)}">예산 설정</a></div><b>${worst ? `${escapeHtml(worst.category || "미분류")} ${worstRate}%` : "미설정"}</b><div class="homeReportBars">${worst ? `<i style="width:${Math.max(2, Math.min(100, worstRate))}%"></i>` : ""}</div><small>${budgetRead}</small></article>`;
 
   // 4. 앞으로 나갈 돈 — 정기지출·준비금.
-  // V22.9.75: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
+  // V22.9.76: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
   const reserveValue = !reserveLoaded ? "이번 달 기준" : reserveCount ? (String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : reserveIncomeCount ? "나갈 항목 없음" : "등록 없음";
   const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : reserveCount ? String(reserveHeadline) : reserveIncomeCount ? `정기 수입 ${numberWithCommas(reserveIncomeCount)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
   const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
@@ -262,7 +262,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
     const memo = t.memo || t.raw_text || "-";
-    // V22.9.75 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
+    // V22.9.76 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
     // "--12,000원"으로 보였다. 음수 지출은 돌아온 돈이라 "+", 음수 수입은 "-"다.
     const sign = (t.type === "income") === (Number(t.amount || 0) >= 0) ? "+" : "-";
     const cls = t.type === "income" ? "income" : "expense";
@@ -270,7 +270,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
     // V22.9.18: 행마다 따로 붙던 "수정/삭제" 접기 줄을 없애고 행 본문을 그 접기의 summary 로 쓴다.
     // 행 어디를 눌러도 같은 편집 칸이 열리고(지연 로드 계약은 그대로), 행 높이가 한 줄 준다.
-    // V22.9.75: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
+    // V22.9.76: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
     // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
     const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
     const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
@@ -345,7 +345,7 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     const expense = total.expense;
     const income = total.income;
     const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
-    // V22.9.75 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
+    // V22.9.76 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
     const outText = (v) => `${v < 0 ? "+" : "-"}${numberWithCommas(Math.abs(v))}원`;
     const inText = (v) => `${v < 0 ? "-" : "+"}${numberWithCommas(Math.abs(v))}원`;
     const sum = (income

@@ -1,4 +1,4 @@
-// V22.9.75 — 정기 수입 항목을 지출처럼 안내하던 결함의 동작 검사.
+// V22.9.76 — 정기 수입 항목을 지출처럼 안내하던 결함의 동작 검사.
 //
 // ── 이 파일이 왜 생겼는지 ──
 // 사용자가 '수당'을 정기 수입으로 등록했는데 알림센터는 "수당 납부 4일 전 · 월 준비 300,000원"(경고 등급),
@@ -13,7 +13,7 @@
 // (납부·준비하세요·월 준비·준비 권장·나갈)이 붙는지 훑는다. 새 화면이 정기 항목을 보여 주면 (2)에 더한다.
 import { counter, fixture, withClock, page, api, skill, putSetting } from "./lib-audit-v22934.mjs";
 
-const t = counter("V22.9.75 정기 수입 항목 문구·집계 검사");
+const t = counter("V22.9.76 정기 수입 항목 문구·집계 검사");
 const HH = "house-home";
 const strip = (html) => String(html || "").replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
 const after = (text, marker, length = 160) => { const i = text.indexOf(marker); return i < 0 ? "" : text.slice(i, i + length); };

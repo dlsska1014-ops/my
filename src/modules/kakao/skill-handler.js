@@ -224,7 +224,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: "error" });
-    // V22.9.75 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
+    // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
@@ -277,9 +277,9 @@ function normalizeKakaoButtonLabel(text = "") {
   return KAKAO_LEGACY_BUTTON_LABELS[base] || base;
 }
 
-// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
 // 버리므로 글로도 다시 보낼 문장을 알려 준다.
-// V22.9.75 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
+// V22.9.76 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
 // 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 가서 원래 답을 받는다. 세션 값이 될 수 있는 말
 // (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
 function isKakaoEditSessionBypassCommand(text = "") {
@@ -305,7 +305,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
-  // V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
+  // V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
   // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
@@ -371,7 +371,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       routingSnapshot = {edit:values.get(keys[0]) ?? null,selected:values.get(keys[1]) ?? null,flow:values.get(keys[2]) ?? null};
     }
   }
-  // V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
+  // V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
   // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
   // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
   if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
@@ -749,7 +749,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
-  // V22.9.75 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
+  // V22.9.76 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
   if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {
     const dateSummary = await kakaoDateSummaryParts(env, household, user, summaryRange, origin);

@@ -74,7 +74,7 @@ function formatSignedPercent(v) {
   return "0%";
 }
 
-// V22.9.75 감사 D-13: 이전 값이 0원이면 증감률을 만들지 않는다. percentChange 가 돌려주는 "+100%"는 없던 비교를
+// V22.9.76 감사 D-13: 이전 값이 0원이면 증감률을 만들지 않는다. percentChange 가 돌려주는 "+100%"는 없던 비교를
 // 지어낸 숫자다. 분류는 "새로 생김", 전체 지출은 리포트와 같은 "비교 기록 없음"으로 쓴다.
 function formatChangeRate(current, previous, emptyLabel = "새로 생김") {
   const prev = Number(previous || 0);

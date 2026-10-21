@@ -108,7 +108,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   return outcome;
 }
 
-// V22.9.75 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
+// V22.9.76 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
@@ -122,7 +122,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
 const RECURRING_CRON_CHUNK = 40;
-const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22975";
+const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22976";
 const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at";
 
 function recurringCronLastDay(month = "") {
@@ -419,7 +419,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
 }
 
-// V22.9.75 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
+// V22.9.76 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
 // 먼저 넣는다. 고친 금액·날짜·분류·지출자는 다음 반영(이번 달)부터 쓴다. 예전에는 새 달의 따라잡기가 고친 뒤 값을 써서
 // 11월 1일에 70만 원으로 올린 월세가 10월분도 70만 원으로 기록됐다. 지난달 몫이 따라잡기 대상이 아니면(그 달 지정일까지
 // 실행이 끝까지 처리했거나, 지난달에 없던 규칙이거나, 꺼져 있거나 지출자 자격이 없으면) 아무것도 넣지 않는다.
@@ -462,7 +462,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 
 async function handleRecurringCronApply(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
-  // V22.9.75(D-26): 잘못된 today·month 를 오늘·자동 범위로 바꿔 실행하지 않는다. 날짜를 지정한 운영 호출이 다른 날로 기록되지 않게 거절한다.
+  // V22.9.76(D-26): 잘못된 today·month 를 오늘·자동 범위로 바꿔 실행하지 않는다. 날짜를 지정한 운영 호출이 다른 날로 기록되지 않게 거절한다.
   const requestedToday = String(url.searchParams.get("today") || "").trim();
   const requestedMonth = String(url.searchParams.get("month") || "").trim();
   if ((requestedToday && !isValidTransactionDateString(requestedToday)) || (requestedMonth && !validMonth(requestedMonth))) {

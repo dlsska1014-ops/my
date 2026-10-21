@@ -1374,7 +1374,7 @@ const READINESS_REQUIRED_TABLES = [
   "accountbook_auth_attempts",
   "accountbook_transaction_audit",
   "accountbook_operation_locks",
-  // V22.9.75 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
+  // V22.9.76 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
   "users",
   "accountbook_budgets",
   "accountbook_recurring",
@@ -1467,7 +1467,7 @@ const CORS_HEADERS = {
 // `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
 // 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 고르기·시작 화면이 나온다).
 // 그 화면이 나왔다는 것은 쿠키가 낡았다는 뜻이므로 지운다. 로그아웃하면 함께 지운다.
-// V22.9.75 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
+// V22.9.76 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
 // 보낸다. 첫 가계부로 대체하지 않는 기준선 규칙(V22.9.17)은 그대로다. 주소에 직접 적은 남의 가계부 ID 는 예전처럼 404 다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
 const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
@@ -1541,7 +1541,7 @@ async function withRememberedHouseholdCookie(routed, response) {
     // H4: 기억한 가계부가 더 읽을 수 없게 됐으면(승인 대기·이용 제한) 접근 안내 화면(403)이 나온다. 그 자리에서 기억을
     // 지워 다음 화면은 기본 규칙으로 열리게 한다. 예전에는 승인 전까지 모든 화면이 403 이었다.
     if (routed.injected && response.status === 403) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
-    // V22.9.75 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
+    // V22.9.76 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
     // (/menu 는 찾을 수 없음 404)이 나왔다. 다른 가계부로 몰래 바꾸지 않고(V22.9.17 기준선) 고르기 화면으로 보내며 기억을 지운다.
     const staleFallback = async () => {
       if (url.pathname === "/my/households") return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
@@ -2911,7 +2911,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.75-PRELAUNCH-AUDIT";
+const APP_VERSION = "V22.9.76-PRELAUNCH-AUDIT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -8479,7 +8479,7 @@ function moneyTokenSpans(text = "") {
 // V22.9.34 감사 D2: "부모님 용돈 30만원", "조카 세뱃돈", "용돈 드림"처럼 주는 대상이나 주는 말이 붙은 용돈·세뱃돈은
 // 지출이다. 아무 말 없는 "용돈 30000"은 V22.9.30 결정대로 수입으로 둔다. 받는 말은 먼저 보므로 "엄마한테 용돈 받음"은
 // 수입이다. 수수료·중개료·배송비는 "판매 수수료"여도 지출이다.
-// V22.9.75 카카오 감사 1: "부모님께 용돈 30만원"·"엄마에게 용돈"·"아이한테 용돈"처럼 주는 대상 뒤에 조사가 붙거나
+// V22.9.76 카카오 감사 1: "부모님께 용돈 30만원"·"엄마에게 용돈"·"아이한테 용돈"처럼 주는 대상 뒤에 조사가 붙거나
 // "용돈 보내드림"이면 수입으로 저장됐고, "이자 납부 30만원"·"이자 출금"도 수입이었다. 문장에 "지출"이라고 적은
 // "부모님께 용돈 30만원 지출"마저 수입이었다. 이제 사용자가 적은 구분 낱말(수입·지출) 하나를 가장 먼저 따르고,
 // 주는 대상+조사(께·에게·한테, "께서·한테서"는 받는 말이라 제외)·보내드림·드렸·이자 납부/출금/냄/이체는 지출이다.
@@ -8487,7 +8487,7 @@ function moneyTokenSpans(text = "") {
 // 샀·썼·냈·납부·출금·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
 // 수입인지 지출인지 묻는다. 화면 빠른입력은 두 인자로 불러 문자열을 받는다. 본문이 화면 자산에 그대로 실리므로
 // 이 함수는 밖의 함수를 부르지 않는다.
-// V22.9.75 리드: "엄마가 용돈 줬어"처럼 가족이 주는 쪽(이·가·께서)이면 받은 돈이라 수입이다. 예전에는 "용돈 줬"만 보고 지출이었다.
+// V22.9.76 리드: "엄마가 용돈 줬어"처럼 가족이 주는 쪽(이·가·께서)이면 받은 돈이라 수입이다. 예전에는 "용돈 줬"만 보고 지출이었다.
 // "내가 용돈 줬어"·"엄마한테 용돈 줬어"는 그대로 지출이다. 화면 자산에도 실리므로 뒤돌아보기(lookbehind) 정규식은 쓰지 않는다.
 // 같은 날 리드 조정: "수당 지급 30만원"·"급여 지급"·"보너스 지급"은 받는 쪽에서 흔히 쓰는 말이라 '지급'은 묻는 조건에서 뺐다
 // (용돈·세뱃돈 지급은 위의 주는 말로 지출이다).
@@ -8522,7 +8522,7 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
 // 서버 extractDate 도 이 함수를 먼저 쓰므로 웹과 카카오가 같은 날로 읽는다.
-// V22.9.75 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
+// V22.9.76 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
 // 그날 중 오늘에 더 가까운 날로 본다(같으면 지난달). 2027-01-01 의 "31일"은 2026-12-31(예전에는 2027-01-31 앞날),
 // 10월 2일의 "30일"은 9월 30일, 10월 20일의 "25일 월세"는 미리 적는 10월 25일이다. 오늘까지의 날은 예전처럼 이번 달이다.
 function quickInputDate(text = "", today = "") {
@@ -10957,7 +10957,7 @@ function kakaoSkillSecretMatches(request, expected = "") {
 function kakaoSkillCallerAuthorized(request, env = {}) {
   const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
   const at = new Date().toISOString();
-  // V22.9.75 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
+  // V22.9.76 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
   // /skill 은 누구에게나 열려 있었다. 필수로 정한 배포는 막고, 필수가 아니면 기존처럼 열어 둔다.
   if (!expected) {
     if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") !== "1") return true;
@@ -12964,7 +12964,7 @@ function nextReserveDue(plan = {}, fromDate = nowKstDate()) {
   return candidates[0] || new Date(year + 1, 11, 1);
 }
 
-// V22.9.75 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
+// V22.9.76 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
 // (납부 월이 없으면 12월, 날짜는 1~28일).
 function reserveDueDateInMonth(plan = {}, month = "") {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return "";
@@ -13000,7 +13000,7 @@ function reservePlanStatus(plan = {}, fromDate = nowKstDate()) {
   };
 }
 
-// V22.9.75: 분류를 비운 정기 항목의 기본 분류. 수입 항목(예: 수당)이 "세금/수수료"로 저장되던 것을 막는다.
+// V22.9.76: 분류를 비운 정기 항목의 기본 분류. 수입 항목(예: 수당)이 "세금/수수료"로 저장되던 것을 막는다.
 function defaultReservePlanCategory(type = "expense") {
   return String(type) === "income" ? "기타수입" : "세금/수수료";
 }
@@ -13015,7 +13015,7 @@ function updatedReservePlanCategory(plan = {}, nextType = "expense", requested =
   return category;
 }
 
-// V22.9.75: 정기 항목이 수입인지는 이 함수 하나로 판별한다. 화면마다 따로 판별하다가 알림센터·홈·리포트가
+// V22.9.76: 정기 항목이 수입인지는 이 함수 하나로 판별한다. 화면마다 따로 판별하다가 알림센터·홈·리포트가
 // 수입 항목(예: 수당)을 "납부 N일 전 · 월 준비"로 안내했다.
 function isIncomeReservePlan(plan = {}) {
   return String(plan?.type || "expense") === "income";
@@ -13028,7 +13028,7 @@ function reserveDashboard(plans = [], fromDate = nowKstDate()) {
   const monthlyReserveTotal = statuses.filter((s) => !isIncome(s)).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyIncomeTotal = statuses.filter(isIncome).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyNetTotal = monthlyIncomeTotal - monthlyReserveTotal;
-  // V22.9.75: "준비 알림"·"나갈 돈"은 지출 항목만 센다. 수입 항목은 "입금 예정"으로 따로 보여 준다.
+  // V22.9.76: "준비 알림"·"나갈 돈"은 지출 항목만 센다. 수입 항목은 "입금 예정"으로 따로 보여 준다.
   const upcomingExpense = upcoming.filter((s) => !isIncome(s));
   const upcomingIncome = upcoming.filter(isIncome);
   const incomeCount = statuses.filter(isIncome).length;
@@ -13041,7 +13041,7 @@ function reserveAlertText(plans = [], limit = 3) {
   if (!d.upcoming.length) return "";
   const lines = d.upcoming.slice(0, limit).map((s) => {
     const p = s.plan;
-    // V22.9.75: 기한 당일은 "0일 후"가 아니라 "오늘"이다(알림센터·홈과 같은 말).
+    // V22.9.76: 기한 당일은 "0일 후"가 아니라 "오늘"이다(알림센터·홈과 같은 말).
     const when = Number(s.days_left) > 0 ? `${s.days_left}일 후` : "오늘";
     // 수입 항목에 "준비" 라고 하면 말이 안 된다. 나갈 돈과 들어올 돈을 나눠 쓴다.
     if (isIncomeReservePlan(p)) {
@@ -13113,10 +13113,10 @@ async function handleReservePlansPage(request, env, url) {
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
-  // V22.9.75: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
+  // V22.9.76: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
   const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
-  // V22.9.75 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
+  // V22.9.76 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
   // 12월을 봐도 10·11월 날짜만 나와 0원이었고, 이번 달도 납부일이 지난 항목은 빠졌다.
   const monthDue = safeArray(plans)
     .map((plan) => ({ plan, due_date: reserveDueDateInMonth(plan, month) }))
@@ -13126,7 +13126,7 @@ async function handleReservePlansPage(request, env, url) {
   const monthDueIncome = monthDue.filter((st) => String(st.plan?.type || "expense") === "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueTotal = monthDueExpense;
   const monthDueNet = monthDueIncome - monthDueExpense;
-  // V22.9.75: "이번 달 나갈 정기지출" 아래 건수·이름에는 지출 항목만 쓴다(수당이 나갈 돈으로 적혔다).
+  // V22.9.76: "이번 달 나갈 정기지출" 아래 건수·이름에는 지출 항목만 쓴다(수당이 나갈 돈으로 적혔다).
   const monthDueOut = monthDue.filter((st) => !isIncomeReservePlan(st.plan));
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
@@ -13157,7 +13157,7 @@ async function handleReservePlanCreate(request, env) {
       recurrence,
       due_months: dueMonths,
       due_day: form.get("due_day") || 1,
-      // V22.9.75: 비운 분류는 저장 함수가 구분(수입·지출)에 맞춰 채운다. 여기서 "세금/수수료"를 넣으면 수입 항목도 그 분류가 됐다.
+      // V22.9.76: 비운 분류는 저장 함수가 구분(수입·지출)에 맞춰 채운다. 여기서 "세금/수수료"를 넣으면 수입 항목도 그 분류가 됐다.
       category: form.get("category") || "",
       payment_method: form.get("payment_method") || "",
       alert_days: [90, 60, 30],
@@ -13627,7 +13627,7 @@ async function handleAdminImportJson(request, env) {
       return jsonResponse({ ok: false, error: "spender_required", message: "업로드 기본 지출자를 현재 가계부 참여자 중에서 선택해주세요." }, 400);
     }
     const parsed = parseImportedRecords(rawText, householdId, defaultUserId);
-    // V22.9.75 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
+    // V22.9.76 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
     // 같은 파일을 다시 내면 두 번 저장됐다. 이제 id 를 (가계부·기본 지출자·원문, 행 순서)로 정해 같은 파일을 다시 제출해도 이미
     // 저장된 행은 건너뛴다. 저장은 1,000행씩 나눠 최대 ADMIN_IMPORT_MAX_ROWS 행까지 하고(저장소 호출: 묶음당 1번 + 확인 80행당 1번),
     // 그보다 많거나 파일을 끝까지 읽지 못했으면 아무것도 저장하지 않고 나눠 올리라고 답한다.
@@ -14307,7 +14307,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     return value;
   };
   let transactionDate = resolveImportRowDate(options);
-  // V22.9.75 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
+  // V22.9.76 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
   // 뒤면 전년, 웹·카카오와 같음)과 다르면(1월에 가져온 12/28 → 올해 12월) 미래 날짜로 조용히 저장하지 않게 경고와 확인 필요를 남긴다.
   let yearBasisReview = false;
   if (transactionDate && options.dateContext.mode === "selected") {
@@ -14384,7 +14384,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
   }
-  // V22.9.75 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
+  // V22.9.76 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
   // 수입이 오히려 늘었다. 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고, 확인 표시를 남겨 미리보기에서 기본 선택하지 않는다.
   let incomeReversed = false;
   if (!signedFile && chosen.negative && !refundFlipped && (normalizedType === "income" || (!normalizedType && forcedType === "income"))) {
@@ -18637,7 +18637,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
-  // V22.9.75 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
+  // V22.9.76 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
   // 반영 대기 목록에도 없어서 가정값에서 사라졌다(반영 전 1,425,000원 → 반영 후 775,000원). 이번 달의 오늘 뒤 날짜 정기 기록은
   // 대기 항목과 같은 자리에 더한다. 관측 속도(forecastExpense)는 그대로 오늘까지만 본다.
   // 대기 목록에 남은 규칙의 기록(표식 저장이 늦은 경우)은 두 번 더하지 않는다.
@@ -18647,7 +18647,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
     : [];
   const scheduledRecurringTotal = scheduledRecurring.length ? Number(budgetSummary(scheduledRecurring, budgets).budgetedExpense || 0) : 0;
   const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal + scheduledRecurringTotal : null;
-  // V22.9.75 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
+  // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
   // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
   const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
     ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
@@ -18701,7 +18701,7 @@ function renderBudgetAlertRows(model) {
 function renderPendingRecurringList(model) {
   if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
-  // V22.9.75 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
+  // V22.9.76 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
   // 지정일 전에 미리 반영한 정기지출은 목록에서 빠져도 가정값에는 남는다.
   const outside = safeArray(model.outsidePendingRecurring);
   const scheduled = safeArray(model.scheduledRecurring);
@@ -23554,7 +23554,7 @@ async function handleMyImport(request, env) {
   }
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  // V22.9.75 감사 E-4: 기준을 보내지 않은 요청은 화면 기본값과 같게 고른다(이번 달이면 183일 규칙, 다른 달이면 그 해).
+  // V22.9.76 감사 E-4: 기준을 보내지 않은 요청은 화면 기본값과 같게 고른다(이번 달이면 183일 규칙, 다른 달이면 그 해).
   const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) && String(form.get("month")) !== currentMonthKst() ? "selected" : "default"));
   if (!["default", "selected"].includes(dateMode)) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&err=import_date_basis_invalid`);
   const sourceHash = await sha256Hex(csvText);
@@ -23930,7 +23930,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   return outcome;
 }
 
-// V22.9.75 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
+// V22.9.76 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
@@ -23944,7 +23944,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
 const RECURRING_CRON_CHUNK = 40;
-const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22975";
+const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22976";
 const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at";
 
 function recurringCronLastDay(month = "") {
@@ -24241,7 +24241,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
 }
 
-// V22.9.75 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
+// V22.9.76 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
 // 먼저 넣는다. 고친 금액·날짜·분류·지출자는 다음 반영(이번 달)부터 쓴다. 예전에는 새 달의 따라잡기가 고친 뒤 값을 써서
 // 11월 1일에 70만 원으로 올린 월세가 10월분도 70만 원으로 기록됐다. 지난달 몫이 따라잡기 대상이 아니면(그 달 지정일까지
 // 실행이 끝까지 처리했거나, 지난달에 없던 규칙이거나, 꺼져 있거나 지출자 자격이 없으면) 아무것도 넣지 않는다.
@@ -24284,7 +24284,7 @@ async function runRecurringAutoApply(env, opts = {}) {
 
 async function handleRecurringCronApply(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
-  // V22.9.75(D-26): 잘못된 today·month 를 오늘·자동 범위로 바꿔 실행하지 않는다. 날짜를 지정한 운영 호출이 다른 날로 기록되지 않게 거절한다.
+  // V22.9.76(D-26): 잘못된 today·month 를 오늘·자동 범위로 바꿔 실행하지 않는다. 날짜를 지정한 운영 호출이 다른 날로 기록되지 않게 거절한다.
   const requestedToday = String(url.searchParams.get("today") || "").trim();
   const requestedMonth = String(url.searchParams.get("month") || "").trim();
   if ((requestedToday && !isValidTransactionDateString(requestedToday)) || (requestedMonth && !validMonth(requestedMonth))) {
@@ -24922,7 +24922,7 @@ function freeReportSnapshotKey(householdId = "", kind = "weekly", period = "") {
   return `free_report_snapshot:${String(householdId || "").trim()}:${kind}:${period}`.slice(0, 180);
 }
 
-// V22.9.75 감사 C-3: 안내 문구 표에서 그 표에 직접 적은 코드만 꺼낸다. 주소의 ?msg=constructor·toString 같은 값은
+// V22.9.76 감사 C-3: 안내 문구 표에서 그 표에 직접 적은 코드만 꺼낸다. 주소의 ?msg=constructor·toString 같은 값은
 // 객체가 물려받은 함수라 "function Object() { [native code] }"가 화면에 나왔다.
 function ownMessage(table, key) {
   return key && Object.hasOwn(table, String(key)) ? table[key] : undefined;
@@ -25316,7 +25316,7 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const subscriptionRows = cur.filter((r) => LIVING_REPORT_SUBSCRIPTION.test(`${r.category || ""} ${r.memo || ""} ${r.raw_text || ""}`));
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
-  // V22.9.75: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
+  // V22.9.76: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
   const upcoming = safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
     .map((s) => ({ name: String(s.plan?.name || "적립 계획"), amount: Number(s.plan?.amount || 0), due_date: s.due_date, days_left: s.days_left, monthly_reserve: s.monthly_reserve }));
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
@@ -25463,7 +25463,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const won = (n) => `${numberWithCommas(Math.round(Number(n) || 0))}원`;
   const deltaText = (delta, prev) => !report.comparisonAvailable ? "비교 확인 불가" : !(prev > 0) && delta === 0 ? "비교 기록 없음" : delta === 0 ? "같음" : `${delta > 0 ? "+" : "−"}${numberWithCommas(Math.abs(delta))}원`;
   const deltaClass = (delta) => delta > 0 ? "lrDelta isUp" : delta < 0 ? "lrDelta isDown" : "lrDelta";
-  // V22.9.75: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
+  // V22.9.76: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
   // "…보다 N원 늘었어요"를 적었다. 요약과 같이 항목별 증감과 '가장 늘어난 항목' 문장도 숨긴다.
   const noPrevious = report.comparisonAvailable && !(report.prevExpense > 0);
   const topDaysText = report.topDays.length ? report.topDays.map((d) => `${ymdWithWeekday(d.date)} ${won(d.amount)}`).join(" · ") : "아직 지출한 날이 없어요";
@@ -25472,7 +25472,7 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const bars = report.days.map((d) => `<span><i class="${topSet.has(d.date) ? "isTop" : d.future ? "isFuture" : ""}" style="height:${Math.max(3, Math.round(d.amount / maxDay * 100))}%" title="${escapeHtml(ymdWithWeekday(d.date))} ${escapeHtml(won(d.amount))}"></i><b>${p.range === "week" ? escapeHtml(LIVING_REPORT_WEEKDAYS[weekdayIndexOfYmd(d.date)] || "") : Number(d.date.slice(8, 10)) % 5 === 1 || d.date.slice(8, 10) === "01" ? Number(d.date.slice(8, 10)) : ""}</b></span>`).join("");
   const segment = `<div class="lrSeg noPrint" role="group" aria-label="리포트 기간 단위"><a href="${escapeHtml(hrefMonth)}"${range === "month" ? ' aria-current="true"' : ""}>월간</a><a href="${escapeHtml(hrefWeek)}"${range === "week" ? ' aria-current="true"' : ""}>주간</a></div>`;
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
-  // V22.9.75 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
+  // V22.9.76 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
   const flash = ownMessage({ card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }, msg);
   const flashErr = ownMessage({ card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }, err) || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
   const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
@@ -25561,7 +25561,7 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
-// V22.9.75 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
+// V22.9.76 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
 // 모든 객체가 물려받는 이름이 오면 그 함수 본문("function Object() { [native code] }")이 보였으므로, 그런 이름은
 // 표에 없는 코드로 바꿔 넘긴다(일반 안내 "요청을 처리하지 못했습니다."가 나온다). 렌더러(renderMyAnalysisHtml)는
 // validate-polish-v22940 가 고정한 본문이라 손대지 않고 여기서 거른다.
@@ -27116,7 +27116,7 @@ function renderBudgetGaugeCards(budget = {}) {
   const total = Number(budget.totalBudget || 0);
   const expense = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const remain = Math.max(0, total - expense);
-  // V22.9.75 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
+  // V22.9.76 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
   // 홈·예산 화면(507%)과 달랐다. 예산이 없으면 지출 전부를 '초과'로 적지 않는다.
   const rate = total ? Math.round(expense / total * 100) : 0;
   const over = total ? Math.max(0, expense - total) : 0;
@@ -27140,7 +27140,7 @@ function shortWonLabel(amount = 0) {
   const abs = Math.abs(n);
   // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 억·조는 소수 첫째 자리까지 둔다.
   const tenth = (v) => { const r = Math.round(v * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
-  // V22.9.75 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
+  // V22.9.76 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
   // 99,995,000원 "10000만" → "1억"). 1조 이상은 "10020억"이 아니라 "1조"로 쓴다.
   if (Math.round(abs / 1e7) / 10 >= 10000) return `${sign}${tenth(abs / 1e12)}조`;
   if (abs >= 1e8 || Math.round(abs / 1e4) >= 10000) return `${sign}${tenth(abs / 1e8)}억`;
@@ -27448,7 +27448,7 @@ async function handleMyRecurringSave(request, env) {
     household_id: selected.id,
     type,
     amount,
-    // V22.9.75: 분류를 비우면 구분에 맞는 기본값을 쓴다. 예전에는 폼이 "정기지출"을 미리 채우고 서버도 같은 값을 넣어,
+    // V22.9.76: 분류를 비우면 구분에 맞는 기본값을 쓴다. 예전에는 폼이 "정기지출"을 미리 채우고 서버도 같은 값을 넣어,
     // 구분만 수입으로 바꾼 정기 수입(예: 수당)이 매달 분류 "정기지출"인 수입 거래로 기록됐다.
     category: String(form.get("category") || "").trim().slice(0, 80) || defaultRecurringCategory(type),
     memo,
@@ -27470,7 +27470,7 @@ async function handleMyRecurringSave(request, env) {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
       if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
@@ -27481,7 +27481,7 @@ async function handleMyRecurringSave(request, env) {
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
-    // V22.9.75 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
+    // V22.9.76 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
     return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_table_required" }));
   }
 }
@@ -27525,7 +27525,7 @@ async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, ro
   return recorded;
 }
 
-// V22.9.75 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
+// V22.9.76 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
 // 금액은 음수를 받지 않는다(예전에는 0·32·빈칸이 1·31로, "-5000"이 5,000원으로 저장됐다). 문제가 없으면 빈 문자열.
 function recurringFormProblem(form) {
   const day = String(form.get("day_of_month") ?? "").trim();
@@ -27535,7 +27535,7 @@ function recurringFormProblem(form) {
   return "";
 }
 
-// V22.9.75 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
+// V22.9.76 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
 // 가계부 쓰기 잠금 안에서 부른다. 같은 구분·금액·지정일·메모·분류·지출자의 켜진 규칙이 10분 안에 만들어졌으면(만든 시각을
 // 모르면 있는 것만으로) 같은 요청으로 보고 새로 만들지 않는다.
 const RECURRING_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
@@ -27611,7 +27611,7 @@ async function handleRecurringCandidateConfirm(request, env) {
   }
 }
 
-// V22.9.75: 정기 항목 분류의 기본값과 수입 분류 선택지. 지출은 예전 기본값("정기지출")을 그대로 쓴다.
+// V22.9.76: 정기 항목 분류의 기본값과 수입 분류 선택지. 지출은 예전 기본값("정기지출")을 그대로 쓴다.
 // 수입은 빠른 입력·가져오기가 분류를 모를 때 쓰는 "기타수입"이다(미분류로 보여 나중에 고를 수 있다).
 const RECURRING_INCOME_CATEGORIES = ["급여", "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입"];
 function defaultRecurringCategory(type = "expense") {
@@ -27649,7 +27649,7 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
   const categoryRows = defaultExpenseBudgetNames(customCategories);
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryRows.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
-  // V22.9.75: 정기 항목 추가 폼에서 구분을 수입으로 고르면 분류 추천이 수입 분류로 바뀐다(지출 분류만 보였다).
+  // V22.9.76: 정기 항목 추가 폼에서 구분을 수입으로 고르면 분류 추천이 수입 분류로 바뀐다(지출 분류만 보였다).
   const recurringIncomeCategoryOptions = RECURRING_INCOME_CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td data-label="내용">${escapeHtml(r.memo || "")}</td><td data-label="구분">${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td data-label="금액">${numberWithCommas(r.amount)}원</td><td data-label="분류">${escapeHtml(r.category || "")}</td><td data-label="일자">매월 ${escapeHtml(r.day_of_month || 1)}일</td><td data-label="최근 적용월">${escapeHtml(r.last_applied_month || "-")}</td><td data-label="관리">${renderRecurringEditForm(r, selected.id, month, [], "/my/recurring/save")}<form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
   const incomeInputs = incomeRows.map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${escapeHtml(typeof r.amount === "number" ? String(r.amount || "") : String(r.amount ?? ""))}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");
@@ -28140,7 +28140,7 @@ function householdPageMessage(code = "") {
     member_policy_owner_only: "구성원 권한은 가계부 소유자만 바꿀 수 있습니다.",
     member_policy_failed: "구성원 권한을 저장하지 못했습니다. 기존 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
   };
-  // V22.9.75 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 /my/members 에 함수 본문을 보였다).
+  // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 /my/members 에 함수 본문을 보였다).
   const key = String(code || "");
   return (Object.hasOwn(map, key) && map[key]) || formatMessage(code || "");
 }
@@ -29084,7 +29084,7 @@ async function fetchRecurringRuleByIdStrict(env, id = "") {
 
 // Compatibility belongs to budgets, not to the transaction classifier. A custom
 // category with the same normalized name follows this same interpretation.
-// V22.9.75 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
+// V22.9.76 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
 // 따로 분류되므로 권하는 대로 예산을 잡으면 교통비 대부분이 예산 밖으로 빠졌다(교통 예산 30만 원에 사용 10,900원).
 // ‘교통’ 예산은 옛 ‘교통/차량’과 같은 갈래(교통·택시·주유/충전·차량관리, 옛 기록의 ‘교통/차량’)를 센다. 웹·홈·카카오가 모두
 // budgetSummary 를 쓰므로 한곳에서 맞춘다.
@@ -29190,7 +29190,7 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
 }
 
 function renderBudgetCategoryUsageTree(category = "", rows = [], categories = null) {
-  // V22.9.75 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
+  // V22.9.76 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
   const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
   const groups = Object.create(null);
@@ -29634,7 +29634,7 @@ function renderHomeReportCards(options = {}) {
   const budgetCard = `<article class="homeReport${budgetCardState}"><div class="homeReportTop"><span>예산 항목</span><a href="${escapeHtml(budgetsHref)}">예산 설정</a></div><b>${worst ? `${escapeHtml(worst.category || "미분류")} ${worstRate}%` : "미설정"}</b><div class="homeReportBars">${worst ? `<i style="width:${Math.max(2, Math.min(100, worstRate))}%"></i>` : ""}</div><small>${budgetRead}</small></article>`;
 
   // 4. 앞으로 나갈 돈 — 정기지출·준비금.
-  // V22.9.75: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
+  // V22.9.76: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
   const reserveValue = !reserveLoaded ? "이번 달 기준" : reserveCount ? (String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : reserveIncomeCount ? "나갈 항목 없음" : "등록 없음";
   const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : reserveCount ? String(reserveHeadline) : reserveIncomeCount ? `정기 수입 ${numberWithCommas(reserveIncomeCount)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
   const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
@@ -29655,7 +29655,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
     const memo = t.memo || t.raw_text || "-";
-    // V22.9.75 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
+    // V22.9.76 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
     // "--12,000원"으로 보였다. 음수 지출은 돌아온 돈이라 "+", 음수 수입은 "-"다.
     const sign = (t.type === "income") === (Number(t.amount || 0) >= 0) ? "+" : "-";
     const cls = t.type === "income" ? "income" : "expense";
@@ -29663,7 +29663,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
     // V22.9.18: 행마다 따로 붙던 "수정/삭제" 접기 줄을 없애고 행 본문을 그 접기의 summary 로 쓴다.
     // 행 어디를 눌러도 같은 편집 칸이 열리고(지연 로드 계약은 그대로), 행 높이가 한 줄 준다.
-    // V22.9.75: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
+    // V22.9.76: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
     // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
     const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
     const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
@@ -29738,7 +29738,7 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     const expense = total.expense;
     const income = total.income;
     const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
-    // V22.9.75 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
+    // V22.9.76 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
     const outText = (v) => `${v < 0 ? "+" : "-"}${numberWithCommas(Math.abs(v))}원`;
     const inText = (v) => `${v < 0 ? "-" : "+"}${numberWithCommas(Math.abs(v))}원`;
     const sum = (income
@@ -31201,7 +31201,7 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 // 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 CSS 형식(contentType)으로 남아 그대로 내려간다.
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22940.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22975.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22976.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
@@ -34500,7 +34500,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
           ? '"accountbook-v5-v22951-js"'
-          : '"mobile-home-v22975-js"',
+          : '"mobile-home-v22976-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
@@ -34640,7 +34640,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 새 질의는 없다 — budget 과 rows 는 이미 위에서 받아 둔 값이다.
   const budgetOverAmt = Math.max(0, Number(budget.budgetedExpense ?? budget.expense ?? 0) - Number(budget.totalBudget || 0));
   // 지금까지의 하루 평균. 지난달을 보고 있으면 그 달 전체로 나눈다.
-  // V22.9.75: 속도와 월말 예상은 예산 알림·알림센터와 같은 관측 기준으로 센다 — 이번 달은 오늘까지의 기록만,
+  // V22.9.76: 속도와 월말 예상은 예산 알림·알림센터와 같은 관측 기준으로 센다 — 이번 달은 오늘까지의 기록만,
   // 예산을 잡은 분류만(buildBudgetAlertPolishModel 의 forecastExpense 와 같은 식). 예전에는 미래 날짜로 미리 적은
   // 지출까지 지난 날수로 나눠 속도가 부풀었고, "이 속도면 …원이 남습니다"가 예산 알림의 '관측 속도 월말 예상'과 달랐다.
   const paceObservedSpent = isCurrentMonth
@@ -34687,7 +34687,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   ];
   const inputChips = (freqChips.length >= 3 ? freqChips : defaultChips).map((c) => `<button type="button" data-memo="${escapeHtml(c.label)}" data-cat="${escapeHtml(c.category || "")}" data-pay="${escapeHtml(c.payment || "")}">${escapeHtml(c.label)}${c.count ? `<em>${numberWithCommas(c.count)}</em>` : ""}</button>`).join("");
   const payFreq = Object.create(null);
-  // V22.9.75: 결제수단 칩은 지출 기록에서만 고른다. 월급이 들어오는 통장이 결제수단 첫 칩으로 올라왔다.
+  // V22.9.76: 결제수단 칩은 지출 기록에서만 고른다. 월급이 들어오는 통장이 결제수단 첫 칩으로 올라왔다.
   for (const r of rows) { if (r.type === "income") continue; const pm = String(r.payment_method || "").trim(); if (pm) payFreq[pm] = (payFreq[pm] || 0) + 1; }
   const payChips = Object.entries(payFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([pm]) => `<button type="button" data-pay-only="${escapeHtml(pm)}">${escapeHtml(pm)}</button>`).join("");
   const feedLabel = feedMode === "all" ? `전체 ${feedSource.length}건` : `최근 ${Math.min(feedLimit, feedSource.length)}건`;
@@ -34737,7 +34737,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const homeReserveHref = `/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
   // 정기항목은 이번 달을 볼 때만 불러온다(과거 달에서 질의를 늘리지 않으려는 기존 판단).
   // 안 불러온 달에서 "없음" 이라고 말하면 거짓이 되므로 건수를 단정하지 않는다.
-  // V22.9.75: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
+  // V22.9.76: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
   const homeReserveOutHeadline = homeReserve.expenseCount
     ? `${numberWithCommas(homeReserve.expenseCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
     : "";
@@ -34843,7 +34843,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetTotal = Number(budgetCenter.totalBudget || 0);
   // 분류별 예산만 잡은 달에는 그 분류들의 지출만 견준다(budgetSummary 와 같은 기준).
   const budgetUsed = Number(budget.budgetedExpense ?? stats.totals.expense ?? 0);
-  // V22.9.75 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
+  // V22.9.76 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
   // 보여 "이번 달 쓸 수 있는 돈 3,835,234원"처럼 읽혔다. 숫자 대신 "예산 미설정"을 보인다(아래 템플릿).
   const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : 0;
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
@@ -34939,7 +34939,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? `전체 예산을 ${budgetPercent}% 사용했습니다. 오늘부터 지출을 줄이는 게 좋아요.`
     : budgetTotal && budgetPercent >= 85
       ? `전체 예산의 ${budgetPercent}%를 사용했습니다. 남은 예산은 ${numberWithCommas(budgetRemaining)}원입니다.`
-      // V22.9.75: 수입 항목에 "납부·준비하세요"라고 하지 않는다. 지출 기한을 먼저, 없으면 들어올 돈을 알린다.
+      // V22.9.76: 수입 항목에 "납부·준비하세요"라고 하지 않는다. 지출 기한을 먼저, 없으면 들어올 돈을 알린다.
       : reserveInfo.upcomingExpense.length
         ? (reserveInfo.upcomingExpense[0].days_left > 0
           ? `${reserveInfo.upcomingExpense[0].plan.name} 납부가 ${reserveInfo.upcomingExpense[0].days_left}일 남았습니다. 월 ${numberWithCommas(reserveInfo.upcomingExpense[0].monthly_reserve)}원씩 준비하세요.`
@@ -34952,7 +34952,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetAlert = budget.totalBudget ? (budget.diff > 0 ? `<div class="appAlert danger">예산보다 <b>${numberWithCommas(budget.diff)}원</b> 초과 지출 중입니다.</div>` : `<div class="appAlert good">예산까지 <b>${numberWithCommas(Math.abs(budget.diff))}원</b> 남았습니다.</div>`) : `<div class="appAlert">월 예산을 설정하면 초과 지출 알림이 표시됩니다.</div>`;
   const categoryList = categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
   const paymentList = paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("");
-  // V22.9.75 감사 D-3: 이번 달은 오늘까지의 기록만 지난달 같은 기간과 견준다. 미래 날짜로 미리 적은 지출(지정일 전에 반영한
+  // V22.9.76 감사 D-3: 이번 달은 오늘까지의 기록만 지난달 같은 기간과 견준다. 미래 날짜로 미리 적은 지출(지정일 전에 반영한
   // 고정지출 등)까지 더하면 "지난달 1~3일보다 170,000원 더"처럼 아직 나가지 않은 돈을 쓴 것으로 말했다(/reports 는 "덜").
   const comparableExpense = isCurrentMonth
     ? Number(calculateStats(safeArray(rows).filter((r) => String(r.transaction_date || "") <= todayStr)).totals.expense || 0)
@@ -34965,7 +34965,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
   const deltaToday = formatDate(nowKstDate());
   const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
-  // V22.9.75: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
+  // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
   // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
   const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;
   const expenseDeltaText = !prevStats
@@ -35880,7 +35880,7 @@ function normalizeRecurringDay(value) {
 function renderRecurringEditForm(row, householdId, month, members, action) {
   // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
   const spenders = eligibleRecurringSpenders(members);
-  // V22.9.75: 수입 항목(예: 수당)의 사람 칸은 "수입자"다. 거래 목록·수정 화면과 같은 말을 쓴다.
+  // V22.9.76: 수입 항목(예: 수당)의 사람 칸은 "수입자"다. 거래 목록·수정 화면과 같은 말을 쓴다.
   const spenderWord = row.type === "income" ? "수입자" : "지출자";
   return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${spenders.length ? `<label>${spenderWord}<select name="user_id">${renderSpenderOptions(spenders,row.user_id,`${spenderWord} 선택`)}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
 }
@@ -35917,16 +35917,16 @@ async function handleRecurringSave(request, env) {
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
   if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
   try {
-    // V22.9.75 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
+    // V22.9.76 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
     // 같은 판정). 예전에는 이 경로(정기 수입·지출 화면)만 이 확인이 없어 다음 자동 반영이 같은 달을 한 번 더 넣었다.
     if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, householdId, row);
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");
       assertFresh();
-      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
-      // V22.9.75 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
+      // V22.9.76 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
       if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     });
@@ -36000,7 +36000,7 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
-  // V22.9.75 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
+  // V22.9.76 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
   // "이번 달"이라 10월에 9월 화면에서 누르면 10월에 만든 규칙까지 2026-09-15 자로 들어갔다. 단추에 대상 달을 적고(정기 화면),
   // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
   if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);
@@ -36613,7 +36613,7 @@ function formatSignedPercent(v) {
   return "0%";
 }
 
-// V22.9.75 감사 D-13: 이전 값이 0원이면 증감률을 만들지 않는다. percentChange 가 돌려주는 "+100%"는 없던 비교를
+// V22.9.76 감사 D-13: 이전 값이 0원이면 증감률을 만들지 않는다. percentChange 가 돌려주는 "+100%"는 없던 비교를
 // 지어낸 숫자다. 분류는 "새로 생김", 전체 지출은 리포트와 같은 "비교 기록 없음"으로 쓴다.
 function formatChangeRate(current, previous, emptyLabel = "새로 생김") {
   const prev = Number(previous || 0);
@@ -37435,7 +37435,7 @@ function formatMessage(msg) {
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
-  // V22.9.75 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
+  // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
   if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
@@ -37646,7 +37646,7 @@ function kakaoKeywordGuideText(origin = "") {
     "• 주유 → 주유/충전 · 하이패스 → 차량관리",
     "• 병원, 치과 → 의료/병원 · 약국 → 약국",
     "",
-    // V22.9.75 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
+    // V22.9.76 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
     "키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.",
     ...(origin ? [`${origin}/my/settings`] : []),
   ].join("\n");
@@ -37667,7 +37667,7 @@ function kakaoEditSimpleGuideText(origin = "") {
 }
 
 function kakaoReserveSimpleGuideText(origin = "") {
-  // V22.9.75 (감사 A-11): 예전 입력 예시("자동차보험 120만원 8월")를 그대로 보내면 정기 항목이 아니라
+  // V22.9.76 (감사 A-11): 예전 입력 예시("자동차보험 120만원 8월")를 그대로 보내면 정기 항목이 아니라
   //   오늘 날짜 지출 1,200,000원이 저장됐다. 정기 항목 등록은 웹에서만 되므로 카카오에서 되는 일만 적는다.
   return [
     "📌 정기 수입·지출",
@@ -38703,7 +38703,7 @@ function kakaoRestoreRowV4(row = {}, fallbackHouseholdId = "") {
   return out;
 }
 
-// V22.9.75 카카오 감사 12: 목록 줄에서 수입을 지출과 구별한다. 예전에는 "01번 - 월급 / 2,500,000원 / - / 급여"처럼
+// V22.9.76 카카오 감사 12: 목록 줄에서 수입을 지출과 구별한다. 예전에는 "01번 - 월급 / 2,500,000원 / - / 급여"처럼
 // 지출과 똑같이 보였다. 금액 칸에 ‘수입’을 붙인다("01번 - 월급 / 수입 2,500,000원 / - / 급여"). 지출 줄의 모양은 그대로다.
 function kakaoIncomeMarkV4(row = {}) { return row.type === "income" ? "수입 " : ""; }
 
@@ -38782,7 +38782,7 @@ function isKakaoEditCancelCommand(text = "") {
 // "수정 NN번 [나머지]"가 표준 문법이고, 안내되어 온 레거시 "NN번 [나머지]"와
 // 날짜 접두("어제 01번 …")도 같은 단일 경로로 흡수한다.
 
-// V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"그제삭제 01번"·"10월20일수정 01번 …"처럼 띄어 쓰지 않은 날짜 접두도
+// V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"그제삭제 01번"·"10월20일수정 01번 …"처럼 띄어 쓰지 않은 날짜 접두도
 // 뗀다. 예전에는 날짜를 못 떼서 수정 명령으로 알아보지 못했고, 금액이 있으면 새 지출로 저장됐다. 날짜 숫자 바로 뒤에
 // 번호가 붙은 "10월 12번 삭제"는 "10월 1" + "2번"으로 잘못 떼지 않도록 일·띄어쓰기·수정 낱말이 있을 때만 뗀다.
 function stripKakaoEditDatePrefixV4(text = "") {
@@ -38835,7 +38835,7 @@ function parseKakaoRestoreCommandV4(text = "") {
   return { seq: m[1] ? Number(m[1]) : 0, invalidSeq: m[1] !== undefined && !(Number(m[1]) >= 1) };
 }
 
-// V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
+// V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
 // 옛 문법("N번 …" = 오늘의 N번 기록 수정)과 모양이 같아서, 열린 세션이 있으면 이 말을 세션에 먼저 넘긴다.
 // 수정·삭제·복구 말이 들어 있거나 날짜로 시작하는 말은 기록을 고르는 명령이라 여기에 들지 않는다.
 function isKakaoSessionSeqReplyV4(text = "") {
@@ -38889,7 +38889,7 @@ function kakaoActiveSpenderMembers(members = []) {
 }
 
 // V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
-// V22.9.75 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
+// V22.9.76 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
 function kakaoEditMenuTextV4(row = {}, seq = 0) {
   const person = row.type === "income" ? "수입자" : "지출자";
   return [
@@ -38969,12 +38969,12 @@ const FIELD_LABEL = {
   content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
 };
 
-// V22.9.75 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
+// V22.9.76 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
 // 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
 function payerWord(session = {}) { return session && session.rowType === "income" ? "수입자" : "지출자"; }
 function fieldLabel(field, session = {}) { return field === "payer" ? payerWord(session) : FIELD_LABEL[field]; }
 
-// V22.9.75 카카오 감사 2: 분류 목록의 기본값은 구분별 표준 분류 이름(CATEGORY_RULES 이름과 기타수입·기타지출)이다.
+// V22.9.76 카카오 감사 2: 분류 목록의 기본값은 구분별 표준 분류 이름(CATEGORY_RULES 이름과 기타수입·기타지출)이다.
 // 예전 기본 목록은 구분 없이 지출 이름뿐이었고 "의료"·"생활"처럼 표준이 아닌 이름이라 예산 집계에서 빠졌다.
 const KAKAO_EDIT_DEFAULT_CATEGORIES = Object.freeze({
   expense: Object.freeze(["외식", "배달", "카페/간식", "장보기", "편의점", "교통", "생활용품", "쇼핑", "의료/병원", "문화/여가", "기타지출"]),
@@ -39069,7 +39069,7 @@ function tokenToFieldFuzzy(tokenRaw) {
 
 // T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
 // 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
-// V22.9.75 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
+// V22.9.76 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
 // 새 기록의 첫 낱말이 우연히 필드 이름으로 시작하는 경우("사람들 회식 5만원")는 피하려고, 앞 낱말이 필드 이름이나
 // 메뉴 번호와 똑같을 때만 맞다고 본다.
 function isExactKakaoEditFieldStart(textRaw = "") {
@@ -39469,7 +39469,7 @@ const MENU_EXAMPLES = [
   { input: "지출자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결재자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결제자 엄마",      expect: { field: "payer", value: "엄마" } },
-  { input: "수입자 엄마",      expect: { field: "payer", value: "엄마" } },   // V22.9.75 수입 기록 안내
+  { input: "수입자 엄마",      expect: { field: "payer", value: "엄마" } },   // V22.9.76 수입 기록 안내
   { input: "지츨자 엄마",      expect: { field: "payer", value: "엄마" } },   // fuzzy
   { input: "6",               expect: { field: "payer", value: null } },
   { input: "6번 엄마",         expect: { field: "payer", value: "엄마" } },
@@ -39542,7 +39542,7 @@ function loopFuzzTest(config = {}, rounds = 200) {
 // V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
 // =====================================================================
 
-// V22.9.75 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
+// V22.9.76 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
 // 상관없도록 처음 쓸 때 만든다. 사용자 분류는 같은 구분이면 이름이 겹쳐도 받는다(예: 지출 분류 "용돈").
 let kakaoEditCategoryTypeSetsCacheV4 = null;
 function kakaoEditCategoryTypeSetsV4() {
@@ -39567,7 +39567,7 @@ function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}
 }
 
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
-// V22.9.75: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
+// V22.9.76: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
 async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense") {
   const [members, paymentAssets, categoryRows] = await Promise.all([
     fetchHouseholdMembers(env, householdId).catch(() => []),
@@ -39678,7 +39678,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     }
     patch.amount = amount;
   } else if (field === "category") {
-    // V22.9.75 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
+    // V22.9.76 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
     const rowType = row.type === "income" ? "income" : "expense";
     const conflict = kakaoEditCategoryConflictV4(value, rowType, config);
     if (conflict) {
@@ -39819,7 +39819,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
-    // V22.9.75 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
+    // V22.9.76 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
     // 01번을 바로 바꿀 수 있었다. 세션이 끝난 지 30분 안에 온 수정 값 모양의 말은 끝났다고 알리고 한 줄 명령을 보여 준다.
     const sinceUpdateMs = Date.now() - Number(session.updatedAt || 0);
     if (session.updatedAt && sinceUpdateMs <= 35 * 60 * 1000 && (isExactKakaoEditFieldStart(utterance) || isKakaoSessionSeqReplyV4(utterance))) {
@@ -39838,7 +39838,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
 
-// V22.9.75 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
+// V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
 // 보낸 말로 만들어 보여 준다(어제 기록이면 ‘어제’·‘8월 4일’을 앞에 붙인다).
 function kakaoEditExpiredTextV4(session = {}, utterance = "") {
   const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
@@ -39876,7 +39876,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
     entryNo: twoDigitSeq(seq),
     entryId: row.id,
     entryDate: row.transaction_date || "",
-    // V22.9.75 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
+    // V22.9.76 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
     rowType: row.type === "income" ? "income" : "expense",
     householdId: household.id,
     householdName: String(household.name || "").slice(0, 60),
@@ -39926,13 +39926,13 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
   if (isKakaoDailyListCommand(raw)) {
-    // V22.9.75 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
+    // V22.9.76 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
     // 날짜 부분과 뒤의 ‘기록·내역·목록’을 띄어 읽는다.
     const date = extractDate(raw.replace(/\s*(기록|내역|목록)(\s*보기)?$/, " $1"));
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    // V22.9.75 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
+    // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
     const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
     if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
@@ -40034,7 +40034,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
-    // V22.9.75 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
+    // V22.9.76 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
     // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
@@ -40193,7 +40193,7 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
   return true;
 }
 
-// V22.9.75 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
+// V22.9.76 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
 function kakaoRepeatGuardText(origin = "", utterance = "") {
   const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
   const example = text && extractAmount(text)?.amount ? text : "";
@@ -40631,7 +40631,7 @@ function kakaoHouseholdChoiceQuickReplies(rows = [], prefix = "가계부 선택"
 
 function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
   const list = safeArray(rows).slice(0, 10);
-  // V22.9.75 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
+  // V22.9.76 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
   const sameName = (h) => list.filter((other) => normalizeText(other?.name || "") === normalizeText(h?.name || "")).length > 1;
   return list.map((h, index) => {
     const role = userHouseholdRoleLabel(h?.role || "member");
@@ -40650,7 +40650,7 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
   }
   const stripped = t.replace(/^(?:가계부\s*)?(?:선택|전환|바꾸기|연결)\s*/, "").trim();
   if (!stripped) return null;
-  // V22.9.75 감사 D-6: 이름이 같은 가계부가 둘 이상이면 첫 번째를 고르지 않는다(남의 같은 이름 가계부에 기록이 저장될 수 있었다).
+  // V22.9.76 감사 D-6: 이름이 같은 가계부가 둘 이상이면 첫 번째를 고르지 않는다(남의 같은 이름 가계부에 기록이 저장될 수 있었다).
   // 부르는 쪽이 번호로 다시 묻는다.
   const matches = rows.filter((h) => normalizeText(h?.name || "") === stripped);
   if (matches.length > 1) return { ambiguous: true, name: matches[0].name, count: matches.length };
@@ -40883,7 +40883,7 @@ function parseBudgetMonthHint(text = "") {
   if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
-    // V22.9.75 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
+    // V22.9.76 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
     // (예전: 지난 1월에 저장). 앞뒤 거리가 같으면(6개월) 앞날로 본다.
     let year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
     const month = Number(m[2]);
@@ -40952,7 +40952,7 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
       assertFresh();
       await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
     }
-    // V22.9.75 카카오 감사 13: 개수에는 전체 예산(__total)과 수입 목표(__income:…)도 들어 있다. 답장이 무엇을 셌는지 나눠 말한다.
+    // V22.9.76 카카오 감사 13: 개수에는 전체 예산(__total)과 수입 목표(__income:…)도 들어 있다. 답장이 무엇을 셌는지 나눠 말한다.
     const categoryOf = (row) => String(row.category || "");
     return {
       previous, count: copyRows.length,
@@ -40972,9 +40972,9 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
-  // V22.9.75 감사 A-13: ‘저번달’·‘전달’·‘저번주’는 지난달·지난주와 같은 말이다. 예전에는 기간을 못 읽어 이번 달로 답했다.
+  // V22.9.76 감사 A-13: ‘저번달’·‘전달’·‘저번주’는 지난달·지난주와 같은 말이다. 예전에는 기간을 못 읽어 이번 달로 답했다.
   t = t.replace(/^(?:저번\s*달|전달|전월)(?=\s|$|요약|수입|얼마)/, "지난달").replace(/^저번\s*주(?=\s|$|요약|수입|얼마)/, "지난주");
-  // V22.9.75 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
+  // V22.9.76 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
   // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
   let focus = "";
   const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
@@ -41001,12 +41001,12 @@ function parseKakaoSummaryRange(text = "") {
   } else {
     const dateMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
     if (dateMatch) {
-      // V22.9.75 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
+      // V22.9.76 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
       let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
       if (!dateMatch[1] && new Date(y, m - 1, d) > now) y -= 1;
       start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
-      // V22.9.75 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
+      // V22.9.76 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
       // (1월에 보낸 "12월 요약"이 올해 12월의 0원으로 답했다). 올해가 아니면 제목에 연도를 붙인다.
       const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*(?:지출|수입|가계부))?(?:\s*(?:요약|현황|통계))?$/);
       if (monthMatch && Number(monthMatch[2]) >= 1 && Number(monthMatch[2]) <= 12) {
@@ -41014,7 +41014,7 @@ function parseKakaoSummaryRange(text = "") {
         if (!monthMatch[1] && m > now.getMonth() + 1) y -= 1;
         start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월`;
       } else {
-        // V22.9.75 감사 A-13: 기간 말을 읽지 못한 요약("저저번달 요약", "작년 요약", "13월 요약")에 이번 달로 답하지 않는다.
+        // V22.9.76 감사 A-13: 기간 말을 읽지 못한 요약("저저번달 요약", "작년 요약", "13월 요약")에 이번 달로 답하지 않는다.
         const rest = t.replace(/\s*(?:요약|현황|통계)$/, "").replace(/이번\s*달|이달|금월|월간/g, "").trim();
         if (rest !== "월" && /[0-9]|년|해|분기|반기|주|달|월|일|그끄/.test(rest)) return { unreadable: true, text: rest.slice(0, 20) };
         start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth()+1, 1); label = "이번 달";
@@ -41093,7 +41093,7 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   if (!rows.length) {
     return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
   }
-  // V22.9.75: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
+  // V22.9.76: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
   //   skill-handler 의 정기 알림 줄(kakaoReserveAlert)에 닿지 못했다 — 카카오에서는 정기 알림이 한 번도 나가지 않았다.
   //   알림을 못 읽어도 kakaoReserveAlert 가 빈 문자열을 돌려주므로 요약은 그대로 나간다.
   const [members, reserveLine] = await Promise.all([
@@ -41103,7 +41103,7 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   const names = memberNameMap(members);
   const incomes = rows.filter((r) => r.type === "income");
   const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
-  // V22.9.75 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
+  // V22.9.76 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
   const incomeFocus = range.focus === "income";
   const byIncomeCategory = Object.create(null);
   for (const row of incomes) { const c = row.category || "기타수입"; byIncomeCategory[c] = (byIncomeCategory[c] || 0) + Number(row.amount || 0); }
@@ -41294,7 +41294,7 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: "선택하려던 가계부가 삭제되었거나 권한이 변경됐어요. ‘시작’을 입력해 현재 목록을 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
     const chosen = parseKakaoHouseholdChoice(utterance, candidates);
-    // V22.9.75 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
+    // V22.9.76 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
     if (chosen?.ambiguous) {
       return {
         text: [`‘${chosen.name}’ 이름의 가계부가 ${chosen.count}개예요. 어느 가계부인지 번호로 골라 주세요.`, "", ...kakaoHouseholdListLines(candidates)].join("\n"),
@@ -41762,7 +41762,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: "error" });
-    // V22.9.75 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
+    // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
@@ -41815,9 +41815,9 @@ function normalizeKakaoButtonLabel(text = "") {
   return KAKAO_LEGACY_BUTTON_LABELS[base] || base;
 }
 
-// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
 // 버리므로 글로도 다시 보낼 문장을 알려 준다.
-// V22.9.75 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
+// V22.9.76 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
 // 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 가서 원래 답을 받는다. 세션 값이 될 수 있는 말
 // (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
 function isKakaoEditSessionBypassCommand(text = "") {
@@ -41843,7 +41843,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
-  // V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
+  // V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
   // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
@@ -41909,7 +41909,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       routingSnapshot = {edit:values.get(keys[0]) ?? null,selected:values.get(keys[1]) ?? null,flow:values.get(keys[2]) ?? null};
     }
   }
-  // V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
+  // V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
   // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
   // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
   if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
@@ -42287,7 +42287,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
-  // V22.9.75 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
+  // V22.9.76 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
   if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {
     const dateSummary = await kakaoDateSummaryParts(env, household, user, summaryRange, origin);
@@ -42386,13 +42386,13 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  // V22.9.75 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
+  // V22.9.76 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
   const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const expenseTotal = totalOf("expense");
   const incomeTotal = totalOf("income");
   const totalText = incomeTotal && expenseTotal ? `지출 합계 ${numberWithCommas(expenseTotal)}원 · 수입 합계 ${numberWithCommas(incomeTotal)}원`
     : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
-  // V22.9.75 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
+  // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
   const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
   const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const duplicateNotice = !duplicateCount ? ""
@@ -42649,7 +42649,7 @@ async function handleKakaoRecentDebug(request, env, url) {
 // A confirmation is a server-issued action, never a platform event identity.
 function parseKakaoSeparatePurchaseCommand(text = "") {
   const value = String(text).trim();
-  // V22.9.75 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
+  // V22.9.76 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
   const add = value.match(/^별도\s+(?:구매|기록)\s+추가\s+([\s\S]+)$/);
   if (add) return { action: "prepare", text: add[1].trim() };
   const control = value.match(/^별도\s+(?:구매|기록)\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
@@ -43085,7 +43085,7 @@ async function handleUserNotifications(request, env, url) {
   });
 
   // 3) 미분류 지출
-  // V22.9.75: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
+  // V22.9.76: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
     notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 지출 ${uncategorized.length}건`,
@@ -43114,7 +43114,7 @@ async function handleUserNotifications(request, env, url) {
   }
 
   // 5) 정기 항목 기한 임박 (상위 3)
-  // V22.9.75: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
+  // V22.9.76: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
     const income = isIncomeReservePlan(s.plan);
@@ -43309,7 +43309,7 @@ function enrichGoal(g) {
     const [dy, dm] = g.deadline.split("-").map(Number);
     const left = (dy - ny) * 12 + (dm - nm) + 1;
     if (left < 1) {
-      // V22.9.75 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
+      // V22.9.76 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
       // 남은 달·월 필요액을 비워 화면에서 빼고, 상태는 '부족'으로 둔다.
       overdue = true;
       status = "behind";
@@ -43327,7 +43327,7 @@ function goalsPayload(householdId, list) {
   const goals = list.map(enrichGoal);
   const totalTarget = goals.reduce((a, g) => a + g.target, 0);
   const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
-  // V22.9.75 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
+  // V22.9.76 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
   // 채워 "100%"가 되던 것(비상금 200% + 휴가 0% → 100%)을 막는다. 모은 돈 합계(total_saved)는 그대로다.
   const totalCountedSaved = goals.reduce((a, g) => a + Math.min(Math.max(0, Number(g.saved || 0)), Math.max(0, Number(g.target || 0))), 0);
   return {
@@ -44532,7 +44532,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
   if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
-  // V22.9.75 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
+  // V22.9.76 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
   // 예전에는 appUserId·plusfriendUserKey 가 실린 요청마다 잠금을 잡아, 서로 다른 사용자 둘이 동시에 보내면 늦은 쪽이
   // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
   // 예전 잠금 경로가 다시 읽고 판단한다(충돌·대상 없음 오류도 그 경로가 그대로 낸다).
@@ -45106,7 +45106,7 @@ function parseKakaoMemberPolicyCommand(text = "") {
   return { show: true, unknown: true };
 }
 
-// V22.9.75 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
+// V22.9.76 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
 // "점심 메뉴 12000" 같은 기록이 도움말로 바뀌고 저장되지 않았다. 자연어 판정은 금액이 없는 말에만 쓰고,
 // 아래의 짧은 도움말 명령은 그대로 받는다.
 function isHelpCommand(text) {
@@ -45148,7 +45148,7 @@ async function kakaoSettlementParts(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  // V22.9.75 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
+  // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
@@ -45205,7 +45205,7 @@ function isReserveGuideCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "RESERVE_GUIDE" || /^(정기지출|정기 지출|자동차세|재산세|자동차보험|보험준비|보험 준비|준비금|알림|납부알림|납부 알림)$/i.test(normalizeText(text));
 }
 
-// V22.9.75: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
+// V22.9.76: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
 // '카카오 설정'·'봇 설정'·'심사'·'운영 점검'·'챗봇 점검'·'블록 설정'에도 이 안내가 나갔다.
 function isOpenBuilderGuideCommand(text) {
   return /^(오픈빌더|openbuilder|폴백|스킬연결|스킬 연결|발화목록|발화 목록)$/i.test(normalizeText(text));
@@ -45249,7 +45249,7 @@ function parseMultipleTransactions(text, payload) {
   return out;
 }
 
-// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
 // 저장하지 않고 묻는다. parseTransaction 은 가져오기와 같이 쓰므로 ok 를 그대로 두고 표식만 붙이며, 카카오가 쓰는
 // 이 함수만 막는다.
 function mixedTypeConfirmation(parsed = {}) {
@@ -45428,7 +45428,7 @@ function normalizeText(text) {
     .replace(/처눤/g, "천원")
     .replace(/백 원/g, "백원")
     .replace(/십 원/g, "십원")
-    // V22.9.75 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
+    // V22.9.76 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
     // 앞뒤가 두 금액으로 읽혀 두 건(10,000원 + 기타지출 5,000원)으로 저장되거나 뒤의 금액이 사라졌다. 앞이 만·억·천·백으로
     // 끝나고, 뒤가 그보다 작은 단위(천·백·십)의 수이며 ‘원’이 붙거나 문장이 끝날 때만 붙인다. 앞이 숫자 단위("3만 5천원")면
     // 예전부터 한 금액으로 읽으므로 건드리지 않는다.
@@ -45462,7 +45462,7 @@ function normalizeType(value) {
 }
 
 function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
-// V22.9.75: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
+// V22.9.76: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
 function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
 
 function parseAmountValue(value) {
@@ -45958,7 +45958,7 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   let memo = normalizeText(raw);
   const removals = [
     amountRaw,
-    // V22.9.75 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
+    // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
     "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부",
     "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
     "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
