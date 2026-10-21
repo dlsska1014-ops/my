@@ -8464,22 +8464,36 @@ function moneyTokenSpans(text = "") {
 // V22.9.34 감사 D2: "부모님 용돈 30만원", "조카 세뱃돈", "용돈 드림"처럼 주는 대상이나 주는 말이 붙은 용돈·세뱃돈은
 // 지출이다. 아무 말 없는 "용돈 30000"은 V22.9.30 결정대로 수입으로 둔다. 받는 말은 먼저 보므로 "엄마한테 용돈 받음"은
 // 수입이다. 수수료·중개료·배송비는 "판매 수수료"여도 지출이다.
-function transactionTypeFromText(text = "", rules = []) {
+// V22.9.75 카카오 감사 1: "부모님께 용돈 30만원"·"엄마에게 용돈"·"아이한테 용돈"처럼 주는 대상 뒤에 조사가 붙거나
+// "용돈 보내드림"이면 수입으로 저장됐고, "이자 납부 30만원"·"이자 출금"도 수입이었다. 문장에 "지출"이라고 적은
+// "부모님께 용돈 30만원 지출"마저 수입이었다. 이제 사용자가 적은 구분 낱말(수입·지출) 하나를 가장 먼저 따르고,
+// 주는 대상+조사(께·에게·한테, "께서·한테서"는 받는 말이라 제외)·보내드림·드렸·이자 납부/출금/냄/이체는 지출이다.
+// 세 번째 인자 { detail: true } 를 주면 { type, ambiguous } 를 돌려준다. 수입 낱말로 수입이 됐는데 쓰는 말(결제·구매·
+// 샀·썼·냈·납부·출금·지급·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
+// 수입인지 지출인지 묻는다. 화면 빠른입력은 두 인자로 불러 문자열을 받는다. 본문이 화면 자산에 그대로 실리므로
+// 이 함수는 밖의 함수를 부르지 않는다.
+function transactionTypeFromText(text = "", rules = [], options = {}) {
   const raw = String(text || "").trim();
-  if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return "expense";
-  if (/(?:^|\s)환불(?:\s*(?:완료|됨|금|처리|입금))?(?=\s|\d|$)|(?:^|\s)반품(?=\s|\d|$)|환급|돌려받/.test(raw)) return "income";
-  if (/(?:적금|예금|저축|투자)\s*(?:입금|이체|납입|송금)/.test(raw)) return "expense";
-  if (/(?:용돈|세뱃돈)\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return "expense";
-  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return "income";
-  if (/(?:대출|카드|할부|연체)\s*이자|무이자/.test(raw)) return "expense";
-  if (/(?:수수료|중개료|배송비)/.test(raw)) return "expense";
-  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return "expense";
+  const saysIncome = /(?:^|\s)수입(?=\s|\d|$)/.test(raw), saysExpense = /(?:^|\s)지출(?=\s|\d|$)/.test(raw);
+  const result = (type, ambiguous = false) => (options && options.detail ? { type, ambiguous: ambiguous || (saysIncome && saysExpense) } : type);
+  if (saysIncome !== saysExpense) return result(saysIncome ? "income" : "expense");
+  if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return result("expense");
+  if (/(?:^|\s)환불(?:\s*(?:완료|됨|금|처리|입금))?(?=\s|\d|$)|(?:^|\s)반품(?=\s|\d|$)|환급|돌려받/.test(raw)) return result("income");
+  if (/(?:적금|예금|저축|투자)\s*(?:입금|이체|납입|송금)/.test(raw)) return result("expense");
+  const receives = /(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw);
+  const gives = /(?:용돈|세뱃돈)\s*(?:을|를)?\s*(?:지급|송금|이체|줌|줬|준|주었|드림|드렸|드린|드려|보냄|보냈|보내\s*드)|(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생|남편|아내|와이프|배우자)(?:께|에게|한테)?(?!서)\s*(?:용돈|세뱃돈)/.test(raw);
+  if (gives && !receives) return result("expense");
+  if (receives) return result("income");
+  if (/(?:대출|카드|할부|연체)\s*이자|무이자|(?:^|\s)이자\s*(?:을|를)?\s*(?:납부|출금|냄|냈|낸|이체|납입|상환)/.test(raw)) return result("expense");
+  if (/(?:수수료|중개료|배송비)/.test(raw)) return result("expense");
+  let incomeWord = /(?:^|\s)(?:수입|입금|급여|월급|매출|판매|중고\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\s|\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw);
   for (const rule of Array.isArray(rules) ? rules : []) {
+    if (incomeWord) break;
     if (rule.type !== "income") continue;
-    if ((rule.words || []).some(word => new RegExp("(?:^|\\s)" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|\\d|$)").test(raw))) return "income";
+    if ((rule.words || []).some(word => new RegExp("(?:^|\\s)" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|\\d|$)").test(raw))) incomeWord = true;
   }
-  if (/(?:^|\s)(?:수입|입금|급여|월급|매출|판매|중고\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\s|\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return "income";
-  return "expense";
+  if (incomeWord) return result("income", /(?:결제|구매|샀|썼|씀|냈|냄|납부|출금|지급|송금)/.test(raw));
+  return result("expense");
 }
 
 // 함수 본문은 그대로 브라우저 자산에 실리므로 설명은 여기 둔다. 마지막의 요일 표현(QA B04)은 명시 날짜보다
@@ -37038,7 +37052,9 @@ function kakaoKeywordGuideText(origin = "") {
     "• 주유 → 주유/충전 · 하이패스 → 차량관리",
     "• 병원, 치과 → 의료/병원 · 약국 → 약국",
     "",
-    "상세 키워드 관리는 웹에서 ‘키워드 안내’를 요청했을 때만 연결해 드려요.",
+    // V22.9.75 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
+    "키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.",
+    ...(origin ? [`${origin}/my/settings`] : []),
   ].join("\n");
 }
 
@@ -37800,6 +37816,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       "@말해가계부 점심 12000원",
       "처럼 보내면 바로 기록돼요.",
       "예) 어제 병원 15000원 국민카드",
+      "수입 예) 월급 250만원 들어옴",
     ].join("\n"),
     buttons: [
       { messageText: "오늘기록" },
@@ -38080,7 +38097,7 @@ function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
 // T2: 수정 답장에 바뀐 기록을 적는다.
 function kakaoEditRecordLineV4(row = {}) {
   const memo = row.memo || row.raw_text || row.category || "기록";
-  return `기록: ${memo} / ${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
+  return `기록: ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
 }
 
 // T12: 지울 때 읽은 칸으로 행을 다시 만든다. 예전 버퍼에 source 가 없으면 카카오 기록으로 본다.
@@ -38092,11 +38109,15 @@ function kakaoRestoreRowV4(row = {}, fallbackHouseholdId = "") {
   return out;
 }
 
+// V22.9.75 카카오 감사 12: 목록 줄에서 수입을 지출과 구별한다. 예전에는 "01번 - 월급 / 2,500,000원 / - / 급여"처럼
+// 지출과 똑같이 보였다. 금액 칸에 ‘수입’을 붙인다("01번 - 월급 / 수입 2,500,000원 / - / 급여"). 지출 줄의 모양은 그대로다.
+function kakaoIncomeMarkV4(row = {}) { return row.type === "income" ? "수입 " : ""; }
+
 function kakaoRowLabel(row = {}, seq = 0) {
   const memo = row.memo || row.raw_text || row.category || "기록";
   const pay = row.payment_method || "-";
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
-  return `${twoDigitSeq(seq)}번 - ${memo} / ${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+  return `${twoDigitSeq(seq)}번 - ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {
@@ -38167,10 +38188,14 @@ function isKakaoEditCancelCommand(text = "") {
 // "수정 NN번 [나머지]"가 표준 문법이고, 안내되어 온 레거시 "NN번 [나머지]"와
 // 날짜 접두("어제 01번 …")도 같은 단일 경로로 흡수한다.
 
+// V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"그제삭제 01번"·"10월20일수정 01번 …"처럼 띄어 쓰지 않은 날짜 접두도
+// 뗀다. 예전에는 날짜를 못 떼서 수정 명령으로 알아보지 못했고, 금액이 있으면 새 지출로 저장됐다. 날짜 숫자 바로 뒤에
+// 번호가 붙은 "10월 12번 삭제"는 "10월 1" + "2번"으로 잘못 떼지 않도록 일·띄어쓰기·수정 낱말이 있을 때만 뗀다.
 function stripKakaoEditDatePrefixV4(text = "") {
   return normalizeText(text)
     .replace(/^(오늘|어제|그제|그저께|엊그제)\s+/, "")
-    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}\s*일?\s+(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(오늘|어제|그제|그저께|엊그제)(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}(?:\s*일\s*|\s+|(?=수정|삭제|복구))(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
     .trim();
 }
 
@@ -38227,7 +38252,7 @@ function parseKakaoEditCommandV4(text = "") {
   if (m) {
     seq = Number(m[1]);
     rest = m[2] || "";
-  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)/.test(body)) {
+  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)/.test(body)) {
     latest = true;
     rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
   } else {
@@ -38237,7 +38262,7 @@ function parseKakaoEditCommandV4(text = "") {
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
   // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
   rest = normalizeText(rest)
-    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
     .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
     .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
@@ -38245,14 +38270,14 @@ function parseKakaoEditCommandV4(text = "") {
 
 function isKakaoTransactionSpenderChangeCommand(text = "") {
   const t = normalizeText(text).replace(/\s+/g, " ").trim();
-  return /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
+  return /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
 }
 
 function parseKakaoSpenderChoiceValue(text = "") {
   let t = normalizeText(text).replace(/\s+/g, " ").trim();
   t = t.replace(/(?:^|\s)\d{1,2}\s*번/g, " ").replace(/방금|최근|마지막/g, " ");
-  t = t.replace(/^(?:지출자|결제자)(?:\s*이름)?\s*/, "");
-  t = t.replace(/(?:지출자|결제자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/^(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
   t = t.replace(/\s*(?:으로|로)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘|해줘|해주세요)\s*$/g, "");
   return t.trim();
 }
@@ -38262,12 +38287,14 @@ function kakaoActiveSpenderMembers(members = []) {
 }
 
 // V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
+// V22.9.75 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
 function kakaoEditMenuTextV4(row = {}, seq = 0) {
+  const person = row.type === "income" ? "수입자" : "지출자";
   return [
     kakaoRowLabel(row, seq),
     "무엇을 바꿀까요? 번호를 보내주세요.",
-    "1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. 지출자  7. 삭제",
-    "한 줄로도 돼요: 지출자 엄마 / 금액 13000",
+    `1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. ${person}  7. 삭제`,
+    `한 줄로도 돼요: ${person} 엄마 / 금액 13000`,
     "(그만하려면: 취소)",
   ].join("\n");
 }
@@ -38289,6 +38316,7 @@ function kakaoEditGuideText(origin = "") {
     "수정 01번 내용 점심",
     "수정 01번 날짜 어제",
     "수정 01번 지출자 엄마",
+    "(수입 기록은 ‘수정 01번 수입자 엄마’)",
     "",
     "삭제: 삭제 01번",
     "되돌리기: 복구 01번",
@@ -38325,7 +38353,7 @@ const FIELD_SYNONYMS = {
   method:   ["결제수단", "결재수단", "수단", "지불수단", "지불방법", "결제방법", "카드변경"],
   content:  ["내용", "이름", "품목", "제목", "메모"],
   date:     ["날짜", "일자", "날자"],
-  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람"],
+  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람", "수입자", "받은사람"],
   delete:   ["삭제", "지우기", "지워", "삭제해줘"],
 };
 
@@ -38338,6 +38366,18 @@ const FIELD_LABEL = {
   amount: "금액", category: "분류", method: "결제수단",
   content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
 };
+
+// V22.9.75 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
+// 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
+function payerWord(session = {}) { return session && session.rowType === "income" ? "수입자" : "지출자"; }
+function fieldLabel(field, session = {}) { return field === "payer" ? payerWord(session) : FIELD_LABEL[field]; }
+
+// V22.9.75 카카오 감사 2: 분류 목록의 기본값은 구분별 표준 분류 이름(CATEGORY_RULES 이름과 기타수입·기타지출)이다.
+// 예전 기본 목록은 구분 없이 지출 이름뿐이었고 "의료"·"생활"처럼 표준이 아닌 이름이라 예산 집계에서 빠졌다.
+const KAKAO_EDIT_DEFAULT_CATEGORIES = Object.freeze({
+  expense: Object.freeze(["외식", "배달", "카페/간식", "장보기", "편의점", "교통", "생활용품", "쇼핑", "의료/병원", "문화/여가", "기타지출"]),
+  income: Object.freeze(["급여", "용돈", "환급", "이자배당", "부업/매출", "기타수입"]),
+});
 
 const FILLER_TOKENS = new Set([
   "변경", "바꿔", "바꾸기", "바꿔줘", "수정", "수정해줘",
@@ -38525,13 +38565,13 @@ function failMessage(session, userText) {
   const no = session.entryNo;
   const variants = [
     // 1회차: 짧은 재안내
-    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: 지출자 엄마 / 금액 13000 / 6`,
+    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: ${payerWord(session)} 엄마 / 금액 13000 / 6`,
     // 2회차: 원문 echo + 근접 후보 + 복사용 완성 예시 [L9]
     (() => {
       const guess = nearestField(userText);
       let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
-      if (guess) msg += `\n혹시 ${FIELD_LABEL[guess]} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess)}`;
-      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제`;
+      if (guess) msg += `\n혹시 ${fieldLabel(guess, session)} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess, session)}`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제`;
       return msg;
     })(),
     // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
@@ -38553,10 +38593,10 @@ function nearestField(text) {
   return bestDist <= 2 ? best : null;
 }
 
-function exampleFor(field) {
+function exampleFor(field, session = {}) {
   return {
     amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
-    content: "내용 점심", date: "날짜 어제", payer: "지출자 엄마", delete: "삭제",
+    content: "내용 점심", date: "날짜 어제", payer: `${payerWord(session)} 엄마`, delete: "삭제",
   }[field];
 }
 
@@ -38569,14 +38609,14 @@ function buildValuePrompt(field, config = {}) {
 
   if (field === "payer") {
     const options = config.members || ["아빠", "엄마"];
-    return { prompt: `지출자를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
+    return { prompt: `${config.rowType === "income" ? "수입자" : "지출자"}를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "method") {
     const options = [...new Set([...(config.methods || []), "현금", "체크카드", "신용카드", "계좌이체"])];
     return { prompt: `결제수단을 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "category") {
-    const options = config.categories || ["식비", "카페/간식", "교통", "생활", "의료", "교육", "문화", "기타"];
+    const options = config.categories || [...KAKAO_EDIT_DEFAULT_CATEGORIES[config.rowType === "income" ? "income" : "expense"]];
     return { prompt: `분류를 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "date") {
@@ -38590,13 +38630,13 @@ function buildValuePrompt(field, config = {}) {
   return { prompt: "내용을 무엇으로 바꿀까요? 예: 점심", options: null };
 }
 
-const HELP_TEXT = (no) =>
+const HELP_TEXT = (no, session = {}) =>
   `📖 수정 방법 안내\n` +
   `① 숫자로 차근차근 (가장 안전):\n` +
   `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
-  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제\n` +
   `② 한 줄로 바로 (가장 빠름):\n` +
-  `👉 지출자 엄마 / 금액 13000 / 날짜 어제\n` +
+  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제\n` +
   `그만하려면: 취소`;
 
 // ------------------------- 세션 상태머신 -------------------------
@@ -38620,7 +38660,7 @@ function expiredReply(session) {
     action: "cancel",
     reply:
       `⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 종료했어요.\n` +
-      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 지출자 엄마`,
+      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마`,
     nextSession: null,
   };
 }
@@ -38639,7 +38679,7 @@ function handleEditMessage(session, textRaw, config = {}) {
       reply:
         `😅 대화가 길어져 ${session.entryNo}번 수정을 종료했어요.\n` +
         `한 줄로 다시 보내주시면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000`,
       nextSession: null,
     };
@@ -38661,7 +38701,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (HELP_WORDS.has(c)) {
     return finish(session, {
       action: "reprompt",
-      reply: HELP_TEXT(session.entryNo),
+      reply: HELP_TEXT(session.entryNo, session),
       nextSession: { ...session, updatedAt: now }, // 도움말은 실패 카운트 증가 없음
     });
   }
@@ -38676,7 +38716,7 @@ function handleEditMessage(session, textRaw, config = {}) {
         action: "reprompt",
         // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
         // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
-        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
+        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -38723,7 +38763,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.field === "delete") {
     return finish(session, {
       action: "delete",
-      reply: `🗑️ ${session.entryNo}번 지출을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
+      reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
       nextSession: null,
     });
   }
@@ -38732,7 +38772,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${fieldLabel(parsed.field, session)}${josa(fieldLabel(parsed.field, session), "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -38742,7 +38782,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.value) return applyResult(session, parsed.field, parsed.value);
 
   // 필드만 → 값 되묻기 [V4: 선택형은 숫자 옵션 제시]
-  const vp = buildValuePrompt(parsed.field, config);
+  const vp = buildValuePrompt(parsed.field, { ...config, rowType: config.rowType || session.rowType });
   return finish(session, {
     action: "ask_value",
     reply: `✏️ ${vp.prompt}\n(그만하려면: 취소)`,
@@ -38762,7 +38802,7 @@ function applyResult(session, field, value) {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${fieldLabel(field, session)}${josa(fieldLabel(field, session), "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -38778,7 +38818,7 @@ function fail(session, now, userText, customMsg) {
       reply:
         `😅 계속 이해하지 못해서 ${session.entryNo}번 수정을 취소했어요.\n` +
         `아래 예시를 그대로 복사해서 한 줄로 보내면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000\n` +
         `👉 수정 ${session.entryNo}번 날짜 어제`,
       nextSession: null,
@@ -38817,6 +38857,7 @@ const MENU_EXAMPLES = [
   { input: "지출자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결재자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결제자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "수입자 엄마",      expect: { field: "payer", value: "엄마" } },   // V22.9.75 수입 기록 안내
   { input: "지츨자 엄마",      expect: { field: "payer", value: "엄마" } },   // fuzzy
   { input: "6",               expect: { field: "payer", value: null } },
   { input: "6번 엄마",         expect: { field: "payer", value: "엄마" } },
@@ -38889,8 +38930,33 @@ function loopFuzzTest(config = {}, rounds = 200) {
 // V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
 // =====================================================================
 
+// V22.9.75 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
+// 상관없도록 처음 쓸 때 만든다. 사용자 분류는 같은 구분이면 이름이 겹쳐도 받는다(예: 지출 분류 "용돈").
+let kakaoEditCategoryTypeSetsCacheV4 = null;
+function kakaoEditCategoryTypeSetsV4() {
+  if (kakaoEditCategoryTypeSetsCacheV4) return kakaoEditCategoryTypeSetsCacheV4;
+  const income = new Set([...CATEGORY_RULES.filter((rule) => rule.type === "income").map((rule) => rule.name), "기타수입", "상여/보너스", "용돈수입", "월급", "상여/성과급", "부수입"]);
+  const expense = new Set([...CATEGORY_RULES.filter((rule) => rule.type === "expense").map((rule) => rule.name), ...Object.keys(LEGACY_CATEGORY_SPLITS), "식비", "가족/용돈", "건강", "기타지출"].filter((name) => !income.has(name)));
+  kakaoEditCategoryTypeSetsCacheV4 = { income, expense };
+  return kakaoEditCategoryTypeSetsCacheV4;
+}
+
+// 고른 분류가 기록과 다른 구분의 분류면 그 구분("income"|"expense"), 아니면 "". "기타"와 모르는 이름은 받는다.
+function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}) {
+  const value = String(name || "").trim();
+  if (!value || value === "기타") return "";
+  const own = rowType === "income" ? "income" : "expense";
+  const other = own === "income" ? "expense" : "income";
+  if (safeArray(config.customCategoryTypes?.[own]).includes(value)) return "";
+  if (safeArray(config.customCategoryTypes?.[other]).includes(value)) return other;
+  const sets = kakaoEditCategoryTypeSetsV4();
+  if (sets[own].has(value)) return "";
+  return sets[other].has(value) ? other : "";
+}
+
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
-async function buildKakaoEditConfigV4(env, householdId = "") {
+// V22.9.75: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
+async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense") {
   const [members, paymentAssets, categoryRows] = await Promise.all([
     fetchHouseholdMembers(env, householdId).catch(() => []),
     fetchPaymentAssets(env, householdId).catch(() => []),
@@ -38909,21 +38975,32 @@ async function buildKakaoEditConfigV4(env, householdId = "") {
     if (name && !methods.includes(name)) methods.push(name);
     if (methods.length >= 10) break;
   }
-  const categories = [];
+  const categoriesByType = { expense: [], income: [] };
+  const customCategoryTypes = { expense: [], income: [] };
   for (const categoryRow of safeArray(categoryRows)) {
     const name = String(categoryRow?.name || "").trim();
-    if (name && !categories.includes(name)) categories.push(name);
-    if (categories.length >= 12) break;
+    const type = categoryRow?.type === "income" ? "income" : "expense";
+    if (!name) continue;
+    if (!customCategoryTypes[type].includes(name)) customCategoryTypes[type].push(name);
+    if (!categoriesByType[type].includes(name) && categoriesByType[type].length < 12) categoriesByType[type].push(name);
   }
-  if (categories.length && !categories.includes("기타")) {
-    if (categories.length >= 12) categories.pop();
-    categories.push("기타");
+  for (const type of ["expense", "income"]) {
+    const categories = categoriesByType[type];
+    if (!categories.length) { categories.push(...KAKAO_EDIT_DEFAULT_CATEGORIES[type]); continue; }
+    if (!categories.includes("기타")) {
+      if (categories.length >= 12) categories.pop();
+      categories.push("기타");
+    }
   }
+  const type = rowType === "income" ? "income" : "expense";
   return {
     members: memberOptions.map((m) => m.label),
     memberOptions,
     methods,
-    categories: categories.length ? categories : undefined,
+    rowType: type,
+    categories: categoriesByType[type],
+    categoriesByType,
+    customCategoryTypes,
   };
 }
 
@@ -38948,7 +39025,7 @@ async function sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, rep
     if (guard >= 2) {
       // 가드조차 2회면 세션을 강제 폐기하고 탈출 안내
       finalReply = `😅 응답이 반복되어 ${session.entryNo}번 수정을 종료했어요.\n` +
-        `다시 하려면: 수정 ${session.entryNo}번 지출자 엄마`;
+        `다시 하려면: 수정 ${session.entryNo}번 ${session.rowType === "income" ? "수입자" : "지출자"} 엄마`;
       finalNext = null;
     } else {
       finalReply += `\n(같은 안내가 반복됐어요 — '취소'로 나가거나 '도움말'을 보내주세요)`;
@@ -38989,6 +39066,23 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     }
     patch.amount = amount;
   } else if (field === "category") {
+    // V22.9.75 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
+    const rowType = row.type === "income" ? "income" : "expense";
+    const conflict = kakaoEditCategoryConflictV4(value, rowType, config);
+    if (conflict) {
+      const typeText = rowType === "income" ? "수입" : "지출";
+      const options = safeArray(config.categoriesByType?.[rowType]).length ? safeArray(config.categoriesByType[rowType]) : [...KAKAO_EDIT_DEFAULT_CATEGORIES[rowType]];
+      const head = `⚠️ ‘${String(value).trim()}’ 분류는 ${conflict === "income" ? "수입" : "지출"} 분류라서 ${typeText} 기록에 넣지 않았어요. 기록은 그대로예요.`;
+      const count = (Number(session.repeatCount) || 0) + 1;
+      if (count >= MAX_FAILS) {
+        return { log: { type: "unrecognized_final", entryNo: session.entryNo, input: String(value) }, reply: `${head}\n${typeText} 분류로 한 줄로 보내면 바로 돼요:\n👉 수정 ${session.entryNo}번 분류 ${options[0]}`, nextSession: null };
+      }
+      return {
+        log: { type: "unrecognized", entryNo: session.entryNo, input: String(value), attempt: count },
+        reply: `${head}\n${typeText} 분류를 번호로 골라 주세요.\n${options.map((name, i) => `${i + 1}. ${name}`).join("  ")}`,
+        nextSession: { ...session, rowType, step: "awaiting_value", field: "category", valueOptions: options, pendingField: null, pendingValue: null, repeatCount: count, updatedAt: Date.now() },
+      };
+    }
     patch.category = String(value).slice(0, 80);
   } else if (field === "method") {
     patch.payment_method = String(value).slice(0, 80);
@@ -39013,7 +39107,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   } else if (field === "payer") {
     // T12: 웹(/my/update)과 같은 규칙 — 지출자는 소유자·관리자만 바꾼다.
     if (!canManageMyHousehold(role)) {
-      return { reply: "지출자는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.", nextSession: null };
+      return { reply: `${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`, nextSession: null };
     }
     const options = safeArray(config.memberOptions);
     if (!options.length) {
@@ -39029,7 +39123,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
           reply:
             `😅 구성원 이름을 찾지 못해 ${session.entryNo}번 수정을 취소했어요.\n` +
             `아래 예시를 그대로 복사해 한 줄로 보내면 바로 돼요:\n` +
-            `👉 수정 ${session.entryNo}번 지출자 ${options[0].label}\n` +
+            `👉 수정 ${session.entryNo}번 ${row.type === "income" ? "수입자" : "지출자"} ${options[0].label}\n` +
             `👉 수정 ${session.entryNo}번 금액 13000`,
           nextSession: null,
         };
@@ -39121,7 +39215,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
     return { passThrough: true, notice: `✏️ ${session.entryNo}번 수정은 끝내고, 보낸 내용을 새 기록으로 처리했어요.\n` };
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
-  const config = await buildKakaoEditConfigV4(env, session.householdId);
+  const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
@@ -39153,6 +39247,8 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
     entryNo: twoDigitSeq(seq),
     entryId: row.id,
     entryDate: row.transaction_date || "",
+    // V22.9.75 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
+    rowType: row.type === "income" ? "income" : "expense",
     householdId: household.id,
     householdName: String(household.name || "").slice(0, 60),
     userId: user.id,
@@ -39171,7 +39267,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
   if (!rest) {
     return sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, kakaoEditMenuTextV4(row, seq), session);
   }
-  const config = await buildKakaoEditConfigV4(env, household.id);
+  const config = await buildKakaoEditConfigV4(env, household.id, session.rowType);
   const result = handleEditMessage(session, rest, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
@@ -39201,14 +39297,18 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
   if (isKakaoDailyListCommand(raw)) {
-    const date = extractDate(raw);
+    // V22.9.75 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
+    // 날짜 부분과 뒤의 ‘기록·내역·목록’을 띄어 읽는다.
+    const date = extractDate(raw.replace(/\s*(기록|내역|목록)(\s*보기)?$/, " $1"));
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
+    // V22.9.75 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
+    const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
+    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -39349,18 +39449,18 @@ function looksLikeKakaoEditCommandV4(text = "") {
   const control = kakaoEditControlTextV4(text);
   const original = normalizeText(stripKakaoBotMention(text)).replace(/^\/+\s*/, "");
   return /^(?:수정|삭제|복구)\s*\d+/.test(control)
-    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
     // V22.9.63 감사(1:1 1): "수정 01번 금액을 13000원으로", "01번 가격 13200", "수정 01번 13300원으로"처럼 조사·동의어·값만 있는
     // 수정 말이 새 지출로 저장됐다(stripLeadingCommand 가 앞의 ‘수정’을 떼고 나면 위 두 규칙이 못 알아봤다). 앞에 ‘수정 NN번’이
     // 있었거나 번호 뒤에 수정 낱말(동의어·조사 포함)이 오면 수정 명령이다. "2번 출구 택시 8000원"처럼 수정 낱말이 없는 번호는 기록이다.
     || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
     // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
     // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
-    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
     || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
-    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
-    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
+    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
 }
 
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
@@ -39460,12 +39560,17 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
   return true;
 }
 
-function kakaoRepeatGuardText(origin = "") {
+// V22.9.75 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
+function kakaoRepeatGuardText(origin = "", utterance = "") {
+  const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
+  const example = text && extractAmount(text)?.amount ? text : "";
+  const income = example && detectType(example) === "income";
   return [
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
     "‘오늘기록’로 저장 결과를 확인해 주세요.",
-    "서로 다른 구매라면 ‘별도 구매 추가 커피 4500원’처럼 원래 내용을 보내 후보를 확인해 주세요.",
+    income ? `따로 들어온 돈이라면 ‘별도 기록 추가 ${example}’라고 보내 후보를 확인해 주세요.`
+      : `서로 다른 구매라면 ‘별도 구매 추가 ${example || "커피 4500원"}’처럼 원래 내용을 보내 후보를 확인해 주세요.`,
   ].join("\n");
 }
 
@@ -39726,7 +39831,7 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   if (KAKAO_REPRESENTATIVE_COMMANDS.some((item) => normalizeText(item.messageText || item.command).replace(/\s+/g, "") === compact)) return true;
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
-  if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자)/.test(t)) return true;
+  if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자|수입자)/.test(t)) return true;
   if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
   return false;
@@ -40203,7 +40308,14 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
       assertFresh();
       await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
     }
-    return { previous, count: copyRows.length };
+    // V22.9.75 카카오 감사 13: 개수에는 전체 예산(__total)과 수입 목표(__income:…)도 들어 있다. 답장이 무엇을 셌는지 나눠 말한다.
+    const categoryOf = (row) => String(row.category || "");
+    return {
+      previous, count: copyRows.length,
+      categoryCount: copyRows.filter((row) => !categoryOf(row).startsWith("__")).length,
+      totalCount: copyRows.filter((row) => categoryOf(row) === "__total").length,
+      incomeCount: copyRows.filter((row) => categoryOf(row).startsWith("__income")).length,
+    };
   });
 }
 
@@ -40216,6 +40328,12 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
+  // V22.9.75 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
+  // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
+  let focus = "";
+  const incomeAsk = t.match(/^(?:(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
   const natural = t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
@@ -40247,7 +40365,7 @@ function parseKakaoSummaryRange(text = "") {
       }
     }
   }
-  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7) };
+  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7), ...(focus ? { focus } : {}) };
 }
 
 async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", kind = "analysis", href = "", label = "상세 분석 보기", cooldownHours = 24) {
@@ -40327,7 +40445,13 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
   ]);
   const names = memberNameMap(members);
-  const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const incomes = rows.filter((r) => r.type === "income");
+  const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
+  // V22.9.75 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
+  const incomeFocus = range.focus === "income";
+  const byIncomeCategory = Object.create(null);
+  for (const row of incomes) { const c = row.category || "기타수입"; byIncomeCategory[c] = (byIncomeCategory[c] || 0) + Number(row.amount || 0); }
+  const incomeCategories = incomeFocus ? Object.entries(byIncomeCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`) : [];
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
   const byCategory = Object.create(null);
@@ -40344,7 +40468,9 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     `가계부: ${household.name || "가계부"}`,
     "",
     `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건`,
-    `수입: ${numberWithCommas(income)}원`,
+    `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}`,
+    incomeCategories.length ? "수입 분류" : "", ...incomeCategories,
+    incomeFocus && !incomes.length ? `아직 ${range.label} 수입 기록이 없어요.` : "",
     "",
     categories.length ? "카테고리" : "", ...categories,
     users.length ? "" : "", users.length ? "지출자" : "", ...users,
@@ -40718,7 +40844,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘이름설정’을 눌러 주세요.", quickReplies: [["이름설정", "이름설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
+    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${alias}’ 이름으로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
   }
   if (state.flow === "budget_setup") {
     const role = await getHouseholdMemberRole(env, user.id, household.id);
@@ -40753,7 +40879,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
           };
         }
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은예산", "남은예산"], ["예산설정", "예산설정"]] };
+        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.\n${[copied.categoryCount ? `분류별 예산 ${copied.categoryCount}개` : "", copied.totalCount ? "전체 예산" : "", copied.incomeCount ? `수입 목표 ${copied.incomeCount}개` : ""].filter(Boolean).join(" · ")}` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은예산", "남은예산"], ["예산설정", "예산설정"]] };
       }
       return kakaoFlowRetryOrExit(env, user, payload, state, { text: "아래 버튼 중 하나를 눌러 주세요.", quickReplies: kakaoBudgetRootQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
     }
@@ -40927,7 +41053,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     abMonitorOutcome(env, "ok");
     rememberSkillEvent({ kind: "repeat_guard", user_key: userKey, utterance, detail: `${repeat.elapsedMs}ms` });
     rememberDuplicateEvent({ kind: "kakao_repeat", source: "kakao_skill", user_id: userKey, detail: utterance, path: "/skill", method: "POST" });
-    return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin)), payload, origin);
+    return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin, utterance)), payload, origin);
   }
 
   // V22.9.44: 카카오는 5초 안에 답이 없으면 '스킬 서버 연결 오류'(폴백 블록 오류 알림)로 끝낸다. 처리가 응답 예산(기본 4초)을
@@ -41022,6 +41148,15 @@ function normalizeKakaoButtonLabel(text = "") {
   return KAKAO_LEGACY_BUTTON_LABELS[base] || base;
 }
 
+// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
+// 버리므로 글로도 다시 보낼 문장을 알려 준다.
+function kakaoMixedTypeConfirmationReply(utterance = "") {
+  const text = String(utterance || "").replace(/\s+/g, " ").trim();
+  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  const replies = text.length <= 200 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
+  return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
+}
+
 async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
@@ -41029,8 +41164,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
-  if (!separatePurchaseCommand && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
-  if (!separatePurchaseCommand && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
+  // V22.9.75 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
+  // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
+  const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
+  if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
+    if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
+    return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
+  }
+  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(utterance, preParsedList);
@@ -41405,7 +41546,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     await saveMemberAlias(env, household.id, user.id, directAlias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     return kakaoText(`✅ 가계부: ${household.name}
-이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 지출은 ${directAlias} 지출로 집계됩니다.` + cleanupNotice, [["이번달요약", "이번달요약"], ["기록방법", "기록방법"]]);
+이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${directAlias}’ 이름으로 집계됩니다.` + cleanupNotice, [["이번달요약", "이번달요약"], ["기록방법", "기록방법"]]);
   }
 
   if (!strongTransactionInput && isKakaoMemberAliasCommand(utterance)) {
@@ -41561,7 +41702,19 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원` + (duplicateCount ? "\n서로 다른 구매라면 ‘별도 구매 추가’ 뒤에 원래 기록문장을 보내 후보를 확인해 주세요." : "");
+  // V22.9.75 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
+  const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const expenseTotal = totalOf("expense");
+  const incomeTotal = totalOf("income");
+  const totalText = incomeTotal && expenseTotal ? `지출 합계 ${numberWithCommas(expenseTotal)}원 · 수입 합계 ${numberWithCommas(incomeTotal)}원`
+    : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
+  // V22.9.75 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
+  const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
+  const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const duplicateNotice = !duplicateCount ? ""
+    : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
+    : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice;
 
   let finalizeNotice = "";
   if (onSaved) {
@@ -41600,7 +41753,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
@@ -41812,11 +41965,12 @@ async function handleKakaoRecentDebug(request, env, url) {
 // A confirmation is a server-issued action, never a platform event identity.
 function parseKakaoSeparatePurchaseCommand(text = "") {
   const value = String(text).trim();
-  const add = value.match(/^별도\s+구매\s+추가\s+([\s\S]+)$/);
+  // V22.9.75 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
+  const add = value.match(/^별도\s+(?:구매|기록)\s+추가\s+([\s\S]+)$/);
   if (add) return { action: "prepare", text: add[1].trim() };
-  const control = value.match(/^별도\s+구매\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
+  const control = value.match(/^별도\s+(?:구매|기록)\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
   if (control) return { action: control[1] === "확인" ? "confirm" : control[1] === "취소" ? "cancel" : "status", token: control[2] };
-  return /^별도\s*구매/.test(value) ? { action: "invalid" } : null;
+  return /^별도\s*(?:구매|기록)/.test(value) ? { action: "invalid" } : null;
 }
 
 async function kakaoSeparateStateKey(householdId, userId, scope) {
@@ -41854,15 +42008,16 @@ async function saveKakaoSeparateState(env, key, state, assertFresh) {
 
 function kakaoSeparateCandidateReply(state, household, payload) {
   const row = state.row;
-  const confirm = `별도 구매 확인 ${state.confirmation_id}`;
-  const cancel = `별도 구매 취소 ${state.confirmation_id}`;
+  const word = row.type === "income" ? "기록" : "구매";
+  const confirm = `별도 ${word} 확인 ${state.confirmation_id}`;
+  const cancel = `별도 ${word} 취소 ${state.confirmation_id}`;
   return kakaoText([
-    "같은 내용의 별도 구매 후보입니다. 아직 추가하지 않았어요.",
+    `같은 내용의 별도 ${word} 후보입니다. 아직 추가하지 않았어요.`,
     `가계부: ${household.name}`, `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${numberWithCommas(row.amount)}원`,
     `${row.category} · ${row.memo || "내용 없음"} · ${row.payment_method || "결제수단 없음"}`,
     "5분 안에 내용을 확인한 뒤 확정해 주세요.",
     ...(getKakaoBotGroupKey(payload) ? [confirm,cancel] : []),
-  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [["별도 구매 확정",confirm],["추가 취소",cancel]]);
+  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [[`별도 ${word} 확정`,confirm],["추가 취소",cancel]]);
 }
 
 async function recoverKakaoPendingForSeparate(env, householdId, userId, assertFresh) {
@@ -41963,7 +42118,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       }
       state.state="confirmed";
       await saveKakaoSeparateState(env,key,state,assertFresh);
-      return kakaoText(`별도 구매 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
+      return kakaoText(`별도 ${state.row.type === "income" ? "기록" : "구매"} 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
     },{localMutex:false}));
   try {
     return await withKakaoUserLifecycleLease(env,user.id,async ({assertFresh:userFresh}) => groupKey
@@ -44276,7 +44431,9 @@ async function kakaoSettlementParts(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  const refundNotice = "환급 계산은 미리보기 전용이며 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
+  // V22.9.75 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
+  // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
+  const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
     return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
@@ -44360,21 +44517,30 @@ function parseMultipleTransactions(text, payload) {
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
     const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
+    if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
     return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
     if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
+    if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
 }
 
+// V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
+// 저장하지 않고 묻는다. parseTransaction 은 가져오기와 같이 쓰므로 ok 를 그대로 두고 표식만 붙이며, 카카오가 쓰는
+// 이 함수만 막는다.
+function mixedTypeConfirmation(parsed = {}) {
+  return { message: "transaction_type_confirmation_required", reason: parsed.type_confirmation, amount: parsed.amount };
+}
+
 // V22.9.34 감사 N11: 저장하지 않은 이유를 빈 결과에 붙여 둔다. 배열로만 쓰는 호출부는 그대로 빈 목록을 본다.
 function blockedTransactionParse(parsed = {}) {
   const out = [];
-  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
+  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0), ...(parsed.reason ? { reason: parsed.reason } : {}) };
   return out;
 }
 
@@ -44446,7 +44612,8 @@ function parseTransaction(text, payload) {
   const raw = normalizeText(text);
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
-  const type = entityType || detectType(raw);
+  const typeDetail = entityType ? null : detectTypeDetail(raw);
+  const type = entityType || typeDetail.type;
   if (!entityType && /(?:결제|승인)\s*취소/.test(raw) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(raw)) return {ok:false,message:"transaction_type_confirmation_required"};
 
   const entityAmountValue = params.amount || params.amount_text || params.금액;
@@ -44476,6 +44643,7 @@ function parseTransaction(text, payload) {
     memo,
     payment_method: paymentMethod,
     transaction_date: transactionDate,
+    ...(typeDetail && typeDetail.ambiguous ? { type_confirmation: "mixed_cues" } : {}),
   };
 }
 
@@ -44562,6 +44730,8 @@ function normalizeType(value) {
 }
 
 function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
+// V22.9.75: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
+function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -45056,7 +45226,9 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   let memo = normalizeText(raw);
   const removals = [
     amountRaw,
-    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부", "들어옴", "들어온", "입금됨", "받음", "받았",
+    // V22.9.75 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
+    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부",
+    "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
     "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
     paymentMethod,
   ].filter(Boolean);

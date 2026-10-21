@@ -46,6 +46,8 @@ function normalizeType(value) {
 }
 
 function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
+// V22.9.75: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
+function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -197,5 +199,7 @@ function koreanSimpleNumber(s, digit) {
   return out;
 }
 // @build:exports-start
-export { detectType, extractAmount, normalizeText, normalizeType, parseAmountValue };
+export {
+  detectType, detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
+};
 // @build:exports-end

@@ -104,6 +104,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       "@말해가계부 점심 12000원",
       "처럼 보내면 바로 기록돼요.",
       "예) 어제 병원 15000원 국민카드",
+      "수입 예) 월급 250만원 들어옴",
     ].join("\n"),
     buttons: [
       { messageText: "오늘기록" },

@@ -391,7 +391,14 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
       assertFresh();
       await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
     }
-    return { previous, count: copyRows.length };
+    // V22.9.75 카카오 감사 13: 개수에는 전체 예산(__total)과 수입 목표(__income:…)도 들어 있다. 답장이 무엇을 셌는지 나눠 말한다.
+    const categoryOf = (row) => String(row.category || "");
+    return {
+      previous, count: copyRows.length,
+      categoryCount: copyRows.filter((row) => !categoryOf(row).startsWith("__")).length,
+      totalCount: copyRows.filter((row) => categoryOf(row) === "__total").length,
+      incomeCount: copyRows.filter((row) => categoryOf(row).startsWith("__income")).length,
+    };
   });
 }
 
@@ -404,6 +411,12 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
+  // V22.9.75 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
+  // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
+  let focus = "";
+  const incomeAsk = t.match(/^(?:(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
   const natural = t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
@@ -435,7 +448,7 @@ function parseKakaoSummaryRange(text = "") {
       }
     }
   }
-  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7) };
+  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7), ...(focus ? { focus } : {}) };
 }
 
 async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", kind = "analysis", href = "", label = "상세 분석 보기", cooldownHours = 24) {
@@ -515,7 +528,13 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
   ]);
   const names = memberNameMap(members);
-  const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const incomes = rows.filter((r) => r.type === "income");
+  const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
+  // V22.9.75 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
+  const incomeFocus = range.focus === "income";
+  const byIncomeCategory = Object.create(null);
+  for (const row of incomes) { const c = row.category || "기타수입"; byIncomeCategory[c] = (byIncomeCategory[c] || 0) + Number(row.amount || 0); }
+  const incomeCategories = incomeFocus ? Object.entries(byIncomeCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`) : [];
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
   const byCategory = Object.create(null);
@@ -532,7 +551,9 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     `가계부: ${household.name || "가계부"}`,
     "",
     `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건`,
-    `수입: ${numberWithCommas(income)}원`,
+    `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}`,
+    incomeCategories.length ? "수입 분류" : "", ...incomeCategories,
+    incomeFocus && !incomes.length ? `아직 ${range.label} 수입 기록이 없어요.` : "",
     "",
     categories.length ? "카테고리" : "", ...categories,
     users.length ? "" : "", users.length ? "지출자" : "", ...users,
