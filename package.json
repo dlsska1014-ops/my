@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.74",
+  "version": "22.9.75",
   "private": true,
   "type": "module",
   "engines": {
@@ -26,6 +26,13 @@
     "validate:www-canonical": "node validation/validate-www-canonical-v22940.mjs",
     "validate:public-articles": "node validation/validate-public-articles-v22940.mjs",
     "validate:public-articles-v22974": "node validation/validate-public-articles-v22974.mjs",
+    "validate:income-reserve": "node validation/validate-income-reserve-v22975.mjs",
+    "validate:web-income-fixes": "node validation/validate-web-income-fixes-v22975.mjs",
+    "validate:web-audit-v22975": "node validation/validate-web-audit-v22975.mjs",
+    "validate:kakao-income-fixes": "node validation/validate-kakao-income-fixes-v22975.mjs",
+    "validate:kakao-audit-v22975": "node validation/validate-kakao-audit-v22975.mjs",
+    "validate:money-fixes": "node validation/validate-money-fixes-v22975.mjs",
+    "validate:findings-ledger": "node validation/validate-findings-ledger-v22975.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
