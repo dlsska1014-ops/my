@@ -16,13 +16,16 @@ import { renderUnifiedNav } from "../web/unified-nav.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
 import {
-  applyRecurringRuleForMonth, eligibleRecurringSpenders, recurringSpenderEligible,
+  applyRecurringRuleForMonth, eligibleRecurringSpenders, recurringDateForMonth,
+  recurringSpenderEligible, settleRecurringBeforeEdit,
 } from "../cron/recurring-auto-apply.js";
 import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
   parseBudgetFormAmount,
 } from "../my/groups-budget-bulk.js";
-import { markRecurringAppliedIfRecordedThisMonth } from "../my/settings-page.js";
+import {
+  findRecentDuplicateRecurringRule, markRecurringAppliedIfRecordedThisMonth, recurringFormProblem,
+} from "../my/settings-page.js";
 import {
   getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
 } from "../my/access-control.js";
@@ -35,6 +38,7 @@ import {
 } from "../domain/budgets.js";
 import { moneyPlanTabsCss, renderMoneyPlanTabs } from "../my/money-plan-home-layout.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
+import { addMonthsYm } from "../domain/analytics.js";
 import { DEFAULT_CATEGORIES } from "./dashboard-fragments.js";
 import { formatMessage, mergedOptions } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -212,6 +216,8 @@ async function handleRecurringSave(request, env) {
     user_id: spenderId,
     is_active: true,
   };
+  const formProblem = recurringFormProblem(form);
+  if (formProblem) return redirectResponse(addQueryToUrl(returnTo, { err: formProblem }));
   if (!row.amount || !Number.isFinite(row.amount) || row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
   // V22.9.37 감사 SIM-5·T7: 자동 반영과 같은 자격(소유자·관리자·구성원)만 받는다. 조회 전용·대기·차단·나간 지출자의 규칙은
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
@@ -224,12 +230,16 @@ async function handleRecurringSave(request, env) {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");
       assertFresh();
+      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
+      // V22.9.75 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
+      if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_save_failed", severity: "warn", path: "/admin/recurring/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
   }
 }
 
@@ -260,6 +270,30 @@ async function handleRecurringDelete(request, env) {
   }
 }
 
+function recurringMonthLabelKo(month = "") {
+  return `${Number(String(month).slice(0, 4))}년 ${Number(String(month).slice(5, 7))}월`;
+}
+
+async function renderRecurringApplyConfirmPage(env, householdId, month, returnTo) {
+  let rules = null;
+  try { rules = await fetchRecurringStrict(env, householdId); } catch { rules = null; }
+  const label = recurringMonthLabelKo(month);
+  const nextMonthStart = Date.parse(`${addMonthsYm(month, 1)}-01T00:00:00+09:00`);
+  const pending = safeArray(rules).filter((r) => !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month);
+  const items = pending.slice(0, 12).map((r) => {
+    const created = Date.parse(String(r.created_at || ""));
+    const late = Number.isFinite(created) && created >= nextMonthStart ? ` · ${label}이 지난 뒤 만든 항목` : "";
+    return `<li>${escapeHtml(recurringDateForMonth(month, r.day_of_month))} · ${escapeHtml(r.memo || r.category || "고정항목")} · ${r.type === "income" ? "수입" : "지출"} ${numberWithCommas(Number(r.amount || 0))}원${escapeHtml(late)}</li>`;
+  }).join("");
+  const listHtml = rules === null
+    ? `<p>반영할 항목을 읽지 못했습니다. 기록하면 ${label}에 반영되지 않은 고정항목을 모두 ${label} 날짜로 넣습니다.</p>`
+    : pending.length ? `<ul>${items}</ul>${pending.length > 12 ? `<p>외 ${numberWithCommas(pending.length - 12)}건</p>` : ""}` : `<p>${label}에 반영할 고정항목이 없습니다.</p>`;
+  const action = rules === null || pending.length
+    ? `<form method="post" action="/admin/recurring/apply"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><input type="hidden" name="confirmed" value="yes"/><button type="submit">${label} 날짜로 기록하기</button></form>`
+    : "";
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>고정항목 기록 확인</title><style>:root{color-scheme:light dark}body{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;max-width:560px;margin:32px auto;padding:0 16px;line-height:1.6;background:#fff;color:#1f2937}ul{padding-left:20px}button{font:inherit;padding:10px 16px;border:0;border-radius:10px;background:#2563eb;color:#fff;cursor:pointer}a{color:#1d4ed8}@media (prefers-color-scheme:dark){body{background:#111827;color:#e5e7eb}a{color:#93c5fd}}</style></head><body><main><h1>${label} 날짜로 고정항목을 기록할까요?</h1><p>지금은 ${recurringMonthLabelKo(currentMonthKst())}입니다. 이 단추는 보고 있는 달(${label})에 아직 반영되지 않은 고정 수입·지출을 ${label}의 지정일 날짜로 기록합니다. 이미 반영된 항목은 다시 넣지 않습니다.</p>${listHtml}${action}<p><a href="${escapeHtml(returnTo)}">기록하지 않고 돌아가기</a></p></main></body></html>`);
+}
+
 async function handleRecurringApply(request, env) {
   const form = await request.formData();
   const _hh = String(form.get("household_id") || "").trim();
@@ -272,6 +306,10 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  // V22.9.75 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
+  // "이번 달"이라 10월에 9월 화면에서 누르면 10월에 만든 규칙까지 2026-09-15 자로 들어갔다. 단추에 대상 달을 적고(정기 화면),
+  // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
+  if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);
   let mutationConfirmed = false;
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {

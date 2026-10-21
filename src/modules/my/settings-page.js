@@ -17,7 +17,9 @@ import { safeArray } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
-import { recurringSpenderEligible } from "../cron/recurring-auto-apply.js";
+import {
+  recurringSpenderEligible, settleRecurringBeforeEdit,
+} from "../cron/recurring-auto-apply.js";
 import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
   keywordEditorLocation, mySettingsLocation, recurringSummary, sumBudgetAmounts,
@@ -186,6 +188,8 @@ async function handleMyRecurringSave(request, env) {
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "write_not_allowed" }));
+  const formProblem = recurringFormProblem(form);
+  if (formProblem) return redirectResponse(mySettingsLocation(month, selected.id, { err: formProblem }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
   const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
   if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
@@ -214,6 +218,9 @@ async function handleMyRecurringSave(request, env) {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
       assertFresh();
+      // V22.9.75 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
+      if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
         method: ruleId ? "PATCH" : "POST",
         headers: { Prefer: "return=minimal" },
@@ -222,7 +229,8 @@ async function handleMyRecurringSave(request, env) {
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_table_required" }));
+    // V22.9.75 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_table_required" }));
   }
 }
 
@@ -263,6 +271,29 @@ async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, ro
     && (normalizeText(item.memo || "") === memoKey || normalizeText(item.raw_text || "").includes(memoKey)));
   if (recorded) row.last_applied_month = thisMonth;
   return recorded;
+}
+
+// V22.9.75 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
+// 금액은 음수를 받지 않는다(예전에는 0·32·빈칸이 1·31로, "-5000"이 5,000원으로 저장됐다). 문제가 없으면 빈 문자열.
+function recurringFormProblem(form) {
+  const day = String(form.get("day_of_month") ?? "").trim();
+  const digits = day.length >= 1 && day.length <= 2 && [...day].every((ch) => ch >= "0" && ch <= "9");
+  if (!digits || Number(day) < 1 || Number(day) > 31) return "recurring_day_invalid";
+  if (/-/.test(String(form.get("amount") ?? ""))) return "recurring_amount_invalid";
+  return "";
+}
+
+// V22.9.75 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
+// 가계부 쓰기 잠금 안에서 부른다. 같은 구분·금액·지정일·메모·분류·지출자의 켜진 규칙이 10분 안에 만들어졌으면(만든 시각을
+// 모르면 있는 것만으로) 같은 요청으로 보고 새로 만들지 않는다.
+const RECURRING_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+async function findRecentDuplicateRecurringRule(env, householdId, row = {}) {
+  const same = (a, b) => normalizeText(String(a ?? "")) === normalizeText(String(b ?? ""));
+  return safeArray(await fetchRecurringStrict(env, householdId)).find((rule) => rule.is_active !== false
+    && (rule.type === "income" ? "income" : "expense") === (row.type === "income" ? "income" : "expense")
+    && Number(rule.amount) === Number(row.amount) && Number(rule.day_of_month) === Number(row.day_of_month)
+    && same(rule.memo, row.memo) && same(rule.category, row.category) && String(rule.user_id || "") === String(row.user_id || "")
+    && (!Number.isFinite(Date.parse(String(rule.created_at || ""))) || Date.now() - Date.parse(String(rule.created_at)) < RECURRING_DUPLICATE_WINDOW_MS)) || null;
 }
 
 async function handleRecurringCandidateConfirm(request, env) {
@@ -373,8 +404,9 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
 }
 // @build:exports-start
 export {
-  handleMyBudgetSave, handleMyCategoryKeywordsBulkSave, handleMyCategoryKeywordsSave,
-  handleMyRecurringDelete, handleMyRecurringSave, handleMySettingsPage,
-  handleRecurringCandidateConfirm, markRecurringAppliedIfRecordedThisMonth,
+  findRecentDuplicateRecurringRule, handleMyBudgetSave, handleMyCategoryKeywordsBulkSave,
+  handleMyCategoryKeywordsSave, handleMyRecurringDelete, handleMyRecurringSave,
+  handleMySettingsPage, handleRecurringCandidateConfirm, markRecurringAppliedIfRecordedThisMonth,
+  recurringFormProblem,
 };
 // @build:exports-end

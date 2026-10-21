@@ -148,7 +148,7 @@ async function fetchObservationMonthRows(env, householdId, month) {
 async function fetchRecurringRuleByIdStrict(env, id = "") {
   const rid = String(id || "").trim();
   if (!rid) return null;
-  const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
 }
 
@@ -444,6 +444,9 @@ function budgetPlanMessage(code = "") {
     case "reserve_due_day_invalid": return escapeHtml("납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.");
     case "reserve_due_month_invalid": return escapeHtml("납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.");
     case "reserve_recurrence_invalid": return escapeHtml("반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.");
+    case "recurring_busy": return escapeHtml("같은 가계부의 다른 저장이 진행 중이라 이 요청은 저장하지 않았습니다. 두 번 누른 경우 첫 요청이 저장했을 수 있으니 목록을 먼저 확인해 주세요.");
+    case "recurring_day_invalid": return escapeHtml("정기 항목의 날짜는 1~31일 중에서 골라 주세요. 그 달에 없는 날(예: 2월 30일)은 말일에 기록됩니다. 저장하지 않았습니다.");
+    case "recurring_amount_invalid": return escapeHtml("정기 항목 금액은 0보다 큰 숫자로 입력해 주세요. 음수는 받지 않으며 저장하지 않았습니다.");
     case "recurring_spender_ineligible": return escapeHtml("고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.");
     default: return "";
   }

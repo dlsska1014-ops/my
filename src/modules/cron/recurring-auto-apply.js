@@ -9,6 +9,7 @@ import { verifyCronExecutionAuth } from "../auth/crypto-admin-session.js";
 import { isValidTransactionDateString } from "../admin/transactions-households.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
+import { fetchRawHouseholdMembers } from "../data/users-household-create.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import { addMonthsYm } from "../domain/analytics.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -418,6 +419,27 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
 }
 
+// V22.9.75 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
+// 먼저 넣는다. 고친 금액·날짜·분류·지출자는 다음 반영(이번 달)부터 쓴다. 예전에는 새 달의 따라잡기가 고친 뒤 값을 써서
+// 11월 1일에 70만 원으로 올린 월세가 10월분도 70만 원으로 기록됐다. 지난달 몫이 따라잡기 대상이 아니면(그 달 지정일까지
+// 실행이 끝까지 처리했거나, 지난달에 없던 규칙이거나, 꺼져 있거나 지출자 자격이 없으면) 아무것도 넣지 않는다.
+async function settleRecurringBeforeEdit(env, householdId, existing = {}, next = {}) {
+  if (!existing?.id || !householdId) return "none";
+  const previousMonth = addMonthsYm(formatDate(nowKstDate()).slice(0, 7), -1);
+  const marker = String(existing.last_applied_month || "");
+  if (marker && marker >= previousMonth) return "none";
+  if (existing.is_active === false || String(existing.is_active) === "false" || !(Number(existing.amount || 0) > 0)) return "none";
+  const changed = ["type", "amount", "category", "memo", "payment_method", "day_of_month", "user_id"]
+    .some((key) => Object.prototype.hasOwnProperty.call(next, key) && String(next[key] ?? "") !== String(existing[key] ?? ""));
+  if (!changed) return "none";
+  const state = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+  const checked = state.checked_date || recurringDateForMonth(previousMonth, 31);
+  if (recurringCronDueDate(existing, previousMonth) <= checked) return "none";
+  if (!recurringCronExistedIn(existing, previousMonth, state.pending_month)) return "none";
+  if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, householdId), existing.user_id)) return "none";
+  return applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
+}
+
 async function runRecurringAutoApply(env, opts = {}) {
   if (!env.__AB_DB_BUDGET) env = {...env,__AB_DB_BUDGET:{used:0,limit:50}};
   const month = validMonth(opts.month) || String(opts.today || formatDate(nowKstDate())).slice(0, 7) || currentMonthKst();
@@ -452,6 +474,6 @@ async function handleRecurringCronApply(request, env, url) {
 // @build:exports-start
 export {
   applyRecurringRuleForMonth, eligibleRecurringSpenders, handleRecurringCronApply,
-  recurringSpenderEligible, runRecurringAutoApply,
+  recurringDateForMonth, recurringSpenderEligible, runRecurringAutoApply, settleRecurringBeforeEdit,
 };
 // @build:exports-end

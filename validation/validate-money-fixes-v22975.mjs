@@ -103,6 +103,29 @@ await fixture(async (fx) => {
   eq(["cu-30", "cu-31", "cu-paused", "cu-new"].every((id) => ruleNow(fx, id).last_applied_month === "2026-11"), true, "P0-1 11월 표식");
 });
 
+// ── D-10: 지난달 몫을 놓친 규칙을 새 달에 고치면, 지난달 몫은 고치기 전 값으로 ───────────────
+for (const path of ["/admin/recurring/save", "/my/recurring/save"]) {
+  await fixture(async (fx) => {
+    fx.db.accountbook_recurring.length = 0;
+    seedRule(fx, { id: "d10-rent", household_id: "house-home", amount: 650000, category: "주거/관리", memo: "월세", payment_method: "계좌이체", day_of_month: 31 });
+    seedRule(fx, { id: "d10-phone", household_id: "house-home", amount: 55000, category: "통신", memo: "휴대폰", day_of_month: 10 });
+    for (let day = "2026-10-01"; day <= "2026-11-01"; day = nextDay(day)) await runCron(fx, day, { failRecurringRead: day >= "2026-10-31" }); // 10/31·11/1 실행 실패
+    eq(recurringTx(fx, "d10-rent", "2026-10").length, 0, `D-10 ${path} 10월 31일 몫이 아직 없다`);
+    globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-11-01", "20:00");
+    const edit = (id, amount, memo, day, category) => post(fx, path, { id, household_id: "house-home", month: "2026-11", type: "expense", memo, amount, day_of_month: day, category, payment_method: "계좌이체", user_id: "user-bin", return_to: "/reserve-plans?household_id=house-home&month=2026-11#fixed" });
+    const saved = await edit("d10-rent", "700000", "월세", "31", "주거/관리");
+    ok(saved.status === 303 && /recurring_saved/.test(saved.decoded), `D-10 ${path} 월세를 70만 원으로 고친다`);
+    eq(recurringTx(fx, "d10-rent", "2026-10").map((t) => `${t.transaction_date}:${t.amount}`).join(","), "2026-10-31:650000", `D-10 ${path} 놓친 10월 몫은 고치기 전 금액(650,000원)으로 먼저 들어간다`);
+    eq(ruleNow(fx, "d10-rent").amount, 700000, `D-10 ${path} 규칙은 새 금액으로 저장된다`);
+    await edit("d10-phone", "60000", "휴대폰", "10", "통신");
+    eq(recurringTx(fx, "d10-phone", "2026-10").length, 1, `D-10 ${path} 10월에 이미 반영된 규칙은 고쳐도 10월 몫이 더 생기지 않는다`);
+    for (let day = "2026-11-02"; day <= "2026-11-30"; day = nextDay(day)) await runCron(fx, day);
+    eq(recurringTx(fx, "d10-rent", "2026-10").length, 1, `D-10 ${path} 따라잡기가 10월 몫을 다시 넣지 않는다`);
+    eq(recurringTx(fx, "d10-rent", "2026-11").map((t) => `${t.transaction_date}:${t.amount}`).join(","), "2026-11-30:700000", `D-10 ${path} 고친 금액은 11월 몫부터 쓴다`);
+    eq(recurringTx(fx, "d10-phone", "2026-11").map((t) => t.amount).join(","), "60000", `D-10 ${path} 휴대폰은 11월부터 새 금액`);
+  });
+}
+
 // ── P0-1: 말일 몫이 한 실행 한도를 넘으면 다음 실행이 이어 넣는다(가계부 300개 · 31일) ─────────
 await fixture(async (fx) => {
   fx.db.accountbook_recurring.length = 0;
@@ -194,6 +217,70 @@ for (const path of ["/admin/recurring/save", "/my/recurring/save"]) {
     eq(rentTotal, 650000, `P0-2 ${path} 다음 날 자동 반영 뒤에도 10월 월세는 한 번(650,000원)`);
   }));
 }
+
+// ── D-25·D-26: 정기 항목 두 번 보내기와 입력 검증 ─────────────────────────────────
+for (const path of ["/admin/recurring/save", "/my/recurring/save"]) {
+  await fixture(async (fx) => {
+    fx.db.accountbook_recurring.length = 0;
+    globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-10-01", "20:00");
+    const fields = { household_id: "house-home", month: "2026-10", type: "expense", memo: "넷플릭스", amount: "17000", day_of_month: "15", category: "구독", payment_method: "현대카드", user_id: "user-bin", return_to: "/reserve-plans?household_id=house-home&month=2026-10#fixed" };
+    const first = await Promise.all([post(fx, path, fields), post(fx, path, fields)]);
+    const resend = await post(fx, path, fields);
+    ok([...first, resend].every((r) => r.status === 303), `D-25 ${path} 세 번 모두 응답한다`);
+    eq(fx.db.accountbook_recurring.filter((r) => r.memo === "넷플릭스").length, 1, `D-25 ${path} 두 번 누름·다시 보내기에도 규칙은 하나`);
+    ok(/recurring_saved/.test(resend.decoded), `D-25 ${path} 다시 보낸 요청도 저장됨으로 답한다`);
+    for (const day of ["2026-10-15", "2026-10-16"]) await runCron(fx, day);
+    eq(fx.db.transactions.filter((t) => t.household_id === "house-home" && t.memo === "넷플릭스").length, 1, `D-25 ${path} 10월 넷플릭스 기록은 한 건`);
+    const before = fx.db.accountbook_recurring.length;
+    for (const [value, code] of [["0", "recurring_day_invalid"], ["32", "recurring_day_invalid"], ["", "recurring_day_invalid"], ["1.5", "recurring_day_invalid"]]) {
+      const r = await post(fx, path, { ...fields, memo: `날짜 검사 ${value}`, day_of_month: value });
+      ok(r.decoded.includes(`err=${code}`), `D-26 ${path} 지정일 ‘${value}’ 은 거절한다`);
+    }
+    const negative = await post(fx, path, { ...fields, memo: "음수 검사", amount: "-5000" });
+    ok(negative.decoded.includes("err=recurring_amount_invalid"), `D-26 ${path} 금액 -5000 은 거절한다`);
+    eq(fx.db.accountbook_recurring.length, before, `D-26 ${path} 거절한 입력은 규칙을 만들지 않는다`);
+    // 운영에서는 두 번째 요청이 가계부 쓰기 잠금을 못 얻는다. 저장 공간 장애가 아니라 진행 중 안내로 답한다.
+    const busyRestore = intercept(({ url, method, init }) => url.pathname.endsWith("/rpc/accountbook_claim_operation") && method === "POST" && String(init.body || "").includes("household-settings-rmw:house-home")
+      ? new Response(JSON.stringify([{ acquired: false }]), { status: 200, headers: { "content-type": "application/json" } }) : null);
+    let busy;
+    try { busy = await post(fx, path, { ...fields, memo: "잠금 검사" }); } finally { busyRestore(); }
+    ok(busy.decoded.includes("err=recurring_busy"), `D-25 ${path} 잠금을 못 얻은 두 번째 요청은 진행 중으로 안내한다 (${busy.decoded.slice(0, 120)})`);
+    eq(fx.db.accountbook_recurring.filter((r) => r.memo === "잠금 검사").length, 0, `D-25 ${path} 잠금을 못 얻은 요청은 규칙을 만들지 않는다`);
+    ok(strip((await page(fx, "/reserve-plans?household_id=house-home&month=2026-10&err=recurring_busy")).html).includes("다른 저장이 진행 중이라"), `D-25 ${path} 진행 중 안내 문장이 화면에 보인다`);
+    const shown = strip((await page(fx, "/reserve-plans?household_id=house-home&month=2026-10&err=recurring_day_invalid")).html);
+    ok(shown.includes("정기 항목의 날짜는 1~31일 중에서 골라 주세요"), `D-26 ${path} 거절 사유가 화면에 보인다`);
+  });
+}
+
+// ── D-11: 지난달 화면의 고정지출 기록 단추는 대상 달을 적고, 이번 달이 아니면 확인 화면을 거친다 ─────────
+await fixture(async (fx) => {
+  fx.db.accountbook_recurring.length = 0;
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-10-20", "12:00");
+  seedRule(fx, { id: "d11-oct", household_id: "house-home", amount: 17000, category: "구독", memo: "넷플릭스", payment_method: "현대카드", day_of_month: 15, last_applied_month: "2026-10", created_at: "2026-10-05T10:00:00+09:00" });
+  seedRule(fx, { id: "d11-cur", household_id: "house-home", amount: 30000, category: "통신", memo: "인터넷", day_of_month: 5 });
+  const past = await page(fx, "/reserve-plans?month=2026-09&household_id=house-home");
+  const pastText = strip(past.html);
+  ok(pastText.includes("2026년 9월 고정지출 기록하기") && !pastText.includes("이번 달 고정지출 기록하기"), "D-11 9월 화면의 단추는 ‘2026년 9월 고정지출 기록하기’ 다");
+  ok(strip((await page(fx, "/reserve-plans?month=2026-10&household_id=house-home")).html).includes("이번 달 고정지출 기록하기"), "D-11 이번 달 화면의 단추는 그대로 ‘이번 달’");
+  const { fields } = formFields(past.html, "/admin/recurring/apply");
+  eq(fields.get("month"), "2026-09", "D-11 9월 화면의 단추는 9월로 보낸다");
+  const before = fx.db.transactions.length;
+  const ask = await post(fx, "/admin/recurring/apply", fields);
+  const askText = strip(ask.text);
+  ok(ask.status === 200 && askText.includes("2026년 9월 날짜로 고정항목을 기록할까요?"), `D-11 이번 달이 아니면 먼저 확인 화면을 보인다 (${ask.status} ${ask.decoded})`);
+  ok(askText.includes("2026-09-15 · 넷플릭스") && askText.includes("2026년 9월이 지난 뒤 만든 항목") && !askText.includes("인터넷"), "D-11 확인 화면은 기록할 날짜·항목과 그 달 뒤에 만든 항목을 적고, 9월에 이미 반영된 항목은 빼고 보인다");
+  eq(fx.db.transactions.length, before, "D-11 확인 전에는 아무것도 기록하지 않는다");
+  eq(ruleNow(fx, "d11-oct").last_applied_month, "2026-10", "D-11 확인 전에는 반영 표식을 바꾸지 않는다");
+  const confirm = formFields(ask.text, "/admin/recurring/apply").fields;
+  eq(confirm.get("confirmed"), "yes", "D-11 확인 화면의 단추가 확인 값을 보낸다");
+  const applied = await post(fx, "/admin/recurring/apply", confirm);
+  ok(applied.status === 303 && /고정항목 1건 기록/.test(applied.decoded.replace(/[+]/g, " ")), `D-11 확인하면 9월 날짜로 기록한다 (${applied.decoded})`);
+  eq(recurringTx(fx, "d11-oct", "2026-09").map((t) => t.transaction_date).join(","), "2026-09-15", "D-11 넷플릭스는 2026-09-15 로 들어간다");
+  eq(ruleNow(fx, "d11-oct").last_applied_month, "2026-10", "D-11 지난달을 기록해도 더 나중 달 표식은 그대로(SIM-8)");
+  const current = await post(fx, "/admin/recurring/apply", { household_id: "house-home", month: "2026-10", return_to: "/reserve-plans?household_id=house-home&month=2026-10#fixed" });
+  ok(current.status === 303 && /고정항목 1건 기록/.test(current.decoded.replace(/[+]/g, " ")), `D-11 이번 달은 확인 없이 바로 기록한다 (${current.decoded})`);
+  eq(recurringTx(fx, "d11-cur", "2026-10").map((t) => t.transaction_date).join(","), "2026-10-05", "D-11 이번 달 기록 날짜");
+});
 
 // ── P1-1: 지정일 전에 '반영'을 눌러도 추가 가정값이 그대로 ──────────────────────
 await withClock("2026-10-10", () => fixture(async (fx) => {

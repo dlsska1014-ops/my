@@ -398,12 +398,14 @@ ok((source.match(/withHouseholdDatabaseLease\(env,/g) || []).length >= 6, "manua
         await applyGate;
       }
     };
-    const applyBody = new URLSearchParams({ household_id: "house-home", month: "2026-07" }).toString();
+    // V22.9.75 감사 D-11: 이번 달이 아닌 달의 반영은 확인 화면을 거치므로 확인한 요청(confirmed=yes)으로 보낸다.
+    const applyBody = new URLSearchParams({ household_id: "house-home", month: "2026-07", confirmed: "yes" }).toString();
     const applyPromise = call(fixture, "POST", "/admin/recurring/apply", { body: applyBody });
     await applyStarted;
     const createBody = new URLSearchParams({ household_id: "house-home", month: "2026-07", type: "expense", memo: "경합말일", amount: "31000", category: "보험", payment_method: "계좌", day_of_month: "31" }).toString();
     let response = await call(fixture, "POST", "/my/recurring/save", { body: createBody });
-    ok(String(response.headers.get("location") || "").includes("err=recurring_table_required"), "concurrent day-31 mutation fails closed while manual apply owns the household lease");
+    // V22.9.75 감사 D-25: 잠금을 못 얻은 저장은 저장 공간 장애(recurring_table_required)가 아니라 진행 중(recurring_busy)으로 안내한다.
+    ok(String(response.headers.get("location") || "").includes("err=recurring_busy"), "concurrent day-31 mutation fails closed while manual apply owns the household lease");
     ok(!fixture.db.accountbook_recurring.some((item) => item.memo === "경합말일"), "busy concurrent day-31 mutation performs zero recurring writes");
     releaseApply();
     response = await applyPromise;
