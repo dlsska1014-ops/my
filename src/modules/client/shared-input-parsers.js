@@ -73,6 +73,8 @@ function moneyTokenSpans(text = "") {
 // 샀·썼·냈·납부·출금·지급·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
 // 수입인지 지출인지 묻는다. 화면 빠른입력은 두 인자로 불러 문자열을 받는다. 본문이 화면 자산에 그대로 실리므로
 // 이 함수는 밖의 함수를 부르지 않는다.
+// V22.9.75 리드: "엄마가 용돈 줬어"처럼 가족이 주는 쪽(이·가·께서)이면 받은 돈이라 수입이다. 예전에는 "용돈 줬"만 보고 지출이었다.
+// "내가 용돈 줬어"·"엄마한테 용돈 줬어"는 그대로 지출이다. 화면 자산에도 실리므로 뒤돌아보기(lookbehind) 정규식은 쓰지 않는다.
 function transactionTypeFromText(text = "", rules = [], options = {}) {
   const raw = String(text || "").trim();
   const saysIncome = /(?:^|\s)수입(?=\s|\d|$)/.test(raw), saysExpense = /(?:^|\s)지출(?=\s|\d|$)/.test(raw);
@@ -81,7 +83,7 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
   if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return result("expense");
   if (/(?:^|\s)환불(?:\s*(?:완료|됨|금|처리|입금))?(?=\s|\d|$)|(?:^|\s)반품(?=\s|\d|$)|환급|돌려받/.test(raw)) return result("income");
   if (/(?:적금|예금|저축|투자)\s*(?:입금|이체|납입|송금)/.test(raw)) return result("expense");
-  const receives = /(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw);
+  const receives = /(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)|(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|할머니|할아버지|이모|고모|삼촌|큰아빠|작은아빠|큰엄마|작은엄마|형|누나|언니|오빠|동생|친척|장모님|장인어른|시어머니|시아버지|남편|아내|와이프|신랑)\s*(?:이|가|께서)\s+(?:용돈|세뱃돈)\s*(?:을|를)?\s*(?:주셨|줬|줌|준|주었|보내\s*주셨|보내\s*줬|보내\s*줌)/.test(raw);
   const gives = /(?:용돈|세뱃돈)\s*(?:을|를)?\s*(?:지급|송금|이체|줌|줬|준|주었|드림|드렸|드린|드려|보냄|보냈|보내\s*드)|(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생|남편|아내|와이프|배우자)(?:께|에게|한테)?(?!서)\s*(?:용돈|세뱃돈)/.test(raw);
   if (gives && !receives) return result("expense");
   if (receives) return result("income");
@@ -104,8 +106,9 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
 // 서버 extractDate 도 이 함수를 먼저 쓰므로 웹과 카카오가 같은 날로 읽는다.
-// V22.9.75 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면 이번 달이 아니라 그날이 있었던 가장 가까운 지난달로
-// 본다. 예전에는 2027-01-01에 "31일"이 2027-01-31(앞날)로 저장됐다. 오늘까지의 날은 예전처럼 이번 달이다.
+// V22.9.75 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
+// 그날 중 오늘에 더 가까운 날로 본다(같으면 지난달). 2027-01-01 의 "31일"은 2026-12-31(예전에는 2027-01-31 앞날),
+// 10월 2일의 "30일"은 9월 30일, 10월 20일의 "25일 월세"는 미리 적는 10월 25일이다. 오늘까지의 날은 예전처럼 이번 달이다.
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -144,12 +147,15 @@ function quickInputDate(text = "", today = "") {
   m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
   if (m) {
     const todayIso = now.toISOString().slice(0, 10);
-    for (let back = 0; back <= 2; back += 1) {
+    const current = valid(parts[0], parts[1], Number(m[1]));
+    if (current && current <= todayIso) return current;
+    let past = "";
+    for (let back = 1; back <= 2 && !past; back += 1) {
       const monthIndex = parts[1] - 1 - back;
-      const hit = valid(parts[0] + Math.floor(monthIndex / 12), ((monthIndex % 12) + 12) % 12 + 1, Number(m[1]));
-      if (hit && hit <= todayIso) return hit;
+      past = valid(parts[0] + Math.floor(monthIndex / 12), ((monthIndex % 12) + 12) % 12 + 1, Number(m[1]));
     }
-    return "";
+    if (!current || !past) return current || past;
+    return Date.parse(todayIso) - Date.parse(past) <= Date.parse(current) - Date.parse(todayIso) ? past : current;
   }
   m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
   if (!m) return "";

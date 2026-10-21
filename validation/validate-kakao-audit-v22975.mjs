@@ -167,6 +167,14 @@ await scenario(async (fx) => {
   await say(fx, "30일 회식 80000");
   t.eq(newest(fx).transaction_date, "2026-09-30", "A-12 10월 2일에 ‘30일’ → 9월 30일");
 }, { day: "2026-10-02" });
+// 리드 조정: 가까운 앞날은 이번 달로 둔다(미리 적는 고정지출). 지난달로만 보내면 10월 20일의 ‘25일 월세’가 9월 25일,
+// ‘31일’이 8월 31일(9월에 31일이 없어서)로 저장됐다.
+await scenario(async (fx) => {
+  await say(fx, "25일 월세 500000");
+  t.eq(newest(fx).transaction_date, "2026-10-25", "A-12 10월 20일에 ‘25일 월세’ → 10월 25일(5일 뒤가 9월 25일보다 가깝다)");
+  await say(fx, "31일 핼러윈 파티 40000");
+  t.eq(newest(fx).transaction_date, "2026-10-31", "A-12 10월 20일에 ‘31일’ → 10월 31일(8월 31일로 두 달 넘기지 않는다)");
+}, { day: "2026-10-20" });
 {
   // 웹 빠른 입력은 이 함수 본문을 그대로 싣는다. 밖의 함수 없이 같은 답을 내야 웹과 카카오가 같은 날로 읽는다.
   const client = vm.createContext({});
@@ -174,6 +182,8 @@ await scenario(async (fx) => {
   t.eq(vm.runInContext(`quickInputDate("31일 송년회", "2027-01-01")`, client), "2026-12-31", "A-12 화면 사본도 2026-12-31");
   t.eq(vm.runInContext(`quickInputDate("31일", "2026-03-01")`, client), "2026-01-31", "A-12 31일이 없는 달은 건너뛴다(3월 1일 → 1월 31일)");
   t.eq(vm.runInContext(`quickInputDate("5일 점심", "2026-10-14")`, client), "2026-10-05", "A-12 지난 날은 이번 달 그대로");
+  t.eq(vm.runInContext(`quickInputDate("30일", "2026-10-15")`, client), "2026-09-30", "A-12 앞뒤 거리가 같으면 지난달(10월 15일의 ‘30일’ → 9월 30일)");
+  t.eq(vm.runInContext(`quickInputDate("25일 월세", "2026-10-20")`, client), "2026-10-25", "A-12 화면 사본도 가까운 앞날은 이번 달");
 }
 
 // ── D-7. 연도 없는 달: 요약은 지난 쪽, 예산은 가까운 쪽 ─────────────────────────────
