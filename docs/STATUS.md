@@ -1,14 +1,14 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-21 (V22.9.74-ADSENSE-CONTENT 판 작성, 운영 반영 전; 운영 판은 V22.9.73). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-21 (V22.9.74-ADSENSE-CONTENT 운영 반영 완료). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
 | 항목 | 값 |
 |---|---|
 | 운영 Worker | `kakao-accountbook`, 도메인 https://malhaebook.com |
-| 운영 판 | **V22.9.73-DB-STALL-GUARD** (2026-10-20 23:29 KST, 배포 스크립트), version `eef80108-602d-409d-aa32-907b77da8b16`, 배포 `60812fcd-f4d3-4919-9b31-5451cd2a6713`, 소스 SHA-256 `77de4fd3…`(커밋 555d9aa). 기록 docs/deployments/V22_9_73_2026_10_20.md |
-| 되돌리기 대상 | V22.9.72-CHAT-FEEDBACK `c17bb5fb-4564-4848-8f3f-47c9427bc736` |
+| 운영 판 | **V22.9.74-ADSENSE-CONTENT** (2026-10-21 16:02 KST, Cloudflare 로그인 세션에서 업로드·대조·승격), version 1e135de7-5f38-4301-a2c2-337ba345ef0c, 배포 cf445174-3bb5-4f29-a946-0683cf53aebe, SHA-256 c0e179527811f202a82afc918673e1b45cc4d71803e81808538edfc01e965aaa(main b3ccfc5). 기록 docs/deployments/V22_9_74_2026_10_21.md |
+| 되돌리기 대상 | V22.9.73-DB-STALL-GUARD `eef80108-602d-409d-aa32-907b77da8b16` |
 | 운영 DB | Supabase. 2026-10-18 V61 수명주기 migration 적용 완료. 재실행·V44 복귀·구형 RPC 권한 복원 금지 |
 | 외부 콘솔 | OpenBuilder v3.4 전체 배포(2026-10-20 18:53, ASIDE): 봇 입장 블록(웹가계부·도움말 보기·기록하기), 도움말 하단 창, 대표 명령어 13개(짧은 이름), 01 블록 패턴 34개. Kakao Developers·채널 변경 없음 |
 | 확인 명령 | `curl -s https://malhaebook.com/health` 의 `version`; 배포 기록 `docs/deployments/`, 로컬 `output/deploy/<판>/` |
@@ -17,8 +17,8 @@
 
 | 항목 | 값 |
 |---|---|
-| GitHub main | `ce741ef` = 운영 V22.9.73 소스 + 운영 반영 기록(PR #88, 2026-10-20). main CI 4개 통과 |
-| 진행 중 | `claude/v22974-adsense-content` = **V22.9.74-ADSENSE-CONTENT**(AdSense ‘가치가 별로 없는 콘텐츠’ 2차 보강: 생활비 가이드 글 20편·글 목록 허브 `/articles`·글마다 작성일·참고 자료·함께 읽을 글·/about 작성자와 검토 방식·내비 ‘생활비 글’, 공개 정본 51개). 조사·조치·운영자 할 일은 docs/ADSENSE_REMEDIATION_V22_9_74.md. 운영 반영 전 |
+| GitHub main | `b3ccfc5` = V22.9.74 소스(PR #89 병합, CI 8개 성공 확인) |
+| 진행 중 | V22.9.75-NAVER-VERIFY: 네이버 본사이트 소유 확인용 홈 메타 태그만 추가. 운영은 V22.9.74 유지, 후속 판 검증·배포 전 |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256` |
 
