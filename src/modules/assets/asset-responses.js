@@ -116,7 +116,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
           ? '"accountbook-v5-v22951-js"'
-          : '"mobile-home-v22951-js"',
+          : '"mobile-home-v22975-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }

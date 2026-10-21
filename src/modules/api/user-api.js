@@ -6,7 +6,9 @@ import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
 } from "../admin/transactions-households.js";
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
-import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
+import {
+  fetchReservePlans, isIncomeReservePlan, reserveDashboard,
+} from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, attachSpenderNamesWithHistory, fetchAdminRows, fetchAdminRowsRange,
   fetchHouseholdMembers, fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
@@ -333,12 +335,17 @@ async function handleUserNotifications(request, env, url) {
       href: `/reserve-plans?month=${mq}${hh}` });
   }
 
-  // 5) 준비 납부 임박 (상위 3)
+  // 5) 정기 항목 기한 임박 (상위 3)
+  // V22.9.75: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
-    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: s.days_left <= 7 ? "warn" : "info",
-      title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
-      body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
+    const income = isIncomeReservePlan(s.plan);
+    const when = Number(s.days_left) > 0 ? `${s.days_left}일 전` : "오늘";
+    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: !income && s.days_left <= 7 ? "warn" : "info",
+      title: income ? `${s.plan?.name || "정기 수입"} 입금 ${when}` : `${s.plan?.name || "정기지출"} 납부 ${when}`,
+      body: income
+        ? `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 들어올 예정`
+        : `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
       href: `/reserve-plans?month=${mq}${hh}` });
   });
 

@@ -14,7 +14,7 @@ import {
   fetchPaymentAssets, normalizePaymentAssetList, paymentAssetKindMeta, paymentAssetsKey,
 } from "../settings/payment-assets.js";
 import {
-  normalizeReservePlanList, reservePlanStatus, reservePlansKey,
+  isIncomeReservePlan, normalizeReservePlanList, reservePlanStatus, reservePlansKey,
 } from "../settings/reserve-plans.js";
 import {
   fetchAdminRows, fetchAdminRowsRange, isRowLimitExceededError,
@@ -443,7 +443,8 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const subscriptionRows = cur.filter((r) => LIVING_REPORT_SUBSCRIPTION.test(`${r.category || ""} ${r.memo || ""} ${r.raw_text || ""}`));
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
-  const upcoming = safeArray(reservePlans).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
+  // V22.9.75: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
+  const upcoming = safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
     .map((s) => ({ name: String(s.plan?.name || "적립 계획"), amount: Number(s.plan?.amount || 0), due_date: s.due_date, days_left: s.days_left, monthly_reserve: s.monthly_reserve }));
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
   const usage = computeCardUsageMap(cards, cur);

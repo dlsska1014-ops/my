@@ -774,7 +774,7 @@ const ACCOUNTBOOK_WORKER = {
       if (url.pathname === "/reserve-plans" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
           return await handleReservePlansPage(request, env, url);
-        }, "정기지출 준비");
+        }, "정기 수입·지출");
       }
 
       if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {

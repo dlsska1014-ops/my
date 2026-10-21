@@ -203,7 +203,7 @@ function normalizeUserFacingUi(html = "") {
   if (/\bclass=["'][^"']*\babLayoutNav\b/.test(source)) bodyClasses.push("abAppSurface");
   if (source.includes('id="smartInput"')) bodyClasses.push("abMobileAppSurface");
   if (source.includes("<title>자산·결제수단</title>")) bodyClasses.push("abPageAssets");
-  if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
+  if (source.includes("<title>정기 수입·지출</title>")) bodyClasses.push("abPageReserve");
   if (source.includes(" · 수입·예산</title>")) bodyClasses.push("abPageBudgets");
   if (source.includes(" · 가계부 전환·관리</title>")) bodyClasses.push("abPageHouseholds");
   if (source.includes(" · 참여자·초대</title>")) bodyClasses.push("abPageMembers");
@@ -330,7 +330,7 @@ function normalizeUiV5RemainingPages(html = "") {
   const remainingPage = /(?:무료 리포트|무료 스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
     || source.includes("가계부·참여자</title>")
     || source.includes("<title>자산·결제수단</title>")
-    || source.includes("<title>정기지출 준비</title>")
+    || source.includes("<title>정기 수입·지출</title>")
     || source.includes("시작가이드</title>")
     || source.includes('id="budgetBulkForm"')
     || source.includes('id="keywordBulkForm"')

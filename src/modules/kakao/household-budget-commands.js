@@ -2,6 +2,7 @@
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
+import { kakaoReserveAlert } from "../settings/reserve-plans.js";
 import {
   fetchAdminRowsRange, fetchHouseholdMembers, isRowLimitExceededError, memberNameMap,
 } from "../data/households-members-rows.js";
@@ -506,7 +507,13 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   if (!rows.length) {
     return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
   }
-  const members = await fetchHouseholdMembers(env, household.id);
+  // V22.9.75: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
+  //   skill-handler 의 정기 알림 줄(kakaoReserveAlert)에 닿지 못했다 — 카카오에서는 정기 알림이 한 번도 나가지 않았다.
+  //   알림을 못 읽어도 kakaoReserveAlert 가 빈 문자열을 돌려주므로 요약은 그대로 나간다.
+  const [members, reserveLine] = await Promise.all([
+    fetchHouseholdMembers(env, household.id),
+    range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
+  ]);
   const names = memberNameMap(members);
   const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const expenses = rows.filter((r) => r.type !== "income");
@@ -529,7 +536,7 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     "",
     categories.length ? "카테고리" : "", ...categories,
     users.length ? "" : "", users.length ? "지출자" : "", ...users,
-  ].filter(Boolean).join("\n") + cta };
+  ].filter(Boolean).join("\n") + reserveLine + cta };
 }
 
 // V22.9.37 감사 H7·H13: "같은 이름의 가계부"는 내가 소유한 가계부와만 비교한다. 참여만 한(조회 전용 포함) 가계부와

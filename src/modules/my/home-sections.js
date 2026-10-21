@@ -167,7 +167,7 @@ function applyHomeLayoutSection(section, parts) {
 function renderHomeReportCards(options = {}) {
   const {
     month = "", householdId = "", rows = [], stats = null, budgetAlerts = [],
-    reserveHeadline = "", reserveHref = "", reserveCount = 0, isCurrentMonth = false,
+    reserveHeadline = "", reserveHref = "", reserveCount = 0, reserveIncomeCount = 0, reserveLoaded = true, isCurrentMonth = false,
     layout = null, layoutHref = "",
   } = options;
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
@@ -241,7 +241,10 @@ function renderHomeReportCards(options = {}) {
   const budgetCard = `<article class="homeReport${budgetCardState}"><div class="homeReportTop"><span>예산 항목</span><a href="${escapeHtml(budgetsHref)}">예산 설정</a></div><b>${worst ? `${escapeHtml(worst.category || "미분류")} ${worstRate}%` : "미설정"}</b><div class="homeReportBars">${worst ? `<i style="width:${Math.max(2, Math.min(100, worstRate))}%"></i>` : ""}</div><small>${budgetRead}</small></article>`;
 
   // 4. 앞으로 나갈 돈 — 정기지출·준비금.
-  const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${reserveCount ? escapeHtml(String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : "등록 없음"}</b><div class="homeReportBars"></div><small>${reserveCount ? escapeHtml(String(reserveHeadline)) : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"}</small></article>`;
+  // V22.9.75: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
+  const reserveValue = !reserveLoaded ? "이번 달 기준" : reserveCount ? (String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : reserveIncomeCount ? "나갈 항목 없음" : "등록 없음";
+  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : reserveCount ? String(reserveHeadline) : reserveIncomeCount ? `정기 수입 ${numberWithCommas(reserveIncomeCount)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
+  const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
 
   const heading = isCurrentMonth ? "이번 달 리포트" : `${Number(String(month).slice(5, 7))}월 리포트`;
   // 8.4: 순서와 표시 여부는 사용자 설정을 따르고, 설정이 없으면 기본 순서다.
