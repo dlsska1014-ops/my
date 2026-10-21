@@ -399,7 +399,8 @@ await withClock("2026-07-15", async () => {
 });
 
 // ── 공통: 자격 규칙은 저장·자동·수동이 한 함수를 쓴다 ─────────
-ok(source.includes("if (!recurringSpenderEligible(members, r.user_id)) { skipped++; continue; }"), "T7 자동 반영이 공용 자격 함수를 쓴다");
+// V22.9.75 P0-1: 자동 반영이 규칙 목록을 묶음으로 처리해 참여자 목록을 가계부별로 꺼내 쓴다. 자격 판정은 같은 함수다.
+ok(source.includes("if (!recurringSpenderEligible(members.get(String(rule.household_id || \"\")) || [], rule.user_id)) { stats.skipped++;"), "T7 자동 반영이 공용 자격 함수를 쓴다");
 eq((source.match(/recurringSpenderEligible\(/g) || []).length >= 5, true, `T7 저장·화면·수동 반영도 같은 자격 함수를 쓴다 (${(source.match(/recurringSpenderEligible\(/g) || []).length}곳)`);
 
 done();

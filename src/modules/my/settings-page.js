@@ -375,6 +375,6 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
 export {
   handleMyBudgetSave, handleMyCategoryKeywordsBulkSave, handleMyCategoryKeywordsSave,
   handleMyRecurringDelete, handleMyRecurringSave, handleMySettingsPage,
-  handleRecurringCandidateConfirm,
+  handleRecurringCandidateConfirm, markRecurringAppliedIfRecordedThisMonth,
 };
 // @build:exports-end

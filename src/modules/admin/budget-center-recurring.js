@@ -22,6 +22,7 @@ import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
   parseBudgetFormAmount,
 } from "../my/groups-budget-bulk.js";
+import { markRecurringAppliedIfRecordedThisMonth } from "../my/settings-page.js";
 import {
   getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
 } from "../my/access-control.js";
@@ -216,6 +217,9 @@ async function handleRecurringSave(request, env) {
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
   if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
   try {
+    // V22.9.75 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
+    // 같은 판정). 예전에는 이 경로(정기 수입·지출 화면)만 이 확인이 없어 다음 자동 반영이 같은 달을 한 번 더 넣었다.
+    if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, householdId, row);
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");

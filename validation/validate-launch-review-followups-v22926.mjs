@@ -372,8 +372,11 @@ eq(formatMessage("계정이 잠겼습니다. 여기서 확인하세요"), "요�
   eq(result.row.type, "income", "explicit expense negative remains refund income");
   eq(result.row._import_needs_confirmation, true, "explicit expense negative carries the confirmation flag");
   result = normalize("-12000", "수입");
-  eq(result.row.type, "income", "explicit income semantics are preserved");
-  eq(result.row._import_needs_confirmation, false, "explicit income does not get a false refund confirmation flag");
+  // V22.9.75 감사 P1-3: 음수 수입은 수입 취소·정정이다. 예전 기대값(양수 수입·확인 없음)이 바로 그 결함이라 바꾼다.
+  // 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고 확인을 받는다. 환급 분류는 붙이지 않는다.
+  eq(result.row.type, "expense", "explicit negative income becomes a reviewed income reversal");
+  eq(result.row._import_needs_confirmation, true, "explicit negative income is held for confirmation");
+  ok(result.row.category !== "환급", "income reversal is not mislabeled as a refund");
   result = normalize("-12000", "계좌이체");
   eq(result.row.type, "expense", "explicit transfer-like text is not reclassified as a generic refund");
   eq(result.row._import_needs_confirmation, false, "explicit transfer-like text keeps its existing confirmation semantics");

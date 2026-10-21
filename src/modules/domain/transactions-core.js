@@ -434,6 +434,6 @@ export {
   createManualTransaction, deleteTransactionWithAudit, escapeHtml, findTransactionForRequest,
   formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
   jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
-  sameTransactionCore, updateTransaction,
+  sameTransactionCore, sanitizeTransactionBody, updateTransaction,
 };
 // @build:exports-end
