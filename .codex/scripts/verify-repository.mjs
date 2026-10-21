@@ -285,7 +285,7 @@ function run(command, args, label) {
 // 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
 // V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
-const EXPECTED_MINIMUM_CHECKS = 24653;
+const EXPECTED_MINIMUM_CHECKS = 26442;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

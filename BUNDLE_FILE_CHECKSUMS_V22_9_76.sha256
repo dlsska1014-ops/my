@@ -2,7 +2,7 @@
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 3650639de7d91f5d4fabfb73118006066c86fe765730d75edce3f21ebdd20305  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-6b628887121ee35a7e8d230dcbfd90581c0583fd9a001449a9cc952a6966ce21  ./.codex/scripts/verify-repository.mjs
+576a7f98f2c8d961381471bff4f18880c4b491c3386a3ffe99d105c8e2212c69  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
 97af5a3086d1d42c6cb8adbd3ef41c024bf33b4a5dacd8ceac75fdf195074a86  ./.github/workflows/monitoring.yml
 2116fb38bdf1e30332f2be4d557bdca857dc8b374622d7950861fd0d825bfb90  ./.github/workflows/verify.yml
@@ -62,7 +62,7 @@ b484171ad67c52c48c75edbd5cae2e11de955e0078f071105a9d96444b9a7d07  ./10_VERIFY_AF
 95cf55cb5dabc693abfe1f907134473b4f280204aeaf386f44f3330e14bc9ef5  ./10_VERIFY_AFTER_DEPLOY_V22_8_77.ps1
 3ea7d1bc9f173114c8dd5a0fbc923d07ee978ac422b133ff6e7f958e28c91405  ./10_VERIFY_AFTER_DEPLOY_V22_8_78.ps1
 e5c7827d455957de51f3362938b8fca9e9fa9cc09f25b35a2ba542ca4967379e  ./10_VERIFY_AFTER_DEPLOY_V22_8_79.ps1
-ddb6bdc833a9a2fc9b23cc74d9fa87d1f7c0ee9ef936777ebbf620b166e885e9  ./AGENTS.md
+d69aaa36ea8694e493f6d9838ee5396f9188d4532941e36b280783ba39213b10  ./AGENTS.md
 be324ac6787ba3c5847e7ccb8f1b4759174ba7b0d9a923a4f900cde69724ed79  ./ARTIFACT_MANIFEST_V22_8_74.txt
 51502036c5eb6525da7670d27c9215af897bc7e4ddf0afd85edf6841481829e6  ./ARTIFACT_MANIFEST_V22_8_75.txt
 f81e30563604fd3369238beea1920e849656a71b26236bf8b6bf7d75f0738d3c  ./ARTIFACT_MANIFEST_V22_8_76.txt
