@@ -309,6 +309,8 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   try {
     const parsed = new URL(value, "https://accountbook.local");
     if (parsed.origin !== "https://accountbook.local" || ["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
+    // V22.9.75 감사 C-2: "/.//x" 는 앞의 검사를 통과하지만 정규화하면 "//x"(다른 사이트 주소)가 된다. 정규화한 결과로 다시 본다.
+    if (parsed.pathname.startsWith("//")) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (err) {
     return fallback;

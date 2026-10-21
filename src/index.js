@@ -11063,6 +11063,8 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   try {
     const parsed = new URL(value, "https://accountbook.local");
     if (parsed.origin !== "https://accountbook.local" || ["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
+    // V22.9.75 감사 C-2: "/.//x" 는 앞의 검사를 통과하지만 정규화하면 "//x"(다른 사이트 주소)가 된다. 정규화한 결과로 다시 본다.
+    if (parsed.pathname.startsWith("//")) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (err) {
     return fallback;
@@ -13589,7 +13591,9 @@ async function bulkDeleteTransactions(env, ids) {
 
 function returnLocation(form, fallback, extra = {}) {
   const raw = String(form.get("return_to") || "");
-  let path = raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : fallback;
+  // V22.9.75 감사 C-2: 정규화 전 문자열만 보면 "/.//x"(정규화하면 "//x")나 "/\x"·중간에 탭이 낀 경로(브라우저가 "//x"로 읽음)가
+  // 다른 사이트 주소로 나갈 수 있었다. 정규화한 뒤에도 같은 사이트 경로인지 보는 관리자 복귀 경로 검사를 통과해야 쓴다.
+  let path = raw && safeAdminReturnPath(raw, "") ? raw : fallback;
   if (Object.keys(extra).length) {
     const u = new URL(path, "https://dummy.local");
     for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null && String(v) !== "") u.searchParams.set(k, String(v));

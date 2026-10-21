@@ -11,6 +11,7 @@
 //   F-9  가입 오류 뒤 폼이 빈 채로 다시 그려지던 것(비밀번호는 다시 쓰지 않는다)
 //   D-27 운영 화면 역할 선택의 admin 누락, 역할 조회 실패를 "권한 없음"으로 답하던 것, 이름 바꾸기 500
 //   G-2  단톡방 2개 이상에 연결된 가계부를 지우면 호출 한도를 넘어 잠금·연결 행이 남던 것
+//   C-2  복귀 경로를 정규화 전 문자열로만 봐서 /.//x 가 //x(다른 사이트)로 나가던 것
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
@@ -595,6 +596,31 @@ await section("G-2", async () => {
     const shown = await page(fx, res.location.replace(BASE, ""), { cookie: admin });
     ok(decode(shown.html).includes("가계부 삭제를 완료하지 못했습니다"), "G-2 관리자 삭제 실패: 관리 화면이 이유를 한국어로 보여 준다");
   }), { categoriesPresent: false });
+});
+
+// ── C-2 복귀 경로는 정규화한 뒤에 같은 사이트인지 본다 ──
+// "/.//x" 는 "/" 로 시작하고 "//" 로 시작하지 않아 검사를 통과했지만, URL 로 정규화하면 "//x"(다른 사이트 주소)가 됐다.
+// 관리자 로그인 뒤 복귀(safeAdminReturnPath)와 관리자 일괄 처리 뒤 복귀(returnLocation)로 그대로 나갈 수 있었다.
+const sameOriginLocation = (location) => Boolean(location) && !location.startsWith("//") && new URL(location, BASE).origin === new URL(BASE).origin;
+await section("C-2", async () => {
+  const hostile = ["/.//evil.example/x", "/%2e//evil.example", "/\\evil.example", "/\t/evil.example"];
+  await fixture(async (fx) => {
+    fx.env.ADMIN_PASSWORD = "admin-pass";
+    fx.env.ADMIN_SESSION_SECRET = "admin-secret";
+    for (const target of hostile) {
+      const login = await post(fx, "/login", { password: "admin-pass", return_to: target }, { cookie: "" });
+      ok(sameOriginLocation(login.location), `C-2 관리자 로그인 뒤 복귀 경로 ${JSON.stringify(target)} 는 다른 사이트로 나가지 않는다 (${login.location})`);
+    }
+    const normal = await post(fx, "/login", { password: "admin-pass", return_to: "/ops-monitor" }, { cookie: "" });
+    eq(normal.location, "/ops-monitor", "C-2 정상 복귀 경로는 그대로 돌아간다");
+    const admin = (normal.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
+    for (const target of hostile) {
+      const bulk = await post(fx, "/admin/bulk", { month: "2026-07", household_id: HH, return_to: target }, { cookie: admin });
+      ok(sameOriginLocation(bulk.location), `C-2 관리자 일괄 처리 뒤 복귀 경로 ${JSON.stringify(target)} 는 다른 사이트로 나가지 않는다 (${bulk.location})`);
+    }
+    const kept = await post(fx, "/admin/bulk", { month: "2026-07", household_id: HH, return_to: "/?legacy=1&month=2026-07" }, { cookie: admin });
+    ok(kept.location.startsWith("/?legacy=1&month=2026-07") && kept.decoded.replace(/[+]/g, " ").includes("선택된 거래가 없습니다"), `C-2 정상 복귀 경로와 안내는 그대로다 (${kept.decoded})`);
+  });
 });
 
 if (failures.length) {
