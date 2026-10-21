@@ -12,6 +12,7 @@ runtime/ops-monitor.js
 worker/router.js
 public/site-config.js
 public/guide-content.js
+public/living-cost-articles-v22974.js
 public/content-pages.js
 client/shared-input-parsers.js
 client/legacy-ui-runtime.js

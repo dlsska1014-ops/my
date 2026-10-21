@@ -10,7 +10,9 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
 // V22.9.40 (D): 생활비 가이드 글은 validate-public-articles-v22940 이 자세히 검사한다. 여기서는 정본 목록에만 더한다.
 const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
-const allPaths = [...paths, ...articlePaths];
+// V22.9.74: 글 목록 허브와 생활비 가이드 글 20편은 validate-public-articles-v22974 가 자세히 검사한다. 정본 목록에만 더한다.
+const v22974Paths = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;

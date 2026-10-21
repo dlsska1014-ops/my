@@ -37,13 +37,16 @@ const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").repla
 // 공백·구두점·숫자·영문은 세지 않는다.
 const sectionsOf = (html) => [...html.matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a)>/g, "\n").replace(/<[^>]+>/g, " "));
-const hangulCount = (html) => (sectionsOf(html).map(textOf).join(" ").match(/[가-힣]/g) || []).length;
+// V22.9.74: 마지막 두 절(말해가계부에서는·다음에 읽을 글)이 보조 상자로 옮겨졌으므로 본문 길이에 함께 센다.
+const hangulCount = (html) => ([...sectionsOf(html), asideByClass(html, "pubService"), asideByClass(html, "pubRelated")].map(textOf).join(" ").match(/[가-힣]/g) || []).length;
 // 같은 문장 검사는 머리 영역의 소개 문단과 본문 절을 문단·목록·표 칸 단위로 줄을 나눈 뒤 공백을 하나로 줄여 비교한다.
 const introOf = (html) => (html.match(/<header class="pubHero">[\s\S]*?<\/h1><p>([\s\S]*?)<\/p>/) || [])[1] || "";
-const linesOf = (html) => [decode(introOf(html)), ...sectionsOf(html).map(textOf)].join("\n").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+const linesOf = (html) => [decode(introOf(html)), ...[...sectionsOf(html), asideByClass(html, "pubService"), asideByClass(html, "pubRelated")].map(textOf)].join("\n").split("\n").map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 const sentencesOf = (html) => linesOf(html).flatMap((line) => line.split(/(?<=[.!?])\s+/)).filter(Boolean);
 const articleOf = (html) => (html.match(/<article>([\s\S]*?)<\/article>/) || [])[1] || "";
 const sectionByTitle = (html, title) => sectionsOf(html).find((s) => s.startsWith(`<h2>${title}</h2>`)) || "";
+// V22.9.74: 글 끝의 서비스 설명과 다음 글은 본문 절(<h2>)이 아니라 보조 상자(<aside>)로 그린다.
+const asideByClass = (html, className) => (html.match(new RegExp(`<aside class="${className}">([\\s\\S]*?)</aside>`)) || [])[1] || "";
 
 const originalFetch = globalThis.fetch;
 let outbound = 0;
@@ -55,7 +58,8 @@ try {
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
   const publicPaths = entries.map((e) => e.path);
   eq(new Set(publicPaths).size, publicPaths.length, "sitemap lists each canonical path once");
-  eq(publicPaths.length, LEGACY.length + ARTICLES.length, "sitemap holds the 18 earlier public pages plus the new articles");
+  // V22.9.74 부터는 글 목록 허브와 글 20편이 더 있다(validate-public-articles-v22974 가 정확한 수를 본다).
+  ok(publicPaths.length >= LEGACY.length + ARTICLES.length, "sitemap holds the 18 earlier public pages plus the new articles");
   for (const path of LEGACY) ok(publicPaths.includes(path), `${path}: earlier public page stays in the sitemap`);
   for (const path of ARTICLES) {
     const entry = entries.find((e) => e.path === path);
@@ -134,11 +138,11 @@ try {
     for (const [, href] of body.matchAll(/href="(https?:[^"]+)"/g)) ok(EXTERNAL_ALLOWED.some((rule) => rule.test(new URL(href).hostname)), `${path}: external link ${href} is an allowed official source`);
     const titlesH2 = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => decode(m[1]));
     ok(titlesH2.some((t) => t.includes("자주 하는 실수")), `${path}: has a common-mistakes section`);
-    ok(titlesH2.at(-2) === "말해가계부에서는" && titlesH2.at(-1) === "다음에 읽을 글", `${path}: ends with the service note and further reading`);
-    const service = textOf(sectionByTitle(html, "말해가계부에서는")).trim().replace(/^말해가계부에서는/, "");
+    ok(!titlesH2.includes("말해가계부에서는") && !titlesH2.includes("다음에 읽을 글") && html.includes('<aside class="pubService"><b>말해가계부에서는</b>') && html.includes('<aside class="pubRelated"><b>함께 읽을 글</b>'), `${path}: ends with the service note and further reading as aside boxes (V22.9.74)`);
+    const service = textOf(asideByClass(html, "pubService")).trim().replace(/^말해가계부에서는/, "");
     const serviceSentences = (service.match(/[.!?](\s|$)/g) || []).length;
     ok(serviceSentences >= 2 && serviceSentences <= 4, `${path}: service note has 2-4 sentences (${serviceSentences})`);
-    const next = sectionByTitle(html, "다음에 읽을 글");
+    const next = asideByClass(html, "pubRelated");
     const nextLinks = [...next.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)</g)].map((m) => [m[1], decode(m[2])]);
     ok(nextLinks.length >= 2 && nextLinks.length <= 3, `${path}: two or three further-reading links`);
     ok(nextLinks.some(([href]) => ARTICLES.includes(href)) && nextLinks.some(([href]) => !ARTICLES.includes(href)), `${path}: further reading mixes new articles with existing guides or the demo`);
@@ -177,9 +181,10 @@ try {
 
   // 5. 허브·홈·소개 연결.
   const recent = sectionByTitle(pages.get("/"), "최근 글");
-  const recentLinks = [...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => ARTICLES.includes(href));
-  ok(recentLinks.length >= 3 && recentLinks.length <= 4, `home "최근 글" links three or four new articles (${recentLinks.length})`);
-  ok(recent.includes('href="/guides"'), "home \"최근 글\" points to the full list");
+  // V22.9.74: 홈 최근 글은 가장 새 글(V22.9.74 묶음 포함)을 가리키고 전체 목록은 /articles 허브다.
+  const recentLinks = [...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => publicPaths.includes(href) && !LEGACY.includes(href) && href !== "/articles");
+  ok(recentLinks.length >= 3 && recentLinks.length <= 4, `home "최근 글" links three or four articles (${recentLinks.length})`);
+  ok(recent.includes('href="/articles"'), "home \"최근 글\" points to the full list");
   eq(sectionsOf(pages.get("/")).filter((s) => s.startsWith("<h2>최근 글</h2>")).length, 1, "home adds a single recent-articles section");
   const hub = sectionByTitle(pages.get("/guides"), "생활비 가이드 글");
   eq([...hub.matchAll(/href="([^"]+)"/g)].filter((m) => ARTICLES.includes(m[1])).length, ARTICLES.length, "/guides hub section lists every new article once");
@@ -189,7 +194,7 @@ try {
   const aboutSentences = (about.match(/[.!?](\s|$)/g) || []).length;
   ok(aboutSentences >= 3 && aboutSentences <= 5, `about team section has 3-5 sentences (${aboutSentences})`);
   for (const word of FORBIDDEN) ok(!about.includes(word) && !textOf(recent).includes(word) && !textOf(hub).includes(word), `hub, home and about additions avoid "${word}"`);
-  for (const path of ["/", "/guides", "/about", "/site-map"]) eq(entries.find((e) => e.path === path).lastmod, UPDATED, `${path}: revision date moved with its content`);
+  for (const path of ["/", "/guides", "/about", "/site-map"]) ok(entries.find((e) => e.path === path).lastmod >= UPDATED, `${path}: revision date moved with its content (${entries.find((e) => e.path === path).lastmod})`);
 
   // 6. 원본 글 블록: 금지 표현이 없고, 모든 글이 같은 작성일을 쓴다.
   const moduleSource = stripBuildBlocks(readFileSync(new URL("../src/modules/public/guide-content.js", import.meta.url), "utf8"));

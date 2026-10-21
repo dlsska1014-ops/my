@@ -7,7 +7,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.73-DB-STALL-GUARD";
+const APP_VERSION = "V22.9.74-ADSENSE-CONTENT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -224,7 +224,7 @@ function adsMode(env = {}) {
 }
 
 // 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
-// contact·about·site-map)을 뺀 24쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
+// contact·about·site-map)을 뺀 45쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
 // 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
 // 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
 const AD_PAGE_KEYS = Object.freeze([
@@ -235,6 +235,13 @@ const AD_PAGE_KEYS = Object.freeze([
   "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
   "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
   "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
+  // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편(public/living-cost-articles-v22974.js).
+  "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
+  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
+  "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
+  "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
+  "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
+  "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
   "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
 ]);
 
@@ -326,14 +333,22 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
   "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
   "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
+  // V22.9.74: 글 목록 허브 + 생활비 가이드 글 20편. 글 본문은 public/living-cost-articles-v22974.js.
+  "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
+  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
+  "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
+  "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
+  "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
+  "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
 ]);
 
 function publicSiteNav(active = "home") {
+  // V22.9.74: '예산 계산'(/budget-guide, 사용 가이드 모음에서 닿음) 자리에 생활비 가이드 글 허브를 둔다.
   const links = [
     ["home", "서비스", "/"],
     ["demo", "가상 체험", "/demo"],
     ["guides", "사용 가이드", "/guides"],
-    ["budget-guide", "예산 계산", "/budget-guide"],
+    ["articles", "생활비 글", "/articles"],
     ["group-accountbook", "공동 가계부", "/group-accountbook"],
     ["faq", "문제 해결", "/faq"],
   ];

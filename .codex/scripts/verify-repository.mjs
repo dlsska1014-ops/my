@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_73.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_74.sha256",
 );
 const validationScripts = [
   ["V22.9.73 요청 멈춤 대비(조회 짧은 시한·1회 재시도·쓰기 시한·결과 불확실·관제 재시도 기록)", "validation/validate-db-stall-guard-v22973.mjs"],
@@ -50,6 +50,7 @@ const validationScripts = [
   ["V22.9.40 광고 게이트 ADS_MODE(review 바이트 동일·live 허용 화면)", "validation/validate-ads-gate-v22940.mjs"],
   ["V22.9.40 www 정본 308(CANONICAL_REDIRECT 무관)", "validation/validate-www-canonical-v22940.mjs"],
   ["V22.9.40 체감 성능·최신 UI(내비게이터·셸 CSS·Early Hints·Speculation-Rules)", "validation/validate-ui-perf-v22940.mjs"],
+  ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
   ["생활비 리포트", "validation/validate-living-report-v22938.mjs"],
@@ -275,7 +276,7 @@ function run(command, args, label) {
 // 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
 // V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
-const EXPECTED_MINIMUM_CHECKS = 21851;
+const EXPECTED_MINIMUM_CHECKS = 24641;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
