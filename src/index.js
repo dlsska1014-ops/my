@@ -44766,8 +44766,10 @@ function isReserveGuideCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "RESERVE_GUIDE" || /^(정기지출|정기 지출|자동차세|재산세|자동차보험|보험준비|보험 준비|준비금|알림|납부알림|납부 알림)$/i.test(normalizeText(text));
 }
 
+// V22.9.75: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
+// '카카오 설정'·'봇 설정'·'심사'·'운영 점검'·'챗봇 점검'·'블록 설정'에도 이 안내가 나갔다.
 function isOpenBuilderGuideCommand(text) {
-  return /^(오픈빌더|openbuilder|블록설정|블록 설정|카카오설정|카카오 설정|폴백|스킬연결|스킬 연결|발화목록|발화 목록|봇설정|봇 설정|심사|심사준비|심사 준비|챗봇점검|챗봇 점검|운영점검|운영 점검)$/i.test(normalizeText(text));
+  return /^(오픈빌더|openbuilder|폴백|스킬연결|스킬 연결|발화목록|발화 목록)$/i.test(normalizeText(text));
 }
 
 function isBrandGuideCommand(text) {

@@ -268,4 +268,14 @@ await scenario(async (fx) => {
   }
 }, { selections: [["user-bin", HH], ["user-wifi", HH]] });
 
+// ── 리드 조정: 운영자용 오픈빌더 안내는 운영자 낱말로만 ────────────────────────────────
+await scenario(async (fx) => {
+  for (const utterance of ["카카오 설정", "봇 설정", "심사", "운영 점검", "챗봇 점검", "블록 설정"]) {
+    const reply = await say(fx, utterance);
+    t.ok(!reply.text.includes("오픈빌더") && !reply.text.includes("Skill URL"), `운영자 안내가 일반 낱말 ‘${utterance}’로 열리지 않는다`);
+  }
+  const operator = await say(fx, "오픈빌더");
+  t.ok(operator.text.includes("카카오 오픈빌더 설정 안내"), "운영자 낱말 ‘오픈빌더’로는 그대로 연다");
+});
+
 t.done();
