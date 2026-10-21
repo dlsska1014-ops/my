@@ -8,7 +8,8 @@ import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { htmlResponse, redirectPublicAwayFromAdmin, redirectResponse } from "../runtime/http.js";
 import { sha256Hex, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import {
-  attachSpenderNames, fetchAdminRows, fetchHouseholdMembers, memberNameMap,
+  attachSpenderNames, fetchAdminRows, fetchFormerSpenderMembers, fetchHouseholdMembers,
+  memberNameMap,
 } from "../data/households-members-rows.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -79,12 +80,21 @@ function settlementRoleAllowed(role = "") {
   return !["blocked"].includes(String(role || "").toLowerCase());
 }
 
+// V22.9.76 감사 D-20: 조회 전용(viewer)은 기록할 수 없는데도 정산의 1/N 부담자로 들어가 늘 "보낼 금액"이 생겼다.
+// 기본 참여자에서 빼고, 이 달에 실제로 돈이 오간 경우(지출을 냈거나 환급을 받았을 때)에만 정산에 넣는다.
+function settlementBaseParticipant(member = {}) {
+  const role = String(member?.role || "member").toLowerCase();
+  return Boolean(member?.user_id) && settlementRoleAllowed(role) && role !== "pending" && role !== "viewer";
+}
+
 function buildSettlementModel(rows = [], members = [], options = {}) {
   const memberMap = memberNameMap(members);
+  // V22.9.76 감사 D-20: 나간 사람은 모두 "이전 구성원"으로 같아져 정산 표와 송금 제안에서 누가 누구인지 알 수 없었다.
+  // 기록 목록과 같은 조회(fetchFormerSpenderMembers)로 받은 사용자 이름을 쓰고, 이름을 모르면 번호를 붙여 구분한다.
+  const formerMap = memberNameMap(safeArray(options.formerMembers));
   const participantIds = new Set();
   for (const m of safeArray(members)) {
-    const role = String(m.role || "member").toLowerCase();
-    if (m.user_id && settlementRoleAllowed(role) && role !== "pending") participantIds.add(m.user_id);
+    if (settlementBaseParticipant(m)) participantIds.add(m.user_id);
   }
   const paidBy = Object.create(null);
   const expenseRows = [];
@@ -105,7 +115,7 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   const grossExpense = totalExpense;
   if (refundAdjustments) {
     totalExpense -= refundAdjustments.total;
-    for (const [id, amount] of refundAdjustments.received) paidBy[id] = (paidBy[id] || 0) - amount;
+    for (const [id, amount] of refundAdjustments.received) { paidBy[id] = (paidBy[id] || 0) - amount; participantIds.add(id); }
   }
   const ids = [...participantIds];
   const participantCount = Math.max(1, ids.length || 1);
@@ -136,11 +146,13 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     allocate(totalExpense, ids, weights);
   }
   const share = Math.round(totalExpense / participantCount);
+  const departedIds = ids.filter((id) => !memberMap[id]);
+  const departedName = (id) => formerMap[id] ? `${formerMap[id]}(나간 구성원)` : departedIds.length > 1 ? `이전 구성원 ${departedIds.indexOf(id) + 1}` : "이전 구성원";
   const people = ids.map((id) => {
     const paid = Math.round(paidBy[id] || 0);
     const personShare = Math.round(owedBy[id] || 0);
     const balance = paid - personShare;
-    return { user_id: id, name: memberMap[id] || "이전 구성원", paid, share: personShare, balance, weight: weights[id] || 1 };
+    return { user_id: id, name: memberMap[id] || departedName(id), paid, share: personShare, balance, weight: weights[id] || 1 };
   }).sort((a, b) => b.paid - a.paid);
   const creditors = people.filter((p) => p.balance > 0).map((p) => ({ ...p, remain: p.balance })).sort((a,b)=>b.remain-a.remain);
   const debtors = people.filter((p) => p.balance < 0).map((p) => ({ ...p, remain: -p.balance })).sort((a,b)=>b.remain-a.remain);
@@ -270,7 +282,8 @@ async function handleSettlementHistorySave(request, env) {
     // 다시 계산해 2:1 비율·품목별 부담이 모두 1:1 로 저장됐다. 화면을 연 뒤 기록이 바뀌었으면 저장하지 않는다.
     const conditions = parseSettlementConditions(form, members, rows);
     backTo = `${returnTo}${settlementConditionQuery(mode, conditions)}`;
-    const model = buildSettlementModel(rows, members, { mode, ...conditions });
+    const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+    const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
@@ -358,7 +371,9 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "" }) {
-  const activeMembers = safeArray(members).filter((m) => m.user_id && settlementRoleAllowed(m.role) && String(m.role || "") !== "pending");
+  // V22.9.76 감사 D-20: 정산 계산과 같은 참여자만 보여 준다(조회 전용은 이 달에 지출을 냈을 때만).
+  const paidIds = new Set(safeArray(rows).filter((row) => row.type !== "income" && Number(row.amount || 0) > 0 && row.user_id).map((row) => String(row.user_id)));
+  const activeMembers = safeArray(members).filter((m) => settlementBaseParticipant(m) || (String(m.role || "").toLowerCase() === "viewer" && paidIds.has(String(m.user_id || ""))));
   const hidden = `<input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/>`;
   if (mode === "equal") return `<div class="note">모든 참여자가 같은 금액을 부담합니다. 총액의 원 단위 나머지는 마지막 참여자에게 자동 보정됩니다.</div>`;
   if (mode === "ratio" || mode === "headcount") {
@@ -397,7 +412,8 @@ async function handleSettlementSummaryPage(request, env, url) {
   // V22.9.34 2차 점검 B11: 완료 저장과 같은 규칙으로 조건을 읽고, 완료 폼에 조건과 미리보기 지문을 싣는다.
   const conditions = parseSettlementConditions(url.searchParams, members, rows);
   const { weights, itemParticipants } = conditions;
-  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants });
+  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants, formerMembers });
   const previewDigest = await settlementPreviewDigest({ month, mode, conditions, rows });
   const completionHidden = [...settlementConditionPairs(mode, conditions), ["preview_digest", previewDigest]].map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}"/>`).join("");
   const history = parseJsonSetting(historyValue, []);

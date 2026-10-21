@@ -159,18 +159,20 @@ async function handleMyLocalSignup(request, env) {
   const accessCode = String(form.get("access_code") || "").trim();
   const confirm = String(form.get("access_code_confirm") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();
-  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderUserLoginHtml(env, "로그인 이름은 2자 이상 입력하세요.", "", "signup"), 400);
-  if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup"), 400);
-  if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup"), 400);
-  if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup"), 400);
+  // V22.9.76 감사 F-9: 오류로 폼을 다시 그릴 때 비밀이 아닌 칸만 되돌려 준다(비밀번호 두 칸은 비운다).
+  const keep = { login_name: loginName, display_name: String(form.get("display_name") || "").trim().slice(0, 80), invite_code: inviteCode };
+  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderUserLoginHtml(env, "로그인 이름은 2자 이상 입력하세요.", "", "signup", keep), 400);
+  if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup", keep), 400);
+  if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup", keep), 400);
+  if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup", keep), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false, {scope:"client"});
-  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup"), 503);
-  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup"), 429, { "retry-after": "900" });
+  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 503);
+  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 429, { "retry-after": "900" });
   // V22.9.26: 가입은 성공해도 횟수를 지우지 않고, User-Agent 를 뺀 IP 단위 상한도 함께 둔다.
   // 예전에는 가입이 될 때마다 횟수가 지워져 한 클라이언트가 계정을 무한히 만들 수 있었다.
   const ipAttempt = await recordAuthAttempt(env, request, "/my/local-signup", false, { scope: "ip", limit: boundedRuntimeNumber(env.AUTH_SIGNUP_IP_LIMIT, 20, 5, 200) });
-  if (ipAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup"), 503);
-  if (!ipAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup"), 429, { "retry-after": "900" });
+  if (ipAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 503);
+  if (!ipAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 429, { "retry-after": "900" });
   let user = null;
   try {
     user = await createLocalLoginUser(env, loginName, displayName, accessCode);
@@ -179,7 +181,7 @@ async function handleMyLocalSignup(request, env) {
     const classified = classifyLocalSignupError(err);
     if (classified.status >= 500) { await recordAuthAttempt(env, request, "/my/local-signup", true, {scope:"client"}); }
     rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
-    return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup"), classified.status);
+    return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup", keep), classified.status);
   }
 
   let session = "";

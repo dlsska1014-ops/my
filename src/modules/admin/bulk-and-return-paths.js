@@ -2,7 +2,7 @@
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError } from "../runtime/leases.js";
 import { redirectResponse } from "../runtime/http.js";
-import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { safeAdminReturnPath, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import {
   fetchTransactionRowsByIds, isValidTransactionDateString, transactionReturnFallback,
 } from "./transactions-households.js";
@@ -116,7 +116,9 @@ async function bulkDeleteTransactions(env, ids) {
 
 function returnLocation(form, fallback, extra = {}) {
   const raw = String(form.get("return_to") || "");
-  let path = raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : fallback;
+  // V22.9.76 감사 C-2: 정규화 전 문자열만 보면 "/.//x"(정규화하면 "//x")나 "/\x"·중간에 탭이 낀 경로(브라우저가 "//x"로 읽음)가
+  // 다른 사이트 주소로 나갈 수 있었다. 정규화한 뒤에도 같은 사이트 경로인지 보는 관리자 복귀 경로 검사를 통과해야 쓴다.
+  let path = raw && safeAdminReturnPath(raw, "") ? raw : fallback;
   if (Object.keys(extra).length) {
     const u = new URL(path, "https://dummy.local");
     for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null && String(v) !== "") u.searchParams.set(k, String(v));
