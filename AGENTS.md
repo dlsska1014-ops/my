@@ -142,6 +142,7 @@ npm run validate:web-audit-v22976
 npm run validate:kakao-income-fixes
 npm run validate:kakao-audit-v22976
 npm run validate:money-fixes
+npm run validate:data-fixes
 npm run validate:findings-ledger
 node .codex/scripts/verify-repository.mjs
 npm run validate:categories-absent

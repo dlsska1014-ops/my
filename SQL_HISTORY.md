@@ -1,3 +1,7 @@
+## V22.9.76 DB 변경 없음
+
+스키마·RPC·RLS·권한 변경 없음. 예약 자동 반영의 진행 상태가 `accountbook_settings` 의 새 키 `cron_recurring_state_v22976` 한 행에 저장된다. 예전 커서 키 `cron_recurring_cursor_v22930` 은 더 읽지 않으며 지우지 않는다. /ready 필수 표에 users·accountbook_budgets·accountbook_recurring 를 더했다(세 표 모두 운영에 있음, DEPLOYMENT_MATRIX V22.9.76 절).
+
 ## V22.9.75 DB 변경 없음
 
 네이버 소유 확인용 공개 홈 메타 추가뿐이며 SQL·스키마·RPC·RLS·권한 변경 없음.

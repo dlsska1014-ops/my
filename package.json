@@ -32,6 +32,7 @@
     "validate:kakao-income-fixes": "node validation/validate-kakao-income-fixes-v22976.mjs",
     "validate:kakao-audit-v22976": "node validation/validate-kakao-audit-v22976.mjs",
     "validate:money-fixes": "node validation/validate-money-fixes-v22976.mjs",
+    "validate:data-fixes": "node validation/validate-data-fixes-v22976.mjs",
     "validate:findings-ledger": "node validation/validate-findings-ledger-v22976.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",

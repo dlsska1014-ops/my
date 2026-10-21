@@ -57,6 +57,7 @@ const validationScripts = [
   ["V22.9.76 카카오 수입·지출 판정과 답장", "validation/validate-kakao-income-fixes-v22976.mjs"],
   ["V22.9.76 2026-10-14 감사 재현 결함(카카오)", "validation/validate-kakao-audit-v22976.mjs"],
   ["V22.9.76 돈 계산·정기 자동 반영·가져오기", "validation/validate-money-fixes-v22976.mjs"],
+  ["V22.9.76 데이터·백업·관리 화면(키워드 카드·분류 낱말·전체 기간 백업·같은 거래 복원·가계부 삭제·복귀 경로·정산 구성원)", "validation/validate-data-fixes-v22976.mjs"],
   ["V22.9.76 감사 발견 추적표(모든 항목·상태·검사 연결)", "validation/validate-findings-ledger-v22976.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],

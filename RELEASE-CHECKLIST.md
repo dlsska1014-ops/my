@@ -1,3 +1,11 @@
+## V22.9.76 출시 전 점검 검사
+
+- 두 모드 하네스(`node .codex/scripts/verify-repository.mjs`, `npm run validate:categories-absent`)와 CI. 운영 /ready 는 `accountbook_categories` 가 없는 상태이므로 분류 표 부재 모드가 실제 운영 모드다.
+- 여러 화면이 읽는 값(구분 `type` 등)을 더하거나 바꿨다면 그 값을 읽는 곳을 grep 으로 모두 찾고 수입·지출을 둘 다 넣은 장면으로 검사했는가.
+- 감사 문서를 더했다면 `docs/codex/FINDINGS_LEDGER.md` 에 모든 항목을 옮겼는가(`validate-findings-ledger-v22976` 이 막는다).
+- 배포 날짜가 매월 1일이 아닌가. 배포 직후 /ready 필수 표 13개·실패 0, 배포 다음 날 관제 `scheduled_error` 0.
+- 운영 수동 확인(자동 검사로 대신하지 않음): 정기 수입 알림이 “입금 N일 전”으로 보임, 카카오 ‘부모님께 용돈 5만원 보냄’은 지출·‘엄마가 용돈 5만원 줬어’는 수입, 지난달 화면의 ‘2026년 9월 고정 수입·지출 기록하기’가 확인 화면을 먼저 보임.
+
 ## V22.9.75 네이버 소유 확인 검사
 
 - 홈 200·head 메타 정확히 1개, 다른 공개 문서에는 없음. 광고 review 유지·사이트맵 51·외부 요청 0.
