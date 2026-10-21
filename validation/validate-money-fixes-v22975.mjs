@@ -352,6 +352,23 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   }));
 }
 
+// ── E-4: 1월에 가져온 연도 없는 12월 날짜 ──────────────────────────────────────────
+await fixture(async (fx) => {
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2027-01-05", "12:00");
+  const csv = ["이용일,가맹점,이용금액", "12/28,스타벅스,4500", "12.30,이마트,52000", "12월 31일,송년회,80000", "01/03,GS25,3200"].join(String.fromCharCode(10));
+  const box = (html, row) => (html.match(new RegExp(`<input[^>]*name="selected_rows"[^>]*value="${row}"[^>]*>`)) || [""])[0];
+  const plain = await post(fx, "/my/import", { household_id: "house-home", month: "2027-01", import_action: "preview", csv_text: csv });
+  const plainDates = (plain.text.match(/20[0-9]{2}-[0-9]{2}-[0-9]{2}/g) || []).filter((d) => d !== "2027-01-05");
+  ok(["2026-12-28", "2026-12-30", "2026-12-31", "2027-01-03"].every((d) => plainDates.includes(d)) && !plainDates.some((d) => d.startsWith("2027-12")), `E-4 기준을 보내지 않은 이번 달 가져오기는 웹·카카오처럼 지난 12월로 읽는다 (${[...new Set(plainDates)].join(",")})`);
+  ok(/\bchecked\b/.test(box(plain.text, 2)), "E-4 지난 12월로 읽은 행은 그대로 선택된다");
+  const chosen = await post(fx, "/my/import", { household_id: "house-home", month: "2027-01", import_action: "preview", csv_text: csv, date_basis_mode: "selected" });
+  ok(chosen.text.includes("연도 없는 날짜를 선택한 2027년으로 읽어 오늘 뒤 날짜(2027-12-28)가 됐습니다. 지난 거래라면 2026-12-28입니다."), "E-4 ‘선택한 연도’로 미래 날짜가 되면 이유와 지난해 날짜를 적는다");
+  ok(box(chosen.text, 2).includes("data-review-needed=\"1\"") && !/\bchecked\b/.test(box(chosen.text, 2)), "E-4 그런 행은 기본 선택하지 않는다");
+  ok(/\bchecked\b/.test(box(chosen.text, 5)) && box(chosen.text, 5).includes("data-review-needed=\"0\""), "E-4 오늘 전 날짜(01/03)는 확인 표시 없이 선택된다");
+  const past = parseFlexibleImportRecords(["이용일,가맹점,이용금액", "12/28,스타벅스,4500"].join(String.fromCharCode(10)), "house-home", "user-bin", { importYear: 2026, dateBasisMode: "selected" }).rows[0];
+  ok(past?.transaction_date === "2026-12-28" && past?._import_needs_confirmation === false, "E-4 지난해를 고른 가져오기(2026년 12월)는 표시 없이 그 해로 읽는다");
+});
+
 function safeWarnings(row) { return Array.isArray(row?._import_warnings) ? row._import_warnings : []; }
 
 // ── P2-1: 분류 예산 밖에만 반영 대기 정기지출이 있을 때 ───────────────────────────

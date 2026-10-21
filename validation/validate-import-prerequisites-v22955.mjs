@@ -270,7 +270,10 @@ try {
     eq(defaults.payload.ready[0].row.transaction_date, "2026-12-28", "HTTP explicit default basis rolls past December");
     const selected = await preview(fx, text, { month: "2025-07", date_basis_mode: "selected" });
     eq(selected.payload.ready[0].row.transaction_date, "2025-12-28", "HTTP selected month retains historical year");
-    const legacy = await preview(fx, text, { month: "2027-01" }); eq(legacy.payload.ready[0].row.transaction_date, "2027-12-28", "legacy HTTP month is explicit");
+    // V22.9.75 감사 E-4: 기준(date_basis_mode)을 보내지 않은 옛 요청은 화면 기본값과 같게 고른다. 이번 달(2027-01)이면 웹·카카오와 같은
+    // 183일 규칙으로 지난 12월이 되고(예전 기대값 2027-12-28 은 1월에 가져온 12/28 을 올해 12월로 저장하던 E-4 결함), 다른 달이면 그 해를 지킨다.
+    const legacy = await preview(fx, text, { month: "2027-01" }); eq(legacy.payload.ready[0].row.transaction_date, "2026-12-28", "legacy HTTP current month follows the default 183-day basis (E-4)");
+    const legacyPast = await preview(fx, text, { month: "2025-07" }); eq(legacyPast.payload.ready[0].row.transaction_date, "2025-12-28", "legacy HTTP other month stays explicit");
     globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2028-01-01T00:01:00+09:00");
     const continued = await preview(fx, text, { month: "2027-01", date_basis_mode: "default", previous_import_token: defaults.token });
     eq(continued.payload.parsed.date_basis, defaults.payload.parsed.date_basis, "verified analysis family freezes reference date");

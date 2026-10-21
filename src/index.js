@@ -14184,9 +14184,24 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.37 감사 N5·D6: 날짜 열이 있는 행은 그 칸에서만 날짜를 읽는다. 비었거나 해석되지 않으면 다른 칸(금액 38000 →
   // 2004년)에서 날짜를 찍어 내지 않고 missing_date·invalid_date 로 확인 필요에 보낸다. 날짜 열이 없는 행만 예전처럼
   // 행 안의 다른 값과 자연어에서 날짜를 찾는다(엑셀 일련번호 제외).
-  let transactionDate = dateVal ? parseImportDateCell(dateVal, { ...options, allowSerial: true }) : "";
-  if (!transactionDate && dateVal && /[가-힣]/.test(dateVal)) transactionDate = importDateFromFreeText(dateVal, options);
-  if (!transactionDate && !importHasDateField(obj)) transactionDate = findImportDateInValues(contextCells, options) || importDateFromFreeText(contextText, options);
+  const resolveImportRowDate = (opts) => {
+    let value = dateVal ? parseImportDateCell(dateVal, { ...opts, allowSerial: true }) : "";
+    if (!value && dateVal && /[가-힣]/.test(dateVal)) value = importDateFromFreeText(dateVal, opts);
+    if (!value && !importHasDateField(obj)) value = findImportDateInValues(contextCells, opts) || importDateFromFreeText(contextText, opts);
+    return value;
+  };
+  let transactionDate = resolveImportRowDate(options);
+  // V22.9.75 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
+  // 뒤면 전년, 웹·카카오와 같음)과 다르면(1월에 가져온 12/28 → 올해 12월) 미래 날짜로 조용히 저장하지 않게 경고와 확인 필요를 남긴다.
+  let yearBasisReview = false;
+  if (transactionDate && options.dateContext.mode === "selected") {
+    const reference = String(options.dateContext.reference_date || "");
+    const basisDate = resolveImportRowDate({ ...options, dateContext: { ...options.dateContext, mode: "default", year: Number(reference.slice(0, 4)) } });
+    if (basisDate && basisDate !== transactionDate && transactionDate > reference) {
+      yearBasisReview = true;
+      warnings.push(`연도 없는 날짜를 선택한 ${options.dateContext.year}년으로 읽어 오늘 뒤 날짜(${transactionDate})가 됐습니다. 지난 거래라면 ${basisDate}입니다. 확인 후 저장하세요.`);
+    }
+  }
   if (!transactionDate && natural) {
     transactionDate = options.dateContext.reference_date;
     warnings.push("날짜가 없어 오늘 날짜로 보정했습니다.");
@@ -14287,7 +14302,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || rawText).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
-    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation,
+    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
   };
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
@@ -23423,7 +23438,8 @@ async function handleMyImport(request, env) {
   }
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) ? "selected" : "default"));
+  // V22.9.75 감사 E-4: 기준을 보내지 않은 요청은 화면 기본값과 같게 고른다(이번 달이면 183일 규칙, 다른 달이면 그 해).
+  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) && String(form.get("month")) !== currentMonthKst() ? "selected" : "default"));
   if (!["default", "selected"].includes(dateMode)) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&err=import_date_basis_invalid`);
   const sourceHash = await sha256Hex(csvText);
   const sourceStateKey = `my_import_source_v22955:${await sha256Hex(`${selected.id}|${sourceHash}`)}`;
