@@ -262,7 +262,9 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
     const memo = t.memo || t.raw_text || "-";
-    const sign = t.type === "income" ? "+" : "-";
+    // V22.9.75 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
+    // "--12,000원"으로 보였다. 음수 지출은 돌아온 돈이라 "+", 음수 수입은 "-"다.
+    const sign = (t.type === "income") === (Number(t.amount || 0) >= 0) ? "+" : "-";
     const cls = t.type === "income" ? "income" : "expense";
     const spenderLabel = t.type === "income" ? "수입자" : "지출자";
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
@@ -271,7 +273,7 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     // V22.9.75: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
     // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
     const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
-    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong>`;
+    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
     const editable = !canEditRow || canEditRow(t);
     return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}">${editable ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary class="v8-tx-main">${body}<i class="srOnly">수정·삭제</i></summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : `<div class="v8-tx-main">${body}</div>`}</article>`;
   }).join("");
@@ -343,9 +345,12 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     const expense = total.expense;
     const income = total.income;
     const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
+    // V22.9.75 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
+    const outText = (v) => `${v < 0 ? "+" : "-"}${numberWithCommas(Math.abs(v))}원`;
+    const inText = (v) => `${v < 0 ? "-" : "+"}${numberWithCommas(Math.abs(v))}원`;
     const sum = (income
-      ? `+${numberWithCommas(income)}원${expense ? ` · -${numberWithCommas(expense)}원` : ""}`
-      : `-${numberWithCommas(expense)}원`) + partial;
+      ? `${inText(income)}${expense ? ` · ${outText(expense)}` : ""}`
+      : outText(expense)) + partial;
     return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender)}</section>`;
   }).join("");
 }

@@ -264,6 +264,15 @@ function nextReserveDue(plan = {}, fromDate = nowKstDate()) {
   return candidates[0] || new Date(year + 1, 11, 1);
 }
 
+// V22.9.75 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
+// (납부 월이 없으면 12월, 날짜는 1~28일).
+function reserveDueDateInMonth(plan = {}, month = "") {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return "";
+  const months = safeArray(plan.due_months).length ? safeArray(plan.due_months) : [12];
+  if (!months.map(Number).includes(Number(month.slice(5, 7)))) return "";
+  return `${month}-${String(Math.max(1, Math.min(28, Number(plan.due_day || 1)))).padStart(2, "0")}`;
+}
+
 function reservePlanStatus(plan = {}, fromDate = nowKstDate()) {
   const due = nextReserveDue(plan, fromDate);
   const daysLeft = Math.max(0, daysBetween(fromDate, due));
@@ -407,7 +416,12 @@ async function handleReservePlansPage(request, env, url) {
   // V22.9.75: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
   const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
-  const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
+  // V22.9.75 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
+  // 12월을 봐도 10·11월 날짜만 나와 0원이었고, 이번 달도 납부일이 지난 항목은 빠졌다.
+  const monthDue = safeArray(plans)
+    .map((plan) => ({ plan, due_date: reserveDueDateInMonth(plan, month) }))
+    .filter((st) => st.due_date)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueIncome = monthDue.filter((st) => String(st.plan?.type || "expense") === "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueTotal = monthDueExpense;
