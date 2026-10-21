@@ -70,11 +70,13 @@ function moneyTokenSpans(text = "") {
 // "부모님께 용돈 30만원 지출"마저 수입이었다. 이제 사용자가 적은 구분 낱말(수입·지출) 하나를 가장 먼저 따르고,
 // 주는 대상+조사(께·에게·한테, "께서·한테서"는 받는 말이라 제외)·보내드림·드렸·이자 납부/출금/냄/이체는 지출이다.
 // 세 번째 인자 { detail: true } 를 주면 { type, ambiguous } 를 돌려준다. 수입 낱말로 수입이 됐는데 쓰는 말(결제·구매·
-// 샀·썼·냈·납부·출금·지급·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
+// 샀·썼·냈·납부·출금·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
 // 수입인지 지출인지 묻는다. 화면 빠른입력은 두 인자로 불러 문자열을 받는다. 본문이 화면 자산에 그대로 실리므로
 // 이 함수는 밖의 함수를 부르지 않는다.
 // V22.9.75 리드: "엄마가 용돈 줬어"처럼 가족이 주는 쪽(이·가·께서)이면 받은 돈이라 수입이다. 예전에는 "용돈 줬"만 보고 지출이었다.
 // "내가 용돈 줬어"·"엄마한테 용돈 줬어"는 그대로 지출이다. 화면 자산에도 실리므로 뒤돌아보기(lookbehind) 정규식은 쓰지 않는다.
+// 같은 날 리드 조정: "수당 지급 30만원"·"급여 지급"·"보너스 지급"은 받는 쪽에서 흔히 쓰는 말이라 '지급'은 묻는 조건에서 뺐다
+// (용돈·세뱃돈 지급은 위의 주는 말로 지출이다).
 function transactionTypeFromText(text = "", rules = [], options = {}) {
   const raw = String(text || "").trim();
   const saysIncome = /(?:^|\s)수입(?=\s|\d|$)/.test(raw), saysExpense = /(?:^|\s)지출(?=\s|\d|$)/.test(raw);
@@ -95,7 +97,7 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
     if (rule.type !== "income") continue;
     if ((rule.words || []).some(word => new RegExp("(?:^|\\s)" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|\\d|$)").test(raw))) incomeWord = true;
   }
-  if (incomeWord) return result("income", /(?:결제|구매|샀|썼|씀|냈|냄|납부|출금|지급|송금)/.test(raw));
+  if (incomeWord) return result("income", /(?:결제|구매|샀|썼|씀|냈|냄|납부|출금|송금)/.test(raw));
   return result("expense");
 }
 

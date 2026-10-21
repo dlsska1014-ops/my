@@ -65,6 +65,10 @@ await scenario(async (fx) => {
     ["형이 용돈 보내줬어 55000원", "income", 55000],
     ["내가 엄마한테 용돈 줬어 56000원", "expense", 56000],
     ["내가 용돈 줬어 57000원", "expense", 57000],
+    // 리드 조정: 받는 쪽에서 흔히 쓰는 '지급'은 묻지 않고 수입으로 저장한다. 용돈 지급은 지출이다.
+    ["수당 지급 301000원", "income", 301000],
+    ["보너스 지급 1020000원", "income", 1020000],
+    ["용돈 지급 31000원", "expense", 31000],
   ];
   for (const [text, type, amount] of cases) {
     const before = count(fx);
