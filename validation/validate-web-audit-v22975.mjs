@@ -171,16 +171,20 @@ await withClock("2026-10-20", () => fixture(async (fx) => {
   t.eq(res.data.overall_progress, 43, `D-22 넘치게 모은 목표는 목표액까지만 진행률에 센다 (1,000,000 / 2,300,000 → 43%, 실제 ${res.data.overall_progress}%)`);
 }));
 
-// ── D-24 지운 가계부를 기억한 채 열면 내 다른 가계부로 ──
+// ── D-24 지운 가계부를 기억한 채 열면 '가계부 시작' 대신 가계부 고르기 화면으로(첫 가계부로 대체하지 않는다, V22.9.17 기준선) ──
 await withClock("2026-10-21", () => fixture(async (fx) => {
   fx.db.households = fx.db.households.filter((h) => h.id !== "house-trip");
   fx.db.household_members = fx.db.household_members.filter((m) => m.household_id !== "house-trip");
   for (const path of ["/reports", "/my/settings", "/my/analysis", "/smart-tools", "/menu", "/app"]) {
     const res = await page(fx, path, { cookie: `${fx.cookie}; ab_hh=house-trip` });
-    const title = (res.html.match(/<title>([^<]*)<\/title>/) || [])[1] || "";
-    t.ok(res.status === 200 && !title.includes("가계부 시작") && res.html.includes(`household_id=${HH}`), `D-24 ${path}: 낡은 기억이면 내 가계부(우리집 생활비)로 연다 (${res.status} ${title})`);
+    t.ok(res.status === 303 && res.location === "/my/households?msg=household_memory_stale", `D-24 ${path}: 낡은 기억이면 가계부 고르기 화면으로 보낸다 (${res.status} ${res.location})`);
+    t.ok(!res.html.includes(`household_id=${HH}`), `D-24 ${path}: 다른 가계부로 몰래 바꿔 그리지 않는다`);
     t.ok(/ab_hh=;[^,]*Max-Age=0/.test(res.setCookie), `D-24 ${path}: 낡은 기억을 지운다 (${res.setCookie.slice(0, 80)})`);
   }
+  const picker = await page(fx, "/my/households?msg=household_memory_stale");
+  t.ok(picker.status === 200 && picker.html.includes("더는 열 수 없어요") && picker.html.includes("우리집 생활비"), `D-24 고르기 화면이 이유를 알리고 내 가계부를 보여 준다 (${picker.status})`);
+  const pickerWithStale = await page(fx, "/my/households", { cookie: `${fx.cookie}; ab_hh=house-trip` });
+  t.ok(pickerWithStale.status === 200 && /ab_hh=;[^,]*Max-Age=0/.test(pickerWithStale.setCookie), "D-24 고르기 화면 자체는 다시 보내지 않고 기억만 지운다");
   const explicit = await page(fx, "/app?household_id=house-trip");
   t.eq(explicit.status, 404, "D-24 주소에 직접 적은 없는 가계부 ID 는 예전처럼 찾을 수 없음(404)이다");
   const remembered = await page(fx, "/reports", { cookie: `${fx.cookie}; ab_hh=${HH}` });

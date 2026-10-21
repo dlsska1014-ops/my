@@ -204,8 +204,7 @@ const ACCOUNTBOOK_WORKER = {
     try {
       const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
       abMonitorCompleted(requestEnv, ctx, response);
-      // V22.9.75 감사 D-24: 낡은 가계부 기억이면 원래 요청(가계부 없는 주소)으로 한 번 더 그린다.
-      return withRememberedHouseholdCookie(routed, response, (fallbackRequest) => ACCOUNTBOOK_WORKER.route(fallbackRequest, requestEnv, ctx));
+      return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
       abMonitorCompleted(requestEnv, ctx, null);
       throw error;

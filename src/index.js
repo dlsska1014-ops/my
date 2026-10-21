@@ -1467,8 +1467,8 @@ const CORS_HEADERS = {
 // `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
 // 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 고르기·시작 화면이 나온다).
 // 그 화면이 나왔다는 것은 쿠키가 낡았다는 뜻이므로 지운다. 로그아웃하면 함께 지운다.
-// V22.9.75 감사 D-24: 낡은 기억(지운·나간 가계부)이면 그 자리에서 원래 요청(household_id 없는 주소)으로 한 번 더
-// 그려 내 기본 가계부를 연다. 주소에 직접 적은 남의 가계부 ID 는 예전처럼 찾을 수 없음(404)이다.
+// V22.9.75 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
+// 보낸다. 첫 가계부로 대체하지 않는 기준선 규칙(V22.9.17)은 그대로다. 주소에 직접 적은 남의 가계부 ID 는 예전처럼 404 다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
 const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
 const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
@@ -1498,7 +1498,7 @@ function rememberedHouseholdRequest(request) {
     // 가고 그 자리에서 지워진다. 직접 적은 남의 가계부 ID 만 찾을 수 없음(404)이다.
     const headers = new Headers(request.headers);
     headers.set(AB_HOUSEHOLD_MEMORY_HEADER, "1");
-    return { request: new Request(url.toString(), { method: "GET", headers }), eligible: true, injected: true, remembered, original: request };
+    return { request: new Request(url.toString(), { method: "GET", headers }), eligible: true, injected: true, remembered };
   } catch (_) {
     return none;
   }
@@ -1528,7 +1528,7 @@ function issuesUserSession(response) {
   }
 }
 
-async function withRememberedHouseholdCookie(routed, response, reroute = null) {
+async function withRememberedHouseholdCookie(routed, response) {
   try {
     const request = routed.request;
     const url = new URL(request.url);
@@ -1541,13 +1541,12 @@ async function withRememberedHouseholdCookie(routed, response, reroute = null) {
     // H4: 기억한 가계부가 더 읽을 수 없게 됐으면(승인 대기·이용 제한) 접근 안내 화면(403)이 나온다. 그 자리에서 기억을
     // 지워 다음 화면은 기본 규칙으로 열리게 한다. 예전에는 승인 전까지 모든 화면이 403 이었다.
     if (routed.injected && response.status === 403) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
-    // V22.9.75 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 그 요청을 주소에 가계부가 없을 때처럼 다시 그려
-    // 내 다른 가계부로 연다. 예전에는 다른 가계부가 있어도 '가계부 시작' 화면(또는 /menu 의 찾을 수 없음 404)이 한 번 나왔다.
+    // V22.9.75 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
+    // (/menu 는 찾을 수 없음 404)이 나왔다. 다른 가계부로 몰래 바꾸지 않고(V22.9.17 기준선) 고르기 화면으로 보내며 기억을 지운다.
     const staleFallback = async () => {
-      if (typeof reroute === "function" && routed.original) {
-        try { return withSetCookie(await reroute(routed.original), AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE); } catch (_) {}
-      }
-      return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+      if (url.pathname === "/my/households") return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+      const picker = new Response(null, { status: 303, headers: { location: "/my/households?msg=household_memory_stale", "cache-control": "no-store" } });
+      return withSetCookie(picker, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     };
     if (routed.injected && response.status === 404) return await staleFallback();
     if (response.status !== 200) return response;
@@ -1558,7 +1557,7 @@ async function withRememberedHouseholdCookie(routed, response, reroute = null) {
       // 정상 화면은 링크마다 그 가계부 ID 를 단다. 하나도 없으면 가계부 고르기 화면이다 — 쿠키가 낡았다.
       const html = await response.clone().text();
       if (html.includes(`household_id=${requested}`)) return response;
-      // 그 가계부 ID 가 화면 어디에도 없으면 시작·고르기 화면이다(낡은 기억). 내 기본 가계부로 다시 그린다.
+      // 그 가계부 ID 가 화면 어디에도 없으면 시작 화면이다(낡은 기억). 고르기 화면으로 보낸다.
       if (!html.includes(requested)) return await staleFallback();
       return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
@@ -1722,8 +1721,7 @@ const ACCOUNTBOOK_WORKER = {
     try {
       const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
       abMonitorCompleted(requestEnv, ctx, response);
-      // V22.9.75 감사 D-24: 낡은 가계부 기억이면 원래 요청(가계부 없는 주소)으로 한 번 더 그린다.
-      return withRememberedHouseholdCookie(routed, response, (fallbackRequest) => ACCOUNTBOOK_WORKER.route(fallbackRequest, requestEnv, ctx));
+      return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
       abMonitorCompleted(requestEnv, ctx, null);
       throw error;
@@ -27687,6 +27685,7 @@ function householdPageMessage(code = "") {
     created: "가계부를 만들었습니다. 이제 초대코드를 공유하세요.",
     household_duplicate_selected: "같은 이름의 기존 가계부를 선택했습니다.",
     joined: "이미 참여 중인 가계부를 열었습니다.",
+    household_memory_stale: "마지막에 열었던 가계부를 더는 열 수 없어요(삭제됐거나 나온 가계부). 아래에서 열 가계부를 고르세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
     db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.",
