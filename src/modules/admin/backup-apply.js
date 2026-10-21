@@ -10,8 +10,8 @@ import {
   fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import {
-  compareBackupTransactions, safeArray, safeObject, transactionComparable, transactionSignature,
-  validateBackupPayloadShape,
+  backupRestoreView, compareBackupTransactions, safeArray, safeObject, transactionComparable,
+  transactionSignature, validateBackupPayloadShape,
 } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { reconcileImportedTransactionIds } from "../my/backup-import.js";
@@ -34,11 +34,13 @@ function renderImportCandidateRows(rows = []) {
 }
 
 function renderImportCandidateHiddenJson(rows = []) {
-  const safeRows = safeArray(rows).slice(0, 200).map((r) => transactionComparable(r));
+  // V22.9.75 감사 E-7: 같은 내용으로 이미 짝지은 개수(occurrence_base)를 계획 파일까지 넘긴다.
+  const safeRows = safeArray(rows).slice(0, 200).map((r) => ({ ...transactionComparable(r), occurrence_base: Number(safeObject(r).occurrence_base || 0) }));
   return escapeHtml(JSON.stringify(safeRows));
 }
 
-function renderBackupCandidateSelectHtml({ payload = null, validation = null, compare = null, month = "", householdId = "", households = [], error = "" } = {}) {
+function renderBackupCandidateSelectHtml({ payload = null, validation = null, compare = null, month = "", householdId = "", households = [], error = "", note = "" } = {}) {
+  const noteBox = note ? `<section class="card warn"><p>${escapeHtml(note)}</p></section>` : "";
   const candidates = safeArray(compare?.newCandidates);
   const conflictCount = Number(compare?.counts?.conflicts || 0);
   const duplicateCount = Number(compare?.counts?.same_id || 0) + Number(compare?.counts?.same_content || 0);
@@ -48,7 +50,7 @@ function renderBackupCandidateSelectHtml({ payload = null, validation = null, co
   const summary = compare ? `<section class="grid"><div class="metric"><span>신규 후보</span><b>${numberWithCommas(candidates.length)}</b></div><div class="metric"><span>충돌</span><b>${numberWithCommas(conflictCount)}</b></div><div class="metric"><span>중복 가능</span><b>${numberWithCommas(duplicateCount)}</b></div><div class="metric"><span>현재만 있음</span><b>${numberWithCommas(compare.counts.current_only || 0)}</b></div></section>` : "";
   const riskBox = compare ? `<section class="card ${conflictCount ? "bad" : duplicateCount ? "warn" : "good"}"><h2>${conflictCount ? "충돌 항목 확인 필요" : duplicateCount ? "중복 가능성 있음" : "신규 후보 선택 가능"}</h2><p>${conflictCount ? "같은 ID인데 내용이 다른 항목이 있어 자동 가져오기를 진행하면 안 됩니다." : "아래 신규 후보 중 실제로 가져올 항목을 체크해 가져오기 계획만 만들 수 있습니다. 아직 DB에는 저장하지 않습니다."}</p></section>` : "";
   const candidateBox = compare ? `<section class="card"><div class="cardTitle"><div><h2>가져오기 후보 선택</h2><p class="note">현재 데이터에 없어 보이는 거래만 표시합니다. 체크박스는 가져오기 계획 생성용이며, DB 저장은 하지 않습니다.</p></div><div class="actions"><button type="button" class="btn light" onclick="setCandidateChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setCandidateChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadImportPlan()">선택 계획 JSON 저장</button></div></div><div class="selectedBar"><b id="candidateSelectedCount">0건 선택</b><span id="candidateSelectedAmount">0원</span></div><input type="hidden" id="candidateJson" value="${renderImportCandidateHiddenJson(candidates)}"/><div class="tableWrap"><table><thead><tr><th>선택</th><th>#</th><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderImportCandidateRows(candidates)}</tbody></table></div>${candidates.length > 200 ? `<p class="note">후보가 많아 상위 200건만 표시합니다.</p>` : ""}</section>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><button type="submit">후보 분석</button></form></section>${errorBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><label class="note">전체 기간 백업이면 고를 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">후보 분석</button></form></section>${errorBox}${noteBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
 }
 
 async function handleBackupCandidateSelectPage(request, env, url) {
@@ -75,15 +77,16 @@ async function handleBackupCandidateSelectPost(request, env) {
     const payload = JSON.parse(raw);
     const validation = validateBackupPayloadShape(payload);
     const scope = safeObject(payload.scope);
-    const month = validMonth(scope.month) || currentMonthKst();
+    const view = backupRestoreView(payload, form.get("month"));
+    const month = view.month;
     const formHouseholdId = String(form.get("household_id") || "").trim();
     const householdId = formHouseholdId || String(scope.household_id || "").trim();
     if (!validation.ok) {
       return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, households, month, householdId }), 400);
     }
     const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const compare = compareBackupTransactions(safeArray(payload.transactions), currentRows);
-    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId }));
+    const compare = compareBackupTransactions(view.rows, currentRows);
+    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId, note: view.note }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_candidate_failed", severity: "warn", path: "/backup/import-candidates", method: "POST", detail: safeError(err) });
     return htmlResponse(renderBackupCandidateSelectHtml({ households, error: "가져오기 후보를 분석하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
@@ -107,7 +110,9 @@ function strictCandidatePlanRow(raw) {
     if (r[key] !== undefined && r[key] !== null && typeof r[key] !== "string") problems.push(`${key} 가 문자열이 아님`);
   }
   if (problems.length) return { row: null, problems, display: { ...transactionComparable(r), amount: 0 } };
-  return { row: { ...transactionComparable({ ...r, amount, transaction_date: date, type }), user_id: userId }, problems: [] };
+  // V22.9.75 감사 E-7: 후보 화면이 적은 occurrence_base(0 이상 정수)만 받는다. 없거나 틀리면 0 — 옛 계획 파일도 그대로 읽힌다.
+  const occurrenceBase = Number.isSafeInteger(r.occurrence_base) && r.occurrence_base >= 0 ? r.occurrence_base : 0;
+  return { row: { ...transactionComparable({ ...r, amount, transaction_date: date, type }), user_id: userId, occurrence_base: occurrenceBase }, problems: [] };
 }
 
 function validateImportCandidatePlan(plan) {
@@ -131,20 +136,35 @@ function validateImportCandidatePlan(plan) {
   return { ok: errors.length === 0, errors, warnings, rows, invalid, counts: { selected: rows.length, income, expense, balance: income - expense } };
 }
 
+function countTransactionSignatures(rows) {
+  const counts = new Map();
+  for (const row of safeArray(rows)) {
+    const sig = transactionSignature(row);
+    counts.set(sig, (counts.get(sig) || 0) + 1);
+  }
+  return counts;
+}
+
+// V22.9.75 감사 E-7: 같은 내용의 기록이 하나라도 있으면 중복으로 보던 것을 개수로 바꾼다. 계획 행마다 목표 개수
+// (occurrence_base + 계획 안에서 같은 내용 가운데 몇 번째인지)를 정하고, 현재 개수가 목표보다 적을 때만 신규다.
 function finalCheckAgainstCurrent(candidateRows, currentRows) {
   const current = safeArray(currentRows);
-  const currentBySignature = new Map();
+  const counts = countTransactionSignatures(current);
+  const firstBySignature = new Map();
   for (const row of current) {
     const sig = transactionSignature(row);
-    if (!currentBySignature.has(sig)) currentBySignature.set(sig, []);
-    currentBySignature.get(sig).push(row);
+    if (!firstBySignature.has(sig)) firstBySignature.set(sig, row);
   }
+  const rankBySignature = new Map();
   const stillNew = [];
   const nowDuplicate = [];
   for (const row of safeArray(candidateRows)) {
     const sig = transactionSignature(row);
-    if (currentBySignature.has(sig)) nowDuplicate.push({ backup: row, current: currentBySignature.get(sig)[0] });
-    else stillNew.push(row);
+    const rank = (rankBySignature.get(sig) || 0) + 1;
+    rankBySignature.set(sig, rank);
+    const target = Number(safeObject(row).occurrence_base || 0) + rank;
+    if ((counts.get(sig) || 0) >= target) nowDuplicate.push({ backup: row, current: firstBySignature.get(sig) || null });
+    else stillNew.push({ ...row, restore_target: target });
   }
   const risk = nowDuplicate.length ? "warn" : "good";
   return { risk, stillNew, nowDuplicate, counts: { plan: candidateRows.length, current: current.length, still_new: stillNew.length, now_duplicate: nowDuplicate.length } };
@@ -315,11 +335,11 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
   const success = [];
   const failedRows = [];
   const unknownRows = [];
-  const insertedSigs = new Set(currentRows.map((r) => transactionSignature(r)));
+  const signatureCounts = countTransactionSignatures(currentRows);
   for (let index = 0; index < applyRows.length; index++) {
     const row = applyRows[index];
     const sig = transactionSignature(row);
-    if (insertedSigs.has(sig)) {
+    if ((signatureCounts.get(sig) || 0) >= Number(row.restore_target || 1)) {
       duplicateRows.push({ row, error: "적용 중 중복 재감지로 제외" });
       continue;
     }
@@ -347,7 +367,7 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
       const summary = Array.isArray(response) ? response[0] : response;
       const found = await reconcileImportedTransactionIds(env, householdId, [importRow]);
       if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== 1 || found.size !== 1) throw new Error("import_write_unknown");
-      insertedSigs.add(sig);
+      signatureCounts.set(sig, (signatureCounts.get(sig) || 0) + 1);
       success.push({ row, id: importRow.id });
     } catch (err) {
       rememberOpsEvent({ kind: "backup_import_row_failed", severity: "warn", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
@@ -356,7 +376,7 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
       if (rpcSucceeded || isUncertainStorageWrite(err)) {
         let found = null;
         try { if (importRow) found = await reconcileImportedTransactionIds(env, householdId, [importRow]); } catch (_) { found = null; }
-        if (found?.has(importRow.id)) { insertedSigs.add(sig); success.push({ row, id: importRow.id }); continue; }
+        if (found?.has(importRow.id)) { signatureCounts.set(sig, (signatureCounts.get(sig) || 0) + 1); success.push({ row, id: importRow.id }); continue; }
         unknownRows.push({ row, error: "저장 여부 확인 필요 — 거래 목록에서 이 행을 확인한 뒤에만 다시 제출하세요", unknown: true });
         for (const rest of applyRows.slice(index + 1)) excludedRows.push({ row: rest, error: "앞선 저장 결과가 불명확해 적용하지 않음(기존 데이터 유지)", excluded: true });
         break;
