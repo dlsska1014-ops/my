@@ -308,11 +308,12 @@ async function handleUserNotifications(request, env, url) {
   });
 
   // 3) 미분류 지출
+  // V22.9.75: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
-    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 지출 ${uncategorized.length}건`,
       body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
-      href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
+      href: `/app?month=${mq}${hh}&type=expense&quality=missing_category&feed=all#feed` });
   }
 
   // 4) 이번 달 반영 대기 정기지출

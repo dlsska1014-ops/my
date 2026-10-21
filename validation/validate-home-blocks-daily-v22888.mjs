@@ -57,9 +57,10 @@ async function renderHome(setup = () => {}, month = currentMonth) {
 }
 
 const addTotalBudget = (fixture, amount) => fixture.db.accountbook_budgets.push({ id: `total-${amount}`, household_id: householdId, month: currentMonth, category: "__total", amount, created_at: `${currentMonth}-01T00:00:00.000Z` });
-const addExpense = (fixture, total, count = 4) => {
+// V22.9.75: 홈 속도는 예산 알림과 같이 오늘까지의 기록만 센다. 1일에 재는 갈래는 기록 날짜를 1일로 둔다(day).
+const addExpense = (fixture, total, count = 4, day = "02") => {
   for (let index = 0; index < count; index += 1) {
-    fixture.db.transactions.push({ id: `plan-${index}`, household_id: householdId, user_id: "user-bin", transaction_date: `${currentMonth}-02`, type: "expense", amount: Math.round(total / count), category: "식비", memo: `지출 ${index}`, payment_method: "현금", source: "web", created_at: `${currentMonth}-02T09:00:00.000Z` });
+    fixture.db.transactions.push({ id: `plan-${index}`, household_id: householdId, user_id: "user-bin", transaction_date: `${currentMonth}-${day}`, type: "expense", amount: Math.round(total / count), category: "식비", memo: `지출 ${index}`, payment_method: "현금", source: "web", created_at: `${currentMonth}-${day}T09:00:00.000Z` });
   }
 };
 const planOf = (html) => {
@@ -126,7 +127,11 @@ ok(/남은 1일 동안/.test(lastDayPlan.text), `마지막 날에는 남은 하�
 ok(!/먼저 끝납니다/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
 // 월초에는 같은 금액도 빠른 속도로 판단하고, 월말에는 느린 속도로 판단한다.
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 1, 3, 0, 0);
-const firstDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
+// V22.9.75: 예전에는 2일 날짜 기록 20만원을 1일에 세어 "빠른 속도"가 됐다(미래 날짜 기록까지 지난 날수로 나눈 결함).
+// 1일에 쓴 20만원으로 잰다. 2일 날짜 기록만 있으면 아직 쓴 돈이 없으므로 빠르다고 하지 않는다.
+const firstDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000, 4, "01"); })).html);
+const firstDayFuturePlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
+ok(!/먼저 끝납니다/.test(firstDayFuturePlan.text), `1일에 다음 날짜로 미리 적은 지출만 있으면 빠른 속도라고 하지 않는다 (${firstDayFuturePlan.text})`);
 ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const slowLastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);

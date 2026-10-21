@@ -268,7 +268,10 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
     // V22.9.18: 행마다 따로 붙던 "수정/삭제" 접기 줄을 없애고 행 본문을 그 접기의 summary 로 쓴다.
     // 행 어디를 눌러도 같은 편집 칸이 열리고(지연 로드 계약은 그대로), 행 높이가 한 줄 준다.
-    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong>`;
+    // V22.9.75: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
+    // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
+    const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
+    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong>`;
     const editable = !canEditRow || canEditRow(t);
     return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}">${editable ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary class="v8-tx-main">${body}<i class="srOnly">수정·삭제</i></summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : `<div class="v8-tx-main">${body}</div>`}</article>`;
   }).join("");
