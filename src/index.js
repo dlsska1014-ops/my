@@ -12565,7 +12565,10 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
       const balance = paymentAssetBalanceForKind(patch.balance === undefined ? item.balance : patch.balance, kind);
       const balanceChanged = balance !== paymentAssetBalanceForKind(item.balance, item.kind);
       const updatedAt = new Date().toISOString();
-      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+      // V22.9.75 감사 D-8: 잔액만 저장하는 폼은 include_in_asset 을 보내지 않는다. 그때 켜 버리면 사용자가 끈 "총자산에
+      // 포함"이 잔액을 고칠 때마다 다시 켜졌다. 패치에 없으면 지금 값을 그대로 둔다.
+      const includeInAsset = patch.include_in_asset === undefined ? item.include_in_asset !== false : patch.include_in_asset !== false;
+      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? includeInAsset : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
     });
     const updated = next.find((item) => String(item.id) === String(id));
     const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);

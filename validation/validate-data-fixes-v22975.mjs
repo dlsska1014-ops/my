@@ -7,6 +7,7 @@
 //   A-10 낱말 속 글자가 분류를 정하던 것(커피+농협카드→장보기, 수술비→외식, 전기차 충전→공과금)
 //   E-16 백업센터의 "전체 가계부 백업"이 고른 한 달 치만 담던 것
 //   E-7  관리자 JSON 복구가 같은 날 같은 거래 두 건 중 한 건을 영구히 빠뜨리던 것
+//   D-8  자산 잔액만 저장해도 꺼 둔 "총자산에 포함"이 다시 켜지던 것
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
@@ -316,6 +317,46 @@ await section("E-7", async () => {
     eq(twins(), 2, "지워진 한 건을 복구하면 다시 두 건이다");
     await sendFile(fx, admin, "/backup/apply", applyFields("2026-07"), "plan_file", planOf(partial));
     eq(twins(), 2, "그 계획을 다시 적용해도 두 건 그대로다");
+  });
+});
+
+// ── D-8 잔액만 저장해도 '총자산에 포함' 해제가 풀리지 않는다 ──
+// 잔액 저장 폼(mode=balance)은 include_in_asset 칸을 보내지 않는데, 저장이 '없음'을 '포함'으로 읽어
+// 사용자가 뺀 전세보증금 같은 자산이 잔액을 고칠 때마다 순자산에 다시 들어갔다.
+await section("D-8", async () => {
+  await fixture(async (fx) => {
+    const assetsOf = () => JSON.parse(settingValue(fx, `payment_assets:${HH}`) || "[]");
+    const netWorth = (html) => (String(html || "").replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").match(/순자산[^원]{0,40}원/) || [""])[0];
+    putSetting(fx, `payment_assets:${HH}`, JSON.stringify([
+      { id: "asset-1", name: "국민카드", kind: "credit_card", balance: 0 },
+      { id: "asset-2", name: "급여통장", kind: "bank_account", balance: 5200000, include_in_asset: true },
+      { id: "asset-dep", name: "전세보증금", kind: "real_estate", balance: 300000000, include_in_asset: false },
+    ]));
+    const before = await page(fx, `/payment-methods?month=2026-10&household_id=${HH}`);
+    const quick = before.html.match(/<form class="quickBal"[^>]*>(?:(?!<\/form>)[\s\S])*?name="id" value="asset-dep"[\s\S]*?<\/form>/)?.[0] || "";
+    ok(!!quick, "자산 화면에 전세보증금의 잔액 저장 폼이 있다");
+    const fields = new URLSearchParams();
+    for (const m of quick.matchAll(/<input\b([^>]*)>/g)) {
+      const name = (m[1].match(/\bname="([^"]+)"/) || [])[1];
+      if (name) fields.append(name, decode((m[1].match(/\bvalue="([^"]*)"/) || [, ""])[1]));
+    }
+    eq(fields.get("mode"), "balance", "잔액 저장 폼은 mode=balance 로 보낸다");
+    ok(!fields.has("include_in_asset"), "잔액 저장 폼에는 총자산 포함 칸이 없다");
+    fields.set("balance", "310000000");
+    const saved = await post(fx, "/admin/payment-asset/update", fields);
+    ok(saved.decoded.includes("payment_asset_balance_updated"), `잔액 저장이 성공한다 (${saved.decoded.replace(/^.*\?/, "")})`);
+    const dep = assetsOf().find((asset) => asset.id === "asset-dep");
+    eq(dep?.balance, 310000000, "새 잔액이 저장된다");
+    eq(dep?.include_in_asset, false, "잔액만 저장해도 '총자산에 포함' 해제가 그대로다");
+    const after = await page(fx, `/payment-methods?month=2026-10&household_id=${HH}`);
+    eq(netWorth(after.html), netWorth(before.html), "순자산 숫자가 잔액 저장 전과 같다(전세보증금이 다시 들어가지 않는다)");
+
+    // 상세 수정 폼은 체크 칸 그대로 켜고 끈다(고치기 전과 같음).
+    const edit = (include) => post(fx, "/admin/payment-asset/update", { household_id: HH, month: "2026-10", id: "asset-dep", mode: "edit", name: "전세보증금", kind: "real_estate", issuer: "", memo: "", balance: "310000000", ...(include ? { include_in_asset: "on" } : {}) });
+    await edit(true);
+    eq(assetsOf().find((asset) => asset.id === "asset-dep")?.include_in_asset, true, "상세 수정에서 체크하면 총자산에 포함된다");
+    await edit(false);
+    eq(assetsOf().find((asset) => asset.id === "asset-dep")?.include_in_asset, false, "상세 수정에서 체크를 풀면 총자산에서 빠진다");
   });
 });
 
