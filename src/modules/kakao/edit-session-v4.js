@@ -321,6 +321,14 @@ function parseKakaoRestoreCommandV4(text = "") {
   return { seq: m[1] ? Number(m[1]) : 0, invalidSeq: m[1] !== undefined && !(Number(m[1]) >= 1) };
 }
 
+// V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
+// 옛 문법("N번 …" = 오늘의 N번 기록 수정)과 모양이 같아서, 열린 세션이 있으면 이 말을 세션에 먼저 넘긴다.
+// 수정·삭제·복구 말이 들어 있거나 날짜로 시작하는 말은 기록을 고르는 명령이라 여기에 들지 않는다.
+function isKakaoSessionSeqReplyV4(text = "") {
+  const raw = normalizeText(text);
+  return /^\d{1,2}\s*번(?:\s|$)/.test(raw) && !/(?:수정|삭제|제거|지워|지우기|복구)/.test(raw);
+}
+
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
@@ -412,12 +420,13 @@ export {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
-  isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
-  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
-  kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
-  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4,
-  resolveKakaoEditDateV4, saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq,
-  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
+  kakaoActiveSpenderMembers, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,
+  kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
+  kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
+  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
+  writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

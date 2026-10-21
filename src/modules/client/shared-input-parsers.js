@@ -104,6 +104,8 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
 // 서버 extractDate 도 이 함수를 먼저 쓰므로 웹과 카카오가 같은 날로 읽는다.
+// V22.9.75 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면 이번 달이 아니라 그날이 있었던 가장 가까운 지난달로
+// 본다. 예전에는 2027-01-01에 "31일"이 2027-01-31(앞날)로 저장됐다. 오늘까지의 날은 예전처럼 이번 달이다.
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -140,7 +142,15 @@ function quickInputDate(text = "", today = "") {
     return thisYear;
   }
   m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
-  if (m) return valid(parts[0], parts[1], Number(m[1]));
+  if (m) {
+    const todayIso = now.toISOString().slice(0, 10);
+    for (let back = 0; back <= 2; back += 1) {
+      const monthIndex = parts[1] - 1 - back;
+      const hit = valid(parts[0] + Math.floor(monthIndex / 12), ((monthIndex % 12) + 12) % 12 + 1, Number(m[1]));
+      if (hit && hit <= todayIso) return hit;
+    }
+    return "";
+  }
   m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;

@@ -8503,6 +8503,8 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
 // 서버 extractDate 도 이 함수를 먼저 쓰므로 웹과 카카오가 같은 날로 읽는다.
+// V22.9.75 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면 이번 달이 아니라 그날이 있었던 가장 가까운 지난달로
+// 본다. 예전에는 2027-01-01에 "31일"이 2027-01-31(앞날)로 저장됐다. 오늘까지의 날은 예전처럼 이번 달이다.
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -8539,7 +8541,15 @@ function quickInputDate(text = "", today = "") {
     return thisYear;
   }
   m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
-  if (m) return valid(parts[0], parts[1], Number(m[1]));
+  if (m) {
+    const todayIso = now.toISOString().slice(0, 10);
+    for (let back = 0; back <= 2; back += 1) {
+      const monthIndex = parts[1] - 1 - back;
+      const hit = valid(parts[0] + Math.floor(monthIndex / 12), ((monthIndex % 12) + 12) % 12 + 1, Number(m[1]));
+      if (hit && hit <= todayIso) return hit;
+    }
+    return "";
+  }
   m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;
@@ -38241,6 +38251,14 @@ function parseKakaoRestoreCommandV4(text = "") {
   return { seq: m[1] ? Number(m[1]) : 0, invalidSeq: m[1] !== undefined && !(Number(m[1]) >= 1) };
 }
 
+// V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
+// 옛 문법("N번 …" = 오늘의 N번 기록 수정)과 모양이 같아서, 열린 세션이 있으면 이 말을 세션에 먼저 넘긴다.
+// 수정·삭제·복구 말이 들어 있거나 날짜로 시작하는 말은 기록을 고르는 명령이라 여기에 들지 않는다.
+function isKakaoSessionSeqReplyV4(text = "") {
+  const raw = normalizeText(text);
+  return /^\d{1,2}\s*번(?:\s|$)/.test(raw) && !/(?:수정|삭제|제거|지워|지우기|복구)/.test(raw);
+}
+
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
@@ -38467,6 +38485,16 @@ function tokenToFieldFuzzy(tokenRaw) {
 
 // T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
 // 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
+// V22.9.75 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
+// 새 기록의 첫 낱말이 우연히 필드 이름으로 시작하는 경우("사람들 회식 5만원")는 피하려고, 앞 낱말이 필드 이름이나
+// 메뉴 번호와 똑같을 때만 맞다고 본다.
+function isExactKakaoEditFieldStart(textRaw = "") {
+  const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
+  if (/^[1-7]$/.test(token)) return true;
+  const c = compact(token);
+  return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
+}
+
 function startsWithKakaoEditField(textRaw = "") {
   const first = normalize(textRaw).split(" ")[0] || "";
   return !!(tokenToField(first) || tokenToFieldFuzzy(first));
@@ -39207,6 +39235,12 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
+    // V22.9.75 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
+    // 01번을 바로 바꿀 수 있었다. 세션이 끝난 지 30분 안에 온 수정 값 모양의 말은 끝났다고 알리고 한 줄 명령을 보여 준다.
+    const sinceUpdateMs = Date.now() - Number(session.updatedAt || 0);
+    if (session.updatedAt && sinceUpdateMs <= 35 * 60 * 1000 && (isExactKakaoEditFieldStart(utterance) || isKakaoSessionSeqReplyV4(utterance))) {
+      return kakaoText(kakaoEditExpiredTextV4(session, utterance));
+    }
     return null;
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
@@ -39218,6 +39252,17 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+}
+
+// V22.9.75 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
+// 보낸 말로 만들어 보여 준다(어제 기록이면 ‘어제’·‘8월 4일’을 앞에 붙인다).
+function kakaoEditExpiredTextV4(session = {}, utterance = "") {
+  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
+  const text = normalizeText(utterance).slice(0, 40);
+  const person = session.rowType === "income" ? "수입자" : "지출자";
+  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-7]$/.test(text) && isExactKakaoEditFieldStart(text);
+  const examples = [fieldFirst ? `${head} ${text}` : `${head} 금액 13000`, `${head} ${person} 엄마`];
+  return [`⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 끝냈어요. 보낸 내용은 반영하지 않았어요.`, "다시 하려면 한 줄로 보내 주세요:", ...[...new Set(examples)].map((line) => `👉 ${line}`)].join("\n");
 }
 
 async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
@@ -39405,8 +39450,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
+    // V22.9.75 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
+    // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
     if (!row) return kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
+    if (!canManageMyHousehold(ctx.role)) return kakaoText(`${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`);
     const value = parseKakaoSpenderChoiceValue(raw);
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자" });
   }
@@ -39997,10 +40046,14 @@ function kakaoHouseholdChoiceQuickReplies(rows = [], prefix = "가계부 선택"
 }
 
 function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
-  return safeArray(rows).slice(0, 10).map((h, index) => {
+  const list = safeArray(rows).slice(0, 10);
+  // V22.9.75 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
+  const sameName = (h) => list.filter((other) => normalizeText(other?.name || "") === normalizeText(h?.name || "")).length > 1;
+  return list.map((h, index) => {
     const role = userHouseholdRoleLabel(h?.role || "member");
     const code = showCodes && h?.invite_code ? ` · 코드 ${h.invite_code}` : "";
-    return `${index + 1}. ${h?.name || "가계부"} · ${role}${code}`;
+    const made = sameName(h) && h?.created_at ? ` · 만든 날 ${String(h.created_at).slice(0, 10)}` : "";
+    return `${index + 1}. ${h?.name || "가계부"} · ${role}${made}${code}`;
   });
 }
 
@@ -40013,7 +40066,11 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
   }
   const stripped = t.replace(/^(?:가계부\s*)?(?:선택|전환|바꾸기|연결)\s*/, "").trim();
   if (!stripped) return null;
-  return rows.find((h) => normalizeText(h?.name || "") === stripped) || null;
+  // V22.9.75 감사 D-6: 이름이 같은 가계부가 둘 이상이면 첫 번째를 고르지 않는다(남의 같은 이름 가계부에 기록이 저장될 수 있었다).
+  // 부르는 쪽이 번호로 다시 묻는다.
+  const matches = rows.filter((h) => normalizeText(h?.name || "") === stripped);
+  if (matches.length > 1) return { ambiguous: true, name: matches[0].name, count: matches.length };
+  return matches[0] || null;
 }
 
 async function beginKakaoHouseholdChoice(env, { user, payload, households = [], action = "select", origin = "", groupKey = "", forceChoice = false } = {}) {
@@ -40242,8 +40299,11 @@ function parseBudgetMonthHint(text = "") {
   if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
-    const year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
+    // V22.9.75 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
+    // (예전: 지난 1월에 저장). 앞뒤 거리가 같으면(6개월) 앞날로 본다.
+    let year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
     const month = Number(m[2]);
+    if (!m[1]) { const diff = month - Number(currentMonthKst().slice(5, 7)); if (diff <= -6) year += 1; else if (diff > 6) year -= 1; }
     if (month >= 1 && month <= 12) return `${year}-${String(month).padStart(2, "0")}`;
   }
   return currentMonthKst();
@@ -40328,19 +40388,23 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
+  // V22.9.75 감사 A-13: ‘저번달’·‘전달’·‘저번주’는 지난달·지난주와 같은 말이다. 예전에는 기간을 못 읽어 이번 달로 답했다.
+  t = t.replace(/^(?:저번\s*달|전달|전월)(?=\s|$|요약|수입|얼마)/, "지난달").replace(/^저번\s*주(?=\s|$|요약|수입|얼마)/, "지난주");
   // V22.9.75 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
   // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
   let focus = "";
-  const incomeAsk = t.match(/^(?:(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
-    || t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
   if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
-  const natural = t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
+  const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
-  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
+  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
   if (/오늘/.test(t)) {
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); end = addDays(start, 1); label = "오늘";
+  } else if (/그제|그저께/.test(t)) {
+    end = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -1); start = addDays(end, -1); label = "그제";
   } else if (/어제/.test(t)) {
     end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); start = addDays(end, -1); label = "어제";
   } else if (/지난\s*주/.test(t)) {
@@ -40349,18 +40413,26 @@ function parseKakaoSummaryRange(text = "") {
   } else if (/이번\s*주/.test(t)) {
     const dow = (now.getDay() + 6) % 7; start = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow); end = addDays(start, 7); label = "이번 주";
   } else if (/지난\s*달/.test(t)) {
-    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getMonth()+1}월`;
+    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getFullYear() === now.getFullYear() ? "" : `${start.getFullYear()}년 `}${start.getMonth()+1}월`;
   } else {
     const dateMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
     if (dateMatch) {
-      const y = Number(dateMatch[1] || now.getFullYear()), m = Number(dateMatch[2]), d = Number(dateMatch[3]);
-      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${m}월 ${d}일`;
+      // V22.9.75 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
+      let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
+      if (!dateMatch[1] && new Date(y, m - 1, d) > now) y -= 1;
+      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
-      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*요약)?$/);
-      if (monthMatch) {
-        const y = Number(monthMatch[1] || now.getFullYear()), m = Number(monthMatch[2]);
-        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${m}월`;
+      // V22.9.75 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
+      // (1월에 보낸 "12월 요약"이 올해 12월의 0원으로 답했다). 올해가 아니면 제목에 연도를 붙인다.
+      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*(?:지출|수입|가계부))?(?:\s*(?:요약|현황|통계))?$/);
+      if (monthMatch && Number(monthMatch[2]) >= 1 && Number(monthMatch[2]) <= 12) {
+        let y = Number(monthMatch[1] || now.getFullYear()); const m = Number(monthMatch[2]);
+        if (!monthMatch[1] && m > now.getMonth() + 1) y -= 1;
+        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월`;
       } else {
+        // V22.9.75 감사 A-13: 기간 말을 읽지 못한 요약("저저번달 요약", "작년 요약", "13월 요약")에 이번 달로 답하지 않는다.
+        const rest = t.replace(/\s*(?:요약|현황|통계)$/, "").replace(/이번\s*달|이달|금월|월간/g, "").trim();
+        if (rest !== "월" && /[0-9]|년|해|분기|반기|주|달|월|일|그끄/.test(rest)) return { unreadable: true, text: rest.slice(0, 20) };
         start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth()+1, 1); label = "이번 달";
       }
     }
@@ -40638,6 +40710,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: "선택하려던 가계부가 삭제되었거나 권한이 변경됐어요. ‘시작’을 입력해 현재 목록을 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
     const chosen = parseKakaoHouseholdChoice(utterance, candidates);
+    // V22.9.75 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
+    if (chosen?.ambiguous) {
+      return {
+        text: [`‘${chosen.name}’ 이름의 가계부가 ${chosen.count}개예요. 어느 가계부인지 번호로 골라 주세요.`, "", ...kakaoHouseholdListLines(candidates)].join("\n"),
+        quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
+      };
+    }
     if (!chosen && isInviteCommand(utterance)) {
       const nextState = { ...state, data: { ...safeObject(state.data), action: "invite" } };
       await saveKakaoFlowState(env, user.id, payload, nextState);
@@ -40669,7 +40748,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-      return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
+      const roleNote = candidates.filter((h) => normalizeText(h?.name || "") === normalizeText(chosen.name || "")).length > 1 ? `(${userHouseholdRoleLabel(chosen.role || "member")})` : "";
+      return { text: `✅ ‘${chosen.name}’${roleNote} 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.
@@ -41150,6 +41230,18 @@ function normalizeKakaoButtonLabel(text = "") {
 
 // V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
 // 버리므로 글로도 다시 보낼 문장을 알려 준다.
+// V22.9.75 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
+// 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 가서 원래 답을 받는다. 세션 값이 될 수 있는 말
+// (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
+function isKakaoEditSessionBypassCommand(text = "") {
+  const t = normalizeText(text);
+  if (!t || startsWithKakaoEditField(t) || /^\d+\s*번?$/.test(t)) return false;
+  // ‘오늘’·‘어제’ 한 낱말은 요약 명령이기도 하지만, 세션 안에서는 날짜 값(1. 오늘 2. 어제 3. 그제)이다.
+  if (/^(?:오늘|어제|그제|그저께|엊그제|이번\s*주|지난\s*주|이번\s*달|지난\s*달)$/.test(t)) return false;
+  return isKakaoDailyListCommand(t) || isRecentCommand(t) || isSummaryCommand(t) || !!parseKakaoSummaryRange(t) ||
+    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
+}
+
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
@@ -41230,8 +41322,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       routingSnapshot = {edit:values.get(keys[0]) ?? null,selected:values.get(keys[1]) ?? null,flow:values.get(keys[2]) ?? null};
     }
   }
-  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey &&
-      !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
+  // V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
+  // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
+  // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
+  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
+      (isKakaoSessionSeqReplyV4(utterance) || (!parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
@@ -41605,6 +41700,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
+  // V22.9.75 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
+  if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {
     const dateSummary = await kakaoDateSummaryParts(env, household, user, summaryRange, origin);
     return dateSummary.empty ? kakaoNextStepReply(dateSummary.text, payload) : kakaoText(dateSummary.text);
@@ -44393,8 +44490,12 @@ function parseKakaoMemberPolicyCommand(text = "") {
   return { show: true, unknown: true };
 }
 
+// V22.9.75 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
+// "점심 메뉴 12000" 같은 기록이 도움말로 바뀌고 저장되지 않았다. 자연어 판정은 금액이 없는 말에만 쓰고,
+// 아래의 짧은 도움말 명령은 그대로 받는다.
 function isHelpCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
+  if (detectKakaoNaturalIntent(text).intent === "HELP" && !extractAmount(text)) return true;
+  return /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
 }
 
 function isInviteCommand(text) {
@@ -44709,6 +44810,19 @@ function normalizeText(text) {
     .replace(/처눤/g, "천원")
     .replace(/백 원/g, "백원")
     .replace(/십 원/g, "십원")
+    // V22.9.75 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
+    // 앞뒤가 두 금액으로 읽혀 두 건(10,000원 + 기타지출 5,000원)으로 저장되거나 뒤의 금액이 사라졌다. 앞이 만·억·천·백으로
+    // 끝나고, 뒤가 그보다 작은 단위(천·백·십)의 수이며 ‘원’이 붙거나 문장이 끝날 때만 붙인다. 앞이 숫자 단위("3만 5천원")면
+    // 예전부터 한 금액으로 읽으므로 건드리지 않는다.
+    .replace(/(^|\s)([일이삼사오육칠팔구십백천]*[만억천백])\s+((?:[일이삼사오육칠팔구]|\d{1,3})?([천백십])[일이삼사오육칠팔구십백]*)(?=\s*원|\s*$)/g,
+      (all, lead, head, tail, unit) => {
+        const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
+        if (!(unitValue > { 천: 1000, 백: 100, 십: 10 }[unit])) return all;
+        if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
+        // 뒤가 숫자("만 2천원")면 앞도 숫자 단위("1만")로 바꿔야 한 금액("1만2천원")으로 읽힌다.
+        const coefficient = parseKoreanAmount(head) / unitValue;
+        return Number.isInteger(coefficient) && coefficient > 0 ? `${lead}${coefficient}${head.slice(-1)}${tail}` : all;
+      })
     // V22.9.34 감사 D1·N2: 시각(19:40)·괄호 속 카드 끝자리((1234))·가린 카드번호·카드 문자의 누적·잔액·한도
     // 금액은 기호를 지우기 전에 뺀다. 지우고 나면 "19 40", " 1234 " 가 되어 금액으로 읽혔다.
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ")

@@ -31,9 +31,11 @@ import {
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
-  getRecentKakaoOwnedTransactionsV2254, kakaoEditSessionKeyV4, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  getRecentKakaoOwnedTransactionsV2254, isKakaoDailyListCommand, isKakaoSessionSeqReplyV4,
+  kakaoEditSessionKeyV4, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  parseKakaoRestoreCommandV4,
 } from "./edit-session-v4.js";
+import { startsWithKakaoEditField } from "./edit-state-machine.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
@@ -86,6 +88,7 @@ import {
   parseKakaoMemberPolicyCommand,
 } from "./simple-commands.js";
 import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-parser.js";
+import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
 import {
   formatRecentTransactions, formatSummary, getMonthSummary, linkText, numberWithCommas,
@@ -273,6 +276,18 @@ function normalizeKakaoButtonLabel(text = "") {
 
 // V22.9.75 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
 // 버리므로 글로도 다시 보낼 문장을 알려 준다.
+// V22.9.75 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
+// 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 가서 원래 답을 받는다. 세션 값이 될 수 있는 말
+// (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
+function isKakaoEditSessionBypassCommand(text = "") {
+  const t = normalizeText(text);
+  if (!t || startsWithKakaoEditField(t) || /^\d+\s*번?$/.test(t)) return false;
+  // ‘오늘’·‘어제’ 한 낱말은 요약 명령이기도 하지만, 세션 안에서는 날짜 값(1. 오늘 2. 어제 3. 그제)이다.
+  if (/^(?:오늘|어제|그제|그저께|엊그제|이번\s*주|지난\s*주|이번\s*달|지난\s*달)$/.test(t)) return false;
+  return isKakaoDailyListCommand(t) || isRecentCommand(t) || isSummaryCommand(t) || !!parseKakaoSummaryRange(t) ||
+    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
+}
+
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
@@ -353,8 +368,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       routingSnapshot = {edit:values.get(keys[0]) ?? null,selected:values.get(keys[1]) ?? null,flow:values.get(keys[2]) ?? null};
     }
   }
-  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey &&
-      !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
+  // V22.9.75 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
+  // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
+  // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
+  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
+      (isKakaoSessionSeqReplyV4(utterance) || (!parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
@@ -728,6 +746,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
+  // V22.9.75 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
+  if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {
     const dateSummary = await kakaoDateSummaryParts(env, household, user, summaryRange, origin);
     return dateSummary.empty ? kakaoNextStepReply(dateSummary.text, payload) : kakaoText(dateSummary.text);

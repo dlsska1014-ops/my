@@ -4,6 +4,7 @@ import { safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import {
   createUserHousehold, fetchUserHouseholds, withHouseholdCreateLock,
 } from "../data/users-household-create.js";
@@ -160,6 +161,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: "선택하려던 가계부가 삭제되었거나 권한이 변경됐어요. ‘시작’을 입력해 현재 목록을 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
     const chosen = parseKakaoHouseholdChoice(utterance, candidates);
+    // V22.9.75 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
+    if (chosen?.ambiguous) {
+      return {
+        text: [`‘${chosen.name}’ 이름의 가계부가 ${chosen.count}개예요. 어느 가계부인지 번호로 골라 주세요.`, "", ...kakaoHouseholdListLines(candidates)].join("\n"),
+        quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
+      };
+    }
     if (!chosen && isInviteCommand(utterance)) {
       const nextState = { ...state, data: { ...safeObject(state.data), action: "invite" } };
       await saveKakaoFlowState(env, user.id, payload, nextState);
@@ -191,7 +199,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-      return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
+      const roleNote = candidates.filter((h) => normalizeText(h?.name || "") === normalizeText(chosen.name || "")).length > 1 ? `(${userHouseholdRoleLabel(chosen.role || "member")})` : "";
+      return { text: `✅ ‘${chosen.name}’${roleNote} 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.

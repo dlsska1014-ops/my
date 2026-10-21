@@ -142,6 +142,16 @@ function tokenToFieldFuzzy(tokenRaw) {
 
 // T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
 // 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
+// V22.9.75 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
+// 새 기록의 첫 낱말이 우연히 필드 이름으로 시작하는 경우("사람들 회식 5만원")는 피하려고, 앞 낱말이 필드 이름이나
+// 메뉴 번호와 똑같을 때만 맞다고 본다.
+function isExactKakaoEditFieldStart(textRaw = "") {
+  const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
+  if (/^[1-7]$/.test(token)) return true;
+  const c = compact(token);
+  return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
+}
+
 function startsWithKakaoEditField(textRaw = "") {
   const first = normalize(textRaw).split(" ")[0] || "";
   return !!(tokenToField(first) || tokenToFieldFuzzy(first));
@@ -603,8 +613,8 @@ function loopFuzzTest(config = {}, rounds = 200) {
 // @build:exports-start
 export {
   FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS,
-  MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact, handleEditMessage, isSessionExpired,
-  josa, loopFuzzTest, normalizeKakaoEditAmountValue, parseEditInput, selfTest,
-  startsWithKakaoEditField,
+  MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact, handleEditMessage,
+  isExactKakaoEditFieldStart, isSessionExpired, josa, loopFuzzTest, normalizeKakaoEditAmountValue,
+  parseEditInput, selfTest, startsWithKakaoEditField,
 };
 // @build:exports-end

@@ -80,10 +80,14 @@ function kakaoHouseholdChoiceQuickReplies(rows = [], prefix = "가계부 선택"
 }
 
 function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
-  return safeArray(rows).slice(0, 10).map((h, index) => {
+  const list = safeArray(rows).slice(0, 10);
+  // V22.9.75 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
+  const sameName = (h) => list.filter((other) => normalizeText(other?.name || "") === normalizeText(h?.name || "")).length > 1;
+  return list.map((h, index) => {
     const role = userHouseholdRoleLabel(h?.role || "member");
     const code = showCodes && h?.invite_code ? ` · 코드 ${h.invite_code}` : "";
-    return `${index + 1}. ${h?.name || "가계부"} · ${role}${code}`;
+    const made = sameName(h) && h?.created_at ? ` · 만든 날 ${String(h.created_at).slice(0, 10)}` : "";
+    return `${index + 1}. ${h?.name || "가계부"} · ${role}${made}${code}`;
   });
 }
 
@@ -96,7 +100,11 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
   }
   const stripped = t.replace(/^(?:가계부\s*)?(?:선택|전환|바꾸기|연결)\s*/, "").trim();
   if (!stripped) return null;
-  return rows.find((h) => normalizeText(h?.name || "") === stripped) || null;
+  // V22.9.75 감사 D-6: 이름이 같은 가계부가 둘 이상이면 첫 번째를 고르지 않는다(남의 같은 이름 가계부에 기록이 저장될 수 있었다).
+  // 부르는 쪽이 번호로 다시 묻는다.
+  const matches = rows.filter((h) => normalizeText(h?.name || "") === stripped);
+  if (matches.length > 1) return { ambiguous: true, name: matches[0].name, count: matches.length };
+  return matches[0] || null;
 }
 
 async function beginKakaoHouseholdChoice(env, { user, payload, households = [], action = "select", origin = "", groupKey = "", forceChoice = false } = {}) {
@@ -325,8 +333,11 @@ function parseBudgetMonthHint(text = "") {
   if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
-    const year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
+    // V22.9.75 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
+    // (예전: 지난 1월에 저장). 앞뒤 거리가 같으면(6개월) 앞날로 본다.
+    let year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
     const month = Number(m[2]);
+    if (!m[1]) { const diff = month - Number(currentMonthKst().slice(5, 7)); if (diff <= -6) year += 1; else if (diff > 6) year -= 1; }
     if (month >= 1 && month <= 12) return `${year}-${String(month).padStart(2, "0")}`;
   }
   return currentMonthKst();
@@ -411,19 +422,23 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
+  // V22.9.75 감사 A-13: ‘저번달’·‘전달’·‘저번주’는 지난달·지난주와 같은 말이다. 예전에는 기간을 못 읽어 이번 달로 답했다.
+  t = t.replace(/^(?:저번\s*달|전달|전월)(?=\s|$|요약|수입|얼마)/, "지난달").replace(/^저번\s*주(?=\s|$|요약|수입|얼마)/, "지난주");
   // V22.9.75 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
   // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
   let focus = "";
-  const incomeAsk = t.match(/^(?:(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
-    || t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
   if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
-  const natural = t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
+  const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
-  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
+  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
   if (/오늘/.test(t)) {
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); end = addDays(start, 1); label = "오늘";
+  } else if (/그제|그저께/.test(t)) {
+    end = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -1); start = addDays(end, -1); label = "그제";
   } else if (/어제/.test(t)) {
     end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); start = addDays(end, -1); label = "어제";
   } else if (/지난\s*주/.test(t)) {
@@ -432,18 +447,26 @@ function parseKakaoSummaryRange(text = "") {
   } else if (/이번\s*주/.test(t)) {
     const dow = (now.getDay() + 6) % 7; start = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow); end = addDays(start, 7); label = "이번 주";
   } else if (/지난\s*달/.test(t)) {
-    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getMonth()+1}월`;
+    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getFullYear() === now.getFullYear() ? "" : `${start.getFullYear()}년 `}${start.getMonth()+1}월`;
   } else {
     const dateMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
     if (dateMatch) {
-      const y = Number(dateMatch[1] || now.getFullYear()), m = Number(dateMatch[2]), d = Number(dateMatch[3]);
-      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${m}월 ${d}일`;
+      // V22.9.75 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
+      let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
+      if (!dateMatch[1] && new Date(y, m - 1, d) > now) y -= 1;
+      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
-      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*요약)?$/);
-      if (monthMatch) {
-        const y = Number(monthMatch[1] || now.getFullYear()), m = Number(monthMatch[2]);
-        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${m}월`;
+      // V22.9.75 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
+      // (1월에 보낸 "12월 요약"이 올해 12월의 0원으로 답했다). 올해가 아니면 제목에 연도를 붙인다.
+      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*(?:지출|수입|가계부))?(?:\s*(?:요약|현황|통계))?$/);
+      if (monthMatch && Number(monthMatch[2]) >= 1 && Number(monthMatch[2]) <= 12) {
+        let y = Number(monthMatch[1] || now.getFullYear()); const m = Number(monthMatch[2]);
+        if (!monthMatch[1] && m > now.getMonth() + 1) y -= 1;
+        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월`;
       } else {
+        // V22.9.75 감사 A-13: 기간 말을 읽지 못한 요약("저저번달 요약", "작년 요약", "13월 요약")에 이번 달로 답하지 않는다.
+        const rest = t.replace(/\s*(?:요약|현황|통계)$/, "").replace(/이번\s*달|이달|금월|월간/g, "").trim();
+        if (rest !== "월" && /[0-9]|년|해|분기|반기|주|달|월|일|그끄/.test(rest)) return { unreadable: true, text: rest.slice(0, 20) };
         start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth()+1, 1); label = "이번 달";
       }
     }

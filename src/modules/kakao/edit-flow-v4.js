@@ -19,16 +19,16 @@ import {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
   isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
-  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
-  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
-  kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel,
-  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
+  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4,
+  kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
   parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
   saveKakaoEditSessionV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 } from "./edit-session-v4.js";
 import {
-  KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isSessionExpired, josa,
-  startsWithKakaoEditField,
+  KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isExactKakaoEditFieldStart,
+  isSessionExpired, josa, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
 import { getHouseholdMemberRole } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
@@ -319,6 +319,12 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
+    // V22.9.75 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
+    // 01번을 바로 바꿀 수 있었다. 세션이 끝난 지 30분 안에 온 수정 값 모양의 말은 끝났다고 알리고 한 줄 명령을 보여 준다.
+    const sinceUpdateMs = Date.now() - Number(session.updatedAt || 0);
+    if (session.updatedAt && sinceUpdateMs <= 35 * 60 * 1000 && (isExactKakaoEditFieldStart(utterance) || isKakaoSessionSeqReplyV4(utterance))) {
+      return kakaoText(kakaoEditExpiredTextV4(session, utterance));
+    }
     return null;
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
@@ -330,6 +336,17 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+}
+
+// V22.9.75 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
+// 보낸 말로 만들어 보여 준다(어제 기록이면 ‘어제’·‘8월 4일’을 앞에 붙인다).
+function kakaoEditExpiredTextV4(session = {}, utterance = "") {
+  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
+  const text = normalizeText(utterance).slice(0, 40);
+  const person = session.rowType === "income" ? "수입자" : "지출자";
+  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-7]$/.test(text) && isExactKakaoEditFieldStart(text);
+  const examples = [fieldFirst ? `${head} ${text}` : `${head} 금액 13000`, `${head} ${person} 엄마`];
+  return [`⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 끝냈어요. 보낸 내용은 반영하지 않았어요.`, "다시 하려면 한 줄로 보내 주세요:", ...[...new Set(examples)].map((line) => `👉 ${line}`)].join("\n");
 }
 
 async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
@@ -517,8 +534,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
+    // V22.9.75 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
+    // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
     if (!row) return kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
+    if (!canManageMyHousehold(ctx.role)) return kakaoText(`${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`);
     const value = parseKakaoSpenderChoiceValue(raw);
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자" });
   }
