@@ -12,12 +12,14 @@
 //   D-27 운영 화면 역할 선택의 admin 누락, 역할 조회 실패를 "권한 없음"으로 답하던 것, 이름 바꾸기 500
 //   G-2  단톡방 2개 이상에 연결된 가계부를 지우면 호출 한도를 넘어 잠금·연결 행이 남던 것
 //   C-2  복귀 경로를 정규화 전 문자열로만 봐서 /.//x 가 //x(다른 사이트)로 나가던 것
+//   E-17 옛 관리자 가져오기 화면이 CSV를 UTF-8로만 읽어 CP949 파일의 한글이 깨지던 것
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
 //   V22975_ONLY=D-9,A-10   그 절만 돌린다.
 //   V22975_SOFT=1           실패해도 멈추지 않고 실패한 검사를 모두 적는다(옛 코드에서 무엇이 깨지는지 볼 때).
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import { app, BASE, ctx, counter, failure, fixture, page, post, api, skill, putSetting, settingValue, intercept, withClock } from "./lib-audit-v22934.mjs";
 
 const t = counter("PASS: V22.9.75 data fixes");
@@ -620,6 +622,72 @@ await section("C-2", async () => {
     }
     const kept = await post(fx, "/admin/bulk", { month: "2026-07", household_id: HH, return_to: "/?legacy=1&month=2026-07" }, { cookie: admin });
     ok(kept.location.startsWith("/?legacy=1&month=2026-07") && kept.decoded.replace(/[+]/g, " ").includes("선택된 거래가 없습니다"), `C-2 정상 복귀 경로와 안내는 그대로다 (${kept.decoded})`);
+  });
+});
+
+// ── E-17 옛 관리자 가져오기 화면이 CP949 CSV를 깨뜨리지 않는다 ──
+// 이 화면의 스크립트는 CSV·TXT 파일을 FileReader.readAsText(file, "utf-8") 로만 읽어, 한글 윈도우·엑셀이 저장한
+// CP949 파일의 한글이 "�"로 깨진 채 미리보기와 업로드 칸에 들어갔다. 화면이 실제로 내려보내는 스크립트를 가짜 DOM에서
+// 돌려 파일 선택을 흉내 낸다(브라우저처럼 readAsText 는 지정한 인코딩으로, readAsArrayBuffer 는 바이트 그대로 준다).
+async function legacyImportScripts(fx) {
+  const admin = await adminLogin(fx);
+  const html = (await page(fx, `/?legacy=1&tab=import&household_id=${HH}&month=2026-07`, { cookie: admin })).html;
+  return [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]).filter((code) => code.includes("importFile"));
+}
+function pickImportFile(scripts, file) {
+  const elements = new Map();
+  const element = (id) => {
+    if (!elements.has(id)) {
+      elements.set(id, {
+        id, value: "", innerHTML: "", textContent: "", className: "", style: {}, dataset: {}, listeners: {},
+        addEventListener(type, handler) { this.listeners[type] = handler; },
+        classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+        setAttribute() {}, removeAttribute() {}, querySelector: () => null, querySelectorAll: () => [],
+      });
+    }
+    return elements.get(id);
+  };
+  class BrowserLikeFileReader {
+    readAsArrayBuffer(blob) { const bytes = blob.bytes; this.onload({ target: { result: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) } }); }
+    readAsText(blob, encoding) { this.onload({ target: { result: new TextDecoder(encoding || "utf-8").decode(blob.bytes) } }); }
+  }
+  const sandbox = {
+    document: { getElementById: (id) => element(id), querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+    FileReader: BrowserLikeFileReader, TextDecoder, Uint8Array, console, setTimeout, clearTimeout,
+    location: { href: `${BASE}/?legacy=1&tab=import` }, alert() {}, confirm: () => false,
+    fetch: async () => { throw new Error("이 검사는 네트워크를 쓰지 않는다"); },
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  for (const code of scripts) vm.runInContext(code, sandbox);
+  element("importFile").listeners.change({ target: { files: [file] } });
+  return { text: String(element("importText").value || ""), status: String(element("importStatus").textContent || "") };
+}
+const concatBytes = (...parts) => {
+  const arrays = parts.map((part) => (typeof part === "string" ? new TextEncoder().encode(part) : Uint8Array.from(part)));
+  const out = new Uint8Array(arrays.reduce((sum, array) => sum + array.length, 0));
+  let offset = 0;
+  for (const array of arrays) { out.set(array, offset); offset += array.length; }
+  return out;
+};
+
+await section("E-17", async () => {
+  await fixture(async (fx) => {
+    const scripts = await legacyImportScripts(fx);
+    ok(scripts.length > 0, "E-17 옛 관리자 가져오기 화면이 파일 선택 스크립트를 내려보낸다");
+    // CP949: 날짜(B3AF C2A5) 내용(B3BB BFEB) 금액(B1DD BED7) 커피(C4BF C7C7)
+    const cp949 = concatBytes([0xb3, 0xaf, 0xc2, 0xa5], ",", [0xb3, 0xbb, 0xbf, 0xeb], ",", [0xb1, 0xdd, 0xbe, 0xd7], "\n2026-07-01,", [0xc4, 0xbf, 0xc7, 0xc7], ",4500\n");
+    eq(new TextDecoder("euc-kr").decode(cp949), "날짜,내용,금액\n2026-07-01,커피,4500\n", "E-17 검사용 CP949 바이트가 맞다");
+    const korean = pickImportFile(scripts, { name: "카드내역.csv", bytes: cp949 });
+    ok(korean.text.includes("날짜,내용,금액") && korean.text.includes("커피,4500") && !korean.text.includes("�"), `E-17 CP949 CSV의 한글이 깨지지 않는다 (${JSON.stringify(korean.text.slice(0, 40))})`);
+    ok(korean.status.includes("CP949") && korean.status.includes("미리보기 2행"), `E-17 CP949로 읽었다고 미리보기 행 수와 함께 알려 준다 (${korean.status})`);
+    const utf8 = pickImportFile(scripts, { name: "export.csv", bytes: new TextEncoder().encode("﻿날짜,내용,금액\n2026-07-02,택시,7100\n") });
+    ok(utf8.text.startsWith("날짜,내용,금액") && utf8.text.includes("택시,7100"), `E-17 UTF-8(BOM) 파일은 그대로 읽고 BOM은 빠진다 (${JSON.stringify(utf8.text.slice(0, 20))})`);
+    ok(!/CP949|UTF-16/.test(utf8.status), `E-17 UTF-8 파일에는 인코딩 안내를 붙이지 않는다 (${utf8.status})`);
+    const utf16Text = "날짜,내용,금액\n2026-07-03,점심,12000\n";
+    const utf16 = concatBytes([0xff, 0xfe], [...utf16Text].flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8]));
+    const unicode = pickImportFile(scripts, { name: "unicode.txt", bytes: utf16 });
+    ok(unicode.text.includes("점심,12000") && !unicode.text.includes("�"), `E-17 엑셀 유니코드 텍스트(UTF-16)도 읽는다 (${JSON.stringify(unicode.text.slice(0, 20))})`);
   });
 });
 
