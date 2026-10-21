@@ -34,7 +34,9 @@ const LIVE_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-
 const C = "month=2026-07&household_id=house-home";
 // V22.9.40 (D 병합): 생활비 가이드 글 12편도 공개 허용 화면이다(정본 30 − 정책·신원 6 = 24). 렌더 검사도 같은 기준으로 돈다.
 const PUBLIC_ARTICLES = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
-const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", ...PUBLIC_ARTICLES];
+// V22.9.74: 글 목록 허브 1쪽 + 생활비 가이드 글 20편도 공개 허용 화면이다(정본 51 − 정책·신원 6 = 45).
+const PUBLIC_ARTICLES_V22974 = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
+const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", ...PUBLIC_ARTICLES, ...PUBLIC_ARTICLES_V22974];
 const POLICY_PAGES = ["/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map"];
 const SIGNED_IN_ALLOWED = ["/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide"];
 
@@ -127,8 +129,8 @@ ok(gate.includes("support.google.com/adsense/answer/16283098") && gate.includes(
 ok(source.includes("AdSense review mode is ownership-only"), "심사 모드 소유권 메타 주석은 그대로다");
 const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-eq(publicPaths.length, 30, "공개 정본 문서는 30개다(가이드 18 + V22.9.40 생활비 가이드 글 12)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 24, "공개 허용 화면은 24쪽이다(정본 30 − 정책·신원 6)");
+eq(publicPaths.length, 51, "공개 정본 문서는 51개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 20)");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 45, "공개 허용 화면은 45쪽이다(정본 51 − 정책·신원 6)");
 eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify(publicPaths.filter((path) => !POLICY_PAGES.includes(path)).sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {

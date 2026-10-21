@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.73",
+  "version": "22.9.74",
   "private": true,
   "type": "module",
   "engines": {
@@ -25,6 +25,7 @@
     "validate:ads-gate": "node validation/validate-ads-gate-v22940.mjs",
     "validate:www-canonical": "node validation/validate-www-canonical-v22940.mjs",
     "validate:public-articles": "node validation/validate-public-articles-v22940.mjs",
+    "validate:public-articles-v22974": "node validation/validate-public-articles-v22974.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",

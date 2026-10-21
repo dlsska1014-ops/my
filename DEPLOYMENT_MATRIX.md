@@ -1,3 +1,14 @@
+## V22.9.74 배포 판단
+
+| 항목 | 판단 |
+|---|---|
+| 앱 Worker | V22.9.73 위에서 공개 페이지(`public/*`)만 바꾼 판: 글 20편 모듈 추가, 글 화면 구성, 허브 `/articles`, 내비, 홈·소개·가이드·사이트맵 문구, 공개 정본 51개. 카카오·가계부·관제·DB 경로 변경 없음. 업로드(`node tools/deploy-worker-version.mjs`) → `/health`·공개 검사 → 승격 순서는 그대로다. |
+| SQL·스키마·RPC·Secret | 변경 없음. |
+| 환경변수 | 변경 없음. `ADS_MODE` 는 review 유지(승인 전 광고 실행 코드 없음). |
+| 카카오 OpenBuilder | 변경 없음(v3.4 유지). |
+| 되돌리기 | 이전 활성 버전으로 되돌리면 새 글 URL 20개와 /articles 가 404 가 되므로, 되돌린 뒤에는 Search Console 에 색인 요청한 URL 이 없다는 점을 감안한다. |
+| 반영 뒤 운영자 작업 | Search Console 사이트맵 재제출·새 URL 색인 요청, 1~2주 뒤 AdSense 검토 요청, 네이버 서치어드바이저 등록, tools 하위 도메인 점검 — docs/ADSENSE_REMEDIATION_V22_9_74.md 5절. |
+
 ## V22.9.73 배포 판단
 
 | 항목 | 판단 |
