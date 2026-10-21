@@ -8,6 +8,7 @@
 //   E-16 백업센터의 "전체 가계부 백업"이 고른 한 달 치만 담던 것
 //   E-7  관리자 JSON 복구가 같은 날 같은 거래 두 건 중 한 건을 영구히 빠뜨리던 것
 //   D-8  자산 잔액만 저장해도 꺼 둔 "총자산에 포함"이 다시 켜지던 것
+//   F-9  가입 오류 뒤 폼이 빈 채로 다시 그려지던 것(비밀번호는 다시 쓰지 않는다)
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
@@ -357,6 +358,38 @@ await section("D-8", async () => {
     eq(assetsOf().find((asset) => asset.id === "asset-dep")?.include_in_asset, true, "상세 수정에서 체크하면 총자산에 포함된다");
     await edit(false);
     eq(assetsOf().find((asset) => asset.id === "asset-dep")?.include_in_asset, false, "상세 수정에서 체크를 풀면 총자산에서 빠진다");
+  });
+});
+
+// ── F-9 가입 오류 뒤에도 적은 내용(비밀번호 빼고)이 남는다 ──
+// 가입 폼은 오류가 나면 빈 폼으로 다시 그려져 로그인 이름·표시 이름·초대 코드를 처음부터 다시 적어야 했다.
+// 비밀이 아닌 세 칸만 HTML 이스케이프해서 다시 채우고, 비밀번호 두 칸은 절대 다시 쓰지 않는다.
+await section("F-9", async () => {
+  await fixture(async (fx) => {
+    const inputValue = (html, id) => {
+      const tag = String(html || "").match(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`))?.[0] || "";
+      return tag ? decode((tag.match(/\bvalue="([^"]*)"/) || [, ""])[1]) : null;
+    };
+    const signup = (values) => post(fx, "/my/local-signup", values, { cookie: "" });
+    const typed = { login_name: "새가족\"<b>", display_name: "엄마 & 아빠", invite_code: "ab12cd", access_code: "secret-pass-1", access_code_confirm: "secret-pass-2" };
+    const mismatch = await signup(typed);
+    eq(mismatch.status, 400, "비밀번호 확인이 다르면 가입 폼을 오류와 함께 다시 그린다");
+    eq(inputValue(mismatch.text, "signupName"), typed.login_name, "로그인 이름 칸에 적은 값이 남는다");
+    eq(inputValue(mismatch.text, "signupDisplay"), typed.display_name, "표시 이름 칸에 적은 값이 남는다");
+    eq(inputValue(mismatch.text, "signupInvite"), "AB12CD", "초대 코드 칸에 적은 값이 남는다(대문자로)");
+    ok(!mismatch.text.includes("secret-pass-1") && !mismatch.text.includes("secret-pass-2"), "비밀번호는 다시 그린 화면 어디에도 나오지 않는다");
+    ok(!mismatch.text.includes("<b>\" ") && !mismatch.text.includes("새가족\"<b>"), "적은 값은 이스케이프돼서 태그나 속성을 깨지 않는다");
+    const short = await signup({ ...typed, access_code: "short", access_code_confirm: "short" });
+    eq(inputValue(short.text, "signupDisplay"), typed.display_name, "비밀번호가 짧다는 오류 뒤에도 표시 이름이 남는다");
+    // 다른 사람이 쓰는 로그인 이름이면(가입 자체가 거절) 역시 적은 값이 남는다.
+    const first = await signup({ login_name: "taken-name", display_name: "첫사람", access_code: "first-pass-123", access_code_confirm: "first-pass-123" });
+    ok(first.status === 302 || first.status === 303, `첫 가입은 된다 (${first.status})`);
+    const taken = await signup({ login_name: "taken-name", display_name: "둘째", invite_code: "", access_code: "second-pass-123", access_code_confirm: "second-pass-123" });
+    ok(taken.status >= 400, `같은 로그인 이름 가입은 거절된다 (${taken.status})`);
+    eq(inputValue(taken.text, "signupDisplay"), "둘째", "로그인 이름이 이미 쓰인다는 오류 뒤에도 표시 이름이 남는다");
+    ok(!taken.text.includes("second-pass-123"), "그 화면에도 비밀번호는 나오지 않는다");
+    const plain = await page(fx, "/my", { cookie: "" });
+    eq(inputValue(plain.html, "signupName"), "", "처음 여는 가입 폼은 비어 있다");
   });
 });
 
