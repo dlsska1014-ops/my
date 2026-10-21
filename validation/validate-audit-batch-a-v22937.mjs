@@ -298,8 +298,14 @@ await withClock("2026-07-15", async () => {
     const home = await page(fx, "/app?month=2026-07&household_id=house-home");
     ok(/지난달 1~15일보다 238,600원 더 썼어요/.test(home.html), "D12 이번 달은 지난달 1~15일(같은 기간)과 견주고 그 기준을 문장에 적는다(예전에는 6월 전체 51만원과 견줘 덜 썼다고 했다)");
     ok(!/지난달보다 261,400원 덜 썼어요/.test(home.html), "D12 지난달 전체와 견준 옛 문장이 남지 않는다");
+    // V22.9.75: 6월 화면의 지난달(5월)은 기록이 0건이다. 예전 검사는 0원과 견준 "지난달보다 510,000원 더 썼어요"를
+    // 기대했는데, 그것이 고친 결함(지난 기간 기록이 없어도 '더 썼어요')이다. 5월 기록이 없을 때는 비교하지 않음을,
+    // 5월 기록을 넣은 뒤에는 월 전체끼리 견줌을 확인한다.
     const past = await page(fx, "/app?month=2026-06&household_id=house-home");
-    ok(/지난달보다 510,000원 더 썼어요/.test(past.html) && !/지난달 1~\d+일보다/.test(past.html), "D12 지난 달 화면은 월 전체끼리 견주고 같은 기간 표시를 붙이지 않는다");
+    ok(/지난달 기록이 없어 비교하지 않아요/.test(past.html) && !/지난달보다 510,000원 더 썼어요/.test(past.html) && !/지난달 1~\d+일/.test(past.html), "D12 지난 달 화면은 그 전달 기록이 없으면 0원과 견주지 않고 같은 기간 표시도 붙이지 않는다");
+    fx.db.transactions.push(expenseRow("tx-may-a", "2026-05-20", 300000));
+    const pastCompared = await page(fx, "/app?month=2026-06&household_id=house-home");
+    ok(/지난달보다 210,000원 더 썼어요/.test(pastCompared.html) && !/지난달 1~\d+일보다/.test(pastCompared.html), "D12 지난 달 화면은 월 전체끼리 견주고 같은 기간 표시를 붙이지 않는다");
   });
 });
 

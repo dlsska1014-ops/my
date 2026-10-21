@@ -36,6 +36,15 @@ import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date
 import { escapeHtml, nextMonthStart } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.75 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
+// 모든 객체가 물려받는 이름이 오면 그 함수 본문("function Object() { [native code] }")이 보였으므로, 그런 이름은
+// 표에 없는 코드로 바꿔 넘긴다(일반 안내 "요청을 처리하지 못했습니다."가 나온다). 렌더러(renderMyAnalysisHtml)는
+// validate-polish-v22940 가 고정한 본문이라 손대지 않고 여기서 거른다.
+function analysisFlashCode(value) {
+  const code = String(value || "");
+  return code && code in Object.prototype ? "unknown" : code;
+}
+
 async function handleMyAnalysisPage(request, env, url) {
   const ctx = await getMyPageContext(request, env, url, { observedComparison: true });
   if (ctx.redirect) return ctx.redirect;
@@ -57,7 +66,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
-  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: analysisFlashCode(url.searchParams.get("err")) }));
 }
 
 // ---------------------------------------------------------------------------

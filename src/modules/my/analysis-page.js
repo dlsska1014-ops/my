@@ -71,9 +71,12 @@ function renderBudgetGaugeCards(budget = {}) {
   const total = Number(budget.totalBudget || 0);
   const expense = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const remain = Math.max(0, total - expense);
-  const rate = total ? Math.min(160, Math.round(expense / total * 100)) : 0;
-  const over = Math.max(0, expense - total);
-  return `<section class="card"><h2>예산 사용 게이지</h2><div class="gaugeGrid"><div class="gaugeCard"><span>총 예산</span><b>${numberWithCommas(total)}원</b></div><div class="gaugeCard"><span>사용</span><b>${numberWithCommas(expense)}원</b></div><div class="gaugeCard"><span>잔여 예산</span><b>${numberWithCommas(remain)}원</b></div><div class="gaugeCard"><span>초과</span><b>${numberWithCommas(over)}원</b></div></div><div class="meter"><i style="width:${Math.min(100, rate)}%"></i></div><p class="muted">예산 사용률 ${rate}% · 분류별 예산 합계를 기준으로 계산합니다.</p></section>`;
+  // V22.9.75 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
+  // 홈·예산 화면(507%)과 달랐다. 예산이 없으면 지출 전부를 '초과'로 적지 않는다.
+  const rate = total ? Math.round(expense / total * 100) : 0;
+  const over = total ? Math.max(0, expense - total) : 0;
+  const won = (v) => total ? `${numberWithCommas(v)}원` : "미설정";
+  return `<section class="card"><h2>예산 사용 게이지</h2><div class="gaugeGrid"><div class="gaugeCard"><span>총 예산</span><b>${numberWithCommas(total)}원</b></div><div class="gaugeCard"><span>사용</span><b>${numberWithCommas(expense)}원</b></div><div class="gaugeCard"><span>잔여 예산</span><b>${won(remain)}</b></div><div class="gaugeCard"><span>초과</span><b>${won(over)}</b></div></div><div class="meter"><i style="width:${Math.min(100, rate)}%"></i></div><p class="muted">${total ? `예산 사용률 ${rate}% · 분류별 예산 합계를 기준으로 계산합니다.` : "예산을 설정하면 사용률·잔여·초과를 계산합니다."}</p></section>`;
 }
 
 function renderBudgetGaugeRows(budget = {}) {
@@ -87,15 +90,18 @@ function renderBudgetGaugeRows(budget = {}) {
 
 function shortWonLabel(amount = 0) {
   const n = Number(amount || 0);
-  if (!n) return "0";
-  if (Math.abs(n) >= 100000000) {
-    // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 소수 첫째 자리까지 둔다.
-    const eok = Math.round(n / 10000000) / 10;
-    return `${Number.isInteger(eok) ? eok : eok.toFixed(1)}억`;
-  }
-  if (Math.abs(n) >= 10000) return `${Math.round(n / 10000)}만`;
-  if (Math.abs(n) >= 1000) return `${Math.round(n / 1000)}천`;
-  return `${Math.round(n)}`;
+  if (!n || !Number.isFinite(n)) return "0";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 억·조는 소수 첫째 자리까지 둔다.
+  const tenth = (v) => { const r = Math.round(v * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
+  // V22.9.75 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
+  // 99,995,000원 "10000만" → "1억"). 1조 이상은 "10020억"이 아니라 "1조"로 쓴다.
+  if (Math.round(abs / 1e7) / 10 >= 10000) return `${sign}${tenth(abs / 1e12)}조`;
+  if (abs >= 1e8 || Math.round(abs / 1e4) >= 10000) return `${sign}${tenth(abs / 1e8)}억`;
+  if (Math.round(abs / 1e3) >= 10) return `${sign}${Math.round(abs / 1e4)}만`;
+  if (Math.round(abs) >= 1000) return `${sign}${Math.round(abs / 1e3)}천`;
+  return `${sign}${Math.round(abs)}`;
 }
 
 function renderReadableDailyTrend(rows = [], month = currentMonthKst(), linkBase = "") {

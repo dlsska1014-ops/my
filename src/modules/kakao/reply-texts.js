@@ -77,7 +77,8 @@ function formatMessage(msg) {
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
-  if (friendly[msg]) return escapeHtml(friendly[msg]);
+  // V22.9.75 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
+  if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
@@ -88,7 +89,7 @@ function formatMessage(msg) {
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
   // 쿼리 문자열은 사용자가 직접 만들 수 있다. 정확히 열거한 코드만 사용자 안내로 바꾸고,
   // 코드가 아닌 자유 문장(짧은 한국어 포함)은 출처를 증명할 수 없으므로 일반 안내로 닫는다.
-  return escapeHtml(map[msg] || generic);
+  return escapeHtml((Object.hasOwn(map, String(msg)) && map[msg]) || generic);
 }
 
 function isMissingCategory(value) {

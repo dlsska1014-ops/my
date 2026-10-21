@@ -122,7 +122,9 @@ function householdPageMessage(code = "") {
     member_policy_owner_only: "구성원 권한은 가계부 소유자만 바꿀 수 있습니다.",
     member_policy_failed: "구성원 권한을 저장하지 못했습니다. 기존 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
   };
-  return map[String(code || "")] || formatMessage(code || "");
+  // V22.9.75 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 /my/members 에 함수 본문을 보였다).
+  const key = String(code || "");
+  return (Object.hasOwn(map, key) && map[key]) || formatMessage(code || "");
 }
 
 async function handleMyHouseholdsPage(request, env, url) {
