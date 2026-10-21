@@ -9,13 +9,14 @@
 //   E-7  관리자 JSON 복구가 같은 날 같은 거래 두 건 중 한 건을 영구히 빠뜨리던 것
 //   D-8  자산 잔액만 저장해도 꺼 둔 "총자산에 포함"이 다시 켜지던 것
 //   F-9  가입 오류 뒤 폼이 빈 채로 다시 그려지던 것(비밀번호는 다시 쓰지 않는다)
+//   D-27 운영 화면 역할 선택의 admin 누락, 역할 조회 실패를 "권한 없음"으로 답하던 것, 이름 바꾸기 500
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
 //   V22975_ONLY=D-9,A-10   그 절만 돌린다.
 //   V22975_SOFT=1           실패해도 멈추지 않고 실패한 검사를 모두 적는다(옛 코드에서 무엇이 깨지는지 볼 때).
 import assert from "node:assert/strict";
-import { app, BASE, ctx, counter, fixture, page, post, api, skill, putSetting, settingValue, intercept } from "./lib-audit-v22934.mjs";
+import { app, BASE, ctx, counter, failure, fixture, page, post, api, skill, putSetting, settingValue, intercept, withClock } from "./lib-audit-v22934.mjs";
 
 const t = counter("PASS: V22.9.75 data fixes");
 const SOFT = process.env.V22975_SOFT === "1";
@@ -195,6 +196,9 @@ async function adminFixture(fx) {
     if (Array.isArray(rows)) fx.db[name] = JSON.parse(JSON.stringify(rows).replaceAll("user-bin", BIN).replaceAll("user-wifi", WIFI));
   }
   fx.cookie = await fx.cookieFor(BIN);
+  return adminLogin(fx);
+}
+async function adminLogin(fx) {
   fx.env.ADMIN_PASSWORD = "admin-pass";
   fx.env.ADMIN_SESSION_SECRET = "admin-secret";
   const login = await post(fx, "/login", { password: "admin-pass", return_to: "/ops-monitor" }, { cookie: "" });
@@ -391,6 +395,86 @@ await section("F-9", async () => {
     const plain = await page(fx, "/my", { cookie: "" });
     eq(inputValue(plain.html, "signupName"), "", "처음 여는 가입 폼은 비어 있다");
   });
+});
+
+// ── D-27 운영·참여자 화면의 역할과 오류 안내 ──
+// (1) 운영 화면 역할 선택에 admin 이 없어 관리자 행에서 '권한저장'을 누르면 승인 대기로 강등됐다.
+// (2) 역할 조회가 503 이면 "권한이 없습니다"·"참여자가 아닙니다"로 답했다. (3) 참여자 이름 바꾸기·운영 화면 가계부
+// 이름 바꾸기가 실패하면 500 안전모드 화면이 됐다. 참여자 화면은 코드만 안내로 바꾸므로 오류는 코드로 보낸다.
+await section("D-27", async () => {
+  const errorBox = async (fx, location, cookie) => {
+    const shown = await page(fx, location.replace(/^https?:\/\/[^/]+/, ""), cookie ? { cookie } : {});
+    return decode((shown.html.match(/<div class="error">([^<]*)<\/div>/) || [, "(오류 안내 없음)"])[1]);
+  };
+  const failMemberLookupOnce = () => {
+    let fired = false;
+    return intercept(({ url, method }) => {
+      if (!fired && method === "GET" && url.pathname.endsWith("/household_members") && url.searchParams.get("user_id")) { fired = true; return failure(503); }
+      return undefined;
+    });
+  };
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    // (1) 운영 화면에서 관리자(admin) 참여자 행을 그대로 저장
+    fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role = "admin";
+    const admin = await adminLogin(fx);
+    const ops = await page(fx, `/households?household_id=${HH}`, { cookie: admin });
+    const forms = [...ops.html.matchAll(/<form method="post" action="\/admin\/member\/update"[\s\S]*?<\/form>/g)].map((m) => m[0]);
+    const wifiForm = forms.find((form) => form.includes('name="user_id" value="user-wifi"')) || "";
+    const selected = (wifiForm.match(/<option value="([^"]*)"[^>]*selected/) || wifiForm.match(/<option value="([^"]*)"/) || [, ""])[1];
+    eq(selected, "admin", "운영 화면 역할 선택이 관리자(admin) 참여자를 관리자로 보여 준다");
+    ok(/<option value="owner"[^>]*>소유자<\/option>/.test(wifiForm), "소유자(owner) 선택지는 '소유자'라고 적힌다");
+    await post(fx, "/admin/member/update", { household_id: HH, user_id: "user-wifi", role: selected }, { cookie: admin });
+    eq(fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role, "admin", "그대로 '권한저장'을 눌러도 관리자 역할이 유지된다");
+    fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role = "member";
+
+    // (2) 역할 조회 실패는 '권한 없음'이 아니다
+    let restore = failMemberLookupOnce();
+    const rename = await post(fx, "/my/household/update", { household_id: HH, month: "2026-07", household_name: "새 이름" });
+    restore();
+    ok(rename.decoded.includes("err=household_role_check_failed"), `역할 조회가 실패하면 가계부 이름 변경이 '권한 확인 실패'로 끝난다 (${rename.decoded.replace(/^.*\?/, "")})`);
+    ok((await errorBox(fx, rename.location)).includes("권한을 확인하지 못해"), "화면이 권한을 확인하지 못했다고 안내한다");
+    eq(fx.db.households.find((h) => h.id === HH)?.name, "우리집 생활비", "가계부 이름은 바뀌지 않는다");
+    const wifi = await fx.cookieFor("user-wifi");
+    restore = failMemberLookupOnce();
+    const leave = await post(fx, "/my/household/leave", { household_id: HH, month: "2026-07", understand_history: "1" }, { cookie: wifi });
+    restore();
+    ok(leave.decoded.includes("err=household_role_check_failed"), `역할 조회가 실패하면 나가기가 '참여자가 아님'이 아니라 '권한 확인 실패'로 끝난다 (${leave.decoded.replace(/^.*\?/, "")})`);
+    ok(fx.db.household_members.some((m) => m.household_id === HH && m.user_id === "user-wifi"), "참여 상태는 그대로다");
+    const notOwner = await post(fx, "/my/household/update", { household_id: HH, month: "2026-07", household_name: "남의 이름" }, { cookie: wifi });
+    ok(notOwner.decoded.includes("err=household_manage_not_allowed"), "조회가 되면 구성원의 이름 변경은 예전처럼 '권한 없음'이다");
+
+    // (3) 참여자 이름 바꾸기가 500 이 되지 않는다
+    const members = `/my/members?household_id=${HH}`;
+    fx.db.__fail_settings_read_key = `member_aliases:${HH}`;
+    const aliasFail = await post(fx, "/admin/member/nickname", { household_id: HH, user_id: "user-wifi", nickname: "와이파이", return_to: members });
+    delete fx.db.__fail_settings_read_key;
+    eq(aliasFail.status, 303, "설정 읽기가 실패해도 이름 바꾸기는 500 이 아니라 참여자 화면으로 돌아간다");
+    ok(aliasFail.decoded.includes("err=member_alias_save_failed"), "이름을 저장하지 못했다는 코드로 돌아간다");
+    ok((await errorBox(fx, aliasFail.location)).includes("참여자 이름을 저장하지 못했습니다"), "참여자 화면이 이름 저장 실패를 안내한다");
+    fx.db.household_members = fx.db.household_members.filter((m) => !(m.household_id === HH && m.user_id === "user-wifi"));
+    const gone = await post(fx, "/admin/member/nickname", { household_id: HH, user_id: "user-wifi", nickname: "와이파이", return_to: members });
+    eq(gone.status, 303, "이미 나간 참여자의 이름 바꾸기도 500 이 아니다");
+    ok(gone.decoded.includes("err=member_missing"), "참여자를 찾지 못했다는 코드로 돌아간다");
+    ok((await errorBox(fx, gone.location)).includes("참여자를 찾지 못했습니다"), "참여자 화면이 대상을 찾지 못했다고 안내한다");
+
+    // 운영 화면의 가계부 이름 저장 실패(거절이 확실한 400; 응답을 잃은 5xx 는 "결과 확인 필요"로 안내한다)
+    restore = intercept(({ url, method }) => method === "PATCH" && url.pathname.endsWith("/households") ? failure(400, "rejected") : undefined);
+    const opsRename = await post(fx, "/admin/household/update", { id: HH, name: "운영 이름" }, { cookie: admin });
+    restore();
+    eq(opsRename.status, 303, "운영 화면 가계부 이름 저장이 실패해도 500 이 아니다");
+    ok((await errorBox(fx, opsRename.location, admin)).includes("가계부 이름을 저장하지 못했습니다"), "운영 화면이 이름 저장 실패를 안내한다");
+  }));
+
+  // 참여자 화면에서 역할 저장이 DB 규칙에 거절되면 그 이유가 보인다(예전에는 일반 안내로 덮였다).
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    fx.db.users.push({ id: "user-c", kakao_user_key: "kakao_login:2267", nickname: "C", created_at: "2026-07-01T00:00:00.000Z" });
+    fx.db.household_members.push({ household_id: HH, user_id: "user-c", role: "member", created_at: "2026-07-03T00:00:00.000Z" });
+    const restore = intercept(({ url, method }) => method === "PATCH" && url.pathname.endsWith("/household_members") ? failure(400, "new row violates check constraint household_members_role_check 23514") : undefined);
+    const rejected = await post(fx, "/admin/member/update", { household_id: HH, user_id: "user-c", role: "admin", return_to: `/my/members?household_id=${HH}&month=2026-07` });
+    restore();
+    ok((await errorBox(fx, rejected.location)).includes("데이터베이스 역할 규칙"), "참여자 화면이 DB 역할 규칙 때문에 저장하지 못했다고 안내한다");
+    eq(fx.db.household_members.find((m) => m.user_id === "user-c")?.role, "member", "기존 역할은 그대로다");
+  }));
 });
 
 if (failures.length) {

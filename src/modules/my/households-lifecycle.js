@@ -57,7 +57,8 @@ import {
   markKakaoChatFirstHistory, markKakaoChatFirstHistoryBatch, parseKakaoChatFirstMarker,
 } from "../kakao/identity-chat-first.js";
 import {
-  cancelPendingHouseholdJoin, getHouseholdMemberRole, joinHouseholdByCode,
+  cancelPendingHouseholdJoin, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+  joinHouseholdByCode,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { parseJoinCode } from "../kakao/simple-commands.js";
@@ -104,6 +105,13 @@ function householdPageMessage(code = "") {
     kakao_reauth_account_mismatch: "현재 가계부 계정과 다른 카카오 계정입니다. 원래 연결한 카카오 계정으로 다시 확인하세요.",
     kakao_reauth_unavailable: "카카오 본인 확인을 사용할 수 없습니다. 계정·보안에서 로그인 비밀번호를 설정한 뒤 확인하세요.",
     household_manage_not_allowed: "이 가계부의 설정을 변경할 권한이 없습니다.",
+    // V22.9.75 감사 D-27: 역할 조회 실패를 '권한 없음'과 구분한다. 참여자 화면(/my/members)·운영 화면도 이 표를 쓴다.
+    household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    member_manage_not_allowed: "참여자를 바꿀 권한이 없습니다. 가계부 소유자나 관리자에게 요청해 주세요.",
+    member_role_save_failed: "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.",
+    member_role_rule_rejected: "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다.",
+    member_remove_failed: "참여자 목록을 확인하지 못해 내보내지 않았습니다. 잠시 후 다시 시도하세요.",
+    member_alias_save_failed: "참여자 이름을 저장하지 못했습니다. 기존 이름은 그대로입니다. 잠시 후 다시 시도하세요.",
     household_update_failed: "가계부 이름을 저장하지 못했습니다. 기존 이름은 유지됩니다.",
     household_delete_owner_only: "가계부 영구 삭제는 소유자만 할 수 있습니다.",
     household_delete_name_mismatch: "확인용 가계부 이름이 현재 이름과 일치하지 않습니다.",
@@ -307,9 +315,15 @@ async function handleMyHouseholdUpdate(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
-  const role = await getHouseholdMemberRole(env, userId, householdId);
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
   if (!householdId || !name) return redirectResponse(addQueryToUrl(back, { err: "household_name_invalid" }));
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!canManageMyHousehold(role)) return redirectResponse(addQueryToUrl(back, { err: "household_manage_not_allowed" }));
   try {
     await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}`, {
@@ -495,7 +509,13 @@ async function handleMyHouseholdLeave(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const understood = String(form.get("understand_history") || "") === "1";
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
   if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
@@ -514,7 +534,7 @@ async function handleMyHouseholdLeave(request, env) {
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-      const freshRole = await getHouseholdMemberRole(env, userId, householdId);
+      const freshRole = await getHouseholdMemberRoleStrict(env, userId, householdId);
       if (!freshRole) throw new Error("household_leave_not_member");
       if (freshRole === "owner") throw new Error("household_owner_cannot_leave");
       if (freshRole === "blocked") throw new Error("household_blocked_member_cannot_leave");
@@ -536,7 +556,7 @@ async function handleMyHouseholdLeave(request, env) {
     }
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=household_left`);
   } catch (err) {
-    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : "household_leave_failed";
+    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "household_leave_failed";
     rememberOpsEvent({ kind: "household_leave_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }

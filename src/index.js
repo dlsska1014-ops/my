@@ -11597,11 +11597,17 @@ async function handleAdminHouseholdUpdate(request, env) {
   const id = String(form.get("id") || "").trim();
   const name = String(form.get("name") || "").trim().slice(0, 80);
   if (!id || !name) return redirectResponse("/households?err=missing");
-  await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ name }),
-  });
+  // V22.9.75 감사 D-27: 저장 실패가 500 안전모드 화면으로 떨어졌다. 실패를 알리고 기존 이름을 둔다.
+  try {
+    await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ name }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_update_failed", severity: "warn", path: "/admin/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "household_update_failed"}`);
+  }
   return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&msg=updated`);
 }
 
@@ -11634,8 +11640,15 @@ async function handleAdminMemberUpdate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 권한 변경 권한이 없습니다." }));
+    // V22.9.75 감사 D-27: 역할 조회 실패를 '권한 없음'으로 답하지 않는다. 안내는 참여자 화면이 읽는 코드로 보낸다.
+    let currentRole = "";
+    try {
+      currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_role_check_failed", severity: "warn", path: "/admin/member/update", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const role = String(form.get("role") || "").trim().toLowerCase();
@@ -11649,7 +11662,7 @@ async function handleAdminMemberUpdate(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
     const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
     if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
@@ -11680,9 +11693,9 @@ async function handleAdminMemberUpdate(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "member_role_update_failed", severity: "error", path: "/admin/member/update", method: "POST", detail: safeError(err) });
     const detail = safeError(err).toLowerCase();
-    const message = /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail)
-      ? "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다."
-      : "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.";
+    const message = isHouseholdRoleCheckFailure(err) ? "household_role_check_failed"
+      : /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail) ? "member_role_rule_rejected"
+      : "member_role_save_failed";
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: message }));
   }
 }
@@ -11694,11 +11707,11 @@ async function handleAdminMemberRemove(request, env) {
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
     try {
-      const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 삭제 권한이 없습니다." }));
+      const currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     } catch (err) {
       rememberOpsEvent({ kind: "member_remove_role_check_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "권한을 확인하지 못해 참여자를 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
     }
   }
   const userId = String(form.get("user_id") || "").trim();
@@ -11708,7 +11721,7 @@ async function handleAdminMemberRemove(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     const rows = await fetchRawHouseholdMembers(env, householdId);
     const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
@@ -11729,7 +11742,7 @@ async function handleAdminMemberRemove(request, env) {
     }));
   } catch (err) {
     rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 목록을 확인하지 못해 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "member_remove_failed" }));
   }
 }
 
@@ -11743,15 +11756,30 @@ async function handleAdminMemberNickname(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
+  const back = `/households?household_id=${encodeURIComponent(householdId)}`;
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 이름 변경 권한이 없습니다." }));
+    let role = "";
+    try {
+      role = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_alias_role_check_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, back, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, back, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const nickname = String(form.get("nickname") || "").trim().slice(0, 80);
-  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "nickname_missing" }));
-  await saveMemberAlias(env, householdId, userId, nickname);
-  return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_alias_updated" }));
+  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, back, { err: "nickname_missing" }));
+  // V22.9.75 감사 D-27: 이 처리만 try/catch 가 없어 대상이 이미 나갔거나 설정 읽기가 잠깐 실패하면 500 안전모드
+  // 화면이 됐다. 이유를 알리고 기존 이름을 둔다.
+  try {
+    await saveMemberAlias(env, householdId, userId, nickname);
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_alias_save_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+    const code = /member_alias_target_missing/.test(String(err?.message || "")) ? "member_missing" : isUncertainStorageWrite(err) ? "db_write_unknown" : "member_alias_save_failed";
+    return redirectResponse(returnLocation(form, back, { err: code }));
+  }
+  return redirectResponse(returnLocation(form, back, { msg: "member_alias_updated" }));
 }
 
 function categorySettingsKey(householdId = "") {
@@ -17734,7 +17762,8 @@ async function handleHouseholdUserPage(request, env, url, userId) {
   const ownerCount = members.filter((m) => String(m.role || "") === "owner").length;
   const msg = url.searchParams.get("msg") || "";
   const rawErr = url.searchParams.get("err") || "";
-  const err = rawErr ? formatMessage(rawErr) : "";
+  // V22.9.75 감사 D-27: 참여자 처리의 오류 코드(권한 확인 실패 등)는 가계부 화면 안내 표가 갖고 있다.
+  const err = rawErr ? householdPageMessage(rawErr) : "";
   const householdCards = households.map((h) => `<a class="hhCard ${selected?.id === h.id ? "active" : ""}" href="/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}"><b>${escapeHtml(h.name)}</b><span>내 역할 ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))} · 거래 ${numberWithCommas(counts[h.id] || 0)}건</span></a>`).join("") || `<p class="muted">참여 중인 가계부가 없습니다.</p>`;
   const memberCards = members.map((m) => {
     const roleOptions = ["owner", "admin", "member", "viewer", "pending", "blocked"].map((r) => `<option value="${r}"${String(m.role || "") === r ? " selected" : ""}>${userHouseholdRoleLabel(r)}</option>`).join("");
@@ -17770,9 +17799,9 @@ function renderHouseholdAdminHtml({ env, households, memberCounts = {}, selected
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;font-size:14px}.top{height:58px;background:#fff;border-bottom:1px solid #e5e8eb;display:flex;align-items:center;justify-content:space-between;padding:0 22px;position:sticky;top:0}.logo{font-weight:1000;color:#1d4ed8;font-size:18px;text-decoration:none}.wrap{max-width:1220px;margin:18px auto;padding:0 16px}.grid{display:grid;grid-template-columns:360px 1fr;gap:18px}.card{background:#fff;border:1px solid #e5e8eb;border-radius:16px;padding:18px;box-shadow:0 4px 16px rgba(15,23,42,.055)}.list{display:grid;gap:8px}.hh{display:block;text-decoration:none;color:#1f2937;border:1px solid #e5e8eb;border-radius:14px;padding:12px;background:#fff}.hh.active{border-color:#1d4ed8;background:#eff6ff}.hh b{display:block}.muted{color:#667085;font-size:12px}.row{display:grid;gap:8px;margin:12px 0}.row label{font-size:12px;font-weight:900;color:#4b5563}.row input{height:40px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;font:inherit}.btn{display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:10px;border:1px solid #d1d5db;background:#fff;color:#334155;text-decoration:none;font-weight:900;padding:0 12px;cursor:pointer}.primary{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.danger{background:#fee2e2;color:#991b1b;border:0}.ok{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px;margin-bottom:12px}.error{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px;margin-bottom:12px}.members{width:100%;border-collapse:collapse}.members th,.members td{border-bottom:1px solid #e5e8eb;padding:10px;text-align:left}.codeBox{display:inline-flex;gap:8px;align-items:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:10px 12px;font-weight:900}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:12px;padding:11px;margin:12px 0}@media(max-width:860px){.grid{grid-template-columns:1fr}}</style></head>
 <body>${renderUnifiedNav("households")}<header class="top"><a class="logo" href="/manage">가계부·참여자</a><div><a class="btn primary" href="/?legacy=1">관리자 홈</a> <a class="btn" href="/settings">설정</a> <a class="btn" href="/ledger?all=1">기록 관리</a> <a class="btn" href="/households">가계부·참여자</a> <a class="btn" href="/?legacy=1">기존관리</a> <a class="btn" href="/app">모바일 입력</a></div></header><main class="wrap">
-${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}
+${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(/^[a-z0-9_]+$/.test(err) ? householdPageMessage(err) : err)}</div>` : ""}
 <section class="grid"><aside class="card"><h2>가계부 목록</h2><div class="list">${households.map((h) => `<a class="hh ${selected?.id === h.id ? "active" : ""}" href="/households?household_id=${encodeURIComponent(h.id)}"><b>${escapeHtml(h.name)}</b><span class="muted">참여자 ${memberCounts[h.id] || 0}명 · 거래 ${counts[h.id] || 0}건</span></a>`).join("") || `<div class="muted">가계부가 없습니다.</div>`}</div><hr/><form method="post" action="/admin/household/create"><div class="row"><label>새 가계부 이름</label><input name="name" placeholder="예: 우리집 생활비"/></div><button class="btn primary" type="submit">가계부 추가</button></form></aside>
-<section class="card">${selected ? `<h2>${escapeHtml(selected.name)}</h2><form method="post" action="/admin/household/update"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>가계부 이름 수정</label><input name="name" value="${escapeHtml(selected.name)}"/></div><button class="btn primary" type="submit">이름 저장</button></form><h3>참여자 명단</h3><table class="members"><thead><tr><th>이름</th><th>역할</th><th>참여일</th><th>관리</th></tr></thead><tbody>${selectedMembers.map((m) => `<tr><td><form method="post" action="/admin/member/nickname" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input name="nickname" value="${escapeHtml(m.nickname || "구성원")}" style="height:34px;min-width:110px"/><button class="btn" type="submit">저장</button></form></td><td><form method="post" action="/admin/member/update" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><select name="role" style="height:34px;border:1px solid #d1d5db;border-radius:8px"><option value="pending"${m.role === "pending" ? " selected" : ""}>승인대기</option><option value="member"${m.role === "member" ? " selected" : ""}>구성원</option><option value="viewer"${m.role === "viewer" ? " selected" : ""}>조회만</option><option value="blocked"${m.role === "blocked" ? " selected" : ""}>제한</option><option value="owner"${m.role === "owner" ? " selected" : ""}>관리자</option></select><button class="btn primary" type="submit">${m.role === "pending" ? "승인" : "권한저장"}</button></form></td><td>${escapeHtml(String(m.created_at || "").slice(0, 10))}</td><td><form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 방출할까요?')" style="margin-top:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><button class="btn danger" type="submit">방출</button></form></td></tr>`).join("") || `<tr><td colspan="4">참여자가 없습니다.</td></tr>`}</tbody></table><h3>초대 코드</h3><p class="muted">초대 코드는 이 관리 화면에서만 표시합니다. 새 참여자는 승인대기 상태로 들어오며, 관리자가 구성원으로 승인해야 정상 사용합니다. 이름 저장은 이 가계부의 표시명만 바꾸며 로그인 식별정보에는 영향을 주지 않습니다.</p><div class="codeBox">가계부 참여 ${escapeHtml(selected.invite_code || "")}</div><form method="post" action="/admin/household/regenerate" onsubmit="return confirm('초대코드를 새로 만들까요? 기존 초대코드는 더 이상 사용할 수 없습니다.')" style="margin-top:10px"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><button class="btn" type="submit">초대코드 재발급</button></form><h3>위험 구역</h3><div class="warn">삭제하면 이 가계부의 거래내역과 참여자 연결이 함께 삭제됩니다. 복구할 수 없습니다.</div><form method="post" action="/admin/household/delete" onsubmit="return confirm('정말 삭제할까요? 거래내역도 함께 삭제됩니다.')"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>삭제하려면 아래에 '삭제' 입력</label><input name="confirm_text" placeholder="삭제"/></div><button class="btn danger" type="submit">가계부 삭제</button></form>` : `<h2>가계부를 선택하세요</h2>`}</section></section></main></body></html>`;
+<section class="card">${selected ? `<h2>${escapeHtml(selected.name)}</h2><form method="post" action="/admin/household/update"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>가계부 이름 수정</label><input name="name" value="${escapeHtml(selected.name)}"/></div><button class="btn primary" type="submit">이름 저장</button></form><h3>참여자 명단</h3><table class="members"><thead><tr><th>이름</th><th>역할</th><th>참여일</th><th>관리</th></tr></thead><tbody>${selectedMembers.map((m) => `<tr><td><form method="post" action="/admin/member/nickname" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input name="nickname" value="${escapeHtml(m.nickname || "구성원")}" style="height:34px;min-width:110px"/><button class="btn" type="submit">저장</button></form></td><td><form method="post" action="/admin/member/update" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><select name="role" style="height:34px;border:1px solid #d1d5db;border-radius:8px"><option value="pending"${m.role === "pending" ? " selected" : ""}>승인대기</option><option value="member"${m.role === "member" ? " selected" : ""}>구성원</option><option value="viewer"${m.role === "viewer" ? " selected" : ""}>조회만</option><option value="blocked"${m.role === "blocked" ? " selected" : ""}>제한</option><option value="admin"${m.role === "admin" ? " selected" : ""}>관리자</option><option value="owner"${m.role === "owner" ? " selected" : ""}>소유자</option>${["pending", "member", "viewer", "blocked", "admin", "owner"].includes(m.role) ? "" : `<option value="${escapeHtml(m.role || "")}" selected>현재 값(${escapeHtml(m.role || "없음")})</option>`}</select><button class="btn primary" type="submit">${m.role === "pending" ? "승인" : "권한저장"}</button></form></td><td>${escapeHtml(String(m.created_at || "").slice(0, 10))}</td><td><form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 방출할까요?')" style="margin-top:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><button class="btn danger" type="submit">방출</button></form></td></tr>`).join("") || `<tr><td colspan="4">참여자가 없습니다.</td></tr>`}</tbody></table><h3>초대 코드</h3><p class="muted">초대 코드는 이 관리 화면에서만 표시합니다. 새 참여자는 승인대기 상태로 들어오며, 관리자가 구성원으로 승인해야 정상 사용합니다. 이름 저장은 이 가계부의 표시명만 바꾸며 로그인 식별정보에는 영향을 주지 않습니다.</p><div class="codeBox">가계부 참여 ${escapeHtml(selected.invite_code || "")}</div><form method="post" action="/admin/household/regenerate" onsubmit="return confirm('초대코드를 새로 만들까요? 기존 초대코드는 더 이상 사용할 수 없습니다.')" style="margin-top:10px"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><button class="btn" type="submit">초대코드 재발급</button></form><h3>위험 구역</h3><div class="warn">삭제하면 이 가계부의 거래내역과 참여자 연결이 함께 삭제됩니다. 복구할 수 없습니다.</div><form method="post" action="/admin/household/delete" onsubmit="return confirm('정말 삭제할까요? 거래내역도 함께 삭제됩니다.')"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>삭제하려면 아래에 '삭제' 입력</label><input name="confirm_text" placeholder="삭제"/></div><button class="btn danger" type="submit">가계부 삭제</button></form>` : `<h2>가계부를 선택하세요</h2>`}</section></section></main></body></html>`;
 }
 
 function maskKey(value = "") {
@@ -27765,6 +27794,13 @@ function householdPageMessage(code = "") {
     kakao_reauth_account_mismatch: "현재 가계부 계정과 다른 카카오 계정입니다. 원래 연결한 카카오 계정으로 다시 확인하세요.",
     kakao_reauth_unavailable: "카카오 본인 확인을 사용할 수 없습니다. 계정·보안에서 로그인 비밀번호를 설정한 뒤 확인하세요.",
     household_manage_not_allowed: "이 가계부의 설정을 변경할 권한이 없습니다.",
+    // V22.9.75 감사 D-27: 역할 조회 실패를 '권한 없음'과 구분한다. 참여자 화면(/my/members)·운영 화면도 이 표를 쓴다.
+    household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    member_manage_not_allowed: "참여자를 바꿀 권한이 없습니다. 가계부 소유자나 관리자에게 요청해 주세요.",
+    member_role_save_failed: "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.",
+    member_role_rule_rejected: "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다.",
+    member_remove_failed: "참여자 목록을 확인하지 못해 내보내지 않았습니다. 잠시 후 다시 시도하세요.",
+    member_alias_save_failed: "참여자 이름을 저장하지 못했습니다. 기존 이름은 그대로입니다. 잠시 후 다시 시도하세요.",
     household_update_failed: "가계부 이름을 저장하지 못했습니다. 기존 이름은 유지됩니다.",
     household_delete_owner_only: "가계부 영구 삭제는 소유자만 할 수 있습니다.",
     household_delete_name_mismatch: "확인용 가계부 이름이 현재 이름과 일치하지 않습니다.",
@@ -27968,9 +28004,15 @@ async function handleMyHouseholdUpdate(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
-  const role = await getHouseholdMemberRole(env, userId, householdId);
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
   if (!householdId || !name) return redirectResponse(addQueryToUrl(back, { err: "household_name_invalid" }));
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!canManageMyHousehold(role)) return redirectResponse(addQueryToUrl(back, { err: "household_manage_not_allowed" }));
   try {
     await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}`, {
@@ -28156,7 +28198,13 @@ async function handleMyHouseholdLeave(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const understood = String(form.get("understand_history") || "") === "1";
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
   if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
@@ -28175,7 +28223,7 @@ async function handleMyHouseholdLeave(request, env) {
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-      const freshRole = await getHouseholdMemberRole(env, userId, householdId);
+      const freshRole = await getHouseholdMemberRoleStrict(env, userId, householdId);
       if (!freshRole) throw new Error("household_leave_not_member");
       if (freshRole === "owner") throw new Error("household_owner_cannot_leave");
       if (freshRole === "blocked") throw new Error("household_blocked_member_cannot_leave");
@@ -28197,7 +28245,7 @@ async function handleMyHouseholdLeave(request, env) {
     }
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=household_left`);
   } catch (err) {
-    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : "household_leave_failed";
+    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "household_leave_failed";
     rememberOpsEvent({ kind: "household_leave_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }
@@ -44220,6 +44268,24 @@ async function getHouseholdMemberRole(env, userId, householdId) {
   if (!userId || !householdId) return "";
   const rows = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }, []) || [];
   return bestRoleFromRows(rows);
+}
+
+// V22.9.75 감사 D-27: getHouseholdMemberRole 은 조회가 실패(503 등)하면 빈 역할("")을 돌려줘 "권한이 없습니다"·
+// "참여자가 아닙니다"로 안내됐다. 권한을 바꾸거나 거절을 알리는 곳은 이 엄격판을 써서 '확인하지 못함'을 따로 알린다.
+async function getHouseholdMemberRoleStrict(env, userId, householdId) {
+  if (!userId || !householdId) return "";
+  let rows;
+  try {
+    rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+  } catch (err) {
+    throw Object.assign(new Error(`household_role_check_failed: ${String(err?.message || err).slice(0, 120)}`), { code: "household_role_check_failed" });
+  }
+  if (!Array.isArray(rows)) throw Object.assign(new Error("household_role_check_failed: invalid response"), { code: "household_role_check_failed" });
+  return bestRoleFromRows(rows);
+}
+
+function isHouseholdRoleCheckFailure(err) {
+  return err?.code === "household_role_check_failed" || /household_role_check_failed/.test(String(err?.message || ""));
 }
 
 function roleBlockedMessage(role, householdName = "") {

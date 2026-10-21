@@ -205,6 +205,24 @@ async function getHouseholdMemberRole(env, userId, householdId) {
   return bestRoleFromRows(rows);
 }
 
+// V22.9.75 감사 D-27: getHouseholdMemberRole 은 조회가 실패(503 등)하면 빈 역할("")을 돌려줘 "권한이 없습니다"·
+// "참여자가 아닙니다"로 안내됐다. 권한을 바꾸거나 거절을 알리는 곳은 이 엄격판을 써서 '확인하지 못함'을 따로 알린다.
+async function getHouseholdMemberRoleStrict(env, userId, householdId) {
+  if (!userId || !householdId) return "";
+  let rows;
+  try {
+    rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+  } catch (err) {
+    throw Object.assign(new Error(`household_role_check_failed: ${String(err?.message || err).slice(0, 120)}`), { code: "household_role_check_failed" });
+  }
+  if (!Array.isArray(rows)) throw Object.assign(new Error("household_role_check_failed: invalid response"), { code: "household_role_check_failed" });
+  return bestRoleFromRows(rows);
+}
+
+function isHouseholdRoleCheckFailure(err) {
+  return err?.code === "household_role_check_failed" || /household_role_check_failed/.test(String(err?.message || ""));
+}
+
 function roleBlockedMessage(role, householdName = "") {
   if (role === "blocked") return `⛔ 이 가계부에서 사용이 제한되어 있습니다.\n가계부: ${householdName || "-"}\n\n관리자에게 /households 화면에서 권한을 확인해달라고 요청하세요.`;
   if (role === "viewer") return `👀 조회 전용 권한입니다.\n가계부: ${householdName || "-"}\n\n요약/최근 조회는 가능하지만 새 지출 입력은 관리자 승인이 필요합니다.`;
@@ -214,6 +232,7 @@ function roleBlockedMessage(role, householdName = "") {
 // @build:exports-start
 export {
   cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole,
-  joinHouseholdByCode, roleBlockedMessage,
+  getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure, joinHouseholdByCode,
+  roleBlockedMessage,
 };
 // @build:exports-end

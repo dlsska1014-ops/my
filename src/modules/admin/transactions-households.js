@@ -36,7 +36,9 @@ import { renderV8TxEditForm } from "../my/home-sections.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import {
+  getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+} from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import {
   currentMonthKst, extractDate, formatDate, nowKstDate, validMonth,
@@ -568,11 +570,17 @@ async function handleAdminHouseholdUpdate(request, env) {
   const id = String(form.get("id") || "").trim();
   const name = String(form.get("name") || "").trim().slice(0, 80);
   if (!id || !name) return redirectResponse("/households?err=missing");
-  await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ name }),
-  });
+  // V22.9.75 감사 D-27: 저장 실패가 500 안전모드 화면으로 떨어졌다. 실패를 알리고 기존 이름을 둔다.
+  try {
+    await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ name }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_update_failed", severity: "warn", path: "/admin/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "household_update_failed"}`);
+  }
   return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&msg=updated`);
 }
 
@@ -605,8 +613,15 @@ async function handleAdminMemberUpdate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 권한 변경 권한이 없습니다." }));
+    // V22.9.75 감사 D-27: 역할 조회 실패를 '권한 없음'으로 답하지 않는다. 안내는 참여자 화면이 읽는 코드로 보낸다.
+    let currentRole = "";
+    try {
+      currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_role_check_failed", severity: "warn", path: "/admin/member/update", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const role = String(form.get("role") || "").trim().toLowerCase();
@@ -620,7 +635,7 @@ async function handleAdminMemberUpdate(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
     const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
     if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
@@ -651,9 +666,9 @@ async function handleAdminMemberUpdate(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "member_role_update_failed", severity: "error", path: "/admin/member/update", method: "POST", detail: safeError(err) });
     const detail = safeError(err).toLowerCase();
-    const message = /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail)
-      ? "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다."
-      : "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.";
+    const message = isHouseholdRoleCheckFailure(err) ? "household_role_check_failed"
+      : /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail) ? "member_role_rule_rejected"
+      : "member_role_save_failed";
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: message }));
   }
 }
@@ -665,11 +680,11 @@ async function handleAdminMemberRemove(request, env) {
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
     try {
-      const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 삭제 권한이 없습니다." }));
+      const currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     } catch (err) {
       rememberOpsEvent({ kind: "member_remove_role_check_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "권한을 확인하지 못해 참여자를 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
     }
   }
   const userId = String(form.get("user_id") || "").trim();
@@ -679,7 +694,7 @@ async function handleAdminMemberRemove(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     const rows = await fetchRawHouseholdMembers(env, householdId);
     const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
@@ -700,7 +715,7 @@ async function handleAdminMemberRemove(request, env) {
     }));
   } catch (err) {
     rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 목록을 확인하지 못해 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "member_remove_failed" }));
   }
 }
 
@@ -714,15 +729,30 @@ async function handleAdminMemberNickname(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
+  const back = `/households?household_id=${encodeURIComponent(householdId)}`;
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 이름 변경 권한이 없습니다." }));
+    let role = "";
+    try {
+      role = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_alias_role_check_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, back, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, back, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const nickname = String(form.get("nickname") || "").trim().slice(0, 80);
-  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "nickname_missing" }));
-  await saveMemberAlias(env, householdId, userId, nickname);
-  return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_alias_updated" }));
+  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, back, { err: "nickname_missing" }));
+  // V22.9.75 감사 D-27: 이 처리만 try/catch 가 없어 대상이 이미 나갔거나 설정 읽기가 잠깐 실패하면 500 안전모드
+  // 화면이 됐다. 이유를 알리고 기존 이름을 둔다.
+  try {
+    await saveMemberAlias(env, householdId, userId, nickname);
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_alias_save_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+    const code = /member_alias_target_missing/.test(String(err?.message || "")) ? "member_missing" : isUncertainStorageWrite(err) ? "db_write_unknown" : "member_alias_save_failed";
+    return redirectResponse(returnLocation(form, back, { err: code }));
+  }
+  return redirectResponse(returnLocation(form, back, { msg: "member_alias_updated" }));
 }
 // @build:exports-start
 export {
