@@ -30,6 +30,7 @@ const sha=text=>createHash("sha256").update(text).digest("hex");
 const protection=JSON.parse(readFileSync(new URL("./d3-refund-protection-v22958.json",import.meta.url)));
 for(const [rel,names] of Object.entries(protection)){
  const source=readFileSync(new URL("../"+rel,import.meta.url),"utf8");const ast=parseModule(source);
+// V22.9.75 감사 D-20: 조회 전용·나간 사람 정산 결함을 고치려 buildSettlementModel·handleSettlementHistorySave 를 의도적으로 바꿔 두 지문을 새로 적었다.
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");

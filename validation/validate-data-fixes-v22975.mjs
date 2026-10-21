@@ -13,6 +13,7 @@
 //   G-2  단톡방 2개 이상에 연결된 가계부를 지우면 호출 한도를 넘어 잠금·연결 행이 남던 것
 //   C-2  복귀 경로를 정규화 전 문자열로만 봐서 /.//x 가 //x(다른 사이트)로 나가던 것
 //   E-17 옛 관리자 가져오기 화면이 CSV를 UTF-8로만 읽어 CP949 파일의 한글이 깨지던 것
+//   D-20 정산에서 조회 전용이 1/N 부담자가 되고 나간 사람이 모두 '이전 구성원'으로 같아지던 것
 //
 // ── 실행 ──
 //   node validation/validate-data-fixes-v22975.mjs
@@ -20,7 +21,7 @@
 //   V22975_SOFT=1           실패해도 멈추지 않고 실패한 검사를 모두 적는다(옛 코드에서 무엇이 깨지는지 볼 때).
 import assert from "node:assert/strict";
 import vm from "node:vm";
-import { app, BASE, ctx, counter, failure, fixture, page, post, api, skill, putSetting, settingValue, intercept, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, ctx, counter, failure, fixture, page, post, api, skill, putSetting, settingValue, intercept, withClock, formFields } from "./lib-audit-v22934.mjs";
 
 const t = counter("PASS: V22.9.75 data fixes");
 const SOFT = process.env.V22975_SOFT === "1";
@@ -699,6 +700,63 @@ await section("E-17", async () => {
     const unicode = pickImportFile(scripts, { name: "unicode.txt", bytes: utf16 });
     ok(unicode.text.includes("점심,12000") && !unicode.text.includes("�"), `E-17 엑셀 유니코드 텍스트(UTF-16)도 읽는다 (${JSON.stringify(unicode.text.slice(0, 20))})`);
   });
+});
+
+// ── D-20 정산 참여자: 조회 전용은 돈이 오갔을 때만, 나간 사람은 서로 구분해서 ──
+// 조회 전용(viewer)은 기록할 수 없는데도 1/N 부담자로 들어가 늘 "보낼 금액"이 생겼고, 나간 사람은 모두 "이전 구성원"으로
+// 같아져 정산 표와 송금 제안에서 누가 누구인지 알 수 없었다(완료 이력에도 그 이름으로 저장됐다).
+const plainText = (html) => decode(String(html).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+const settlementPart = (html) => { const text = plainText(html); return text.slice(text.indexOf("참여자별 정산"), text.indexOf("받을 금액과 보낼 금액을")); };
+function addMember(fx, householdId, id, nickname, role, key) {
+  fx.db.users.push({ id, kakao_user_key: key, nickname, created_at: "2026-07-01T00:00:00.000Z" });
+  fx.db.household_members.push({ household_id: householdId, user_id: id, role, created_at: "2026-07-02T00:00:00.000Z" });
+}
+
+await section("D-20", async () => {
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    addMember(fx, HH, "user-viewer", "구경꾼", "viewer", "kakao_login:3201");
+    const q = `/settlement-summary?month=2026-07&household_id=${HH}`;
+    const plain = settlementPart((await page(fx, q)).html);
+    ok(!plain.includes("구경꾼"), `D-20 지출이 없는 조회 전용 참여자는 정산에 들어가지 않는다 (${plain.slice(0, 160)})`);
+    ok((plain.match(/124,300원/g) || []).length === 2, `D-20 두 사람이 248,600원을 반씩 부담한다 (${plain.slice(0, 160)})`);
+    const ratio = (await page(fx, `${q}&mode=ratio`)).html;
+    ok(!ratio.includes('name="weight_user-viewer"'), "D-20 비율 분배 입력에도 지출이 없는 조회 전용은 나오지 않는다");
+    fx.db.transactions.push({ id: "t-viewer", household_id: HH, user_id: "user-viewer", transaction_date: "2026-07-10", type: "expense", amount: 30000, category: "식비", memo: "장보기 대신 결제", payment_method: "카드", source: "web", raw_text: "v" });
+    const paid = settlementPart((await page(fx, q)).html);
+    ok(paid.includes("구경꾼 30,000원"), `D-20 조회 전용이라도 이 달에 지출을 냈으면 정산에 들어간다 (${paid.slice(0, 200)})`);
+    ok((await page(fx, `${q}&mode=ratio`)).html.includes('name="weight_user-viewer"'), "D-20 지출을 낸 조회 전용은 비율 분배 입력에도 나온다");
+  }));
+
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    addMember(fx, "house-trip", "user-ms", "민수", "member", "kakao_login:3101");
+    addMember(fx, "house-trip", "user-jy", "지영", "member", "kakao_login:3102");
+    fx.db.transactions.push(
+      { id: "t-ms", household_id: "house-trip", user_id: "user-ms", transaction_date: "2026-07-12", type: "expense", amount: 90000, category: "여행", memo: "렌터카", payment_method: "카드", source: "web", raw_text: "x" },
+      { id: "t-jy", household_id: "house-trip", user_id: "user-jy", transaction_date: "2026-07-13", type: "expense", amount: 30000, category: "여행", memo: "간식", payment_method: "카드", source: "web", raw_text: "y" },
+    );
+    for (const uid of ["user-ms", "user-jy"]) {
+      await post(fx, "/my/household/leave", { household_id: "house-trip", month: "2026-07", understand_history: "1" }, { cookie: await fx.cookieFor(uid) });
+    }
+    eq(fx.db.household_members.filter((m) => m.household_id === "house-trip" && ["user-ms", "user-jy"].includes(m.user_id)).length, 0, "D-20 두 사람이 가계부에서 나갔다");
+    const q = "/settlement-summary?month=2026-07&household_id=house-trip";
+    const html = (await page(fx, q)).html;
+    const named = settlementPart(html);
+    ok(named.includes("민수(나간 구성원) 90,000원") && named.includes("지영(나간 구성원) 30,000원"), `D-20 나간 두 사람을 기록 당시 이름으로 구분해 보여 준다 (${named.slice(0, 220)})`);
+    ok(named.includes("지영(나간 구성원) Bin") && named.includes("민수(나간 구성원) Bin"), `D-20 송금 제안도 누가 보내는지 구분된다 (${named.slice(-160)})`);
+    const completion = formFields(html, "/my/settlement/save");
+    ok(completion.found, "D-20 정산 완료 폼이 있다");
+    completion.fields.set("confirmed", "yes");
+    const saved = await post(fx, "/my/settlement/save", completion.fields);
+    ok(saved.status === 303 && !saved.decoded.includes("err="), `D-20 정산 완료를 저장했다 (${saved.decoded.slice(0, 120)})`);
+    const history = JSON.parse(settingValue(fx, "settlement_history:house-trip") || "[]");
+    const names = (history.at(-1)?.shares || []).map((share) => share.name).sort();
+    eq(names.join(","), "Bin,민수(나간 구성원),지영(나간 구성원)", "D-20 완료 이력에도 나간 사람을 구분된 이름으로 저장한다");
+
+    // 사용자 이름을 알 수 없으면 번호로 구분한다.
+    for (const user of fx.db.users) if (["user-ms", "user-jy"].includes(user.id)) user.nickname = "";
+    const numbered = settlementPart((await page(fx, q)).html);
+    ok(numbered.includes("이전 구성원 1") && numbered.includes("이전 구성원 2"), `D-20 이름을 모르는 나간 사람은 번호로 구분한다 (${numbered.slice(0, 220)})`);
+  }));
 });
 
 if (failures.length) {
