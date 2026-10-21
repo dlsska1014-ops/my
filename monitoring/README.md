@@ -95,8 +95,9 @@ npx wrangler deploy --config monitoring/wrangler.jsonc --dry-run
 ```
 
 D1 로컬 검사는 Node.js 22의 SQLite를 사용합니다. 나머지 하네스는 기존 Node.js 18 이상 기준을 유지합니다.
-관제를 비활성화하려면 앱의 `OPS_MONITOR` 연결을 제거하거나 공유 Secret을 비우고 V22.9.21
-백업으로 복구합니다. 관제 저장소를 삭제할 필요는 없습니다. 새 Secret을 교체하면 기존 별도 관제
+관제를 비활성화하려면 앱 Worker의 `OPS_MONITOR` 서비스 연결을 제거하거나 `OPS_MONITOR_TOKEN`을 비웁니다.
+앱은 둘 중 하나가 없으면 표본을 보내지 않고 그대로 동작하므로, 앱을 옛 백업으로 되돌릴 필요는 없습니다
+(V22.9.75에서 옛 ‘V22.9.21 백업으로 복구’ 안내를 고쳤습니다). 관제 저장소를 삭제할 필요는 없습니다. 새 Secret을 교체하면 기존 별도 관제
 쿠키도 무효화됩니다. 배포 완료 여부와 실제 수집 결과는 `VERIFICATION_V22_9_22.md`에 기록합니다.
 
 ## 공식 기준

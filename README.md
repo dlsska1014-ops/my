@@ -1,3 +1,6 @@
+> 이 파일은 V22.9.65 까지의 릴리스 기록입니다. 현재 운영 판과 다음 작업은 `docs/STATUS.md`, 판별 변경은 `CHANGELOG.md`를 봅니다.
+> 아래 ‘V22.9.21 릴리스 적용’ 같은 옛 절의 배포 방법(붙여넣기 교체)은 더 이상 쓰지 않습니다. 배포는 `tools/deploy-worker-version.mjs`(업로드 → 대조 → 승격)로 합니다.
+
 ## V22.9.65-BUTTON-MANUAL
 
 카카오에서 버튼을 눌러 따라 하는 사용 설명서(기록·예산·리포트·정기지출·웹·함께 쓰기·고치기)를 제공합니다. 단톡방의 선택지도 버튼 카드로 보여 줍니다.
@@ -194,7 +197,7 @@ DB 부하 지표가 일부 누락되면 종합 상태를 확인 불가로 표시
 상세 점검 결과와 남은 확인 항목은 `VERIFICATION_V22_9_21.md`와
 `RELEASE-CHECKLIST.md`에 기록합니다.
 
-## 현재 릴리스 적용
+## V22.9.21 릴리스 적용(옛 기록)
 
 1. `node .codex/scripts/verify-repository.mjs`로 전체 검증을 실행합니다.
 2. `00_READ_FIRST_V22_9_21.md`에 따라 기존 Worker를 백업하고 `src/index.js` 전체로 교체합니다.
@@ -385,4 +388,4 @@ DB 부하 지표가 일부 누락되면 종합 상태를 확인 불가로 표시
 
 운영 V22.9.28과 구분합니다. [먼저 읽기](00_READ_FIRST_V22_9_30.md), [검증 기록](VERIFICATION_V22_9_30.md), [감사 처리표](docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md), [aside 전달문](docs/ASIDE_V22_9_30.md), [backup·복구](docs/BACKUP_RECOVERY_RUNBOOK.md)를 확인하세요.
 
-Node22에서 `npm test`가 전체 저장소 하네스를 실행하며 `node monitoring/test-d1.mjs`는 SQLite45를 별도로 실행합니다. 운영 SQL/Worker/요금제/Secrets/외부 콘솔은 자동 CI에서 적용하지 않습니다.
+Node22에서 `npm test`가 전체 저장소 하네스를 실행하며 `node monitoring/test-d1.mjs`는 관제 D1 검사를 Node 22 내장 SQLite로 별도로 실행합니다. 운영 SQL/Worker/요금제/Secrets/외부 콘솔은 자동 CI에서 적용하지 않습니다.

@@ -39,6 +39,10 @@ const READINESS_REQUIRED_TABLES = [
   "accountbook_auth_attempts",
   "accountbook_transaction_audit",
   "accountbook_operation_locks",
+  // V22.9.75 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
+  "users",
+  "accountbook_budgets",
+  "accountbook_recurring",
 ];
 
 // Custom categories already fall back to accountbook_settings when the

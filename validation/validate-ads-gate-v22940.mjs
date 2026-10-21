@@ -387,7 +387,7 @@ try {
     const missingConfig = JSON.parse((await render("/ready", { ads })).html);
     eq(missingConfig.ads_mode, expected, `/ready (필수 설정 누락 503) ads_mode=${expected} (${JSON.stringify(ads)})`);
     const full = JSON.parse((await render("/ready", { ads, env: { ADMIN_SESSION_SECRET: "qa-ads-gate-session", ADMIN_API_TOKEN: "qa-ads-gate-admin" } })).html);
-    ok(full.ads_mode === expected && full.checked_required_tables === 10, `/ready (점검 경로) ads_mode=${expected} (${JSON.stringify(ads)})`);
+    ok(full.ads_mode === expected && full.checked_required_tables === 13, `/ready (점검 경로) ads_mode=${expected} (${JSON.stringify(ads)})`);
   }
   const healthReview = JSON.parse((await render("/health")).html);
   const healthLive = JSON.parse((await render("/health", { ads: LIVE })).html);

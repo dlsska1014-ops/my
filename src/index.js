@@ -1374,6 +1374,10 @@ const READINESS_REQUIRED_TABLES = [
   "accountbook_auth_attempts",
   "accountbook_transaction_audit",
   "accountbook_operation_locks",
+  // V22.9.75 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
+  "users",
+  "accountbook_budgets",
+  "accountbook_recurring",
 ];
 
 // Custom categories already fall back to accountbook_settings when the
@@ -10909,9 +10913,16 @@ function kakaoSkillSecretMatches(request, expected = "") {
 
 function kakaoSkillCallerAuthorized(request, env = {}) {
   const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
-  if (!expected) return true;
-  const matched = kakaoSkillSecretMatches(request, expected);
   const at = new Date().toISOString();
+  // V22.9.75 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
+  // /skill 은 누구에게나 열려 있었다. 필수로 정한 배포는 막고, 필수가 아니면 기존처럼 열어 둔다.
+  if (!expected) {
+    if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") !== "1") return true;
+    AB_SKILL_AUTH_STATS.denied++;
+    AB_SKILL_AUTH_STATS.last_denied_at = at;
+    return false;
+  }
+  const matched = kakaoSkillSecretMatches(request, expected);
   if (matched) {
     AB_SKILL_AUTH_STATS.accepted++;
     AB_SKILL_AUTH_STATS.last_accepted_at = at;
