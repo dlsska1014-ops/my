@@ -202,10 +202,22 @@ async function adminFixture(fx) {
   fx.cookie = await fx.cookieFor(BIN);
   return adminLogin(fx);
 }
-async function adminLogin(fx) {
+// /login 은 클라이언트(주소+브라우저)마다 1분에 8번까지만 받는다(메모리, 같은 프로세스의 모든 픽스처가 나눠 쓴다).
+// 여러 절이 관리자 로그인을 하므로 요청마다 다른 문서용 주소(198.51.100.x)를 써서 서로의 한도를 먹지 않게 한다.
+let adminLoginSeq = 0;
+async function adminLoginRequest(fx, returnTo = "/ops-monitor") {
   fx.env.ADMIN_PASSWORD = "admin-pass";
   fx.env.ADMIN_SESSION_SECRET = "admin-secret";
-  const login = await post(fx, "/login", { password: "admin-pass", return_to: "/ops-monitor" }, { cookie: "" });
+  adminLoginSeq += 1;
+  const response = await app.fetch(new Request(`${BASE}/login`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin", accept: "text/html", "cf-connecting-ip": `198.51.100.${(adminLoginSeq % 250) + 1}` },
+    body: new URLSearchParams({ password: "admin-pass", return_to: returnTo }).toString(),
+  }), fx.env, ctx);
+  return { status: response.status, location: response.headers.get("location") || "", setCookie: response.headers.get("set-cookie") || "", text: await response.text() };
+}
+async function adminLogin(fx) {
+  const login = await adminLoginRequest(fx);
   return (login.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
 }
 async function sendFile(fx, cookie, path, fields, fileField, json) {
@@ -607,14 +619,12 @@ const sameOriginLocation = (location) => Boolean(location) && !location.startsWi
 await section("C-2", async () => {
   const hostile = ["/.//evil.example/x", "/%2e//evil.example", "/\\evil.example", "/\t/evil.example"];
   await fixture(async (fx) => {
-    fx.env.ADMIN_PASSWORD = "admin-pass";
-    fx.env.ADMIN_SESSION_SECRET = "admin-secret";
     for (const target of hostile) {
-      const login = await post(fx, "/login", { password: "admin-pass", return_to: target }, { cookie: "" });
+      const login = await adminLoginRequest(fx, target);
       ok(sameOriginLocation(login.location), `C-2 관리자 로그인 뒤 복귀 경로 ${JSON.stringify(target)} 는 다른 사이트로 나가지 않는다 (${login.location})`);
     }
-    const normal = await post(fx, "/login", { password: "admin-pass", return_to: "/ops-monitor" }, { cookie: "" });
-    eq(normal.location, "/ops-monitor", "C-2 정상 복귀 경로는 그대로 돌아간다");
+    const normal = await adminLoginRequest(fx, "/ops-monitor");
+    eq(normal.location, "/ops-monitor", `C-2 정상 복귀 경로는 그대로 돌아간다 (응답 ${normal.status} ${decode(normal.text).replace(/<[^>]+>/g, " ").replace(/ +/g, " ").slice(0, 160)})`);
     const admin = (normal.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
     for (const target of hostile) {
       const bulk = await post(fx, "/admin/bulk", { month: "2026-07", household_id: HH, return_to: target }, { cookie: admin });
