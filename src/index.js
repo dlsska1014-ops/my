@@ -11780,6 +11780,42 @@ function normalizeCategoryKeywords(value = "") {
   return out.slice(0, 30);
 }
 
+// V22.9.75 감사 D-9: 키워드 편집기의 수입 카드(급여·부수입)와 기본 분류 목록 끝의 수입 이름들은 수입 분류다.
+// 예전 편집기는 이 카드를 지출로 그려 `expense::급여` 로 저장했고, 카카오는 그 키워드로 "지출/급여"를 만들었다.
+// "용돈"은 편집기에 지출 카드(개인 자유 사용금)가 따로 있어 넣지 않는다. 안내 표가 다른 모듈에 있어 부를 때 만든다.
+function incomeKeywordCardNames() {
+  return new Set([
+    ...CATEGORY_KEYWORD_GUIDE.filter((guide) => guide.type === "income").map((guide) => guide.category),
+    "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입",
+  ].map((name) => normalizeText(name)));
+}
+
+// 수입 분류 이름이 지출 키로 저장된 옛 카드를 수입 키로 옮겨 읽는다. 저장 경로는 이 결과를 통째로 다시 쓰므로
+// 다음 저장 때 옛 키가 사라진다(빈 목록은 "사용자가 직접 비움"이라 그대로 옮긴다).
+function canonicalCategoryKeywordMap(keywordMap = {}) {
+  const incomeNames = incomeKeywordCardNames();
+  const out = Object.create(null);
+  const moved = [];
+  for (const [key, value] of Object.entries(safeObject(keywordMap))) {
+    const legacy = /^expense::(.+)$/.exec(key);
+    if (legacy && incomeNames.has(normalizeText(legacy[1]))) moved.push([categoryKeywordKey("income", legacy[1]), value]);
+    else out[key] = normalizeCategoryKeywords(value);
+  }
+  for (const [key, value] of moved) out[key] = normalizeCategoryKeywords([...(out[key] || []), ...normalizeCategoryKeywords(value)]);
+  return out;
+}
+
+// 카드 하나가 어느 키(지출/수입)에 저장되는지. 이미 저장된 키가 있으면 그것을 따르고, 없으면 이름으로 정한다.
+function keywordCardType(name = "", keywordMap = {}) {
+  const map = safeObject(keywordMap);
+  const key = normalizeText(name);
+  const guide = CATEGORY_KEYWORD_GUIDE.find((item) => normalizeText(item.category) === key);
+  const preferred = incomeKeywordCardNames().has(key) || guide?.type === "income" ? "income" : "expense";
+  const other = preferred === "income" ? "expense" : "income";
+  const stored = (type) => Object.prototype.hasOwnProperty.call(map, categoryKeywordKey(type, name));
+  return stored(preferred) || !stored(other) ? preferred : other;
+}
+
 // V22.9.26: 읽고-고쳐-쓰는 경로는 strict 로 읽는다. 예전에는 설정 읽기가 503 으로 실패하면
 // 빈 값으로 보고 한 건만 담아 저장해, 기존 키워드·적립계획·별칭 전체가 조용히 사라졌다.
 async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
@@ -11790,9 +11826,7 @@ async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
     const parsed = strict
       ? parseStrictSettingsObject(value, "category_keywords")
       : (typeof value === "string" ? JSON.parse(value || "{}") : value || {});
-    const out = Object.create(null);
-    for (const [k, v] of Object.entries(safeObject(parsed))) out[k] = normalizeCategoryKeywords(v);
-    return out;
+    return canonicalCategoryKeywordMap(parsed);
   } catch (err) {
     if (strict) throw err;
     return {};
@@ -11830,11 +11864,12 @@ async function setCategoryKeywords(env, householdId = "", type = "expense", name
 }
 
 function attachCategoryKeywords(categories = [], keywordMap = {}) {
+  const map = canonicalCategoryKeywordMap(keywordMap);
   return safeArray(categories).map((c) => {
     const type = c.type === "income" ? "income" : "expense";
     const name = c.name || "";
     const own = normalizeCategoryKeywords(c.keywords || "");
-    const mapped = normalizeCategoryKeywords(keywordMap[categoryKeywordKey(type, name)] || []);
+    const mapped = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     return { ...c, type, keywords: normalizeCategoryKeywords([...own, ...mapped]) };
   });
 }
@@ -11850,8 +11885,9 @@ function keywordEditorCategories(keywordMap = {}, customCategories = []) {
 // 저장된 키가 있으면(빈 목록 포함) 그 값을, 없으면 안내 예시를 보여 준다. 저장된 키워드는 30개까지 모두 그린다.
 // 예전에는 16개만 그려 편집 한 번에 17번째부터가 사라졌다.
 function keywordEditorCardKeywords(name = "", keywordMap = {}) {
-  const guide = keywordGuideForCategory(name, "expense");
-  const type = guide?.type === "income" ? "income" : "expense";
+  // V22.9.75 감사 D-9: 예전에는 지출 안내만 찾아 수입 카드(급여·부수입)도 지출 키로 그리고 저장했다.
+  const type = keywordCardType(name, keywordMap);
+  const guide = keywordGuideForCategory(name, type);
   const key = categoryKeywordKey(type, name);
   const map = safeObject(keywordMap);
   const hasStored = Object.prototype.hasOwnProperty.call(map, key);
@@ -11973,15 +12009,19 @@ function keywordEditorCss() {
 }
 
 function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const rows = [];
   for (const name of DEFAULT_CATEGORIES) {
-    const keywords = normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []);
+    // V22.9.75 감사 D-9: 기본 목록 끝의 수입 이름(급여 등)은 수입 행이다. 지출 행으로 두면 카카오가 "지출/급여"를 만든다.
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    const keywords = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     if (keywords.length) {
       rows.push({
-        id: `default_keyword_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+        id: `default_keyword_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
         household_id: householdId || "",
         name,
-        type: "expense",
+        type,
         sort_order: 10,
         keywords,
         storage: "default_keyword",
@@ -11991,16 +12031,46 @@ function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
   return rows;
 }
 
+// V22.9.75 감사 D-9: 저장한 키워드 카드는 이름이 기본 분류 목록에 없어도 자동 분류에 쓴다. 예전에는 기본 목록 이름의
+// 카드와 직접 만든 분류만 읽어, 편집기의 '통신'·'교육/육아'·'용돈'·'부수입' 카드는 저장해도 쓰이지 않았다(웹·카카오 모두
+// 기타지출). 같은 이름·구분을 이미 맡은 행(직접 만든 분류·기본 분류 카드)이 있으면 더하지 않는다. 분류에만 쓰는 행이라
+// 분류 목록을 보여 주는 화면에는 넣지 않는다(fetchCustomCategories 의 includeKeywordCards 와 카카오 입력 설정만 쓴다).
+function keywordCardClassificationRows(keywordMap = {}, existingRows = [], householdId = "") {
+  const covered = new Set(safeArray(existingRows).map((row) => categoryKeywordKey(row?.type, row?.name || "")));
+  const rows = [];
+  for (const [key, value] of Object.entries(canonicalCategoryKeywordMap(keywordMap))) {
+    const card = /^(expense|income)::(.+)$/.exec(key);
+    const keywords = normalizeCategoryKeywords(value);
+    if (!card || !keywords.length || covered.has(key)) continue;
+    covered.add(key);
+    rows.push({
+      id: `keyword_card_${card[1]}_${card[2].replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name: card[2],
+      type: card[1],
+      sort_order: 20,
+      keywords,
+      storage: "keyword_card",
+    });
+  }
+  return rows;
+}
+
 function categoryKeywordDisplayRows(custom = [], keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const customKeys = new Set(safeArray(custom).map((c) => categoryKeywordKey(c.type, c.name)));
-  const defaultRows = DEFAULT_CATEGORIES.map((name) => ({
-    id: `default_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
-    household_id: householdId || "",
-    name,
-    type: "expense",
-    keywords: normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []),
-    storage: "default",
-  }));
+  const defaultRows = DEFAULT_CATEGORIES.map((name) => {
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    return {
+      id: `default_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name,
+      type,
+      keywords: normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []),
+      storage: "default",
+    };
+  });
   const customRows = attachCategoryKeywords(custom, keywordMap).map((c) => ({ ...c, storage: c.storage || "custom" }));
   const defaultsWithoutCustomDuplicate = defaultRows.filter((r) => !customKeys.has(categoryKeywordKey(r.type, r.name)));
   return [...customRows, ...defaultsWithoutCustomDuplicate];
@@ -12107,7 +12177,7 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
-async function fetchCustomCategories(env, householdId = "") {
+async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
@@ -12122,14 +12192,16 @@ async function fetchCustomCategories(env, householdId = "") {
     supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
-  const keywordMap = Object.create(null);
+  let keywordMap = Object.create(null);
   try {
     const value = values.get(keys[0]);
     const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value || {};
-    for (const [key, value] of Object.entries(safeObject(parsed))) keywordMap[key] = normalizeCategoryKeywords(value);
+    keywordMap = canonicalCategoryKeywordMap(parsed);
   } catch {}
   const categories = rows === null ? normalizeStoredCategoryList(values.get(keys[1]), householdId) : safeArray(rows);
-  return [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  const listed = [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  // V22.9.75 감사 D-9: 자동 분류(웹 빠른 입력·기록 저장)는 같은 조회로 읽은 키워드 카드 전체를 쓴다. 조회는 늘지 않는다.
+  return options.includeKeywordCards ? [...listed, ...keywordCardClassificationRows(keywordMap, listed, householdId)] : listed;
 }
 
 function paymentAssetsKey(householdId = "") {
@@ -12527,23 +12599,22 @@ function inferPaymentAssetFromText(text = "", assets = []) {
   return "";
 }
 
+// V22.9.75 감사 D-9: 사용자 키워드(직접 만든 분류·키워드 카드)는 기본 규칙보다 먼저 보고, 여러 분류의 키워드가 함께
+// 걸리면 가장 긴 키워드(가장 구체적인 말)가 이긴다. 길이가 같으면 목록 앞쪽(직접 만든 분류 → 기본 분류 카드 → 그 밖의
+// 카드)이 이긴다. 예전에는 분류를 "가장 긴 키워드를 가진 분류" 순으로 세운 뒤 그 분류의 아무 키워드나 걸리면 끝냈다.
+// 그래서 '주간용돈봉투'가 든 용돈 카드가 '커피' 한 마디로 '냠냠상회 커피'(식비 카드의 '냠냠상회')를 가져갔다.
 function inferCustomCategoryFromText(text = "", type = "expense", categories = []) {
-  const raw = normalizeText(text);
+  const raw = normalizeText(text).toLowerCase();
   if (!raw) return "";
-  const list = safeArray(categories).filter((c) => c.name && (c.type || "expense") === type).sort((a, b) => {
-    const ak = Math.max(normalizeText(a.name).length, ...normalizeCategoryKeywords(a.keywords || "").map((x) => normalizeText(x).length));
-    const bk = Math.max(normalizeText(b.name).length, ...normalizeCategoryKeywords(b.keywords || "").map((x) => normalizeText(x).length));
-    return bk - ak;
-  });
-  for (const c of list) {
-    for (const kw of normalizeCategoryKeywords(c.keywords || "")) {
-      const key = normalizeText(kw);
-      if (key && raw.includes(key)) return c.name;
+  let best = null;
+  for (const c of safeArray(categories)) {
+    if (!c?.name || (c.type || "expense") !== type) continue;
+    for (const term of [...normalizeCategoryKeywords(c.keywords || ""), c.name]) {
+      const key = normalizeText(term).toLowerCase();
+      if (key && raw.includes(key) && (!best || key.length > best.length)) best = { name: c.name, length: key.length };
     }
-    const name = normalizeText(c.name);
-    if (name && raw.includes(name)) return c.name;
   }
-  return "";
+  return best ? best.name : "";
 }
 
 function applyUserSettingsToParsedTransactions(parsedList = [], categories = [], paymentAssets = []) {
@@ -12570,7 +12641,7 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
   const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
-      fetchCustomCategories(env, householdId),
+      fetchCustomCategories(env, householdId, { includeKeywordCards: true }),
       fetchPaymentAssets(env, householdId),
     ]);
     const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
@@ -41629,7 +41700,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
-  const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  const listedCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  // V22.9.75 감사 D-9: 기본 목록에 없는 이름의 키워드 카드(통신·교육/육아·용돈·부수입 등)도 분류에 쓴다. 같은 조회 결과라 DB 왕복은 늘지 않는다.
+  const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
   return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
@@ -44952,6 +45025,9 @@ const CATEGORY_RULES = [
   // 무게는 "겹칠 때 누가 이기는가"다. 좁은 분류가 넓은 분류보다 높다 —
   // "쿠팡이츠"는 쇼핑(쿠팡)이 아니라 배달이어야 하고, "자동차보험"은 차량관리가
   // 아니라 보험이어야 한다.
+  //
+  // V22.9.75 감사 A-10: except 는 그 규칙의 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 "마트", 농협카드의 "농협").
+  // 다른 규칙의 더 긴 낱말이 덮는 경우(수술의 "술")는 inferCategory 가 따로 거른다 — except 에 적지 않는다.
   { name: "주거/월세", type: "expense", weight: 100, words: ["월세","전세","전월세","임대료","집세","주택","원룸","부동산"] },
   { name: "관리비", type: "expense", weight: 99, words: ["관리비","아파트관리"] },
   { name: "대출/이자", type: "expense", weight: 98, words: ["대출","대출이자","원리금","상환","할부이자"] },
@@ -44960,29 +45036,29 @@ const CATEGORY_RULES = [
   { name: "통신비", type: "expense", weight: 95, words: ["통신","통신비","핸드폰","휴대폰","휴대전화","인터넷","와이파이","알뜰폰","유플러스","lg유플러스"], exact: ["kt","skt"] },
   { name: "보험", type: "expense", weight: 94, words: ["보험","보험료","실비","암보험","화재보험","자동차보험"] },
   { name: "약국", type: "expense", weight: 92, words: ["약국","약값","의약품","처방","영양제"] },
-  { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트"] },
+  { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트","수술"] },
   { name: "차량관리", type: "expense", weight: 89, words: ["세차","정비","엔진오일","타이어","주차","주차비","하이패스","톨비","카센터","대리운전"] },
-  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전"], exact: ["ev"] },
+  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전","전기차"], exact: ["ev"] },
   { name: "택시", type: "expense", weight: 87, words: ["택시","카카오t","타다"] },
   { name: "교통", type: "expense", weight: 86, words: ["교통","버스","지하철","기차","ktx","srt","티머니","캐시비"] },
   { name: "구독", type: "expense", weight: 85, words: ["구독","넷플릭스","유튜브","유튜브고급","멤버십","멜론","디즈니","쿠팡와우","스포티파이","왓챠","티빙","웨이브","애플뮤직","클라우드"] },
   { name: "배달", type: "expense", weight: 84, words: ["배달","배민","요기요","쿠팡이츠"] },
   { name: "편의점", type: "expense", weight: 83, words: ["편의점","gs25","세븐일레븐","이마트24"], exact: ["cu"] },
-  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"] },
-  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리"] },
-  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인"] },
-  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"] },
+  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"], except: ["스마트","농협카드","농협체크","농협은행","농협계좌","농협통장","농협페이"] },
+  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리","아메리카노","라떼"] },
+  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인","쌀국수"], except: ["기술","예술","마술","무술","학술","술래"] },
+  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"], except: ["아이패드","아이폰","아이맥","아이템","아이디","아이돌","아이스","아이섀도","아이라이너","아이크림","아이브로우","아이코스","아이허브"] },
   { name: "교육/학습", type: "expense", weight: 75, words: ["교육","학원","수업","수강","강의","교재","학교","인강","문제집","자격증","등록금","공부"] },
-  { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24"] },
-  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"] },
+  { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24","서적"], except: ["책상"] },
+  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"], except: ["청소년"] },
   { name: "의류/잡화", type: "expense", weight: 71, words: ["옷","의류","신발","가방","잡화","패션"] },
   { name: "미용", type: "expense", weight: 70, words: ["미용","미용실","헤어","커트","염색","네일","피부관리","마사지","화장품","올리브영"] },
   { name: "쇼핑", type: "expense", weight: 68, words: ["쇼핑","쿠팡","네이버쇼핑","11번가","g마켓","옥션","무신사","구매","샀","주문","택배"] },
   { name: "운동", type: "expense", weight: 66, words: ["헬스","운동","필라테스","요가","골프","수영"] },
   { name: "여행", type: "expense", weight: 65, words: ["여행","호텔","숙박","항공","리조트","펜션","캠핑"] },
-  { name: "문화/여가", type: "expense", weight: 64, words: ["영화","공연","전시","게임","노래방","취미","놀이","콘서트"] },
+  { name: "문화/여가", type: "expense", weight: 64, words: ["영화","공연","전시","게임","노래방","취미","놀이","콘서트","미술"], except: ["에이전시"] },
   { name: "경조사/선물", type: "expense", weight: 63, words: ["축의금","부의금","조의금","경조사","선물","생일","명절","용돈드림","화환"] },
-  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드","펫"] },
+  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드","펫"], except: ["카펫"] },
   { name: "세금/수수료", type: "expense", weight: 58, words: ["세금","자동차세","재산세","종부세","부가세","수수료","과태료","벌금"] },
 ];
 
@@ -45037,27 +45113,59 @@ function inferCategory(text, type) {
   // 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓴다. 표의 낱말은
   // 소문자로 적어 두고 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
   const raw = normalizeText(text).toLowerCase();
-  // Exact rules need only token membership, not an array containing every
-  // token in a potentially multi-megabyte import cell.
-  const hasExactToken = word => {
-    if (!word) return false;
-    for (let at = raw.indexOf(word); at >= 0; at = raw.indexOf(word, at + 1)) {
+  // V22.9.75 감사 A-10: 낱말 속 글자가 분류를 정하지 않게 한다. 걸린 낱말이 다른 규칙의 더 긴 낱말 안에 들어 있으면
+  // 세지 않는다(동물병원 속 병원, 전기차 속 전기, 수술·미술 속 술, 이마트24 속 이마트). 규칙의 except 는 그 규칙의
+  // 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 마트, 농협카드의 농협, 아이패드의 아이). 같은 규칙 안에서 겹치는
+  // 낱말(미용실·미용)과 서로 겹치지 않는 낱말은 예전처럼 무게를 더해 겨룬다("맥도날드 배달"은 배달). 한 낱말의 위치는
+  // 앞에서 16곳까지만 본다. exact 낱말은 앞뒤가 글자·숫자가 아닐 때만 맞는다(큰 가져오기 칸에서도 낱말 배열을 만들지 않는다).
+  const spans = [];
+  const collect = (rule, word, exact) => {
+    for (let at = raw.indexOf(word), seen = 0; at >= 0 && seen < 16; at = raw.indexOf(word, at + 1)) {
       const end = at + word.length;
-      if ((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end]))) return true;
+      if (exact && !((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end])))) continue;
+      spans.push({ start: at, end, rule, id: (exact ? "=" : "~") + word, gain: rule.weight + Math.min(word.length, 8), dead: false });
+      seen += 1;
     }
-    return false;
   };
-  let best = null;
   for (const rule of CATEGORY_RULES) {
     if (rule.type !== type) continue;
-    let score = 0;
-    for (const word of rule.words) {
-      if (!word) continue;
-      if (raw.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
+    const first = spans.length;
+    for (const word of rule.words) if (word) collect(rule, word, false);
+    for (const word of rule.exact || []) if (word) collect(rule, word, true);
+    if (spans.length === first) continue;
+    for (const block of rule.except || []) {
+      for (let at = block ? raw.indexOf(block) : -1, seen = 0; at >= 0 && seen < 16; at = raw.indexOf(block, at + 1), seen += 1) {
+        for (let k = first; k < spans.length; k += 1) if (spans[k].start >= at && spans[k].end <= at + block.length) spans[k].dead = true;
+      }
     }
-    for (const word of rule.exact || []) {
-      if (hasExactToken(word)) score += rule.weight + Math.min(word.length, 8);
+  }
+  if (spans.some((span) => span.rule !== spans[0].rule)) {
+    // 시작 위치 순으로 훑으며, 앞선 위치들에서 가장 멀리 끝나는 낱말을 규칙이 다른 두 개까지 기억한다.
+    spans.sort((a, b) => a.start - b.start || b.end - a.end);
+    let reach = [];
+    let group = [];
+    const remember = (span) => {
+      const same = reach.findIndex((item) => item.rule === span.rule);
+      if (same < 0) reach.push(span); else if (span.end > reach[same].end) reach[same] = span;
+      reach = reach.sort((a, b) => b.end - a.end).slice(0, 2);
+    };
+    for (const span of spans) {
+      if (group.length && group[0].start !== span.start) { group.forEach(remember); group = []; }
+      const outer = reach.find((item) => item.rule !== span.rule);
+      if ((outer && outer.end >= span.end) || group.some((item) => item.rule !== span.rule && item.end > span.end)) span.dead = true;
+      group.push(span);
     }
+  }
+  const scores = new Map();
+  const counted = new Set();
+  for (const span of spans) {
+    if (span.dead || counted.has(span.rule.name + span.id)) continue;
+    counted.add(span.rule.name + span.id);
+    scores.set(span.rule, (scores.get(span.rule) || 0) + span.gain);
+  }
+  let best = null;
+  for (const rule of CATEGORY_RULES) {
+    const score = scores.get(rule) || 0;
     if (score > 0 && (!best || score > best.score)) best = { category: rule.name, score };
   }
   return best ? best.category : (type === "income" ? "기타수입" : "기타지출");

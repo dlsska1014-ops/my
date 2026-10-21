@@ -11,7 +11,7 @@ import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import {
   attachCategoryKeywords, categoryKeywordsSettingsKey, categorySettingsKey,
-  defaultCategoryKeywordRows, normalizeStoredCategoryList,
+  defaultCategoryKeywordRows, keywordCardClassificationRows, normalizeStoredCategoryList,
 } from "../settings/categories-keywords.js";
 import {
   applyUserSettingsToParsedTransactions, normalizePaymentAssetList, paymentAssetsKey,
@@ -157,7 +157,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
-  const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  const listedCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  // V22.9.75 감사 D-9: 기본 목록에 없는 이름의 키워드 카드(통신·교육/육아·용돈·부수입 등)도 분류에 쓴다. 같은 조회 결과라 DB 왕복은 늘지 않는다.
+  const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
   return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};

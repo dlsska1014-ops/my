@@ -41,6 +41,42 @@ function normalizeCategoryKeywords(value = "") {
   return out.slice(0, 30);
 }
 
+// V22.9.75 감사 D-9: 키워드 편집기의 수입 카드(급여·부수입)와 기본 분류 목록 끝의 수입 이름들은 수입 분류다.
+// 예전 편집기는 이 카드를 지출로 그려 `expense::급여` 로 저장했고, 카카오는 그 키워드로 "지출/급여"를 만들었다.
+// "용돈"은 편집기에 지출 카드(개인 자유 사용금)가 따로 있어 넣지 않는다. 안내 표가 다른 모듈에 있어 부를 때 만든다.
+function incomeKeywordCardNames() {
+  return new Set([
+    ...CATEGORY_KEYWORD_GUIDE.filter((guide) => guide.type === "income").map((guide) => guide.category),
+    "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입",
+  ].map((name) => normalizeText(name)));
+}
+
+// 수입 분류 이름이 지출 키로 저장된 옛 카드를 수입 키로 옮겨 읽는다. 저장 경로는 이 결과를 통째로 다시 쓰므로
+// 다음 저장 때 옛 키가 사라진다(빈 목록은 "사용자가 직접 비움"이라 그대로 옮긴다).
+function canonicalCategoryKeywordMap(keywordMap = {}) {
+  const incomeNames = incomeKeywordCardNames();
+  const out = Object.create(null);
+  const moved = [];
+  for (const [key, value] of Object.entries(safeObject(keywordMap))) {
+    const legacy = /^expense::(.+)$/.exec(key);
+    if (legacy && incomeNames.has(normalizeText(legacy[1]))) moved.push([categoryKeywordKey("income", legacy[1]), value]);
+    else out[key] = normalizeCategoryKeywords(value);
+  }
+  for (const [key, value] of moved) out[key] = normalizeCategoryKeywords([...(out[key] || []), ...normalizeCategoryKeywords(value)]);
+  return out;
+}
+
+// 카드 하나가 어느 키(지출/수입)에 저장되는지. 이미 저장된 키가 있으면 그것을 따르고, 없으면 이름으로 정한다.
+function keywordCardType(name = "", keywordMap = {}) {
+  const map = safeObject(keywordMap);
+  const key = normalizeText(name);
+  const guide = CATEGORY_KEYWORD_GUIDE.find((item) => normalizeText(item.category) === key);
+  const preferred = incomeKeywordCardNames().has(key) || guide?.type === "income" ? "income" : "expense";
+  const other = preferred === "income" ? "expense" : "income";
+  const stored = (type) => Object.prototype.hasOwnProperty.call(map, categoryKeywordKey(type, name));
+  return stored(preferred) || !stored(other) ? preferred : other;
+}
+
 // V22.9.26: 읽고-고쳐-쓰는 경로는 strict 로 읽는다. 예전에는 설정 읽기가 503 으로 실패하면
 // 빈 값으로 보고 한 건만 담아 저장해, 기존 키워드·적립계획·별칭 전체가 조용히 사라졌다.
 async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
@@ -51,9 +87,7 @@ async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
     const parsed = strict
       ? parseStrictSettingsObject(value, "category_keywords")
       : (typeof value === "string" ? JSON.parse(value || "{}") : value || {});
-    const out = Object.create(null);
-    for (const [k, v] of Object.entries(safeObject(parsed))) out[k] = normalizeCategoryKeywords(v);
-    return out;
+    return canonicalCategoryKeywordMap(parsed);
   } catch (err) {
     if (strict) throw err;
     return {};
@@ -91,11 +125,12 @@ async function setCategoryKeywords(env, householdId = "", type = "expense", name
 }
 
 function attachCategoryKeywords(categories = [], keywordMap = {}) {
+  const map = canonicalCategoryKeywordMap(keywordMap);
   return safeArray(categories).map((c) => {
     const type = c.type === "income" ? "income" : "expense";
     const name = c.name || "";
     const own = normalizeCategoryKeywords(c.keywords || "");
-    const mapped = normalizeCategoryKeywords(keywordMap[categoryKeywordKey(type, name)] || []);
+    const mapped = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     return { ...c, type, keywords: normalizeCategoryKeywords([...own, ...mapped]) };
   });
 }
@@ -111,8 +146,9 @@ function keywordEditorCategories(keywordMap = {}, customCategories = []) {
 // 저장된 키가 있으면(빈 목록 포함) 그 값을, 없으면 안내 예시를 보여 준다. 저장된 키워드는 30개까지 모두 그린다.
 // 예전에는 16개만 그려 편집 한 번에 17번째부터가 사라졌다.
 function keywordEditorCardKeywords(name = "", keywordMap = {}) {
-  const guide = keywordGuideForCategory(name, "expense");
-  const type = guide?.type === "income" ? "income" : "expense";
+  // V22.9.75 감사 D-9: 예전에는 지출 안내만 찾아 수입 카드(급여·부수입)도 지출 키로 그리고 저장했다.
+  const type = keywordCardType(name, keywordMap);
+  const guide = keywordGuideForCategory(name, type);
   const key = categoryKeywordKey(type, name);
   const map = safeObject(keywordMap);
   const hasStored = Object.prototype.hasOwnProperty.call(map, key);
@@ -234,15 +270,19 @@ function keywordEditorCss() {
 }
 
 function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const rows = [];
   for (const name of DEFAULT_CATEGORIES) {
-    const keywords = normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []);
+    // V22.9.75 감사 D-9: 기본 목록 끝의 수입 이름(급여 등)은 수입 행이다. 지출 행으로 두면 카카오가 "지출/급여"를 만든다.
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    const keywords = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     if (keywords.length) {
       rows.push({
-        id: `default_keyword_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+        id: `default_keyword_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
         household_id: householdId || "",
         name,
-        type: "expense",
+        type,
         sort_order: 10,
         keywords,
         storage: "default_keyword",
@@ -252,16 +292,46 @@ function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
   return rows;
 }
 
+// V22.9.75 감사 D-9: 저장한 키워드 카드는 이름이 기본 분류 목록에 없어도 자동 분류에 쓴다. 예전에는 기본 목록 이름의
+// 카드와 직접 만든 분류만 읽어, 편집기의 '통신'·'교육/육아'·'용돈'·'부수입' 카드는 저장해도 쓰이지 않았다(웹·카카오 모두
+// 기타지출). 같은 이름·구분을 이미 맡은 행(직접 만든 분류·기본 분류 카드)이 있으면 더하지 않는다. 분류에만 쓰는 행이라
+// 분류 목록을 보여 주는 화면에는 넣지 않는다(fetchCustomCategories 의 includeKeywordCards 와 카카오 입력 설정만 쓴다).
+function keywordCardClassificationRows(keywordMap = {}, existingRows = [], householdId = "") {
+  const covered = new Set(safeArray(existingRows).map((row) => categoryKeywordKey(row?.type, row?.name || "")));
+  const rows = [];
+  for (const [key, value] of Object.entries(canonicalCategoryKeywordMap(keywordMap))) {
+    const card = /^(expense|income)::(.+)$/.exec(key);
+    const keywords = normalizeCategoryKeywords(value);
+    if (!card || !keywords.length || covered.has(key)) continue;
+    covered.add(key);
+    rows.push({
+      id: `keyword_card_${card[1]}_${card[2].replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name: card[2],
+      type: card[1],
+      sort_order: 20,
+      keywords,
+      storage: "keyword_card",
+    });
+  }
+  return rows;
+}
+
 function categoryKeywordDisplayRows(custom = [], keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const customKeys = new Set(safeArray(custom).map((c) => categoryKeywordKey(c.type, c.name)));
-  const defaultRows = DEFAULT_CATEGORIES.map((name) => ({
-    id: `default_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
-    household_id: householdId || "",
-    name,
-    type: "expense",
-    keywords: normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []),
-    storage: "default",
-  }));
+  const defaultRows = DEFAULT_CATEGORIES.map((name) => {
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    return {
+      id: `default_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name,
+      type,
+      keywords: normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []),
+      storage: "default",
+    };
+  });
   const customRows = attachCategoryKeywords(custom, keywordMap).map((c) => ({ ...c, storage: c.storage || "custom" }));
   const defaultsWithoutCustomDuplicate = defaultRows.filter((r) => !customKeys.has(categoryKeywordKey(r.type, r.name)));
   return [...customRows, ...defaultsWithoutCustomDuplicate];
@@ -368,7 +438,7 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
-async function fetchCustomCategories(env, householdId = "") {
+async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
@@ -383,21 +453,24 @@ async function fetchCustomCategories(env, householdId = "") {
     supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
-  const keywordMap = Object.create(null);
+  let keywordMap = Object.create(null);
   try {
     const value = values.get(keys[0]);
     const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value || {};
-    for (const [key, value] of Object.entries(safeObject(parsed))) keywordMap[key] = normalizeCategoryKeywords(value);
+    keywordMap = canonicalCategoryKeywordMap(parsed);
   } catch {}
   const categories = rows === null ? normalizeStoredCategoryList(values.get(keys[1]), householdId) : safeArray(rows);
-  return [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  const listed = [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  // V22.9.75 감사 D-9: 자동 분류(웹 빠른 입력·기록 저장)는 같은 조회로 읽은 키워드 카드 전체를 쓴다. 조회는 늘지 않는다.
+  return options.includeKeywordCards ? [...listed, ...keywordCardClassificationRows(keywordMap, listed, householdId)] : listed;
 }
 // @build:exports-start
 export {
   addSettingsCategory, attachCategoryKeywords, categoryKeywordDisplayRows,
   categoryKeywordsSettingsKey, categorySettingsKey, defaultCategoryKeywordRows,
-  deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories, keywordEditorCardKeywords,
-  keywordEditorCss, normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor,
-  sameKeywordList, saveCategoryKeywordMap, setCategoryKeywords,
+  deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories,
+  keywordCardClassificationRows, keywordEditorCardKeywords, keywordEditorCss,
+  normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor, sameKeywordList,
+  saveCategoryKeywordMap, setCategoryKeywords,
 };
 // @build:exports-end

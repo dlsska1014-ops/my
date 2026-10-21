@@ -413,23 +413,22 @@ function inferPaymentAssetFromText(text = "", assets = []) {
   return "";
 }
 
+// V22.9.75 감사 D-9: 사용자 키워드(직접 만든 분류·키워드 카드)는 기본 규칙보다 먼저 보고, 여러 분류의 키워드가 함께
+// 걸리면 가장 긴 키워드(가장 구체적인 말)가 이긴다. 길이가 같으면 목록 앞쪽(직접 만든 분류 → 기본 분류 카드 → 그 밖의
+// 카드)이 이긴다. 예전에는 분류를 "가장 긴 키워드를 가진 분류" 순으로 세운 뒤 그 분류의 아무 키워드나 걸리면 끝냈다.
+// 그래서 '주간용돈봉투'가 든 용돈 카드가 '커피' 한 마디로 '냠냠상회 커피'(식비 카드의 '냠냠상회')를 가져갔다.
 function inferCustomCategoryFromText(text = "", type = "expense", categories = []) {
-  const raw = normalizeText(text);
+  const raw = normalizeText(text).toLowerCase();
   if (!raw) return "";
-  const list = safeArray(categories).filter((c) => c.name && (c.type || "expense") === type).sort((a, b) => {
-    const ak = Math.max(normalizeText(a.name).length, ...normalizeCategoryKeywords(a.keywords || "").map((x) => normalizeText(x).length));
-    const bk = Math.max(normalizeText(b.name).length, ...normalizeCategoryKeywords(b.keywords || "").map((x) => normalizeText(x).length));
-    return bk - ak;
-  });
-  for (const c of list) {
-    for (const kw of normalizeCategoryKeywords(c.keywords || "")) {
-      const key = normalizeText(kw);
-      if (key && raw.includes(key)) return c.name;
+  let best = null;
+  for (const c of safeArray(categories)) {
+    if (!c?.name || (c.type || "expense") !== type) continue;
+    for (const term of [...normalizeCategoryKeywords(c.keywords || ""), c.name]) {
+      const key = normalizeText(term).toLowerCase();
+      if (key && raw.includes(key) && (!best || key.length > best.length)) best = { name: c.name, length: key.length };
     }
-    const name = normalizeText(c.name);
-    if (name && raw.includes(name)) return c.name;
   }
-  return "";
+  return best ? best.name : "";
 }
 
 function applyUserSettingsToParsedTransactions(parsedList = [], categories = [], paymentAssets = []) {
@@ -456,7 +455,7 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
   const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
-      fetchCustomCategories(env, householdId),
+      fetchCustomCategories(env, householdId, { includeKeywordCards: true }),
       fetchPaymentAssets(env, householdId),
     ]);
     const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
