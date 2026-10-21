@@ -13521,6 +13521,9 @@ async function handleImportTemplateXls(request, env) {
   });
 }
 
+const ADMIN_IMPORT_MAX_ROWS = 3000;
+const ADMIN_IMPORT_BATCH_ROWS = 1000;
+
 async function handleAdminImportJson(request, env) {
   if (!MY_IMPORT_WRITES_ENABLED_V22959) return jsonResponse({ ok: false, error: "import_recovery_read_only", message: "복구 모드에서는 가져오기를 저장하지 않습니다. 원본과 기존 미리보기를 보관해 주세요." }, 503);
   try {
@@ -13535,14 +13538,38 @@ async function handleAdminImportJson(request, env) {
       return jsonResponse({ ok: false, error: "spender_required", message: "업로드 기본 지출자를 현재 가계부 참여자 중에서 선택해주세요." }, 400);
     }
     const parsed = parseImportedRecords(rawText, householdId, defaultUserId);
-    const rows = cleanImportedRowsForInsert(parsed.rows.slice(0, 1000)).map((row) => ({ ...row, id: row.id || crypto.randomUUID(), user_id: row.user_id || defaultUserId }));
+    // V22.9.75 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
+    // 같은 파일을 다시 내면 두 번 저장됐다. 이제 id 를 (가계부·기본 지출자·원문, 행 순서)로 정해 같은 파일을 다시 제출해도 이미
+    // 저장된 행은 건너뛴다. 저장은 1,000행씩 나눠 최대 ADMIN_IMPORT_MAX_ROWS 행까지 하고(저장소 호출: 묶음당 1번 + 확인 80행당 1번),
+    // 그보다 많거나 파일을 끝까지 읽지 못했으면 아무것도 저장하지 않고 나눠 올리라고 답한다.
+    const cleaned = cleanImportedRowsForInsert(parsed.rows);
+    if (parsed.analysis_complete === false || cleaned.length > ADMIN_IMPORT_MAX_ROWS) {
+      return jsonResponse({ ok: false, error: "import_too_many_rows", rows: cleaned.length, max_rows: ADMIN_IMPORT_MAX_ROWS, message: `저장할 수 있는 행이 ${numberWithCommas(cleaned.length)}행${parsed.analysis_complete === false ? " 넘게 있어" : "이라"} 아무것도 저장하지 않았습니다. 한 번에 ${numberWithCommas(ADMIN_IMPORT_MAX_ROWS)}행까지 가져올 수 있으니 파일을 나눠 올려 주세요.` }, 413);
+    }
+    const idSeed = `admin:${await sha256Hex(`${householdId}|${defaultUserId}|${rawText}`)}`;
+    const rows = [];
+    for (const [index, row] of cleaned.entries()) rows.push({ ...row, id: row.id || await myImportDeterministicTransactionId(idSeed, index + 1), user_id: row.user_id || defaultUserId });
     if (!rows.length) return jsonResponse({ ok: false, error: "no_valid_rows", message: "저장 가능한 행을 찾지 못했습니다.", skipped: parsed.skipped }, 400);
     if (rows.some((row) => !activeSpenderExists(members, row.user_id))) return jsonResponse({ ok: false, error: "spender_not_member", message: "가져오기 행의 지출자가 현재 가계부의 활성 참여자가 아닙니다." }, 400);
-    const result = await commitImportedTransactionRows(env, householdId, rows);
-    const summary = Array.isArray(result) ? result[0] : result;
+    let inserted = 0, duplicates = 0, committedRows = 0;
+    try {
+      for (let start = 0; start < rows.length; start += ADMIN_IMPORT_BATCH_ROWS) {
+        const batch = rows.slice(start, start + ADMIN_IMPORT_BATCH_ROWS);
+        const result = await commitImportedTransactionRows(env, householdId, batch);
+        const summary = Array.isArray(result) ? result[0] : result;
+        if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== batch.length) throw Object.assign(new Error("import_summary_invalid"), { importSummaryInvalid: true });
+        inserted += summary.inserted;
+        duplicates += summary.duplicates;
+        committedRows += batch.length;
+      }
+    } catch (err) {
+      if (!committedRows && !isUncertainStorageWrite(err) && !err?.importSummaryInvalid) throw err;
+      rememberOpsEvent({ kind: "admin_import_unconfirmed", severity: "error", path: "/admin/import/json", method: "POST", detail: safeError(err) });
+      return jsonResponse({ ok: false, error: "import_write_unknown", inserted, confirmed_rows: committedRows, message: `${committedRows ? `앞의 ${numberWithCommas(committedRows)}행은 저장을 확인했지만 ` : ""}나머지 저장 결과를 확인하지 못했습니다. 같은 파일을 그대로 다시 제출하면 이미 저장된 행은 다시 넣지 않습니다.` }, 503);
+    }
     const found = await reconcileImportedTransactionIds(env, householdId, rows.map(row => ({ ...row, source: "my_import" })));
-    if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== rows.length || found.size !== rows.length) return jsonResponse({ ok: false, error: "import_write_unknown", message: "저장 결과를 확인하지 못했습니다. 거래 목록과 원본을 보관하고 같은 파일을 반복 제출하지 마세요." }, 503);
-    return jsonResponse({ ok: true, inserted: Number(summary?.inserted || 0), skipped: parsed.skipped + Number(summary?.duplicates || 0), date_samples: rows.slice(0, 5).map(r => r.transaction_date), warnings: parsed.warnings.slice(0, 20) });
+    if (found.size !== rows.length) return jsonResponse({ ok: false, error: "import_write_unknown", inserted, message: "저장된 내용을 파일과 맞춰 보지 못했습니다. 거래 목록에서 결과를 확인해 주세요. 같은 파일을 그대로 다시 제출해도 이미 저장된 행은 다시 넣지 않습니다." }, 503);
+    return jsonResponse({ ok: true, inserted, skipped: parsed.skipped + duplicates, duplicates, rows: rows.length, date_samples: rows.slice(0, 5).map(r => r.transaction_date), warnings: parsed.warnings.slice(0, 20) });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_import_failed", severity: "error", path: "/admin/import/json", method: "POST", detail: safeError(err) });
     return jsonResponse({ ok: false, error: "import_failed", message: "가져오기를 완료하지 못했습니다. 거래 목록에서 저장 결과를 확인한 뒤 같은 파일을 다시 제출해 주세요." }, 500);

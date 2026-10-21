@@ -8,7 +8,7 @@
 //   P2-1 분류 예산 밖에만 반영 대기 정기지출이 있을 때 "대기 중인 정기지출이 없습니다"라고 단정하지 않는다.
 //   D-26 예약 실행 주소의 잘못된 today·month 는 오늘로 바꿔 실행하지 않고 거절한다.
 import app, { parseFlexibleImportRecords, runRecurringAutoApply } from "../src/index.js";
-import { fixture, withClock, post, page, api, formFields, counter, intercept, BASE, ctx, putSetting, skill } from "./lib-audit-v22934.mjs";
+import { fixture, withClock, post, page, api, formFields, counter, intercept, BASE, ctx, putSetting, skill, failure } from "./lib-audit-v22934.mjs";
 
 const { ok, eq, done } = counter("V22.9.75 돈 계산·정기 반영 수정 검사");
 const KST = (ymd, hm = "09:10") => Date.parse(`${ymd}T${hm}:00+09:00`);
@@ -367,6 +367,58 @@ await fixture(async (fx) => {
   ok(/\bchecked\b/.test(box(chosen.text, 5)) && box(chosen.text, 5).includes("data-review-needed=\"0\""), "E-4 오늘 전 날짜(01/03)는 확인 표시 없이 선택된다");
   const past = parseFlexibleImportRecords(["이용일,가맹점,이용금액", "12/28,스타벅스,4500"].join(String.fromCharCode(10)), "house-home", "user-bin", { importYear: 2026, dateBasisMode: "selected" }).rows[0];
   ok(past?.transaction_date === "2026-12-28" && past?._import_needs_confirmation === false, "E-4 지난해를 고른 가져오기(2026년 12월)는 표시 없이 그 해로 읽는다");
+});
+
+// ── E-8: 관리자 가져오기(/admin/import/json) 1,000행 초과·다시 제출 ─────────────────────────
+await fixture(async (fx) => {
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-10-14", "12:00");
+  fx.env.ADMIN_PASSWORD = "p"; fx.env.ADMIN_SESSION_SECRET = "s";
+  const login = await post(fx, "/login", { password: "p", return_to: "/ops-monitor" }, { cookie: "" });
+  const adminCookie = (login.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
+  ok(adminCookie, "E-8 관리자 로그인");
+  const NL = String.fromCharCode(10);
+  const send = async (raw) => {
+    let calls = 0;
+    const restore = intercept(({ url }) => { if (url.hostname === "mock.supabase.co") calls += 1; return null; });
+    try {
+      const res = await app.fetch(new Request(`${BASE}/admin/import/json`, { method: "POST", headers: { cookie: adminCookie, "content-type": "application/json", accept: "application/json", origin: BASE, "sec-fetch-site": "same-origin" }, body: JSON.stringify({ household_id: "house-home", user_id: "user-bin", raw_text: raw }) }), fx.env, ctx);
+      return { status: res.status, body: await res.json(), calls };
+    } finally { restore(); }
+  };
+  const count = () => fx.db.transactions.filter((t) => t.household_id === "house-home").length;
+  const file = (n, tag) => ["날짜,금액,내용", ...Array.from({ length: n }, (_, i) => `2026-09-${String((i % 28) + 1).padStart(2, "0")},${1000 + i},${tag} ${i}`)].join(NL);
+  const t0 = Date.now();
+  let before = count();
+  const big = await send(file(1050, "천오십"));
+  ok(big.status === 200 && big.body.inserted === 1050 && big.body.skipped === 0 && count() - before === 1050, `E-8 1,050행은 1,000행씩 나눠 모두 저장하고 건너뛴 행을 0으로 정확히 알린다 (${big.status} ${JSON.stringify(big.body).slice(0, 140)})`);
+  before = count();
+  const max = await send(file(3000, "삼천"));
+  ok(max.status === 200 && max.body.inserted === 3000 && count() - before === 3000, `E-8 3,000행까지 한 번에 저장한다 (${max.status} ${JSON.stringify(max.body).slice(0, 120)})`);
+  ok(max.calls <= 50, `E-8 3,000행 저장의 저장소 호출은 50번 이하 (${max.calls})`);
+  before = count();
+  const over = await send(file(3001, "초과"));
+  ok(over.status === 413 && over.body.error === "import_too_many_rows" && count() === before, `E-8 3,000행을 넘으면 아무것도 저장하지 않는다 (${over.status} ${over.body.message})`);
+  ok(String(over.body.message || "").includes("3,001행") && String(over.body.message || "").includes("나눠 올려"), "E-8 넘친 행 수와 나눠 올리라는 안내를 준다");
+  const small = ["날짜,금액,내용", "2026-09-01,7000,관리자 점심", "2026-09-02,8000,관리자 저녁"].join(NL);
+  before = count();
+  const first = await send(small);
+  const again = await send(small);
+  ok(first.body.inserted === 2 && again.body.inserted === 0 && again.body.duplicates === 2 && again.body.skipped === 2 && count() - before === 2, `E-8 같은 파일을 다시 내면 이미 저장된 행은 건너뛰고 건너뜀으로 센다 (${JSON.stringify([first.body.inserted, again.body.inserted, again.body.skipped])})`);
+  const lose = (passBatches) => { let seen = 0; return intercept(async ({ url, forward }) => { if (!url.pathname.endsWith("/rpc/accountbook_commit_import_v22960")) return null; seen += 1; if (seen <= passBatches) return null; await forward(); return failure(503, "lost"); }); };
+  const one = ["날짜,금액,내용", "2026-09-03,9000,응답 유실"].join(NL);
+  let restore = lose(0);
+  let lost;
+  try { lost = await send(one); } finally { restore(); }
+  ok(lost.status === 503 && lost.body.error === "import_write_unknown" && String(lost.body.message).includes("같은 파일을 그대로 다시 제출하면 이미 저장된 행은 다시 넣지 않습니다"), `E-8 응답이 끊기면 결과 미확인과 안전한 다시 제출을 안내한다 (${lost.status} ${lost.body.message})`);
+  const retry = await send(one);
+  ok(retry.status === 200 && retry.body.inserted === 0 && fx.db.transactions.filter((t) => t.memo === "응답 유실").length === 1, "E-8 안내대로 다시 제출해도 한 건만 남는다");
+  restore = lose(1);
+  let partial;
+  try { partial = await send(file(1500, "나눔")); } finally { restore(); }
+  ok(partial.status === 503 && String(partial.body.message).includes("앞의 1,000행은 저장을 확인했지만"), `E-8 둘째 묶음 응답이 끊기면 확인된 행 수를 알린다 (${partial.status} ${partial.body.message})`);
+  const partialRetry = await send(file(1500, "나눔"));
+  ok(partialRetry.status === 200 && partialRetry.body.inserted === 0 && partialRetry.body.duplicates === 1500 && fx.db.transactions.filter((t) => String(t.memo || "").startsWith("나눔 ")).length === 1500, `E-8 다시 제출하면 1,500행이 한 번씩만 남는다 (${JSON.stringify(partialRetry.body).slice(0, 120)})`);
+  console.log(`E-8 소요 ${Date.now() - t0}ms`);
 });
 
 function safeWarnings(row) { return Array.isArray(row?._import_warnings) ? row._import_warnings : []; }
