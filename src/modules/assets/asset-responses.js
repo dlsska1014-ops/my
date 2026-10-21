@@ -87,7 +87,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     etag: path === ACCOUNTBOOK_QUICK_INPUT_JS_ASSET_PATH
       ? '"accountbook-quick-input-v22951-js"'
       : path === AB_CATEGORY_RULES_ASSET_PATH
-      ? '"ab-category-rules-v22948-js"'
+      ? '"ab-category-rules-v22976-js"'
       : path === AB_CURSOR_ASSET_PATH
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
@@ -103,7 +103,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22951-js"'
+          ? '"mobile-home-shell-v22976-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22937-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH

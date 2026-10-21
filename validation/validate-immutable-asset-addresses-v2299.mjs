@@ -27,6 +27,11 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.76: 홈 스크립트·홈 셸·분류 규칙 자산의 내용이 바뀌어(수입·지출 화면 수정, 분류 규칙 데이터 A-10) 세 주소를 올렸다.
+  // 옛 주소(mobile-home-shell-v22951·ab-category-rules-v22948·mobile-home-v22951)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남는다.
+  "/assets/mobile-home-shell-v22976.js": "6cebf524b54a1cd284e7d9bcc450e932f82a107d5f7daffd6c495343a84c50d6",
+  "/assets/ab-category-rules-v22976.js": "0e31730ab836334dd139eca5f8565980aa5dafbd4598df201e1c45e589968807",
+  "/assets/mobile-home-v22976.js": "3c3b20dfbf6ca37f5b5b188ff209a70238294886d2ffcd680326d92ef4b4b3e2",
   "/assets/accountbook-budget-preview-v22953.js": "63cc3b79b6549d57f73312109fb5589d7c0a71c644bdf41f93d65f1ae749af1c",
   "/assets/accountbook-budget-preview-v22952.js": "ff0696632937cbc2ff8812b47d4812cf9137b39f20455f1cd01d57c7589efffb",
   "/assets/accountbook-quick-input-v22951.js": "59dd629ed042aa52e2c3e6be5f143d327d4a8e5e65bac7ebf3da8821fd722e82",
