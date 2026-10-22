@@ -276,9 +276,10 @@ await withFixture("d7", async (f) => {
   const bulk = await say(f, lines, direct);
   ok(bulk.text.includes("새로 저장 22건"), "d7: 22 rows saved in one message");
   const list = await say(f, "오늘 기록 보기", direct);
-  ok(list.text.includes("20번") && !list.text.includes("21번 -"), "d7: the list stops at 20 rows");
-  ok(list.text.includes("외 3건"), "d7: the list says how many more rows exist");
-  ok(list.text.includes("21번부터 번호가 이어져요"), "d7: the list explains numbering continues");
+  // V22.9.77 감사 A-14: 넘치는 날은 가장 오래된 20건이 아니라 최근 20건을 번호순으로 보이고, 앞쪽에서 뺀 건수와 번호를 말한다.
+  ok(list.text.includes("04번 -") && list.text.includes("23번 -") && !list.text.includes("03번 -"), "d7: the list shows the latest 20 rows");
+  ok(list.text.includes("외 3건(01~03번)"), "d7: the list says how many earlier rows are left out");
+  ok(list.text.includes("최근 20건을 번호순으로 보여요"), "d7: the list states its order");
 });
 
 // ---------- 웹 1: /my/recurring/delete reports not-found ----------
