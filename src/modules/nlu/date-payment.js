@@ -228,31 +228,39 @@ function normalizePaymentMethod(value) {
   return detectPaymentMethod(t);
 }
 
+// V22.9.77: 결제수단 낱말은 그 낱말에서 끝날 때만 결제수단이다. 예전에는 낱말 속에서도 읽어 "토스트 3000"이 결제수단
+// ‘토스’·메모 ‘트’로 저장됐다(현금영수증→현금, 체크인→체크카드, 신용점수→신용카드, 카드지갑→카드도 같은 결함).
+// 뒤에 조사(로·으로·에 …)나 결제·승인·할부 같은 말이 붙은 것("토스로", "카드결제", "국민카드승인")은 예전처럼 읽는다.
+// 메모에서 결제수단을 지울 때(category-rules.js cleanMemo)도 같은 끝 조건을 쓴다.
+const AB_PAYMENT_WORD_END = "(?=$|[^가-힣]|(?:으로|로|에|이|가|을|를|은|는|도|만|와|과|의|랑|하고|결제|계산|지불|사용|썼|씀|긁|냄|냈|승인|취소|할부|일시불|송금|입금|출금))";
+
 function detectPaymentMethod(text) {
   const raw = normalizeText(text);
+  const end = AB_PAYMENT_WORD_END;
+  const word = (pattern) => new RegExp(`(?:${pattern})${end}`).test(raw);
   const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
   for (const brand of cardBrands) {
-    const re = new RegExp(brand + "\\s*카드", "i");
+    const re = new RegExp(brand + "\\s*카드" + end, "i");
     if (re.test(raw)) return brand.toUpperCase() === "KB" || brand.toUpperCase() === "NH" || brand.toUpperCase() === "BC" ? `${brand.toUpperCase()}카드` : `${brand}카드`;
   }
-  if (/삼성\s*페이|삼페/.test(raw)) return "삼성페이";
-  if (/카카오\s*페이|카페이/.test(raw)) return "카카오페이";
-  if (/네이버\s*페이|네페/.test(raw)) return "네이버페이";
-  if (/애플\s*페이|애플페이/.test(raw)) return "애플페이";
-  if (/페이코/.test(raw)) return "페이코";
-  if (/제로\s*페이|제로페이/.test(raw)) return "제로페이";
-  if (/토스/.test(raw)) return "토스";
-  if (/신용/.test(raw)) return "신용카드";
-  if (/체크/.test(raw)) return "체크카드";
-  if (/카드/.test(raw)) return "카드";
-  if (/현금/.test(raw)) return "현금";
+  if (word("삼성\\s*페이|삼페")) return "삼성페이";
+  if (word("카카오\\s*페이|카페이")) return "카카오페이";
+  if (word("네이버\\s*페이|네페")) return "네이버페이";
+  if (word("애플\\s*페이|애플페이")) return "애플페이";
+  if (word("페이코")) return "페이코";
+  if (word("제로\\s*페이|제로페이")) return "제로페이";
+  if (word("토스(?:\\s*(?:페이|뱅크))?(?:\\s*카드)?")) return "토스";
+  if (word("신용(?:\\s*카드)?")) return "신용카드";
+  if (word("체크(?:\\s*카드)?")) return "체크카드";
+  if (word("카드")) return "카드";
+  if (word("현금")) return "현금";
   if (/(계좌|이체|송금|자동이체|무통장)/.test(raw)) return "계좌이체";
   return "";
 }
 // @build:exports-start
 export {
-  addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
-  normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs, resolveWeekdayPhrase, safeYmd,
-  validMonth, weekdayIndexOfYmd, withKstNowScope,
+  AB_PAYMENT_WORD_END, addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate,
+  normalizeDateValue, normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs,
+  resolveWeekdayPhrase, safeYmd, validMonth, weekdayIndexOfYmd, withKstNowScope,
 };
 // @build:exports-end

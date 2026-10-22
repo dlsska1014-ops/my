@@ -1,5 +1,6 @@
 // @build:imports-start
 import { detectType, normalizeText } from "./amount-parser.js";
+import { AB_PAYMENT_WORD_END } from "./date-payment.js";
 // @build:imports-end
 
 const CATEGORY_RULES = [
@@ -174,15 +175,26 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
     paymentMethod,
   ].filter(Boolean);
 
+  // V22.9.77: 카드 이름 앞에 붙은 카드사 이름("KB국민카드"의 KB, "NH농협카드"의 NH, "IBK기업카드"의 IBK기업,
+  // "국민체크카드"의 국민)과 띄어 쓴 영문 카드사 이름("KB 국민카드"의 KB)도 결제수단의 일부라 함께 지운다. 예전에는
+  // "커피 4500 KB국민카드"의 메모가 "커피 KB"였다. 결제수단 낱말은 낱말 끝에서만 지운다(AB_PAYMENT_WORD_END).
+  // 예전에는 "토스트"가 "트", "현금영수증"이 "영수증"이 됐다.
+  const cardNamePrefix = "(?:(?<![A-Za-z가-힣])(?:(?:KB|NH|IBK|SC|BC|BNK|DGB|KDB|KEB)\\s+|[A-Za-z]{1,6}[가-힣]{0,4}|신한|현대|삼성|국민|우리|롯데|하나|농협|비씨|카카오|토스|기업|씨티|수협|신협|우체국|새마을|케이뱅크|카카오뱅크|토스뱅크))?";
   for (const item of removals) {
     const token = escapeRegExp(item);
     const command = ["수입","입금","지출","출금","사용","결제","구매","납부","정산","기록","가계부"].includes(item);
-    memo = memo.replace(new RegExp(command ? "(^|\\s)" + token + "(?=\\s|\\d|$)" : token, "g"), " ");
+    const payment = !command && item === paymentMethod;
+    const pattern = command ? "(^|\\s)" + token + "(?=\\s|\\d|$)"
+      : payment ? (/카드$/.test(item) ? cardNamePrefix : "") + token + AB_PAYMENT_WORD_END
+      : token;
+    memo = memo.replace(new RegExp(pattern, payment ? "gi" : "g"), " ");
   }
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
-    .replace(/(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일/g, " ")
+    // V22.9.77: 요일 앞의 ‘지난·저번·이번·다음’도 ‘주’ 없이 쓰면("지난 금요일") 함께 지운다. 예전에는 "지난 금요일 회식"의
+    // 메모가 "지난 회식"이었다. 날짜는 예전과 같다(날짜는 요일로 정하고, 이 줄은 메모만 다듬는다).
+    .replace(/(?:(?<![가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\s*)?[월화수목금토일]요일/g, " ")
     .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
@@ -195,7 +207,8 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
     .replace(/(?:^|\s)\d{1,2}일(?:\s|$)/g, " ")
-    .replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g, " ")
+    .replace(new RegExp(`${cardNamePrefix}(?:신용카드|체크카드|카드)${AB_PAYMENT_WORD_END}`, "gi"), " ")
+    .replace(new RegExp(`(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)${AB_PAYMENT_WORD_END}`, "g"), " ")
     // 조사·서술어는 낱말 "끝"에서만 떼어낸다. 위치를 가리지 않고 지우면
     // 타이어교체→"타 어교체", 이발→"발", 가방→"방"처럼 내용이 파괴된다.
     // 한 글자 조사(이·가·로·에·은·는·을·를)는 떼어내지 않는다. 고양이→"고양",
