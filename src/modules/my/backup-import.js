@@ -678,7 +678,8 @@ async function handleMyImport(request, env) {
   }
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) ? "selected" : "default"));
+  // V22.9.76 감사 E-4: 기준을 보내지 않은 요청은 화면 기본값과 같게 고른다(이번 달이면 183일 규칙, 다른 달이면 그 해).
+  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) && String(form.get("month")) !== currentMonthKst() ? "selected" : "default"));
   if (!["default", "selected"].includes(dateMode)) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&err=import_date_basis_invalid`);
   const sourceHash = await sha256Hex(csvText);
   const sourceStateKey = `my_import_source_v22955:${await sha256Hex(`${selected.id}|${sourceHash}`)}`;

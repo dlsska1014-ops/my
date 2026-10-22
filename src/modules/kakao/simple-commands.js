@@ -2,7 +2,7 @@
 import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { buildSettlementModel } from "../features/settlement-ops-pages.js";
 import { detectKakaoNaturalIntent } from "./intent-nlu.js";
-import { normalizeText } from "../nlu/amount-parser.js";
+import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
 import { numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -29,8 +29,12 @@ function parseKakaoMemberPolicyCommand(text = "") {
   return { show: true, unknown: true };
 }
 
+// V22.9.76 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
+// "점심 메뉴 12000" 같은 기록이 도움말로 바뀌고 저장되지 않았다. 자연어 판정은 금액이 없는 말에만 쓰고,
+// 아래의 짧은 도움말 명령은 그대로 받는다.
 function isHelpCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
+  if (detectKakaoNaturalIntent(text).intent === "HELP" && !extractAmount(text)) return true;
+  return /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
 }
 
 function isInviteCommand(text) {
@@ -67,7 +71,9 @@ async function kakaoSettlementParts(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  const refundNotice = "환급 계산은 미리보기 전용이며 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
+  // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
+  // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
+  const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
     return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
@@ -122,8 +128,10 @@ function isReserveGuideCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "RESERVE_GUIDE" || /^(정기지출|정기 지출|자동차세|재산세|자동차보험|보험준비|보험 준비|준비금|알림|납부알림|납부 알림)$/i.test(normalizeText(text));
 }
 
+// V22.9.76: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
+// '카카오 설정'·'봇 설정'·'심사'·'운영 점검'·'챗봇 점검'·'블록 설정'에도 이 안내가 나갔다.
 function isOpenBuilderGuideCommand(text) {
-  return /^(오픈빌더|openbuilder|블록설정|블록 설정|카카오설정|카카오 설정|폴백|스킬연결|스킬 연결|발화목록|발화 목록|봇설정|봇 설정|심사|심사준비|심사 준비|챗봇점검|챗봇 점검|운영점검|운영 점검)$/i.test(normalizeText(text));
+  return /^(오픈빌더|openbuilder|폴백|스킬연결|스킬 연결|발화목록|발화 목록)$/i.test(normalizeText(text));
 }
 
 function isBrandGuideCommand(text) {

@@ -474,7 +474,8 @@ await withFixture(async f => {
   f.db.household_members.push({ household_id: "house-trip", user_id: owner, role: "admin" });
   let failed = false;
   f.intercept = call => {
-    if (!failed && call.method === "DELETE" && call.url.pathname === "/rest/v1/accountbook_settings" && call.url.searchParams.get("key") === `eq.${linkKey}`) { failed = true; return new Response(JSON.stringify({ message: "synthetic link cleanup outage" }), { status: 503 }); }
+    // V22.9.76 G-2: 삭제가 방 연결 행을 잠금 안에서 key=in.(...) 로 한 번에 지우고 늦은 정리에서 다시 시도하므로, 정리 중 이 방의 연결 행 삭제를 모두 실패시킨다.
+    if (call.method === "DELETE" && call.url.pathname === "/rest/v1/accountbook_settings" && (call.url.searchParams.get("key") === `eq.${linkKey}` || String(call.url.searchParams.get("key")).includes(`"${linkKey}"`))) { failed = true; return new Response(JSON.stringify({ message: "synthetic link cleanup outage" }), { status: 503 }); }
   };
   await runtime.purgeHouseholdData(f.env, old);
   eq(row(f, linkKey)?.value, oldLink, "failed post-purge cleanup leaves the original stale link");

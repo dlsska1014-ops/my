@@ -111,6 +111,23 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
   if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
+  // V22.9.76 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
+  // 예전에는 appUserId·plusfriendUserKey 가 실린 요청마다 잠금을 잡아, 서로 다른 사용자 둘이 동시에 보내면 늦은 쪽이
+  // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
+  // 예전 잠금 경로가 다시 읽고 판단한다(충돌·대상 없음 오류도 그 경로가 그대로 낸다).
+  try {
+    const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
+    const links = canonicalUid ? await fetchUserIdentityLinks(env) : null;
+    let allLinked = !!links;
+    for (const key of links ? aliases : []) {
+      const existingUid = String(safeObject(links[key]).user_id || "").trim();
+      if (!existingUid || (existingUid !== canonicalUid && await resolveEffectiveUserId(env, existingUid) !== canonicalUid)) { allLinked = false; break; }
+    }
+    if (allLinked) {
+      if (env.__AB_IDENTITY_CONFIRMED) for (const alias of aliases) env.__AB_IDENTITY_CONFIRMED.set(alias, canonicalUid);
+      return false;
+    }
+  } catch (_) {}
   let lastBusyError = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {

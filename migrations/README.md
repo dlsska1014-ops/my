@@ -37,25 +37,22 @@ pg_dump \
 정본 덤프를 `0001_baseline_schema.sql` 로 커밋하면, 이후 스키마 변경은
 번호가 매겨진 마이그레이션(`0002_*.sql` …)으로 관리하면 됩니다.
 
-## 코드가 의존하는 RPC 목록 (19개)
+## `/ready` 가 점검하는 것 (V22.9.76 기준)
 
-`/ready` 헬스체크(P0-2)가 아래 중 **핵심 4개**의 존재를 점검합니다:
+정본은 코드다: `src/modules/runtime/config-readiness.js` 의 `READINESS_CORE_RPCS`(핵심 RPC 16개),
+`READINESS_ALTERNATIVE_RPC_GROUPS`(둘 중 하나만 있으면 되는 자산 RPC), `READINESS_REQUIRED_TABLES`(필수 표 13개),
+`READINESS_OPTIONAL_TABLES`(대체 경로가 있는 `accountbook_categories`). 이 문서에 목록을 옮겨 적지 않는다(V22.9.44 감사 G-14:
+옛 목록은 ‘핵심 4개’와 없는 표 이름을 적고 있었다).
 
-- `accountbook_set_local_identity_v227`
-- `accountbook_create_local_user_v227`
-- `accountbook_update_transaction_v227`
-- `accountbook_delete_transaction_v227`
+코드가 부르는 RPC 의 이름·인자는 `RPC_SIGNATURES_INFERRED.sql` 에 있지만 **추정**이다. 실제 함수 본문은 저장소에 없으니
+(V22.9.44 감사 G-13) 운영 DB 에서 아래 `pg_dump --schema-only` 결과를 받아 정본으로 삼는다.
 
-전체 목록과 인자는 `RPC_SIGNATURES_INFERRED.sql` 참조.
+## 코드가 REST 로 직접 읽고 쓰는 표 (2026-10-21 grep)
 
-## 코드가 의존하는 주요 테이블
-
-REST(PostgREST)로 직접 접근하는 테이블(대표):
-
-- `transactions`, `households`, `household_members`
-- `accountbook_user_identities`, `accountbook_user_security`, `accountbook_admin_security`
-- `accountbook_transaction_audit`, `accountbook_settings`
-- `accountbook_payment_assets`, `accountbook_recurring_rules`
-- `accountbook_ops_events`, `accountbook_nlu_*`
+`transactions`, `households`, `household_members`, `users`, `accountbook_settings`, `accountbook_budgets`, `accountbook_recurring`,
+`accountbook_categories`, `accountbook_user_identities`, `accountbook_user_security`, `accountbook_admin_security`,
+`accountbook_meme_cards`, `nlu_failure_samples`, `nlu_intent_metrics_hourly`. 감사·잠금·로그인 시도 표
+(`accountbook_transaction_audit`, `accountbook_operation_locks`, `accountbook_auth_attempts`)는 RPC 를 거쳐 쓰고 `/ready` 가 존재를 확인한다.
+다시 셀 때: `grep -rhoE '/rest/v1/[a-z_0-9]+' src/modules | sort -u`.
 
 정확한 컬럼·제약·RLS 는 위 `pg_dump` 결과를 정본으로 삼으세요.

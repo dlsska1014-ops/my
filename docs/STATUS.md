@@ -1,14 +1,14 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-21 (V22.9.74-ADSENSE-CONTENT 운영 반영 완료). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-21 (V22.9.75-NAVER-VERIFY 운영 반영 확인, V22.9.76-PRELAUNCH-AUDIT 판 작성·운영 반영 전). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
 | 항목 | 값 |
 |---|---|
 | 운영 Worker | `kakao-accountbook`, 도메인 https://malhaebook.com |
-| 운영 판 | **V22.9.74-ADSENSE-CONTENT** (2026-10-21 16:02 KST, Cloudflare 로그인 세션에서 업로드·대조·승격), version 1e135de7-5f38-4301-a2c2-337ba345ef0c, 배포 cf445174-3bb5-4f29-a946-0683cf53aebe, SHA-256 c0e179527811f202a82afc918673e1b45cc4d71803e81808538edfc01e965aaa(main b3ccfc5). 기록 docs/deployments/V22_9_74_2026_10_21.md |
-| 되돌리기 대상 | V22.9.73-DB-STALL-GUARD `eef80108-602d-409d-aa32-907b77da8b16` |
+| 운영 판 | **V22.9.75-NAVER-VERIFY** (2026-10-21 17:17 KST 승격), version `df9b5e22-e755-4c15-b652-59550022c5d0`, 배포 `f6e14738-1f59-4875-b793-e13c13731b57`, 소스 SHA-256 `6e737437…`(main fdd05ca 와 같음). 로컬 기록 `D:/Github_Kakao_Account/my-deploy-v22974/output/deploy/V22.9.75-NAVER-VERIFY/`. 그 전 V22.9.74 기록 docs/deployments/V22_9_74_2026_10_21.md |
+| 되돌리기 대상 | V22.9.74-ADSENSE-CONTENT `1e135de7-5f38-4301-a2c2-337ba345ef0c` |
 | 운영 DB | Supabase. 2026-10-18 V61 수명주기 migration 적용 완료. 재실행·V44 복귀·구형 RPC 권한 복원 금지 |
 | 외부 콘솔 | OpenBuilder v3.4 전체 배포(2026-10-20 18:53, ASIDE): 봇 입장 블록(웹가계부·도움말 보기·기록하기), 도움말 하단 창, 대표 명령어 13개(짧은 이름), 01 블록 패턴 34개. Kakao Developers·채널 변경 없음 |
 | 확인 명령 | `curl -s https://malhaebook.com/health` 의 `version`; 배포 기록 `docs/deployments/`, 로컬 `output/deploy/<판>/` |
@@ -17,13 +17,15 @@
 
 | 항목 | 값 |
 |---|---|
-| GitHub main | `b3ccfc5` = V22.9.74 소스(PR #89 병합, CI 8개 성공 확인) |
-| 진행 중 | V22.9.75-NAVER-VERIFY: 네이버 본사이트 소유 확인용 홈 메타 태그만 추가. 운영은 V22.9.74 유지, 후속 판 검증·배포 전 |
+| GitHub main | `fdd05ca` = V22.9.75-NAVER-VERIFY 소스(PR #90 병합) = 운영 |
+| 진행 중 | `claude/v22976-prelaunch-audit` = **V22.9.76-PRELAUNCH-AUDIT**(출시 전 전체 점검: 정기 수입 알림 버그와 같은 종류의 결함, 2026-10-14 감사 재현 결함, 예약 자동 반영 재설계). 점검·원인 docs/codex/PRELAUNCH_AUDIT_V22_9_76.md, 항목 상태 docs/codex/FINDINGS_LEDGER.md. 운영 반영 전 |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
-| 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256` |
+| 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256`. 운영 /ready 에 `accountbook_categories` 가 없으므로 분류 표 부재 모드가 실제 운영 모드다 |
+| 운영 설정 | 필요한 Secret·환경변수·cron·관제 한 장: `docs/OPERATIONS_CONFIG.md` |
 
 ## 열린 일
 
+- **V22.9.76 배포**: 매월 1일은 피한다(예약 반영 첫 실행 규칙). 배포 직후 /ready 필수 표 13개·실패 0, 다음 날 관제 `scheduled_error` 0. 운영자의 예전 정기 수입 계획(‘수당’)은 분류가 ‘세금/수수료’로 남아 있으니 정기 항목 화면에서 고친다. 결정 필요(D-5·M-7 환급, W-5, W-7, W-10, G-13 RPC 정의, G-2 단톡방 7개 이상 가계부 삭제, D-20 나간 구성원 별명)와 남은 항목은 docs/codex/FINDINGS_LEDGER.md.
 - **AdSense 재검토**: 2026-10-21 03:33 KST ‘주의 필요’(사유 `가치가 별로 없는 콘텐츠`). V22.9.74 반영 뒤 Search Console 사이트맵 재제출·새 글 색인 요청 → 네이버 서치어드바이저 등록 → 1~2주 뒤 ‘검토 요청’. 같은 AdSense 사이트인 `tools.malhaebook.com`(양식 121쪽·계산기 80쪽, 저장소 밖)은 별도 점검 대상. 운영자 결정: 글 바이라인 실명 공개 여부, /about 의 생성형 도구 고지 문구.
 - **Worker→Supabase 요청 멈춤**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. V22.9.73(23:29 반영)이 조회 재시도·쓰기 시한으로 완화하지만 원인은 미확정 — 하루 뒤 `/nlu-ops.json?hours=24` 의 db_retries·supabase_read_timeout 실패를 보고, 남으면 Cloudflare Workers 로그로 좁힌다.
 - 실제 새 단톡방 확인(요구사항 문서 5절: 빈 멘션 → 도움말 보기 → 참여 전 오늘기록 → 기록 → 이번달요약·남은예산·정산), ‘도움말 보기’ 머신러닝 매칭, ‘기록하기’ 위치는 테스터 확인 전까지 가정. 테스터에게 반영 알림(R13).

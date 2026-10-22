@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_75.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_76.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -51,6 +51,14 @@ const validationScripts = [
   ["V22.9.40 광고 게이트 ADS_MODE(review 바이트 동일·live 허용 화면)", "validation/validate-ads-gate-v22940.mjs"],
   ["V22.9.40 www 정본 308(CANONICAL_REDIRECT 무관)", "validation/validate-www-canonical-v22940.mjs"],
   ["V22.9.40 체감 성능·최신 UI(내비게이터·셸 CSS·Early Hints·Speculation-Rules)", "validation/validate-ui-perf-v22940.mjs"],
+  ["V22.9.76 정기 수입이 알림·홈·리포트·카카오 요약에서 지출로 보이지 않음", "validation/validate-income-reserve-v22976.mjs"],
+  ["V22.9.76 웹 수입·지출 문구와 화면 사이 숫자", "validation/validate-web-income-fixes-v22976.mjs"],
+  ["V22.9.76 2026-10-14 감사 재현 결함(웹)", "validation/validate-web-audit-v22976.mjs"],
+  ["V22.9.76 카카오 수입·지출 판정과 답장", "validation/validate-kakao-income-fixes-v22976.mjs"],
+  ["V22.9.76 2026-10-14 감사 재현 결함(카카오)", "validation/validate-kakao-audit-v22976.mjs"],
+  ["V22.9.76 돈 계산·정기 자동 반영·가져오기", "validation/validate-money-fixes-v22976.mjs"],
+  ["V22.9.76 데이터·백업·관리 화면(키워드 카드·분류 낱말·전체 기간 백업·같은 거래 복원·가계부 삭제·복귀 경로·정산 구성원)", "validation/validate-data-fixes-v22976.mjs"],
+  ["V22.9.76 감사 발견 추적표(모든 항목·상태·검사 연결)", "validation/validate-findings-ledger-v22976.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -277,7 +285,7 @@ function run(command, args, label) {
 // 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
 // V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
-const EXPECTED_MINIMUM_CHECKS = 24653;
+const EXPECTED_MINIMUM_CHECKS = 26442;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

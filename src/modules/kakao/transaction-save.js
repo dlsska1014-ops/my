@@ -11,7 +11,7 @@ import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import {
   attachCategoryKeywords, categoryKeywordsSettingsKey, categorySettingsKey,
-  defaultCategoryKeywordRows, normalizeStoredCategoryList,
+  defaultCategoryKeywordRows, keywordCardClassificationRows, normalizeStoredCategoryList,
 } from "../settings/categories-keywords.js";
 import {
   applyUserSettingsToParsedTransactions, normalizePaymentAssetList, paymentAssetsKey,
@@ -100,7 +100,19 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원` + (duplicateCount ? "\n서로 다른 구매라면 ‘별도 구매 추가’ 뒤에 원래 기록문장을 보내 후보를 확인해 주세요." : "");
+  // V22.9.76 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
+  const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const expenseTotal = totalOf("expense");
+  const incomeTotal = totalOf("income");
+  const totalText = incomeTotal && expenseTotal ? `지출 합계 ${numberWithCommas(expenseTotal)}원 · 수입 합계 ${numberWithCommas(incomeTotal)}원`
+    : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
+  // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
+  const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
+  const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const duplicateNotice = !duplicateCount ? ""
+    : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
+    : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice;
 
   let finalizeNotice = "";
   if (onSaved) {
@@ -139,7 +151,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
@@ -157,7 +169,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
-  const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  const listedCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  // V22.9.76 감사 D-9: 기본 목록에 없는 이름의 키워드 카드(통신·교육/육아·용돈·부수입 등)도 분류에 쓴다. 같은 조회 결과라 DB 왕복은 늘지 않는다.
+  const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
   return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};

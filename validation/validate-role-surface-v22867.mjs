@@ -234,8 +234,13 @@ try {
   ok(emptyHome.text.includes("아직 지출 기록이 없어요"), "기록이 없으면 첫 기록을 권한다");
   ok(emptyHome.text.includes("첫 기록"), "빈 홈이 첫 기록 안내를 유지한다");
   // 기록이 있으면 기존 비교 문구는 그대로 살아 있어야 한다.
+  // V22.9.76: 픽스처의 6월은 기록이 0건이라 예전 검사는 0원과 견준 "지난달보다 …원 더 썼어요"를 기대했다(고친 결함).
+  // 6월 기록이 없을 때는 비교하지 않음을, 6월 지출 한 건을 넣은 뒤에는 비교 문구가 살아 있음을 확인한다.
   const filledHome = await call(fixture, `/app?${q}`, cookies.owner);
-  ok(/지난달보다 [\d,]+원 (더|덜) 썼어요/.test(filledHome.text), "기록이 있는 달은 지난달 비교를 유지한다");
+  ok(filledHome.text.includes("지난달 기록이 없어 비교하지 않아요."), "지난달 기록이 없으면 0원과 견주지 않는다");
+  fixture.db.transactions.push({ id: "tx-jun-compare", household_id: "house-home", user_id: "user-bin", transaction_date: "2026-06-10", type: "expense", amount: 100000, category: "식비", memo: "6월 장보기", payment_method: "국민카드", source: "web", raw_text: "6월 장보기 100000" });
+  const comparedHome = await call(fixture, `/app?${q}`, cookies.owner);
+  ok(/지난달보다 [\d,]+원 (더|덜) 썼어요/.test(comparedHome.text), "기록이 있는 달은 지난달 비교를 유지한다");
 } finally {
   fixture.restore();
 }

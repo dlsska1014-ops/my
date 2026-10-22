@@ -1374,6 +1374,10 @@ const READINESS_REQUIRED_TABLES = [
   "accountbook_auth_attempts",
   "accountbook_transaction_audit",
   "accountbook_operation_locks",
+  // V22.9.76 (감사 G-12): 로그인 사용자·예산·고정 항목 표가 없어도 /ready 가 200 이었다. 셋 다 대체 경로가 없다.
+  "users",
+  "accountbook_budgets",
+  "accountbook_recurring",
 ];
 
 // Custom categories already fall back to accountbook_settings when the
@@ -1461,9 +1465,10 @@ const CORS_HEADERS = {
 //
 // 방식: 사용자 화면이 `household_id` 를 달고 정상(200)으로 그려지면 그 값을 브라우저 쿠키
 // `ab_hh` 에 남긴다. 값이 없는 진입은 쿠키 값을 `household_id` 로 채워 라우터에 넘긴다.
-// 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 첫 가계부로
-// 대체하지 않고 가계부 고르기 화면을 낸다 — 기준선 규칙 그대로). 그 화면이 나왔다는 것은
-// 쿠키가 낡았다는 뜻이므로 지운다. DB 왕복은 늘지 않는다. 로그아웃하면 함께 지운다.
+// 쿠키 값은 참여 여부를 다시 확인받는다(getMySelectedHousehold 가 거부하면 고르기·시작 화면이 나온다).
+// 그 화면이 나왔다는 것은 쿠키가 낡았다는 뜻이므로 지운다. 로그아웃하면 함께 지운다.
+// V22.9.76 감사 D-24: 낡은 기억(지운·나간 가계부)이면 '가계부 시작' 화면 대신 가계부 고르기 화면(/my/households)으로
+// 보낸다. 첫 가계부로 대체하지 않는 기준선 규칙(V22.9.17)은 그대로다. 주소에 직접 적은 남의 가계부 ID 는 예전처럼 404 다.
 const AB_HOUSEHOLD_MEMORY_COOKIE = "ab_hh";
 const AB_HOUSEHOLD_MEMORY_HEADER = "x-ab-household-memory";
 const AB_HOUSEHOLD_MEMORY_COOKIE_ATTRS = "Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax";
@@ -1536,6 +1541,14 @@ async function withRememberedHouseholdCookie(routed, response) {
     // H4: 기억한 가계부가 더 읽을 수 없게 됐으면(승인 대기·이용 제한) 접근 안내 화면(403)이 나온다. 그 자리에서 기억을
     // 지워 다음 화면은 기본 규칙으로 열리게 한다. 예전에는 승인 전까지 모든 화면이 403 이었다.
     if (routed.injected && response.status === 403) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+    // V22.9.76 감사 D-24: 기억한 가계부를 더는 열 수 없으면(지움·나감) 예전에는 다른 가계부가 있어도 '가계부 시작' 화면
+    // (/menu 는 찾을 수 없음 404)이 나왔다. 다른 가계부로 몰래 바꾸지 않고(V22.9.17 기준선) 고르기 화면으로 보내며 기억을 지운다.
+    const staleFallback = async () => {
+      if (url.pathname === "/my/households") return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+      const picker = new Response(null, { status: 303, headers: { location: "/my/households?msg=household_memory_stale", "cache-control": "no-store" } });
+      return withSetCookie(picker, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
+    };
+    if (routed.injected && response.status === 404) return await staleFallback();
     if (response.status !== 200) return response;
     if (!String(response.headers.get("content-type") || "").includes("text/html")) return response;
     const requested = String(url.searchParams.get("household_id") || "").trim();
@@ -1544,6 +1557,8 @@ async function withRememberedHouseholdCookie(routed, response) {
       // 정상 화면은 링크마다 그 가계부 ID 를 단다. 하나도 없으면 가계부 고르기 화면이다 — 쿠키가 낡았다.
       const html = await response.clone().text();
       if (html.includes(`household_id=${requested}`)) return response;
+      // 그 가계부 ID 가 화면 어디에도 없으면 시작 화면이다(낡은 기억). 고르기 화면으로 보낸다.
+      if (!html.includes(requested)) return await staleFallback();
       return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
     if (AB_HOUSEHOLD_MEMORY_NO_SET_PATHS.has(url.pathname)) return response;
@@ -2276,7 +2291,7 @@ const ACCOUNTBOOK_WORKER = {
       if (url.pathname === "/reserve-plans" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => {
           return await handleReservePlansPage(request, env, url);
-        }, "정기지출 준비");
+        }, "정기 수입·지출");
       }
 
       if ((url.pathname === "/annual" || url.pathname === "/annual-report") && request.method === "GET") {
@@ -2896,7 +2911,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.75-NAVER-VERIFY";
+const APP_VERSION = "V22.9.76-PRELAUNCH-AUDIT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -8464,22 +8479,40 @@ function moneyTokenSpans(text = "") {
 // V22.9.34 감사 D2: "부모님 용돈 30만원", "조카 세뱃돈", "용돈 드림"처럼 주는 대상이나 주는 말이 붙은 용돈·세뱃돈은
 // 지출이다. 아무 말 없는 "용돈 30000"은 V22.9.30 결정대로 수입으로 둔다. 받는 말은 먼저 보므로 "엄마한테 용돈 받음"은
 // 수입이다. 수수료·중개료·배송비는 "판매 수수료"여도 지출이다.
-function transactionTypeFromText(text = "", rules = []) {
+// V22.9.76 카카오 감사 1: "부모님께 용돈 30만원"·"엄마에게 용돈"·"아이한테 용돈"처럼 주는 대상 뒤에 조사가 붙거나
+// "용돈 보내드림"이면 수입으로 저장됐고, "이자 납부 30만원"·"이자 출금"도 수입이었다. 문장에 "지출"이라고 적은
+// "부모님께 용돈 30만원 지출"마저 수입이었다. 이제 사용자가 적은 구분 낱말(수입·지출) 하나를 가장 먼저 따르고,
+// 주는 대상+조사(께·에게·한테, "께서·한테서"는 받는 말이라 제외)·보내드림·드렸·이자 납부/출금/냄/이체는 지출이다.
+// 세 번째 인자 { detail: true } 를 주면 { type, ambiguous } 를 돌려준다. 수입 낱말로 수입이 됐는데 쓰는 말(결제·구매·
+// 샀·썼·냈·납부·출금·송금)도 함께 있거나 수입·지출을 둘 다 적었으면 ambiguous 다 — 카카오 기록은 저장하지 않고
+// 수입인지 지출인지 묻는다. 화면 빠른입력은 두 인자로 불러 문자열을 받는다. 본문이 화면 자산에 그대로 실리므로
+// 이 함수는 밖의 함수를 부르지 않는다.
+// V22.9.76 리드: "엄마가 용돈 줬어"처럼 가족이 주는 쪽(이·가·께서)이면 받은 돈이라 수입이다. 예전에는 "용돈 줬"만 보고 지출이었다.
+// "내가 용돈 줬어"·"엄마한테 용돈 줬어"는 그대로 지출이다. 화면 자산에도 실리므로 뒤돌아보기(lookbehind) 정규식은 쓰지 않는다.
+// 같은 날 리드 조정: "수당 지급 30만원"·"급여 지급"·"보너스 지급"은 받는 쪽에서 흔히 쓰는 말이라 '지급'은 묻는 조건에서 뺐다
+// (용돈·세뱃돈 지급은 위의 주는 말로 지출이다).
+function transactionTypeFromText(text = "", rules = [], options = {}) {
   const raw = String(text || "").trim();
-  if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return "expense";
-  if (/(?:^|\s)환불(?:\s*(?:완료|됨|금|처리|입금))?(?=\s|\d|$)|(?:^|\s)반품(?=\s|\d|$)|환급|돌려받/.test(raw)) return "income";
-  if (/(?:적금|예금|저축|투자)\s*(?:입금|이체|납입|송금)/.test(raw)) return "expense";
-  if (/(?:용돈|세뱃돈)\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return "expense";
-  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return "income";
-  if (/(?:대출|카드|할부|연체)\s*이자|무이자/.test(raw)) return "expense";
-  if (/(?:수수료|중개료|배송비)/.test(raw)) return "expense";
-  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return "expense";
+  const saysIncome = /(?:^|\s)수입(?=\s|\d|$)/.test(raw), saysExpense = /(?:^|\s)지출(?=\s|\d|$)/.test(raw);
+  const result = (type, ambiguous = false) => (options && options.detail ? { type, ambiguous: ambiguous || (saysIncome && saysExpense) } : type);
+  if (saysIncome !== saysExpense) return result(saysIncome ? "income" : "expense");
+  if (/(?:^|\s)환불\s*(?:수수료|배송비)/.test(raw)) return result("expense");
+  if (/(?:^|\s)환불(?:\s*(?:완료|됨|금|처리|입금))?(?=\s|\d|$)|(?:^|\s)반품(?=\s|\d|$)|환급|돌려받/.test(raw)) return result("income");
+  if (/(?:적금|예금|저축|투자)\s*(?:입금|이체|납입|송금)/.test(raw)) return result("expense");
+  const receives = /(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\s*(?:받은|받기)|받은\s*(?:돈|급여|월급|용돈|수당|정산금|대금)|(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|할머니|할아버지|이모|고모|삼촌|큰아빠|작은아빠|큰엄마|작은엄마|형|누나|언니|오빠|동생|친척|장모님|장인어른|시어머니|시아버지|남편|아내|와이프|신랑)\s*(?:이|가|께서)\s+(?:용돈|세뱃돈)\s*(?:을|를)?\s*(?:주셨|줬|줌|준|주었|보내\s*주셨|보내\s*줬|보내\s*줌)/.test(raw);
+  const gives = /(?:용돈|세뱃돈)\s*(?:을|를)?\s*(?:지급|송금|이체|줌|줬|준|주었|드림|드렸|드린|드려|보냄|보냈|보내\s*드)|(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생|남편|아내|와이프|배우자)(?:께|에게|한테)?(?!서)\s*(?:용돈|세뱃돈)/.test(raw);
+  if (gives && !receives) return result("expense");
+  if (receives) return result("income");
+  if (/(?:대출|카드|할부|연체)\s*이자|무이자|(?:^|\s)이자\s*(?:을|를)?\s*(?:납부|출금|냄|냈|낸|이체|납입|상환)/.test(raw)) return result("expense");
+  if (/(?:수수료|중개료|배송비)/.test(raw)) return result("expense");
+  let incomeWord = /(?:^|\s)(?:수입|입금|급여|월급|매출|판매|중고\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\s|\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw);
   for (const rule of Array.isArray(rules) ? rules : []) {
+    if (incomeWord) break;
     if (rule.type !== "income") continue;
-    if ((rule.words || []).some(word => new RegExp("(?:^|\\s)" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|\\d|$)").test(raw))) return "income";
+    if ((rule.words || []).some(word => new RegExp("(?:^|\\s)" + String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|\\d|$)").test(raw))) incomeWord = true;
   }
-  if (/(?:^|\s)(?:수입|입금|급여|월급|매출|판매|중고\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\s|\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return "income";
-  return "expense";
+  if (incomeWord) return result("income", /(?:결제|구매|샀|썼|씀|냈|냄|납부|출금|송금)/.test(raw));
+  return result("expense");
 }
 
 // 함수 본문은 그대로 브라우저 자산에 실리므로 설명은 여기 둔다. 마지막의 요일 표현(QA B04)은 명시 날짜보다
@@ -8489,6 +8522,9 @@ function transactionTypeFromText(text = "", rules = []) {
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
 // 서버 extractDate 도 이 함수를 먼저 쓰므로 웹과 카카오가 같은 날로 읽는다.
+// V22.9.76 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
+// 그날 중 오늘에 더 가까운 날로 본다(같으면 지난달). 2027-01-01 의 "31일"은 2026-12-31(예전에는 2027-01-31 앞날),
+// 10월 2일의 "30일"은 9월 30일, 10월 20일의 "25일 월세"는 미리 적는 10월 25일이다. 오늘까지의 날은 예전처럼 이번 달이다.
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -8525,7 +8561,18 @@ function quickInputDate(text = "", today = "") {
     return thisYear;
   }
   m = raw.match(/(?:^|\s)(\d{1,2})일(?=\s|$)/);
-  if (m) return valid(parts[0], parts[1], Number(m[1]));
+  if (m) {
+    const todayIso = now.toISOString().slice(0, 10);
+    const current = valid(parts[0], parts[1], Number(m[1]));
+    if (current && current <= todayIso) return current;
+    let past = "";
+    for (let back = 1; back <= 2 && !past; back += 1) {
+      const monthIndex = parts[1] - 1 - back;
+      past = valid(parts[0] + Math.floor(monthIndex / 12), ((monthIndex % 12) + 12) % 12 + 1, Number(m[1]));
+    }
+    if (!current || !past) return current || past;
+    return Date.parse(todayIso) - Date.parse(past) <= Date.parse(current) - Date.parse(todayIso) ? past : current;
+  }
   m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;
@@ -9218,9 +9265,9 @@ function guidedUiUxClientMain() {
     if (card) {
       card.id = "reserveAdd";
       const heading = card.querySelector("h2");
-      if (heading) heading.textContent = "정기지출 추가";
+      if (heading) heading.textContent = "정기 수입·지출 추가";
       const guide = card.querySelector(".guideLine");
-      if (guide) guide.innerHTML = "<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.";
+      if (guide) guide.innerHTML = "<b>언제, 얼마가 들어오거나 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부·입금월만 표시됩니다.";
     }
     const primary = document.createElement("div");
     primary.className = "reservePrimaryGrid";
@@ -9248,7 +9295,7 @@ function guidedUiUxClientMain() {
     const submit = document.createElement("div");
     submit.className = "reserveSubmit";
     if (submitButton) {
-      submitButton.textContent = "정기지출 저장";
+      submitButton.textContent = "정기 항목 저장";
       submit.appendChild(submitButton);
     }
     const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== "INPUT" || node.type !== "hidden"; });
@@ -10068,7 +10115,7 @@ function normalizeUserFacingUi(html = "") {
   if (/\bclass=["'][^"']*\babLayoutNav\b/.test(source)) bodyClasses.push("abAppSurface");
   if (source.includes('id="smartInput"')) bodyClasses.push("abMobileAppSurface");
   if (source.includes("<title>자산·결제수단</title>")) bodyClasses.push("abPageAssets");
-  if (source.includes("<title>정기지출 준비</title>")) bodyClasses.push("abPageReserve");
+  if (source.includes("<title>정기 수입·지출</title>")) bodyClasses.push("abPageReserve");
   if (source.includes(" · 수입·예산</title>")) bodyClasses.push("abPageBudgets");
   if (source.includes(" · 가계부 전환·관리</title>")) bodyClasses.push("abPageHouseholds");
   if (source.includes(" · 참여자·초대</title>")) bodyClasses.push("abPageMembers");
@@ -10195,7 +10242,7 @@ function normalizeUiV5RemainingPages(html = "") {
   const remainingPage = /(?:무료 리포트|무료 스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
     || source.includes("가계부·참여자</title>")
     || source.includes("<title>자산·결제수단</title>")
-    || source.includes("<title>정기지출 준비</title>")
+    || source.includes("<title>정기 수입·지출</title>")
     || source.includes("시작가이드</title>")
     || source.includes('id="budgetBulkForm"')
     || source.includes('id="keywordBulkForm"')
@@ -10909,9 +10956,16 @@ function kakaoSkillSecretMatches(request, expected = "") {
 
 function kakaoSkillCallerAuthorized(request, env = {}) {
   const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
-  if (!expected) return true;
-  const matched = kakaoSkillSecretMatches(request, expected);
   const at = new Date().toISOString();
+  // V22.9.76 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
+  // /skill 은 누구에게나 열려 있었다. 필수로 정한 배포는 막고, 필수가 아니면 기존처럼 열어 둔다.
+  if (!expected) {
+    if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") !== "1") return true;
+    AB_SKILL_AUTH_STATS.denied++;
+    AB_SKILL_AUTH_STATS.last_denied_at = at;
+    return false;
+  }
+  const matched = kakaoSkillSecretMatches(request, expected);
   if (matched) {
     AB_SKILL_AUTH_STATS.accepted++;
     AB_SKILL_AUTH_STATS.last_accepted_at = at;
@@ -11052,6 +11106,8 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   try {
     const parsed = new URL(value, "https://accountbook.local");
     if (parsed.origin !== "https://accountbook.local" || ["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
+    // V22.9.76 감사 C-2: "/.//x" 는 앞의 검사를 통과하지만 정규화하면 "//x"(다른 사이트 주소)가 된다. 정규화한 결과로 다시 본다.
+    if (parsed.pathname.startsWith("//")) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (err) {
     return fallback;
@@ -11586,11 +11642,17 @@ async function handleAdminHouseholdUpdate(request, env) {
   const id = String(form.get("id") || "").trim();
   const name = String(form.get("name") || "").trim().slice(0, 80);
   if (!id || !name) return redirectResponse("/households?err=missing");
-  await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ name }),
-  });
+  // V22.9.76 감사 D-27: 저장 실패가 500 안전모드 화면으로 떨어졌다. 실패를 알리고 기존 이름을 둔다.
+  try {
+    await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ name }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_update_failed", severity: "warn", path: "/admin/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "household_update_failed"}`);
+  }
   return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&msg=updated`);
 }
 
@@ -11613,7 +11675,15 @@ async function handleAdminHouseholdDelete(request, env) {
   const id = String(form.get("id") || "").trim();
   const confirmText = String(form.get("confirm_text") || "").trim();
   if (!id || confirmText !== "삭제") return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=delete_confirm_required`);
-  await purgeHouseholdData(env, id);
+  // V22.9.76 감사 G-2: 삭제가 거절되거나 실패하면 500 안전모드 대신 이유를 알린다.
+  try {
+    await purgeHouseholdData(env, id);
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_delete_failed", severity: "error", path: "/admin/household/delete", method: "POST", detail: safeError(err) });
+    const detail = String(err?.message || "");
+    const code = /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : detail === "household_purge_too_large" ? "household_delete_too_large" : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed";
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${code}`);
+  }
   return redirectResponse("/households?msg=deleted");
 }
 
@@ -11623,8 +11693,15 @@ async function handleAdminMemberUpdate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 권한 변경 권한이 없습니다." }));
+    // V22.9.76 감사 D-27: 역할 조회 실패를 '권한 없음'으로 답하지 않는다. 안내는 참여자 화면이 읽는 코드로 보낸다.
+    let currentRole = "";
+    try {
+      currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_role_check_failed", severity: "warn", path: "/admin/member/update", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const role = String(form.get("role") || "").trim().toLowerCase();
@@ -11638,7 +11715,7 @@ async function handleAdminMemberUpdate(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
     const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
     if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
@@ -11669,9 +11746,9 @@ async function handleAdminMemberUpdate(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "member_role_update_failed", severity: "error", path: "/admin/member/update", method: "POST", detail: safeError(err) });
     const detail = safeError(err).toLowerCase();
-    const message = /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail)
-      ? "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다."
-      : "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.";
+    const message = isHouseholdRoleCheckFailure(err) ? "household_role_check_failed"
+      : /(23514|check constraint|invalid input value for enum|role.*constraint)/.test(detail) ? "member_role_rule_rejected"
+      : "member_role_save_failed";
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: message }));
   }
 }
@@ -11683,11 +11760,11 @@ async function handleAdminMemberRemove(request, env) {
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
     try {
-      const currentRole = await getHouseholdMemberRole(env, sessionUserId, householdId);
-      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 삭제 권한이 없습니다." }));
+      const currentRole = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+      if (!["owner", "admin"].includes(currentRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     } catch (err) {
       rememberOpsEvent({ kind: "member_remove_role_check_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "권한을 확인하지 못해 참여자를 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+      return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "household_role_check_failed" }));
     }
   }
   const userId = String(form.get("user_id") || "").trim();
@@ -11697,7 +11774,7 @@ async function handleAdminMemberRemove(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRole(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 변경 권한이 없습니다." }));
+    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     const rows = await fetchRawHouseholdMembers(env, householdId);
     const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
@@ -11718,7 +11795,7 @@ async function handleAdminMemberRemove(request, env) {
     }));
   } catch (err) {
     rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
-    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 목록을 확인하지 못해 삭제하지 않았습니다. 잠시 후 다시 시도하세요." }));
+    return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "member_remove_failed" }));
   }
 }
 
@@ -11732,15 +11809,30 @@ async function handleAdminMemberNickname(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const adminOk = await verifyAdminSession(request, env);
   const sessionUserId = adminOk ? "" : await verifyUserSession(request, env);
+  const back = `/households?household_id=${encodeURIComponent(householdId)}`;
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, sessionUserId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "참여자 이름 변경 권한이 없습니다." }));
+    let role = "";
+    try {
+      role = await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "member_alias_role_check_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+      return redirectResponse(returnLocation(form, back, { err: "household_role_check_failed" }));
+    }
+    if (!["owner", "admin"].includes(role)) return redirectResponse(returnLocation(form, back, { err: "member_manage_not_allowed" }));
   }
   const userId = String(form.get("user_id") || "").trim();
   const nickname = String(form.get("nickname") || "").trim().slice(0, 80);
-  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "nickname_missing" }));
-  await saveMemberAlias(env, householdId, userId, nickname);
-  return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_alias_updated" }));
+  if (!householdId || !userId || !nickname) return redirectResponse(returnLocation(form, back, { err: "nickname_missing" }));
+  // V22.9.76 감사 D-27: 이 처리만 try/catch 가 없어 대상이 이미 나갔거나 설정 읽기가 잠깐 실패하면 500 안전모드
+  // 화면이 됐다. 이유를 알리고 기존 이름을 둔다.
+  try {
+    await saveMemberAlias(env, householdId, userId, nickname);
+  } catch (err) {
+    rememberOpsEvent({ kind: "member_alias_save_failed", severity: "warn", path: "/admin/member/nickname", method: "POST", detail: safeError(err) });
+    const code = /member_alias_target_missing/.test(String(err?.message || "")) ? "member_missing" : isUncertainStorageWrite(err) ? "db_write_unknown" : "member_alias_save_failed";
+    return redirectResponse(returnLocation(form, back, { err: code }));
+  }
+  return redirectResponse(returnLocation(form, back, { msg: "member_alias_updated" }));
 }
 
 function categorySettingsKey(householdId = "") {
@@ -11769,6 +11861,42 @@ function normalizeCategoryKeywords(value = "") {
   return out.slice(0, 30);
 }
 
+// V22.9.76 감사 D-9: 키워드 편집기의 수입 카드(급여·부수입)와 기본 분류 목록 끝의 수입 이름들은 수입 분류다.
+// 예전 편집기는 이 카드를 지출로 그려 `expense::급여` 로 저장했고, 카카오는 그 키워드로 "지출/급여"를 만들었다.
+// "용돈"은 편집기에 지출 카드(개인 자유 사용금)가 따로 있어 넣지 않는다. 안내 표가 다른 모듈에 있어 부를 때 만든다.
+function incomeKeywordCardNames() {
+  return new Set([
+    ...CATEGORY_KEYWORD_GUIDE.filter((guide) => guide.type === "income").map((guide) => guide.category),
+    "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입",
+  ].map((name) => normalizeText(name)));
+}
+
+// 수입 분류 이름이 지출 키로 저장된 옛 카드를 수입 키로 옮겨 읽는다. 저장 경로는 이 결과를 통째로 다시 쓰므로
+// 다음 저장 때 옛 키가 사라진다(빈 목록은 "사용자가 직접 비움"이라 그대로 옮긴다).
+function canonicalCategoryKeywordMap(keywordMap = {}) {
+  const incomeNames = incomeKeywordCardNames();
+  const out = Object.create(null);
+  const moved = [];
+  for (const [key, value] of Object.entries(safeObject(keywordMap))) {
+    const legacy = /^expense::(.+)$/.exec(key);
+    if (legacy && incomeNames.has(normalizeText(legacy[1]))) moved.push([categoryKeywordKey("income", legacy[1]), value]);
+    else out[key] = normalizeCategoryKeywords(value);
+  }
+  for (const [key, value] of moved) out[key] = normalizeCategoryKeywords([...(out[key] || []), ...normalizeCategoryKeywords(value)]);
+  return out;
+}
+
+// 카드 하나가 어느 키(지출/수입)에 저장되는지. 이미 저장된 키가 있으면 그것을 따르고, 없으면 이름으로 정한다.
+function keywordCardType(name = "", keywordMap = {}) {
+  const map = safeObject(keywordMap);
+  const key = normalizeText(name);
+  const guide = CATEGORY_KEYWORD_GUIDE.find((item) => normalizeText(item.category) === key);
+  const preferred = incomeKeywordCardNames().has(key) || guide?.type === "income" ? "income" : "expense";
+  const other = preferred === "income" ? "expense" : "income";
+  const stored = (type) => Object.prototype.hasOwnProperty.call(map, categoryKeywordKey(type, name));
+  return stored(preferred) || !stored(other) ? preferred : other;
+}
+
 // V22.9.26: 읽고-고쳐-쓰는 경로는 strict 로 읽는다. 예전에는 설정 읽기가 503 으로 실패하면
 // 빈 값으로 보고 한 건만 담아 저장해, 기존 키워드·적립계획·별칭 전체가 조용히 사라졌다.
 async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
@@ -11779,9 +11907,7 @@ async function fetchCategoryKeywordMap(env, householdId = "", options = {}) {
     const parsed = strict
       ? parseStrictSettingsObject(value, "category_keywords")
       : (typeof value === "string" ? JSON.parse(value || "{}") : value || {});
-    const out = Object.create(null);
-    for (const [k, v] of Object.entries(safeObject(parsed))) out[k] = normalizeCategoryKeywords(v);
-    return out;
+    return canonicalCategoryKeywordMap(parsed);
   } catch (err) {
     if (strict) throw err;
     return {};
@@ -11819,11 +11945,12 @@ async function setCategoryKeywords(env, householdId = "", type = "expense", name
 }
 
 function attachCategoryKeywords(categories = [], keywordMap = {}) {
+  const map = canonicalCategoryKeywordMap(keywordMap);
   return safeArray(categories).map((c) => {
     const type = c.type === "income" ? "income" : "expense";
     const name = c.name || "";
     const own = normalizeCategoryKeywords(c.keywords || "");
-    const mapped = normalizeCategoryKeywords(keywordMap[categoryKeywordKey(type, name)] || []);
+    const mapped = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     return { ...c, type, keywords: normalizeCategoryKeywords([...own, ...mapped]) };
   });
 }
@@ -11839,8 +11966,9 @@ function keywordEditorCategories(keywordMap = {}, customCategories = []) {
 // 저장된 키가 있으면(빈 목록 포함) 그 값을, 없으면 안내 예시를 보여 준다. 저장된 키워드는 30개까지 모두 그린다.
 // 예전에는 16개만 그려 편집 한 번에 17번째부터가 사라졌다.
 function keywordEditorCardKeywords(name = "", keywordMap = {}) {
-  const guide = keywordGuideForCategory(name, "expense");
-  const type = guide?.type === "income" ? "income" : "expense";
+  // V22.9.76 감사 D-9: 예전에는 지출 안내만 찾아 수입 카드(급여·부수입)도 지출 키로 그리고 저장했다.
+  const type = keywordCardType(name, keywordMap);
+  const guide = keywordGuideForCategory(name, type);
   const key = categoryKeywordKey(type, name);
   const map = safeObject(keywordMap);
   const hasStored = Object.prototype.hasOwnProperty.call(map, key);
@@ -11962,15 +12090,19 @@ function keywordEditorCss() {
 }
 
 function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const rows = [];
   for (const name of DEFAULT_CATEGORIES) {
-    const keywords = normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []);
+    // V22.9.76 감사 D-9: 기본 목록 끝의 수입 이름(급여 등)은 수입 행이다. 지출 행으로 두면 카카오가 "지출/급여"를 만든다.
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    const keywords = normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []);
     if (keywords.length) {
       rows.push({
-        id: `default_keyword_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+        id: `default_keyword_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
         household_id: householdId || "",
         name,
-        type: "expense",
+        type,
         sort_order: 10,
         keywords,
         storage: "default_keyword",
@@ -11980,16 +12112,46 @@ function defaultCategoryKeywordRows(keywordMap = {}, householdId = "") {
   return rows;
 }
 
+// V22.9.76 감사 D-9: 저장한 키워드 카드는 이름이 기본 분류 목록에 없어도 자동 분류에 쓴다. 예전에는 기본 목록 이름의
+// 카드와 직접 만든 분류만 읽어, 편집기의 '통신'·'교육/육아'·'용돈'·'부수입' 카드는 저장해도 쓰이지 않았다(웹·카카오 모두
+// 기타지출). 같은 이름·구분을 이미 맡은 행(직접 만든 분류·기본 분류 카드)이 있으면 더하지 않는다. 분류에만 쓰는 행이라
+// 분류 목록을 보여 주는 화면에는 넣지 않는다(fetchCustomCategories 의 includeKeywordCards 와 카카오 입력 설정만 쓴다).
+function keywordCardClassificationRows(keywordMap = {}, existingRows = [], householdId = "") {
+  const covered = new Set(safeArray(existingRows).map((row) => categoryKeywordKey(row?.type, row?.name || "")));
+  const rows = [];
+  for (const [key, value] of Object.entries(canonicalCategoryKeywordMap(keywordMap))) {
+    const card = /^(expense|income)::(.+)$/.exec(key);
+    const keywords = normalizeCategoryKeywords(value);
+    if (!card || !keywords.length || covered.has(key)) continue;
+    covered.add(key);
+    rows.push({
+      id: `keyword_card_${card[1]}_${card[2].replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name: card[2],
+      type: card[1],
+      sort_order: 20,
+      keywords,
+      storage: "keyword_card",
+    });
+  }
+  return rows;
+}
+
 function categoryKeywordDisplayRows(custom = [], keywordMap = {}, householdId = "") {
+  const map = canonicalCategoryKeywordMap(keywordMap);
+  const incomeNames = incomeKeywordCardNames();
   const customKeys = new Set(safeArray(custom).map((c) => categoryKeywordKey(c.type, c.name)));
-  const defaultRows = DEFAULT_CATEGORIES.map((name) => ({
-    id: `default_expense_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
-    household_id: householdId || "",
-    name,
-    type: "expense",
-    keywords: normalizeCategoryKeywords(keywordMap[categoryKeywordKey("expense", name)] || []),
-    storage: "default",
-  }));
+  const defaultRows = DEFAULT_CATEGORIES.map((name) => {
+    const type = incomeNames.has(normalizeText(name)) ? "income" : "expense";
+    return {
+      id: `default_${type}_${String(name).replace(/[^\w가-힣:-]/g, "_")}`,
+      household_id: householdId || "",
+      name,
+      type,
+      keywords: normalizeCategoryKeywords(map[categoryKeywordKey(type, name)] || []),
+      storage: "default",
+    };
+  });
   const customRows = attachCategoryKeywords(custom, keywordMap).map((c) => ({ ...c, storage: c.storage || "custom" }));
   const defaultsWithoutCustomDuplicate = defaultRows.filter((r) => !customKeys.has(categoryKeywordKey(r.type, r.name)));
   return [...customRows, ...defaultsWithoutCustomDuplicate];
@@ -12096,7 +12258,7 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
-async function fetchCustomCategories(env, householdId = "") {
+async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
@@ -12111,14 +12273,16 @@ async function fetchCustomCategories(env, householdId = "") {
     supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
-  const keywordMap = Object.create(null);
+  let keywordMap = Object.create(null);
   try {
     const value = values.get(keys[0]);
     const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value || {};
-    for (const [key, value] of Object.entries(safeObject(parsed))) keywordMap[key] = normalizeCategoryKeywords(value);
+    keywordMap = canonicalCategoryKeywordMap(parsed);
   } catch {}
   const categories = rows === null ? normalizeStoredCategoryList(values.get(keys[1]), householdId) : safeArray(rows);
-  return [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  const listed = [...attachCategoryKeywords(categories, keywordMap), ...defaultCategoryKeywordRows(keywordMap, householdId)];
+  // V22.9.76 감사 D-9: 자동 분류(웹 빠른 입력·기록 저장)는 같은 조회로 읽은 키워드 카드 전체를 쓴다. 조회는 늘지 않는다.
+  return options.includeKeywordCards ? [...listed, ...keywordCardClassificationRows(keywordMap, listed, householdId)] : listed;
 }
 
 function paymentAssetsKey(householdId = "") {
@@ -12482,7 +12646,10 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
       const balance = paymentAssetBalanceForKind(patch.balance === undefined ? item.balance : patch.balance, kind);
       const balanceChanged = balance !== paymentAssetBalanceForKind(item.balance, item.kind);
       const updatedAt = new Date().toISOString();
-      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? patch.include_in_asset !== false : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
+      // V22.9.76 감사 D-8: 잔액만 저장하는 폼은 include_in_asset 을 보내지 않는다. 그때 켜 버리면 사용자가 끈 "총자산에
+      // 포함"이 잔액을 고칠 때마다 다시 켜졌다. 패치에 없으면 지금 값을 그대로 둔다.
+      const includeInAsset = patch.include_in_asset === undefined ? item.include_in_asset !== false : patch.include_in_asset !== false;
+      return { ...item, name, issuer, memo, kind, balance, include_in_asset: paymentAssetKindMeta(kind).side === "asset" ? includeInAsset : false, updated_at: updatedAt, balance_updated_at: balanceChanged ? updatedAt : (item.balance_updated_at || item.updated_at || item.created_at || updatedAt) };
     });
     const updated = next.find((item) => String(item.id) === String(id));
     const atomic = await mutatePaymentAssetsAtomically(env, householdId, "update", updated, id);
@@ -12516,23 +12683,22 @@ function inferPaymentAssetFromText(text = "", assets = []) {
   return "";
 }
 
+// V22.9.76 감사 D-9: 사용자 키워드(직접 만든 분류·키워드 카드)는 기본 규칙보다 먼저 보고, 여러 분류의 키워드가 함께
+// 걸리면 가장 긴 키워드(가장 구체적인 말)가 이긴다. 길이가 같으면 목록 앞쪽(직접 만든 분류 → 기본 분류 카드 → 그 밖의
+// 카드)이 이긴다. 예전에는 분류를 "가장 긴 키워드를 가진 분류" 순으로 세운 뒤 그 분류의 아무 키워드나 걸리면 끝냈다.
+// 그래서 '주간용돈봉투'가 든 용돈 카드가 '커피' 한 마디로 '냠냠상회 커피'(식비 카드의 '냠냠상회')를 가져갔다.
 function inferCustomCategoryFromText(text = "", type = "expense", categories = []) {
-  const raw = normalizeText(text);
+  const raw = normalizeText(text).toLowerCase();
   if (!raw) return "";
-  const list = safeArray(categories).filter((c) => c.name && (c.type || "expense") === type).sort((a, b) => {
-    const ak = Math.max(normalizeText(a.name).length, ...normalizeCategoryKeywords(a.keywords || "").map((x) => normalizeText(x).length));
-    const bk = Math.max(normalizeText(b.name).length, ...normalizeCategoryKeywords(b.keywords || "").map((x) => normalizeText(x).length));
-    return bk - ak;
-  });
-  for (const c of list) {
-    for (const kw of normalizeCategoryKeywords(c.keywords || "")) {
-      const key = normalizeText(kw);
-      if (key && raw.includes(key)) return c.name;
+  let best = null;
+  for (const c of safeArray(categories)) {
+    if (!c?.name || (c.type || "expense") !== type) continue;
+    for (const term of [...normalizeCategoryKeywords(c.keywords || ""), c.name]) {
+      const key = normalizeText(term).toLowerCase();
+      if (key && raw.includes(key) && (!best || key.length > best.length)) best = { name: c.name, length: key.length };
     }
-    const name = normalizeText(c.name);
-    if (name && raw.includes(name)) return c.name;
   }
-  return "";
+  return best ? best.name : "";
 }
 
 function applyUserSettingsToParsedTransactions(parsedList = [], categories = [], paymentAssets = []) {
@@ -12559,7 +12725,7 @@ async function resolveManualInputClassification(env, householdId = "", type = "e
   const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
-      fetchCustomCategories(env, householdId),
+      fetchCustomCategories(env, householdId, { includeKeywordCards: true }),
       fetchPaymentAssets(env, householdId),
     ]);
     const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
@@ -12713,7 +12879,7 @@ function normalizeReservePlanList(value, householdId = "", options = {}) {
       amount: Math.max(0, Math.round(Number(item.amount || 0))),
       type,
       is_recurring: isRecurring,
-      category: String(item.category || "세금/수수료").trim().slice(0, 80),
+      category: String(item.category || defaultReservePlanCategory(type)).trim().slice(0, 80),
       payment_method: String(item.payment_method || "").trim().slice(0, 80),
       recurrence,
       due_months: dueMonths,
@@ -12796,6 +12962,7 @@ async function addReservePlan(env, householdId = "", data = {}) {
     // V22.9.37 감사 SIM-3: 같은 이름이 이미 있으면 바꿔 끼우지 않고 거절한다. 예전에는 기존 항목을 지우고 새 항목을 넣어
     // id·알림 설정이 사라졌다. 같은 이름 두 개를 두지도 않는다 — 수정·삭제는 id 로 찾더라도 사람은 이름으로 구분한다.
     if (current.some((p) => normalizeText(p.name) === normalizeText(name))) throw new Error("reserve_name_duplicate");
+    const type = String(data.type || "") === "income" ? "income" : "expense";
     const next = [
       ...current,
       {
@@ -12803,9 +12970,9 @@ async function addReservePlan(env, householdId = "", data = {}) {
         household_id: hid,
         name,
         amount,
-        type: String(data.type || "") === "income" ? "income" : "expense",
+        type,
         is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
-        category: String(data.category || "세금/수수료").trim().slice(0, 80),
+        category: String(data.category || defaultReservePlanCategory(type)).trim().slice(0, 80),
         payment_method: String(data.payment_method || "").trim().slice(0, 80),
         recurrence,
         due_months: dueMonths,
@@ -12840,14 +13007,15 @@ async function updateReservePlan(env, householdId = "", id = "", data = {}) {
     if (!dueMonths.length) dueMonths = recurrence === "monthly" ? Array.from({ length: 12 }, (_, i) => i + 1) : safeArray(target.due_months);
     // V22.9.37 감사 SIM-3: 다른 항목과 같은 이름으로 바꾸면 거절한다. 예전에는 이름이 겹치는 다른 항목을 "정리"해 지웠다.
     if (current.some((p) => String(p.id) !== String(id) && normalizeText(p.name) === normalizeText(name))) throw new Error("reserve_name_duplicate");
+    const nextType = String(data.type || "") === "income" ? "income" : "expense";
     const next = current
       .map((p) => String(p.id) !== String(id) ? p : {
         ...p,
         name,
         amount,
-        type: String(data.type || "") === "income" ? "income" : "expense",
+        type: nextType,
         is_recurring: data.is_recurring === undefined ? recurrence === "monthly" : !!data.is_recurring,
-        category: String(data.category || p.category || "세금/수수료").trim().slice(0, 80),
+        category: updatedReservePlanCategory(p, nextType, data.category),
         payment_method: String(data.payment_method ?? p.payment_method ?? "").trim().slice(0, 80),
         recurrence,
         due_months: dueMonths,
@@ -12908,6 +13076,15 @@ function nextReserveDue(plan = {}, fromDate = nowKstDate()) {
   return candidates[0] || new Date(year + 1, 11, 1);
 }
 
+// V22.9.76 감사 D-23: 그 달(YYYY-MM)에 돌아오는 납부·입금일. 없으면 "". 날짜 규칙은 nextReserveDue 와 같다
+// (납부 월이 없으면 12월, 날짜는 1~28일).
+function reserveDueDateInMonth(plan = {}, month = "") {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month))) return "";
+  const months = safeArray(plan.due_months).length ? safeArray(plan.due_months) : [12];
+  if (!months.map(Number).includes(Number(month.slice(5, 7)))) return "";
+  return `${month}-${String(Math.max(1, Math.min(28, Number(plan.due_day || 1)))).padStart(2, "0")}`;
+}
+
 function reservePlanStatus(plan = {}, fromDate = nowKstDate()) {
   const due = nextReserveDue(plan, fromDate);
   const daysLeft = Math.max(0, daysBetween(fromDate, due));
@@ -12935,6 +13112,27 @@ function reservePlanStatus(plan = {}, fromDate = nowKstDate()) {
   };
 }
 
+// V22.9.76: 분류를 비운 정기 항목의 기본 분류. 수입 항목(예: 수당)이 "세금/수수료"로 저장되던 것을 막는다.
+function defaultReservePlanCategory(type = "expense") {
+  return String(type) === "income" ? "기타수입" : "세금/수수료";
+}
+
+// 수정할 때의 분류. 비우면 기존 분류를 쓰되, 구분을 바꿨는데 분류가 예전 구분의 기본값 그대로면 새 구분의 기본값으로
+// 바꾼다(지출 기본값 "세금/수수료"가 수입으로 바꾼 항목에 남지 않게). 사용자가 고른 분류는 그대로 둔다.
+function updatedReservePlanCategory(plan = {}, nextType = "expense", requested = "") {
+  const previousType = String(plan?.type || "") === "income" ? "income" : "expense";
+  const category = String(requested || plan?.category || "").trim().slice(0, 80);
+  if (!category) return defaultReservePlanCategory(nextType);
+  if (previousType !== nextType && category === defaultReservePlanCategory(previousType)) return defaultReservePlanCategory(nextType);
+  return category;
+}
+
+// V22.9.76: 정기 항목이 수입인지는 이 함수 하나로 판별한다. 화면마다 따로 판별하다가 알림센터·홈·리포트가
+// 수입 항목(예: 수당)을 "납부 N일 전 · 월 준비"로 안내했다.
+function isIncomeReservePlan(plan = {}) {
+  return String(plan?.type || "expense") === "income";
+}
+
 function reserveDashboard(plans = [], fromDate = nowKstDate()) {
   const statuses = safeArray(plans).map((p) => reservePlanStatus(p, fromDate)).sort((a, b) => a.days_left - b.days_left);
   const upcoming = statuses.filter((s) => s.alert);
@@ -12942,7 +13140,12 @@ function reserveDashboard(plans = [], fromDate = nowKstDate()) {
   const monthlyReserveTotal = statuses.filter((s) => !isIncome(s)).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyIncomeTotal = statuses.filter(isIncome).reduce((a, s) => a + Number(s.monthly_reserve || 0), 0);
   const monthlyNetTotal = monthlyIncomeTotal - monthlyReserveTotal;
-  return { statuses, upcoming, monthlyReserveTotal, monthlyIncomeTotal, monthlyNetTotal };
+  // V22.9.76: "준비 알림"·"나갈 돈"은 지출 항목만 센다. 수입 항목은 "입금 예정"으로 따로 보여 준다.
+  const upcomingExpense = upcoming.filter((s) => !isIncome(s));
+  const upcomingIncome = upcoming.filter(isIncome);
+  const incomeCount = statuses.filter(isIncome).length;
+  const expenseCount = statuses.length - incomeCount;
+  return { statuses, upcoming, upcomingExpense, upcomingIncome, expenseCount, incomeCount, monthlyReserveTotal, monthlyIncomeTotal, monthlyNetTotal };
 }
 
 function reserveAlertText(plans = [], limit = 3) {
@@ -12950,11 +13153,13 @@ function reserveAlertText(plans = [], limit = 3) {
   if (!d.upcoming.length) return "";
   const lines = d.upcoming.slice(0, limit).map((s) => {
     const p = s.plan;
+    // V22.9.76: 기한 당일은 "0일 후"가 아니라 "오늘"이다(알림센터·홈과 같은 말).
+    const when = Number(s.days_left) > 0 ? `${s.days_left}일 후` : "오늘";
     // 수입 항목에 "준비" 라고 하면 말이 안 된다. 나갈 돈과 들어올 돈을 나눠 쓴다.
-    if (String(p.type || "expense") === "income") {
-      return `- ${p.name}: ${s.days_left}일 후 ${numberWithCommas(p.amount)}원 들어올 예정`;
+    if (isIncomeReservePlan(p)) {
+      return `- ${p.name}: ${when} ${numberWithCommas(p.amount)}원 들어올 예정`;
     }
-    return `- ${p.name}: ${s.days_left}일 후 ${numberWithCommas(p.amount)}원\n  준비 권장: 월 ${numberWithCommas(s.monthly_reserve)}원`;
+    return `- ${p.name}: ${when} ${numberWithCommas(p.amount)}원\n  준비 권장: 월 ${numberWithCommas(s.monthly_reserve)}원`;
   });
   return `\n\n🔔 다가오는 정기 수입·지출\n${lines.join("\n")}`;
 }
@@ -12983,12 +13188,12 @@ function renderReservePlanEditForm(plan = {}) {
 }
 
 function renderReserveStatusCards(statuses = [], canManage = true) {
-  if (!statuses.length) return `<div class="empty"><b>아직 등록한 정기지출이 없어요.</b><span>보험료·세금처럼 큰 금액부터 하나만 등록해 보세요.</span>${canManage ? `<a class="btn light" href="#reserveAdd">첫 정기지출 추가</a>` : ""}</div>`;
+  if (!statuses.length) return `<div class="empty"><b>아직 등록한 정기 수입·지출이 없어요.</b><span>보험료·세금처럼 큰 지출이나 수당처럼 정해진 날 들어오는 돈부터 하나만 등록해 보세요.</span>${canManage ? `<a class="btn light" href="#reserveAdd">첫 항목 추가</a>` : ""}</div>`;
   return statuses.map((s) => {
     const p = s.plan;
-    const isIncome = String(p.type || "expense") === "income";
+    const isIncome = isIncomeReservePlan(p);
     const sign = isIncome ? "+" : "-";
-    return `<div class="reserveCard ${s.alert ? "alert" : ""} ${isIncome ? "isIncome" : ""}"><div><b>${escapeHtml(p.name)}</b><span><em class="reserveKind ${isIncome ? "kindIncome" : "kindExpense"}">${isIncome ? "수입" : "지출"}</em>${p.is_recurring ? `<em class="reserveKind kindRepeat">매월 반복</em>` : ""} ${escapeHtml(recurrenceLabel(p.recurrence))} · ${escapeHtml(p.category || "")}</span><span>다음 ${isIncome ? "입금" : "납부"}일 ${escapeHtml(s.due_date)} · ${numberWithCommas(s.days_left)}일 남음</span></div><div class="reserveAmt"><strong class="${isIncome ? "amtIncome" : "amtExpense"}">${sign}${numberWithCommas(p.amount)}원</strong><small>${isIncome ? "월 환산" : "월 준비"} ${numberWithCommas(s.monthly_reserve)}원</small>${isIncome ? "" : `<small>지금부터 준비 ${numberWithCommas(s.catchup_monthly)}원/월</small>`}</div>${canManage ? `<div class="reserveActions"><details class="reserveEdit"><summary>수정</summary>${renderReservePlanEditForm(p)}</details><form method="post" action="/admin/reserve-plan/delete" onsubmit="return confirm('이 정기지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(p.household_id || "")}"/><input type="hidden" name="id" value="${escapeHtml(p.id)}"/><button class="danger" type="submit">삭제</button></form></div>` : ""}</div>`;
+    return `<div class="reserveCard ${s.alert ? "alert" : ""} ${isIncome ? "isIncome" : ""}"><div><b>${escapeHtml(p.name)}</b><span><em class="reserveKind ${isIncome ? "kindIncome" : "kindExpense"}">${isIncome ? "수입" : "지출"}</em>${p.is_recurring ? `<em class="reserveKind kindRepeat">매월 반복</em>` : ""} ${escapeHtml(recurrenceLabel(p.recurrence))} · ${escapeHtml(p.category || "")}</span><span>다음 ${isIncome ? "입금" : "납부"}일 ${escapeHtml(s.due_date)} · ${numberWithCommas(s.days_left)}일 남음</span></div><div class="reserveAmt"><strong class="${isIncome ? "amtIncome" : "amtExpense"}">${sign}${numberWithCommas(p.amount)}원</strong><small>${isIncome ? "월 환산" : "월 준비"} ${numberWithCommas(s.monthly_reserve)}원</small>${isIncome ? "" : `<small>지금부터 준비 ${numberWithCommas(s.catchup_monthly)}원/월</small>`}</div>${canManage ? `<div class="reserveActions"><details class="reserveEdit"><summary>수정</summary>${renderReservePlanEditForm(p)}</details><form method="post" action="/admin/reserve-plan/delete" onsubmit="return confirm('이 정기 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(p.household_id || "")}"/><input type="hidden" name="id" value="${escapeHtml(p.id)}"/><button class="danger" type="submit">삭제</button></form></div>` : ""}</div>`;
   }).join("");
 }
 
@@ -13020,17 +13225,25 @@ async function handleReservePlansPage(request, env, url) {
   const recurringExpense = recurring.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringIncome = recurring.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
   const recurringApplied = recurring.filter((r) => String(r.last_applied_month || "") === month).length;
+  // V22.9.76: 추가 폼은 기본이 지출이라 "지출자"로 시작하고, 구분을 수입으로 바꾸면 "수입자"로 바뀐다(아래 onchange).
   const spenderOptions = renderSpenderOptions(recurringMembers, "", "지출자 선택");
   const dashboard = reserveDashboard(plans);
-  const monthDue = dashboard.statuses.filter((st) => String(st.due_date || "").slice(0, 7) === month);
+  // V22.9.76 감사 D-23: "이번 달 나갈 정기지출"은 보고 있는 달에 돌아오는 항목으로 센다. 오늘 기준 '다음 납부일'로 거르면
+  // 12월을 봐도 10·11월 날짜만 나와 0원이었고, 이번 달도 납부일이 지난 항목은 빠졌다.
+  const monthDue = safeArray(plans)
+    .map((plan) => ({ plan, due_date: reserveDueDateInMonth(plan, month) }))
+    .filter((st) => st.due_date)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const monthDueExpense = monthDue.filter((st) => String(st.plan?.type || "expense") !== "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueIncome = monthDue.filter((st) => String(st.plan?.type || "expense") === "income").reduce((a, st) => a + Number(st.plan?.amount || 0), 0);
   const monthDueTotal = monthDueExpense;
   const monthDueNet = monthDueIncome - monthDueExpense;
+  // V22.9.76: "이번 달 나갈 정기지출" 아래 건수·이름에는 지출 항목만 쓴다(수당이 나갈 돈으로 적혔다).
+  const monthDueOut = monthDue.filter((st) => !isIncomeReservePlan(st.plan));
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기지출 준비</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDue.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDue.length)}건 · ${escapeHtml(monthDue.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDue.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcoming.length)}건</b></div></section><section class="card"><h2>다가오는 납부</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료처럼 매달 같은 금액이 나가는 항목입니다. 위의 정기 수입·지출이 "미리 모아 두는 큰돈"이라면, 이쪽은 "버튼 한 번으로 이번 달 기록에 넣는" 항목입니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}${recurringSpenderEligible(recurringMembers, r.user_id) ? "" : `<span class="note">지출자 확인 필요 · 지출자가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뜁니다. 수정에서 지출자를 다시 고르세요.</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 고정지출 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>지출자<select name="user_id">${spenderOptions}</select></label><button type="submit">고정지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">이번 달 고정지출 기록하기${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기지출 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기 수입·지출</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>매달·매년 반복되는 항목</b>만 모았습니다. 이번 달에만 적용할 한도는 <b>월별 예산·수입</b> 탭에서 정합니다. 재산세·자동차보험처럼 크게 나가는 돈과, 월세·정기 용돈처럼 꾸준히 들어오는 돈을 함께 관리하며 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 나갈 정기지출</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDueOut.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDueOut.length)}건 · ${escapeHtml(monthDueOut.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDueOut.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcomingExpense.length)}건</b>${dashboard.upcomingIncome.length ? `<small style="display:block;color:#059669;margin-top:3px">입금 예정 ${numberWithCommas(dashboard.upcomingIncome.length)}건</small>` : ""}</div></section><section class="card"><h2>다가오는 납부·입금</h2><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매월 자동 반영되는 고정 수입·지출</h2><span class="fixedSum">${recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료·월급처럼 매달 같은 날 같은 금액이 나가거나 들어오는 항목입니다. 매달 지정일이 되면 그달 기록에 자동으로 한 번 들어가고, 아래 기록하기 단추를 누르면 지정일 전이라도 지금 넣습니다(기록 날짜는 지정일). 위의 정기 수입·지출은 날짜를 미리 알려 줄 뿐 기록을 만들지 않습니다.</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${String(r.last_applied_month || "") === month ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}${recurringSpenderEligible(recurringMembers, r.user_id) ? "" : `<span class="note">${r.type === "income" ? "수입자" : "지출자"} 확인 필요 · ${r.type === "income" ? "수입자" : "지출자"}가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뜁니다. 수정에서 ${r.type === "income" ? "수입자" : "지출자"}를 다시 고르세요.</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 ${r.type === "income" ? "고정 수입" : "고정지출"} 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목이나 월급·수당처럼 들어오는 항목을 추가해 보세요.</p>`}${canManage ? `<form class="formGrid" method="post" action="/admin/recurring/save" style="margin-top:12px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type" onchange="var f=this.form,w=this.value==='income'?'수입자':'지출자',s=f&&f.querySelector('[data-recurring-person]'),u=f&&f.elements.user_id,o=u&&u.options[0];if(s)s.textContent=w;if(o&&!o.value)o.text=w+' 선택'"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label><span data-recurring-person>지출자</span><select name="user_id">${spenderOptions}</select></label><button type="submit">고정 수입·지출 추가</button></form><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">${month === currentMonthKst() ? "이번 달 고정 수입·지출 기록하기" : `${Number(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 고정 수입·지출 기록하기`}${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">고정 수입·지출 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>정기 수입·지출 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>정기 수입·지출 추가</h2><p class="note">정기 항목 저장/삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -13041,7 +13254,7 @@ async function handleReservePlanCreate(request, env) {
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기지출 저장 권한이 없습니다.")}`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 저장 권한이 없습니다.")}`);
   }
   const recurrence = String(form.get("recurrence") || "monthly");
   // V22.9.37 감사 N10: 선택값을 숫자로 바꾸지 않고 그대로 넘겨 저장 함수가 1~12 를 검증한다(틀린 값을 조용히 버리지 않는다).
@@ -13056,7 +13269,8 @@ async function handleReservePlanCreate(request, env) {
       recurrence,
       due_months: dueMonths,
       due_day: form.get("due_day") || 1,
-      category: form.get("category") || "세금/수수료",
+      // V22.9.76: 비운 분류는 저장 함수가 구분(수입·지출)에 맞춰 채운다. 여기서 "세금/수수료"를 넣으면 수입 항목도 그 분류가 됐다.
+      category: form.get("category") || "",
       payment_method: form.get("payment_method") || "",
       alert_days: [90, 60, 30],
       memo: form.get("memo") || "",
@@ -13065,7 +13279,7 @@ async function handleReservePlanCreate(request, env) {
   } catch (err) {
     // 검증·중복 이름 거절은 코드 그대로 돌려보내 화면이 이유를 말하게 한다. 그 밖의 실패는 예전 문구다.
     const code = safeError(err);
-    return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent(/^reserve_[a-z_]+$/.test(code) ? code : "정기지출 저장을 완료하지 못했습니다.")}`);
+    return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent(/^reserve_[a-z_]+$/.test(code) ? code : "정기 항목 저장을 완료하지 못했습니다.")}`);
   }
 }
 
@@ -13112,7 +13326,7 @@ async function handleReservePlanDelete(request, env) {
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
     const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기지출 삭제 권한이 없습니다.")}`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 삭제 권한이 없습니다.")}`);
   }
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("삭제할 정기 항목을 찾지 못했습니다.")}`);
@@ -13455,7 +13669,9 @@ async function bulkDeleteTransactions(env, ids) {
 
 function returnLocation(form, fallback, extra = {}) {
   const raw = String(form.get("return_to") || "");
-  let path = raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : fallback;
+  // V22.9.76 감사 C-2: 정규화 전 문자열만 보면 "/.//x"(정규화하면 "//x")나 "/\x"·중간에 탭이 낀 경로(브라우저가 "//x"로 읽음)가
+  // 다른 사이트 주소로 나갈 수 있었다. 정규화한 뒤에도 같은 사이트 경로인지 보는 관리자 복귀 경로 검사를 통과해야 쓴다.
+  let path = raw && safeAdminReturnPath(raw, "") ? raw : fallback;
   if (Object.keys(extra).length) {
     const u = new URL(path, "https://dummy.local");
     for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== null && String(v) !== "") u.searchParams.set(k, String(v));
@@ -13508,6 +13724,9 @@ async function handleImportTemplateXls(request, env) {
   });
 }
 
+const ADMIN_IMPORT_MAX_ROWS = 3000;
+const ADMIN_IMPORT_BATCH_ROWS = 1000;
+
 async function handleAdminImportJson(request, env) {
   if (!MY_IMPORT_WRITES_ENABLED_V22959) return jsonResponse({ ok: false, error: "import_recovery_read_only", message: "복구 모드에서는 가져오기를 저장하지 않습니다. 원본과 기존 미리보기를 보관해 주세요." }, 503);
   try {
@@ -13522,14 +13741,38 @@ async function handleAdminImportJson(request, env) {
       return jsonResponse({ ok: false, error: "spender_required", message: "업로드 기본 지출자를 현재 가계부 참여자 중에서 선택해주세요." }, 400);
     }
     const parsed = parseImportedRecords(rawText, householdId, defaultUserId);
-    const rows = cleanImportedRowsForInsert(parsed.rows.slice(0, 1000)).map((row) => ({ ...row, id: row.id || crypto.randomUUID(), user_id: row.user_id || defaultUserId }));
+    // V22.9.76 감사 E-8: 예전에는 1,000행을 넘는 부분을 말없이 버리고(건너뜀 0건), 행 id 를 요청마다 새로 만들어 응답이 끊긴 뒤
+    // 같은 파일을 다시 내면 두 번 저장됐다. 이제 id 를 (가계부·기본 지출자·원문, 행 순서)로 정해 같은 파일을 다시 제출해도 이미
+    // 저장된 행은 건너뛴다. 저장은 1,000행씩 나눠 최대 ADMIN_IMPORT_MAX_ROWS 행까지 하고(저장소 호출: 묶음당 1번 + 확인 80행당 1번),
+    // 그보다 많거나 파일을 끝까지 읽지 못했으면 아무것도 저장하지 않고 나눠 올리라고 답한다.
+    const cleaned = cleanImportedRowsForInsert(parsed.rows);
+    if (parsed.analysis_complete === false || cleaned.length > ADMIN_IMPORT_MAX_ROWS) {
+      return jsonResponse({ ok: false, error: "import_too_many_rows", rows: cleaned.length, max_rows: ADMIN_IMPORT_MAX_ROWS, message: `저장할 수 있는 행이 ${numberWithCommas(cleaned.length)}행${parsed.analysis_complete === false ? " 넘게 있어" : "이라"} 아무것도 저장하지 않았습니다. 한 번에 ${numberWithCommas(ADMIN_IMPORT_MAX_ROWS)}행까지 가져올 수 있으니 파일을 나눠 올려 주세요.` }, 413);
+    }
+    const idSeed = `admin:${await sha256Hex(`${householdId}|${defaultUserId}|${rawText}`)}`;
+    const rows = [];
+    for (const [index, row] of cleaned.entries()) rows.push({ ...row, id: row.id || await myImportDeterministicTransactionId(idSeed, index + 1), user_id: row.user_id || defaultUserId });
     if (!rows.length) return jsonResponse({ ok: false, error: "no_valid_rows", message: "저장 가능한 행을 찾지 못했습니다.", skipped: parsed.skipped }, 400);
     if (rows.some((row) => !activeSpenderExists(members, row.user_id))) return jsonResponse({ ok: false, error: "spender_not_member", message: "가져오기 행의 지출자가 현재 가계부의 활성 참여자가 아닙니다." }, 400);
-    const result = await commitImportedTransactionRows(env, householdId, rows);
-    const summary = Array.isArray(result) ? result[0] : result;
+    let inserted = 0, duplicates = 0, committedRows = 0;
+    try {
+      for (let start = 0; start < rows.length; start += ADMIN_IMPORT_BATCH_ROWS) {
+        const batch = rows.slice(start, start + ADMIN_IMPORT_BATCH_ROWS);
+        const result = await commitImportedTransactionRows(env, householdId, batch);
+        const summary = Array.isArray(result) ? result[0] : result;
+        if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== batch.length) throw Object.assign(new Error("import_summary_invalid"), { importSummaryInvalid: true });
+        inserted += summary.inserted;
+        duplicates += summary.duplicates;
+        committedRows += batch.length;
+      }
+    } catch (err) {
+      if (!committedRows && !isUncertainStorageWrite(err) && !err?.importSummaryInvalid) throw err;
+      rememberOpsEvent({ kind: "admin_import_unconfirmed", severity: "error", path: "/admin/import/json", method: "POST", detail: safeError(err) });
+      return jsonResponse({ ok: false, error: "import_write_unknown", inserted, confirmed_rows: committedRows, message: `${committedRows ? `앞의 ${numberWithCommas(committedRows)}행은 저장을 확인했지만 ` : ""}나머지 저장 결과를 확인하지 못했습니다. 같은 파일을 그대로 다시 제출하면 이미 저장된 행은 다시 넣지 않습니다.` }, 503);
+    }
     const found = await reconcileImportedTransactionIds(env, householdId, rows.map(row => ({ ...row, source: "my_import" })));
-    if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== rows.length || found.size !== rows.length) return jsonResponse({ ok: false, error: "import_write_unknown", message: "저장 결과를 확인하지 못했습니다. 거래 목록과 원본을 보관하고 같은 파일을 반복 제출하지 마세요." }, 503);
-    return jsonResponse({ ok: true, inserted: Number(summary?.inserted || 0), skipped: parsed.skipped + Number(summary?.duplicates || 0), date_samples: rows.slice(0, 5).map(r => r.transaction_date), warnings: parsed.warnings.slice(0, 20) });
+    if (found.size !== rows.length) return jsonResponse({ ok: false, error: "import_write_unknown", inserted, message: "저장된 내용을 파일과 맞춰 보지 못했습니다. 거래 목록에서 결과를 확인해 주세요. 같은 파일을 그대로 다시 제출해도 이미 저장된 행은 다시 넣지 않습니다." }, 503);
+    return jsonResponse({ ok: true, inserted, skipped: parsed.skipped + duplicates, duplicates, rows: rows.length, date_samples: rows.slice(0, 5).map(r => r.transaction_date), warnings: parsed.warnings.slice(0, 20) });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_import_failed", severity: "error", path: "/admin/import/json", method: "POST", detail: safeError(err) });
     return jsonResponse({ ok: false, error: "import_failed", message: "가져오기를 완료하지 못했습니다. 거래 목록에서 저장 결과를 확인한 뒤 같은 파일을 다시 제출해 주세요." }, 500);
@@ -14171,9 +14414,24 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.37 감사 N5·D6: 날짜 열이 있는 행은 그 칸에서만 날짜를 읽는다. 비었거나 해석되지 않으면 다른 칸(금액 38000 →
   // 2004년)에서 날짜를 찍어 내지 않고 missing_date·invalid_date 로 확인 필요에 보낸다. 날짜 열이 없는 행만 예전처럼
   // 행 안의 다른 값과 자연어에서 날짜를 찾는다(엑셀 일련번호 제외).
-  let transactionDate = dateVal ? parseImportDateCell(dateVal, { ...options, allowSerial: true }) : "";
-  if (!transactionDate && dateVal && /[가-힣]/.test(dateVal)) transactionDate = importDateFromFreeText(dateVal, options);
-  if (!transactionDate && !importHasDateField(obj)) transactionDate = findImportDateInValues(contextCells, options) || importDateFromFreeText(contextText, options);
+  const resolveImportRowDate = (opts) => {
+    let value = dateVal ? parseImportDateCell(dateVal, { ...opts, allowSerial: true }) : "";
+    if (!value && dateVal && /[가-힣]/.test(dateVal)) value = importDateFromFreeText(dateVal, opts);
+    if (!value && !importHasDateField(obj)) value = findImportDateInValues(contextCells, opts) || importDateFromFreeText(contextText, opts);
+    return value;
+  };
+  let transactionDate = resolveImportRowDate(options);
+  // V22.9.76 감사 E-4: ‘선택한 연도’ 기준이면 연도 없는 날짜를 그 해로 둔다. 그 결과가 오늘 뒤 날짜이고 기본 기준(183일 넘게
+  // 뒤면 전년, 웹·카카오와 같음)과 다르면(1월에 가져온 12/28 → 올해 12월) 미래 날짜로 조용히 저장하지 않게 경고와 확인 필요를 남긴다.
+  let yearBasisReview = false;
+  if (transactionDate && options.dateContext.mode === "selected") {
+    const reference = String(options.dateContext.reference_date || "");
+    const basisDate = resolveImportRowDate({ ...options, dateContext: { ...options.dateContext, mode: "default", year: Number(reference.slice(0, 4)) } });
+    if (basisDate && basisDate !== transactionDate && transactionDate > reference) {
+      yearBasisReview = true;
+      warnings.push(`연도 없는 날짜를 선택한 ${options.dateContext.year}년으로 읽어 오늘 뒤 날짜(${transactionDate})가 됐습니다. 지난 거래라면 ${basisDate}입니다. 확인 후 저장하세요.`);
+    }
+  }
   if (!transactionDate && natural) {
     transactionDate = options.dateContext.reference_date;
     warnings.push("날짜가 없어 오늘 날짜로 보정했습니다.");
@@ -14240,6 +14498,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
   }
+  // V22.9.76 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
+  // 수입이 오히려 늘었다. 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고, 확인 표시를 남겨 미리보기에서 기본 선택하지 않는다.
+  let incomeReversed = false;
+  if (!signedFile && chosen.negative && !refundFlipped && (normalizedType === "income" || (!normalizedType && forcedType === "income"))) {
+    type = "expense";
+    incomeReversed = true;
+    warnings.push("음수 수입 금액이라 수입 취소·정정(지출)으로 처리했습니다. 확인 후 저장하세요.");
+  }
 
   let paymentVal = canonicalImportValue(obj, "payment");
   if (!paymentVal && typeVal && !normalizeImportTypeValue(typeVal) && /(카드|현금|계좌|페이|은행)/i.test(typeVal)) paymentVal = typeVal;
@@ -14248,7 +14514,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const rawField = canonicalImportValue(obj, "raw_text");
   if (categoryVal.length > 80 || [paymentVal, categoryVal].some((value) => /[\u0000-\u001f\u007f]/.test(value))) return { row: null, rejection: importRejection("invalid_field", options.rowNumber, rawText), warnings };
   const payment = paymentVal ? String(paymentVal).trim() : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : (categoryVal || naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type));
   const memo = memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category;
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
@@ -14266,7 +14532,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || rawText).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
-    _import_needs_confirmation: refundFlipped || cancellation,
+    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
   };
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
@@ -15379,7 +15645,7 @@ function renderSettingsHtml({ env, hasDbPassword, msg = "", err = "" }) {
     password_updated: "관리자 비밀번호를 변경했습니다. 보안 설정 화면을 그대로 유지했습니다.",
   };
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 설정</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.top{height:58px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;padding:0 18px;position:sticky;top:0}.top a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:12px;border:1px solid #d1d5db;background:#fff;color:#111827;text-decoration:none;font-weight:900;padding:0 13px;cursor:pointer}.primary,button{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.wrap{max-width:840px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}label{display:block;font-weight:900;margin:12px 0 6px}input{width:100%;height:44px;border:1px solid #cbd5e1;border-radius:14px;padding:0 12px;font:inherit}.muted{color:#64748b;font-size:13px;line-height:1.6}.ok{background:#dcfce7;color:#166534;border-radius:14px;padding:11px;margin:10px 0}.err{background:#fee2e2;color:#991b1b;border-radius:14px;padding:11px;margin:10px 0}.pill{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:900;font-size:12px;background:#eff6ff;color:#1d4ed8}.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:12px;line-height:1.6}</style></head><body>${renderUnifiedNav("settings")}<header class="top"><b>설정</b><nav><a href="/?legacy=1">관리자 홈</a> <a href="/app">모바일 입력</a> <a href="/diagnostics">시스템진단</a></nav></header><main class="wrap"><h1>보안 설정</h1>${msg ? `<div class="ok">${escapeHtml(msgMap[msg] || msg)}</div>` : ""}${err ? `<div class="err">${escapeHtml(errMap[err] || err)}</div>` : ""}<section class="card"><h2>관리자 비밀번호</h2><p class="muted">가계부 접속 비밀번호는 정상입니다. 가족/관리자 외 접근을 막기 위한 관리자 보호장치입니다. 비밀번호는 PBKDF2 방식으로 저장되며 원문은 보관하지 않습니다.</p><p><span class="pill">${hasDbPassword ? "앱 비밀번호 설정됨" : "Cloudflare 초기 비밀번호 사용 중"}</span></p><form method="post" action="/admin/settings/password"><label>현재 비밀번호</label><input name="current_password" type="password" autocomplete="current-password" required/><label>새 비밀번호</label><input name="new_password" type="password" autocomplete="new-password" minlength="10" required/><label>새 비밀번호 확인</label><input name="confirm_password" type="password" autocomplete="new-password" minlength="10" required/><p><button type="submit">비밀번호 변경</button></p></form><div class="warn"><b>중요</b><br/>변경하면 다른 관리자 로그인 세션은 즉시 만료되고 현재 화면은 유지됩니다. 이후에는 Cloudflare 초기 비밀번호가 로그인 수단으로 사용되지 않습니다.</div></section><section class="card"><h2>공유 설정</h2><p class="muted">공유 기능은 기본 공유와 문구 복사를 우선 제공합니다.</p></section><section class="card"><h2>저장 상태</h2><p class="muted">설정 저장이 정상 처리되는지 화면에서 확인하세요.</p></section></main></body></html>`;
+*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.top{height:58px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;padding:0 18px;position:sticky;top:0}.top a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:12px;border:1px solid #d1d5db;background:#fff;color:#111827;text-decoration:none;font-weight:900;padding:0 13px;cursor:pointer}.primary,button{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.wrap{max-width:840px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}label{display:block;font-weight:900;margin:12px 0 6px}input{width:100%;height:44px;border:1px solid #cbd5e1;border-radius:14px;padding:0 12px;font:inherit}.muted{color:#64748b;font-size:13px;line-height:1.6}.ok{background:#dcfce7;color:#166534;border-radius:14px;padding:11px;margin:10px 0}.err{background:#fee2e2;color:#991b1b;border-radius:14px;padding:11px;margin:10px 0}.pill{display:inline-flex;border-radius:999px;padding:6px 10px;font-weight:900;font-size:12px;background:#eff6ff;color:#1d4ed8}.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:12px;line-height:1.6}</style></head><body>${renderUnifiedNav("settings")}<header class="top"><b>설정</b><nav><a href="/?legacy=1">관리자 홈</a> <a href="/app">모바일 입력</a> <a href="/diagnostics">시스템진단</a></nav></header><main class="wrap"><h1>보안 설정</h1>${msg ? `<div class="ok">${escapeHtml((Object.hasOwn(msgMap, msg) && msgMap[msg]) || msg)}</div>` : ""}${err ? `<div class="err">${escapeHtml((Object.hasOwn(errMap, err) && errMap[err]) || err)}</div>` : ""}<section class="card"><h2>관리자 비밀번호</h2><p class="muted">가계부 접속 비밀번호는 정상입니다. 가족/관리자 외 접근을 막기 위한 관리자 보호장치입니다. 비밀번호는 PBKDF2 방식으로 저장되며 원문은 보관하지 않습니다.</p><p><span class="pill">${hasDbPassword ? "앱 비밀번호 설정됨" : "Cloudflare 초기 비밀번호 사용 중"}</span></p><form method="post" action="/admin/settings/password"><label>현재 비밀번호</label><input name="current_password" type="password" autocomplete="current-password" required/><label>새 비밀번호</label><input name="new_password" type="password" autocomplete="new-password" minlength="10" required/><label>새 비밀번호 확인</label><input name="confirm_password" type="password" autocomplete="new-password" minlength="10" required/><p><button type="submit">비밀번호 변경</button></p></form><div class="warn"><b>중요</b><br/>변경하면 다른 관리자 로그인 세션은 즉시 만료되고 현재 화면은 유지됩니다. 이후에는 Cloudflare 초기 비밀번호가 로그인 수단으로 사용되지 않습니다.</div></section><section class="card"><h2>공유 설정</h2><p class="muted">공유 기능은 기본 공유와 문구 복사를 우선 제공합니다.</p></section><section class="card"><h2>저장 상태</h2><p class="muted">설정 저장이 정상 처리되는지 화면에서 확인하세요.</p></section></main></body></html>`;
 }
 
 function canonicalRouteRows(month = currentMonthKst(), householdId = "") {
@@ -15460,10 +15726,27 @@ function backupScopeParams(month, householdId) {
   return qs.toString();
 }
 
-async function buildBackupPayload(env, { month, householdId }) {
+// V22.9.76 감사 E-16: 백업센터의 "전체 가계부 백업"은 고른 한 달 치만 담았다. 선택한 가계부의 전체 기간 백업
+// (모든 달의 거래·예산, 거래 ADMIN_FULL_BACKUP_ROW_LIMIT 건까지)을 따로 두고, 한 달만 담는 단추에는 그 달을 적는다.
+// 모든 가계부를 한꺼번에 담는 백업은 가계부마다 읽기가 다섯 번씩 늘어 요청 한도(50회)에 걸리므로 계속 한 달 단위다.
+// 전체 기간 백업의 요청 수: 가계부 1 + 거래 쪽수(1,000건당 1, 최대 16) + 참여자·예산·정기·분류·적립 5~6.
+const ADMIN_FULL_BACKUP_ROW_LIMIT = 15000;
+
+async function fetchAllBudgetsForBackup(env, householdId) {
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,month,category,amount,created_at");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("order", "month.asc,category.asc,id.asc");
+  return fetchPostgrestRows(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { maxRows: 20000 });
+}
+
+async function buildBackupPayload(env, { month, householdId, range = "month" }) {
+  const allMonths = range === "all" && !!householdId;
   const households = await fetchAdminHouseholds(env);
   const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
-  const transactions = await fetchAdminRows(env, { month, householdId, type: "all" });
+  const transactions = allMonths
+    ? await fetchAdminRowsRange(env, { householdId, type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
+    : await fetchAdminRows(env, { month, householdId, type: "all" });
   const membersByHousehold = Object.create(null);
   const budgetsByHousehold = Object.create(null);
   const recurringByHousehold = Object.create(null);
@@ -15473,16 +15756,19 @@ async function buildBackupPayload(env, { month, householdId }) {
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
   for (const h of selectedHouseholds) {
     membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
-    budgetsByHousehold[h.id] = await fetchBudgets(env, h.id, month, { strict: true });
+    budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
     categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
+  const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];
   return {
     app: "kakao-accountbook",
     version: APP_VERSION,
     exported_at: new Date().toISOString(),
-    scope: { month, household_id: householdId || "", household_scope: householdId ? "selected" : "all" },
+    scope: allMonths
+      ? { month, range: "all", household_id: householdId, household_scope: "selected", first_date: dates[0] || "", last_date: dates[dates.length - 1] || "" }
+      : { month, range: "month", household_id: householdId || "", household_scope: householdId ? "selected" : "all" },
     counts: {
       households: selectedHouseholds.length,
       transactions: transactions.length,
@@ -15502,7 +15788,10 @@ async function buildBackupPayload(env, { month, householdId }) {
     notes: [
       "이 파일은 백업용 JSON입니다.",
       "민감한 가계부 데이터가 포함될 수 있으므로 외부 공유를 피하세요.",
-      "복구 자동 반영 기능은 아직 제공하지 않으며, 운영 안정화를 위해 먼저 내보내기만 제공합니다."
+      "복구 자동 반영 기능은 아직 제공하지 않으며, 운영 안정화를 위해 먼저 내보내기만 제공합니다.",
+      allMonths
+        ? "선택한 가계부의 모든 달 거래와 예산을 담은 전체 기간 백업입니다. 백업센터의 복구 단계는 한 달씩 진행합니다(비교·후보 화면에서 달을 고르세요)."
+        : `선택한 달(${month})의 거래와 예산만 담은 백업입니다.`,
     ],
   };
 }
@@ -15511,15 +15800,18 @@ async function handleAdminExportJson(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const householdId = String(url.searchParams.get("household_id") || "").trim();
+  const range = url.searchParams.get("range") === "all" ? "all" : "month";
+  if (range === "all" && !householdId) return jsonResponse({ ok: false, error: "household_required", message: "전체 기간 백업은 가계부를 하나 골라야 만들 수 있습니다." }, 400);
   let payload;
   try {
-    payload = await buildBackupPayload(env, { month, householdId });
+    payload = await buildBackupPayload(env, { month, householdId, range });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
+    if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 달별 백업을 이용해 주세요.` }, 413);
     return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
   }
   const scope = householdId ? "household" : "all";
-  return backupJsonResponse(payload, `accountbook_backup_${month}_${scope}.json`);
+  return backupJsonResponse(payload, `accountbook_backup_${range === "all" ? "all-months" : month}_${scope}.json`);
 }
 
 async function handleBackupCenterPage(request, env, url) {
@@ -15536,6 +15828,7 @@ async function handleBackupCenterPage(request, env, url) {
   const categories = hid ? await fetchCustomCategories(env, hid) : [];
   const qs = backupScopeParams(month, hid);
   const allQs = backupScopeParams(month, "");
+  const fullQs = `${qs}&range=all`;
   const cards = [
     ["거래 기록", `${numberWithCommas(rows.length)}건`, "현재 선택한 월의 수입·지출 데이터"],
     ["참여자", `${numberWithCommas(members.length)}명`, "가계부 구성원 정보"],
@@ -15543,7 +15836,7 @@ async function handleBackupCenterPage(request, env, url) {
     ["고정항목", `${numberWithCommas(recurring.length)}개`, "반복 기록 설정"],
     ["사용자 분류", `${numberWithCommas(categories.length)}개`, "직접 추가한 분류"],
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(qs)}">1. 현재 가계부 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">전체 가계부 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다. 전체 기간 백업은 선택한 가계부의 모든 달(거래 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건까지)을, ‘${escapeHtml(month)}만’ 단추는 그 달만 담습니다. 모든 가계부 백업은 요청 한도 때문에 한 달씩만 만듭니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(fullQs)}">1. 현재 가계부 전체 기간 백업</a><a class="btn light" href="/admin/export/json?${escapeHtml(qs)}">현재 가계부 ${escapeHtml(month)}만 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV(${escapeHtml(month)})</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">모든 가계부 ${escapeHtml(month)}만 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
 }
 
 function safeArray(value) {
@@ -15672,6 +15965,17 @@ async function handleBackupPreviewPost(request, env) {
   }
 }
 
+// V22.9.76 감사 E-16: 전체 기간 백업 파일은 복구 단계에서 고른 달(비우면 백업 기준 월)의 거래만 비교한다. 다른 달
+// 거래를 그 달의 현재 기록과 견주면 모두 '신규'로 보이기 때문이다. 한 달 백업 파일은 예전처럼 백업 기준 월을 쓴다.
+function backupRestoreView(payload, formMonth = "") {
+  const scope = safeObject(safeObject(payload).scope);
+  const rows = safeArray(safeObject(payload).transactions);
+  if (scope.range !== "all") return { month: validMonth(scope.month) || currentMonthKst(), rows, note: "" };
+  const month = validMonth(String(formMonth || "")) || validMonth(scope.month) || currentMonthKst();
+  const monthRows = rows.filter((row) => String(safeObject(row).transaction_date || "").slice(0, 7) === month);
+  return { month, rows: monthRows, note: `전체 기간 백업(거래 ${numberWithCommas(rows.length)}건)에서 ${month} 거래 ${numberWithCommas(monthRows.length)}건만 비교합니다. 다른 달은 달을 바꿔 다시 올려 주세요.` };
+}
+
 function normalizeComparableText(value) {
   return String(value || "").trim();
 }
@@ -15701,50 +16005,56 @@ function transactionDiffFields(a, b) {
   return fields.filter((f) => String(aa[f]) !== String(bb[f]));
 }
 
+// V22.9.76 감사 E-7: 같은 날 같은 내용의 거래 두 건 중 한 건이 복구에서 영구히 빠졌다. '내용이 같은 현재 기록이
+// 하나라도 있으면 중복'으로 봤기 때문이다. 이제 백업 행 하나가 현재 기록 하나와만 짝을 이룬다(먼저 같은 ID, 다음 같은
+// 내용). 짝이 없는 행이 신규 후보이고, 후보마다 그 내용으로 이미 짝지은 개수(occurrence_base)를 적어 둔다. 최종 확인과
+// 적용은 '현재 개수 < occurrence_base + 계획 안에서 몇 번째'일 때만 신규로 보므로, 같은 계획을 다시 적용해도 늘지 않는다.
 function compareBackupTransactions(backupRows, currentRows) {
-  const backup = safeArray(backupRows);
-  const current = safeArray(currentRows);
+  const backup = safeArray(backupRows).map((row) => safeObject(row));
+  const current = safeArray(currentRows).map((row) => safeObject(row));
   const currentById = new Map();
-  const currentBySignature = new Map();
-  for (const row of current) {
-    const r = safeObject(row);
-    if (r.id) currentById.set(String(r.id), r);
+  for (const r of current) if (r.id) currentById.set(String(r.id), r);
+  const paired = new Set();
+  const idPairs = new Map();
+  backup.forEach((r, index) => {
+    const cur = r.id ? currentById.get(String(r.id)) : null;
+    if (cur && !paired.has(cur)) { idPairs.set(index, cur); paired.add(cur); }
+  });
+  const freeBySignature = new Map();
+  for (const r of current) {
+    if (paired.has(r)) continue;
     const sig = transactionSignature(r);
-    if (!currentBySignature.has(sig)) currentBySignature.set(sig, []);
-    currentBySignature.get(sig).push(r);
+    if (!freeBySignature.has(sig)) freeBySignature.set(sig, []);
+    freeBySignature.get(sig).push(r);
   }
 
-  const backupIds = new Set();
-  const backupSigs = new Set();
+  const matchedBySignature = new Map();
   const sameId = [];
   const contentDuplicates = [];
   const conflicts = [];
-  const newCandidates = [];
+  const unmatched = [];
 
-  for (const row of backup) {
-    const r = safeObject(row);
-    const id = String(r.id || "");
+  backup.forEach((r, index) => {
     const sig = transactionSignature(r);
-    if (id) backupIds.add(id);
-    backupSigs.add(sig);
-    if (id && currentById.has(id)) {
-      const cur = currentById.get(id);
+    const cur = idPairs.get(index);
+    if (cur) {
       const diff = transactionDiffFields(r, cur);
       if (diff.length) conflicts.push({ backup: r, current: cur, diff });
-      else sameId.push(r);
-    } else if (currentBySignature.has(sig)) {
-      contentDuplicates.push({ backup: r, current: currentBySignature.get(sig)[0] });
-    } else {
-      newCandidates.push(r);
+      else { sameId.push(r); matchedBySignature.set(sig, (matchedBySignature.get(sig) || 0) + 1); }
+      return;
     }
-  }
-
-  const currentOnly = current.filter((row) => {
-    const r = safeObject(row);
-    const id = String(r.id || "");
-    const sig = transactionSignature(r);
-    return (!id || !backupIds.has(id)) && !backupSigs.has(sig);
+    const free = freeBySignature.get(sig);
+    if (free && free.length) {
+      const match = free.shift();
+      paired.add(match);
+      contentDuplicates.push({ backup: r, current: match });
+      matchedBySignature.set(sig, (matchedBySignature.get(sig) || 0) + 1);
+      return;
+    }
+    unmatched.push({ r, sig });
   });
+  const newCandidates = unmatched.map(({ r, sig }) => ({ ...r, occurrence_base: matchedBySignature.get(sig) || 0 }));
+  const currentOnly = current.filter((r) => !paired.has(r));
 
   const risk = conflicts.length ? "danger" : (sameId.length || contentDuplicates.length) ? "warn" : "good";
   return {
@@ -15776,7 +16086,8 @@ function renderBackupCompareRows(rows, type = "new") {
   }).join("");
 }
 
-function renderBackupCompareHtml({ payload = null, validation = null, summary = null, compare = null, month = "", householdId = "", households = [], error = "" } = {}) {
+function renderBackupCompareHtml({ payload = null, validation = null, summary = null, compare = null, month = "", householdId = "", households = [], error = "", note = "" } = {}) {
+  const noteBox = note ? `<section class="card warn"><p>${escapeHtml(note)}</p></section>` : "";
   const hasResult = !!compare;
   const riskLabel = compare?.risk === "danger" ? "충돌 위험" : compare?.risk === "warn" ? "중복 가능성" : "안전";
   const riskText = compare?.risk === "danger" ? "같은 ID인데 내용이 다른 거래가 있습니다. 자동 복구/가져오기는 위험합니다." : compare?.risk === "warn" ? "이미 존재하는 거래가 있어 중복 저장 위험이 있습니다. 가져오기 전에 확인이 필요합니다." : "현재 데이터와 충돌·중복 위험이 낮습니다.";
@@ -15793,7 +16104,7 @@ function renderBackupCompareHtml({ payload = null, validation = null, summary = 
   const errorBox = error ? `<section class="card bad"><h2>비교 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>백업 파일 구조: ${validation.ok ? "정상" : "확인 필요"}</h2>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const resultHtml = hasResult ? `<section class="card ${compare.risk}"><h2>비교 결과: ${escapeHtml(riskLabel)}</h2><p>${escapeHtml(riskText)}</p></section><section class="grid">${cards}</section><section class="card"><h2>충돌 항목</h2><p class="note">같은 ID인데 백업과 현재 데이터 내용이 다른 항목입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID/차이</th></tr></thead><tbody>${renderBackupCompareRows(compare.conflicts, "conflict")}</tbody></table></section><section class="card"><h2>신규 후보</h2><p class="note">현재 데이터에 없어 보이는 백업 거래입니다. 아직 DB에 저장하지 않습니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows(compare.newCandidates, "new")}</tbody></table></section><section class="card"><h2>중복 가능 항목</h2><p class="note">ID 또는 내용 기준으로 이미 존재하는 거래입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows([...compare.sameId.slice(0, 15), ...compare.contentDuplicates.slice(0, 15)], "dup")}</tbody></table></section>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업 비교</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1140px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.danger,.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button{background:#111827;color:#fff;font-weight:1000;cursor:pointer}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}table{width:100%;border-collapse:collapse;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}table{min-width:760px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>백업 비교/중복 위험 분석</h1><p>백업 JSON을 현재 Supabase 데이터와 비교해, 복구 전에 중복·충돌 위험을 확인합니다. 이 화면은 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/preview">백업 미리보기</a></p></section><section class="card"><h2>백업 파일 비교</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 같은 ID, 같은 내용, 충돌 항목, 신규 후보만 분석합니다.</p><form class="upload" method="post" action="/backup/compare" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><button type="submit">비교 분석</button></form></section>${errorBox}${validationBox}${resultHtml}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업 비교</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1140px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.danger,.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button{background:#111827;color:#fff;font-weight:1000;cursor:pointer}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}table{width:100%;border-collapse:collapse;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}table{min-width:760px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>백업 비교/중복 위험 분석</h1><p>백업 JSON을 현재 Supabase 데이터와 비교해, 복구 전에 중복·충돌 위험을 확인합니다. 이 화면은 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/preview">백업 미리보기</a></p></section><section class="card"><h2>백업 파일 비교</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 같은 ID, 같은 내용, 충돌 항목, 신규 후보만 분석합니다.</p><form class="upload" method="post" action="/backup/compare" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><label class="note">전체 기간 백업이면 비교할 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">비교 분석</button></form></section>${errorBox}${noteBox}${validationBox}${resultHtml}</main></body></html>`;
 }
 
 async function handleBackupComparePage(request, env, url) {
@@ -15821,15 +16132,16 @@ async function handleBackupComparePost(request, env) {
     const validation = validateBackupPayloadShape(payload);
     const summary = summarizeBackupPayload(payload);
     const scope = safeObject(payload.scope);
-    const month = validMonth(scope.month) || currentMonthKst();
+    const view = backupRestoreView(payload, form.get("month"));
+    const month = view.month;
     const formHouseholdId = String(form.get("household_id") || "").trim();
     const householdId = formHouseholdId || String(scope.household_id || "").trim();
     if (!validation.ok) {
       return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, households, month, householdId }), 400);
     }
     const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const compare = compareBackupTransactions(safeArray(payload.transactions), currentRows);
-    return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, compare, households, month, householdId }));
+    const compare = compareBackupTransactions(view.rows, currentRows);
+    return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, compare, households, month, householdId, note: view.note }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_compare_failed", severity: "warn", path: "/backup/compare", method: "POST", detail: safeError(err) });
     return htmlResponse(renderBackupCompareHtml({ households, error: "백업 비교를 완료하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
@@ -15847,11 +16159,13 @@ function renderImportCandidateRows(rows = []) {
 }
 
 function renderImportCandidateHiddenJson(rows = []) {
-  const safeRows = safeArray(rows).slice(0, 200).map((r) => transactionComparable(r));
+  // V22.9.76 감사 E-7: 같은 내용으로 이미 짝지은 개수(occurrence_base)를 계획 파일까지 넘긴다.
+  const safeRows = safeArray(rows).slice(0, 200).map((r) => ({ ...transactionComparable(r), occurrence_base: Number(safeObject(r).occurrence_base || 0) }));
   return escapeHtml(JSON.stringify(safeRows));
 }
 
-function renderBackupCandidateSelectHtml({ payload = null, validation = null, compare = null, month = "", householdId = "", households = [], error = "" } = {}) {
+function renderBackupCandidateSelectHtml({ payload = null, validation = null, compare = null, month = "", householdId = "", households = [], error = "", note = "" } = {}) {
+  const noteBox = note ? `<section class="card warn"><p>${escapeHtml(note)}</p></section>` : "";
   const candidates = safeArray(compare?.newCandidates);
   const conflictCount = Number(compare?.counts?.conflicts || 0);
   const duplicateCount = Number(compare?.counts?.same_id || 0) + Number(compare?.counts?.same_content || 0);
@@ -15861,7 +16175,7 @@ function renderBackupCandidateSelectHtml({ payload = null, validation = null, co
   const summary = compare ? `<section class="grid"><div class="metric"><span>신규 후보</span><b>${numberWithCommas(candidates.length)}</b></div><div class="metric"><span>충돌</span><b>${numberWithCommas(conflictCount)}</b></div><div class="metric"><span>중복 가능</span><b>${numberWithCommas(duplicateCount)}</b></div><div class="metric"><span>현재만 있음</span><b>${numberWithCommas(compare.counts.current_only || 0)}</b></div></section>` : "";
   const riskBox = compare ? `<section class="card ${conflictCount ? "bad" : duplicateCount ? "warn" : "good"}"><h2>${conflictCount ? "충돌 항목 확인 필요" : duplicateCount ? "중복 가능성 있음" : "신규 후보 선택 가능"}</h2><p>${conflictCount ? "같은 ID인데 내용이 다른 항목이 있어 자동 가져오기를 진행하면 안 됩니다." : "아래 신규 후보 중 실제로 가져올 항목을 체크해 가져오기 계획만 만들 수 있습니다. 아직 DB에는 저장하지 않습니다."}</p></section>` : "";
   const candidateBox = compare ? `<section class="card"><div class="cardTitle"><div><h2>가져오기 후보 선택</h2><p class="note">현재 데이터에 없어 보이는 거래만 표시합니다. 체크박스는 가져오기 계획 생성용이며, DB 저장은 하지 않습니다.</p></div><div class="actions"><button type="button" class="btn light" onclick="setCandidateChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setCandidateChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadImportPlan()">선택 계획 JSON 저장</button></div></div><div class="selectedBar"><b id="candidateSelectedCount">0건 선택</b><span id="candidateSelectedAmount">0원</span></div><input type="hidden" id="candidateJson" value="${renderImportCandidateHiddenJson(candidates)}"/><div class="tableWrap"><table><thead><tr><th>선택</th><th>#</th><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderImportCandidateRows(candidates)}</tbody></table></div>${candidates.length > 200 ? `<p class="note">후보가 많아 상위 200건만 표시합니다.</p>` : ""}</section>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><button type="submit">후보 분석</button></form></section>${errorBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><label class="note">전체 기간 백업이면 고를 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">후보 분석</button></form></section>${errorBox}${noteBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
 }
 
 async function handleBackupCandidateSelectPage(request, env, url) {
@@ -15888,15 +16202,16 @@ async function handleBackupCandidateSelectPost(request, env) {
     const payload = JSON.parse(raw);
     const validation = validateBackupPayloadShape(payload);
     const scope = safeObject(payload.scope);
-    const month = validMonth(scope.month) || currentMonthKst();
+    const view = backupRestoreView(payload, form.get("month"));
+    const month = view.month;
     const formHouseholdId = String(form.get("household_id") || "").trim();
     const householdId = formHouseholdId || String(scope.household_id || "").trim();
     if (!validation.ok) {
       return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, households, month, householdId }), 400);
     }
     const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const compare = compareBackupTransactions(safeArray(payload.transactions), currentRows);
-    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId }));
+    const compare = compareBackupTransactions(view.rows, currentRows);
+    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId, note: view.note }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_candidate_failed", severity: "warn", path: "/backup/import-candidates", method: "POST", detail: safeError(err) });
     return htmlResponse(renderBackupCandidateSelectHtml({ households, error: "가져오기 후보를 분석하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
@@ -15920,7 +16235,9 @@ function strictCandidatePlanRow(raw) {
     if (r[key] !== undefined && r[key] !== null && typeof r[key] !== "string") problems.push(`${key} 가 문자열이 아님`);
   }
   if (problems.length) return { row: null, problems, display: { ...transactionComparable(r), amount: 0 } };
-  return { row: { ...transactionComparable({ ...r, amount, transaction_date: date, type }), user_id: userId }, problems: [] };
+  // V22.9.76 감사 E-7: 후보 화면이 적은 occurrence_base(0 이상 정수)만 받는다. 없거나 틀리면 0 — 옛 계획 파일도 그대로 읽힌다.
+  const occurrenceBase = Number.isSafeInteger(r.occurrence_base) && r.occurrence_base >= 0 ? r.occurrence_base : 0;
+  return { row: { ...transactionComparable({ ...r, amount, transaction_date: date, type }), user_id: userId, occurrence_base: occurrenceBase }, problems: [] };
 }
 
 function validateImportCandidatePlan(plan) {
@@ -15944,20 +16261,35 @@ function validateImportCandidatePlan(plan) {
   return { ok: errors.length === 0, errors, warnings, rows, invalid, counts: { selected: rows.length, income, expense, balance: income - expense } };
 }
 
+function countTransactionSignatures(rows) {
+  const counts = new Map();
+  for (const row of safeArray(rows)) {
+    const sig = transactionSignature(row);
+    counts.set(sig, (counts.get(sig) || 0) + 1);
+  }
+  return counts;
+}
+
+// V22.9.76 감사 E-7: 같은 내용의 기록이 하나라도 있으면 중복으로 보던 것을 개수로 바꾼다. 계획 행마다 목표 개수
+// (occurrence_base + 계획 안에서 같은 내용 가운데 몇 번째인지)를 정하고, 현재 개수가 목표보다 적을 때만 신규다.
 function finalCheckAgainstCurrent(candidateRows, currentRows) {
   const current = safeArray(currentRows);
-  const currentBySignature = new Map();
+  const counts = countTransactionSignatures(current);
+  const firstBySignature = new Map();
   for (const row of current) {
     const sig = transactionSignature(row);
-    if (!currentBySignature.has(sig)) currentBySignature.set(sig, []);
-    currentBySignature.get(sig).push(row);
+    if (!firstBySignature.has(sig)) firstBySignature.set(sig, row);
   }
+  const rankBySignature = new Map();
   const stillNew = [];
   const nowDuplicate = [];
   for (const row of safeArray(candidateRows)) {
     const sig = transactionSignature(row);
-    if (currentBySignature.has(sig)) nowDuplicate.push({ backup: row, current: currentBySignature.get(sig)[0] });
-    else stillNew.push(row);
+    const rank = (rankBySignature.get(sig) || 0) + 1;
+    rankBySignature.set(sig, rank);
+    const target = Number(safeObject(row).occurrence_base || 0) + rank;
+    if ((counts.get(sig) || 0) >= target) nowDuplicate.push({ backup: row, current: firstBySignature.get(sig) || null });
+    else stillNew.push({ ...row, restore_target: target });
   }
   const risk = nowDuplicate.length ? "warn" : "good";
   return { risk, stillNew, nowDuplicate, counts: { plan: candidateRows.length, current: current.length, still_new: stillNew.length, now_duplicate: nowDuplicate.length } };
@@ -16128,11 +16460,11 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
   const success = [];
   const failedRows = [];
   const unknownRows = [];
-  const insertedSigs = new Set(currentRows.map((r) => transactionSignature(r)));
+  const signatureCounts = countTransactionSignatures(currentRows);
   for (let index = 0; index < applyRows.length; index++) {
     const row = applyRows[index];
     const sig = transactionSignature(row);
-    if (insertedSigs.has(sig)) {
+    if ((signatureCounts.get(sig) || 0) >= Number(row.restore_target || 1)) {
       duplicateRows.push({ row, error: "적용 중 중복 재감지로 제외" });
       continue;
     }
@@ -16160,7 +16492,7 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
       const summary = Array.isArray(response) ? response[0] : response;
       const found = await reconcileImportedTransactionIds(env, householdId, [importRow]);
       if (!Number.isInteger(summary?.inserted) || !Number.isInteger(summary?.duplicates) || summary.inserted < 0 || summary.duplicates < 0 || summary.inserted + summary.duplicates !== 1 || found.size !== 1) throw new Error("import_write_unknown");
-      insertedSigs.add(sig);
+      signatureCounts.set(sig, (signatureCounts.get(sig) || 0) + 1);
       success.push({ row, id: importRow.id });
     } catch (err) {
       rememberOpsEvent({ kind: "backup_import_row_failed", severity: "warn", path: "/backup/import-apply", method: "POST", detail: safeError(err) });
@@ -16169,7 +16501,7 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
       if (rpcSucceeded || isUncertainStorageWrite(err)) {
         let found = null;
         try { if (importRow) found = await reconcileImportedTransactionIds(env, householdId, [importRow]); } catch (_) { found = null; }
-        if (found?.has(importRow.id)) { insertedSigs.add(sig); success.push({ row, id: importRow.id }); continue; }
+        if (found?.has(importRow.id)) { signatureCounts.set(sig, (signatureCounts.get(sig) || 0) + 1); success.push({ row, id: importRow.id }); continue; }
         unknownRows.push({ row, error: "저장 여부 확인 필요 — 거래 목록에서 이 행을 확인한 뒤에만 다시 제출하세요", unknown: true });
         for (const rest of applyRows.slice(index + 1)) excludedRows.push({ row: rest, error: "앞선 저장 결과가 불명확해 적용하지 않음(기존 데이터 유지)", excluded: true });
         break;
@@ -17570,7 +17902,8 @@ async function handleHouseholdUserPage(request, env, url, userId) {
   const ownerCount = members.filter((m) => String(m.role || "") === "owner").length;
   const msg = url.searchParams.get("msg") || "";
   const rawErr = url.searchParams.get("err") || "";
-  const err = rawErr ? formatMessage(rawErr) : "";
+  // V22.9.76 감사 D-27: 참여자 처리의 오류 코드(권한 확인 실패 등)는 가계부 화면 안내 표가 갖고 있다.
+  const err = rawErr ? householdPageMessage(rawErr) : "";
   const householdCards = households.map((h) => `<a class="hhCard ${selected?.id === h.id ? "active" : ""}" href="/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(h.id)}"><b>${escapeHtml(h.name)}</b><span>내 역할 ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))} · 거래 ${numberWithCommas(counts[h.id] || 0)}건</span></a>`).join("") || `<p class="muted">참여 중인 가계부가 없습니다.</p>`;
   const memberCards = members.map((m) => {
     const roleOptions = ["owner", "admin", "member", "viewer", "pending", "blocked"].map((r) => `<option value="${r}"${String(m.role || "") === r ? " selected" : ""}>${userHouseholdRoleLabel(r)}</option>`).join("");
@@ -17606,9 +17939,9 @@ function renderHouseholdAdminHtml({ env, households, memberCounts = {}, selected
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;font-size:14px}.top{height:58px;background:#fff;border-bottom:1px solid #e5e8eb;display:flex;align-items:center;justify-content:space-between;padding:0 22px;position:sticky;top:0}.logo{font-weight:1000;color:#1d4ed8;font-size:18px;text-decoration:none}.wrap{max-width:1220px;margin:18px auto;padding:0 16px}.grid{display:grid;grid-template-columns:360px 1fr;gap:18px}.card{background:#fff;border:1px solid #e5e8eb;border-radius:16px;padding:18px;box-shadow:0 4px 16px rgba(15,23,42,.055)}.list{display:grid;gap:8px}.hh{display:block;text-decoration:none;color:#1f2937;border:1px solid #e5e8eb;border-radius:14px;padding:12px;background:#fff}.hh.active{border-color:#1d4ed8;background:#eff6ff}.hh b{display:block}.muted{color:#667085;font-size:12px}.row{display:grid;gap:8px;margin:12px 0}.row label{font-size:12px;font-weight:900;color:#4b5563}.row input{height:40px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;font:inherit}.btn{display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:10px;border:1px solid #d1d5db;background:#fff;color:#334155;text-decoration:none;font-weight:900;padding:0 12px;cursor:pointer}.primary{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.danger{background:#fee2e2;color:#991b1b;border:0}.ok{background:#e8f1e9;color:#365b41;border:1px solid #c9decf;border-radius:12px;padding:10px;margin-bottom:12px}.error{background:#f7e8e4;color:#8f463d;border:1px solid #e7c4bd;border-radius:12px;padding:10px;margin-bottom:12px}.members{width:100%;border-collapse:collapse}.members th,.members td{border-bottom:1px solid #e5e8eb;padding:10px;text-align:left}.codeBox{display:inline-flex;gap:8px;align-items:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:10px 12px;font-weight:900}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:12px;padding:11px;margin:12px 0}@media(max-width:860px){.grid{grid-template-columns:1fr}}</style></head>
 <body>${renderUnifiedNav("households")}<header class="top"><a class="logo" href="/manage">가계부·참여자</a><div><a class="btn primary" href="/?legacy=1">관리자 홈</a> <a class="btn" href="/settings">설정</a> <a class="btn" href="/ledger?all=1">기록 관리</a> <a class="btn" href="/households">가계부·참여자</a> <a class="btn" href="/?legacy=1">기존관리</a> <a class="btn" href="/app">모바일 입력</a></div></header><main class="wrap">
-${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}
+${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(/^[a-z0-9_]+$/.test(err) ? householdPageMessage(err) : err)}</div>` : ""}
 <section class="grid"><aside class="card"><h2>가계부 목록</h2><div class="list">${households.map((h) => `<a class="hh ${selected?.id === h.id ? "active" : ""}" href="/households?household_id=${encodeURIComponent(h.id)}"><b>${escapeHtml(h.name)}</b><span class="muted">참여자 ${memberCounts[h.id] || 0}명 · 거래 ${counts[h.id] || 0}건</span></a>`).join("") || `<div class="muted">가계부가 없습니다.</div>`}</div><hr/><form method="post" action="/admin/household/create"><div class="row"><label>새 가계부 이름</label><input name="name" placeholder="예: 우리집 생활비"/></div><button class="btn primary" type="submit">가계부 추가</button></form></aside>
-<section class="card">${selected ? `<h2>${escapeHtml(selected.name)}</h2><form method="post" action="/admin/household/update"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>가계부 이름 수정</label><input name="name" value="${escapeHtml(selected.name)}"/></div><button class="btn primary" type="submit">이름 저장</button></form><h3>참여자 명단</h3><table class="members"><thead><tr><th>이름</th><th>역할</th><th>참여일</th><th>관리</th></tr></thead><tbody>${selectedMembers.map((m) => `<tr><td><form method="post" action="/admin/member/nickname" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input name="nickname" value="${escapeHtml(m.nickname || "구성원")}" style="height:34px;min-width:110px"/><button class="btn" type="submit">저장</button></form></td><td><form method="post" action="/admin/member/update" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><select name="role" style="height:34px;border:1px solid #d1d5db;border-radius:8px"><option value="pending"${m.role === "pending" ? " selected" : ""}>승인대기</option><option value="member"${m.role === "member" ? " selected" : ""}>구성원</option><option value="viewer"${m.role === "viewer" ? " selected" : ""}>조회만</option><option value="blocked"${m.role === "blocked" ? " selected" : ""}>제한</option><option value="owner"${m.role === "owner" ? " selected" : ""}>관리자</option></select><button class="btn primary" type="submit">${m.role === "pending" ? "승인" : "권한저장"}</button></form></td><td>${escapeHtml(String(m.created_at || "").slice(0, 10))}</td><td><form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 방출할까요?')" style="margin-top:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><button class="btn danger" type="submit">방출</button></form></td></tr>`).join("") || `<tr><td colspan="4">참여자가 없습니다.</td></tr>`}</tbody></table><h3>초대 코드</h3><p class="muted">초대 코드는 이 관리 화면에서만 표시합니다. 새 참여자는 승인대기 상태로 들어오며, 관리자가 구성원으로 승인해야 정상 사용합니다. 이름 저장은 이 가계부의 표시명만 바꾸며 로그인 식별정보에는 영향을 주지 않습니다.</p><div class="codeBox">가계부 참여 ${escapeHtml(selected.invite_code || "")}</div><form method="post" action="/admin/household/regenerate" onsubmit="return confirm('초대코드를 새로 만들까요? 기존 초대코드는 더 이상 사용할 수 없습니다.')" style="margin-top:10px"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><button class="btn" type="submit">초대코드 재발급</button></form><h3>위험 구역</h3><div class="warn">삭제하면 이 가계부의 거래내역과 참여자 연결이 함께 삭제됩니다. 복구할 수 없습니다.</div><form method="post" action="/admin/household/delete" onsubmit="return confirm('정말 삭제할까요? 거래내역도 함께 삭제됩니다.')"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>삭제하려면 아래에 '삭제' 입력</label><input name="confirm_text" placeholder="삭제"/></div><button class="btn danger" type="submit">가계부 삭제</button></form>` : `<h2>가계부를 선택하세요</h2>`}</section></section></main></body></html>`;
+<section class="card">${selected ? `<h2>${escapeHtml(selected.name)}</h2><form method="post" action="/admin/household/update"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>가계부 이름 수정</label><input name="name" value="${escapeHtml(selected.name)}"/></div><button class="btn primary" type="submit">이름 저장</button></form><h3>참여자 명단</h3><table class="members"><thead><tr><th>이름</th><th>역할</th><th>참여일</th><th>관리</th></tr></thead><tbody>${selectedMembers.map((m) => `<tr><td><form method="post" action="/admin/member/nickname" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input name="nickname" value="${escapeHtml(m.nickname || "구성원")}" style="height:34px;min-width:110px"/><button class="btn" type="submit">저장</button></form></td><td><form method="post" action="/admin/member/update" style="display:flex;gap:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><select name="role" style="height:34px;border:1px solid #d1d5db;border-radius:8px"><option value="pending"${m.role === "pending" ? " selected" : ""}>승인대기</option><option value="member"${m.role === "member" ? " selected" : ""}>구성원</option><option value="viewer"${m.role === "viewer" ? " selected" : ""}>조회만</option><option value="blocked"${m.role === "blocked" ? " selected" : ""}>제한</option><option value="admin"${m.role === "admin" ? " selected" : ""}>관리자</option><option value="owner"${m.role === "owner" ? " selected" : ""}>소유자</option>${["pending", "member", "viewer", "blocked", "admin", "owner"].includes(m.role) ? "" : `<option value="${escapeHtml(m.role || "")}" selected>현재 값(${escapeHtml(m.role || "없음")})</option>`}</select><button class="btn primary" type="submit">${m.role === "pending" ? "승인" : "권한저장"}</button></form></td><td>${escapeHtml(String(m.created_at || "").slice(0, 10))}</td><td><form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 방출할까요?')" style="margin-top:6px"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><button class="btn danger" type="submit">방출</button></form></td></tr>`).join("") || `<tr><td colspan="4">참여자가 없습니다.</td></tr>`}</tbody></table><h3>초대 코드</h3><p class="muted">초대 코드는 이 관리 화면에서만 표시합니다. 새 참여자는 승인대기 상태로 들어오며, 관리자가 구성원으로 승인해야 정상 사용합니다. 이름 저장은 이 가계부의 표시명만 바꾸며 로그인 식별정보에는 영향을 주지 않습니다.</p><div class="codeBox">가계부 참여 ${escapeHtml(selected.invite_code || "")}</div><form method="post" action="/admin/household/regenerate" onsubmit="return confirm('초대코드를 새로 만들까요? 기존 초대코드는 더 이상 사용할 수 없습니다.')" style="margin-top:10px"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><button class="btn" type="submit">초대코드 재발급</button></form><h3>위험 구역</h3><div class="warn">삭제하면 이 가계부의 거래내역과 참여자 연결이 함께 삭제됩니다. 복구할 수 없습니다.</div><form method="post" action="/admin/household/delete" onsubmit="return confirm('정말 삭제할까요? 거래내역도 함께 삭제됩니다.')"><input type="hidden" name="id" value="${escapeHtml(selected.id)}"/><div class="row"><label>삭제하려면 아래에 '삭제' 입력</label><input name="confirm_text" placeholder="삭제"/></div><button class="btn danger" type="submit">가계부 삭제</button></form>` : `<h2>가계부를 선택하세요</h2>`}</section></section></main></body></html>`;
 }
 
 function maskKey(value = "") {
@@ -18481,11 +18814,26 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const projectedRate = totalBudget && forecastExpense != null ? Math.round(forecastExpense / totalBudget * 100) : null;
   const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
   const pendingState = !recurringAvailable ? "unavailable" : !sameMonth ? "deferred" : "complete";
-  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => budgetCategoryMatches(b.category, r.category)))) : null;
+  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))) : null;
   const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
-  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal : null;
+  // V22.9.76 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
+  // 반영 대기 목록에도 없어서 가정값에서 사라졌다(반영 전 1,425,000원 → 반영 후 775,000원). 이번 달의 오늘 뒤 날짜 정기 기록은
+  // 대기 항목과 같은 자리에 더한다. 관측 속도(forecastExpense)는 그대로 오늘까지만 본다.
+  // 대기 목록에 남은 규칙의 기록(표식 저장이 늦은 경우)은 두 번 더하지 않는다.
+  const pendingKeys = new Set(safeArray(pendingRecurring).map((r) => `recurring:${r.id}:${month}`));
+  const scheduledRecurring = pendingState === "complete" && observation.status === "complete"
+    ? safeArray(rows).filter((r) => r && r.type !== "income" && ["recurring", "recurring_auto"].includes(String(r.source || "")) && String(r.transaction_date || "").slice(0, 7) === month && String(r.transaction_date || "") > observation.end && !pendingKeys.has(String(r.raw_text || "")))
+    : [];
+  const scheduledRecurringTotal = scheduledRecurring.length ? Number(budgetSummary(scheduledRecurring, budgets).budgetedExpense || 0) : 0;
+  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal + scheduledRecurringTotal : null;
+  // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
+  // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
+  const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
+    ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
+    : [];
+  const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
   const status = observation.status === "unavailable" ? "unavailable" : !totalBudget ? "setup" : spent > totalBudget ? "over" : rate >= 85 ? "warning" : !sameMonth ? (pastMonth ? "closed" : "before") : forecastExpense > totalBudget ? "forecast" : "ok";
   const statusText = {
@@ -18511,7 +18859,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
   const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
   const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
-  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, outsidePendingRecurring, outsidePendingTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
 function renderBudgetAlertStatusPill(status = "ok") {
@@ -18534,8 +18882,16 @@ function renderBudgetAlertRows(model) {
 function renderPendingRecurringList(model) {
   if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
-  if (!list.length) return `<p class="muted">이번 달에 아직 반영 대기 중인 정기지출이 없습니다.</p>`;
-  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>`;
+  // V22.9.76 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
+  // 지정일 전에 미리 반영한 정기지출은 목록에서 빠져도 가정값에는 남는다.
+  const outside = safeArray(model.outsidePendingRecurring);
+  const scheduled = safeArray(model.scheduledRecurring);
+  const notes = [];
+  if (outside.length) notes.push(`예산 밖 분류의 반영 대기 정기지출 ${numberWithCommas(outside.length)}건(${numberWithCommas(model.outsidePendingTotal || 0)}원)은 이 목록과 추가 가정값에 넣지 않았습니다.`);
+  if (scheduled.length) notes.push(`날짜가 아직 오지 않은 반영된 정기지출 ${numberWithCommas(scheduled.length)}건(${numberWithCommas(model.scheduledRecurringTotal || 0)}원)은 추가 가정값에 넣었습니다.`);
+  const noteHtml = notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("");
+  if (!list.length) return `<p class="muted">${outside.length ? "예산을 정한 분류에는 반영을 기다리는 정기지출이 0건입니다." : "이번 달에 아직 반영 대기 중인 정기지출이 없습니다."}</p>${noteHtml}`;
+  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>${noteHtml}`;
 }
 
 function budgetAlertKakaoHint(model) {
@@ -20094,12 +20450,21 @@ function settlementRoleAllowed(role = "") {
   return !["blocked"].includes(String(role || "").toLowerCase());
 }
 
+// V22.9.76 감사 D-20: 조회 전용(viewer)은 기록할 수 없는데도 정산의 1/N 부담자로 들어가 늘 "보낼 금액"이 생겼다.
+// 기본 참여자에서 빼고, 이 달에 실제로 돈이 오간 경우(지출을 냈거나 환급을 받았을 때)에만 정산에 넣는다.
+function settlementBaseParticipant(member = {}) {
+  const role = String(member?.role || "member").toLowerCase();
+  return Boolean(member?.user_id) && settlementRoleAllowed(role) && role !== "pending" && role !== "viewer";
+}
+
 function buildSettlementModel(rows = [], members = [], options = {}) {
   const memberMap = memberNameMap(members);
+  // V22.9.76 감사 D-20: 나간 사람은 모두 "이전 구성원"으로 같아져 정산 표와 송금 제안에서 누가 누구인지 알 수 없었다.
+  // 기록 목록과 같은 조회(fetchFormerSpenderMembers)로 받은 사용자 이름을 쓰고, 이름을 모르면 번호를 붙여 구분한다.
+  const formerMap = memberNameMap(safeArray(options.formerMembers));
   const participantIds = new Set();
   for (const m of safeArray(members)) {
-    const role = String(m.role || "member").toLowerCase();
-    if (m.user_id && settlementRoleAllowed(role) && role !== "pending") participantIds.add(m.user_id);
+    if (settlementBaseParticipant(m)) participantIds.add(m.user_id);
   }
   const paidBy = Object.create(null);
   const expenseRows = [];
@@ -20120,7 +20485,7 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   const grossExpense = totalExpense;
   if (refundAdjustments) {
     totalExpense -= refundAdjustments.total;
-    for (const [id, amount] of refundAdjustments.received) paidBy[id] = (paidBy[id] || 0) - amount;
+    for (const [id, amount] of refundAdjustments.received) { paidBy[id] = (paidBy[id] || 0) - amount; participantIds.add(id); }
   }
   const ids = [...participantIds];
   const participantCount = Math.max(1, ids.length || 1);
@@ -20151,11 +20516,13 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     allocate(totalExpense, ids, weights);
   }
   const share = Math.round(totalExpense / participantCount);
+  const departedIds = ids.filter((id) => !memberMap[id]);
+  const departedName = (id) => formerMap[id] ? `${formerMap[id]}(나간 구성원)` : departedIds.length > 1 ? `이전 구성원 ${departedIds.indexOf(id) + 1}` : "이전 구성원";
   const people = ids.map((id) => {
     const paid = Math.round(paidBy[id] || 0);
     const personShare = Math.round(owedBy[id] || 0);
     const balance = paid - personShare;
-    return { user_id: id, name: memberMap[id] || "이전 구성원", paid, share: personShare, balance, weight: weights[id] || 1 };
+    return { user_id: id, name: memberMap[id] || departedName(id), paid, share: personShare, balance, weight: weights[id] || 1 };
   }).sort((a, b) => b.paid - a.paid);
   const creditors = people.filter((p) => p.balance > 0).map((p) => ({ ...p, remain: p.balance })).sort((a,b)=>b.remain-a.remain);
   const debtors = people.filter((p) => p.balance < 0).map((p) => ({ ...p, remain: -p.balance })).sort((a,b)=>b.remain-a.remain);
@@ -20285,7 +20652,8 @@ async function handleSettlementHistorySave(request, env) {
     // 다시 계산해 2:1 비율·품목별 부담이 모두 1:1 로 저장됐다. 화면을 연 뒤 기록이 바뀌었으면 저장하지 않는다.
     const conditions = parseSettlementConditions(form, members, rows);
     backTo = `${returnTo}${settlementConditionQuery(mode, conditions)}`;
-    const model = buildSettlementModel(rows, members, { mode, ...conditions });
+    const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+    const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
@@ -20373,7 +20741,9 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "" }) {
-  const activeMembers = safeArray(members).filter((m) => m.user_id && settlementRoleAllowed(m.role) && String(m.role || "") !== "pending");
+  // V22.9.76 감사 D-20: 정산 계산과 같은 참여자만 보여 준다(조회 전용은 이 달에 지출을 냈을 때만).
+  const paidIds = new Set(safeArray(rows).filter((row) => row.type !== "income" && Number(row.amount || 0) > 0 && row.user_id).map((row) => String(row.user_id)));
+  const activeMembers = safeArray(members).filter((m) => settlementBaseParticipant(m) || (String(m.role || "").toLowerCase() === "viewer" && paidIds.has(String(m.user_id || ""))));
   const hidden = `<input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/>`;
   if (mode === "equal") return `<div class="note">모든 참여자가 같은 금액을 부담합니다. 총액의 원 단위 나머지는 마지막 참여자에게 자동 보정됩니다.</div>`;
   if (mode === "ratio" || mode === "headcount") {
@@ -20412,7 +20782,8 @@ async function handleSettlementSummaryPage(request, env, url) {
   // V22.9.34 2차 점검 B11: 완료 저장과 같은 규칙으로 조건을 읽고, 완료 폼에 조건과 미리보기 지문을 싣는다.
   const conditions = parseSettlementConditions(url.searchParams, members, rows);
   const { weights, itemParticipants } = conditions;
-  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants });
+  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants, formerMembers });
   const previewDigest = await settlementPreviewDigest({ month, mode, conditions, rows });
   const completionHidden = [...settlementConditionPairs(mode, conditions), ["preview_digest", previewDigest]].map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}"/>`).join("");
   const history = parseJsonSetting(historyValue, []);
@@ -21056,6 +21427,9 @@ function renderGuideTab({ month, household, origin = "", skillUrl = "" }) {
   return `<section class="onboardHero"><h3>시작 가이드</h3><p class="muted">처음 쓰는 사람도 바로 기록할 수 있도록 핵심만 정리했습니다.</p><div class="onboardGrid"><div class="onboardStep"><b>1. 기록</b><span>점심 12000원처럼 짧게 입력하거나 모바일에서 금액부터 바로 기록합니다.</span></div><div class="onboardStep"><b>2. 분류</b><span>식비, 교통, 주거, 보험, 의료처럼 기본 분류를 추천하고 직접 분류를 추가할 수 있습니다.</span></div><div class="onboardStep"><b>3. 가족 관리</b><span>초대코드는 가계부·참여자 화면에서만 확인하고, 참여자는 관리자가 승인·제한·방출합니다.</span></div></div></section><section class="layout2"><div class="card"><h3>입력 예시</h3><div class="exampleGrid">${examples}</div><p class="muted">날짜와 결제수단을 함께 쓰면 더 정확합니다. 예: “어제 병원 만오천원”, “쿠팡 3만원 삼성페이”</p></div><div class="card"><h3>운영 메뉴</h3><div class="copyBox"><b>초대코드는 공개하지 않습니다.</b><br/><br/>가계부·참여자에서 초대코드 확인, 참여 승인, 방출, 이름 수정, 삭제를 처리하세요.</div><p class="muted"><a class="btn ghost" href="/households${household?.id ? `?household_id=${encodeURIComponent(household.id)}` : ""}">가계부·참여자</a> <a class="btn ghost" href="/categories">분류 설정</a></p></div></section><section class="layout2"><div class="card"><h3>기본 확인</h3><div class="checkList"><div class="checkItem"><span>✓</span><span>초대코드 입력 후 참여자 수 확인</span></div><div class="checkItem"><span>✓</span><span>카카오톡 입력 후 웹 반영 확인</span></div><div class="checkItem"><span>✓</span><span>요약, 최근, 취소 명령어 확인</span></div></div></div><div class="card"><h3>연결 정보</h3><div class="copyBox"><b>사용자 웹</b><br/>${escapeHtml(origin ? `${origin}/my` : "/my")}<br/><br/><b>스킬 URL</b><br/>${escapeHtml(skillUrl || "-")}</div></div></section>`;
 }
 
+// V22.9.76 감사 E-17: 이 옛 관리자 가져오기 화면은 CSV·TXT 파일을 UTF-8로만 읽어, 한글 윈도우·엑셀이 저장한 CP949 파일의
+// 한글이 깨졌다. 파일을 바이트로 읽어 BOM(UTF-8·UTF-16)을 먼저 보고, UTF-8로 깨끗이 읽히지 않으면 CP949(euc-kr)로 읽는다.
+// 서버 쪽 가져오기(my/backup-import.js)와 같은 순서다. 이 화면의 스크립트는 페이지 안에 있어 1년 캐시 자산은 바뀌지 않는다.
 function renderImportTab({ month, households = [], household, defaultHouseholdId = "", members = [] }) {
   const effectiveHouseholdId = household?.id || defaultHouseholdId || households[0]?.id || "";
   const selectedHousehold = households.find((h) => h.id === effectiveHouseholdId) || household || households[0] || null;
@@ -21075,7 +21449,8 @@ function renderImportPreview(text){var rows=localPreviewRows(text);if(!rows.leng
 function previewImportRows(){renderImportPreview(document.getElementById('importText').value);}
 function getImportHouseholdId(){var sel=document.getElementById('importHouseholdSelect');return (sel&&sel.value)||window.__IMPORT_HOUSEHOLD_ID__||'';}
 async function uploadImportRows(){var raw=document.getElementById('importText').value;var householdId=getImportHouseholdId();if(!householdId){setImportStatus('업로드할 가계부를 먼저 선택하세요. 상단의 가계부 선택 후 다시 시도하세요.','err');return;}if(!raw.trim()){setImportStatus('업로드할 내용이 없습니다.','err');return;}setImportStatus('업로드 중입니다...','');try{var res=await fetch('/admin/import/json',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({household_id:householdId,user_id:(document.getElementById('importUserId')?document.getElementById('importUserId').value:''),raw_text:raw})});var text=await res.text();var data=null;try{data=JSON.parse(text);}catch(parseErr){var head=String(text||'').slice(0,80).replace(/\s+/g,' ');throw new Error(res.status===401?'로그인 세션이 만료되었습니다. 새로고침 후 다시 로그인하세요.':'서버가 JSON이 아닌 응답을 보냈습니다: '+head);}if(!res.ok||!data.ok)throw new Error((data&&(data.message||data.error))||('서버 오류 HTTP '+res.status));setImportStatus('업로드 완료: '+data.inserted+'건 저장, '+data.skipped+'건 제외'+(data.date_samples&&data.date_samples.length?' · 날짜 예시: '+data.date_samples.join(', '):''),'ok');}catch(e){setImportStatus('업로드 실패: '+(e.message||e),'err');}}
-document.getElementById('importFile').addEventListener('change',function(ev){var file=ev.target.files&&ev.target.files[0];if(!file)return;var name=(file.name||'').toLowerCase();if(/\\.xlsx?$/.test(name)){var reader=new FileReader();reader.onload=function(e){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. CSV로 저장 후 다시 업로드하세요.');var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false});var ws=wb.Sheets[wb.SheetNames[0]];var csv=XLSX.utils.sheet_to_csv(ws,{rawNumbers:false});document.getElementById('importText').value=csv;renderImportPreview(csv);}catch(err){setImportStatus(err.message||String(err),'err');}};reader.readAsArrayBuffer(file);}else{var r=new FileReader();r.onload=function(e){document.getElementById('importText').value=e.target.result;renderImportPreview(e.target.result);};r.readAsText(file,'utf-8');}});
+function decodeImportBytes(bytes){if(bytes[0]===0xff&&bytes[1]===0xfe)return {text:new TextDecoder('utf-16le').decode(bytes),label:'UTF-16'};if(bytes[0]===0xfe&&bytes[1]===0xff)return {text:new TextDecoder('utf-16be').decode(bytes),label:'UTF-16'};try{return {text:new TextDecoder('utf-8',{fatal:true}).decode(bytes),label:''};}catch(_){}try{return {text:new TextDecoder('euc-kr').decode(bytes),label:'CP949(한글 윈도우)'};}catch(_){}return {text:new TextDecoder('utf-8').decode(bytes),label:''};}
+document.getElementById('importFile').addEventListener('change',function(ev){var file=ev.target.files&&ev.target.files[0];if(!file)return;var name=(file.name||'').toLowerCase();if(/\\.xlsx?$/.test(name)){var reader=new FileReader();reader.onload=function(e){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. CSV로 저장 후 다시 업로드하세요.');var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false});var ws=wb.Sheets[wb.SheetNames[0]];var csv=XLSX.utils.sheet_to_csv(ws,{rawNumbers:false});document.getElementById('importText').value=csv;renderImportPreview(csv);}catch(err){setImportStatus(err.message||String(err),'err');}};reader.readAsArrayBuffer(file);}else{var r=new FileReader();r.onload=function(e){var decoded=decodeImportBytes(new Uint8Array(e.target.result));document.getElementById('importText').value=decoded.text;renderImportPreview(decoded.text);if(decoded.label){var st=document.getElementById('importStatus');setImportStatus(decoded.label+' 형식으로 저장된 파일을 읽었습니다. '+(st?st.textContent:''),'ok');}};r.readAsArrayBuffer(file);}});
 </script>`;
 }
 
@@ -23379,7 +23754,8 @@ async function handleMyImport(request, env) {
   }
   if (new TextEncoder().encode(csvText).length > maxBytes) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=import_file_too_large`);
   if (!String(csvText || "").trim()) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=empty_import`);
-  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) ? "selected" : "default"));
+  // V22.9.76 감사 E-4: 기준을 보내지 않은 요청은 화면 기본값과 같게 고른다(이번 달이면 183일 규칙, 다른 달이면 그 해).
+  const dateMode = String(form.get("date_basis_mode") || (validMonth(String(form.get("month") || "")) && String(form.get("month")) !== currentMonthKst() ? "selected" : "default"));
   if (!["default", "selected"].includes(dateMode)) return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&err=import_date_basis_invalid`);
   const sourceHash = await sha256Hex(csvText);
   const sourceStateKey = `my_import_source_v22955:${await sha256Hex(`${selected.id}|${sourceHash}`)}`;
@@ -23754,64 +24130,336 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   return outcome;
 }
 
-async function runRecurringAutoApplyUnlocked(env, opts = {}) {
-  const today = opts.today || formatDate(nowKstDate());
-  const requestedMonth = validMonth(opts.month) || String(today).slice(0, 7) || currentMonthKst();
-  let month = requestedMonth;
-  const cursorKey = opts.month ? `cron_recurring_cursor_v22930:${month}` : "cron_recurring_cursor_v22930";
-  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env, cursorKey), "recurring_cursor");
-  if (!opts.month && (cursor.pending || cursor.after) && validMonth(cursor.month) && cursor.month < requestedMonth) month = cursor.month;
-  const currentDay = month < String(today).slice(0,7) ? 31 : Number(String(today).slice(8, 10) || "1");
-  await saveSettingValue(env,cursorKey,JSON.stringify({after:String(cursor.after || ""),month,pending:true}));
-  const params = new URLSearchParams({select:"id,name,created_at",order:"id.asc",limit:"6"});
-  if (cursor.after) params.set("id", `gt.${cursor.after}`);
-  const households = await supabase(env, `/rest/v1/households?${params}`, {method:"GET"});
-  if (!Array.isArray(households)) throw new Error("cron_household_source_invalid");
-  let after = String(cursor.after || ""), partial = households.length === 6;
-  let scanned = 0, applied = 0, deduplicated = 0, skipped = 0, failed = 0;
-  for (const household of households.slice(0,5)) {
-    if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { partial = true; break; }
-    const householdId = household.id;
-    if (!householdId) continue;
-    let items = [];
-    try {
-      items = await fetchRecurringStrict(env, householdId);
-    } catch (err) {
-      failed++;
-      rememberOpsEvent({ kind: "recurring_household_scan_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${safeError(err)}` });
-      partial = true; break;
-    }
-    const members = items.some(r => String(r.last_applied_month || "") !== month) ? await fetchRawHouseholdMembers(env, householdId) : [];
-    let householdComplete = true;
-    for (const r of safeArray(items)) {
-      if (r.is_active === false || String(r.is_active) === "false") { skipped++; continue; }
-      scanned++;
-      if (String(r.last_applied_month || "") === month) { skipped++; continue; }
-      if ((env.__AB_DB_BUDGET?.used || 0) >= 30) { householdComplete = false; partial = true; break; }
-      if (!recurringSpenderEligible(members, r.user_id)) { skipped++; continue; }
-      // V22.9.26: 29·30·31일 항목은 짧은 달에는 말일에 적용한다. 예전에는 2월에 31일을
-      // 기다리다 3월이 되면서 last_applied_month 가 넘어가 그 달 치가 영영 만들어지지 않았다.
-      const monthLastDay = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
-      const dueDay = Math.min(monthLastDay, Math.max(1, Number(r.day_of_month || 1)));
-      if (currentDay < dueDay) { skipped++; continue; }
-      try {
-        // V22.9.37 감사 T7: 수동 반영과 같은 한 건 반영(중복 확인·날짜 규칙·표식 갱신)을 쓴다.
-        const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
-        if (outcome === "applied") applied++;
-        else if (outcome === "deduplicated") deduplicated++;
-        else skipped++;
-      } catch (err) {
-        failed++;
-        householdComplete = false;
-        rememberOpsEvent({ kind: "recurring_auto_apply_failed", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdId}:${String(r.id || "")}:${safeError(err)}` });
-      }
-    }
-    if (!householdComplete) { partial = true; break; }
-    after = String(householdId);
+// V22.9.76 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
+// 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
+// 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
+// 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
+//   고정 4~6회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 저장 1은 필요할 때만)
+//   묶음마다 최대 4회(규칙 최대 40개): 참여자 확인 + 이미 들어간 기록 확인 + 한 번에 저장 + 반영 표식
+// 그래서 한 번에 규칙 약 240개를 넣는다. 다 못 넣으면 partial 로 끝나고 다음 실행이 이어 간다. 반영한 규칙은 표식이 바뀌어
+// 목록에서 빠지므로 커서가 필요 없다. 같은 규칙·같은 달은 기록 확인과 (household_id, raw_text) 고유 색인으로 한 번만 들어간다
+// (겹친 실행이나 같은 때의 수동 반영과 부딪쳐도 한 건).
+// 새 달 첫 실행은 지난달에 실행이 끝까지 처리하지 못한 날짜(checked_date 뒤)의 규칙만 지난달 몫으로 따라잡는다(D-10):
+// 지난달이 끝난 뒤 만든 규칙, 지난달 지정일에 꺼 두었던 규칙은 지난달로 넣지 않는다.
+const RECURRING_CRON_DB_CAP = 30;
+const RECURRING_CRON_PAGE = 500;
+const RECURRING_CRON_CHUNK = 40;
+const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22976";
+const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at";
+
+function recurringCronLastDay(month = "") {
+  return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+}
+
+function recurringCronDueDay(rule = {}, month = "") {
+  const raw = Math.round(Number(rule.day_of_month));
+  return Math.min(recurringCronLastDay(month), Number.isFinite(raw) && raw >= 1 ? raw : 1);
+}
+
+function recurringCronDueDate(rule = {}, month = "") {
+  return recurringDateForMonth(month, recurringCronDueDay(rule, month));
+}
+
+function recurringCronAddDays(ymd = "", days = 0) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function recurringCronCreatedMs(rule = {}) {
+  const ms = Date.parse(String(rule.created_at || ""));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// month 에 이미 있던 규칙인가(D-10: 규칙이 생기기 전 달은 만들지 않는다). 만든 시각이 있으면 그것으로 본다.
+// 만든 시각이 없으면 그보다 앞 달에 반영된 적이 있을 때만 있던 규칙이다. 한 번도 반영되지 않았고 만든 시각도 없는
+// 옛 규칙은 그 달 실행이 지정일이 지난 규칙을 남기고 끝났을 때(pendingMonth)만 그 달 규칙으로 본다.
+function recurringCronExistedIn(rule = {}, month = "", pendingMonth = "") {
+  const created = recurringCronCreatedMs(rule);
+  if (created != null) return created < Date.parse(`${addMonthsYm(month, 1)}-01T00:00:00+09:00`);
+  const marker = String(rule.last_applied_month || "");
+  if (marker) return marker < month;
+  return pendingMonth === month;
+}
+
+function recurringCronState(raw) {
+  let state = {};
+  try { state = parseStrictSettingsObject(raw, "recurring_state"); }
+  catch (err) {
+    // 상태가 깨졌다고 모든 정기 반영을 멈추지 않는다. 처음 실행처럼 지난달은 끝난 것으로 보고 다시 쓴다.
+    rememberOpsEvent({ kind: "recurring_state_invalid", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
   }
-  if (!partial) after = "";
-  await saveSettingValue(env, cursorKey, JSON.stringify({after,month,pending:partial}));
-  return { ok: failed === 0 && !partial, partial, cursor:after, month, today, households: households.length, scanned, applied, deduplicated, skipped, failed };
+  return {
+    checked_date: isValidTransactionDateString(String(state.checked_date || "")) ? String(state.checked_date) : "",
+    pending_month: validMonth(state.pending_month) || "",
+  };
+}
+
+function recurringCronBudgetStop(err) {
+  return String(err?.code || "") === "supabase_subrequest_budget_before_dispatch" || /supabase_subrequest_budget_before_dispatch/.test(safeError(err));
+}
+
+function recurringCronInList(values = []) {
+  return `(${values.map((value) => `"${String(value).split("\"").join("")}"`).join(",")})`;
+}
+
+async function fetchRecurringCronRows(env, phase) {
+  const params = new URLSearchParams();
+  params.set("select", RECURRING_CRON_SELECT);
+  params.set("is_active", "not.is.false");
+  params.set("amount", "gt.0");
+  params.set("or", phase.kind === "catchup" ? `(last_applied_month.is.null,last_applied_month.lt.${phase.month})` : `(last_applied_month.is.null,last_applied_month.neq.${phase.month})`);
+  params.set("day_of_month", `lte.${phase.queryDay}`);
+  params.set("order", "day_of_month.asc,household_id.asc,id.asc");
+  params.set("limit", String(RECURRING_CRON_PAGE));
+  const rows = await supabase(env, `/rest/v1/accountbook_recurring?${params}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_queue_source_invalid");
+  return rows;
+}
+
+async function fetchRecurringCronMembers(env, householdIds = []) {
+  const params = new URLSearchParams();
+  params.set("select", "household_id,user_id,role");
+  params.set("household_id", `in.${recurringCronInList(householdIds)}`);
+  const rows = await supabase(env, `/rest/v1/household_members?${params}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("household_member_source_invalid");
+  return rows;
+}
+
+async function fetchRecurringCronExisting(env, householdIds = [], rawTexts = []) {
+  const params = new URLSearchParams();
+  params.set("select", "household_id,raw_text");
+  params.set("source", "eq.recurring_auto");
+  params.set("household_id", `in.${recurringCronInList(householdIds)}`);
+  params.set("raw_text", `in.${recurringCronInList(rawTexts)}`);
+  params.set("limit", String(rawTexts.length + 10));
+  const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_duplicate_source_invalid");
+  return new Set(rows.map((row) => `${row.household_id}|${row.raw_text}`));
+}
+
+// applyRecurringRuleForMonth 와 같은 기록(날짜 규칙·기본 분류·raw_text 식별자)을 만든다.
+function recurringCronTransaction(rule = {}, month = "") {
+  return {
+    household_id: String(rule.household_id || ""),
+    user_id: rule.user_id || "",
+    type: rule.type === "income" ? "income" : "expense",
+    amount: Math.max(0, Math.round(Number(rule.amount || 0))),
+    category: rule.category || (rule.type === "income" ? "정기수입" : "정기지출"),
+    memo: rule.memo || rule.category || "정기지출",
+    payment_method: rule.payment_method || "",
+    transaction_date: recurringCronDueDate(rule, month),
+    source: "recurring_auto",
+    raw_text: `recurring:${rule.id || ""}:${month}`,
+  };
+}
+
+async function runRecurringAutoApplyUnlocked(env, opts = {}) {
+  const today = isValidTransactionDateString(String(opts.today || "")) ? String(opts.today) : formatDate(nowKstDate());
+  const currentMonth = today.slice(0, 7);
+  const currentDay = Number(today.slice(8, 10));
+  const explicitMonth = validMonth(opts.month) || "";
+  const previousMonth = addMonthsYm(currentMonth, -1);
+  const previousMonthEnd = recurringDateForMonth(previousMonth, 31);
+  const used = () => Number(env.__AB_DB_BUDGET?.used || 0);
+  const room = (calls) => used() + calls <= RECURRING_CRON_DB_CAP;
+  const stats = { scanned: 0, applied: 0, deduplicated: 0, skipped: 0, failed: 0 };
+  const touched = new Set();
+  const members = new Map();
+  const caughtUp = new Set();
+  const phases = [];
+  let stored = null;
+  let checkedDate = "";
+  let partial = false;
+  if (explicitMonth) {
+    // 운영자가 ?month= 로 달을 지정하면 그 달만 본다. 지난 달은 모든 날짜, 이번 달은 오늘까지가 지정일이다. 앞으로 올 달은 넣지 않는다.
+    if (explicitMonth <= currentMonth) phases.push({ kind: "explicit", month: explicitMonth, dueDay: explicitMonth < currentMonth ? 31 : currentDay });
+  } else {
+    stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+    // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
+    checkedDate = stored.checked_date || previousMonthEnd;
+    if (checkedDate < previousMonthEnd) phases.push({ kind: "catchup", month: previousMonth, dueDay: 31, after: checkedDate });
+    phases.push({ kind: "current", month: currentMonth, dueDay: currentDay });
+  }
+  // 말일에는 29~31일 규칙도 그날 몫이다(짧은 달은 말일로 당겨 넣는다). 목록은 31일까지 받고 판정은 당긴 날짜로 한다.
+  const lastDay = recurringCronLastDay(currentMonth);
+  for (const phase of phases) {
+    phase.queryDay = phase.month < currentMonth || phase.dueDay >= lastDay ? 31 : phase.dueDay;
+    phase.rows = await fetchRecurringCronRows(env, phase);
+  }
+  const pendingMonth = stored?.pending_month || "";
+  const catchupPhase = phases.find((phase) => phase.kind === "catchup") || null;
+  const usable = (rule) => !(rule.is_active === false || String(rule.is_active) === "false") && Number(rule.amount || 0) > 0;
+  const catchUpDue = (rule) => {
+    if (!catchupPhase || !usable(rule)) return false;
+    const marker = String(rule.last_applied_month || "");
+    if (marker && marker >= previousMonth) return false;
+    if (recurringCronDueDate(rule, previousMonth) <= catchupPhase.after) return false;
+    return recurringCronExistedIn(rule, previousMonth, pendingMonth);
+  };
+  const isCandidate = (rule, phase) => {
+    if (!usable(rule)) return false;
+    if (phase.kind === "catchup") return catchUpDue(rule);
+    if (recurringCronDueDay(rule, phase.month) > phase.dueDay) return false;
+    if (String(rule.last_applied_month || "") === phase.month) return false;
+    if (phase.month < currentMonth && !recurringCronExistedIn(rule, phase.month)) return false;
+    // 지난달 몫이 빠진 규칙은 지난달을 먼저 넣는다. 이번 달을 먼저 넣으면 표식이 이번 달이 되어 지난달을 다시 찾지 못한다.
+    if (phase.kind === "current" && !caughtUp.has(String(rule.id)) && catchUpDue(rule)) return false;
+    return true;
+  };
+  const markerOf = (rule) => caughtUp.has(String(rule.id)) ? previousMonth : String(rule.last_applied_month || "");
+  const report = (detail, kind = "recurring_auto_apply_failed") => rememberOpsEvent({ kind, severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail });
+  const processPhase = async (phase) => {
+    const candidates = phase.rows.filter((rule) => isCandidate(rule, phase));
+    const done = new Set();
+    phase.candidates = candidates.length;
+    phase.confirmed = 0;
+    stats.scanned += candidates.length;
+    for (let index = 0; index < candidates.length; index += RECURRING_CRON_CHUNK) {
+      const chunk = candidates.slice(index, index + RECURRING_CRON_CHUNK);
+      const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
+      if (!room((missing.length ? 1 : 0) + 3)) { partial = true; break; }
+      if (missing.length) {
+        let rows;
+        try { rows = await fetchRecurringCronMembers(env, missing); }
+        catch (err) { stats.failed++; partial = true; report(`${phase.month}:members:${safeError(err)}`, "recurring_household_scan_failed"); break; }
+        for (const id of missing) members.set(id, []);
+        for (const row of rows) members.get(String(row.household_id || ""))?.push(row);
+      }
+      const items = [];
+      for (const rule of chunk) {
+        // 소유자·관리자·구성원 지출자의 규칙만 넣는다(V22.9.37 T7·SIM-5). 건너뛴 규칙의 표식은 그대로 둔다.
+        if (!recurringSpenderEligible(members.get(String(rule.household_id || "")) || [], rule.user_id)) { stats.skipped++; done.add(String(rule.id)); continue; }
+        items.push({ rule, row: recurringCronTransaction(rule, phase.month) });
+      }
+      if (!items.length) continue;
+      let existing;
+      try { existing = await fetchRecurringCronExisting(env, [...new Set(items.map((item) => item.row.household_id))], items.map((item) => item.row.raw_text)); }
+      catch (err) {
+        // 무인 자동화에서는 확인 실패를 "중복 없음"으로 간주하지 않는다.
+        stats.failed++; partial = true; report(`${phase.month}:${safeError(err)}`, "duplicate_check_error"); break;
+      }
+      const confirmed = [];
+      const groups = new Map();
+      for (const item of items) {
+        if (existing.has(`${item.row.household_id}|${item.row.raw_text}`)) { stats.deduplicated++; confirmed.push(item.rule); continue; }
+        let clean;
+        try { clean = sanitizeTransactionBody(item.row); }
+        catch (err) { stats.failed++; done.add(String(item.rule.id)); report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(err)}`); continue; }
+        // PostgREST 묶음 저장은 행마다 열 구성이 같아야 한다. 같은 구성끼리 한 번에 보낸다(보통 한 묶음).
+        const signature = Object.keys(clean).sort().join(",");
+        if (!groups.has(signature)) groups.set(signature, []);
+        groups.get(signature).push({ ...item, clean });
+      }
+      let halted = false;
+      for (const group of groups.values()) {
+        if (!room(2)) { halted = true; break; }
+        try {
+          const created = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(group.map((item) => item.clean)) });
+          const saved = new Set(safeArray(created).map((row) => `${row.household_id}|${row.raw_text}`));
+          for (const item of group) {
+            if (saved.has(`${item.row.household_id}|${item.row.raw_text}`)) { stats.applied++; confirmed.push(item.rule); continue; }
+            // 저장 응답에 없으면 결과를 모르는 것으로 본다. 다음 실행의 기록 확인이 가린다.
+            stats.failed++; report(`${item.row.household_id}:${String(item.rule.id || "")}:insert_unconfirmed`);
+          }
+        } catch (err) {
+          if (recurringCronBudgetStop(err) || isUncertainStorageWrite(err)) {
+            // 보내지 못했거나 결과를 모르는 저장은 표식을 바꾸지 않는다. 다음 실행의 기록 확인이 저장 여부를 가린다.
+            if (!recurringCronBudgetStop(err)) { stats.failed += group.length; report(`${phase.month}:batch:${safeError(err)}`); }
+            halted = true; break;
+          }
+          // 확실히 거절된 묶음(같은 때 수동 반영과 겹친 고유 색인 충돌, 한 건의 잘못된 값)은 한 건씩 다시 넣는다.
+          // 묶음 저장은 한 문장이라 한 건만 걸려도 전부 되돌려지므로, 나머지 규칙이 그 한 건에 막히지 않게 한다.
+          for (const item of group) {
+            if (!room(2)) { halted = true; break; }
+            try {
+              await createManualTransaction(env, item.row);
+              stats.applied++; confirmed.push(item.rule);
+            } catch (rowError) {
+              if (recurringCronBudgetStop(rowError)) { halted = true; break; }
+              if (isUncertainStorageWrite(rowError)) { stats.failed++; report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(rowError)}`); halted = true; break; }
+              if (isUniqueConstraintError(rowError)) { stats.deduplicated++; confirmed.push(item.rule); continue; }
+              stats.failed++; done.add(String(item.rule.id));
+              report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(rowError)}`);
+            }
+          }
+        }
+        if (halted) break;
+      }
+      // 거래 저장이나 기존 거래 확인이 끝난 규칙만 표식을 바꾼다. 더 나중 달 표식은 되돌리지 않는다(SIM-8).
+      const advance = confirmed.filter((rule) => { const marker = markerOf(rule); return !marker || marker < phase.month; });
+      for (const rule of confirmed) {
+        done.add(String(rule.id));
+        touched.add(String(rule.household_id || ""));
+        phase.confirmed += 1;
+        if (phase.kind === "catchup") caughtUp.add(String(rule.id));
+      }
+      if (advance.length) {
+        const params = new URLSearchParams();
+        params.set("id", `in.${recurringCronInList(advance.map((rule) => rule.id))}`);
+        params.set("household_id", `in.${recurringCronInList([...new Set(advance.map((rule) => rule.household_id))])}`);
+        params.set("or", `(last_applied_month.is.null,last_applied_month.lt.${phase.month})`);
+        try {
+          await supabase(env, `/rest/v1/accountbook_recurring?${params}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: phase.month }) });
+        } catch (err) {
+          // 표식 저장 실패는 이미 들어간 거래를 되돌리지 않는다. 다음 실행이 같은 거래를 확인하고 표식을 다시 쓴다.
+          stats.failed++; partial = true; report(`${phase.month}:marker:${safeError(err)}`);
+        }
+      }
+      if (halted) { partial = true; break; }
+    }
+    phase.remaining = candidates.filter((rule) => !done.has(String(rule.id)));
+  };
+  for (const phase of phases) await processPhase(phase);
+  const remainingOf = (phase) => safeArray(phase?.remaining);
+  const remaining = phases.reduce((sum, phase) => sum + remainingOf(phase).length, 0);
+  partial = partial || remaining > 0;
+  let nextChecked = checkedDate;
+  if (stored) {
+    // checked_date = 그 날짜까지 지정일인 규칙을 모두 처리했다는 표시. 끝까지 처리한 실행만 오늘로 옮기고, 남은 규칙이
+    // 있으면 가장 이른 남은 지정일 전날로 둔다. 다음 달 첫 실행은 그 뒤 날짜의 지난달 규칙만 따라잡는다.
+    let base = checkedDate;
+    if (catchupPhase && !remainingOf(catchupPhase).length && base < previousMonthEnd) base = previousMonthEnd;
+    if (!remaining) nextChecked = base > today ? base : today;
+    else {
+      const earliest = phases.flatMap((phase) => remainingOf(phase).map((rule) => recurringCronDueDate(rule, phase.month))).sort()[0];
+      const before = recurringCronAddDays(earliest, -1);
+      nextChecked = base < before ? base : before;
+    }
+    const currentPhase = phases.find((phase) => phase.kind === "current");
+    const nextPending = remainingOf(currentPhase).length ? currentMonth : remainingOf(catchupPhase).length ? previousMonth : "";
+    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month) {
+      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, JSON.stringify({ checked_date: nextChecked, pending_month: nextPending })); }
+      catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
+    }
+  }
+  const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
+  return {
+    ok: stats.failed === 0 && !partial, partial, month, today,
+    months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length })),
+    households: touched.size, ...stats, remaining, checked_date: stored ? nextChecked : "",
+  };
+}
+
+// V22.9.76 감사 D-10: 예약 실행이 지난달 말을 놓쳐 지난달 몫이 아직 없는 규칙을 새 달에 고치면, 고치기 전 값으로 지난달 몫을
+// 먼저 넣는다. 고친 금액·날짜·분류·지출자는 다음 반영(이번 달)부터 쓴다. 예전에는 새 달의 따라잡기가 고친 뒤 값을 써서
+// 11월 1일에 70만 원으로 올린 월세가 10월분도 70만 원으로 기록됐다. 지난달 몫이 따라잡기 대상이 아니면(그 달 지정일까지
+// 실행이 끝까지 처리했거나, 지난달에 없던 규칙이거나, 꺼져 있거나 지출자 자격이 없으면) 아무것도 넣지 않는다.
+async function settleRecurringBeforeEdit(env, householdId, existing = {}, next = {}) {
+  if (!existing?.id || !householdId) return "none";
+  const previousMonth = addMonthsYm(formatDate(nowKstDate()).slice(0, 7), -1);
+  const marker = String(existing.last_applied_month || "");
+  if (marker && marker >= previousMonth) return "none";
+  if (existing.is_active === false || String(existing.is_active) === "false" || !(Number(existing.amount || 0) > 0)) return "none";
+  const changed = ["type", "amount", "category", "memo", "payment_method", "day_of_month", "user_id"]
+    .some((key) => Object.prototype.hasOwnProperty.call(next, key) && String(next[key] ?? "") !== String(existing[key] ?? ""));
+  if (!changed) return "none";
+  const state = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+  const checked = state.checked_date || recurringDateForMonth(previousMonth, 31);
+  if (recurringCronDueDate(existing, previousMonth) <= checked) return "none";
+  if (!recurringCronExistedIn(existing, previousMonth, state.pending_month)) return "none";
+  if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, householdId), existing.user_id)) return "none";
+  return applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
 }
 
 async function runRecurringAutoApply(env, opts = {}) {
@@ -23836,7 +24484,13 @@ async function runRecurringAutoApply(env, opts = {}) {
 
 async function handleRecurringCronApply(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
-  const result = await runRecurringAutoApply(env, { month: validMonth(url.searchParams.get("month")) || "", today: url.searchParams.get("today") || formatDate(nowKstDate()) });
+  // V22.9.76(D-26): 잘못된 today·month 를 오늘·자동 범위로 바꿔 실행하지 않는다. 날짜를 지정한 운영 호출이 다른 날로 기록되지 않게 거절한다.
+  const requestedToday = String(url.searchParams.get("today") || "").trim();
+  const requestedMonth = String(url.searchParams.get("month") || "").trim();
+  if ((requestedToday && !isValidTransactionDateString(requestedToday)) || (requestedMonth && !validMonth(requestedMonth))) {
+    return jsonResponse({ ok: false, error: "invalid_cron_scope", reason: "invalid_cron_scope", message: "today 는 YYYY-MM-DD, month 는 YYYY-MM 형식이어야 합니다." }, 400);
+  }
+  const result = await runRecurringAutoApply(env, { month: requestedMonth, today: requestedToday || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
 }
 
@@ -24468,6 +25122,12 @@ function freeReportSnapshotKey(householdId = "", kind = "weekly", period = "") {
   return `free_report_snapshot:${String(householdId || "").trim()}:${kind}:${period}`.slice(0, 180);
 }
 
+// V22.9.76 감사 C-3: 안내 문구 표에서 그 표에 직접 적은 코드만 꺼낸다. 주소의 ?msg=constructor·toString 같은 값은
+// 객체가 물려받은 함수라 "function Object() { [native code] }"가 화면에 나왔다.
+function ownMessage(table, key) {
+  return key && Object.hasOwn(table, String(key)) ? table[key] : undefined;
+}
+
 function parseJsonSetting(value, fallback = {}) {
   if (value && typeof value === "object") return value;
   try { return value ? JSON.parse(String(value)) : fallback; } catch (err) { return fallback; }
@@ -24856,7 +25516,8 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const subscriptionRows = cur.filter((r) => LIVING_REPORT_SUBSCRIPTION.test(`${r.category || ""} ${r.memo || ""} ${r.raw_text || ""}`));
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
-  const upcoming = safeArray(reservePlans).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
+  // V22.9.76: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
+  const upcoming = safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
     .map((s) => ({ name: String(s.plan?.name || "적립 계획"), amount: Number(s.plan?.amount || 0), due_date: s.due_date, days_left: s.days_left, monthly_reserve: s.monthly_reserve }));
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
   const usage = computeCardUsageMap(cards, cur);
@@ -25002,20 +25663,24 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const won = (n) => `${numberWithCommas(Math.round(Number(n) || 0))}원`;
   const deltaText = (delta, prev) => !report.comparisonAvailable ? "비교 확인 불가" : !(prev > 0) && delta === 0 ? "비교 기록 없음" : delta === 0 ? "같음" : `${delta > 0 ? "+" : "−"}${numberWithCommas(Math.abs(delta))}원`;
   const deltaClass = (delta) => delta > 0 ? "lrDelta isUp" : delta < 0 ? "lrDelta isDown" : "lrDelta";
+  // V22.9.76: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
+  // "…보다 N원 늘었어요"를 적었다. 요약과 같이 항목별 증감과 '가장 늘어난 항목' 문장도 숨긴다.
+  const noPrevious = report.comparisonAvailable && !(report.prevExpense > 0);
   const topDaysText = report.topDays.length ? report.topDays.map((d) => `${ymdWithWeekday(d.date)} ${won(d.amount)}`).join(" · ") : "아직 지출한 날이 없어요";
   const maxDay = Math.max(1, ...report.days.map((d) => d.amount));
   const topSet = new Set(report.topDays.map((d) => d.date));
   const bars = report.days.map((d) => `<span><i class="${topSet.has(d.date) ? "isTop" : d.future ? "isFuture" : ""}" style="height:${Math.max(3, Math.round(d.amount / maxDay * 100))}%" title="${escapeHtml(ymdWithWeekday(d.date))} ${escapeHtml(won(d.amount))}"></i><b>${p.range === "week" ? escapeHtml(LIVING_REPORT_WEEKDAYS[weekdayIndexOfYmd(d.date)] || "") : Number(d.date.slice(8, 10)) % 5 === 1 || d.date.slice(8, 10) === "01" ? Number(d.date.slice(8, 10)) : ""}</b></span>`).join("");
   const segment = `<div class="lrSeg noPrint" role="group" aria-label="리포트 기간 단위"><a href="${escapeHtml(hrefMonth)}"${range === "month" ? ' aria-current="true"' : ""}>월간</a><a href="${escapeHtml(hrefWeek)}"${range === "week" ? ' aria-current="true"' : ""}>주간</a></div>`;
   const weekChips = range === "week" ? `<ul class="lrWeeks noPrint" aria-label="주 선택">${weeks.map((w) => `<li><a href="${escapeHtml(livingReportHref({ month, householdId: hid, range: "week", week: w.start }))}"${w.start === p.start ? ' aria-current="true"' : ""} class="${w.future ? "isFuture" : ""}">${escapeHtml(shortYmdKo(w.start))}~${escapeHtml(shortYmdKo(w.end))}${w.current ? " · 이번 주" : ""}</a></li>`).join("")}</ul>` : "";
-  const flash = { card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }[msg];
-  const flashErr = { card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }[err] || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
+  // V22.9.76 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
+  const flash = ownMessage({ card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }, msg);
+  const flashErr = ownMessage({ card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }, err) || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
   const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
   const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
   const daily = !report.currentAvailable ? `<section class="card" id="daily"><h2>날짜별 지출</h2><p>선택한 주의 날짜별 기록을 모두 불러온 뒤 표시합니다.</p></section>` : `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
   const weekendLine = report.weekend.weekdayDays && report.weekend.days ? `주말 하루 평균 ${won(report.weekend.avg)} · 평일 하루 평균 ${won(report.weekend.weekdayAvg)} (주말 비중 ${report.weekend.share}%)` : "주말과 평일을 견줄 기록이 아직 없어요.";
-  const pattern = !report.currentAvailable ? `<section class="card" id="pattern"><h2>생활 패턴</h2><p>기간 기록을 확인할 수 없어요.</p></section>` : `<section class="card" id="pattern"><h2>생활 패턴</h2><p class="lead">${escapeHtml(weekendLine)}</p><div class="lrTwo">${report.buckets.map((b) => `<div class="lrBox"><h3>${escapeHtml(b.name)} ${won(b.amount)}</h3><p>${numberWithCommas(b.count)}건 · <span class="${deltaClass(b.delta)}">${escapeHtml(deltaText(b.delta, b.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p></div>`).join("")}</div><p class="note">${!report.comparisonAvailable ? "기간 비교를 확인할 수 없어요." : report.biggestIncrease ? `${escapeHtml(report.biggestIncrease.name)} 지출이 ${escapeHtml(p.basisLabel.replace(/ 대비$/, ""))}보다 ${won(report.biggestIncrease.delta)} 늘었어요. 줄일 곳을 찾는다면 여기부터 보면 좋아요. 늘어난 금액이 곧 낭비라는 뜻은 아니에요.` : "지난 기간보다 늘어난 생활비 항목이 없어요."}</p></section>`;
-  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${!report.currentAvailable ? `<p class="empty">기간 기록을 모두 불러오지 못해 카드 사용액을 확인할 수 없어요.</p>` : !report.settingsAvailable ? `<p class="empty">카드 설정을 불러오지 못해 사용액과 목표를 확인할 수 없어요.</p>` : report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건 · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small></p>${c.target && range === "month" && report.historyAvailable && p.elapsed > 0 ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}</section>`;
+  const pattern = !report.currentAvailable ? `<section class="card" id="pattern"><h2>생활 패턴</h2><p>기간 기록을 확인할 수 없어요.</p></section>` : `<section class="card" id="pattern"><h2>생활 패턴</h2><p class="lead">${escapeHtml(weekendLine)}</p><div class="lrTwo">${report.buckets.map((b) => `<div class="lrBox"><h3>${escapeHtml(b.name)} ${won(b.amount)}</h3><p>${numberWithCommas(b.count)}건${noPrevious ? "" : ` · <span class="${deltaClass(b.delta)}">${escapeHtml(deltaText(b.delta, b.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small>`}</p></div>`).join("")}</div><p class="note">${noPrevious ? escapeHtml(livingReportChangeText(report)) : !report.comparisonAvailable ? "기간 비교를 확인할 수 없어요." : report.biggestIncrease ? `${escapeHtml(report.biggestIncrease.name)} 지출이 ${escapeHtml(p.basisLabel.replace(/ 대비$/, ""))}보다 ${won(report.biggestIncrease.delta)} 늘었어요. 줄일 곳을 찾는다면 여기부터 보면 좋아요. 늘어난 금액이 곧 낭비라는 뜻은 아니에요.` : "지난 기간보다 늘어난 생활비 항목이 없어요."}</p></section>`;
+  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${!report.currentAvailable ? `<p class="empty">기간 기록을 모두 불러오지 못해 카드 사용액을 확인할 수 없어요.</p>` : !report.settingsAvailable ? `<p class="empty">카드 설정을 불러오지 못해 사용액과 목표를 확인할 수 없어요.</p>` : report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건${noPrevious ? "" : ` · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small>`}</p>${c.target && range === "month" && report.historyAvailable && p.elapsed > 0 ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}</section>`;
   return { segment, weekChips, flash, flashErr, summary, fixed, daily, pattern, cards };
 }
 
@@ -25096,6 +25761,15 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
+// V22.9.76 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
+// 모든 객체가 물려받는 이름이 오면 그 함수 본문("function Object() { [native code] }")이 보였으므로, 그런 이름은
+// 표에 없는 코드로 바꿔 넘긴다(일반 안내 "요청을 처리하지 못했습니다."가 나온다). 렌더러(renderMyAnalysisHtml)는
+// validate-polish-v22940 가 고정한 본문이라 손대지 않고 여기서 거른다.
+function analysisFlashCode(value) {
+  const code = String(value || "");
+  return code && code in Object.prototype ? "unknown" : code;
+}
+
 async function handleMyAnalysisPage(request, env, url) {
   const ctx = await getMyPageContext(request, env, url, { observedComparison: true });
   if (ctx.redirect) return ctx.redirect;
@@ -25117,7 +25791,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
-  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: analysisFlashCode(url.searchParams.get("err")) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -26642,9 +27316,12 @@ function renderBudgetGaugeCards(budget = {}) {
   const total = Number(budget.totalBudget || 0);
   const expense = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const remain = Math.max(0, total - expense);
-  const rate = total ? Math.min(160, Math.round(expense / total * 100)) : 0;
-  const over = Math.max(0, expense - total);
-  return `<section class="card"><h2>예산 사용 게이지</h2><div class="gaugeGrid"><div class="gaugeCard"><span>총 예산</span><b>${numberWithCommas(total)}원</b></div><div class="gaugeCard"><span>사용</span><b>${numberWithCommas(expense)}원</b></div><div class="gaugeCard"><span>잔여 예산</span><b>${numberWithCommas(remain)}원</b></div><div class="gaugeCard"><span>초과</span><b>${numberWithCommas(over)}원</b></div></div><div class="meter"><i style="width:${Math.min(100, rate)}%"></i></div><p class="muted">예산 사용률 ${rate}% · 분류별 예산 합계를 기준으로 계산합니다.</p></section>`;
+  // V22.9.76 감사 D-12: 사용률은 실제 값을 그대로 적는다(막대만 100%에서 멈춘다). 예전에는 507%를 160%로 잘라
+  // 홈·예산 화면(507%)과 달랐다. 예산이 없으면 지출 전부를 '초과'로 적지 않는다.
+  const rate = total ? Math.round(expense / total * 100) : 0;
+  const over = total ? Math.max(0, expense - total) : 0;
+  const won = (v) => total ? `${numberWithCommas(v)}원` : "미설정";
+  return `<section class="card"><h2>예산 사용 게이지</h2><div class="gaugeGrid"><div class="gaugeCard"><span>총 예산</span><b>${numberWithCommas(total)}원</b></div><div class="gaugeCard"><span>사용</span><b>${numberWithCommas(expense)}원</b></div><div class="gaugeCard"><span>잔여 예산</span><b>${won(remain)}</b></div><div class="gaugeCard"><span>초과</span><b>${won(over)}</b></div></div><div class="meter"><i style="width:${Math.min(100, rate)}%"></i></div><p class="muted">${total ? `예산 사용률 ${rate}% · 분류별 예산 합계를 기준으로 계산합니다.` : "예산을 설정하면 사용률·잔여·초과를 계산합니다."}</p></section>`;
 }
 
 function renderBudgetGaugeRows(budget = {}) {
@@ -26658,15 +27335,18 @@ function renderBudgetGaugeRows(budget = {}) {
 
 function shortWonLabel(amount = 0) {
   const n = Number(amount || 0);
-  if (!n) return "0";
-  if (Math.abs(n) >= 100000000) {
-    // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 소수 첫째 자리까지 둔다.
-    const eok = Math.round(n / 10000000) / 10;
-    return `${Number.isInteger(eok) ? eok : eok.toFixed(1)}억`;
-  }
-  if (Math.abs(n) >= 10000) return `${Math.round(n / 10000)}만`;
-  if (Math.abs(n) >= 1000) return `${Math.round(n / 1000)}천`;
-  return `${Math.round(n)}`;
+  if (!n || !Number.isFinite(n)) return "0";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  // V22.9.26: 1억 단위 반올림은 1억 5천만을 "2억"으로 보여 줬다. 억·조는 소수 첫째 자리까지 둔다.
+  const tenth = (v) => { const r = Math.round(v * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
+  // V22.9.76 감사 D-14: 반올림하면 다음 단위가 되는 값은 다음 단위로 쓴다(9,500원 "10천" → "1만",
+  // 99,995,000원 "10000만" → "1억"). 1조 이상은 "10020억"이 아니라 "1조"로 쓴다.
+  if (Math.round(abs / 1e7) / 10 >= 10000) return `${sign}${tenth(abs / 1e12)}조`;
+  if (abs >= 1e8 || Math.round(abs / 1e4) >= 10000) return `${sign}${tenth(abs / 1e8)}억`;
+  if (Math.round(abs / 1e3) >= 10) return `${sign}${Math.round(abs / 1e4)}만`;
+  if (Math.round(abs) >= 1000) return `${sign}${Math.round(abs / 1e3)}천`;
+  return `${sign}${Math.round(abs)}`;
 }
 
 function renderReadableDailyTrend(rows = [], month = currentMonthKst(), linkBase = "") {
@@ -26957,15 +27637,20 @@ async function handleMyRecurringSave(request, env) {
   const { selected } = await getMySelectedHousehold(env, userId, householdId);
   if (!selected) return redirectResponse("/my?err=no_household");
   if (!canManageMyHousehold(selected.role)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "write_not_allowed" }));
+  const formProblem = recurringFormProblem(form);
+  if (formProblem) return redirectResponse(mySettingsLocation(month, selected.id, { err: formProblem }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
   const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
   if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
   const ruleId = String(form.get("id") || "").trim();
+  const type = normalizeTransactionType(String(form.get("type") || "expense"));
   const row = {
     household_id: selected.id,
-    type: normalizeTransactionType(String(form.get("type") || "expense")),
+    type,
     amount,
-    category: String(form.get("category") || "정기지출").trim().slice(0, 80),
+    // V22.9.76: 분류를 비우면 구분에 맞는 기본값을 쓴다. 예전에는 폼이 "정기지출"을 미리 채우고 서버도 같은 값을 넣어,
+    // 구분만 수입으로 바꾼 정기 수입(예: 수당)이 매달 분류 "정기지출"인 수입 거래로 기록됐다.
+    category: String(form.get("category") || "").trim().slice(0, 80) || defaultRecurringCategory(type),
     memo,
     payment_method: String(form.get("payment_method") || "").trim().slice(0, 80),
     day_of_month: normalizeRecurringDay(form.get("day_of_month")),
@@ -26985,6 +27670,9 @@ async function handleMyRecurringSave(request, env) {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
       assertFresh();
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
+      if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
         method: ruleId ? "PATCH" : "POST",
         headers: { Prefer: "return=minimal" },
@@ -26993,7 +27681,8 @@ async function handleMyRecurringSave(request, env) {
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
   } catch (err) {
-    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "recurring_table_required" }));
+    // V22.9.76 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
+    return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_table_required" }));
   }
 }
 
@@ -27034,6 +27723,29 @@ async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, ro
     && (normalizeText(item.memo || "") === memoKey || normalizeText(item.raw_text || "").includes(memoKey)));
   if (recorded) row.last_applied_month = thisMonth;
   return recorded;
+}
+
+// V22.9.76 감사 D-26: 정기 항목 입력값을 바꿔 넣고 성공이라 답하지 않는다. 지정일은 1~31(그 달에 없는 날은 말일에 기록),
+// 금액은 음수를 받지 않는다(예전에는 0·32·빈칸이 1·31로, "-5000"이 5,000원으로 저장됐다). 문제가 없으면 빈 문자열.
+function recurringFormProblem(form) {
+  const day = String(form.get("day_of_month") ?? "").trim();
+  const digits = day.length >= 1 && day.length <= 2 && [...day].every((ch) => ch >= "0" && ch <= "9");
+  if (!digits || Number(day) < 1 || Number(day) > 31) return "recurring_day_invalid";
+  if (/-/.test(String(form.get("amount") ?? ""))) return "recurring_amount_invalid";
+  return "";
+}
+
+// V22.9.76 감사 D-25: 같은 정기 항목을 두 번 보내면(두 번 누름·다시 보내기) 규칙이 둘 생겨 다달이 두 번 기록됐다.
+// 가계부 쓰기 잠금 안에서 부른다. 같은 구분·금액·지정일·메모·분류·지출자의 켜진 규칙이 10분 안에 만들어졌으면(만든 시각을
+// 모르면 있는 것만으로) 같은 요청으로 보고 새로 만들지 않는다.
+const RECURRING_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+async function findRecentDuplicateRecurringRule(env, householdId, row = {}) {
+  const same = (a, b) => normalizeText(String(a ?? "")) === normalizeText(String(b ?? ""));
+  return safeArray(await fetchRecurringStrict(env, householdId)).find((rule) => rule.is_active !== false
+    && (rule.type === "income" ? "income" : "expense") === (row.type === "income" ? "income" : "expense")
+    && Number(rule.amount) === Number(row.amount) && Number(rule.day_of_month) === Number(row.day_of_month)
+    && same(rule.memo, row.memo) && same(rule.category, row.category) && String(rule.user_id || "") === String(row.user_id || "")
+    && (!Number.isFinite(Date.parse(String(rule.created_at || ""))) || Date.now() - Date.parse(String(rule.created_at)) < RECURRING_DUPLICATE_WINDOW_MS)) || null;
 }
 
 async function handleRecurringCandidateConfirm(request, env) {
@@ -27099,6 +27811,13 @@ async function handleRecurringCandidateConfirm(request, env) {
   }
 }
 
+// V22.9.76: 정기 항목 분류의 기본값과 수입 분류 선택지. 지출은 예전 기본값("정기지출")을 그대로 쓴다.
+// 수입은 빠른 입력·가져오기가 분류를 모를 때 쓰는 "기타수입"이다(미분류로 보여 나중에 고를 수 있다).
+const RECURRING_INCOME_CATEGORIES = ["급여", "상여/보너스", "용돈수입", "환급", "이자배당", "부업/매출", "기타수입"];
+function defaultRecurringCategory(type = "expense") {
+  return String(type) === "income" ? "기타수입" : "정기지출";
+}
+
 // 가장 많이 나온 비어 있지 않은 값. 같은 횟수면 먼저 나온 값이다.
 function mostFrequentValue(values = []) {
   const counts = Object.create(null);
@@ -27130,6 +27849,8 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
   const categoryRows = defaultExpenseBudgetNames(customCategories);
   const categoryOptions = [`<option value="">직접입력</option>`, ...categoryRows.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
   const incomeOptions = [`<option value="">직접입력</option>`, ...defaultIncomeBudgetNames().map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join("");
+  // V22.9.76: 정기 항목 추가 폼에서 구분을 수입으로 고르면 분류 추천이 수입 분류로 바뀐다(지출 분류만 보였다).
+  const recurringIncomeCategoryOptions = RECURRING_INCOME_CATEGORIES.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const recurringRows = safeArray(recurring).length ? safeArray(recurring).map((r) => `<tr><td data-label="내용">${escapeHtml(r.memo || "")}</td><td data-label="구분">${escapeHtml(r.type === "income" ? "수입" : "지출")}</td><td data-label="금액">${numberWithCommas(r.amount)}원</td><td data-label="분류">${escapeHtml(r.category || "")}</td><td data-label="일자">매월 ${escapeHtml(r.day_of_month || 1)}일</td><td data-label="최근 적용월">${escapeHtml(r.last_applied_month || "-")}</td><td data-label="관리">${renderRecurringEditForm(r, selected.id, month, [], "/my/recurring/save")}<form method="post" action="/my/recurring/delete" onsubmit="return confirm('삭제할까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id || "")}"/><button class="danger" type="submit">삭제</button></form></td></tr>`).join("") : `<tr><td colspan="7">아직 정기지출이 없습니다.</td></tr>`;
   const incomeInputs = incomeRows.map((r) => `<div class="budgetLine incomeLine"><input name="income_name" value="${escapeHtml(r.name)}" placeholder="직접입력: 수입 종류"/><select class="pickValue">${incomeOptions}</select><input name="income_amount" value="${escapeHtml(typeof r.amount === "number" ? String(r.amount || "") : String(r.amount ?? ""))}" inputmode="numeric" placeholder="예상 수입"/></div>`).join("");
   // V22.9.26: 설정한 분류를 모두 그린다. 12행만 그리면 저장(월 전체 교체)이 13번째부터 지웠다.
@@ -27140,7 +27861,7 @@ function renderMySettingsHtml({ env, url, user, month, households, selected, row
     const rate = Number(r.amount || 0) ? Math.round(spent / Number(r.amount || 0) * 100) : 0;
     return `<tr><td><b>${escapeHtml(r.name)}</b></td><td>${numberWithCommas(r.amount)}원</td><td>${numberWithCommas(spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${rate}%</td></tr>`;
   }).join("") : `<tr><td colspan="5">아직 저장된 분류별 예산이 없습니다. 필요한 분류만 추가해서 저장하세요.</td></tr>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 설정</title><style>${myNavCss()}${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero p,.muted{color:#667085;line-height:1.55;font-size:13px}.summaryGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summaryBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.summaryBox b{display:block;font-size:22px;overflow-wrap:anywhere}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rowform{display:grid;grid-template-columns:100px 1fr 150px 150px 150px 100px auto;gap:8px;align-items:center}.rowform input,.rowform select{min-width:0;width:100%}.budgetForm{display:grid;grid-template-columns:1fr 1fr;gap:14px}.budgetLine{display:grid;grid-template-columns:1.2fr .9fr 150px;gap:8px;margin:8px 0}.budgetLine>*{min-width:0}.incomeSummary{list-style:none;padding:0;margin:10px 0;display:grid;gap:7px}.incomeSummary li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:13px;padding:10px 12px}.incomeSummary li span{font-weight:900}.incomeSummary li small{color:#667085}.incomeSummary .emptyIncome{display:block;color:#667085;background:#f8fafc}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.danger{background:#ef4444!important}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}details.fold{border:1px solid #e8edf4;border-radius:22px;background:#fff;padding:6px 14px}details.fold summary{cursor:pointer;font-weight:1000;padding:12px 4px}.sectionNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;font-size:13px;line-height:1.55}.keywordGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.keywordCard{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:16px;padding:10px;background:#f8fafc}.keywordCard label{font-weight:1000}.addBtn{background:#eef2ff!important;color:#3730a3!important;border:1px solid #c7d2fe}@media(max-width:900px){.budgetForm,.keywordGrid{grid-template-columns:1fr}.budgetLine,.keywordCard,.rowform{grid-template-columns:1fr}.toolbar>*{width:100%}}@media(max-width:600px){.wrap{padding:10px 10px 126px}.hero,.card{padding:16px;border-radius:19px}.summaryGrid{grid-template-columns:1fr 1fr}.summaryBox b{font-size:19px}.incomeSummary li{grid-template-columns:1fr auto}.incomeSummary li small{grid-column:1/-1}.budgetLine input,.budgetLine select{width:100%;font-size:16px}}@media(max-width:360px){.summaryGrid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "settings")}<div class="pageMain">${renderMoneyPlanTabs("settings", { month, householdId: selected.id })}<section class="hero"><h1>설정 한눈에</h1><p>이번 달 요약과 예산·정기 설정을 한 화면에서 봅니다. 각 항목은 위 탭에서 더 자세히 볼 수 있습니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 한도는 종류·분류별 행의 합계로 계산합니다.</p></section>${msg ? `<div class="ok">${budgetPlanMessage(msg) || formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${budgetPlanMessage(err) || formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/settings" class="toolbar"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="btn secondary" href="/app?${hh}">홈</a></form></section><section class="card"><h2>이번 달 요약</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">실제 수입 · 기록 자동합계</span><b>${numberWithCommas(budgetCenter.actualIncome)}원</b></div><div class="summaryBox"><span class="muted">예상 수입 · 종류별 합계</span><b>${numberWithCommas(incomePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">지출 예산 · 분류별 합계</span><b>${numberWithCommas(expensePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">이번 달 지출</span><b>${numberWithCommas(budget.expense || 0)}원</b><span class="muted">예산 사용 ${budget.rate || 0}%</span></div></div><h3>실제 수입 분류</h3><ul class="incomeSummary">${actualIncomeList}</ul></section><section class="card"><h2>예상 수입 + 지출 예산</h2><p class="muted">월 총액을 따로 입력하지 않습니다. 수입 종류와 지출 분류별 금액을 고치면 저장 전 미리보기를 계산합니다. 위 요약은 저장된 계획입니다. 빈 행과 0원 행은 저장하지 않습니다.</p>${budgetReadFailed && !budgetDraft ? `<p class="error" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p>` : `<form method="post" action="/my/budget-bulk/save" id="budgetBulkForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(budgetDraft ? budgetDraft.fingerprint : planFingerprint)}"/><div class="budgetForm"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><p><button type="button" class="addBtn" data-add="income">+ 수입 종류 추가</button></p><div class="sectionNote">급여·부수입을 고르거나 왼쪽 칸에 직접 이름을 입력하세요. 입력한 행의 합계가 예상 수입입니다.</div></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><p><button type="button" class="addBtn" data-add="expense">+ 지출 분류 추가</button></p><div class="sectionNote">외식·교통 등 필요한 분류만 입력하세요. 분류별 합계가 이번 달 전체 지출 예산입니다.</div></div></div>${renderBudgetPlanPreview(incomeRows, budgetEditRows, budgets, budgetDraft?.error || "", "/my/settings?" + hh)}<p><button type="submit">종류별 수입·분류별 예산 저장</button></p></form>`}</section><section class="card"><h2>저장된 분류별 지출 예산</h2><p class="muted">상위·하위 예산의 행별 사용액은 겹칠 수 있습니다. 전체 사용액은 거래마다 한 번만 계산합니다. 분류별 배분 합계: <b>${numberWithCommas(expensePlanTotal)}원</b></p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th></tr></thead><tbody>${budgetListRows}</tbody></table></div></section><section class="card"><h2>정기 수입·지출 자동 기록</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">정기지출 합계</span><b>${numberWithCommas(recurringInfo.expense)}원</b></div><div class="summaryBox"><span class="muted">정기수입 합계</span><b>${numberWithCommas(recurringInfo.income)}원</b></div><div class="summaryBox"><span class="muted">월 순정기액</span><b>${numberWithCommas(recurringInfo.net)}원</b></div><div class="summaryBox"><span class="muted">등록 건수</span><b>${numberWithCommas(recurringInfo.count)}건</b></div></div><form method="post" action="/my/recurring/save" class="rowform"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type"><option value="expense">지출</option><option value="income">수입</option></select><input name="memo" placeholder="예: 자동차보험" required/><input name="amount" placeholder="금액" required/><input name="category" list="settingsCategoryList" placeholder="분류" value="정기지출"/><datalist id="settingsCategoryList">${categoryOptions}</datalist><input name="payment_method" placeholder="결제수단"/><input name="day_of_month" type="number" min="1" max="31" value="1"/><button type="submit">정기항목 저장</button></form><div class="scroll" style="margin-top:14px"><table class="ab38Recurring"><thead><tr><th>내용</th><th>구분</th><th>금액</th><th>분류</th><th>일자</th><th>최근 적용월</th><th></th></tr></thead><tbody>${recurringRows}</tbody></table></div></section><section class="card"><h2>분류·키워드</h2><p class="muted">가족이 실제로 쓰는 표현을 수입·지출 분류에 연결하는 화면은 <b>관리 &gt; 분류·키워드</b> 한 곳에만 둡니다. 같은 편집기를 두 곳에서 열면 어느 쪽이 최신인지 헷갈립니다.</p><p><a class="btn secondary" href="/keyword-guide?${hh}">분류·키워드 관리 열기</a></p></section></div></div></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 설정</title><style>${myNavCss()}${moneyPlanTabsCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero p,.muted{color:#667085;line-height:1.55;font-size:13px}.summaryGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summaryBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:14px;min-width:0}.summaryBox b{display:block;font-size:22px;overflow-wrap:anywhere}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.rowform{display:grid;grid-template-columns:100px 1fr 150px 150px 150px 100px auto;gap:8px;align-items:center}.rowform input,.rowform select{min-width:0;width:100%}.budgetForm{display:grid;grid-template-columns:1fr 1fr;gap:14px}.budgetLine{display:grid;grid-template-columns:1.2fr .9fr 150px;gap:8px;margin:8px 0}.budgetLine>*{min-width:0}.incomeSummary{list-style:none;padding:0;margin:10px 0;display:grid;gap:7px}.incomeSummary li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:13px;padding:10px 12px}.incomeSummary li span{font-weight:900}.incomeSummary li small{color:#667085}.incomeSummary .emptyIncome{display:block;color:#667085;background:#f8fafc}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.danger{background:#ef4444!important}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px}details.fold{border:1px solid #e8edf4;border-radius:22px;background:#fff;padding:6px 14px}details.fold summary{cursor:pointer;font-weight:1000;padding:12px 4px}.sectionNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;font-size:13px;line-height:1.55}.keywordGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.keywordCard{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;border:1px solid #e8edf4;border-radius:16px;padding:10px;background:#f8fafc}.keywordCard label{font-weight:1000}.addBtn{background:#eef2ff!important;color:#3730a3!important;border:1px solid #c7d2fe}@media(max-width:900px){.budgetForm,.keywordGrid{grid-template-columns:1fr}.budgetLine,.keywordCard,.rowform{grid-template-columns:1fr}.toolbar>*{width:100%}}@media(max-width:600px){.wrap{padding:10px 10px 126px}.hero,.card{padding:16px;border-radius:19px}.summaryGrid{grid-template-columns:1fr 1fr}.summaryBox b{font-size:19px}.incomeSummary li{grid-template-columns:1fr auto}.incomeSummary li small{grid-column:1/-1}.budgetLine input,.budgetLine select{width:100%;font-size:16px}}@media(max-width:360px){.summaryGrid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "settings")}<div class="pageMain">${renderMoneyPlanTabs("settings", { month, householdId: selected.id })}<section class="hero"><h1>설정 한눈에</h1><p>이번 달 요약과 예산·정기 설정을 한 화면에서 봅니다. 각 항목은 위 탭에서 더 자세히 볼 수 있습니다. 실제 수입은 기록에서 자동 합산하고, 예상 수입과 지출 한도는 종류·분류별 행의 합계로 계산합니다.</p></section>${msg ? `<div class="ok">${budgetPlanMessage(msg) || formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${budgetPlanMessage(err) || formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/settings" class="toolbar"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button><a class="btn secondary" href="/app?${hh}">홈</a></form></section><section class="card"><h2>이번 달 요약</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">실제 수입 · 기록 자동합계</span><b>${numberWithCommas(budgetCenter.actualIncome)}원</b></div><div class="summaryBox"><span class="muted">예상 수입 · 종류별 합계</span><b>${numberWithCommas(incomePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">지출 예산 · 분류별 합계</span><b>${numberWithCommas(expensePlanTotal)}원</b></div><div class="summaryBox"><span class="muted">이번 달 지출</span><b>${numberWithCommas(budget.expense || 0)}원</b><span class="muted">예산 사용 ${budget.rate || 0}%</span></div></div><h3>실제 수입 분류</h3><ul class="incomeSummary">${actualIncomeList}</ul></section><section class="card"><h2>예상 수입 + 지출 예산</h2><p class="muted">월 총액을 따로 입력하지 않습니다. 수입 종류와 지출 분류별 금액을 고치면 저장 전 미리보기를 계산합니다. 위 요약은 저장된 계획입니다. 빈 행과 0원 행은 저장하지 않습니다.</p>${budgetReadFailed && !budgetDraft ? `<p class="error" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p>` : `<form method="post" action="/my/budget-bulk/save" id="budgetBulkForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(budgetDraft ? budgetDraft.fingerprint : planFingerprint)}"/><div class="budgetForm"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><p><button type="button" class="addBtn" data-add="income">+ 수입 종류 추가</button></p><div class="sectionNote">급여·부수입을 고르거나 왼쪽 칸에 직접 이름을 입력하세요. 입력한 행의 합계가 예상 수입입니다.</div></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><p><button type="button" class="addBtn" data-add="expense">+ 지출 분류 추가</button></p><div class="sectionNote">외식·교통 등 필요한 분류만 입력하세요. 분류별 합계가 이번 달 전체 지출 예산입니다.</div></div></div>${renderBudgetPlanPreview(incomeRows, budgetEditRows, budgets, budgetDraft?.error || "", "/my/settings?" + hh)}<p><button type="submit">종류별 수입·분류별 예산 저장</button></p></form>`}</section><section class="card"><h2>저장된 분류별 지출 예산</h2><p class="muted">상위·하위 예산의 행별 사용액은 겹칠 수 있습니다. 전체 사용액은 거래마다 한 번만 계산합니다. 분류별 배분 합계: <b>${numberWithCommas(expensePlanTotal)}원</b></p><div class="scroll"><table><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>남음</th><th>사용률</th></tr></thead><tbody>${budgetListRows}</tbody></table></div></section><section class="card"><h2>정기 수입·지출 자동 기록</h2><div class="summaryGrid"><div class="summaryBox"><span class="muted">정기지출 합계</span><b>${numberWithCommas(recurringInfo.expense)}원</b></div><div class="summaryBox"><span class="muted">정기수입 합계</span><b>${numberWithCommas(recurringInfo.income)}원</b></div><div class="summaryBox"><span class="muted">월 순정기액</span><b>${numberWithCommas(recurringInfo.net)}원</b></div><div class="summaryBox"><span class="muted">등록 건수</span><b>${numberWithCommas(recurringInfo.count)}건</b></div></div><form method="post" action="/my/recurring/save" class="rowform"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><select name="type" onchange="var c=this.form&&this.form.elements.category;if(c)c.setAttribute('list',this.value==='income'?'settingsIncomeCategoryList':'settingsCategoryList')"><option value="expense">지출</option><option value="income">수입</option></select><input name="memo" placeholder="예: 자동차보험" required/><input name="amount" placeholder="금액" required/><input name="category" list="settingsCategoryList" placeholder="분류"/><datalist id="settingsCategoryList">${categoryOptions}</datalist><datalist id="settingsIncomeCategoryList">${recurringIncomeCategoryOptions}</datalist><input name="payment_method" placeholder="결제수단"/><input name="day_of_month" type="number" min="1" max="31" value="1"/><button type="submit">정기항목 저장</button></form><div class="scroll" style="margin-top:14px"><table class="ab38Recurring"><thead><tr><th>내용</th><th>구분</th><th>금액</th><th>분류</th><th>일자</th><th>최근 적용월</th><th></th></tr></thead><tbody>${recurringRows}</tbody></table></div></section><section class="card"><h2>분류·키워드</h2><p class="muted">가족이 실제로 쓰는 표현을 수입·지출 분류에 연결하는 화면은 <b>관리 &gt; 분류·키워드</b> 한 곳에만 둡니다. 같은 편집기를 두 곳에서 열면 어느 쪽이 최신인지 헷갈립니다.</p><p><a class="btn secondary" href="/keyword-guide?${hh}">분류·키워드 관리 열기</a></p></section></div></div></main></body></html>`;
 }
 function myReturnLocation(month = currentMonthKst(), householdId = "", extra = {}) {
   const qs = new URLSearchParams();
@@ -27577,6 +28298,7 @@ function householdPageMessage(code = "") {
     created: "가계부를 만들었습니다. 이제 초대코드를 공유하세요.",
     household_duplicate_selected: "같은 이름의 기존 가계부를 선택했습니다.",
     joined: "이미 참여 중인 가계부를 열었습니다.",
+    household_memory_stale: "마지막에 열었던 가계부를 더는 열 수 없어요(삭제됐거나 나온 가계부). 아래에서 열 가계부를 고르세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
     db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.",
@@ -27600,11 +28322,20 @@ function householdPageMessage(code = "") {
     kakao_reauth_account_mismatch: "현재 가계부 계정과 다른 카카오 계정입니다. 원래 연결한 카카오 계정으로 다시 확인하세요.",
     kakao_reauth_unavailable: "카카오 본인 확인을 사용할 수 없습니다. 계정·보안에서 로그인 비밀번호를 설정한 뒤 확인하세요.",
     household_manage_not_allowed: "이 가계부의 설정을 변경할 권한이 없습니다.",
+    // V22.9.76 감사 D-27: 역할 조회 실패를 '권한 없음'과 구분한다. 참여자 화면(/my/members)·운영 화면도 이 표를 쓴다.
+    household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    member_manage_not_allowed: "참여자를 바꿀 권한이 없습니다. 가계부 소유자나 관리자에게 요청해 주세요.",
+    member_role_save_failed: "참여자 권한을 저장하지 못했습니다. 기존 권한은 유지됩니다. 잠시 후 다시 시도하세요.",
+    member_role_rule_rejected: "현재 데이터베이스 역할 규칙에서 선택한 권한을 저장할 수 없습니다. 기존 권한은 유지됩니다.",
+    member_remove_failed: "참여자 목록을 확인하지 못해 내보내지 않았습니다. 잠시 후 다시 시도하세요.",
+    member_alias_save_failed: "참여자 이름을 저장하지 못했습니다. 기존 이름은 그대로입니다. 잠시 후 다시 시도하세요.",
     household_update_failed: "가계부 이름을 저장하지 못했습니다. 기존 이름은 유지됩니다.",
     household_delete_owner_only: "가계부 영구 삭제는 소유자만 할 수 있습니다.",
     household_delete_name_mismatch: "확인용 가계부 이름이 현재 이름과 일치하지 않습니다.",
     household_delete_ack_required: "참여자와 모든 기록이 삭제된다는 확인이 필요합니다.",
     household_delete_failed: "가계부 삭제를 완료하지 못했습니다. 데이터는 임의로 숨기지 않았습니다.",
+    // V22.9.76 감사 G-2: 연결된 단톡방이 아주 많으면 한 요청의 저장소 호출 한도(50회) 안에 끝낼 수 없어 시작하지 않는다.
+    household_delete_too_large: "연결된 단톡방이나 정리할 항목이 많아 한 번에 삭제할 수 없습니다. 아무것도 지우지 않았습니다. 운영자에게 알려 주시면 정리를 도와드릴게요.",
     household_leave_owner_blocked: "소유자는 바로 나갈 수 없습니다. 소유권 이전 기능이 준비되기 전에는 가계부를 삭제하거나 고객지원에 요청해 주세요.",
     household_leave_not_member: "현재 이 가계부의 참여자가 아닙니다.",
     household_leave_ack_required: "가계부에서 나가기 전 확인 항목에 동의해 주세요.",
@@ -27618,7 +28349,9 @@ function householdPageMessage(code = "") {
     member_policy_owner_only: "구성원 권한은 가계부 소유자만 바꿀 수 있습니다.",
     member_policy_failed: "구성원 권한을 저장하지 못했습니다. 기존 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
   };
-  return map[String(code || "")] || formatMessage(code || "");
+  // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 /my/members 에 함수 본문을 보였다).
+  const key = String(code || "");
+  return (Object.hasOwn(map, key) && map[key]) || formatMessage(code || "");
 }
 
 async function handleMyHouseholdsPage(request, env, url) {
@@ -27803,9 +28536,15 @@ async function handleMyHouseholdUpdate(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const name = sanitizeWebHouseholdNameInput(String(form.get("household_name") || "").trim());
-  const role = await getHouseholdMemberRole(env, userId, householdId);
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
   if (!householdId || !name) return redirectResponse(addQueryToUrl(back, { err: "household_name_invalid" }));
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/update", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!canManageMyHousehold(role)) return redirectResponse(addQueryToUrl(back, { err: "household_manage_not_allowed" }));
   try {
     await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}`, {
@@ -27827,6 +28566,42 @@ function householdSettingsKeys(householdId = "") {
     reservePlansKey(hid), memberAliasSettingsKey(hid), transactionEditHistoryKey(hid), settlementHistoryKey(hid),
     reportChallengeSettingsKey(hid), goalsKey(hid), freeReportPreferenceKey(hid),
   ];
+}
+
+// V22.9.76 감사 G-2: 단톡방 2개 이상에 연결된 가계부를 지우면 저장소 호출이 한 요청 한도(50회)를 넘어, 잠금 해제와
+// 방 연결 정리가 빠진 채 "삭제됨"으로 끝났다(방마다 잠금을 다시 잡고 표식·연결 행·옛 연결표를 하나씩 고쳤다).
+// 이제 (1) 방 은퇴 표식은 한 번에 쓰고, (2) 방 연결 행은 이미 잡은 방 잠금 안에서 한 번에 지우고, 옛 연결표도 한 번만
+// 고친다. (3) 남은 호출 수가 모자라면 잠금을 하나도 잡기 전에 거절하고, 되돌릴 수 없는 삭제 직전에 한 번 더 본다.
+// 측정(가짜 저장소, 웹 삭제 요청 전체): 방 0개 28회, 방 n개 35 + 2n회(옛 연결표 정리 포함) — 방 2개 39회, 방 5개 45회
+// (이전: 방 0개 29회, 1개 43회, 2개 이상 51회에서 한도 초과). 방과 자동 준비 사용자마다 잠금 잡기·풀기 2회가 든다.
+// 잠금을 잡은 뒤 남은 고정 호출은 22회이고, 저장소가 아닌 하위 요청(운영 알림) 몫으로 2회를 더 남긴다.
+const HOUSEHOLD_PURGE_FIXED_REQUESTS = 24;
+
+async function markKakaoGroupsRetiredBatch(env, groupKeys = [], assertFresh = () => {}) {
+  const keys = [...new Set((groupKeys || []).map(String).filter(Boolean))].sort();
+  if (!keys.length) return;
+  const rows = [];
+  for (const groupKey of keys) {
+    const firstKeys = await kakaoGroupFirstKeys(groupKey);
+    rows.push({ key: firstKeys.retired, value: JSON.stringify({ version: 1, group_hash: firstKeys.hash }) });
+  }
+  assertFresh();
+  let inserted = null;
+  try {
+    // 은퇴 표식은 바뀌지 않는 행이다. 이미 있으면 그대로 두고(ignore-duplicates) 없는 것만 넣는다.
+    inserted = await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify(rows),
+    });
+  } catch (err) {
+    if (isDefiniteStorageFailure(err)) throw err;
+    inserted = null; // 응답을 잃었으면 아래에서 다시 읽어 확인한다.
+  }
+  const confirmed = new Set(Array.isArray(inserted) ? inserted.filter((row) => row?.key && row?.value).map((row) => String(row.key)) : []);
+  const unconfirmed = rows.map((row) => row.key).filter((key) => !confirmed.has(key));
+  if (!unconfirmed.length) return;
+  const present = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${unconfirmed.map((key) => encodeURIComponent(`"${key}"`)).join(",")})&select=key,value`, { method: "GET" });
+  const seen = new Set(Array.isArray(present) ? present.filter((row) => row?.key && String(row.value || "").trim()).map((row) => String(row.key)) : []);
+  if (unconfirmed.some((key) => !seen.has(key))) throw new Error("household_purge_room_retire_unconfirmed");
 }
 
 async function purgeHouseholdData(env, householdId = "") {
@@ -27852,10 +28627,13 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
     const candidateUsers = markers.map((row) => parseKakaoChatFirstMarker(row.value)).filter((item) => item?.candidate_id === hid && item.user_id).map((item) => String(item.user_id));
     const roomMarkers = roomRows.map(row => { const raw = parseStrictSettingsObject(row.value, "kakao_group_first"); return parseKakaoGroupFirstMarker(raw, raw.group_key, row.key.startsWith("kakao_group_first_done_v22931:")); }).filter(item => item?.candidate_id === hid);
     const links = linkRows.map(row => { const link = normalizeKakaoGroupLinkItem(row.value); if (!link) throw settingsDataError("kakao_group_link", "invalid_shape"); return link; });
+    // V22.9.76 감사 G-2: 지울 방 연결 행과 옛 연결표 항목을 범위와 함께 기억해 잠금 안에서 한 번에 정리한다.
+    const linkKeys = linkRows.filter((row, index) => links[index].household_id === hid).map((row) => String(row.key)).sort();
+    const legacyKeys = Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key).sort();
     const groupKeys = [...new Set([...roomMarkers.map(item => item.group_key), ...links.filter(item => item.household_id === hid).map(item => item.group_key), ...Object.entries(legacy).filter(([, item]) => item.household_id === hid).map(([key]) => key)])].sort();
     if (groupKeys.length > 1000) throw new Error("household_purge_scope_too_large");
     return {
-      members, groupKeys,
+      members, groupKeys, linkKeys, legacyKeys,
       userIds: [...new Set([...members.map((member) => String(member.user_id || "")), ...candidateUsers, ...roomMarkers.map(item => item.owner_id)].filter(Boolean))].sort(),
       // V22.9.37 감사 H5: 사용자 잠금은 자동 준비 흐름이 잡는 사용자(개인 첫 기록 후보·방 표식 소유자)에만 잡는다.
       leaseUserIds: [...new Set([...candidateUsers, ...roomMarkers.map(item => String(item.owner_id || ""))].filter(Boolean))].sort(),
@@ -27864,6 +28642,9 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
   let purge;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const before = await readPurgeScope();
+    const budget = env.__AB_DB_BUDGET;
+    const projected = HOUSEHOLD_PURGE_FIXED_REQUESTS + 2 * (before.groupKeys.length + before.leaseUserIds.length) + (before.legacyKeys.length ? 4 : 0);
+    if (budget && budget.used + projected > budget.limit) throw new Error("household_purge_too_large");
     const work = async ({ assertFresh: lifecycleFresh }) => withKakaoGroupLifecycleLease(env, before.groupKeys, async ({ assertFresh: roomFresh }) => withHouseholdSettingsRmw(env, hid, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { assertSettingsLeaseFresh(importLease); lifecycleFresh(); roomFresh(); householdFresh(); };
       const current = await readPurgeScope();
@@ -27874,8 +28655,13 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
       // Actual members and server-confirmed provisional candidates are explicitly retired.
       // V22.9.37 감사 H5: 표식은 한 번의 upsert 로 쓴다. 참여자마다 한 건씩 쓰면 하위 요청이 참여자 수에 비례해 늘어난다.
       await markKakaoChatFirstHistoryBatch(env, current.userIds);
-      for (const groupKey of current.groupKeys) await markKakaoGroupRetired(env, groupKey, assertFresh);
+      await markKakaoGroupsRetiredBatch(env, current.groupKeys, assertFresh);
       assertFresh();
+      // V22.9.76 감사 G-2: 가져오기 기록 정리 등으로 예상보다 많이 썼으면 지우기 전에 멈춘다. 멈춰도 잠금을 풀 몫은 남아 있다.
+      // 남은 일: 삭제 1 + 설정 정리 1 + 연결 행 1 + 옛 연결표 4 + 잠금 풀기(방·사용자·가계부) + 접두 정리 2 + 권한 줄 1 + 늦은 연결 1
+      // + 1:1 선택 2 + 가져오기 잠금 1, 그리고 저장소가 아닌 하위 요청 몫 2.
+      const tail = 11 + current.groupKeys.length + current.leaseUserIds.length + (current.legacyKeys.length ? 4 : 0) + 2;
+      if (budget && budget.limit - budget.used < tail) throw new Error("household_purge_too_large");
       const result = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", {
         method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ p_household_id: hid }),
       });
@@ -27884,6 +28670,27 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
       // New settings are cleaned under the same lease that guards their writers.
       try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(cardTargetsKey(hid))}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); }
       catch (error) { rememberOpsEvent({ kind: "household_preference_cleanup_pending", severity: "warn", path: "/my/household/delete", method: "POST", detail: safeError(error) }); }
+      // V22.9.76 감사 G-2: 방 연결 행은 이미 잡은 방 잠금 안에서 한 번에 지운다. 값에 이 가계부가 적힌 행만 지우므로
+      // 그사이 다른 가계부로 다시 연결된 방은 건드리지 않는다. 실패해도 삭제는 이미 끝났으니 기록만 남긴다
+      // (남은 연결은 그 방의 다음 메시지가 가계부 없음을 보고 지운다).
+      const linkCleanupPending = () => rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
+      if (current.linkKeys.length) {
+        try {
+          await supabase(env, `/rest/v1/accountbook_settings?key=in.(${current.linkKeys.map((key) => encodeURIComponent(`"${key}"`)).join(",")})&value=like.${encodeURIComponent(`*${hid}*`)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+        } catch (error) { linkCleanupPending(); }
+      }
+      if (current.legacyKeys.length) {
+        try {
+          await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh: mapFresh }) => {
+            const map = await fetchLegacyKakaoGroupLinkMap(env, true);
+            const stale = Object.keys(map).filter((key) => String(map[key]?.household_id || "") === hid);
+            if (!stale.length) return;
+            for (const key of stale) delete map[key];
+            assertFresh(); mapFresh();
+            await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
+          });
+        } catch (error) { linkCleanupPending(); }
+      }
       return { summary: { ...summary, importCleanupPending: false }, affectedMembers: current.members };
     }));
     try {
@@ -27909,7 +28716,19 @@ async function purgeHouseholdDataWithImportLease(env, householdId, importLease) 
 
   // Relational data is already committed atomically. External lookup mappings
   // are cleaned afterwards and never make the successful deletion look failed.
-  try { await removeKakaoGroupLinksForHousehold(env, hid); } catch (err) {
+  // V22.9.76 감사 G-2: 방 연결은 잠금 안에서 이미 지웠다. 그사이 새로 연결된 방만 한 번의 조회로 찾아 정리한다
+  // (예전에는 모든 방의 연결 행 5,000줄과 옛 연결표를 다시 읽고 방마다 잠금을 잡았다).
+  try {
+    const late = await fetchPostgrestRows(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent("kakao_group_link_v2254:*")}&value=like.${encodeURIComponent(`*${hid}*`)}&select=key,value&order=key.asc`, { maxRows: 1000 });
+    for (const row of late) {
+      const link = normalizeKakaoGroupLinkItem(row.value);
+      if (link?.household_id !== hid) continue;
+      // 방 하나를 정리하는 데 약 10회, 뒤의 선택 정리와 잠금 해제에 3회가 든다. 모자라면 남겨 두고 기록만 한다.
+      const budget = env.__AB_DB_BUDGET;
+      if (budget && budget.limit - budget.used < 14) throw new Error("household_link_cleanup_budget");
+      await removeKakaoGroupLink(env, link.group_key, { expectedHouseholdId: hid });
+    }
+  } catch (err) {
     rememberOpsEvent({ kind: "household_group_link_cleanup_failed", severity: "warn", path: "/my/household/delete", method: "POST", detail: "deleted household link cleanup pending" });
   }
   // V22.9.37 감사 H5: 참여자마다 선택 상태를 읽고 지우던 왕복(참여자 수에 비례)을 조회 한 번·upsert 한 번으로 줄인다.
@@ -27961,7 +28780,7 @@ async function handleMyHouseholdDelete(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "household_delete_failed", severity: "error", path: "/my/household/delete", method: "POST", detail: safeError(err) });
     const detail = String(err?.message || "");
-    return redirectResponse(addQueryToUrl(back, { err: /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
+    return redirectResponse(addQueryToUrl(back, { err: /^(household_import_pending|household_import_busy)$/.test(detail) ? detail : detail === "household_purge_too_large" ? "household_delete_too_large" : isUncertainStorageWrite(err) ? "db_write_unknown" : "household_delete_failed" }));
   }
 }
 
@@ -27991,7 +28810,13 @@ async function handleMyHouseholdLeave(request, env) {
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const understood = String(form.get("understand_history") || "") === "1";
   const back = `/my/households?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&manage=${encodeURIComponent(householdId)}#manage`;
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  let role = "";
+  try {
+    role = await getHouseholdMemberRoleStrict(env, userId, householdId);
+  } catch (err) {
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
+    return redirectResponse(addQueryToUrl(back, { err: "household_role_check_failed" }));
+  }
   if (!role) return redirectResponse(addQueryToUrl(back, { err: "household_leave_not_member" }));
   if (role === "owner") return redirectResponse(addQueryToUrl(back, { err: "household_leave_owner_blocked" }));
   if (role === "blocked") return redirectResponse(addQueryToUrl(back, { err: "join_blocked" }));
@@ -28010,7 +28835,7 @@ async function handleMyHouseholdLeave(request, env) {
   try {
     const result = await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
       const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-      const freshRole = await getHouseholdMemberRole(env, userId, householdId);
+      const freshRole = await getHouseholdMemberRoleStrict(env, userId, householdId);
       if (!freshRole) throw new Error("household_leave_not_member");
       if (freshRole === "owner") throw new Error("household_owner_cannot_leave");
       if (freshRole === "blocked") throw new Error("household_blocked_member_cannot_leave");
@@ -28032,7 +28857,7 @@ async function handleMyHouseholdLeave(request, env) {
     }
     return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&msg=household_left`);
   } catch (err) {
-    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : "household_leave_failed";
+    const code = isUncertainStorageWrite(err) ? "db_write_unknown" : /household_owner_cannot_leave/.test(safeError(err)) ? "household_leave_owner_blocked" : isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "household_leave_failed";
     rememberOpsEvent({ kind: "household_leave_failed", severity: "warn", path: "/my/household/leave", method: "POST", detail: safeError(err) });
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }
@@ -28554,14 +29379,30 @@ async function fetchObservationMonthRows(env, householdId, month) {
 async function fetchRecurringRuleByIdStrict(env, id = "") {
   const rid = String(id || "").trim();
   if (!rid) return null;
-  const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(rid)}&select=id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
 }
 
 // Compatibility belongs to budgets, not to the transaction classifier. A custom
 // category with the same normalized name follows this same interpretation.
-function budgetCategoryNames(category = "") {
+// V22.9.76 감사 D-4: 예산이 권하는 시작 분류 ‘교통’은 자동분류의 ‘교통’(버스·지하철)만 셌다. 택시·주유/충전·차량관리는
+// 따로 분류되므로 권하는 대로 예산을 잡으면 교통비 대부분이 예산 밖으로 빠졌다(교통 예산 30만 원에 사용 10,900원).
+// ‘교통’ 예산은 옛 ‘교통/차량’과 같은 갈래(교통·택시·주유/충전·차량관리, 옛 기록의 ‘교통/차량’)를 센다. 웹·홈·카카오가 모두
+// budgetSummary 를 쓰므로 한곳에서 맞춘다.
+const BUDGET_CATEGORY_PARENT_ALIASES = Object.freeze({ "교통": "교통/차량" });
+
+function budgetCategoryNames(category = "", explicit = null) {
   const key = normalizeText(category);
+  const alias = Object.keys(BUDGET_CATEGORY_PARENT_ALIASES).find((name) => normalizeText(name) === key);
+  const aliasParent = alias ? normalizeText(BUDGET_CATEGORY_PARENT_ALIASES[alias]) : "";
+  // 진짜 상위 행(교통/차량)이 같은 달 예산에 함께 있으면 ‘교통’은 그 아래 하위 행으로 남는다(V22.9.52 상위·하위 규칙).
+  if (aliasParent && !(explicit && explicit.has(aliasParent))) {
+    // ‘교통’ 한 줄로 교통비를 잡은 경우다. 따로 예산 행이 있는 갈래(예: 주유/충전)는 그 행에서만 세어, 형제 분류의 지출로
+    // 교통 행이 초과 알림을 내지 않게 한다. 진짜 상위 행(식비·교통/차량)의 겹침 규칙은 그대로다.
+    const family = Object.keys(LEGACY_CATEGORY_SPLITS).find(name => normalizeText(name) === aliasParent);
+    return [...new Set([key, aliasParent, ...(family ? LEGACY_CATEGORY_SPLITS[family].map(normalizeText) : [])])]
+      .filter((name) => name === key || !(explicit && explicit.has(name)));
+  }
   const legacy = Object.keys(LEGACY_CATEGORY_SPLITS).find(name => normalizeText(name) === key);
   return [...new Set([key, ...(legacy ? LEGACY_CATEGORY_SPLITS[legacy].map(normalizeText) : [])])];
 }
@@ -28586,8 +29427,9 @@ function budgetSummary(rows = [], budgets = []) {
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
   }
   const covered = new Set();
+  const explicitCategories = new Set(categoryBudgets.map((b) => normalizeText(b.category)));
   const categoryAlerts = categoryBudgets.map((b) => {
-    const categories = budgetCategoryNames(b.category);
+    const categories = budgetCategoryNames(b.category, explicitCategories);
     categories.forEach(category => covered.add(category));
     const spent = categories.reduce((sum, category) => sum + Number(byCategory[category] || 0), 0);
     const amount = Number(b.amount || 0);
@@ -28648,8 +29490,9 @@ function budgetStatusLabel(rate = 0, spent = null, budget = null) {
   return "여유";
 }
 
-function renderBudgetCategoryUsageTree(category = "", rows = []) {
-  const filtered = safeArray(rows).filter((r) => r.type !== "income" && budgetCategoryMatches(category, r.category));
+function renderBudgetCategoryUsageTree(category = "", rows = [], categories = null) {
+  // V22.9.76 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
+  const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
   const groups = Object.create(null);
   for (const r of filtered) {
@@ -28714,7 +29557,7 @@ function renderBudgetRows(budgets = [], budget = {}, rowsForDetails = [], canMan
       || safeArray(budget.categoryAlerts).find((x) => normalizeText(x.category) === normalizeText(b.category))
       || { spent: 0, budget: Number(b.amount || 0), rate: 0 };
     const remain = Math.max(0, Number(b.amount || 0) - Number(alert.spent || 0));
-    const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails);
+    const tree = renderBudgetCategoryUsageTree(b.category, rowsForDetails, alert.categories || null);
     return `<tr><td><details class="catUse"><summary><b>${escapeHtml(b.category)}</b><small>사용 내역 보기</small></summary>${tree}</details></td><td>${numberWithCommas(b.amount)}원</td><td>${numberWithCommas(alert.spent)}원</td><td>${numberWithCommas(remain)}원</td><td>${alert.rate || 0}%</td><td><span class="status ${alert.rate >= 100 ? "bad" : alert.rate >= 85 ? "warn" : "ok"}">${budgetStatusLabel(alert.rate || 0, alert.spent, alert.budget)}</span></td><td>${canManage ? `<form method="post" action="/admin/budget/delete"><input type="hidden" name="household_id" value="${escapeHtml(b.household_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(b.month || currentMonthKst())}"/><input type="hidden" name="category" value="${escapeHtml(b.category)}"/><input type="hidden" name="return_to" value="/budgets?month=${escapeHtml(b.month || currentMonthKst())}&household_id=${escapeHtml(b.household_id || "")}"/><button class="mini danger" type="submit">삭제</button></form>` : `<span class="status ok">조회 전용</span>`}</td></tr>`;
   }).join("");
 }
@@ -28850,6 +29693,9 @@ function budgetPlanMessage(code = "") {
     case "reserve_due_day_invalid": return escapeHtml("납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.");
     case "reserve_due_month_invalid": return escapeHtml("납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.");
     case "reserve_recurrence_invalid": return escapeHtml("반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.");
+    case "recurring_busy": return escapeHtml("같은 가계부의 다른 저장이 진행 중이라 이 요청은 저장하지 않았습니다. 두 번 누른 경우 첫 요청이 저장했을 수 있으니 목록을 먼저 확인해 주세요.");
+    case "recurring_day_invalid": return escapeHtml("정기 항목의 날짜는 1~31일 중에서 골라 주세요. 그 달에 없는 날(예: 2월 30일)은 말일에 기록됩니다. 저장하지 않았습니다.");
+    case "recurring_amount_invalid": return escapeHtml("정기 항목 금액은 0보다 큰 숫자로 입력해 주세요. 음수는 받지 않으며 저장하지 않았습니다.");
     case "recurring_spender_ineligible": return escapeHtml("고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.");
     default: return "";
   }
@@ -29015,7 +29861,7 @@ function applyHomeLayoutSection(section, parts) {
 function renderHomeReportCards(options = {}) {
   const {
     month = "", householdId = "", rows = [], stats = null, budgetAlerts = [],
-    reserveHeadline = "", reserveHref = "", reserveCount = 0, isCurrentMonth = false,
+    reserveHeadline = "", reserveHref = "", reserveCount = 0, reserveIncomeCount = 0, reserveLoaded = true, isCurrentMonth = false,
     layout = null, layoutHref = "",
   } = options;
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
@@ -29089,7 +29935,10 @@ function renderHomeReportCards(options = {}) {
   const budgetCard = `<article class="homeReport${budgetCardState}"><div class="homeReportTop"><span>예산 항목</span><a href="${escapeHtml(budgetsHref)}">예산 설정</a></div><b>${worst ? `${escapeHtml(worst.category || "미분류")} ${worstRate}%` : "미설정"}</b><div class="homeReportBars">${worst ? `<i style="width:${Math.max(2, Math.min(100, worstRate))}%"></i>` : ""}</div><small>${budgetRead}</small></article>`;
 
   // 4. 앞으로 나갈 돈 — 정기지출·준비금.
-  const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${reserveCount ? escapeHtml(String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : "등록 없음"}</b><div class="homeReportBars"></div><small>${reserveCount ? escapeHtml(String(reserveHeadline)) : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"}</small></article>`;
+  // V22.9.76: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
+  const reserveValue = !reserveLoaded ? "이번 달 기준" : reserveCount ? (String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : reserveIncomeCount ? "나갈 항목 없음" : "등록 없음";
+  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : reserveCount ? String(reserveHeadline) : reserveIncomeCount ? `정기 수입 ${numberWithCommas(reserveIncomeCount)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
+  const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
 
   const heading = isCurrentMonth ? "이번 달 리포트" : `${Number(String(month).slice(5, 7))}월 리포트`;
   // 8.4: 순서와 표시 여부는 사용자 설정을 따르고, 설정이 없으면 기본 순서다.
@@ -29107,13 +29956,18 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
     const memo = t.memo || t.raw_text || "-";
-    const sign = t.type === "income" ? "+" : "-";
+    // V22.9.76 감사 D-15: 부호는 돈이 드나든 방향으로 한 번만 붙인다. 옛 음수 지출(환불을 음수로 적은 행)이
+    // "--12,000원"으로 보였다. 음수 지출은 돌아온 돈이라 "+", 음수 수입은 "-"다.
+    const sign = (t.type === "income") === (Number(t.amount || 0) >= 0) ? "+" : "-";
     const cls = t.type === "income" ? "income" : "expense";
     const spenderLabel = t.type === "income" ? "수입자" : "지출자";
     const spenderName = t.user_id ? (names[String(t.user_id)] || "이전 참여자") : "미지정";
     // V22.9.18: 행마다 따로 붙던 "수정/삭제" 접기 줄을 없애고 행 본문을 그 접기의 summary 로 쓴다.
     // 행 어디를 눌러도 같은 편집 칸이 열리고(지연 로드 계약은 그대로), 행 높이가 한 줄 준다.
-    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")} · ${escapeHtml(t.payment_method || "미입력")}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(t.amount)}원</strong>`;
+    // V22.9.76: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
+    // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
+    const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
+    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
     const editable = !canEditRow || canEditRow(t);
     return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}">${editable ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary class="v8-tx-main">${body}<i class="srOnly">수정·삭제</i></summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : `<div class="v8-tx-main">${body}</div>`}</article>`;
   }).join("");
@@ -29185,9 +30039,12 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     const expense = total.expense;
     const income = total.income;
     const partial = total.count > group.rows.length ? ` · ${numberWithCommas(total.count)}건 중 ${numberWithCommas(group.rows.length)}건 표시` : "";
+    // V22.9.76 감사 D-15: 옛 음수 행 때문에 합계가 음수면 부호를 뒤집어 한 번만 쓴다("--12,000원" 방지).
+    const outText = (v) => `${v < 0 ? "+" : "-"}${numberWithCommas(Math.abs(v))}원`;
+    const inText = (v) => `${v < 0 ? "-" : "+"}${numberWithCommas(Math.abs(v))}원`;
     const sum = (income
-      ? `+${numberWithCommas(income)}원${expense ? ` · -${numberWithCommas(expense)}원` : ""}`
-      : `-${numberWithCommas(expense)}원`) + partial;
+      ? `${inText(income)}${expense ? ` · ${outText(expense)}` : ""}`
+      : outText(expense)) + partial;
     return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender)}</section>`;
   }).join("");
 }
@@ -30645,7 +31502,7 @@ export const { define, prefersReducedMotion, renderInnerHTML, canAnimate, Digit 
 // 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 CSS 형식(contentType)으로 남아 그대로 내려간다.
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22940.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22951.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22976.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
@@ -30744,7 +31601,7 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22946.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22951.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22976.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22937.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22937.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22937.js";
@@ -33641,6 +34498,9 @@ async function appIconAssetResponse(request, url) {
 }
 
 const AB_HISTORICAL_RUNTIME_ASSETS = {
+  "/assets/ab-category-rules-v22948.js": {"body":"window.AB_CATEGORY_RULES=[{\"name\":\"급여\",\"type\":\"income\",\"weight\":100,\"words\":[\"급여\",\"월급\",\"상여\",\"상여금\",\"보너스\",\"성과급\",\"수당\",\"연봉\",\"알바비\",\"일당\"]},{\"name\":\"용돈\",\"type\":\"income\",\"weight\":92,\"words\":[\"용돈\",\"축하금\",\"받은돈\"]},{\"name\":\"환급\",\"type\":\"income\",\"weight\":90,\"words\":[\"환급\",\"캐시백\",\"환불\",\"돌려받\",\"돌려\",\"정산받\",\"반환\"]},{\"name\":\"이자배당\",\"type\":\"income\",\"weight\":88,\"words\":[\"이자\",\"배당\",\"예금이자\",\"주식배당\"]},{\"name\":\"부업/매출\",\"type\":\"income\",\"weight\":70,\"words\":[\"부업\",\"부수입\",\"매출\",\"판매\",\"수익\",\"원고료\",\"강의료\"]},{\"name\":\"주거/월세\",\"type\":\"expense\",\"weight\":100,\"words\":[\"월세\",\"전세\",\"전월세\",\"임대료\",\"집세\",\"주택\",\"원룸\",\"부동산\"]},{\"name\":\"관리비\",\"type\":\"expense\",\"weight\":99,\"words\":[\"관리비\",\"아파트관리\"]},{\"name\":\"대출/이자\",\"type\":\"expense\",\"weight\":98,\"words\":[\"대출\",\"대출이자\",\"원리금\",\"상환\",\"할부이자\"]},{\"name\":\"저축/투자\",\"type\":\"expense\",\"weight\":97,\"words\":[\"저축\",\"적금\",\"예금\",\"투자\",\"주식\",\"펀드\",\"연금\",\"청약\"]},{\"name\":\"공과금\",\"type\":\"expense\",\"weight\":96,\"words\":[\"공과금\",\"전기\",\"전기세\",\"가스\",\"가스비\",\"수도\",\"수도세\",\"도시가스\"]},{\"name\":\"통신비\",\"type\":\"expense\",\"weight\":95,\"words\":[\"통신\",\"통신비\",\"핸드폰\",\"휴대폰\",\"휴대전화\",\"인터넷\",\"와이파이\",\"알뜰폰\",\"유플러스\",\"lg유플러스\"],\"exact\":[\"kt\",\"skt\"]},{\"name\":\"보험\",\"type\":\"expense\",\"weight\":94,\"words\":[\"보험\",\"보험료\",\"실비\",\"암보험\",\"화재보험\",\"자동차보험\"]},{\"name\":\"약국\",\"type\":\"expense\",\"weight\":92,\"words\":[\"약국\",\"약값\",\"의약품\",\"처방\",\"영양제\"]},{\"name\":\"의료/병원\",\"type\":\"expense\",\"weight\":90,\"words\":[\"병원\",\"의원\",\"치과\",\"안과\",\"내과\",\"피부과\",\"한의원\",\"소아과\",\"진료\",\"검진\",\"의료\",\"렌즈\",\"콘택트\"]},{\"name\":\"차량관리\",\"type\":\"expense\",\"weight\":89,\"words\":[\"세차\",\"정비\",\"엔진오일\",\"타이어\",\"주차\",\"주차비\",\"하이패스\",\"톨비\",\"카센터\",\"대리운전\"]},{\"name\":\"주유/충전\",\"type\":\"expense\",\"weight\":88,\"words\":[\"주유\",\"휘발유\",\"경유\",\"기름\",\"충전소\",\"전기차충전\"],\"exact\":[\"ev\"]},{\"name\":\"택시\",\"type\":\"expense\",\"weight\":87,\"words\":[\"택시\",\"카카오t\",\"타다\"]},{\"name\":\"교통\",\"type\":\"expense\",\"weight\":86,\"words\":[\"교통\",\"버스\",\"지하철\",\"기차\",\"ktx\",\"srt\",\"티머니\",\"캐시비\"]},{\"name\":\"구독\",\"type\":\"expense\",\"weight\":85,\"words\":[\"구독\",\"넷플릭스\",\"유튜브\",\"유튜브고급\",\"멤버십\",\"멜론\",\"디즈니\",\"쿠팡와우\",\"스포티파이\",\"왓챠\",\"티빙\",\"웨이브\",\"애플뮤직\",\"클라우드\"]},{\"name\":\"배달\",\"type\":\"expense\",\"weight\":84,\"words\":[\"배달\",\"배민\",\"요기요\",\"쿠팡이츠\"]},{\"name\":\"편의점\",\"type\":\"expense\",\"weight\":83,\"words\":[\"편의점\",\"gs25\",\"세븐일레븐\",\"이마트24\"],\"exact\":[\"cu\"]},{\"name\":\"장보기\",\"type\":\"expense\",\"weight\":82,\"words\":[\"마트\",\"이마트\",\"홈플러스\",\"롯데마트\",\"코스트코\",\"트레이더스\",\"시장\",\"농협\",\"장보기\",\"슈퍼\",\"마켓\",\"식료품\",\"식자재\",\"식재료\",\"쌀\",\"시리얼\",\"반찬\",\"김자반\"]},{\"name\":\"카페/간식\",\"type\":\"expense\",\"weight\":80,\"words\":[\"커피\",\"카페\",\"스타벅스\",\"스벅\",\"이디야\",\"투썸\",\"메가커피\",\"컴포즈\",\"빽다방\",\"간식\",\"빵\",\"디저트\",\"베이커리\",\"과자\",\"아이스크림\",\"마시멜로우\",\"초콜릿\",\"젤리\"]},{\"name\":\"외식\",\"type\":\"expense\",\"weight\":78,\"words\":[\"외식\",\"식당\",\"점심\",\"저녁\",\"아침\",\"밥\",\"식사\",\"김밥\",\"라면\",\"치킨\",\"피자\",\"햄버거\",\"버거\",\"맥도날드\",\"국밥\",\"분식\",\"고기\",\"회식\",\"음식\",\"술\",\"맥주\",\"소주\",\"와인\"]},{\"name\":\"육아/자녀\",\"type\":\"expense\",\"weight\":76,\"words\":[\"육아\",\"어린이집\",\"유치원\",\"기저귀\",\"분유\",\"장난감\",\"아이\",\"키즈\",\"학습지\",\"어린이\",\"아동\",\"유아\",\"아기\",\"이유식\"]},{\"name\":\"교육/학습\",\"type\":\"expense\",\"weight\":75,\"words\":[\"교육\",\"학원\",\"수업\",\"수강\",\"강의\",\"교재\",\"학교\",\"인강\",\"문제집\",\"자격증\",\"등록금\",\"공부\"]},{\"name\":\"도서\",\"type\":\"expense\",\"weight\":74,\"words\":[\"책\",\"도서\",\"서점\",\"교보\",\"알라딘\",\"예스24\"]},{\"name\":\"생활용품\",\"type\":\"expense\",\"weight\":72,\"words\":[\"생활용품\",\"다이소\",\"문구\",\"세제\",\"휴지\",\"샴푸\",\"풋샴푸\",\"린스\",\"비누\",\"치약\",\"칫솔\",\"청소\",\"주방\",\"소모품\",\"건전지\",\"수납\",\"온열안대\",\"안대\",\"식기\"]},{\"name\":\"의류/잡화\",\"type\":\"expense\",\"weight\":71,\"words\":[\"옷\",\"의류\",\"신발\",\"가방\",\"잡화\",\"패션\"]},{\"name\":\"미용\",\"type\":\"expense\",\"weight\":70,\"words\":[\"미용\",\"미용실\",\"헤어\",\"커트\",\"염색\",\"네일\",\"피부관리\",\"마사지\",\"화장품\",\"올리브영\"]},{\"name\":\"쇼핑\",\"type\":\"expense\",\"weight\":68,\"words\":[\"쇼핑\",\"쿠팡\",\"네이버쇼핑\",\"11번가\",\"g마켓\",\"옥션\",\"무신사\",\"구매\",\"샀\",\"주문\",\"택배\"]},{\"name\":\"운동\",\"type\":\"expense\",\"weight\":66,\"words\":[\"헬스\",\"운동\",\"필라테스\",\"요가\",\"골프\",\"수영\"]},{\"name\":\"여행\",\"type\":\"expense\",\"weight\":65,\"words\":[\"여행\",\"호텔\",\"숙박\",\"항공\",\"리조트\",\"펜션\",\"캠핑\"]},{\"name\":\"문화/여가\",\"type\":\"expense\",\"weight\":64,\"words\":[\"영화\",\"공연\",\"전시\",\"게임\",\"노래방\",\"취미\",\"놀이\",\"콘서트\"]},{\"name\":\"경조사/선물\",\"type\":\"expense\",\"weight\":63,\"words\":[\"축의금\",\"부의금\",\"조의금\",\"경조사\",\"선물\",\"생일\",\"명절\",\"용돈드림\",\"화환\"]},{\"name\":\"반려동물\",\"type\":\"expense\",\"weight\":62,\"words\":[\"강아지\",\"고양이\",\"반려\",\"사료\",\"동물병원\",\"애견\",\"애묘\",\"배변패드\",\"펫\"]},{\"name\":\"세금/수수료\",\"type\":\"expense\",\"weight\":58,\"words\":[\"세금\",\"자동차세\",\"재산세\",\"종부세\",\"부가세\",\"수수료\",\"과태료\",\"벌금\"]}];window.AB_TYPE_HINTS={\"income\":\"수입|입금|급여|월급|상여|보너스|용돈\\\\s*받|받았|환급\\\\s*받|환불(?!\\\\s*수수료)|이자|배당|매출|정산\\\\s*받|돌려받|들어왔|들어옴|입금됨\",\"expense\":\"지출|사용|결제|구매|썼|썻|샀|냈|납부|출금|자동이체|송금|카드|현금|삼성페이|카카오페이|토스|계좌이체|빠져나감|빠져나갔|나감\",\"incomeCategory\":\"급여|월급|상여|보너스|수당|용돈|환급|캐시백|이자|배당|정산금|부업|알바비|매출\"};","etag":"\"ab-category-rules-v22948-js\"","contentType":"text/javascript; charset=utf-8"},
+  "/assets/mobile-home-shell-v22951.js": {"body":"window.AB_CATEGORY_RULES=[{\"name\":\"급여\",\"type\":\"income\",\"weight\":100,\"words\":[\"급여\",\"월급\",\"상여\",\"상여금\",\"보너스\",\"성과급\",\"수당\",\"연봉\",\"알바비\",\"일당\"]},{\"name\":\"용돈\",\"type\":\"income\",\"weight\":92,\"words\":[\"용돈\",\"축하금\",\"받은돈\"]},{\"name\":\"환급\",\"type\":\"income\",\"weight\":90,\"words\":[\"환급\",\"캐시백\",\"환불\",\"돌려받\",\"돌려\",\"정산받\",\"반환\"]},{\"name\":\"이자배당\",\"type\":\"income\",\"weight\":88,\"words\":[\"이자\",\"배당\",\"예금이자\",\"주식배당\"]},{\"name\":\"부업/매출\",\"type\":\"income\",\"weight\":70,\"words\":[\"부업\",\"부수입\",\"매출\",\"판매\",\"수익\",\"원고료\",\"강의료\"]},{\"name\":\"주거/월세\",\"type\":\"expense\",\"weight\":100,\"words\":[\"월세\",\"전세\",\"전월세\",\"임대료\",\"집세\",\"주택\",\"원룸\",\"부동산\"]},{\"name\":\"관리비\",\"type\":\"expense\",\"weight\":99,\"words\":[\"관리비\",\"아파트관리\"]},{\"name\":\"대출/이자\",\"type\":\"expense\",\"weight\":98,\"words\":[\"대출\",\"대출이자\",\"원리금\",\"상환\",\"할부이자\"]},{\"name\":\"저축/투자\",\"type\":\"expense\",\"weight\":97,\"words\":[\"저축\",\"적금\",\"예금\",\"투자\",\"주식\",\"펀드\",\"연금\",\"청약\"]},{\"name\":\"공과금\",\"type\":\"expense\",\"weight\":96,\"words\":[\"공과금\",\"전기\",\"전기세\",\"가스\",\"가스비\",\"수도\",\"수도세\",\"도시가스\"]},{\"name\":\"통신비\",\"type\":\"expense\",\"weight\":95,\"words\":[\"통신\",\"통신비\",\"핸드폰\",\"휴대폰\",\"휴대전화\",\"인터넷\",\"와이파이\",\"알뜰폰\",\"유플러스\",\"lg유플러스\"],\"exact\":[\"kt\",\"skt\"]},{\"name\":\"보험\",\"type\":\"expense\",\"weight\":94,\"words\":[\"보험\",\"보험료\",\"실비\",\"암보험\",\"화재보험\",\"자동차보험\"]},{\"name\":\"약국\",\"type\":\"expense\",\"weight\":92,\"words\":[\"약국\",\"약값\",\"의약품\",\"처방\",\"영양제\"]},{\"name\":\"의료/병원\",\"type\":\"expense\",\"weight\":90,\"words\":[\"병원\",\"의원\",\"치과\",\"안과\",\"내과\",\"피부과\",\"한의원\",\"소아과\",\"진료\",\"검진\",\"의료\",\"렌즈\",\"콘택트\"]},{\"name\":\"차량관리\",\"type\":\"expense\",\"weight\":89,\"words\":[\"세차\",\"정비\",\"엔진오일\",\"타이어\",\"주차\",\"주차비\",\"하이패스\",\"톨비\",\"카센터\",\"대리운전\"]},{\"name\":\"주유/충전\",\"type\":\"expense\",\"weight\":88,\"words\":[\"주유\",\"휘발유\",\"경유\",\"기름\",\"충전소\",\"전기차충전\"],\"exact\":[\"ev\"]},{\"name\":\"택시\",\"type\":\"expense\",\"weight\":87,\"words\":[\"택시\",\"카카오t\",\"타다\"]},{\"name\":\"교통\",\"type\":\"expense\",\"weight\":86,\"words\":[\"교통\",\"버스\",\"지하철\",\"기차\",\"ktx\",\"srt\",\"티머니\",\"캐시비\"]},{\"name\":\"구독\",\"type\":\"expense\",\"weight\":85,\"words\":[\"구독\",\"넷플릭스\",\"유튜브\",\"유튜브고급\",\"멤버십\",\"멜론\",\"디즈니\",\"쿠팡와우\",\"스포티파이\",\"왓챠\",\"티빙\",\"웨이브\",\"애플뮤직\",\"클라우드\"]},{\"name\":\"배달\",\"type\":\"expense\",\"weight\":84,\"words\":[\"배달\",\"배민\",\"요기요\",\"쿠팡이츠\"]},{\"name\":\"편의점\",\"type\":\"expense\",\"weight\":83,\"words\":[\"편의점\",\"gs25\",\"세븐일레븐\",\"이마트24\"],\"exact\":[\"cu\"]},{\"name\":\"장보기\",\"type\":\"expense\",\"weight\":82,\"words\":[\"마트\",\"이마트\",\"홈플러스\",\"롯데마트\",\"코스트코\",\"트레이더스\",\"시장\",\"농협\",\"장보기\",\"슈퍼\",\"마켓\",\"식료품\",\"식자재\",\"식재료\",\"쌀\",\"시리얼\",\"반찬\",\"김자반\"]},{\"name\":\"카페/간식\",\"type\":\"expense\",\"weight\":80,\"words\":[\"커피\",\"카페\",\"스타벅스\",\"스벅\",\"이디야\",\"투썸\",\"메가커피\",\"컴포즈\",\"빽다방\",\"간식\",\"빵\",\"디저트\",\"베이커리\",\"과자\",\"아이스크림\",\"마시멜로우\",\"초콜릿\",\"젤리\"]},{\"name\":\"외식\",\"type\":\"expense\",\"weight\":78,\"words\":[\"외식\",\"식당\",\"점심\",\"저녁\",\"아침\",\"밥\",\"식사\",\"김밥\",\"라면\",\"치킨\",\"피자\",\"햄버거\",\"버거\",\"맥도날드\",\"국밥\",\"분식\",\"고기\",\"회식\",\"음식\",\"술\",\"맥주\",\"소주\",\"와인\"]},{\"name\":\"육아/자녀\",\"type\":\"expense\",\"weight\":76,\"words\":[\"육아\",\"어린이집\",\"유치원\",\"기저귀\",\"분유\",\"장난감\",\"아이\",\"키즈\",\"학습지\",\"어린이\",\"아동\",\"유아\",\"아기\",\"이유식\"]},{\"name\":\"교육/학습\",\"type\":\"expense\",\"weight\":75,\"words\":[\"교육\",\"학원\",\"수업\",\"수강\",\"강의\",\"교재\",\"학교\",\"인강\",\"문제집\",\"자격증\",\"등록금\",\"공부\"]},{\"name\":\"도서\",\"type\":\"expense\",\"weight\":74,\"words\":[\"책\",\"도서\",\"서점\",\"교보\",\"알라딘\",\"예스24\"]},{\"name\":\"생활용품\",\"type\":\"expense\",\"weight\":72,\"words\":[\"생활용품\",\"다이소\",\"문구\",\"세제\",\"휴지\",\"샴푸\",\"풋샴푸\",\"린스\",\"비누\",\"치약\",\"칫솔\",\"청소\",\"주방\",\"소모품\",\"건전지\",\"수납\",\"온열안대\",\"안대\",\"식기\"]},{\"name\":\"의류/잡화\",\"type\":\"expense\",\"weight\":71,\"words\":[\"옷\",\"의류\",\"신발\",\"가방\",\"잡화\",\"패션\"]},{\"name\":\"미용\",\"type\":\"expense\",\"weight\":70,\"words\":[\"미용\",\"미용실\",\"헤어\",\"커트\",\"염색\",\"네일\",\"피부관리\",\"마사지\",\"화장품\",\"올리브영\"]},{\"name\":\"쇼핑\",\"type\":\"expense\",\"weight\":68,\"words\":[\"쇼핑\",\"쿠팡\",\"네이버쇼핑\",\"11번가\",\"g마켓\",\"옥션\",\"무신사\",\"구매\",\"샀\",\"주문\",\"택배\"]},{\"name\":\"운동\",\"type\":\"expense\",\"weight\":66,\"words\":[\"헬스\",\"운동\",\"필라테스\",\"요가\",\"골프\",\"수영\"]},{\"name\":\"여행\",\"type\":\"expense\",\"weight\":65,\"words\":[\"여행\",\"호텔\",\"숙박\",\"항공\",\"리조트\",\"펜션\",\"캠핑\"]},{\"name\":\"문화/여가\",\"type\":\"expense\",\"weight\":64,\"words\":[\"영화\",\"공연\",\"전시\",\"게임\",\"노래방\",\"취미\",\"놀이\",\"콘서트\"]},{\"name\":\"경조사/선물\",\"type\":\"expense\",\"weight\":63,\"words\":[\"축의금\",\"부의금\",\"조의금\",\"경조사\",\"선물\",\"생일\",\"명절\",\"용돈드림\",\"화환\"]},{\"name\":\"반려동물\",\"type\":\"expense\",\"weight\":62,\"words\":[\"강아지\",\"고양이\",\"반려\",\"사료\",\"동물병원\",\"애견\",\"애묘\",\"배변패드\",\"펫\"]},{\"name\":\"세금/수수료\",\"type\":\"expense\",\"weight\":58,\"words\":[\"세금\",\"자동차세\",\"재산세\",\"종부세\",\"부가세\",\"수수료\",\"과태료\",\"벌금\"]}];window.AB_TYPE_HINTS={\"income\":\"수입|입금|급여|월급|상여|보너스|용돈\\\\s*받|받았|환급\\\\s*받|환불(?!\\\\s*수수료)|이자|배당|매출|정산\\\\s*받|돌려받|들어왔|들어옴|입금됨\",\"expense\":\"지출|사용|결제|구매|썼|썻|샀|냈|납부|출금|자동이체|송금|카드|현금|삼성페이|카카오페이|토스|계좌이체|빠져나감|빠져나갔|나감\",\"incomeCategory\":\"급여|월급|상여|보너스|수당|용돈|환급|캐시백|이자|배당|정산금|부업|알바비|매출\"};\nfunction quickAmountFieldState(field, normalize = false) {\n  const raw = String(field?.value || \"\");\n  const match = raw.match(/^\\s*(?:[₩￦]\\s*)?(\\d+(?:,\\d+)*)(?:\\s*원)?\\s*$/);\n  const value = match ? Number(match[1].replace(/,/g, \"\")) : 0;\n  const valid = !!match && Number.isSafeInteger(value) && value > 0 && value <= 2000000000;\n  if (normalize && field) {\n    if (valid) {\n      const start = field.selectionStart, end = field.selectionEnd;\n      const digits = position => raw.slice(0, position).replace(/\\D/g, \"\").length;\n      const formatted = value.toLocaleString(\"ko-KR\");\n      const position = count => {\n        if (!count) return 0;\n        let seen = 0;\n        for (let i = 0; i < formatted.length; i++) if (/\\d/.test(formatted[i]) && ++seen === count) return i + 1;\n        return formatted.length;\n      };\n      if (raw !== formatted) {\n        field.value = formatted;\n        if (document.activeElement === field && start != null && end != null) {\n          try { field.setSelectionRange(position(digits(start)), position(digits(end))); } catch (_error) {}\n        }\n      }\n    }\n    field.setCustomValidity?.(valid ? \"\" : \"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n    field.setAttribute(\"aria-invalid\", valid ? \"false\" : \"true\");\n  }\n  return { valid, value: valid ? value : 0 };\n}\nfunction moneyTokenSpans(text = \"\") {\n  const source = String(text || \"\").replace(/[₩￦]/g, \"원\");\n  if (/\\d+,\\d{1,2}(?!\\d)/.test(source)) return [];\n  const excluded = [...source.matchAll(/\\b01[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b|\\b20\\d{6}\\b|\\b20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}\\b|\\b\\d{1,2}[./-]\\d{1,2}\\b(?!\\s*[억만천백십원])|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b|\\(\\s*\\d{2,4}\\s*\\)|\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?|[*＊xX]{2,}[-\\s]?\\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\\s*\\d{2,4}|(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?|\\d+(?:\\.\\d+)?\\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);\n  const pattern = /(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\\s*[십백천만억]\\s*(?:\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\\s*원?/g;\n  const result = [];\n  for (const match of source.matchAll(pattern)) {\n    const start = match.index, end = start + match[0].trimEnd().length;\n    if (excluded.some(([a, b]) => start < b && end > a)) continue;\n    if (/[+\\-\\u2212\\uFE63\\uFF0D\\uFF0B]\\s*(?:원\\s*)?$/.test(source.slice(0, start))) return [];\n    if (/[A-Za-z\\d,.]/.test(source[start - 1] || \"\") || /[A-Za-z\\d,]/.test(source[end] || \"\") || /^\\.\\d/.test(source.slice(end))) continue;\n    let raw = match[0].trim();\n    // Words such as 만두 and 천원샵 are not Korean money expressions.\n    if (!/\\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;\n    if (!/\\d/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\\s|$)/.test(source.slice(end))) continue;\n    // Unitless quantities and product model numbers must not create extra transactions.\n    if (/^\\d+$/.test(raw) && (/^\\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\\s*$/.test(source.slice(0, start)))) continue;\n    if (/[가-힣]/.test(source[start-1] || \"\") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {\n      const stem = source.slice(0,start).trim().split(/\\s+/).pop() || \"\";\n      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;\n      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;\n    }\n    if (/^\\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || \"\")) continue;\n    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    if (!/[\\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;\n    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    const body = raw.replace(/[\\s,원]/g, \"\").replace(/하나|한/g, \"일\").replace(/둘|두/g, \"이\").replace(/셋|세/g, \"삼\").replace(/넷|네/g, \"사\").replace(/다섯/g, \"오\").replace(/여섯/g, \"육\").replace(/일곱/g, \"칠\").replace(/여덟/g, \"팔\").replace(/아홉/g, \"구\");\n    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};\n    const tokens = body.match(/\\d+(?:\\.\\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || [];\n    const places = Math.max(0, ...tokens.map(token => (token.split(\".\")[1] || \"\").length));\n    const scale = 10n ** BigInt(places);\n    const units = value => {\n      const [whole, fraction = \"\"] = String(value).split(\".\");\n      return BigInt(whole || \"0\") * scale + BigInt(fraction.padEnd(places, \"0\") || \"0\");\n    };\n    let sum = 0n, section = 0n, number = \"\", sectionSpecified = false;\n    for (const token of tokens) {\n      if (/^[\\d.]+$/.test(token)) number += token;\n      else if (token in digit) number += digit[token];\n      else if (token === \"만\" || token === \"억\") {\n        const specified = sectionSpecified || number !== \"\";\n        section += units(number || \"0\");\n        sum += (specified ? section : scale) * (token === \"억\" ? 100000000n : 10000n);\n        section = 0n; number = \"\"; sectionSpecified = false;\n      }\n      else { section += units(number || \"1\") * ({십:10n,백:100n,천:1000n}[token]); number = \"\"; sectionSpecified = true; }\n    }\n    const total = sum + section + units(number || \"0\");\n    if (total % scale !== 0n) return [];\n    const amount = Number(total / scale);\n    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});\n  }\n  return result;\n}\nfunction transactionTypeFromText(text = \"\", rules = []) {\n  const raw = String(text || \"\").trim();\n  if (/(?:^|\\s)환불\\s*(?:수수료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:^|\\s)환불(?:\\s*(?:완료|됨|금|처리|입금))?(?=\\s|\\d|$)|(?:^|\\s)반품(?=\\s|\\d|$)|환급|돌려받/.test(raw)) return \"income\";\n  if (/(?:적금|예금|저축|투자)\\s*(?:입금|이체|납입|송금)/.test(raw)) return \"expense\";\n  if (/(?:용돈|세뱃돈)\\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return \"expense\";\n  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\\s*(?:받은|받기)|받은\\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return \"income\";\n  if (/(?:대출|카드|할부|연체)\\s*이자|무이자/.test(raw)) return \"expense\";\n  if (/(?:수수료|중개료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return \"expense\";\n  for (const rule of Array.isArray(rules) ? rules : []) {\n    if (rule.type !== \"income\") continue;\n    if ((rule.words || []).some(word => new RegExp(\"(?:^|\\\\s)\" + String(word).replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\") + \"(?=\\\\s|\\\\d|$)\").test(raw))) return \"income\";\n  }\n  if (/(?:^|\\s)(?:수입|입금|급여|월급|매출|판매|중고\\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\\s|\\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return \"income\";\n  return \"expense\";\n}\nfunction quickInputDate(text = \"\", today = \"\") {\n  const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split(\"-\").map(Number);\n  const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));\n  const valid = (y, m, d) => { const dt = new Date(Date.UTC(y, m - 1, d)); return y >= 2000 && y <= 2099 && dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? dt.toISOString().slice(0, 10) : \"\"; };\n  const monthStart = (offset) => new Date(Date.UTC(parts[0], parts[1] - 1 + offset, 1));\n  const lastDay = (dt) => new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();\n  const raw = String(text || \"\");\n  let m = raw.match(/(?:^|\\s)(그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({그끄저께:-3,그끄제:-3,엊그저께:-2,엊그제:-2,그저께:-2,그제:-2,어젯밤:-1,엊저녁:-1,어제:-1,전날:-1,내일:1,모레:2}[m[1]] || 0)); return now.toISOString().slice(0, 10); }\n  m = raw.match(/(?:^|\\s)(하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(전|후)(?=\\s|$)/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({하루:1,이틀:2,사흘:3,나흘:4,닷새:5,엿새:6,이레:7,열흘:10,보름:15}[m[1]]) * (m[2] === \"전\" ? -1 : 1)); return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate()); }\n  m = raw.match(/(?:^|\\s)(\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(일|주일|주|달|개월)\\s*(전|후)(?=\\s|$)/);\n  if (m) {\n    const count = /^\\d+$/.test(m[1]) ? Number(m[1]) : {한:1,두:2,세:3,네:4,일:1,이:2,삼:3,사:4}[m[1]];\n    const sign = m[3] === \"전\" ? -1 : 1;\n    if (m[2] === \"달\" || m[2] === \"개월\") { const dt = monthStart(count * sign); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Math.min(parts[2], lastDay(dt))); }\n    now.setUTCDate(now.getUTCDate() + count * (m[2] === \"일\" ? 1 : 7) * sign);\n    return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());\n  }\n  m = raw.match(/(?:(지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*)?말일/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }\n  m = raw.match(/(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*(\\d{1,2})\\s*일?/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }\n  m = raw.match(/(?:^|\\s)(20\\d{2})(\\d{2})(\\d{2})(?=\\s|$)/);\n  if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));\n  m = raw.match(/(?:^|\\s)(20\\d{2})[.\\-/년]\\s*(\\d{1,2})[.\\-/월]\\s*(\\d{1,2})/);\n  if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*(\\d{1,2})\\s*(?:월\\s*|[./])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])/);\n  if (m) return valid(parts[0] + ({재작년:-2,작년:-1,지난해:-1,올해:0,금년:0,내년:1,다음해:1}[m[1].replace(/\\s+/g, \"\")] || 0), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(\\d{1,2})\\s*(?:월\\s*|[./-])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])(?!\\s*[억만천백십원])/);\n  if (m) {\n    const thisYear = valid(parts[0], Number(m[1]), Number(m[2]));\n    if (thisYear && (Date.UTC(parts[0], Number(m[1]) - 1, Number(m[2])) - Date.UTC(parts[0], parts[1] - 1, parts[2])) / 86400000 > 183) return valid(parts[0] - 1, Number(m[1]), Number(m[2]));\n    return thisYear;\n  }\n  m = raw.match(/(?:^|\\s)(\\d{1,2})일(?=\\s|$)/);\n  if (m) return valid(parts[0], parts[1], Number(m[1]));\n  m = raw.match(/(?:(지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주)\\s*)?([월화수목금토일])요일/);\n  if (!m) return \"\";\n  const monday = (index) => (index + 6) % 7;\n  const target = monday(\"일월화수목금토\".indexOf(m[2])), current = monday(now.getUTCDay());\n  const scope = String(m[1] || \"\").replace(/\\s+/g, \"\");\n  const offset = scope === \"이번주\" || scope === \"금주\" ? target - current\n    : scope === \"다음주\" || scope === \"내주\" ? target - current + 7\n      : scope ? target - current - 7\n        : -((current - target + 7) % 7);\n  now.setUTCDate(now.getUTCDate() + offset);\n  return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());\n}\nfunction explicitDateIntent(text = \"\") {\n  const raw = String(text || \"\");\n  if (/(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/(?:^|\\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/[월화수목금토일]요일/.test(raw)) return true;\n  if (/말일/.test(raw)) return true;\n  if (/(?:^|\\s)(?:재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*\\d{1,2}\\s*(?:월|[./-])/.test(raw)) return true;\n  return /(?:^|\\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))|(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*\\d{1,2}|(?:^|\\s)20\\d{2}(?:[.\\-/년]\\s*\\d{1,2}|\\d{4}(?=\\s|$))|(?:^|\\s)\\d{1,2}\\s*월\\s*\\d{1,2}|(?:^|\\s)\\d{1,2}[./-]\\d{1,2}(?!\\d|\\s*[억만천백십원])|(?:^|\\s)\\d{1,2}일(?=\\s|$)/.test(raw);\n}\nfunction parseMobileAmountText(text = \"\") {\n  const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;\n}\n(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (function quickSmartInputController(config) {\n  const byId = id => document.getElementById(id);\n  const smart = byId(\"smartInput\"), amount = byId(\"amountInput\"), date = byId(\"txDate\"), after = byId(\"quickAfter\");\n  const form = amount?.closest(\"form\");\n  const initialDate = date?.value || \"\";\n  const baseMessage = after?.textContent || \"저장 전 입력 내용을 확인하세요.\";\n  let scope = {};\n  try { const data=JSON.parse(after?.getAttribute(\"data-bsc\") || \"[]\"); scope={month:form?.querySelector?.('input[name=\"month\"]')?.value || \"\",today:String(data[0] || \"\").replace(/^(\\d{4})(\\d{2})(\\d{2})$/,\"$1-$2-$3\"),basis:Array.isArray(data[1])?\"category\":data[1]===0?\"total\":\"unknown\",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}\n  const loadedAt = Date.now(), serverToday = scope.today || initialDate;\n  const todayNow = () => {\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(serverToday)) return serverToday;\n    const kstDay = ms => Math.floor((ms + 32400000) / 86400000);\n    const shift = kstDay(Date.now()) - kstDay(loadedAt);\n    if (!shift) return serverToday;\n    const p = serverToday.split(\"-\").map(Number);\n    return new Date(Date.UTC(p[0], p[1] - 1, p[2] + shift)).toISOString().slice(0, 10);\n  };\n  const defaultDate = () => initialDate === serverToday ? todayNow() : initialDate;\n  const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};\n  let invalidAmount = false, invalidDate = false, confirmType = false;\n  const markers = Object.create(null);\n  for (const key of Object.keys(manual)) {\n    if (form && document.createElement && form.appendChild) {\n      const input = document.createElement(\"input\"); input.type=\"hidden\"; input.name=\"quick_manual_\"+key; input.value=\"0\"; form.appendChild(input); markers[key]=input;\n    }\n  }\n  const cleanNumber = () => quickAmountFieldState(amount).value;\n  const validAmount = () => quickAmountFieldState(amount).valid;\n  const validDate = () => /^20\\d{2}-\\d{2}-\\d{2}$/.test(date?.value || \"\") && config.date(date.value,todayNow())===date.value;\n  const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:\"\"); field.setAttribute(\"aria-invalid\",bad?\"true\":\"false\"); };\n  function preview() {\n    if (!after) return;\n    after.setAttribute(\"aria-live\",\"polite\");\n    if (confirmType && !manual.type) { after.textContent=\"결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.\"; return; }\n    if (classificationPending) { after.textContent=\"현재 가계부의 분류를 확인하고 있습니다.\"; return; }\n    if (classificationFailed) { after.textContent=\"분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요.\"; return; }\n    if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? \"금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요.\" : \"달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요.\"; return; }\n    const value=cleanNumber();\n    if (!value || !validAmount()) { after.textContent=baseMessage; return; }\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    if (income) { after.textContent=\"수입으로 저장합니다. 지출 예산을 차감하지 않습니다.\"; return; }\n    const category=byId(\"catInput\")?.value || \"\";\n    if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis===\"unknown\") { after.textContent=\"기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다.\"; return; }\n    if (scope.basis===\"category\" && !(scope.cats || []).includes(category)) { after.textContent=\"예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다.\"; return; }\n    if (after.getAttribute(\"data-has-budget\")!==\"1\") { after.textContent=\"기록을 저장한 뒤 예산을 설정할 수 있습니다.\"; return; }\n    const remain=Math.max(0,Number(after.getAttribute(\"data-remaining\") || 0)-value);\n    const money=value=>new Intl.NumberFormat(\"ko-KR\").format(value)+\"원\";\n    after.textContent=\"저장하면 남은 예산 \"+money(remain);\n    if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split(\"-\").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=\" · 하루 \"+money(Math.floor(remain/days)); }\n  }\n  function complete() {\n    preview(); config.sync?.();\n    if (typeof Event === \"function\") document.dispatchEvent?.(new Event(\"ab:quick-update\"));\n  }\n  function apply(clearInput) {\n    const text=smart?.value.trim(); if (!text) return;\n    const value=config.amount(text), parsedDate=config.date(text,todayNow());\n    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);\n    confirmType=/(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    const token=moneyTokenSpans(text)[0]?.raw || \"\";\n    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat(\"ko-KR\").format(value) : \"\"; invalidAmount=!value; }\n    else invalidAmount=!validAmount();\n    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?\"\":defaultDate()); invalidDate=explicitDateIntent(text) && !parsedDate; }\n    else invalidDate=!validDate();\n    const radio=document.querySelector('input[name=type][value=\"'+type+'\"]'); if (radio&&!manual.type) radio.checked=true;\n    if (!manual.memo&&byId(\"memoInput\")) byId(\"memoInput\").value=config.memo(text,token,payment,category);\n    if (!manual.payment&&byId(\"payInput\")) byId(\"payInput\").value=payment;\n    if (!manual.category&&byId(\"catInput\")) byId(\"catInput\").value=category;\n    if (byId(\"rawTextInput\")) byId(\"rawTextInput\").value=text;\n    setValidity(amount,invalidAmount,\"유효한 금액을 입력하세요.\"); setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\");\n    if (clearInput) smart.value=\"\";\n    resolveCategory(); complete();\n  }\n  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false;\n  function resolveCategory() {\n    const sequence=++classificationSequence;\n    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;\n    if (manual.category) return;\n    const memo=byId(\"memoInput\")?.value || \"\", raw=byId(\"rawTextInput\")?.value || \"\";\n    if (!memo && !raw) return;\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    const household=form?.querySelector('input[name=\"household_id\"]')?.value || \"\";\n    if (!household || typeof fetch!==\"function\") { if(byId(\"catInput\"))byId(\"catInput\").value=config.category([raw,memo].filter(Boolean).join(\" \"),income?\"income\":\"expense\"); return; }\n    if(byId(\"catInput\"))byId(\"catInput\").value=\"\";\n    classificationPending=true;\n    classificationTimer=setTimeout(async()=>{\n      const controller=typeof AbortController===\"function\" ? new AbortController() : null;\n      const timeout=controller?setTimeout(()=>controller.abort(),8000):0;\n      try {\n        const response=await fetch(\"/u/api/input-classification\",{method:\"POST\",credentials:\"same-origin\",headers:{\"content-type\":\"application/json\",accept:\"application/json\"},body:JSON.stringify({household_id:household,type:income?\"income\":\"expense\",raw_text:raw,memo}),signal:controller?.signal});\n        if(!response.ok)throw new Error(\"classification_unavailable\");\n        const data=await response.json();\n        if(!data.ok || data.household_id!==household || typeof data.category!==\"string\")throw new Error(\"classification_invalid\");\n        if(sequence===classificationSequence && !manual.category && byId(\"catInput\"))byId(\"catInput\").value=data.category;\n      } catch(_error) { if(sequence===classificationSequence)classificationFailed=true; }\n      finally { clearTimeout(timeout); if(sequence===classificationSequence){classificationPending=false;complete();} }\n    },250);\n  }\n  let amountComposing = false;\n  form?.addEventListener(\"ab:quick-restore\", event => {\n    const state = event.detail?.manual || {};\n    for (const key of Object.keys(manual)) {\n      manual[key] = state[key] === \"1\";\n      if (markers[key]) markers[key].value = manual[key] ? \"1\" : \"0\";\n    }\n    const text = byId(\"rawTextInput\")?.value || \"\";\n    confirmType = /(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    invalidAmount = !quickAmountFieldState(amount, true).valid;\n    invalidDate = !validDate();\n    setValidity(date, invalidDate, \"유효한 날짜를 선택하세요.\");\n    resolveCategory(); complete();\n  });\n  for (const [id,key] of [[\"amountInput\",\"amount\"],[\"txDate\",\"date\"],[\"catInput\",\"category\"],[\"payInput\",\"payment\"],[\"memoInput\",\"memo\"]]) {\n    const field=byId(id); if (!field) continue;\n    const changed=(event)=>{\n      if (key === \"amount\" && (amountComposing || event?.isComposing)) return;\n      if (key === \"amount\") invalidAmount = !quickAmountFieldState(amount, true).valid;\n      if (!event?.detail?.abQuickDefault) {\n        manual[key]=true; if(markers[key])markers[key].value=\"1\";\n        if(key===\"date\")invalidDate=!validDate();\n        if(key===\"memo\"||key===\"category\")resolveCategory();\n      }\n      setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n      setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\"); complete();\n    };\n    if (key === \"amount\") {\n      field.addEventListener(\"compositionstart\", () => { amountComposing = true; });\n      field.addEventListener(\"compositionend\", event => { amountComposing = false; changed(event); });\n    }\n    field.addEventListener(\"input\",changed); field.addEventListener(\"change\",changed);\n  }\n  document.querySelectorAll(\"input[name=type]\").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value=\"1\";resolveCategory();complete();};field.addEventListener(\"change\",changed);field.addEventListener(\"click\",changed);});\n  form?.addEventListener(\"submit\",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");complete();}});\n  return {apply,preview};\n})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}\n\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();\n(function mobileHomeNavStateClientMain() {\n  var mobileLinks = Array.from(document.querySelectorAll(\".bottom a.tab\"));\n  var desktopLinks = Array.from(document.querySelectorAll(\".homeDesktopNav nav a\"));\n  if (!mobileLinks.length && !desktopLinks.length) return;\n  var desktopMedia = typeof window.matchMedia === \"function\" ? window.matchMedia(\"(min-width:1024px)\") : null;\n  var allLinks = mobileLinks.concat(desktopLinks);\n  function sectionKey(link) {\n    var href = String(link?.getAttribute(\"href\") || \"\");\n    if (href === \"#feed\") return \"feed\";\n    if (href === \"#add\") return \"add\";\n    if (href === \"#top\") return \"top\";\n    return \"\";\n  }\n  function hashKey() {\n    var hash = String(window.location?.hash || \"\");\n    return hash === \"#feed\" ? \"feed\" : hash === \"#add\" ? \"add\" : \"top\";\n  }\n  function activeMobileKey() {\n    var active = mobileLinks.find(function(link) { return link.classList.contains(\"active\") && sectionKey(link); });\n    return active ? sectionKey(active) : hashKey();\n  }\n  function setCurrent(key) {\n    var nextKey = [\"top\", \"feed\", \"add\"].includes(key) ? key : \"top\";\n    allLinks.forEach(function(link) {\n      var matches = sectionKey(link) === nextKey;\n      if (sectionKey(link)) link.classList.toggle(\"active\", matches);\n      link.removeAttribute(\"aria-current\");\n    });\n    var visibleLinks = desktopMedia?.matches ? desktopLinks : mobileLinks;\n    var current = visibleLinks.find(function(link) { return sectionKey(link) === nextKey; });\n    if (current) current.setAttribute(\"aria-current\", \"location\");\n  }\n  function syncAfterScroll() {\n    var run = function() { setCurrent(activeMobileKey()); };\n    if (typeof window.requestAnimationFrame === \"function\") window.requestAnimationFrame(run);\n    else run();\n  }\n  allLinks.forEach(function(link) {\n    link.addEventListener(\"click\", function() {\n      var key = sectionKey(link);\n      if (key) setCurrent(key);\n    });\n  });\n  window.addEventListener(\"hashchange\", function() { setCurrent(hashKey()); });\n  window.addEventListener(\"scroll\", syncAfterScroll, { passive: true });\n  if (desktopMedia) {\n    var syncMedia = function() { setCurrent(activeMobileKey()); };\n    if (typeof desktopMedia.addEventListener === \"function\") desktopMedia.addEventListener(\"change\", syncMedia);\n    else if (typeof desktopMedia.addListener === \"function\") desktopMedia.addListener(syncMedia);\n  }\n  setCurrent(window.location?.hash ? hashKey() : activeMobileKey());\n})();","etag":"\"mobile-home-shell-v22951-js\"","contentType":"text/javascript; charset=utf-8"},
+  "/assets/mobile-home-v22951.js": {"body":"function quickAmountFieldState(field, normalize = false) {\n  const raw = String(field?.value || \"\");\n  const match = raw.match(/^\\s*(?:[₩￦]\\s*)?(\\d+(?:,\\d+)*)(?:\\s*원)?\\s*$/);\n  const value = match ? Number(match[1].replace(/,/g, \"\")) : 0;\n  const valid = !!match && Number.isSafeInteger(value) && value > 0 && value <= 2000000000;\n  if (normalize && field) {\n    if (valid) {\n      const start = field.selectionStart, end = field.selectionEnd;\n      const digits = position => raw.slice(0, position).replace(/\\D/g, \"\").length;\n      const formatted = value.toLocaleString(\"ko-KR\");\n      const position = count => {\n        if (!count) return 0;\n        let seen = 0;\n        for (let i = 0; i < formatted.length; i++) if (/\\d/.test(formatted[i]) && ++seen === count) return i + 1;\n        return formatted.length;\n      };\n      if (raw !== formatted) {\n        field.value = formatted;\n        if (document.activeElement === field && start != null && end != null) {\n          try { field.setSelectionRange(position(digits(start)), position(digits(end))); } catch (_error) {}\n        }\n      }\n    }\n    field.setCustomValidity?.(valid ? \"\" : \"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n    field.setAttribute(\"aria-invalid\", valid ? \"false\" : \"true\");\n  }\n  return { valid, value: valid ? value : 0 };\n}\nfunction moneyTokenSpans(text = \"\") {\n  const source = String(text || \"\").replace(/[₩￦]/g, \"원\");\n  if (/\\d+,\\d{1,2}(?!\\d)/.test(source)) return [];\n  const excluded = [...source.matchAll(/\\b01[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b|\\b20\\d{6}\\b|\\b20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}\\b|\\b\\d{1,2}[./-]\\d{1,2}\\b(?!\\s*[억만천백십원])|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b|\\(\\s*\\d{2,4}\\s*\\)|\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?|[*＊xX]{2,}[-\\s]?\\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\\s*\\d{2,4}|(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?|\\d+(?:\\.\\d+)?\\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);\n  const pattern = /(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\\s*[십백천만억]\\s*(?:\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\\s*원?/g;\n  const result = [];\n  for (const match of source.matchAll(pattern)) {\n    const start = match.index, end = start + match[0].trimEnd().length;\n    if (excluded.some(([a, b]) => start < b && end > a)) continue;\n    if (/[+\\-\\u2212\\uFE63\\uFF0D\\uFF0B]\\s*(?:원\\s*)?$/.test(source.slice(0, start))) return [];\n    if (/[A-Za-z\\d,.]/.test(source[start - 1] || \"\") || /[A-Za-z\\d,]/.test(source[end] || \"\") || /^\\.\\d/.test(source.slice(end))) continue;\n    let raw = match[0].trim();\n    // Words such as 만두 and 천원샵 are not Korean money expressions.\n    if (!/\\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;\n    if (!/\\d/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\\s|$)/.test(source.slice(end))) continue;\n    // Unitless quantities and product model numbers must not create extra transactions.\n    if (/^\\d+$/.test(raw) && (/^\\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\\s*$/.test(source.slice(0, start)))) continue;\n    if (/[가-힣]/.test(source[start-1] || \"\") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {\n      const stem = source.slice(0,start).trim().split(/\\s+/).pop() || \"\";\n      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;\n      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;\n    }\n    if (/^\\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || \"\")) continue;\n    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    if (!/[\\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;\n    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    const body = raw.replace(/[\\s,원]/g, \"\").replace(/하나|한/g, \"일\").replace(/둘|두/g, \"이\").replace(/셋|세/g, \"삼\").replace(/넷|네/g, \"사\").replace(/다섯/g, \"오\").replace(/여섯/g, \"육\").replace(/일곱/g, \"칠\").replace(/여덟/g, \"팔\").replace(/아홉/g, \"구\");\n    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};\n    const tokens = body.match(/\\d+(?:\\.\\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || [];\n    const places = Math.max(0, ...tokens.map(token => (token.split(\".\")[1] || \"\").length));\n    const scale = 10n ** BigInt(places);\n    const units = value => {\n      const [whole, fraction = \"\"] = String(value).split(\".\");\n      return BigInt(whole || \"0\") * scale + BigInt(fraction.padEnd(places, \"0\") || \"0\");\n    };\n    let sum = 0n, section = 0n, number = \"\", sectionSpecified = false;\n    for (const token of tokens) {\n      if (/^[\\d.]+$/.test(token)) number += token;\n      else if (token in digit) number += digit[token];\n      else if (token === \"만\" || token === \"억\") {\n        const specified = sectionSpecified || number !== \"\";\n        section += units(number || \"0\");\n        sum += (specified ? section : scale) * (token === \"억\" ? 100000000n : 10000n);\n        section = 0n; number = \"\"; sectionSpecified = false;\n      }\n      else { section += units(number || \"1\") * ({십:10n,백:100n,천:1000n}[token]); number = \"\"; sectionSpecified = true; }\n    }\n    const total = sum + section + units(number || \"0\");\n    if (total % scale !== 0n) return [];\n    const amount = Number(total / scale);\n    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});\n  }\n  return result;\n}\nfunction transactionTypeFromText(text = \"\", rules = []) {\n  const raw = String(text || \"\").trim();\n  if (/(?:^|\\s)환불\\s*(?:수수료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:^|\\s)환불(?:\\s*(?:완료|됨|금|처리|입금))?(?=\\s|\\d|$)|(?:^|\\s)반품(?=\\s|\\d|$)|환급|돌려받/.test(raw)) return \"income\";\n  if (/(?:적금|예금|저축|투자)\\s*(?:입금|이체|납입|송금)/.test(raw)) return \"expense\";\n  if (/(?:용돈|세뱃돈)\\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return \"expense\";\n  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\\s*(?:받은|받기)|받은\\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return \"income\";\n  if (/(?:대출|카드|할부|연체)\\s*이자|무이자/.test(raw)) return \"expense\";\n  if (/(?:수수료|중개료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return \"expense\";\n  for (const rule of Array.isArray(rules) ? rules : []) {\n    if (rule.type !== \"income\") continue;\n    if ((rule.words || []).some(word => new RegExp(\"(?:^|\\\\s)\" + String(word).replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\") + \"(?=\\\\s|\\\\d|$)\").test(raw))) return \"income\";\n  }\n  if (/(?:^|\\s)(?:수입|입금|급여|월급|매출|판매|중고\\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\\s|\\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return \"income\";\n  return \"expense\";\n}\nfunction quickInputDate(text = \"\", today = \"\") {\n  const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split(\"-\").map(Number);\n  const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));\n  const valid = (y, m, d) => { const dt = new Date(Date.UTC(y, m - 1, d)); return y >= 2000 && y <= 2099 && dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? dt.toISOString().slice(0, 10) : \"\"; };\n  const monthStart = (offset) => new Date(Date.UTC(parts[0], parts[1] - 1 + offset, 1));\n  const lastDay = (dt) => new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();\n  const raw = String(text || \"\");\n  let m = raw.match(/(?:^|\\s)(그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({그끄저께:-3,그끄제:-3,엊그저께:-2,엊그제:-2,그저께:-2,그제:-2,어젯밤:-1,엊저녁:-1,어제:-1,전날:-1,내일:1,모레:2}[m[1]] || 0)); return now.toISOString().slice(0, 10); }\n  m = raw.match(/(?:^|\\s)(하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(전|후)(?=\\s|$)/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({하루:1,이틀:2,사흘:3,나흘:4,닷새:5,엿새:6,이레:7,열흘:10,보름:15}[m[1]]) * (m[2] === \"전\" ? -1 : 1)); return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate()); }\n  m = raw.match(/(?:^|\\s)(\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(일|주일|주|달|개월)\\s*(전|후)(?=\\s|$)/);\n  if (m) {\n    const count = /^\\d+$/.test(m[1]) ? Number(m[1]) : {한:1,두:2,세:3,네:4,일:1,이:2,삼:3,사:4}[m[1]];\n    const sign = m[3] === \"전\" ? -1 : 1;\n    if (m[2] === \"달\" || m[2] === \"개월\") { const dt = monthStart(count * sign); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Math.min(parts[2], lastDay(dt))); }\n    now.setUTCDate(now.getUTCDate() + count * (m[2] === \"일\" ? 1 : 7) * sign);\n    return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());\n  }\n  m = raw.match(/(?:(지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*)?말일/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }\n  m = raw.match(/(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*(\\d{1,2})\\s*일?/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }\n  m = raw.match(/(?:^|\\s)(20\\d{2})(\\d{2})(\\d{2})(?=\\s|$)/);\n  if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));\n  m = raw.match(/(?:^|\\s)(20\\d{2})[.\\-/년]\\s*(\\d{1,2})[.\\-/월]\\s*(\\d{1,2})/);\n  if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*(\\d{1,2})\\s*(?:월\\s*|[./])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])/);\n  if (m) return valid(parts[0] + ({재작년:-2,작년:-1,지난해:-1,올해:0,금년:0,내년:1,다음해:1}[m[1].replace(/\\s+/g, \"\")] || 0), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(\\d{1,2})\\s*(?:월\\s*|[./-])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])(?!\\s*[억만천백십원])/);\n  if (m) {\n    const thisYear = valid(parts[0], Number(m[1]), Number(m[2]));\n    if (thisYear && (Date.UTC(parts[0], Number(m[1]) - 1, Number(m[2])) - Date.UTC(parts[0], parts[1] - 1, parts[2])) / 86400000 > 183) return valid(parts[0] - 1, Number(m[1]), Number(m[2]));\n    return thisYear;\n  }\n  m = raw.match(/(?:^|\\s)(\\d{1,2})일(?=\\s|$)/);\n  if (m) return valid(parts[0], parts[1], Number(m[1]));\n  m = raw.match(/(?:(지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주)\\s*)?([월화수목금토일])요일/);\n  if (!m) return \"\";\n  const monday = (index) => (index + 6) % 7;\n  const target = monday(\"일월화수목금토\".indexOf(m[2])), current = monday(now.getUTCDay());\n  const scope = String(m[1] || \"\").replace(/\\s+/g, \"\");\n  const offset = scope === \"이번주\" || scope === \"금주\" ? target - current\n    : scope === \"다음주\" || scope === \"내주\" ? target - current + 7\n      : scope ? target - current - 7\n        : -((current - target + 7) % 7);\n  now.setUTCDate(now.getUTCDate() + offset);\n  return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());\n}\nfunction explicitDateIntent(text = \"\") {\n  const raw = String(text || \"\");\n  if (/(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/(?:^|\\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/[월화수목금토일]요일/.test(raw)) return true;\n  if (/말일/.test(raw)) return true;\n  if (/(?:^|\\s)(?:재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*\\d{1,2}\\s*(?:월|[./-])/.test(raw)) return true;\n  return /(?:^|\\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))|(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*\\d{1,2}|(?:^|\\s)20\\d{2}(?:[.\\-/년]\\s*\\d{1,2}|\\d{4}(?=\\s|$))|(?:^|\\s)\\d{1,2}\\s*월\\s*\\d{1,2}|(?:^|\\s)\\d{1,2}[./-]\\d{1,2}(?!\\d|\\s*[억만천백십원])|(?:^|\\s)\\d{1,2}일(?=\\s|$)/.test(raw);\n}\nfunction parseMobileAmountText(text = \"\") {\n  const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;\n}\n(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (function quickSmartInputController(config) {\n  const byId = id => document.getElementById(id);\n  const smart = byId(\"smartInput\"), amount = byId(\"amountInput\"), date = byId(\"txDate\"), after = byId(\"quickAfter\");\n  const form = amount?.closest(\"form\");\n  const initialDate = date?.value || \"\";\n  const baseMessage = after?.textContent || \"저장 전 입력 내용을 확인하세요.\";\n  let scope = {};\n  try { const data=JSON.parse(after?.getAttribute(\"data-bsc\") || \"[]\"); scope={month:form?.querySelector?.('input[name=\"month\"]')?.value || \"\",today:String(data[0] || \"\").replace(/^(\\d{4})(\\d{2})(\\d{2})$/,\"$1-$2-$3\"),basis:Array.isArray(data[1])?\"category\":data[1]===0?\"total\":\"unknown\",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}\n  const loadedAt = Date.now(), serverToday = scope.today || initialDate;\n  const todayNow = () => {\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(serverToday)) return serverToday;\n    const kstDay = ms => Math.floor((ms + 32400000) / 86400000);\n    const shift = kstDay(Date.now()) - kstDay(loadedAt);\n    if (!shift) return serverToday;\n    const p = serverToday.split(\"-\").map(Number);\n    return new Date(Date.UTC(p[0], p[1] - 1, p[2] + shift)).toISOString().slice(0, 10);\n  };\n  const defaultDate = () => initialDate === serverToday ? todayNow() : initialDate;\n  const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};\n  let invalidAmount = false, invalidDate = false, confirmType = false;\n  const markers = Object.create(null);\n  for (const key of Object.keys(manual)) {\n    if (form && document.createElement && form.appendChild) {\n      const input = document.createElement(\"input\"); input.type=\"hidden\"; input.name=\"quick_manual_\"+key; input.value=\"0\"; form.appendChild(input); markers[key]=input;\n    }\n  }\n  const cleanNumber = () => quickAmountFieldState(amount).value;\n  const validAmount = () => quickAmountFieldState(amount).valid;\n  const validDate = () => /^20\\d{2}-\\d{2}-\\d{2}$/.test(date?.value || \"\") && config.date(date.value,todayNow())===date.value;\n  const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:\"\"); field.setAttribute(\"aria-invalid\",bad?\"true\":\"false\"); };\n  function preview() {\n    if (!after) return;\n    after.setAttribute(\"aria-live\",\"polite\");\n    if (confirmType && !manual.type) { after.textContent=\"결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.\"; return; }\n    if (classificationPending) { after.textContent=\"현재 가계부의 분류를 확인하고 있습니다.\"; return; }\n    if (classificationFailed) { after.textContent=\"분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요.\"; return; }\n    if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? \"금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요.\" : \"달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요.\"; return; }\n    const value=cleanNumber();\n    if (!value || !validAmount()) { after.textContent=baseMessage; return; }\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    if (income) { after.textContent=\"수입으로 저장합니다. 지출 예산을 차감하지 않습니다.\"; return; }\n    const category=byId(\"catInput\")?.value || \"\";\n    if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis===\"unknown\") { after.textContent=\"기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다.\"; return; }\n    if (scope.basis===\"category\" && !(scope.cats || []).includes(category)) { after.textContent=\"예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다.\"; return; }\n    if (after.getAttribute(\"data-has-budget\")!==\"1\") { after.textContent=\"기록을 저장한 뒤 예산을 설정할 수 있습니다.\"; return; }\n    const remain=Math.max(0,Number(after.getAttribute(\"data-remaining\") || 0)-value);\n    const money=value=>new Intl.NumberFormat(\"ko-KR\").format(value)+\"원\";\n    after.textContent=\"저장하면 남은 예산 \"+money(remain);\n    if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split(\"-\").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=\" · 하루 \"+money(Math.floor(remain/days)); }\n  }\n  function complete() {\n    preview(); config.sync?.();\n    if (typeof Event === \"function\") document.dispatchEvent?.(new Event(\"ab:quick-update\"));\n  }\n  function apply(clearInput) {\n    const text=smart?.value.trim(); if (!text) return;\n    const value=config.amount(text), parsedDate=config.date(text,todayNow());\n    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);\n    confirmType=/(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    const token=moneyTokenSpans(text)[0]?.raw || \"\";\n    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat(\"ko-KR\").format(value) : \"\"; invalidAmount=!value; }\n    else invalidAmount=!validAmount();\n    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?\"\":defaultDate()); invalidDate=explicitDateIntent(text) && !parsedDate; }\n    else invalidDate=!validDate();\n    const radio=document.querySelector('input[name=type][value=\"'+type+'\"]'); if (radio&&!manual.type) radio.checked=true;\n    if (!manual.memo&&byId(\"memoInput\")) byId(\"memoInput\").value=config.memo(text,token,payment,category);\n    if (!manual.payment&&byId(\"payInput\")) byId(\"payInput\").value=payment;\n    if (!manual.category&&byId(\"catInput\")) byId(\"catInput\").value=category;\n    if (byId(\"rawTextInput\")) byId(\"rawTextInput\").value=text;\n    setValidity(amount,invalidAmount,\"유효한 금액을 입력하세요.\"); setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\");\n    if (clearInput) smart.value=\"\";\n    resolveCategory(); complete();\n  }\n  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false;\n  function resolveCategory() {\n    const sequence=++classificationSequence;\n    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;\n    if (manual.category) return;\n    const memo=byId(\"memoInput\")?.value || \"\", raw=byId(\"rawTextInput\")?.value || \"\";\n    if (!memo && !raw) return;\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    const household=form?.querySelector('input[name=\"household_id\"]')?.value || \"\";\n    if (!household || typeof fetch!==\"function\") { if(byId(\"catInput\"))byId(\"catInput\").value=config.category([raw,memo].filter(Boolean).join(\" \"),income?\"income\":\"expense\"); return; }\n    if(byId(\"catInput\"))byId(\"catInput\").value=\"\";\n    classificationPending=true;\n    classificationTimer=setTimeout(async()=>{\n      const controller=typeof AbortController===\"function\" ? new AbortController() : null;\n      const timeout=controller?setTimeout(()=>controller.abort(),8000):0;\n      try {\n        const response=await fetch(\"/u/api/input-classification\",{method:\"POST\",credentials:\"same-origin\",headers:{\"content-type\":\"application/json\",accept:\"application/json\"},body:JSON.stringify({household_id:household,type:income?\"income\":\"expense\",raw_text:raw,memo}),signal:controller?.signal});\n        if(!response.ok)throw new Error(\"classification_unavailable\");\n        const data=await response.json();\n        if(!data.ok || data.household_id!==household || typeof data.category!==\"string\")throw new Error(\"classification_invalid\");\n        if(sequence===classificationSequence && !manual.category && byId(\"catInput\"))byId(\"catInput\").value=data.category;\n      } catch(_error) { if(sequence===classificationSequence)classificationFailed=true; }\n      finally { clearTimeout(timeout); if(sequence===classificationSequence){classificationPending=false;complete();} }\n    },250);\n  }\n  let amountComposing = false;\n  form?.addEventListener(\"ab:quick-restore\", event => {\n    const state = event.detail?.manual || {};\n    for (const key of Object.keys(manual)) {\n      manual[key] = state[key] === \"1\";\n      if (markers[key]) markers[key].value = manual[key] ? \"1\" : \"0\";\n    }\n    const text = byId(\"rawTextInput\")?.value || \"\";\n    confirmType = /(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    invalidAmount = !quickAmountFieldState(amount, true).valid;\n    invalidDate = !validDate();\n    setValidity(date, invalidDate, \"유효한 날짜를 선택하세요.\");\n    resolveCategory(); complete();\n  });\n  for (const [id,key] of [[\"amountInput\",\"amount\"],[\"txDate\",\"date\"],[\"catInput\",\"category\"],[\"payInput\",\"payment\"],[\"memoInput\",\"memo\"]]) {\n    const field=byId(id); if (!field) continue;\n    const changed=(event)=>{\n      if (key === \"amount\" && (amountComposing || event?.isComposing)) return;\n      if (key === \"amount\") invalidAmount = !quickAmountFieldState(amount, true).valid;\n      if (!event?.detail?.abQuickDefault) {\n        manual[key]=true; if(markers[key])markers[key].value=\"1\";\n        if(key===\"date\")invalidDate=!validDate();\n        if(key===\"memo\"||key===\"category\")resolveCategory();\n      }\n      setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n      setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\"); complete();\n    };\n    if (key === \"amount\") {\n      field.addEventListener(\"compositionstart\", () => { amountComposing = true; });\n      field.addEventListener(\"compositionend\", event => { amountComposing = false; changed(event); });\n    }\n    field.addEventListener(\"input\",changed); field.addEventListener(\"change\",changed);\n  }\n  document.querySelectorAll(\"input[name=type]\").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value=\"1\";resolveCategory();complete();};field.addEventListener(\"change\",changed);field.addEventListener(\"click\",changed);});\n  form?.addEventListener(\"submit\",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");complete();}});\n  return {apply,preview};\n})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}\n\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();","etag":"\"mobile-home-v22951-js\"","contentType":"text/javascript; charset=utf-8"},
   "/assets/accountbook-budget-preview-v22952.js": {"body":"(function budgetPlanPreviewClientMain(contract) {\n  const form = document.querySelector(\"#budgetBulkForm,#budgetPlanForm\");\n  if (!form || form.dataset.budgetPreviewReady) return;\n  const preview = form.querySelector(\"[data-budget-preview]\");\n  if (!preview) return;\n  form.dataset.budgetPreviewReady = \"1\";\n  const live = preview.querySelector(\"[data-budget-live]\"), composing = new Set();\n  const state = preview.querySelector(\"[data-budget-preview-state]\");\n  const errorsBox = preview.querySelector(\"[data-budget-errors]\");\n  const kinds = [\"income\", \"expense\"], names = { income: \"income_name\", expense: \"budget_category\" }, amounts = { income: \"income_amount\", expense: \"budget_amount\" };\n  const containers = { income: form.querySelector(\"#incomeRows\"), expense: form.querySelector(\"#expenseRows\") };\n  const templates = Object.create(null), initial = Object.create(null);\n  let noteId = 0, announceTimer;\n  const lines = kind => Array.from(containers[kind].children).filter(line => line.querySelector(`[name=\"${names[kind]}\"]`));\n  function read() {\n    const input = Object.create(null);\n    kinds.forEach(kind => {\n      input[kind + \"Names\"] = lines(kind).map(line => line.querySelector(`[name=\"${names[kind]}\"]`).value);\n      input[kind + \"Amounts\"] = lines(kind).map(line => line.querySelector(`[name=\"${amounts[kind]}\"]`).value);\n    });\n    return input;\n  }\n  function decorate(line, kind) {\n    if (line.querySelector(\"[data-budget-remove]\")) return;\n    const remove = document.createElement(\"button\");\n    remove.type = \"button\"; remove.className = \"abBudgetRemove\"; remove.dataset.budgetRemove = kind; remove.textContent = \"이 행 제거\";\n    const note = document.createElement(\"p\"); note.className = \"abBudgetRowNote\"; note.dataset.budgetRowNote = \"\"; note.id = \"budgetRowNote\" + (++noteId);\n    line.querySelectorAll(\"input\").forEach(input => input.setAttribute(\"aria-describedby\", ((input.getAttribute(\"aria-describedby\") || \"\") + \" \" + note.id).trim()));\n    line.append(remove, note);\n  }\n  function make(kind, name = \"\", amount = \"\") {\n    const line = templates[kind].cloneNode(true);\n    line.querySelectorAll(\"[id]\").forEach(node => node.removeAttribute(\"id\"));\n    line.querySelectorAll(\"[data-budget-remove],[data-budget-row-note]\").forEach(node => node.remove());\n    line.querySelectorAll(\"input\").forEach(input => { input.removeAttribute(\"aria-describedby\"); input.setCustomValidity(\"\"); input.removeAttribute(\"aria-invalid\"); });\n    const nameInput = line.querySelector(`[name=\"${names[kind]}\"]`), amountInput = line.querySelector(`[name=\"${amounts[kind]}\"]`);\n    nameInput.value = String(name); amountInput.value = String(amount); nameInput.defaultValue = String(name); amountInput.defaultValue = String(amount);\n    decorate(line, kind); return line;\n  }\n  kinds.forEach(kind => {\n    const current = lines(kind);\n    if (current.length) templates[kind] = current[0].cloneNode(true);\n    else {\n      const line = document.createElement(\"div\"); line.className = form.id === \"budgetPlanForm\" ? \"planLine\" : \"budgetLine\";\n      const name = document.createElement(\"input\"), amount = document.createElement(\"input\");\n      name.name = names[kind]; name.setAttribute(\"aria-label\", kind === \"income\" ? \"수입 종류\" : \"지출 분류\");\n      amount.name = amounts[kind]; amount.inputMode = \"numeric\"; amount.setAttribute(\"aria-label\", \"금액\");\n      line.append(name, amount); templates[kind] = line;\n    }\n    initial[kind] = current.map(line => ({ name: line.querySelector(`[name=\"${names[kind]}\"]`).value, amount: line.querySelector(`[name=\"${amounts[kind]}\"]`).value }));\n    current.forEach(line => decorate(line, kind));\n  });\n  function announce(message, immediate = false) {\n    clearTimeout(announceTimer);\n    announceTimer = setTimeout(() => { if (!composing.size && live.textContent !== message) live.textContent = message; }, immediate ? 0 : 650);\n  }\n  function update(speak = true, immediate = false) {\n    if (composing.size) {\n      clearTimeout(announceTimer); preview.dataset.state = \"composing\";\n      state.textContent = \"입력을 확정하면 다시 계산합니다. 현재 합계는 계산 중입니다.\";\n      preview.querySelectorAll(\"[data-budget-total]\").forEach(output => { output.textContent = \"계산 중\"; });\n      return null;\n    }\n    const result = contract.calculate(read());\n    kinds.forEach(kind => lines(kind).forEach((line, index) => {\n      const name = line.querySelector(`[name=\"${names[kind]}\"]`), amount = line.querySelector(`[name=\"${amounts[kind]}\"]`);\n      const errors = result.errors.filter(error => error.kind === kind && error.index === index);\n      [name, amount].forEach((input, at) => { const error = errors.find(error => error.field === (at ? \"amount\" : \"name\")); input.setCustomValidity(error?.message || \"\"); input.setAttribute(\"aria-invalid\", error ? \"true\" : \"false\"); });\n      const note = line.querySelector(\"[data-budget-row-note]\");\n      const notes = result.notes.filter(item => item.kind === kind && item.index === index && (String(amount.value).trim() || String(amount.defaultValue).trim() || !/빈 금액/.test(item.message)));\n      const text = [...errors, ...notes].map(item => item.message).join(\" \");\n      if (note.textContent !== text) note.textContent = text;\n      note.hidden = !text; note.classList.toggle(\"isError\", errors.length > 0);\n      line.querySelector(\"[data-budget-remove]\").setAttribute(\"aria-label\", `${kind === \"income\" ? \"수입\" : \"지출\"} ${index + 1}행 제거`);\n    }));\n    preview.dataset.state = result.valid ? \"valid\" : \"invalid\";\n    preview.querySelectorAll(\"[data-budget-total]\").forEach(output => {\n      const text = result.valid ? result[output.dataset.budgetTotal].toLocaleString(\"ko-KR\") + \"원\" : \"계산 보류\";\n      if (output.textContent !== text) output.textContent = text;\n    });\n    const message = result.valid ? result.net < 0 ? \"계획한 지출이 예상 수입보다 큽니다. 음수 차액도 저장할 수 있습니다.\" : \"현재 입력한 계획을 계산했습니다. 저장 버튼을 눌러 확정해 주세요.\" : \"오류가 있어 현재 합계를 계산하지 않았습니다. 표시한 행을 고쳐 주세요.\";\n    state.textContent = message;\n    const errorText = result.errors.map(error => `${error.kind === \"plan\" ? \"계획\" : `${error.kind === \"income\" ? \"수입\" : \"지출\"} ${error.index + 1}행`}: ${error.message}`).join(\" \");\n    errorsBox.textContent = errorText;\n    if (speak) announce(result.valid ? document.documentElement.hasAttribute(\"data-ab-hide-amounts\") ? \"저장 전 미리보기의 금액을 갱신했습니다.\" : `예상 수입 ${result.income.toLocaleString(\"ko-KR\")}원, 계획한 지출 ${result.expense.toLocaleString(\"ko-KR\")}원, 계획상 차액 ${result.net.toLocaleString(\"ko-KR\")}원. ${message}` : errorText, immediate);\n    return result;\n  }\n  const relevant = target => target?.matches?.('[name=\"income_name\"],[name=\"income_amount\"],[name=\"budget_category\"],[name=\"budget_amount\"]');\n  form.addEventListener(\"compositionstart\", event => { if (relevant(event.target)) { composing.add(event.target); event.target.setCustomValidity(\"\"); event.target.removeAttribute(\"aria-invalid\"); update(false); } });\n  form.addEventListener(\"compositionend\", event => { composing.delete(event.target); if (relevant(event.target)) update(); });\n  form.addEventListener(\"input\", event => { if (relevant(event.target) && !event.isComposing) update(); });\n  form.addEventListener(\"change\", event => { if (relevant(event.target)) update(true, true); });\n  form.addEventListener(\"focusout\", event => { if (relevant(event.target) && !composing.size) update(true, true); });\n  form.addEventListener(\"click\", event => {\n    const add = event.target.closest(\"[data-add]\");\n    if (add && form.contains(add)) {\n      const kind = add.dataset.add;\n      if (!kinds.includes(kind)) return;\n      if (kinds.reduce((n, type) => n + lines(type).length, 0) >= contract.maxInputRows) { state.textContent = \"입력은 수입과 지출을 합쳐 200행까지 가능합니다. 먼저 불필요한 행을 제거해 주세요.\"; announce(state.textContent, true); return; }\n      const line = make(kind); containers[kind].appendChild(line); line.querySelector(\"input\").focus(); update(true, true); return;\n    }\n    const remove = event.target.closest(\"[data-budget-remove]\");\n    if (remove && form.contains(remove)) {\n      const kind = remove.dataset.budgetRemove, line = remove.closest(\".budgetLine,.planLine\");\n      const next = line.nextElementSibling || line.previousElementSibling;\n      line.remove(); (next?.querySelector(\"input\") || form.querySelector(`[data-add=\"${kind}\"]`)).focus(); update(true, true); return;\n    }\n    const picker = event.target.closest(\".pickValue\");\n    if (picker) return;\n  });\n  form.addEventListener(\"change\", event => {\n    const select = event.target.closest(\".pickValue\");\n    if (!select || !select.value) return;\n    const input = select.closest(\".budgetLine,.planLine\")?.querySelector(\"input\");\n    if (input) { input.value = select.value; update(true, true); }\n  });\n  form.addEventListener(\"reset\", event => {\n    event.preventDefault(); composing.clear();\n    kinds.forEach(kind => { containers[kind].replaceChildren(...initial[kind].map(row => make(kind, row.name, row.amount))); });\n    update(true, true);\n  });\n  form.addEventListener(\"submit\", event => {\n    const result = update(false);\n    if (!result?.valid) { event.preventDefault(); announce(result ? errorsBox.textContent : \"입력을 확정한 뒤 저장해 주세요.\", true); form.querySelector('[aria-invalid=\"true\"]')?.focus(); }\n  });\n  // Reload is an explicit reconciliation action. No stale token is ever refreshed\n  // in place, and no browser storage or editing-time request is introduced.\n  const reload = form.querySelector(\"[data-budget-reload]\");\n  if (reload) { const query = new URLSearchParams({ household_id: form.elements.household_id.value, month: form.elements.month.value }); reload.href = (form.id === \"budgetPlanForm\" ? \"/budgets?\" : \"/my/settings?\") + query; }\n  window.addEventListener(\"pageshow\", () => update(false));\n  update(false);\n})((function createBudgetPlanContract(normalizeCategory, scanMoney) {\n  const maxAmount = 2000000000, maxInputRows = 200, maxPlanRows = 100;\n  const incomeDefaults = [\"월급\", \"상여/성과급\", \"부수입\", \"기타수입\"];\n  function parseAmount(value = \"\") {\n    const raw = String(value ?? \"\").trim();\n    if (!raw) return 0;\n    if (raw.length > 256) return NaN;\n    const integer = raw.match(/^(?:[₩￦]\\s*)?(\\d+|\\d{1,3}(?:,\\d{3})+)\\s*원?$/);\n    if (integer) {\n      const amount = Number(integer[1].replace(/,/g, \"\"));\n      return Number.isSafeInteger(amount) ? amount : NaN;\n    }\n    if (!/[십백천만억]/.test(raw)) return NaN;\n    const spans = scanMoney(raw);\n    return spans.length === 1 && spans[0].raw === raw && Number.isSafeInteger(spans[0].amount) ? spans[0].amount : NaN;\n  }\n  function calculate(input = {}) {\n    const { incomeNames = [], incomeAmounts = [], expenseNames = [], expenseAmounts = [] } = input;\n    const errors = [], notes = [], entries = [], plan = new Map();\n    const error = (kind, index, field, code, message) => errors.push({ kind, index, field, code, message });\n    if (![incomeNames, incomeAmounts, expenseNames, expenseAmounts].every(Array.isArray)\n      || incomeNames.length !== incomeAmounts.length || expenseNames.length !== expenseAmounts.length) {\n      error(\"plan\", -1, \"\", \"budget_input_shape\", \"이름과 금액 행의 개수가 다릅니다. 계획을 다시 열어 같은 행에 이름과 금액을 입력해 주세요.\");\n      return { valid: false, errors, notes, entries, rows: [], income: null, expense: null, net: null };\n    }\n    if (incomeNames.length + expenseNames.length > maxInputRows) error(\"plan\", -1, \"\", \"budget_input_too_many\", \"입력 행은 수입과 지출을 합쳐 200개까지 가능합니다. 빈 행도 제거해 주세요.\");\n    for (const [kind, names, amounts, length] of [[\"income\", incomeNames, incomeAmounts, 60], [\"expense\", expenseNames, expenseAmounts, 80]]) {\n      for (let index = 0; index < names.length; index += 1) {\n        const amount = parseAmount(amounts[index]);\n        // Amount validation precedes both blank-name and zero-row exclusion.\n        if (!Number.isSafeInteger(amount) || amount < 0 || amount > maxAmount) {\n          error(kind, index, \"amount\", \"invalid_budget_amount\", \"0원부터 20억원까지 정수 금액을 입력해 주세요. 소수 원·부호·지수·잘못된 쉼표는 사용할 수 없습니다.\");\n          continue;\n        }\n        const rawName = String(names[index] ?? \"\").trim();\n        const name = rawName.slice(0, length).trim() || (kind === \"income\" ? incomeDefaults[index] || `수입${index + 1}` : \"\");\n        const entry = { kind, index, name, amount, included: false };\n        entries.push(entry);\n        if (!amount) { notes.push({ kind, index, message: \"빈 금액·0원 행은 새 계획에 저장하지 않습니다. 기존 행도 전체 교체 시 제외됩니다.\" }); continue; }\n        if (!name) { notes.push({ kind, index, message: \"지출 이름이 비어 있어 이 금액은 합계와 저장에서 제외됩니다. 포함하려면 분류를 입력해 주세요.\" }); continue; }\n        if (kind === \"expense\" && /^__(?:total$|income(?::|$))/.test(name)) {\n          error(kind, index, \"name\", \"budget_reserved_category\", \"이 이름은 이전 총액·수입의 예약 이름입니다. 일반 지출 분류 이름으로 바꿔 주세요.\");\n          continue;\n        }\n        if (name !== rawName) notes.push({ kind, index, message: `저장 이름: ${name}${rawName ? ` (앞 ${length}자)` : \" (현재 행 순서의 기본 이름)\"}` });\n        const category = kind === \"income\" ? `__income:${name}` : name;\n        // Type is part of identity; normalizing '__income:' must never merge\n        // a normal expense called 'income 월급' with an income called '월급'.\n        const key = `${kind}:${normalizeCategory(category)}`;\n        const prior = plan.get(key);\n        if (prior && prior.amount !== amount) {\n          const message = `같은 정규화 이름의 ${prior.index + 1}행과 금액이 다릅니다. 한 행만 남기거나 같은 금액으로 맞춰 주세요.`;\n          error(kind, index, \"amount\", \"budget_duplicate_category\", message);\n          error(kind, prior.index, \"amount\", \"budget_duplicate_category\", `${index + 1}행과 같은 이름에 서로 다른 금액이 있습니다. 중복을 정리해 주세요.`);\n        } else if (prior) notes.push({ kind, index, message: \"같은 이름·같은 금액의 중복 행입니다. 합계와 저장에 한 번만 반영합니다.\" });\n        else { plan.set(key, { category, amount, kind, index }); entry.included = true; }\n      }\n    }\n    const rows = [...plan.values()].map(({ category, amount }) => ({ category, amount }));\n    if (rows.length > maxPlanRows) error(\"plan\", -1, \"\", \"budget_plan_too_many\", \"저장할 양수 계획은 중복을 제외하고 100행까지 가능합니다. 행을 줄여 주세요.\");\n    const income = [...plan.values()].filter(row => row.kind === \"income\").reduce((sum, row) => sum + row.amount, 0);\n    const expense = [...plan.values()].filter(row => row.kind === \"expense\").reduce((sum, row) => sum + row.amount, 0);\n    if (![income, expense, income - expense].every(Number.isSafeInteger)) error(\"plan\", -1, \"\", \"invalid_budget_amount\", \"합계가 안전한 정수 범위를 넘었습니다. 금액을 줄여 주세요.\");\n    const valid = errors.length === 0;\n    return { valid, errors, notes, entries, rows: valid ? rows : [], income: valid ? income : null, expense: valid ? expense : null, net: valid ? income - expense : null };\n  }\n  return { parseAmount, calculate, maxAmount, maxInputRows, maxPlanRows };\n})(function normalizeText(text) {\n  return String(text || \"\")\n    .replace(/^@[\\w가-힣_-]+\\s*/, \"\")\n    .replace(/^\\/+/, \"\")\n    .replace(/[，]/g, \",\")\n    .replace(/[₩￦]/g, \"원\")\n    .replace(/원정/g, \"원\")\n    .replace(/만 원/g, \"만원\")\n    .replace(/천 원/g, \"천원\")\n    .replace(/처넌/g, \"천원\")\n    .replace(/처눤/g, \"천원\")\n    .replace(/백 원/g, \"백원\")\n    .replace(/십 원/g, \"십원\")\n    // V22.9.34 감사 D1·N2: 시각(19:40)·괄호 속 카드 끝자리((1234))·가린 카드번호·카드 문자의 누적·잔액·한도\n    // 금액은 기호를 지우기 전에 뺀다. 지우고 나면 \"19 40\", \" 1234 \" 가 되어 금액으로 읽혔다.\n    .replace(/\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b/g, \" \")\n    .replace(/\\(\\s*\\d{2,4}\\s*\\)/g, \" \")\n    .replace(/\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?/g, \" \")\n    .replace(/[*＊xX]{2,}[-\\s]?\\d{2,4}/g, \" \")\n    .replace(/(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?/g, \" \")\n    .replace(/[~!@#$^&*_=\\`|\\\\{}\\[\\]:;\"'<>?]/g, \" \")\n    .replace(/[()]/g, \" \")\n    .replace(/\\s+/g, \" \")\n    .trim();\n},function moneyTokenSpans(text = \"\") {\n  const source = String(text || \"\").replace(/[₩￦]/g, \"원\");\n  if (/\\d+,\\d{1,2}(?!\\d)/.test(source)) return [];\n  const excluded = [...source.matchAll(/\\b01[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b|\\b20\\d{6}\\b|\\b20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}\\b|\\b\\d{1,2}[./-]\\d{1,2}\\b(?!\\s*[억만천백십원])|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b|\\(\\s*\\d{2,4}\\s*\\)|\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?|[*＊xX]{2,}[-\\s]?\\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\\s*\\d{2,4}|(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?|\\d+(?:\\.\\d+)?\\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);\n  const pattern = /(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\\s*[십백천만억]\\s*(?:\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\\s*원?/g;\n  const result = [];\n  for (const match of source.matchAll(pattern)) {\n    const start = match.index, end = start + match[0].trimEnd().length;\n    if (excluded.some(([a, b]) => start < b && end > a)) continue;\n    if (/[+\\-\\u2212\\uFE63\\uFF0D\\uFF0B]\\s*(?:원\\s*)?$/.test(source.slice(0, start))) return [];\n    if (/[A-Za-z\\d,.]/.test(source[start - 1] || \"\") || /[A-Za-z\\d,]/.test(source[end] || \"\") || /^\\.\\d/.test(source.slice(end))) continue;\n    let raw = match[0].trim();\n    // Words such as 만두 and 천원샵 are not Korean money expressions.\n    if (!/\\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;\n    if (!/\\d/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\\s|$)/.test(source.slice(end))) continue;\n    // Unitless quantities and product model numbers must not create extra transactions.\n    if (/^\\d+$/.test(raw) && (/^\\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\\s*$/.test(source.slice(0, start)))) continue;\n    if (/[가-힣]/.test(source[start-1] || \"\") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {\n      const stem = source.slice(0,start).trim().split(/\\s+/).pop() || \"\";\n      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;\n      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;\n    }\n    if (/^\\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || \"\")) continue;\n    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    if (!/[\\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;\n    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    const body = raw.replace(/[\\s,원]/g, \"\").replace(/하나|한/g, \"일\").replace(/둘|두/g, \"이\").replace(/셋|세/g, \"삼\").replace(/넷|네/g, \"사\").replace(/다섯/g, \"오\").replace(/여섯/g, \"육\").replace(/일곱/g, \"칠\").replace(/여덟/g, \"팔\").replace(/아홉/g, \"구\");\n    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};\n    const tokens = body.match(/\\d+(?:\\.\\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || [];\n    const places = Math.max(0, ...tokens.map(token => (token.split(\".\")[1] || \"\").length));\n    const scale = 10n ** BigInt(places);\n    const units = value => {\n      const [whole, fraction = \"\"] = String(value).split(\".\");\n      return BigInt(whole || \"0\") * scale + BigInt(fraction.padEnd(places, \"0\") || \"0\");\n    };\n    let sum = 0n, section = 0n, number = \"\", sectionSpecified = false;\n    for (const token of tokens) {\n      if (/^[\\d.]+$/.test(token)) number += token;\n      else if (token in digit) number += digit[token];\n      else if (token === \"만\" || token === \"억\") {\n        const specified = sectionSpecified || number !== \"\";\n        section += units(number || \"0\");\n        sum += (specified ? section : scale) * (token === \"억\" ? 100000000n : 10000n);\n        section = 0n; number = \"\"; sectionSpecified = false;\n      }\n      else { section += units(number || \"1\") * ({십:10n,백:100n,천:1000n}[token]); number = \"\"; sectionSpecified = true; }\n    }\n    const total = sum + section + units(number || \"0\");\n    if (total % scale !== 0n) return [];\n    const amount = Number(total / scale);\n    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});\n  }\n  return result;\n}));","etag":"\"accountbook-budget-preview-v22952-js\""},
   "/assets/mobile-home-v22950.js": {"body":"function quickAmountFieldState(field, normalize = false) {\n  const raw = String(field?.value || \"\");\n  const match = raw.match(/^\\s*(?:[₩￦]\\s*)?(\\d+(?:,\\d+)*)(?:\\s*원)?\\s*$/);\n  const value = match ? Number(match[1].replace(/,/g, \"\")) : 0;\n  const valid = !!match && Number.isSafeInteger(value) && value > 0 && value <= 2000000000;\n  if (normalize && field) {\n    if (valid) {\n      const start = field.selectionStart, end = field.selectionEnd;\n      const digits = position => raw.slice(0, position).replace(/\\D/g, \"\").length;\n      const formatted = value.toLocaleString(\"ko-KR\");\n      const position = count => {\n        if (!count) return 0;\n        let seen = 0;\n        for (let i = 0; i < formatted.length; i++) if (/\\d/.test(formatted[i]) && ++seen === count) return i + 1;\n        return formatted.length;\n      };\n      if (raw !== formatted) {\n        field.value = formatted;\n        if (document.activeElement === field && start != null && end != null) {\n          try { field.setSelectionRange(position(digits(start)), position(digits(end))); } catch (_error) {}\n        }\n      }\n    }\n    field.setCustomValidity?.(valid ? \"\" : \"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n    field.setAttribute(\"aria-invalid\", valid ? \"false\" : \"true\");\n  }\n  return { valid, value: valid ? value : 0 };\n}\nfunction moneyTokenSpans(text = \"\") {\n  const source = String(text || \"\").replace(/[₩￦]/g, \"원\");\n  if (/\\d+,\\d{1,2}(?!\\d)/.test(source)) return [];\n  const excluded = [...source.matchAll(/\\b01[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b|\\b20\\d{6}\\b|\\b20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}\\b|\\b\\d{1,2}[./-]\\d{1,2}\\b(?!\\s*[억만천백십원])|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b|\\(\\s*\\d{2,4}\\s*\\)|\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?|[*＊xX]{2,}[-\\s]?\\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\\s*\\d{2,4}|(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?|\\d+(?:\\.\\d+)?\\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);\n  const pattern = /(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\\s*[십백천만억]\\s*(?:\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\\s*원?/g;\n  const result = [];\n  for (const match of source.matchAll(pattern)) {\n    const start = match.index, end = start + match[0].trimEnd().length;\n    if (excluded.some(([a, b]) => start < b && end > a)) continue;\n    if (/[A-Za-z\\d,]/.test(source[start - 1] || \"\") || /[A-Za-z\\d,]/.test(source[end] || \"\")) continue;\n    let raw = match[0].trim();\n    // Words such as 만두 and 천원샵 are not Korean money expressions.\n    if (!/\\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;\n    if (!/\\d/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\\s|$)/.test(source.slice(end))) continue;\n    // Unitless quantities and product model numbers must not create extra transactions.\n    if (/^\\d+$/.test(raw) && (/^\\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\\s*$/.test(source.slice(0, start)))) continue;\n    if (/[가-힣]/.test(source[start-1] || \"\") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {\n      const stem = source.slice(0,start).trim().split(/\\s+/).pop() || \"\";\n      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;\n      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;\n    }\n    if (/^\\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || \"\")) continue;\n    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    if (!/[\\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;\n    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    const body = raw.replace(/[\\s,원]/g, \"\").replace(/하나|한/g, \"일\").replace(/둘|두/g, \"이\").replace(/셋|세/g, \"삼\").replace(/넷|네/g, \"사\").replace(/다섯/g, \"오\").replace(/여섯/g, \"육\").replace(/일곱/g, \"칠\").replace(/여덟/g, \"팔\").replace(/아홉/g, \"구\");\n    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};\n    let sum = 0, section = 0, number = \"\";\n    for (const token of body.match(/\\d+(?:\\.\\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || []) {\n      if (/^[\\d.]+$/.test(token)) number += token;\n      else if (token in digit) number += digit[token];\n      else if (token === \"만\" || token === \"억\") { section += Number(number || 0); sum += (section || 1) * (token === \"억\" ? 100000000 : 10000); section = 0; number = \"\"; }\n      else { section += Number(number || 1) * ({십:10,백:100,천:1000}[token]); number = \"\"; }\n    }\n    const amount = Math.round(sum + section + Number(number || 0));\n    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});\n  }\n  return result;\n}\nfunction transactionTypeFromText(text = \"\", rules = []) {\n  const raw = String(text || \"\").trim();\n  if (/(?:^|\\s)환불\\s*(?:수수료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:^|\\s)환불(?:\\s*(?:완료|됨|금|처리|입금))?(?=\\s|\\d|$)|(?:^|\\s)반품(?=\\s|\\d|$)|환급|돌려받/.test(raw)) return \"income\";\n  if (/(?:적금|예금|저축|투자)\\s*(?:입금|이체|납입|송금)/.test(raw)) return \"expense\";\n  if (/(?:용돈|세뱃돈)\\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return \"expense\";\n  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\\s*(?:받은|받기)|받은\\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return \"income\";\n  if (/(?:대출|카드|할부|연체)\\s*이자|무이자/.test(raw)) return \"expense\";\n  if (/(?:수수료|중개료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return \"expense\";\n  for (const rule of Array.isArray(rules) ? rules : []) {\n    if (rule.type !== \"income\") continue;\n    if ((rule.words || []).some(word => new RegExp(\"(?:^|\\\\s)\" + String(word).replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\") + \"(?=\\\\s|\\\\d|$)\").test(raw))) return \"income\";\n  }\n  if (/(?:^|\\s)(?:수입|입금|급여|월급|매출|판매|중고\\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\\s|\\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return \"income\";\n  return \"expense\";\n}\nfunction quickInputDate(text = \"\", today = \"\") {\n  const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split(\"-\").map(Number);\n  const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));\n  const valid = (y, m, d) => { const dt = new Date(Date.UTC(y, m - 1, d)); return y >= 2000 && y <= 2099 && dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? dt.toISOString().slice(0, 10) : \"\"; };\n  const monthStart = (offset) => new Date(Date.UTC(parts[0], parts[1] - 1 + offset, 1));\n  const lastDay = (dt) => new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();\n  const raw = String(text || \"\");\n  let m = raw.match(/(?:^|\\s)(그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({그끄저께:-3,그끄제:-3,엊그저께:-2,엊그제:-2,그저께:-2,그제:-2,어젯밤:-1,엊저녁:-1,어제:-1,전날:-1,내일:1,모레:2}[m[1]] || 0)); return now.toISOString().slice(0, 10); }\n  m = raw.match(/(?:^|\\s)(하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(전|후)(?=\\s|$)/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({하루:1,이틀:2,사흘:3,나흘:4,닷새:5,엿새:6,이레:7,열흘:10,보름:15}[m[1]]) * (m[2] === \"전\" ? -1 : 1)); return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate()); }\n  m = raw.match(/(?:^|\\s)(\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(일|주일|주|달|개월)\\s*(전|후)(?=\\s|$)/);\n  if (m) {\n    const count = /^\\d+$/.test(m[1]) ? Number(m[1]) : {한:1,두:2,세:3,네:4,일:1,이:2,삼:3,사:4}[m[1]];\n    const sign = m[3] === \"전\" ? -1 : 1;\n    if (m[2] === \"달\" || m[2] === \"개월\") { const dt = monthStart(count * sign); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Math.min(parts[2], lastDay(dt))); }\n    now.setUTCDate(now.getUTCDate() + count * (m[2] === \"일\" ? 1 : 7) * sign);\n    return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());\n  }\n  m = raw.match(/(?:(지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*)?말일/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }\n  m = raw.match(/(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*(\\d{1,2})\\s*일?/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }\n  m = raw.match(/(?:^|\\s)(20\\d{2})(\\d{2})(\\d{2})(?=\\s|$)/);\n  if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));\n  m = raw.match(/(?:^|\\s)(20\\d{2})[.\\-/년]\\s*(\\d{1,2})[.\\-/월]\\s*(\\d{1,2})/);\n  if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*(\\d{1,2})\\s*(?:월\\s*|[./])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])/);\n  if (m) return valid(parts[0] + ({재작년:-2,작년:-1,지난해:-1,올해:0,금년:0,내년:1,다음해:1}[m[1].replace(/\\s+/g, \"\")] || 0), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(\\d{1,2})\\s*(?:월\\s*|[./-])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])(?!\\s*[억만천백십원])/);\n  if (m) {\n    const thisYear = valid(parts[0], Number(m[1]), Number(m[2]));\n    if (thisYear && (Date.UTC(parts[0], Number(m[1]) - 1, Number(m[2])) - Date.UTC(parts[0], parts[1] - 1, parts[2])) / 86400000 > 183) return valid(parts[0] - 1, Number(m[1]), Number(m[2]));\n    return thisYear;\n  }\n  m = raw.match(/(?:^|\\s)(\\d{1,2})일(?=\\s|$)/);\n  if (m) return valid(parts[0], parts[1], Number(m[1]));\n  m = raw.match(/(?:(지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주)\\s*)?([월화수목금토일])요일/);\n  if (!m) return \"\";\n  const monday = (index) => (index + 6) % 7;\n  const target = monday(\"일월화수목금토\".indexOf(m[2])), current = monday(now.getUTCDay());\n  const scope = String(m[1] || \"\").replace(/\\s+/g, \"\");\n  const offset = scope === \"이번주\" || scope === \"금주\" ? target - current\n    : scope === \"다음주\" || scope === \"내주\" ? target - current + 7\n      : scope ? target - current - 7\n        : -((current - target + 7) % 7);\n  now.setUTCDate(now.getUTCDate() + offset);\n  return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());\n}\nfunction explicitDateIntent(text = \"\") {\n  const raw = String(text || \"\");\n  if (/(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/(?:^|\\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/[월화수목금토일]요일/.test(raw)) return true;\n  if (/말일/.test(raw)) return true;\n  if (/(?:^|\\s)(?:재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*\\d{1,2}\\s*(?:월|[./-])/.test(raw)) return true;\n  return /(?:^|\\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))|(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*\\d{1,2}|(?:^|\\s)20\\d{2}(?:[.\\-/년]\\s*\\d{1,2}|\\d{4}(?=\\s|$))|(?:^|\\s)\\d{1,2}\\s*월\\s*\\d{1,2}|(?:^|\\s)\\d{1,2}[./-]\\d{1,2}(?!\\d|\\s*[억만천백십원])|(?:^|\\s)\\d{1,2}일(?=\\s|$)/.test(raw);\n}\nfunction parseMobileAmountText(text = \"\") {\n  const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;\n}\n(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (function quickSmartInputController(config) {\n  const byId = id => document.getElementById(id);\n  const smart = byId(\"smartInput\"), amount = byId(\"amountInput\"), date = byId(\"txDate\"), after = byId(\"quickAfter\");\n  const form = amount?.closest(\"form\");\n  const initialDate = date?.value || \"\";\n  const baseMessage = after?.textContent || \"저장 전 입력 내용을 확인하세요.\";\n  let scope = {};\n  try { const data=JSON.parse(after?.getAttribute(\"data-bsc\") || \"[]\"); scope={month:form?.querySelector?.('input[name=\"month\"]')?.value || \"\",today:String(data[0] || \"\").replace(/^(\\d{4})(\\d{2})(\\d{2})$/,\"$1-$2-$3\"),basis:Array.isArray(data[1])?\"category\":data[1]===0?\"total\":\"unknown\",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}\n  const loadedAt = Date.now(), serverToday = scope.today || initialDate;\n  const todayNow = () => {\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(serverToday)) return serverToday;\n    const kstDay = ms => Math.floor((ms + 32400000) / 86400000);\n    const shift = kstDay(Date.now()) - kstDay(loadedAt);\n    if (!shift) return serverToday;\n    const p = serverToday.split(\"-\").map(Number);\n    return new Date(Date.UTC(p[0], p[1] - 1, p[2] + shift)).toISOString().slice(0, 10);\n  };\n  const defaultDate = () => initialDate === serverToday ? todayNow() : initialDate;\n  const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};\n  let invalidAmount = false, invalidDate = false, confirmType = false;\n  const markers = Object.create(null);\n  for (const key of [\"amount\",\"date\",\"type\"]) {\n    if (form && document.createElement && form.appendChild) {\n      const input = document.createElement(\"input\"); input.type=\"hidden\"; input.name=\"quick_manual_\"+key; input.value=\"0\"; form.appendChild(input); markers[key]=input;\n    }\n  }\n  const cleanNumber = () => quickAmountFieldState(amount).value;\n  const validAmount = () => quickAmountFieldState(amount).valid;\n  const validDate = () => /^20\\d{2}-\\d{2}-\\d{2}$/.test(date?.value || \"\") && config.date(date.value,todayNow())===date.value;\n  const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:\"\"); field.setAttribute(\"aria-invalid\",bad?\"true\":\"false\"); };\n  function preview() {\n    if (!after) return;\n    after.setAttribute(\"aria-live\",\"polite\");\n    if (confirmType && !manual.type) { after.textContent=\"결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.\"; return; }\n    if (classificationPending) { after.textContent=\"현재 가계부의 분류를 확인하고 있습니다.\"; return; }\n    if (classificationFailed) { after.textContent=\"분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요.\"; return; }\n    if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? \"금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요.\" : \"달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요.\"; return; }\n    const value=cleanNumber();\n    if (!value || !validAmount()) { after.textContent=baseMessage; return; }\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    if (income) { after.textContent=\"수입으로 저장합니다. 지출 예산을 차감하지 않습니다.\"; return; }\n    const category=byId(\"catInput\")?.value || \"\";\n    if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis===\"unknown\") { after.textContent=\"기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다.\"; return; }\n    if (scope.basis===\"category\" && !(scope.cats || []).includes(category)) { after.textContent=\"예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다.\"; return; }\n    if (after.getAttribute(\"data-has-budget\")!==\"1\") { after.textContent=\"기록을 저장한 뒤 예산을 설정할 수 있습니다.\"; return; }\n    const remain=Math.max(0,Number(after.getAttribute(\"data-remaining\") || 0)-value);\n    const money=value=>new Intl.NumberFormat(\"ko-KR\").format(value)+\"원\";\n    after.textContent=\"저장하면 남은 예산 \"+money(remain);\n    if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split(\"-\").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=\" · 하루 \"+money(Math.floor(remain/days)); }\n  }\n  function complete() {\n    preview(); config.sync?.();\n    if (typeof Event === \"function\") document.dispatchEvent?.(new Event(\"ab:quick-update\"));\n  }\n  function apply(clearInput) {\n    const text=smart?.value.trim(); if (!text) return;\n    const value=config.amount(text), parsedDate=config.date(text,todayNow());\n    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);\n    confirmType=/(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    const token=moneyTokenSpans(text)[0]?.raw || \"\";\n    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat(\"ko-KR\").format(value) : \"\"; invalidAmount=!value; }\n    else invalidAmount=!validAmount();\n    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?\"\":defaultDate()); invalidDate=explicitDateIntent(text) && !parsedDate; }\n    else invalidDate=!validDate();\n    const radio=document.querySelector('input[name=type][value=\"'+type+'\"]'); if (radio&&!manual.type) radio.checked=true;\n    if (!manual.memo&&byId(\"memoInput\")) byId(\"memoInput\").value=config.memo(text,token,payment,category);\n    if (!manual.payment&&byId(\"payInput\")) byId(\"payInput\").value=payment;\n    if (!manual.category&&byId(\"catInput\")) byId(\"catInput\").value=category;\n    if (byId(\"rawTextInput\")) byId(\"rawTextInput\").value=text;\n    setValidity(amount,invalidAmount,\"유효한 금액을 입력하세요.\"); setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\");\n    if (clearInput) smart.value=\"\";\n    resolveCategory(); complete();\n  }\n  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false;\n  function resolveCategory() {\n    const sequence=++classificationSequence;\n    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;\n    if (manual.category) return;\n    const memo=byId(\"memoInput\")?.value || \"\", raw=byId(\"rawTextInput\")?.value || \"\";\n    if (!memo && !raw) return;\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    const household=form?.querySelector('input[name=\"household_id\"]')?.value || \"\";\n    if (!household || typeof fetch!==\"function\") { if(byId(\"catInput\"))byId(\"catInput\").value=config.category([raw,memo].filter(Boolean).join(\" \"),income?\"income\":\"expense\"); return; }\n    if(byId(\"catInput\"))byId(\"catInput\").value=\"\";\n    classificationPending=true;\n    classificationTimer=setTimeout(async()=>{\n      const controller=typeof AbortController===\"function\" ? new AbortController() : null;\n      const timeout=controller?setTimeout(()=>controller.abort(),8000):0;\n      try {\n        const response=await fetch(\"/u/api/input-classification\",{method:\"POST\",credentials:\"same-origin\",headers:{\"content-type\":\"application/json\",accept:\"application/json\"},body:JSON.stringify({household_id:household,type:income?\"income\":\"expense\",raw_text:raw,memo}),signal:controller?.signal});\n        if(!response.ok)throw new Error(\"classification_unavailable\");\n        const data=await response.json();\n        if(!data.ok || data.household_id!==household || typeof data.category!==\"string\")throw new Error(\"classification_invalid\");\n        if(sequence===classificationSequence && !manual.category && byId(\"catInput\"))byId(\"catInput\").value=data.category;\n      } catch(_error) { if(sequence===classificationSequence)classificationFailed=true; }\n      finally { clearTimeout(timeout); if(sequence===classificationSequence){classificationPending=false;complete();} }\n    },250);\n  }\n  let amountComposing = false;\n  for (const [id,key] of [[\"amountInput\",\"amount\"],[\"txDate\",\"date\"],[\"catInput\",\"category\"],[\"payInput\",\"payment\"],[\"memoInput\",\"memo\"]]) {\n    const field=byId(id); if (!field) continue;\n    const changed=(event)=>{\n      if (key === \"amount\" && (amountComposing || event?.isComposing)) return;\n      if (key === \"amount\") invalidAmount = !quickAmountFieldState(amount, true).valid;\n      if (!event?.detail?.abQuickDefault) {\n        manual[key]=true; if(markers[key])markers[key].value=\"1\";\n        if(key===\"date\")invalidDate=!validDate();\n        if(key===\"memo\"||key===\"category\")resolveCategory();\n      }\n      setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n      setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\"); complete();\n    };\n    if (key === \"amount\") {\n      field.addEventListener(\"compositionstart\", () => { amountComposing = true; });\n      field.addEventListener(\"compositionend\", event => { amountComposing = false; changed(event); });\n    }\n    field.addEventListener(\"input\",changed); field.addEventListener(\"change\",changed);\n  }\n  document.querySelectorAll(\"input[name=type]\").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value=\"1\";resolveCategory();complete();};field.addEventListener(\"change\",changed);field.addEventListener(\"click\",changed);});\n  form?.addEventListener(\"submit\",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");complete();}});\n  return {apply,preview};\n})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}\n\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();","etag":"\"mobile-home-v22950-js\"","contentType":"text/javascript; charset=utf-8"},
   "/assets/mobile-home-shell-v22950.js": {"body":"window.AB_CATEGORY_RULES=[{\"name\":\"급여\",\"type\":\"income\",\"weight\":100,\"words\":[\"급여\",\"월급\",\"상여\",\"상여금\",\"보너스\",\"성과급\",\"수당\",\"연봉\",\"알바비\",\"일당\"]},{\"name\":\"용돈\",\"type\":\"income\",\"weight\":92,\"words\":[\"용돈\",\"축하금\",\"받은돈\"]},{\"name\":\"환급\",\"type\":\"income\",\"weight\":90,\"words\":[\"환급\",\"캐시백\",\"환불\",\"돌려받\",\"돌려\",\"정산받\",\"반환\"]},{\"name\":\"이자배당\",\"type\":\"income\",\"weight\":88,\"words\":[\"이자\",\"배당\",\"예금이자\",\"주식배당\"]},{\"name\":\"부업/매출\",\"type\":\"income\",\"weight\":70,\"words\":[\"부업\",\"부수입\",\"매출\",\"판매\",\"수익\",\"원고료\",\"강의료\"]},{\"name\":\"주거/월세\",\"type\":\"expense\",\"weight\":100,\"words\":[\"월세\",\"전세\",\"전월세\",\"임대료\",\"집세\",\"주택\",\"원룸\",\"부동산\"]},{\"name\":\"관리비\",\"type\":\"expense\",\"weight\":99,\"words\":[\"관리비\",\"아파트관리\"]},{\"name\":\"대출/이자\",\"type\":\"expense\",\"weight\":98,\"words\":[\"대출\",\"대출이자\",\"원리금\",\"상환\",\"할부이자\"]},{\"name\":\"저축/투자\",\"type\":\"expense\",\"weight\":97,\"words\":[\"저축\",\"적금\",\"예금\",\"투자\",\"주식\",\"펀드\",\"연금\",\"청약\"]},{\"name\":\"공과금\",\"type\":\"expense\",\"weight\":96,\"words\":[\"공과금\",\"전기\",\"전기세\",\"가스\",\"가스비\",\"수도\",\"수도세\",\"도시가스\"]},{\"name\":\"통신비\",\"type\":\"expense\",\"weight\":95,\"words\":[\"통신\",\"통신비\",\"핸드폰\",\"휴대폰\",\"휴대전화\",\"인터넷\",\"와이파이\",\"알뜰폰\",\"유플러스\",\"lg유플러스\"],\"exact\":[\"kt\",\"skt\"]},{\"name\":\"보험\",\"type\":\"expense\",\"weight\":94,\"words\":[\"보험\",\"보험료\",\"실비\",\"암보험\",\"화재보험\",\"자동차보험\"]},{\"name\":\"약국\",\"type\":\"expense\",\"weight\":92,\"words\":[\"약국\",\"약값\",\"의약품\",\"처방\",\"영양제\"]},{\"name\":\"의료/병원\",\"type\":\"expense\",\"weight\":90,\"words\":[\"병원\",\"의원\",\"치과\",\"안과\",\"내과\",\"피부과\",\"한의원\",\"소아과\",\"진료\",\"검진\",\"의료\",\"렌즈\",\"콘택트\"]},{\"name\":\"차량관리\",\"type\":\"expense\",\"weight\":89,\"words\":[\"세차\",\"정비\",\"엔진오일\",\"타이어\",\"주차\",\"주차비\",\"하이패스\",\"톨비\",\"카센터\",\"대리운전\"]},{\"name\":\"주유/충전\",\"type\":\"expense\",\"weight\":88,\"words\":[\"주유\",\"휘발유\",\"경유\",\"기름\",\"충전소\",\"전기차충전\"],\"exact\":[\"ev\"]},{\"name\":\"택시\",\"type\":\"expense\",\"weight\":87,\"words\":[\"택시\",\"카카오t\",\"타다\"]},{\"name\":\"교통\",\"type\":\"expense\",\"weight\":86,\"words\":[\"교통\",\"버스\",\"지하철\",\"기차\",\"ktx\",\"srt\",\"티머니\",\"캐시비\"]},{\"name\":\"구독\",\"type\":\"expense\",\"weight\":85,\"words\":[\"구독\",\"넷플릭스\",\"유튜브\",\"유튜브고급\",\"멤버십\",\"멜론\",\"디즈니\",\"쿠팡와우\",\"스포티파이\",\"왓챠\",\"티빙\",\"웨이브\",\"애플뮤직\",\"클라우드\"]},{\"name\":\"배달\",\"type\":\"expense\",\"weight\":84,\"words\":[\"배달\",\"배민\",\"요기요\",\"쿠팡이츠\"]},{\"name\":\"편의점\",\"type\":\"expense\",\"weight\":83,\"words\":[\"편의점\",\"gs25\",\"세븐일레븐\",\"이마트24\"],\"exact\":[\"cu\"]},{\"name\":\"장보기\",\"type\":\"expense\",\"weight\":82,\"words\":[\"마트\",\"이마트\",\"홈플러스\",\"롯데마트\",\"코스트코\",\"트레이더스\",\"시장\",\"농협\",\"장보기\",\"슈퍼\",\"마켓\",\"식료품\",\"식자재\",\"식재료\",\"쌀\",\"시리얼\",\"반찬\",\"김자반\"]},{\"name\":\"카페/간식\",\"type\":\"expense\",\"weight\":80,\"words\":[\"커피\",\"카페\",\"스타벅스\",\"스벅\",\"이디야\",\"투썸\",\"메가커피\",\"컴포즈\",\"빽다방\",\"간식\",\"빵\",\"디저트\",\"베이커리\",\"과자\",\"아이스크림\",\"마시멜로우\",\"초콜릿\",\"젤리\"]},{\"name\":\"외식\",\"type\":\"expense\",\"weight\":78,\"words\":[\"외식\",\"식당\",\"점심\",\"저녁\",\"아침\",\"밥\",\"식사\",\"김밥\",\"라면\",\"치킨\",\"피자\",\"햄버거\",\"버거\",\"맥도날드\",\"국밥\",\"분식\",\"고기\",\"회식\",\"음식\",\"술\",\"맥주\",\"소주\",\"와인\"]},{\"name\":\"육아/자녀\",\"type\":\"expense\",\"weight\":76,\"words\":[\"육아\",\"어린이집\",\"유치원\",\"기저귀\",\"분유\",\"장난감\",\"아이\",\"키즈\",\"학습지\",\"어린이\",\"아동\",\"유아\",\"아기\",\"이유식\"]},{\"name\":\"교육/학습\",\"type\":\"expense\",\"weight\":75,\"words\":[\"교육\",\"학원\",\"수업\",\"수강\",\"강의\",\"교재\",\"학교\",\"인강\",\"문제집\",\"자격증\",\"등록금\",\"공부\"]},{\"name\":\"도서\",\"type\":\"expense\",\"weight\":74,\"words\":[\"책\",\"도서\",\"서점\",\"교보\",\"알라딘\",\"예스24\"]},{\"name\":\"생활용품\",\"type\":\"expense\",\"weight\":72,\"words\":[\"생활용품\",\"다이소\",\"문구\",\"세제\",\"휴지\",\"샴푸\",\"풋샴푸\",\"린스\",\"비누\",\"치약\",\"칫솔\",\"청소\",\"주방\",\"소모품\",\"건전지\",\"수납\",\"온열안대\",\"안대\",\"식기\"]},{\"name\":\"의류/잡화\",\"type\":\"expense\",\"weight\":71,\"words\":[\"옷\",\"의류\",\"신발\",\"가방\",\"잡화\",\"패션\"]},{\"name\":\"미용\",\"type\":\"expense\",\"weight\":70,\"words\":[\"미용\",\"미용실\",\"헤어\",\"커트\",\"염색\",\"네일\",\"피부관리\",\"마사지\",\"화장품\",\"올리브영\"]},{\"name\":\"쇼핑\",\"type\":\"expense\",\"weight\":68,\"words\":[\"쇼핑\",\"쿠팡\",\"네이버쇼핑\",\"11번가\",\"g마켓\",\"옥션\",\"무신사\",\"구매\",\"샀\",\"주문\",\"택배\"]},{\"name\":\"운동\",\"type\":\"expense\",\"weight\":66,\"words\":[\"헬스\",\"운동\",\"필라테스\",\"요가\",\"골프\",\"수영\"]},{\"name\":\"여행\",\"type\":\"expense\",\"weight\":65,\"words\":[\"여행\",\"호텔\",\"숙박\",\"항공\",\"리조트\",\"펜션\",\"캠핑\"]},{\"name\":\"문화/여가\",\"type\":\"expense\",\"weight\":64,\"words\":[\"영화\",\"공연\",\"전시\",\"게임\",\"노래방\",\"취미\",\"놀이\",\"콘서트\"]},{\"name\":\"경조사/선물\",\"type\":\"expense\",\"weight\":63,\"words\":[\"축의금\",\"부의금\",\"조의금\",\"경조사\",\"선물\",\"생일\",\"명절\",\"용돈드림\",\"화환\"]},{\"name\":\"반려동물\",\"type\":\"expense\",\"weight\":62,\"words\":[\"강아지\",\"고양이\",\"반려\",\"사료\",\"동물병원\",\"애견\",\"애묘\",\"배변패드\",\"펫\"]},{\"name\":\"세금/수수료\",\"type\":\"expense\",\"weight\":58,\"words\":[\"세금\",\"자동차세\",\"재산세\",\"종부세\",\"부가세\",\"수수료\",\"과태료\",\"벌금\"]}];window.AB_TYPE_HINTS={\"income\":\"수입|입금|급여|월급|상여|보너스|용돈\\\\s*받|받았|환급\\\\s*받|환불(?!\\\\s*수수료)|이자|배당|매출|정산\\\\s*받|돌려받|들어왔|들어옴|입금됨\",\"expense\":\"지출|사용|결제|구매|썼|썻|샀|냈|납부|출금|자동이체|송금|카드|현금|삼성페이|카카오페이|토스|계좌이체|빠져나감|빠져나갔|나감\",\"incomeCategory\":\"급여|월급|상여|보너스|수당|용돈|환급|캐시백|이자|배당|정산금|부업|알바비|매출\"};\nfunction quickAmountFieldState(field, normalize = false) {\n  const raw = String(field?.value || \"\");\n  const match = raw.match(/^\\s*(?:[₩￦]\\s*)?(\\d+(?:,\\d+)*)(?:\\s*원)?\\s*$/);\n  const value = match ? Number(match[1].replace(/,/g, \"\")) : 0;\n  const valid = !!match && Number.isSafeInteger(value) && value > 0 && value <= 2000000000;\n  if (normalize && field) {\n    if (valid) {\n      const start = field.selectionStart, end = field.selectionEnd;\n      const digits = position => raw.slice(0, position).replace(/\\D/g, \"\").length;\n      const formatted = value.toLocaleString(\"ko-KR\");\n      const position = count => {\n        if (!count) return 0;\n        let seen = 0;\n        for (let i = 0; i < formatted.length; i++) if (/\\d/.test(formatted[i]) && ++seen === count) return i + 1;\n        return formatted.length;\n      };\n      if (raw !== formatted) {\n        field.value = formatted;\n        if (document.activeElement === field && start != null && end != null) {\n          try { field.setSelectionRange(position(digits(start)), position(digits(end))); } catch (_error) {}\n        }\n      }\n    }\n    field.setCustomValidity?.(valid ? \"\" : \"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n    field.setAttribute(\"aria-invalid\", valid ? \"false\" : \"true\");\n  }\n  return { valid, value: valid ? value : 0 };\n}\nfunction moneyTokenSpans(text = \"\") {\n  const source = String(text || \"\").replace(/[₩￦]/g, \"원\");\n  if (/\\d+,\\d{1,2}(?!\\d)/.test(source)) return [];\n  const excluded = [...source.matchAll(/\\b01[016789][ -]?\\d{3,4}[ -]?\\d{4}\\b|\\b20\\d{6}\\b|\\b20\\d{2}[./-]\\d{1,2}[./-]\\d{1,2}\\b|\\b\\d{1,2}[./-]\\d{1,2}\\b(?!\\s*[억만천백십원])|\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b|\\(\\s*\\d{2,4}\\s*\\)|\\d{2,4}(?:[-\\s]?[*＊xX]{2,})+(?:[-\\s]?\\d{2,4})?|[*＊xX]{2,}[-\\s]?\\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\\s*\\d{2,4}|(?:누적|잔액|잔고|남은\\s*한도|한도)\\s*:?\\s*[\\d,]+\\s*원?|\\d+(?:\\.\\d+)?\\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);\n  const pattern = /(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\\s*[십백천만억]\\s*(?:\\d+(?:\\.\\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\\s*원?/g;\n  const result = [];\n  for (const match of source.matchAll(pattern)) {\n    const start = match.index, end = start + match[0].trimEnd().length;\n    if (excluded.some(([a, b]) => start < b && end > a)) continue;\n    if (/[A-Za-z\\d,]/.test(source[start - 1] || \"\") || /[A-Za-z\\d,]/.test(source[end] || \"\")) continue;\n    let raw = match[0].trim();\n    // Words such as 만두 and 천원샵 are not Korean money expressions.\n    if (!/\\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;\n    if (!/\\d/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\\s|$)/.test(source.slice(end))) continue;\n    // Unitless quantities and product model numbers must not create extra transactions.\n    if (/^\\d+$/.test(raw) && (/^\\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\\s*$/.test(source.slice(0, start)))) continue;\n    if (/[가-힣]/.test(source[start-1] || \"\") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {\n      const stem = source.slice(0,start).trim().split(/\\s+/).pop() || \"\";\n      const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;\n      if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;\n    }\n    if (/^\\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || \"\")) continue;\n    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    if (!/[\\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;\n    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || \"\") && !/^(?:랑|하고)(?=\\s)/.test(source.slice(end))) continue;\n    const body = raw.replace(/[\\s,원]/g, \"\").replace(/하나|한/g, \"일\").replace(/둘|두/g, \"이\").replace(/셋|세/g, \"삼\").replace(/넷|네/g, \"사\").replace(/다섯/g, \"오\").replace(/여섯/g, \"육\").replace(/일곱/g, \"칠\").replace(/여덟/g, \"팔\").replace(/아홉/g, \"구\");\n    const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};\n    let sum = 0, section = 0, number = \"\";\n    for (const token of body.match(/\\d+(?:\\.\\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || []) {\n      if (/^[\\d.]+$/.test(token)) number += token;\n      else if (token in digit) number += digit[token];\n      else if (token === \"만\" || token === \"억\") { section += Number(number || 0); sum += (section || 1) * (token === \"억\" ? 100000000 : 10000); section = 0; number = \"\"; }\n      else { section += Number(number || 1) * ({십:10,백:100,천:1000}[token]); number = \"\"; }\n    }\n    const amount = Math.round(sum + section + Number(number || 0));\n    if (Number.isSafeInteger(amount) && amount > 0) result.push({start, end: start + raw.length, raw, amount});\n  }\n  return result;\n}\nfunction transactionTypeFromText(text = \"\", rules = []) {\n  const raw = String(text || \"\").trim();\n  if (/(?:^|\\s)환불\\s*(?:수수료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:^|\\s)환불(?:\\s*(?:완료|됨|금|처리|입금))?(?=\\s|\\d|$)|(?:^|\\s)반품(?=\\s|\\d|$)|환급|돌려받/.test(raw)) return \"income\";\n  if (/(?:적금|예금|저축|투자)\\s*(?:입금|이체|납입|송금)/.test(raw)) return \"expense\";\n  if (/(?:용돈|세뱃돈)\\s*(?:지급|송금|이체|줌|줬|드림)|(?:남편|아내|와이프|배우자)\\s*(?:용돈|세뱃돈)/.test(raw) && !/(?:받음|받았|받은)/.test(raw)) return \"expense\";\n  if (/(?:받음|받았|들어옴|들어온)|(?:돈|급여|월급|용돈|수당|정산금|대금)\\s*(?:받은|받기)|받은\\s*(?:돈|급여|월급|용돈|수당|정산금|대금)/.test(raw)) return \"income\";\n  if (/(?:대출|카드|할부|연체)\\s*이자|무이자/.test(raw)) return \"expense\";\n  if (/(?:수수료|중개료|배송비)/.test(raw)) return \"expense\";\n  if (/(?:부모님|엄마|아빠|어머니|아버지|어머님|아버님|장모님|장인어른|장인|시어머니|시아버지|할머니|할아버지|조카|아이|애들|아들|딸|자녀|손주|손자|손녀|동생)\\s*(?:용돈|세뱃돈)|(?:용돈|세뱃돈)\\s*(?:줌|줬|준|주었|드림|드렸|드린|보냄|보냈)/.test(raw)) return \"expense\";\n  for (const rule of Array.isArray(rules) ? rules : []) {\n    if (rule.type !== \"income\") continue;\n    if ((rule.words || []).some(word => new RegExp(\"(?:^|\\\\s)\" + String(word).replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\") + \"(?=\\\\s|\\\\d|$)\").test(raw))) return \"income\";\n  }\n  if (/(?:^|\\s)(?:수입|입금|급여|월급|매출|판매|중고\\s*판매|세뱃돈|상여|보너스|배당|이자수입|이자|용돈수입|용돈|수당|캐시백|월세수입)(?=\\s|\\d|[일이삼사오육칠팔구십백천만억]|$)/.test(raw)) return \"income\";\n  return \"expense\";\n}\nfunction quickInputDate(text = \"\", today = \"\") {\n  const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split(\"-\").map(Number);\n  const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));\n  const valid = (y, m, d) => { const dt = new Date(Date.UTC(y, m - 1, d)); return y >= 2000 && y <= 2099 && dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? dt.toISOString().slice(0, 10) : \"\"; };\n  const monthStart = (offset) => new Date(Date.UTC(parts[0], parts[1] - 1 + offset, 1));\n  const lastDay = (dt) => new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();\n  const raw = String(text || \"\");\n  let m = raw.match(/(?:^|\\s)(그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({그끄저께:-3,그끄제:-3,엊그저께:-2,엊그제:-2,그저께:-2,그제:-2,어젯밤:-1,엊저녁:-1,어제:-1,전날:-1,내일:1,모레:2}[m[1]] || 0)); return now.toISOString().slice(0, 10); }\n  m = raw.match(/(?:^|\\s)(하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(전|후)(?=\\s|$)/);\n  if (m) { now.setUTCDate(now.getUTCDate() + ({하루:1,이틀:2,사흘:3,나흘:4,닷새:5,엿새:6,이레:7,열흘:10,보름:15}[m[1]]) * (m[2] === \"전\" ? -1 : 1)); return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate()); }\n  m = raw.match(/(?:^|\\s)(\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(일|주일|주|달|개월)\\s*(전|후)(?=\\s|$)/);\n  if (m) {\n    const count = /^\\d+$/.test(m[1]) ? Number(m[1]) : {한:1,두:2,세:3,네:4,일:1,이:2,삼:3,사:4}[m[1]];\n    const sign = m[3] === \"전\" ? -1 : 1;\n    if (m[2] === \"달\" || m[2] === \"개월\") { const dt = monthStart(count * sign); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Math.min(parts[2], lastDay(dt))); }\n    now.setUTCDate(now.getUTCDate() + count * (m[2] === \"일\" ? 1 : 7) * sign);\n    return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());\n  }\n  m = raw.match(/(?:(지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*)?말일/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }\n  m = raw.match(/(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*(\\d{1,2})\\s*일?/);\n  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }\n  m = raw.match(/(?:^|\\s)(20\\d{2})(\\d{2})(\\d{2})(?=\\s|$)/);\n  if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));\n  m = raw.match(/(?:^|\\s)(20\\d{2})[.\\-/년]\\s*(\\d{1,2})[.\\-/월]\\s*(\\d{1,2})/);\n  if (m) return valid(Number(m[1]), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*(\\d{1,2})\\s*(?:월\\s*|[./])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])/);\n  if (m) return valid(parts[0] + ({재작년:-2,작년:-1,지난해:-1,올해:0,금년:0,내년:1,다음해:1}[m[1].replace(/\\s+/g, \"\")] || 0), Number(m[2]), Number(m[3]));\n  m = raw.match(/(?:^|\\s)(\\d{1,2})\\s*(?:월\\s*|[./-])(\\d{1,2})\\s*일?(?=\\s|$|[.,!?])(?!\\s*[억만천백십원])/);\n  if (m) {\n    const thisYear = valid(parts[0], Number(m[1]), Number(m[2]));\n    if (thisYear && (Date.UTC(parts[0], Number(m[1]) - 1, Number(m[2])) - Date.UTC(parts[0], parts[1] - 1, parts[2])) / 86400000 > 183) return valid(parts[0] - 1, Number(m[1]), Number(m[2]));\n    return thisYear;\n  }\n  m = raw.match(/(?:^|\\s)(\\d{1,2})일(?=\\s|$)/);\n  if (m) return valid(parts[0], parts[1], Number(m[1]));\n  m = raw.match(/(?:(지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주)\\s*)?([월화수목금토일])요일/);\n  if (!m) return \"\";\n  const monday = (index) => (index + 6) % 7;\n  const target = monday(\"일월화수목금토\".indexOf(m[2])), current = monday(now.getUTCDay());\n  const scope = String(m[1] || \"\").replace(/\\s+/g, \"\");\n  const offset = scope === \"이번주\" || scope === \"금주\" ? target - current\n    : scope === \"다음주\" || scope === \"내주\" ? target - current + 7\n      : scope ? target - current - 7\n        : -((current - target + 7) % 7);\n  now.setUTCDate(now.getUTCDate() + offset);\n  return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());\n}\nfunction explicitDateIntent(text = \"\") {\n  const raw = String(text || \"\");\n  if (/(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/(?:^|\\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*(?:전|후)(?=\\s|$)/.test(raw)) return true;\n  if (/[월화수목금토일]요일/.test(raw)) return true;\n  if (/말일/.test(raw)) return true;\n  if (/(?:^|\\s)(?:재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*\\d{1,2}\\s*(?:월|[./-])/.test(raw)) return true;\n  return /(?:^|\\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\\s|$))|(?:지난\\s*달|저번\\s*달|이번\\s*달|다음\\s*달|이달|담달)\\s*\\d{1,2}|(?:^|\\s)20\\d{2}(?:[.\\-/년]\\s*\\d{1,2}|\\d{4}(?=\\s|$))|(?:^|\\s)\\d{1,2}\\s*월\\s*\\d{1,2}|(?:^|\\s)\\d{1,2}[./-]\\d{1,2}(?!\\d|\\s*[억만천백십원])|(?:^|\\s)\\d{1,2}일(?=\\s|$)/.test(raw);\n}\nfunction parseMobileAmountText(text = \"\") {\n  const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;\n}\n(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+`|\\\\{}\\[\\]:;\"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (function quickSmartInputController(config) {\n  const byId = id => document.getElementById(id);\n  const smart = byId(\"smartInput\"), amount = byId(\"amountInput\"), date = byId(\"txDate\"), after = byId(\"quickAfter\");\n  const form = amount?.closest(\"form\");\n  const initialDate = date?.value || \"\";\n  const baseMessage = after?.textContent || \"저장 전 입력 내용을 확인하세요.\";\n  let scope = {};\n  try { const data=JSON.parse(after?.getAttribute(\"data-bsc\") || \"[]\"); scope={month:form?.querySelector?.('input[name=\"month\"]')?.value || \"\",today:String(data[0] || \"\").replace(/^(\\d{4})(\\d{2})(\\d{2})$/,\"$1-$2-$3\"),basis:Array.isArray(data[1])?\"category\":data[1]===0?\"total\":\"unknown\",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}\n  const loadedAt = Date.now(), serverToday = scope.today || initialDate;\n  const todayNow = () => {\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(serverToday)) return serverToday;\n    const kstDay = ms => Math.floor((ms + 32400000) / 86400000);\n    const shift = kstDay(Date.now()) - kstDay(loadedAt);\n    if (!shift) return serverToday;\n    const p = serverToday.split(\"-\").map(Number);\n    return new Date(Date.UTC(p[0], p[1] - 1, p[2] + shift)).toISOString().slice(0, 10);\n  };\n  const defaultDate = () => initialDate === serverToday ? todayNow() : initialDate;\n  const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};\n  let invalidAmount = false, invalidDate = false, confirmType = false;\n  const markers = Object.create(null);\n  for (const key of [\"amount\",\"date\",\"type\"]) {\n    if (form && document.createElement && form.appendChild) {\n      const input = document.createElement(\"input\"); input.type=\"hidden\"; input.name=\"quick_manual_\"+key; input.value=\"0\"; form.appendChild(input); markers[key]=input;\n    }\n  }\n  const cleanNumber = () => quickAmountFieldState(amount).value;\n  const validAmount = () => quickAmountFieldState(amount).valid;\n  const validDate = () => /^20\\d{2}-\\d{2}-\\d{2}$/.test(date?.value || \"\") && config.date(date.value,todayNow())===date.value;\n  const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:\"\"); field.setAttribute(\"aria-invalid\",bad?\"true\":\"false\"); };\n  function preview() {\n    if (!after) return;\n    after.setAttribute(\"aria-live\",\"polite\");\n    if (confirmType && !manual.type) { after.textContent=\"결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.\"; return; }\n    if (classificationPending) { after.textContent=\"현재 가계부의 분류를 확인하고 있습니다.\"; return; }\n    if (classificationFailed) { after.textContent=\"분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요.\"; return; }\n    if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? \"금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요.\" : \"달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요.\"; return; }\n    const value=cleanNumber();\n    if (!value || !validAmount()) { after.textContent=baseMessage; return; }\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    if (income) { after.textContent=\"수입으로 저장합니다. 지출 예산을 차감하지 않습니다.\"; return; }\n    const category=byId(\"catInput\")?.value || \"\";\n    if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis===\"unknown\") { after.textContent=\"기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다.\"; return; }\n    if (scope.basis===\"category\" && !(scope.cats || []).includes(category)) { after.textContent=\"예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다.\"; return; }\n    if (after.getAttribute(\"data-has-budget\")!==\"1\") { after.textContent=\"기록을 저장한 뒤 예산을 설정할 수 있습니다.\"; return; }\n    const remain=Math.max(0,Number(after.getAttribute(\"data-remaining\") || 0)-value);\n    const money=value=>new Intl.NumberFormat(\"ko-KR\").format(value)+\"원\";\n    after.textContent=\"저장하면 남은 예산 \"+money(remain);\n    if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split(\"-\").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=\" · 하루 \"+money(Math.floor(remain/days)); }\n  }\n  function complete() {\n    preview(); config.sync?.();\n    if (typeof Event === \"function\") document.dispatchEvent?.(new Event(\"ab:quick-update\"));\n  }\n  function apply(clearInput) {\n    const text=smart?.value.trim(); if (!text) return;\n    const value=config.amount(text), parsedDate=config.date(text,todayNow());\n    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);\n    confirmType=/(?:결제|승인)\\s*취소/.test(text) && !/(?:^|\\s)(?:수입|지출)(?=\\s|$)/.test(text);\n    const token=moneyTokenSpans(text)[0]?.raw || \"\";\n    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat(\"ko-KR\").format(value) : \"\"; invalidAmount=!value; }\n    else invalidAmount=!validAmount();\n    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?\"\":defaultDate()); invalidDate=explicitDateIntent(text) && !parsedDate; }\n    else invalidDate=!validDate();\n    const radio=document.querySelector('input[name=type][value=\"'+type+'\"]'); if (radio&&!manual.type) radio.checked=true;\n    if (!manual.memo&&byId(\"memoInput\")) byId(\"memoInput\").value=config.memo(text,token,payment,category);\n    if (!manual.payment&&byId(\"payInput\")) byId(\"payInput\").value=payment;\n    if (!manual.category&&byId(\"catInput\")) byId(\"catInput\").value=category;\n    if (byId(\"rawTextInput\")) byId(\"rawTextInput\").value=text;\n    setValidity(amount,invalidAmount,\"유효한 금액을 입력하세요.\"); setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\");\n    if (clearInput) smart.value=\"\";\n    resolveCategory(); complete();\n  }\n  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false;\n  function resolveCategory() {\n    const sequence=++classificationSequence;\n    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;\n    if (manual.category) return;\n    const memo=byId(\"memoInput\")?.value || \"\", raw=byId(\"rawTextInput\")?.value || \"\";\n    if (!memo && !raw) return;\n    const income=!!document.querySelector(\"input[name=type][value=income]:checked\");\n    const household=form?.querySelector('input[name=\"household_id\"]')?.value || \"\";\n    if (!household || typeof fetch!==\"function\") { if(byId(\"catInput\"))byId(\"catInput\").value=config.category([raw,memo].filter(Boolean).join(\" \"),income?\"income\":\"expense\"); return; }\n    if(byId(\"catInput\"))byId(\"catInput\").value=\"\";\n    classificationPending=true;\n    classificationTimer=setTimeout(async()=>{\n      const controller=typeof AbortController===\"function\" ? new AbortController() : null;\n      const timeout=controller?setTimeout(()=>controller.abort(),8000):0;\n      try {\n        const response=await fetch(\"/u/api/input-classification\",{method:\"POST\",credentials:\"same-origin\",headers:{\"content-type\":\"application/json\",accept:\"application/json\"},body:JSON.stringify({household_id:household,type:income?\"income\":\"expense\",raw_text:raw,memo}),signal:controller?.signal});\n        if(!response.ok)throw new Error(\"classification_unavailable\");\n        const data=await response.json();\n        if(!data.ok || data.household_id!==household || typeof data.category!==\"string\")throw new Error(\"classification_invalid\");\n        if(sequence===classificationSequence && !manual.category && byId(\"catInput\"))byId(\"catInput\").value=data.category;\n      } catch(_error) { if(sequence===classificationSequence)classificationFailed=true; }\n      finally { clearTimeout(timeout); if(sequence===classificationSequence){classificationPending=false;complete();} }\n    },250);\n  }\n  let amountComposing = false;\n  for (const [id,key] of [[\"amountInput\",\"amount\"],[\"txDate\",\"date\"],[\"catInput\",\"category\"],[\"payInput\",\"payment\"],[\"memoInput\",\"memo\"]]) {\n    const field=byId(id); if (!field) continue;\n    const changed=(event)=>{\n      if (key === \"amount\" && (amountComposing || event?.isComposing)) return;\n      if (key === \"amount\") invalidAmount = !quickAmountFieldState(amount, true).valid;\n      if (!event?.detail?.abQuickDefault) {\n        manual[key]=true; if(markers[key])markers[key].value=\"1\";\n        if(key===\"date\")invalidDate=!validDate();\n        if(key===\"memo\"||key===\"category\")resolveCategory();\n      }\n      setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");\n      setValidity(date,invalidDate,\"유효한 날짜를 선택하세요.\"); complete();\n    };\n    if (key === \"amount\") {\n      field.addEventListener(\"compositionstart\", () => { amountComposing = true; });\n      field.addEventListener(\"compositionend\", event => { amountComposing = false; changed(event); });\n    }\n    field.addEventListener(\"input\",changed); field.addEventListener(\"change\",changed);\n  }\n  document.querySelectorAll(\"input[name=type]\").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value=\"1\";resolveCategory();complete();};field.addEventListener(\"change\",changed);field.addEventListener(\"click\",changed);});\n  form?.addEventListener(\"submit\",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,\"1원부터 20억원까지 정수 금액을 입력해 주세요.\");complete();}});\n  return {apply,preview};\n})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}\n\nfunction abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();\n(function mobileShellUiClientMain() {\n  \"use strict\";\n  window.openEdit = function openEdit(id) {\n    const item = document.getElementById(\"tx-\" + String(id || \"\"));\n    if (!item) {\n      location.hash = \"feed\";\n      return;\n    }\n    const details = item.querySelector(\"details\");\n    if (details) details.open = true;\n    item.scrollIntoView({ behavior: \"smooth\", block: \"center\" });\n    const target = details ? details.querySelector(\"summary\") : item;\n    if (target && typeof target.focus === \"function\") target.focus({ preventScroll: true });\n    history.replaceState(null, \"\", \"#tx-\" + String(id || \"\"));\n  };\n\n  function canonicalBottomItems() {\n    const params = new URLSearchParams(location.search);\n    const month = params.get(\"month\") || new Date(Date.now() + 32400000).toISOString().slice(0, 7);\n    const household = params.get(\"household_id\") || \"\";\n    const query = \"month=\" + encodeURIComponent(month) + (household ? \"&household_id=\" + encodeURIComponent(household) : \"\");\n    return [\n      { key: \"home\", icon: \"⌂\", label: \"홈\", href: \"/app?\" + query },\n      { key: \"records\", icon: \"📄\", label: \"기록\", href: \"/app?\" + query + \"&tab=transactions\" },\n      { key: \"add\", icon: \"＋\", label: \"입력\", href: \"/app?\" + query + \"#add\" },\n      { key: \"settlement\", icon: \"↔\", label: \"정산\", href: \"/settlement-summary?\" + query },\n      { key: \"menu\", icon: \"☰\", label: \"메뉴\", href: \"/menu?\" + query },\n    ];\n  }\n\n  function activeBottomKey() {\n    if (location.pathname.indexOf(\"settlement\") >= 0) return \"settlement\";\n    if (location.pathname === \"/menu\" || location.pathname.indexOf(\"/my/profile\") === 0 || location.pathname.indexOf(\"/my/settings\") === 0) return \"menu\";\n    if (location.hash === \"#add\") return \"add\";\n    if (location.pathname === \"/app\" && (location.hash === \"#feed\" || new URLSearchParams(location.search).get(\"tab\") === \"transactions\")) return \"records\";\n    if (location.pathname === \"/app\") return \"home\";\n    return \"\";\n  }\n\n  function fillBottomNav(nav) {\n    const active = activeBottomKey();\n    nav.setAttribute(\"aria-label\", \"주요 메뉴\");\n    nav.innerHTML = canonicalBottomItems().map(function(item) {\n      const on = item.key === active;\n      return '<a data-key=\"' + item.key + '\" class=\"' + (on ? \"active \" : \"\") + (item.key === \"add\" ? \"abPrimary\" : \"\") + '\" ' + (on ? 'aria-current=\"page\"' : \"\") + ' href=\"' + item.href + '\"><i>' + item.icon + \"</i><span>\" + item.label + \"</span></a>\";\n    }).join(\"\");\n  }\n\n  function syncBottomNav(nav) {\n    if (!nav) return;\n    const active = activeBottomKey();\n    Array.from(nav.querySelectorAll(\"a[data-key]\")).forEach(function(link) {\n      const on = link.getAttribute(\"data-key\") === active;\n      link.classList.toggle(\"active\", on);\n      if (on) link.setAttribute(\"aria-current\", \"page\");\n      else link.removeAttribute(\"aria-current\");\n    });\n  }\n\n  const appBottom = document.querySelector(\"nav.bottom\");\n  if (appBottom) {\n    fillBottomNav(appBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(appBottom); });\n    appBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(appBottom); }, 0); });\n  }\n  const unifiedBottom = document.querySelector(\"nav.abNavBottom\");\n  if (unifiedBottom) {\n    unifiedBottom.setAttribute(\"aria-label\", \"주요 메뉴\");\n    syncBottomNav(unifiedBottom);\n    window.addEventListener(\"hashchange\", function() { syncBottomNav(unifiedBottom); });\n    unifiedBottom.addEventListener(\"click\", function() { setTimeout(function() { syncBottomNav(unifiedBottom); }, 0); });\n  }\n  if (!appBottom && !unifiedBottom && document.querySelector(\".appMenu\")) {\n    const nav = document.createElement(\"nav\");\n    nav.className = \"abUxBottom\";\n    fillBottomNav(nav);\n    document.body.appendChild(nav);\n    document.body.classList.add(\"abHasUxBottom\");\n  }\n\n  const mobileToggle = document.querySelector(\".abNavMobileTop button\");\n  const mobileDrawer = document.querySelector(\".abNavMobileDrawer\");\n  if (mobileToggle && mobileDrawer) {\n    mobileDrawer.id = mobileDrawer.id || \"abMobileNavDrawer\";\n    mobileToggle.setAttribute(\"aria-controls\", mobileDrawer.id);\n    const syncExpanded = function() {\n      mobileToggle.setAttribute(\"aria-expanded\", document.body.classList.contains(\"abMobileNavOpen\") ? \"true\" : \"false\");\n    };\n    syncExpanded();\n    new MutationObserver(syncExpanded).observe(document.body, { attributes: true, attributeFilter: [\"class\"] });\n  }\n\n  Array.from(document.querySelectorAll(\".abNavBody, .abNavMobileDrawer\")).forEach(function(nav) {\n    const groups = Array.from(nav.children).filter(function(child) { return child.matches && child.matches(\"details.abNavGroup\"); });\n    groups.forEach(function(group) {\n      group.addEventListener(\"toggle\", function() {\n        if (!group.open) return;\n        groups.forEach(function(other) {\n          if (other !== group) other.open = false;\n        });\n      });\n    });\n  });\n})();\n(function guidedUiUxClientMain() {\n  function labelForControl(form, name) {\n    const control = form && form.querySelector('[name=\"' + name + '\"]');\n    return control && control.closest(\"label\");\n  }\n\n  function improveReservePage() {\n    if (!document.body.classList.contains(\"abPageReserve\")) return;\n    const form = document.querySelector(\".reserveSmartForm\");\n    if (!form || form.dataset.guidedLayout === \"1\") return;\n    form.dataset.guidedLayout = \"1\";\n    const card = form.closest(\".card\");\n    if (card) {\n      card.id = \"reserveAdd\";\n      const heading = card.querySelector(\"h2\");\n      if (heading) heading.textContent = \"정기지출 추가\";\n      const guide = card.querySelector(\".guideLine\");\n      if (guide) guide.innerHTML = \"<b>언제, 얼마가 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부월만 표시됩니다.\";\n    }\n    const primary = document.createElement(\"div\");\n    primary.className = \"reservePrimaryGrid\";\n    [\"name\", \"amount\", \"recurrence\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) primary.appendChild(label);\n    });\n    const schedule = document.createElement(\"div\");\n    schedule.className = \"reserveSchedule\";\n    form.querySelectorAll(\".dueMonth\").forEach(function(label) { schedule.appendChild(label); });\n    const dueDay = labelForControl(form, \"due_day\");\n    if (dueDay) schedule.appendChild(dueDay);\n    const optional = document.createElement(\"details\");\n    optional.className = \"reserveOptional\";\n    const summary = document.createElement(\"summary\");\n    summary.textContent = \"분류·결제수단·메모 추가 입력\";\n    const optionalGrid = document.createElement(\"div\");\n    optionalGrid.className = \"reserveOptionalGrid\";\n    [\"category\", \"payment_method\", \"memo\"].forEach(function(name) {\n      const label = labelForControl(form, name);\n      if (label) optionalGrid.appendChild(label);\n    });\n    optional.append(summary, optionalGrid);\n    const submitButton = form.querySelector(':scope > button[type=\"submit\"]');\n    const submit = document.createElement(\"div\");\n    submit.className = \"reserveSubmit\";\n    if (submitButton) {\n      submitButton.textContent = \"정기지출 저장\";\n      submit.appendChild(submitButton);\n    }\n    const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== \"INPUT\" || node.type !== \"hidden\"; });\n    form.insertBefore(primary, firstVisible || null);\n    form.insertBefore(schedule, primary.nextSibling);\n    form.append(optional, submit);\n    const nameInput = form.querySelector('[name=\"name\"]');\n    const amountInput = form.querySelector('[name=\"amount\"]');\n    const dayInput = form.querySelector('[name=\"due_day\"]');\n    if (nameInput) nameInput.required = true;\n    if (amountInput) amountInput.required = true;\n    if (dayInput) dayInput.required = true;\n  }\n\n  function improveBudgetPage() {\n    if (!document.body.classList.contains(\"abPageBudgets\")) return;\n    const form = document.getElementById(\"budgetPlanForm\");\n    if (!form) return;\n    const values = { income: [], expense: [] };\n    form.querySelectorAll(\"#incomeRows .pickValue option\").forEach(function(option) { if (option.value) values.income.push(option.value); });\n    form.querySelectorAll(\"#expenseRows .pickValue option\").forEach(function(option) { if (option.value) values.expense.push(option.value); });\n    function ensureList(id, listValues) {\n      let list = document.getElementById(id);\n      if (!list) {\n        list = document.createElement(\"datalist\");\n        list.id = id;\n        Array.from(new Set(listValues)).forEach(function(value) {\n          const option = document.createElement(\"option\");\n          option.value = value;\n          list.appendChild(option);\n        });\n        form.appendChild(list);\n      }\n    }\n    ensureList(\"incomeBudgetSuggestions\", values.income);\n    ensureList(\"expenseBudgetSuggestions\", values.expense);\n    function simplifyLines() {\n      form.querySelectorAll(\".planLine\").forEach(function(line) {\n        const select = line.querySelector(\".pickValue\");\n        if (select) {\n          const label = select.closest(\"label\");\n          if (label) label.remove();\n        }\n        const income = line.querySelector('[name=\"income_name\"]');\n        const expense = line.querySelector('[name=\"budget_category\"]');\n        if (income) income.setAttribute(\"list\", \"incomeBudgetSuggestions\");\n        if (expense) expense.setAttribute(\"list\", \"expenseBudgetSuggestions\");\n      });\n    }\n    simplifyLines();\n    form.querySelectorAll(\"[data-add]\").forEach(function(button) {\n      button.addEventListener(\"click\", function() { setTimeout(simplifyLines, 0); });\n    });\n    form.querySelectorAll(\".planGrid > div\").forEach(function(column) { column.classList.add(\"planColumn\"); });\n    const title = form.closest(\".card\") && form.closest(\".card\").querySelector(\"h2\");\n    if (title) title.textContent = \"이번 달 계획 입력\";\n    const badge = form.closest(\".card\") && form.closest(\".card\").querySelector(\".sectionHead > b\");\n    if (badge) badge.remove();\n    const save = form.querySelector(\".savePlan\");\n    if (save) save.textContent = \"이번 달 계획 저장\";\n    document.querySelectorAll(\".metrics .metric\").forEach(function(metric) {\n      const label = metric.querySelector(\"span\");\n      const text = label ? label.textContent.trim() : \"\";\n      if (text.indexOf(\"예상 수입\") === 0 || text.indexOf(\"실제 수입 - 실제 지출\") === 0) metric.remove();\n    });\n  }\n\n  function improveGuidePage() {\n    if (!document.body.classList.contains(\"abPageGuide\")) return;\n    const section = Array.from(document.querySelectorAll(\"section.card\")).find(function(card) {\n      const heading = card.querySelector(\":scope > h2\");\n      return heading && heading.textContent.trim() === \"화면별 안내\";\n    });\n    if (!section) return;\n    const details = document.createElement(\"details\");\n    details.className = section.className;\n    const summary = document.createElement(\"summary\");\n    summary.innerHTML = \"<b>화면별 기능 둘러보기</b> <span>선택</span>\";\n    details.appendChild(summary);\n    Array.from(section.children).forEach(function(child) {\n      if (child.tagName !== \"H2\") details.appendChild(child);\n    });\n    section.replaceWith(details);\n  }\n\n  function improveMobileOnboarding() {\n    const section = document.querySelector(\".homeOnboarding[data-household-id]\");\n    if (!section || section.getAttribute(\"data-first-record\") !== \"1\") return;\n    const householdId = section.getAttribute(\"data-household-id\") || \"default\";\n    const key = \"ab:onboarding:result-checked:\" + householdId;\n    try {\n      if (window.localStorage && window.localStorage.getItem(key) === \"1\") {\n        section.remove();\n        return;\n      }\n    } catch (err) {}\n    const link = section.querySelector(\"[data-onboarding-result-check]\");\n    if (!link) return;\n    link.addEventListener(\"click\", function() {\n      try { if (window.localStorage) window.localStorage.setItem(key, \"1\"); } catch (err) {}\n      const step = link.closest(\".homeOnboardingStep\");\n      if (step) {\n        step.classList.remove(\"current\");\n        step.classList.add(\"done\");\n        const small = step.querySelector(\"small\");\n        if (small) small.textContent = \"최근 기록에서 저장 결과 확인 완료\";\n        link.remove();\n      }\n      const count = section.querySelector(\".homeOnboardingHead > span\");\n      if (count) count.textContent = \"3/3 완료\";\n    });\n  }\n\n  improveReservePage();\n  improveBudgetPage();\n  improveGuidePage();\n  improveMobileOnboarding();\n\n  function submitControlLabel(button) {\n    if (!button) return \"\";\n    return String(button.tagName === \"INPUT\" ? button.value : button.textContent || \"\").trim();\n  }\n\n  function pendingSubmitLabel(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button);\n    const context = action + \" \" + label;\n    if (/local-login|auth\\/kakao/.test(action) || /로그인/.test(label)) return \"로그인 중…\";\n    if (/local-signup/.test(action) || /계정\\s*(?:만들|생성)|회원\\s*가입/.test(label)) return \"계정 만드는 중…\";\n    if (/\\/my\\/create(?:$|[?#])/.test(action) || /가계부\\s*(?:만들|생성)/.test(label)) return \"가계부 만드는 중…\";\n    if (/\\/my\\/join(?:$|[?#])/.test(action) || /참여|가입\\s*요청/.test(label)) return \"참여 요청 중…\";\n    if (/logout|로그아웃/.test(context)) return \"로그아웃 중…\";\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정 통합 중…\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제 중…\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"탈퇴 처리 중…\";\n    if (/upload|import|가져오기|업로드/.test(context)) return \"가져오는 중…\";\n    if (/저장|등록|설정|변경|수정|완료|적용/.test(label)) return \"저장 중…\";\n    return \"처리 중…\";\n  }\n\n  function riskySubmitMessage(form, button) {\n    const action = String(form && form.getAttribute(\"action\") || \"\").toLowerCase();\n    const label = submitControlLabel(button) || \"이 작업\";\n    const context = action + \" \" + label;\n    if (/identity\\/merge|계정\\s*통합/.test(context)) return \"계정을 통합할까요?\\n계정 연결 정보가 변경됩니다.\";\n    if (/\\/leave(?:$|[?#])|탈퇴|나가기/.test(context)) return \"가계부에서 탈퇴할까요?\\n다시 참여하려면 초대가 필요할 수 있습니다.\";\n    if (/\\/(?:delete|remove)(?:$|[?#])|삭제|제거/.test(context)) return \"삭제할까요?\\n삭제한 정보는 되돌리기 어려울 수 있습니다.\";\n    return label + \"을 진행할까요?\\n기존 정보에 영향을 줄 수 있습니다.\";\n  }\n\n  function ensureSubmitStatus(form) {\n    let status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) return status;\n    status = document.createElement(\"span\");\n    status.dataset.abSubmitStatus = \"1\";\n    status.setAttribute(\"role\", \"status\");\n    status.setAttribute(\"aria-live\", \"polite\");\n    status.style.position = \"absolute\";\n    status.style.width = \"1px\";\n    status.style.height = \"1px\";\n    status.style.padding = \"0\";\n    status.style.margin = \"-1px\";\n    status.style.overflow = \"hidden\";\n    status.style.clip = \"rect(0,0,0,0)\";\n    status.style.whiteSpace = \"nowrap\";\n    status.style.border = \"0\";\n    form.appendChild(status);\n    return status;\n  }\n\n  function restoreSubmitState(form) {\n    delete form.dataset.abSubmitting;\n    delete form.dataset.submitting;\n    form.removeAttribute(\"aria-busy\");\n    form.querySelectorAll('[data-ab-submit-locked=\"1\"]').forEach(function(button) {\n      delete button.dataset.abSubmitLocked;\n      button.disabled = false;\n      button.removeAttribute(\"aria-busy\");\n      if (button.tagName === \"BUTTON\" && button.dataset.originalText) {\n        button.textContent = button.dataset.originalText;\n      }\n      if (button.tagName === \"INPUT\" && button.dataset.originalValue) {\n        button.value = button.dataset.originalValue;\n      }\n    });\n    const status = form.querySelector('[data-ab-submit-status=\"1\"]');\n    if (status) status.textContent = \"\";\n    try { form.dispatchEvent(new Event(\"ab:submit-restored\")); } catch (err) {}\n  }\n\n  function isPostForm(form) {\n    return form && form.tagName === \"FORM\" && String(form.getAttribute(\"method\") || \"get\").toLowerCase() === \"post\";\n  }\n\n  function isRiskyForm(form) {\n    const action = String(form && form.getAttribute(\"action\") || \"\");\n    return /\\/(delete|remove|leave)(?:$|[?#])/.test(action) || /\\/identity\\/merge(?:$|[?#])/.test(action);\n  }\n\n  // Large transaction pages can contain many forms. Style them once, then use\n  // one delegated submit listener instead of attaching multiple listeners to\n  // every form.\n  document.querySelectorAll('form[method=\"post\"]').forEach(function(form) {\n    if (!isRiskyForm(form)) return;\n    const submitButton = form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (submitButton) submitButton.classList.add(\"danger\");\n  });\n\n  document.addEventListener(\"submit\", function(event) {\n    const form = event.target;\n    if (!isPostForm(form)) return;\n    const submittedButton = event.submitter && form.contains(event.submitter)\n      ? event.submitter\n      : form.querySelector('button[type=\"submit\"],input[type=\"submit\"]');\n    if (isRiskyForm(form) && !form.hasAttribute(\"onsubmit\") && !window.confirm(riskySubmitMessage(form, submittedButton))) {\n      event.preventDefault();\n      return;\n    }\n    if (event.defaultPrevented || (typeof form.checkValidity === \"function\" && !form.checkValidity())) return;\n    if (form.dataset.abSubmitting === \"1\") {\n      event.preventDefault();\n      return;\n    }\n    const lock = function() {\n      // Target-level validation and confirmation handlers run before this\n      // delegated listener. A cancelled submit must remain usable.\n      if (event.defaultPrevented) return;\n      if (form.dataset.abSubmitting === \"1\") {\n        event.preventDefault();\n        return;\n      }\n      const button = submittedButton;\n      if (!button || (button.disabled && button.getAttribute(\"aria-busy\") !== \"true\")) return;\n      form.dataset.abSubmitting = \"1\";\n      form.setAttribute(\"aria-busy\", \"true\");\n      button.dataset.abSubmitLocked = \"1\";\n      button.disabled = true;\n      button.setAttribute(\"aria-busy\", \"true\");\n      const pendingLabel = pendingSubmitLabel(form, button);\n      if (button.tagName === \"BUTTON\" && !button.dataset.originalText) {\n        button.dataset.originalText = button.textContent || \"\";\n      }\n      if (button.tagName === \"INPUT\" && !button.dataset.originalValue) {\n        button.dataset.originalValue = button.value || \"\";\n      }\n      if (button.tagName === \"BUTTON\" && button.textContent === button.dataset.originalText) button.textContent = pendingLabel;\n      if (button.tagName === \"INPUT\" && button.value === button.dataset.originalValue) button.value = pendingLabel;\n      ensureSubmitStatus(form).textContent = pendingLabel;\n    };\n    if (typeof queueMicrotask === \"function\") queueMicrotask(lock);\n    else Promise.resolve().then(lock);\n  });\n\n  window.addEventListener(\"pageshow\", function() {\n    document.querySelectorAll('form[method=\"post\"]').forEach(restoreSubmitState);\n  });\n})();\n(function mobileHomeNavStateClientMain() {\n  var mobileLinks = Array.from(document.querySelectorAll(\".bottom a.tab\"));\n  var desktopLinks = Array.from(document.querySelectorAll(\".homeDesktopNav nav a\"));\n  if (!mobileLinks.length && !desktopLinks.length) return;\n  var desktopMedia = typeof window.matchMedia === \"function\" ? window.matchMedia(\"(min-width:1024px)\") : null;\n  var allLinks = mobileLinks.concat(desktopLinks);\n  function sectionKey(link) {\n    var href = String(link?.getAttribute(\"href\") || \"\");\n    if (href === \"#feed\") return \"feed\";\n    if (href === \"#add\") return \"add\";\n    if (href === \"#top\") return \"top\";\n    return \"\";\n  }\n  function hashKey() {\n    var hash = String(window.location?.hash || \"\");\n    return hash === \"#feed\" ? \"feed\" : hash === \"#add\" ? \"add\" : \"top\";\n  }\n  function activeMobileKey() {\n    var active = mobileLinks.find(function(link) { return link.classList.contains(\"active\") && sectionKey(link); });\n    return active ? sectionKey(active) : hashKey();\n  }\n  function setCurrent(key) {\n    var nextKey = [\"top\", \"feed\", \"add\"].includes(key) ? key : \"top\";\n    allLinks.forEach(function(link) {\n      var matches = sectionKey(link) === nextKey;\n      if (sectionKey(link)) link.classList.toggle(\"active\", matches);\n      link.removeAttribute(\"aria-current\");\n    });\n    var visibleLinks = desktopMedia?.matches ? desktopLinks : mobileLinks;\n    var current = visibleLinks.find(function(link) { return sectionKey(link) === nextKey; });\n    if (current) current.setAttribute(\"aria-current\", \"location\");\n  }\n  function syncAfterScroll() {\n    var run = function() { setCurrent(activeMobileKey()); };\n    if (typeof window.requestAnimationFrame === \"function\") window.requestAnimationFrame(run);\n    else run();\n  }\n  allLinks.forEach(function(link) {\n    link.addEventListener(\"click\", function() {\n      var key = sectionKey(link);\n      if (key) setCurrent(key);\n    });\n  });\n  window.addEventListener(\"hashchange\", function() { setCurrent(hashKey()); });\n  window.addEventListener(\"scroll\", syncAfterScroll, { passive: true });\n  if (desktopMedia) {\n    var syncMedia = function() { setCurrent(activeMobileKey()); };\n    if (typeof desktopMedia.addEventListener === \"function\") desktopMedia.addEventListener(\"change\", syncMedia);\n    else if (typeof desktopMedia.addListener === \"function\") desktopMedia.addListener(syncMedia);\n  }\n  setCurrent(window.location?.hash ? hashKey() : activeMobileKey());\n})();","etag":"\"mobile-home-shell-v22950-js\"","contentType":"text/javascript; charset=utf-8"},
@@ -33914,7 +34774,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     etag: path === ACCOUNTBOOK_QUICK_INPUT_JS_ASSET_PATH
       ? '"accountbook-quick-input-v22951-js"'
       : path === AB_CATEGORY_RULES_ASSET_PATH
-      ? '"ab-category-rules-v22948-js"'
+      ? '"ab-category-rules-v22976-js"'
       : path === AB_CURSOR_ASSET_PATH
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
@@ -33930,7 +34790,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22951-js"'
+          ? '"mobile-home-shell-v22976-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22937-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
@@ -33943,7 +34803,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
           ? '"accountbook-v5-v22951-js"'
-          : '"mobile-home-v22951-js"',
+          : '"mobile-home-v22976-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
@@ -34006,7 +34866,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
     const v = dayMap[date];
     if (!v || !v.count) return `<span class="calDay noRec${dayClass}"${current}><b>${day}</b></span>`;
     const href = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar&date=${encodeURIComponent(date)}&feed=all#feed`;
-    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b><i class="calRecordDot" aria-hidden="true"></i>${v.expense ? `<strong>-${shortWonLabel(v.expense)}</strong>` : ""}${v.income ? `<em>+${shortWonLabel(v.income)}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
+    return `<a class="calDay hasRec${selectedDate === date ? " sel" : ""}${dayClass}"${current} href="${escapeHtml(href)}" data-ab-day="${escapeHtml(date)}" data-ab-household-id="${escapeHtml(calendarHouseholdId)}" title="${escapeHtml(date)} 지출 ${numberWithCommas(v.expense)}원 · ${numberWithCommas(v.count)}건"><b>${day}</b><i class="calRecordDot" aria-hidden="true"></i>${v.expense ? `<strong>${v.expense < 0 ? "+" : "-"}${shortWonLabel(Math.abs(v.expense))}</strong>` : ""}${v.income ? `<em>${v.income < 0 ? "-" : "+"}${shortWonLabel(Math.abs(v.income))}</em>` : ""}<small>${numberWithCommas(v.count)}건</small></a>`;
   }).join("");
   const clearHref = `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`;
   const closeHref = `/app?month=${encodeURIComponent(month)}${hh}`;
@@ -34083,12 +34943,19 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 새 질의는 없다 — budget 과 rows 는 이미 위에서 받아 둔 값이다.
   const budgetOverAmt = Math.max(0, Number(budget.budgetedExpense ?? budget.expense ?? 0) - Number(budget.totalBudget || 0));
   // 지금까지의 하루 평균. 지난달을 보고 있으면 그 달 전체로 나눈다.
+  // V22.9.76: 속도와 월말 예상은 예산 알림·알림센터와 같은 관측 기준으로 센다 — 이번 달은 오늘까지의 기록만,
+  // 예산을 잡은 분류만(buildBudgetAlertPolishModel 의 forecastExpense 와 같은 식). 예전에는 미래 날짜로 미리 적은
+  // 지출까지 지난 날수로 나눠 속도가 부풀었고, "이 속도면 …원이 남습니다"가 예산 알림의 '관측 속도 월말 예상'과 달랐다.
+  const paceObservedSpent = isCurrentMonth
+    ? Number(budgetSummary(safeArray(rows).filter((r) => String(r.transaction_date || "") <= todayStr), budgets).budgetedExpense ?? 0)
+    : Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const paceDay = isCurrentMonth ? Math.max(1, Number(todayStr.slice(8, 10))) : daysInThisMonth;
-  const paceDaily = Math.round(Number(budget.budgetedExpense ?? budget.expense ?? 0) / paceDay);
+  const paceDaily = Math.round(paceObservedSpent / paceDay);
+  const paceForecast = Math.round(paceObservedSpent / paceDay * daysInThisMonth);
   // 이 속도를 유지하면 예산은 며칠째에 바닥나는가. 달 끝보다 이르면 그 차이를 말한다.
-  const paceEndDay = paceDaily > 0 && budget.totalBudget ? Math.floor(Number(budget.totalBudget) / paceDaily) : 0;
+  const paceEndDay = paceObservedSpent > 0 && budget.totalBudget ? Math.floor(Number(budget.totalBudget) / (paceObservedSpent / paceDay)) : 0;
   const paceDaysEarly = paceEndDay > 0 ? daysInThisMonth - paceEndDay : 0;
-  const paceLeftover = budget.totalBudget ? Number(budget.totalBudget) - (paceDaily * daysInThisMonth) : 0;
+  const paceLeftover = budget.totalBudget ? Number(budget.totalBudget) - paceForecast : 0;
   const dailyPlanNote = paceDaily > dailyAllowanceAmt && paceDaysEarly > 0
     ? `지금 속도라면 ${paceDaysEarly}일 먼저 끝납니다`
     : paceDaily <= dailyAllowanceAmt && paceLeftover > 0
@@ -34123,7 +34990,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   ];
   const inputChips = (freqChips.length >= 3 ? freqChips : defaultChips).map((c) => `<button type="button" data-memo="${escapeHtml(c.label)}" data-cat="${escapeHtml(c.category || "")}" data-pay="${escapeHtml(c.payment || "")}">${escapeHtml(c.label)}${c.count ? `<em>${numberWithCommas(c.count)}</em>` : ""}</button>`).join("");
   const payFreq = Object.create(null);
-  for (const r of rows) { const pm = String(r.payment_method || "").trim(); if (pm) payFreq[pm] = (payFreq[pm] || 0) + 1; }
+  // V22.9.76: 결제수단 칩은 지출 기록에서만 고른다. 월급이 들어오는 통장이 결제수단 첫 칩으로 올라왔다.
+  for (const r of rows) { if (r.type === "income") continue; const pm = String(r.payment_method || "").trim(); if (pm) payFreq[pm] = (payFreq[pm] || 0) + 1; }
   const payChips = Object.entries(payFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([pm]) => `<button type="button" data-pay-only="${escapeHtml(pm)}">${escapeHtml(pm)}</button>`).join("");
   const feedLabel = feedMode === "all" ? `전체 ${feedSource.length}건` : `최근 ${Math.min(feedLimit, feedSource.length)}건`;
   const feedLinks = `<div class="feedControls"><span>${escapeHtml(feedLabel)} 표시 중${hasMobileFilter ? ` · 필터 적용 ${numberWithCommas(feedSource.length)}건` : ""}</span><a class="${feedMode === "10" ? "active" : ""}" href="${escapeHtml(baseAppPath)}#feed">최근 10건</a><a class="${feedMode === "30" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=30`)}#feed">최근 30건</a><a class="${feedMode === "all" ? "active" : ""}" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 조회</a></div>`;
@@ -34172,15 +35040,27 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const homeReserveHref = `/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
   // 정기항목은 이번 달을 볼 때만 불러온다(과거 달에서 질의를 늘리지 않으려는 기존 판단).
   // 안 불러온 달에서 "없음" 이라고 말하면 거짓이 되므로 건수를 단정하지 않는다.
+  // V22.9.76: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
+  const homeReserveOutHeadline = homeReserve.expenseCount
+    ? `${numberWithCommas(homeReserve.expenseCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
+    : "";
   const homeReserveHeadline = !reserveLoaded
     ? "이번 달 기준으로 관리해요"
     : homeReserveCount
-      ? `${numberWithCommas(homeReserveCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
+      ? (!homeReserve.incomeCount
+        ? homeReserveOutHeadline
+        : homeReserve.expenseCount
+          ? `지출 ${homeReserveOutHeadline} · 수입 ${numberWithCommas(homeReserve.incomeCount)}건`
+          : `수입 ${numberWithCommas(homeReserve.incomeCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyIncomeTotal)}원 들어와요`)
       : "아직 등록한 항목이 없어요";
+  const homeReserveUpcoming = [
+    homeReserve.upcomingExpense.length ? `준비 알림 ${numberWithCommas(homeReserve.upcomingExpense.length)}건` : "",
+    homeReserve.upcomingIncome.length ? `입금 예정 ${numberWithCommas(homeReserve.upcomingIncome.length)}건` : "",
+  ].filter(Boolean).join(" · ");
   const homeReserveSub = !reserveLoaded
     ? "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"
     : homeReserveCount
-      ? (homeReserve.upcoming.length ? `준비 알림 ${numberWithCommas(homeReserve.upcoming.length)}건` : "다가오는 납부 없음")
+      ? (homeReserveUpcoming || (homeReserve.expenseCount ? "다가오는 납부 없음" : "다가오는 입금 없음"))
       : "세금·보험처럼 큰돈이 나가는 달을 미리 준비하세요";
   const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">정기 수입·지출</span><b>${escapeHtml(homeReserveHeadline)}</b><small>${escapeHtml(homeReserveSub)}</small></div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;
 
@@ -34266,7 +35146,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetTotal = Number(budgetCenter.totalBudget || 0);
   // 분류별 예산만 잡은 달에는 그 분류들의 지출만 견준다(budgetSummary 와 같은 기준).
   const budgetUsed = Number(budget.budgetedExpense ?? stats.totals.expense ?? 0);
-  const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : Number(stats.totals.balance || 0);
+  // V22.9.76 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
+  // 보여 "이번 달 쓸 수 있는 돈 3,835,234원"처럼 읽혔다. 숫자 대신 "예산 미설정"을 보인다(아래 템플릿).
+  const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : 0;
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
   // 막대 너비는 100%에서 멈추지만 표기 숫자는 실제 사용률을 그대로 보여준다.
   // 둘을 같은 값으로 쓰면 207% 초과 지출이 홈에서 100%로 보여 초과 사실이 가려진다.
@@ -34360,24 +35242,39 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     ? `전체 예산을 ${budgetPercent}% 사용했습니다. 오늘부터 지출을 줄이는 게 좋아요.`
     : budgetTotal && budgetPercent >= 85
       ? `전체 예산의 ${budgetPercent}%를 사용했습니다. 남은 예산은 ${numberWithCommas(budgetRemaining)}원입니다.`
-      : reserveInfo.upcoming.length
-        ? `${reserveInfo.upcoming[0].plan.name} 납부가 ${reserveInfo.upcoming[0].days_left}일 남았습니다. 월 ${numberWithCommas(reserveInfo.upcoming[0].monthly_reserve)}원씩 준비하세요.`
+      // V22.9.76: 수입 항목에 "납부·준비하세요"라고 하지 않는다. 지출 기한을 먼저, 없으면 들어올 돈을 알린다.
+      : reserveInfo.upcomingExpense.length
+        ? (reserveInfo.upcomingExpense[0].days_left > 0
+          ? `${reserveInfo.upcomingExpense[0].plan.name} 납부가 ${reserveInfo.upcomingExpense[0].days_left}일 남았습니다. 월 ${numberWithCommas(reserveInfo.upcomingExpense[0].monthly_reserve)}원씩 준비하세요.`
+          : `오늘은 ${reserveInfo.upcomingExpense[0].plan.name} 납부일입니다. ${numberWithCommas(reserveInfo.upcomingExpense[0].plan.amount)}원이 나갈 예정이에요.`)
+      : reserveInfo.upcomingIncome.length
+        ? `${reserveInfo.upcomingIncome[0].plan.name} ${numberWithCommas(reserveInfo.upcomingIncome[0].plan.amount)}원이 ${reserveInfo.upcomingIncome[0].days_left > 0 ? `${reserveInfo.upcomingIncome[0].days_left}일 후` : "오늘"} 들어올 예정이에요.`
         : budgetTotal
           ? `현재 지출 흐름은 안정적입니다. 남은 예산은 ${numberWithCommas(budgetRemaining)}원입니다.`
           : `월 예산을 설정하면 남은 돈과 위험 알림을 더 정확하게 보여드릴게요.`;
   const budgetAlert = budget.totalBudget ? (budget.diff > 0 ? `<div class="appAlert danger">예산보다 <b>${numberWithCommas(budget.diff)}원</b> 초과 지출 중입니다.</div>` : `<div class="appAlert good">예산까지 <b>${numberWithCommas(Math.abs(budget.diff))}원</b> 남았습니다.</div>`) : `<div class="appAlert">월 예산을 설정하면 초과 지출 알림이 표시됩니다.</div>`;
   const categoryList = categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
   const paymentList = paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("");
-  const appMomRate = prevStats ? percentChange(Number(stats.totals.expense || 0), Number(prevStats.totals.expense || 0)) : null;
+  // V22.9.76 감사 D-3: 이번 달은 오늘까지의 기록만 지난달 같은 기간과 견준다. 미래 날짜로 미리 적은 지출(지정일 전에 반영한
+  // 고정지출 등)까지 더하면 "지난달 1~3일보다 170,000원 더"처럼 아직 나가지 않은 돈을 쓴 것으로 말했다(/reports 는 "덜").
+  const comparableExpense = isCurrentMonth
+    ? Number(calculateStats(safeArray(rows).filter((r) => String(r.transaction_date || "") <= todayStr)).totals.expense || 0)
+    : Number(stats.totals.expense || 0);
+  const appMomRate = prevStats ? percentChange(comparableExpense, Number(prevStats.totals.expense || 0)) : null;
   const previousExpense = Number(prevStats?.totals?.expense || 0);
-  const expenseDeltaAmount = Number(stats.totals.expense || 0) - previousExpense;
+  const expenseDeltaAmount = comparableExpense - previousExpense;
   // 두 달 모두 0원인 새 가계부에 "지난달과 같은 금액"이라고 쓰면 없는 지난달 기록이 있는 것처럼 읽힌다.
   // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 비교 대상을 "지난달 1~N일"로 적는다.
   // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
   const deltaToday = formatDate(nowKstDate());
   const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
+  // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
+  // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
+  const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
+    : noPreviousExpense
+      ? `${prevLabel} 기록이 없어 비교하지 않아요.`
     : expenseDeltaAmount > 0
       ? `${prevLabel}보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
       : expenseDeltaAmount < 0
@@ -34385,7 +35282,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
           : `${prevLabel}과 같은 금액을 썼어요.`;
-  const expenseDeltaClass = expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
+  const expenseDeltaClass = noPreviousExpense ? "spendFlat" : expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
   // 흡수하고 이 카드를 남겨 뒀다. 남은 내용은 이미 두 곳에 그대로 있다 —
@@ -34426,9 +35323,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div><div class="homeBudgetAmount"><b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small></div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveHeadline, reserveHref: homeReserveHref, reserveCount: homeReserveCount, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, reserveHeadline: homeReserveOutHeadline, reserveHref: homeReserveHref, reserveCount: homeReserve.expenseCount, reserveIncomeCount: homeReserve.incomeCount, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date();d.setDate(d.getDate()+Number(this.getAttribute('data-day')||0));var v=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}var brands=['신한','현대','삼성','국민','KB','우리','롯데','하나','농협','NH','BC','비씨','카카오','토스'];for(var j=0;j<brands.length;j++){var re=new RegExp(brands[j]+'\\\\s*카드','i');if(re.test(raw)){var b=brands[j].toUpperCase();return b==='KB'||b==='NH'||b==='BC'?b+'카드':brands[j]+'카드';}}if(/삼성\\s*페이|삼페/.test(raw))return'삼성페이';if(/카카오\\s*페이|카페이/.test(raw))return'카카오페이';if(/네이버\\s*페이|네페/.test(raw))return'네이버페이';if(/애플\\s*페이|애플페이/.test(raw))return'애플페이';if(/토스/.test(raw))return'토스';if(/현금/.test(raw))return'현금';if(/계좌|이체|송금|자동이체|무통장/.test(raw))return'계좌이체';if(/체크/.test(raw))return'체크카드';if(/신용/.test(raw))return'신용카드';if(/카드/.test(raw))return'카드';return'';}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var toks=raw.split(/[^a-z0-9가-힣]+/).filter(Boolean);var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;var best=null;quickRules.forEach(function(r){if(r.type!==type)return;var score=0;r.words.forEach(function(w){if(w&&raw.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});(r.exact||[]).forEach(function(w){if(toks.indexOf(w)>=0)score+=r.weight+Math.min(w.length,8);});if(score>0&&(!best||score>best.score))best={name:r.name,score:score};});return best?best.name:(type==='income'?'기타수입':'기타지출');}function stripQuickMemo(text,amountText,payment,category){var rest=abNorm(text);[amountText,payment,category,'어젯밤','엊저녁','엊그저께','엊그제','오늘','금일','어제','전날','그제','그저께'].forEach(function(x){if(x)rest=rest.replace(new RegExp(String(x).replace(/[\\\\^$.*+?()[\\]{}|]/g,'\\\\$&'),'g'),' ');});rest=rest.replace(/(?:^|\\s)(?:수입|입금|지출|출금|사용|결제|구매|납부|정산|기록|가계부)(?=\\s|\\d|$)/g,' ');rest=rest.replace(/20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?/g,' ').replace(/\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?/g,' ').replace(/(?:^|\\s)\\d{1,2}일(?:\\s|$)/g,' ').replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g,' ').replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\\s|$)/g,'$1 ').replace(/(?:^|\\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\\s|$)/g,' ').replace(/\\s+/g,' ').trim();return rest||category||'';}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
 
-function abQuickSyncMore(){var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type')abQuickSyncAfter();});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
+function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
 
 async function fetchMonthAmountRows(env, month, householdId, { withDate = false } = {}) {
@@ -35286,7 +36183,9 @@ function normalizeRecurringDay(value) {
 function renderRecurringEditForm(row, householdId, month, members, action) {
   // V22.9.37 감사 SIM-5: 지출자 선택지는 자동 반영이 실제로 반영하는 참여자(소유자·관리자·구성원)만 보인다.
   const spenders = eligibleRecurringSpenders(members);
-  return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${spenders.length ? `<label>지출자<select name="user_id">${renderSpenderOptions(spenders,row.user_id,"지출자 선택")}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
+  // V22.9.76: 수입 항목(예: 수당)의 사람 칸은 "수입자"다. 거래 목록·수정 화면과 같은 말을 쓴다.
+  const spenderWord = row.type === "income" ? "수입자" : "지출자";
+  return `<details class="reserveEdit"><summary>수정</summary><form class="formGrid" method="post" action="${escapeHtml(action)}"><input type="hidden" name="id" value="${escapeHtml(row.id)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="/reserve-plans?month=${escapeHtml(month)}&amp;household_id=${escapeHtml(householdId)}"/><label>내용<input name="memo" value="${escapeHtml(row.memo)}" required/></label><label>금액<input name="amount" inputmode="numeric" value="${Number(row.amount)}" required/></label><label>구분<select name="type"><option value="expense"${row.type !== "income" ? " selected" : ""}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></label><label>분류<input name="category" value="${escapeHtml(row.category)}"/></label><label>결제수단<input name="payment_method" value="${escapeHtml(row.payment_method)}"/></label><label>매월 지정일<input name="day_of_month" type="number" min="1" max="31" value="${normalizeRecurringDay(row.day_of_month)}" required/></label>${spenders.length ? `<label>${spenderWord}<select name="user_id">${renderSpenderOptions(spenders,row.user_id,`${spenderWord} 선택`)}</select></label>` : ""}<button type="submit">수정 저장</button><p>같은 항목의 ID와 이미 반영한 월을 유지합니다. 직접 입력한 거래와 정기 항목은 별도 기록입니다.</p></form></details>`;
 }
 
 async function handleRecurringSave(request, env) {
@@ -35314,21 +36213,30 @@ async function handleRecurringSave(request, env) {
     user_id: spenderId,
     is_active: true,
   };
+  const formProblem = recurringFormProblem(form);
+  if (formProblem) return redirectResponse(addQueryToUrl(returnTo, { err: formProblem }));
   if (!row.amount || !Number.isFinite(row.amount) || row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
   // V22.9.37 감사 SIM-5·T7: 자동 반영과 같은 자격(소유자·관리자·구성원)만 받는다. 조회 전용·대기·차단·나간 지출자의 규칙은
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
   if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
   try {
+    // V22.9.76 감사 P0-2: 이번 달에 이미 적은 항목을 정기로 등록하면 이번 달은 반영된 것으로 둔다(/my/recurring/save 와
+    // 같은 판정). 예전에는 이 경로(정기 수입·지출 화면)만 이 확인이 없어 다음 자동 반영이 같은 달을 한 번 더 넣었다.
+    if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, householdId, row);
     await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(householdId))) throw new Error("recurring_scope_invalid");
       assertFresh();
+      // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
+      if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
+      // V22.9.76 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
+      if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
       await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
     });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_save_failed", severity: "warn", path: "/admin/recurring/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
   }
 }
 
@@ -35359,6 +36267,30 @@ async function handleRecurringDelete(request, env) {
   }
 }
 
+function recurringMonthLabelKo(month = "") {
+  return `${Number(String(month).slice(0, 4))}년 ${Number(String(month).slice(5, 7))}월`;
+}
+
+async function renderRecurringApplyConfirmPage(env, householdId, month, returnTo) {
+  let rules = null;
+  try { rules = await fetchRecurringStrict(env, householdId); } catch { rules = null; }
+  const label = recurringMonthLabelKo(month);
+  const nextMonthStart = Date.parse(`${addMonthsYm(month, 1)}-01T00:00:00+09:00`);
+  const pending = safeArray(rules).filter((r) => !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month);
+  const items = pending.slice(0, 12).map((r) => {
+    const created = Date.parse(String(r.created_at || ""));
+    const late = Number.isFinite(created) && created >= nextMonthStart ? ` · ${label}이 지난 뒤 만든 항목` : "";
+    return `<li>${escapeHtml(recurringDateForMonth(month, r.day_of_month))} · ${escapeHtml(r.memo || r.category || "고정항목")} · ${r.type === "income" ? "수입" : "지출"} ${numberWithCommas(Number(r.amount || 0))}원${escapeHtml(late)}</li>`;
+  }).join("");
+  const listHtml = rules === null
+    ? `<p>반영할 항목을 읽지 못했습니다. 기록하면 ${label}에 반영되지 않은 고정항목을 모두 ${label} 날짜로 넣습니다.</p>`
+    : pending.length ? `<ul>${items}</ul>${pending.length > 12 ? `<p>외 ${numberWithCommas(pending.length - 12)}건</p>` : ""}` : `<p>${label}에 반영할 고정항목이 없습니다.</p>`;
+  const action = rules === null || pending.length
+    ? `<form method="post" action="/admin/recurring/apply"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><input type="hidden" name="confirmed" value="yes"/><button type="submit">${label} 날짜로 기록하기</button></form>`
+    : "";
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>고정항목 기록 확인</title><style>:root{color-scheme:light dark}body{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;max-width:560px;margin:32px auto;padding:0 16px;line-height:1.6;background:#fff;color:#1f2937}ul{padding-left:20px}button{font:inherit;padding:10px 16px;border:0;border-radius:10px;background:#2563eb;color:#fff;cursor:pointer}a{color:#1d4ed8}@media (prefers-color-scheme:dark){body{background:#111827;color:#e5e7eb}a{color:#93c5fd}}</style></head><body><main><h1>${label} 날짜로 고정항목을 기록할까요?</h1><p>지금은 ${recurringMonthLabelKo(currentMonthKst())}입니다. 이 단추는 보고 있는 달(${label})에 아직 반영되지 않은 고정 수입·지출을 ${label}의 지정일 날짜로 기록합니다. 이미 반영된 항목은 다시 넣지 않습니다.</p>${listHtml}${action}<p><a href="${escapeHtml(returnTo)}">기록하지 않고 돌아가기</a></p></main></body></html>`);
+}
+
 async function handleRecurringApply(request, env) {
   const form = await request.formData();
   const _hh = String(form.get("household_id") || "").trim();
@@ -35371,6 +36303,10 @@ async function handleRecurringApply(request, env) {
   const householdId = String(form.get("household_id") || "");
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${month}&household_id=${encodeURIComponent(householdId)}#fixed`);
+  // V22.9.76 감사 D-11: 이 단추는 보고 있는 달의 날짜로 기록한다(SIM-8 이 지난달 보충을 위해 다른 달도 받는다). 예전 단추는 늘
+  // "이번 달"이라 10월에 9월 화면에서 누르면 10월에 만든 규칙까지 2026-09-15 자로 들어갔다. 단추에 대상 달을 적고(정기 화면),
+  // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
+  if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);
   let mutationConfirmed = false;
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
@@ -35541,18 +36477,20 @@ async function handleMyLocalSignup(request, env) {
   const accessCode = String(form.get("access_code") || "").trim();
   const confirm = String(form.get("access_code_confirm") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();
-  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderUserLoginHtml(env, "로그인 이름은 2자 이상 입력하세요.", "", "signup"), 400);
-  if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup"), 400);
-  if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup"), 400);
-  if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup"), 400);
+  // V22.9.76 감사 F-9: 오류로 폼을 다시 그릴 때 비밀이 아닌 칸만 되돌려 준다(비밀번호 두 칸은 비운다).
+  const keep = { login_name: loginName, display_name: String(form.get("display_name") || "").trim().slice(0, 80), invite_code: inviteCode };
+  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderUserLoginHtml(env, "로그인 이름은 2자 이상 입력하세요.", "", "signup", keep), 400);
+  if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup", keep), 400);
+  if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup", keep), 400);
+  if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup", keep), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false, {scope:"client"});
-  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup"), 503);
-  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup"), 429, { "retry-after": "900" });
+  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 503);
+  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 429, { "retry-after": "900" });
   // V22.9.26: 가입은 성공해도 횟수를 지우지 않고, User-Agent 를 뺀 IP 단위 상한도 함께 둔다.
   // 예전에는 가입이 될 때마다 횟수가 지워져 한 클라이언트가 계정을 무한히 만들 수 있었다.
   const ipAttempt = await recordAuthAttempt(env, request, "/my/local-signup", false, { scope: "ip", limit: boundedRuntimeNumber(env.AUTH_SIGNUP_IP_LIMIT, 20, 5, 200) });
-  if (ipAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup"), 503);
-  if (!ipAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup"), 429, { "retry-after": "900" });
+  if (ipAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 503);
+  if (!ipAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 429, { "retry-after": "900" });
   let user = null;
   try {
     user = await createLocalLoginUser(env, loginName, displayName, accessCode);
@@ -35561,7 +36499,7 @@ async function handleMyLocalSignup(request, env) {
     const classified = classifyLocalSignupError(err);
     if (classified.status >= 500) { await recordAuthAttempt(env, request, "/my/local-signup", true, {scope:"client"}); }
     rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
-    return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup"), classified.status);
+    return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup", keep), classified.status);
   }
 
   let session = "";
@@ -35856,7 +36794,10 @@ function loginEntryAnchorClientMain() {
   });
 }
 
-function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login") {
+// V22.9.76 감사 F-9: 가입 오류 뒤 다시 그린 폼이 비어 있었다. 비밀이 아닌 칸(로그인 이름·표시 이름·초대 코드)만
+// signupValues 로 받아 다시 채운다. 비밀번호는 절대 다시 쓰지 않는다. 값은 escapeHtml 로 속성에 넣는다.
+function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login", signupValues = {}) {
+  const keep = (key) => escapeHtml(String(signupValues?.[key] ?? "").slice(0, 80));
   const title = escapeHtml(appName(env));
   const kakaoPart = kakaoLoginStatusBlock(env);
   const signupMode = authMode === "signup";
@@ -35867,7 +36808,7 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login")
   const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 시작</title><style>
   *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light;--landing-bg:#f5f7fb;--landing-surface:#fff;--landing-ink:#172033;--landing-muted:#586579;--landing-line:#dfe5ed;--landing-blue:var(--ab12-action,#2457d6);--landing-blue-dark:#173b94;--landing-blue-soft:#edf3ff;--landing-yellow:#fee500;--landing-green:#137a55;--landing-green-soft:#eaf8f1;--landing-orange:#a74b13;--landing-orange-soft:#fff3e8;--landing-shadow:0 22px 60px rgba(27,45,78,.09)}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 8% 4%,#e7efff 0,transparent 27rem),linear-gradient(180deg,#fbfcff 0,#f5f7fb 42%,#eef2f7 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:var(--landing-ink);letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.landingPage{max-width:1180px;margin:0 auto;padding:28px 24px 104px}.landingHero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:28px;align-items:center;padding:42px 0 34px}.eyebrow,.sampleLabel{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em}.eyebrow{background:#e7efff;color:#20479f}.sampleLabel{background:#fff6cc;color:#6d5700;border:1px solid #efd66a}.landingHero h1{max-width:720px;margin:18px 0 16px;font-size:clamp(38px,5.4vw,68px);line-height:1.05;letter-spacing:-.075em}.landingHero h1 strong{color:var(--landing-blue)}.heroLead{max-width:650px;margin:0;color:var(--landing-muted);font-size:clamp(17px,2vw,20px);line-height:1.7}.heroActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}.cta{display:inline-flex;align-items:center;justify-content:center;min-height:52px;border-radius:15px;padding:0 20px;text-decoration:none;font-weight:850;border:1px solid transparent}.landingPage .cta.ctaPrimary{background:var(--landing-blue);color:#fff!important}.landingPage .cta.ctaPrimary:hover{background:var(--landing-blue-dark);color:#fff!important}.landingPage .cta.ctaPrimary:focus{color:#fff!important}.ctaSecondary{background:#fff;color:var(--landing-ink);border-color:#cfd8e5}.heroNote{margin:14px 0 0;color:#5f6b7a;font-size:13px;line-height:1.55}.sampleWindow{background:rgba(255,255,255,.88);border:1px solid rgba(207,216,229,.9);border-radius:28px;padding:16px;box-shadow:var(--landing-shadow);backdrop-filter:blur(10px)}.sampleWindowTop{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 4px 14px}.windowDots{display:flex;gap:6px}.windowDots i{display:block;width:8px;height:8px;border-radius:50%;background:#cbd5e1}.windowDots i:first-child{background:var(--ab12-action,#2457d6)}.miniLedger{display:grid;gap:10px}.miniSummary{padding:20px;border-radius:20px;background:linear-gradient(135deg,#173b94,var(--ab12-action,#2457d6));color:#fff}.miniSummary span,.miniSummary small{display:block;color:#dbe7ff}.miniSummary b{display:block;margin:6px 0 2px;font-size:30px;letter-spacing:-.05em}.miniRow{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:12px;align-items:center;background:#fff;border:1px solid #e3e8ef;border-radius:17px;padding:13px}.miniMark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#edf3ff;color:var(--ab12-action,#2457d6);font-weight:900}.miniRow b,.miniRow span{display:block}.miniRow span{color:#657187;font-size:13px;margin-top:2px}.miniRow strong{font-size:15px}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:var(--landing-muted);line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.conversationDemo{display:grid;grid-template-columns:minmax(0,.9fr) minmax(360px,1.1fr);gap:16px;margin-bottom:16px}.demoPanel,.sampleCard,.authIntro,.card{background:var(--landing-surface);border:1px solid var(--landing-line);box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:#ffeb57;color:#2c2800;border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.recordCard{border-radius:20px;background:#f9fbfe;border:1px solid #dfe7f1;padding:18px}.recordTop{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:13px}.recordTop strong{font-size:18px}.recordType{display:inline-flex;border-radius:999px;background:#fff0ed;color:#a43d2d;padding:5px 9px;font-size:12px;font-weight:850}.recordCard dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}.recordCard dl div{background:#fff;border:1px solid #e5eaf1;border-radius:14px;padding:11px}.recordCard dt{color:#68758a;font-size:12px;font-weight:750}.recordCard dd{margin:5px 0 0;font-weight:850}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:var(--landing-muted);font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--landing-blue);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:var(--landing-green-soft);color:#0c6344;padding:11px;text-align:center;font-weight:850}.previewCta{display:flex;justify-content:space-between;align-items:center;gap:22px;margin:24px 0 44px;padding:22px 24px;border-radius:24px;background:#172033;color:#fff;box-shadow:0 18px 40px rgba(23,32,51,.18)}.previewCta h2{margin:0 0 5px;font-size:22px}.previewCta p{margin:0;color:#d8dfeb;line-height:1.55}.previewCta .cta{flex:0 0 auto;background:#fff;color:#172033}.authSection{scroll-margin-top:18px}.authIntro{border-radius:26px;padding:24px;margin-bottom:16px}.authIntroHead{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.85fr);gap:24px;align-items:start}.authIntro h2{margin:10px 0 8px;font-size:clamp(26px,3vw,38px);letter-spacing:-.055em}.muted{color:#667085;line-height:1.65}.loginMethods{min-width:0}.loginGrid{display:grid;grid-template-columns:1.08fr .92fr;gap:16px}.card{border-radius:22px;padding:22px}.card h2{margin:0 0 8px;font-size:20px}.field{display:grid;gap:7px;margin:11px 0}.field label{font-size:13px;font-weight:750;color:#344054}.field input{width:100%;height:50px;border:1px solid #cfd6e1;background:#fff;border-radius:12px;padding:0 13px;font:inherit}.btn,button,.kakaoBtn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#172033!important;border:1px solid #d8dee8}.kakaoBtn{background:var(--landing-yellow)!important;color:#191919!important;border:1px solid rgba(150,120,0,.18)}.notice{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 0 18px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.sep{text-align:center;color:#667085;font-weight:750;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}form+.hint{margin-top:8px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.legacyHelp{margin-top:16px}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}@media(max-width:900px){.landingHero,.conversationDemo,.authIntroHead{grid-template-columns:1fr}.sampleWindow{max-width:680px}.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}.previewCta{align-items:flex-start;flex-direction:column}.previewCta .cta{width:100%}}@media(max-width:680px){.landingPage{padding:14px 14px 90px}.landingHero{padding:24px 0 26px;gap:20px}.landingHero h1{font-size:40px}.heroActions{display:grid}.cta{width:100%}.sampleWindow{padding:12px;border-radius:22px}.miniSummary{padding:17px}.previewSection{padding-top:22px}.conversationDemo,.sampleGrid,.loginGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard,.authIntro,.card{padding:18px;border-radius:19px}.recordCard dl{grid-template-columns:1fr 1fr}.authIntro{padding:18px}.field input{font-size:16px}.previewCta{margin-bottom:30px;padding:20px}.kakaoProgressCard{padding:24px 18px}}@media(max-width:400px){.landingHero h1{font-size:34px}.recordCard dl{grid-template-columns:1fr}.miniRow{grid-template-columns:38px minmax(0,1fr) auto;padding:11px}.miniMark{width:38px;height:38px}.miniRow strong{font-size:14px}}
-  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><main class="landingPage">${errorSummary}<section class="landingHero" aria-labelledby="landingTitle"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 기록하고 웹에서 예산, 월 요약, 정산까지 한 흐름으로 확인하는 공동 가계부입니다.</p><div class="heroActions" aria-label="시작 선택"><a class="cta ctaPrimary" href="#feature-preview">기능 먼저 보기</a><a class="cta ctaSecondary" href="#login-start">로그인하고 실제 기록하기</a><a class="cta ctaSecondary" href="#signup-start" data-signup-entry>\uCC98\uC74C\uC774\uB77C\uBA74 \uC0C8 \uACC4\uC815 \uB9CC\uB4E4\uAE30</a></div><p class="heroNote">아래 미리보기는 기능을 설명하기 위한 가상 데이터이며 어떤 정보도 저장하지 않습니다.</p></div><div class="sampleWindow" aria-label="가상 가계부 화면 예시"><div class="sampleWindowTop"><span class="sampleLabel">가상 데이터 예시</span><span class="windowDots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="miniLedger"><div class="miniSummary"><span>10월 남은 생활비</span><b>1,914,000원</b><small>예시 월 예산 3,200,000원 기준</small></div><div class="miniRow"><span class="miniMark" aria-hidden="true">식</span><div><b>점심</b><span>식비 · 국민카드</span></div><strong>-12,000원</strong></div><div class="miniRow"><span class="miniMark" aria-hidden="true">교</span><div><b>주유</b><span>교통 · 현대카드</span></div><strong>-72,000원</strong></div></div></div></section><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">기능 먼저 보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="conversationDemo"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="demoPanel"><div class="recordTop"><div><span class="cardKicker">구조화된 기록 카드 예시</span><strong>점심</strong></div><span class="recordType">지출</span></div><div class="recordCard"><dl><div><dt>날짜</dt><dd>오늘</dd></div><div><dt>금액</dt><dd>12,000원</dd></div><div><dt>분류</dt><dd>식비</dd></div><div><dt>결제수단</dt><dd>국민카드</dd></div></dl></div></article></div><div class="sampleGrid"><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><section class="previewCta" aria-labelledby="actualStartTitle"><div><h2 id="actualStartTitle">내 기록을 시작할 준비가 되셨나요?</h2><p>여기부터는 로그인한 계정의 실제 가계부로 연결됩니다.</p></div><a class="cta" href="#login-start">로그인하고 실제 기록하기</a></section><section id="login-start" class="authSection" aria-labelledby="loginStartTitle"><div class="authIntro"><div class="authIntroHead"><div><span class="eyebrow">실제 가계부 시작</span><h2 id="loginStartTitle">로그인하고 실제 기록하기</h2><p class="muted">기존 계정은 로그인 이름과 비밀번호로 바로 이어서 사용할 수 있습니다. 새 계정 만들기는 별도 단계로 아래에 두었습니다.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}</div><div class="loginMethods">${kakaoPart}</div></div></div><div class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form>${renderKakaoClaimForm(backField, claimMode)}</div><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></div><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script></body></html>`;
+  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><main class="landingPage">${errorSummary}<section class="landingHero" aria-labelledby="landingTitle"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 기록하고 웹에서 예산, 월 요약, 정산까지 한 흐름으로 확인하는 공동 가계부입니다.</p><div class="heroActions" aria-label="시작 선택"><a class="cta ctaPrimary" href="#feature-preview">기능 먼저 보기</a><a class="cta ctaSecondary" href="#login-start">로그인하고 실제 기록하기</a><a class="cta ctaSecondary" href="#signup-start" data-signup-entry>\uCC98\uC74C\uC774\uB77C\uBA74 \uC0C8 \uACC4\uC815 \uB9CC\uB4E4\uAE30</a></div><p class="heroNote">아래 미리보기는 기능을 설명하기 위한 가상 데이터이며 어떤 정보도 저장하지 않습니다.</p></div><div class="sampleWindow" aria-label="가상 가계부 화면 예시"><div class="sampleWindowTop"><span class="sampleLabel">가상 데이터 예시</span><span class="windowDots" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="miniLedger"><div class="miniSummary"><span>10월 남은 생활비</span><b>1,914,000원</b><small>예시 월 예산 3,200,000원 기준</small></div><div class="miniRow"><span class="miniMark" aria-hidden="true">식</span><div><b>점심</b><span>식비 · 국민카드</span></div><strong>-12,000원</strong></div><div class="miniRow"><span class="miniMark" aria-hidden="true">교</span><div><b>주유</b><span>교통 · 현대카드</span></div><strong>-72,000원</strong></div></div></div></section><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">기능 먼저 보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="conversationDemo"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="demoPanel"><div class="recordTop"><div><span class="cardKicker">구조화된 기록 카드 예시</span><strong>점심</strong></div><span class="recordType">지출</span></div><div class="recordCard"><dl><div><dt>날짜</dt><dd>오늘</dd></div><div><dt>금액</dt><dd>12,000원</dd></div><div><dt>분류</dt><dd>식비</dd></div><div><dt>결제수단</dt><dd>국민카드</dd></div></dl></div></article></div><div class="sampleGrid"><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><section class="previewCta" aria-labelledby="actualStartTitle"><div><h2 id="actualStartTitle">내 기록을 시작할 준비가 되셨나요?</h2><p>여기부터는 로그인한 계정의 실제 가계부로 연결됩니다.</p></div><a class="cta" href="#login-start">로그인하고 실제 기록하기</a></section><section id="login-start" class="authSection" aria-labelledby="loginStartTitle"><div class="authIntro"><div class="authIntroHead"><div><span class="eyebrow">실제 가계부 시작</span><h2 id="loginStartTitle">로그인하고 실제 기록하기</h2><p class="muted">기존 계정은 로그인 이름과 비밀번호로 바로 이어서 사용할 수 있습니다. 새 계정 만들기는 별도 단계로 아래에 두었습니다.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}</div><div class="loginMethods">${kakaoPart}</div></div></div><div class="loginGrid"><div class="card loginCard"><h2>기존 계정 로그인</h2><p class="muted">PC에서 쓰던 계정의 로그인 이름과 계정 로그인 비밀번호를 입력하세요.</p><form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="가입할 때 정한 로그인 이름" required/></div><div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" required/></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form>${renderKakaoClaimForm(backField, claimMode)}</div><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody"><form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" value="${keep("login_name")}" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" value="${keep("display_name")}" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" value="${keep("invite_code")}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details></div><section class="warn legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b><br/>정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</section></section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script></body></html>`;
 }
 function myNavCss() {
   return `.appLayout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}.appMenu{position:sticky;top:12px;background:#fff;border:1px solid #E8EBEF;border-radius:20px;padding:12px;box-shadow:0 2px 14px rgba(15,23,42,.05);z-index:5}.appMenu summary{cursor:pointer;font-weight:800;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-radius:14px;background:#fff;color:#191F28;border:1px solid #E8EBEF}.appMenu summary::-webkit-details-marker{display:none}.appMenu summary:after{content:"열기";font-size:11px;font-weight:800;color:#8B95A1;background:#F2F4F6;border-radius:999px;padding:4px 9px}.appMenu[open] summary:after{content:"접기"}.appMenuBody{padding-top:8px}.navGroup{margin:10px 0}.navGroupTitle{font-size:12px;color:#8B95A1;font-weight:800;padding:5px 8px}.appMenu a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#333D4B;background:#fff;border:1px solid transparent;border-radius:13px;padding:10px 12px;margin:2px 0;font-weight:700}.appMenu a:hover{background:#F5F7F9}.appMenu a.active{background:#191F28;color:#fff}.appMenu small{font-size:11px;color:inherit;opacity:.6}.pageMain{min-width:0}.safeGrid>*{min-width:0}@media(min-width:900px){.appMenu summary{display:none}.appMenuBody{padding-top:0}}@media(max-width:899px){.appLayout{grid-template-columns:1fr}.appMenu{position:static;padding:8px}.appMenuBody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.navGroup{margin:0}.navGroupTitle{grid-column:1/-1}.appMenu a{margin:0;background:#F8F9FB;border:1px solid #EEF0F3}}@media(max-width:620px){.appMenuBody{grid-template-columns:1fr}}
@@ -35980,6 +36921,15 @@ function formatSignedPercent(v) {
   return "0%";
 }
 
+// V22.9.76 감사 D-13: 이전 값이 0원이면 증감률을 만들지 않는다. percentChange 가 돌려주는 "+100%"는 없던 비교를
+// 지어낸 숫자다. 분류는 "새로 생김", 전체 지출은 리포트와 같은 "비교 기록 없음"으로 쓴다.
+function formatChangeRate(current, previous, emptyLabel = "새로 생김") {
+  const prev = Number(previous || 0);
+  const cur = Number(current || 0);
+  if (!prev) return cur ? emptyLabel : "0%";
+  return formatSignedPercent(percentChange(cur, prev));
+}
+
 function deltaClass(v) {
   return v > 0 ? "deltaUp" : v < 0 ? "deltaDown" : "deltaFlat";
 }
@@ -36001,10 +36951,10 @@ function renderStrategyCards(ext, a) {
   const cards = [
     // 분석 기간 기록이 한도를 넘어 일부만 읽었으면 먼저 알린다(QA B05).
     ...(ext.historyTruncated ? [{ cls: "danger", title: "분석 범위", value: "일부만 분석", desc: "기간 기록이 6,000건을 넘어 최신 6,000건으로 계산했습니다. 정확한 합계는 월별 화면과 CSV에서 확인하세요." }] : []),
-    { cls: ext.expenseMoMRate > 20 ? "danger" : ext.expenseMoMRate > 5 ? "warn" : "good", title: "전월 대비 지출", value: formatSignedPercent(ext.expenseMoMRate), desc: `전월 ${numberWithCommas(ext.prev.totals.expense)}원 → 이번 달 ${numberWithCommas(ext.current.totals.expense)}원` },
+    { cls: !Number(ext.prev?.totals?.expense || 0) ? "" : ext.expenseMoMRate > 20 ? "danger" : ext.expenseMoMRate > 5 ? "warn" : "good", title: "전월 대비 지출", value: formatChangeRate(ext.current?.totals?.expense, ext.prev?.totals?.expense, "비교 기록 없음"), desc: `전월 ${numberWithCommas(ext.prev.totals.expense)}원 → 이번 달 ${numberWithCommas(ext.current.totals.expense)}원` },
     { cls: ext.avg3Expense > 0 && ext.current.totals.expense > ext.avg3Expense * 1.2 ? "warn" : "good", title: "3개월 평균 대비", value: `${numberWithCommas(ext.avg3Expense)}원`, desc: `최근 3개월 중 기록이 있는 ${ext.avg3Months ?? 3}개월의 평균입니다(지출 0원인 달 포함). 이번 달 속도와 비교하세요.` },
     { cls: ext.cleanupCount > 0 ? "danger" : "good", title: "분석 신뢰도", value: `${ext.cleanupCount}건`, desc: "미정리 데이터가 적을수록 고급 분석이 정확해집니다." },
-    { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatSignedPercent(ext.topIncrease.rate)}` },
+    { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatChangeRate(ext.topIncrease.current, ext.topIncrease.previous)}` },
     { cls: a.weekendRate >= 45 ? "warn" : "good", title: "주말 소비", value: `${a.weekendRate}%`, desc: "주말 외식·여가성 소비 비중을 점검하세요." },
     { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "가계부 경보", value: a.basisDays === 0 ? "관측 전" : `${a.riskScore}점`, desc: "고정비, 쏠림, 미정리, 월말 예상치를 종합한 점수입니다." },
   ];
@@ -36026,7 +36976,7 @@ function renderMonthlyTrendTable(items) {
 function renderCategoryCompareTable(items, compact) {
   if (!items.length) return `<div class="empty">비교할 데이터가 없습니다.</div>`;
   const rows = compact ? items.slice(0, 8) : items;
-  return `<div class="tableWrap"><table class="statTable"><thead><tr><th>카테고리</th><th>이번 달</th><th>전월</th><th>차이</th><th>증감률</th></tr></thead><tbody>${rows.map((x) => `<tr><td><b>${escapeHtml(x.name)}</b></td><td class="expense">${numberWithCommas(x.current)}원</td><td>${numberWithCommas(x.previous)}원</td><td class="${deltaClass(x.diff)}">${x.diff >= 0 ? "+" : ""}${numberWithCommas(x.diff)}원</td><td class="${deltaClass(x.rate)}">${formatSignedPercent(x.rate)}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="tableWrap"><table class="statTable"><thead><tr><th>카테고리</th><th>이번 달</th><th>전월</th><th>차이</th><th>증감률</th></tr></thead><tbody>${rows.map((x) => `<tr><td><b>${escapeHtml(x.name)}</b></td><td class="expense">${numberWithCommas(x.current)}원</td><td>${numberWithCommas(x.previous)}원</td><td class="${deltaClass(x.diff)}">${x.diff >= 0 ? "+" : ""}${numberWithCommas(x.diff)}원</td><td class="${deltaClass(x.rate)}">${formatChangeRate(x.current, x.previous)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function renderCategoryTrendTable(items) {
@@ -36793,18 +37743,19 @@ function formatMessage(msg) {
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
   };
-  if (friendly[msg]) return escapeHtml(friendly[msg]);
+  // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
+  if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
   const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
     db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
-  reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기지출 준비 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
+  reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기 수입·지출 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
 };
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
   // 쿼리 문자열은 사용자가 직접 만들 수 있다. 정확히 열거한 코드만 사용자 안내로 바꾸고,
   // 코드가 아닌 자유 문장(짧은 한국어 포함)은 출처를 증명할 수 없으므로 일반 안내로 닫는다.
-  return escapeHtml(map[msg] || generic);
+  return escapeHtml((Object.hasOwn(map, String(msg)) && map[msg]) || generic);
 }
 
 function isMissingCategory(value) {
@@ -37003,7 +37954,9 @@ function kakaoKeywordGuideText(origin = "") {
     "• 주유 → 주유/충전 · 하이패스 → 차량관리",
     "• 병원, 치과 → 의료/병원 · 약국 → 약국",
     "",
-    "상세 키워드 관리는 웹에서 ‘키워드 안내’를 요청했을 때만 연결해 드려요.",
+    // V22.9.76 카카오 감사 16: 이 답장이 ‘키워드 안내’ 요청의 답인데 "요청했을 때만 연결해 드려요"라고 해 앞뒤가 맞지 않았다.
+    "키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.",
+    ...(origin ? [`${origin}/my/settings`] : []),
   ].join("\n");
 }
 
@@ -37022,14 +37975,18 @@ function kakaoEditSimpleGuideText(origin = "") {
 }
 
 function kakaoReserveSimpleGuideText(origin = "") {
+  // V22.9.76 (감사 A-11): 예전 입력 예시("자동차보험 120만원 8월")를 그대로 보내면 정기 항목이 아니라
+  //   오늘 날짜 지출 1,200,000원이 저장됐다. 정기 항목 등록은 웹에서만 되므로 카카오에서 되는 일만 적는다.
   return [
-    "📌 정기지출 준비",
+    "📌 정기 수입·지출",
     "",
-    "재산세, 자동차세, 자동차보험처럼 큰 지출을 미리 기록하고 준비할 수 있어요.",
+    "재산세·자동차보험처럼 정해진 달에 나가는 돈과",
+    "수당·월세처럼 정해진 날 들어오는 돈은",
+    "웹 > 예산 > 정기 수입·지출에 등록해 두세요.",
+    "기한이 다가오면 ‘이번달요약’과 웹 알림에서 알려 드려요.",
     "",
-    "입력 예시",
-    "• 자동차보험 120만원 8월",
-    "• 재산세 30만원 7월",
+    "카카오톡으로 금액을 보내면 오늘 실제로 쓰거나 받은 돈으로 저장돼요.",
+    "예) 자동차보험 120만원 → 오늘 지출 1,200,000원",
   ].join("\n");
 }
 
@@ -37761,6 +38718,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       "@말해가계부 점심 12000원",
       "처럼 보내면 바로 기록돼요.",
       "예) 어제 병원 15000원 국민카드",
+      "수입 예) 월급 250만원 들어옴",
     ].join("\n"),
     buttons: [
       { messageText: "오늘기록" },
@@ -38041,7 +38999,7 @@ function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
 // T2: 수정 답장에 바뀐 기록을 적는다.
 function kakaoEditRecordLineV4(row = {}) {
   const memo = row.memo || row.raw_text || row.category || "기록";
-  return `기록: ${memo} / ${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
+  return `기록: ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${row.transaction_date || "-"}`;
 }
 
 // T12: 지울 때 읽은 칸으로 행을 다시 만든다. 예전 버퍼에 source 가 없으면 카카오 기록으로 본다.
@@ -38053,11 +39011,15 @@ function kakaoRestoreRowV4(row = {}, fallbackHouseholdId = "") {
   return out;
 }
 
+// V22.9.76 카카오 감사 12: 목록 줄에서 수입을 지출과 구별한다. 예전에는 "01번 - 월급 / 2,500,000원 / - / 급여"처럼
+// 지출과 똑같이 보였다. 금액 칸에 ‘수입’을 붙인다("01번 - 월급 / 수입 2,500,000원 / - / 급여"). 지출 줄의 모양은 그대로다.
+function kakaoIncomeMarkV4(row = {}) { return row.type === "income" ? "수입 " : ""; }
+
 function kakaoRowLabel(row = {}, seq = 0) {
   const memo = row.memo || row.raw_text || row.category || "기록";
   const pay = row.payment_method || "-";
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
-  return `${twoDigitSeq(seq)}번 - ${memo} / ${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+  return `${twoDigitSeq(seq)}번 - ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {
@@ -38128,10 +39090,14 @@ function isKakaoEditCancelCommand(text = "") {
 // "수정 NN번 [나머지]"가 표준 문법이고, 안내되어 온 레거시 "NN번 [나머지]"와
 // 날짜 접두("어제 01번 …")도 같은 단일 경로로 흡수한다.
 
+// V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"그제삭제 01번"·"10월20일수정 01번 …"처럼 띄어 쓰지 않은 날짜 접두도
+// 뗀다. 예전에는 날짜를 못 떼서 수정 명령으로 알아보지 못했고, 금액이 있으면 새 지출로 저장됐다. 날짜 숫자 바로 뒤에
+// 번호가 붙은 "10월 12번 삭제"는 "10월 1" + "2번"으로 잘못 떼지 않도록 일·띄어쓰기·수정 낱말이 있을 때만 뗀다.
 function stripKakaoEditDatePrefixV4(text = "") {
   return normalizeText(text)
     .replace(/^(오늘|어제|그제|그저께|엊그제)\s+/, "")
-    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}\s*일?\s+(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(오늘|어제|그제|그저께|엊그제)(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
+    .replace(/^(?:20\d{2}[.\-/년\s]+)?\d{1,2}\s*[월.\-/]\s*\d{1,2}(?:\s*일\s*|\s+|(?=수정|삭제|복구))(?=수정|삭제|복구|\d{1,2}\s*번)/, "")
     .trim();
 }
 
@@ -38177,6 +39143,14 @@ function parseKakaoRestoreCommandV4(text = "") {
   return { seq: m[1] ? Number(m[1]) : 0, invalidSeq: m[1] !== undefined && !(Number(m[1]) >= 1) };
 }
 
+// V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"·"1번 13000"처럼 답하는 말인지 본다.
+// 옛 문법("N번 …" = 오늘의 N번 기록 수정)과 모양이 같아서, 열린 세션이 있으면 이 말을 세션에 먼저 넘긴다.
+// 수정·삭제·복구 말이 들어 있거나 날짜로 시작하는 말은 기록을 고르는 명령이라 여기에 들지 않는다.
+function isKakaoSessionSeqReplyV4(text = "") {
+  const raw = normalizeText(text);
+  return /^\d{1,2}\s*번(?:\s|$)/.test(raw) && !/(?:수정|삭제|제거|지워|지우기|복구)/.test(raw);
+}
+
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
@@ -38188,7 +39162,7 @@ function parseKakaoEditCommandV4(text = "") {
   if (m) {
     seq = Number(m[1]);
     rest = m[2] || "";
-  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)/.test(body)) {
+  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)/.test(body)) {
     latest = true;
     rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
   } else {
@@ -38198,7 +39172,7 @@ function parseKakaoEditCommandV4(text = "") {
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
   // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
   rest = normalizeText(rest)
-    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
     .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
     .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
@@ -38206,14 +39180,14 @@ function parseKakaoEditCommandV4(text = "") {
 
 function isKakaoTransactionSpenderChangeCommand(text = "") {
   const t = normalizeText(text).replace(/\s+/g, " ").trim();
-  return /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
+  return /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘)(?:\s|$)/.test(t) || /(?:^|\s)(지출자|결제자|수입자)(?:\s*이름)?\s+[가-힣A-Za-z0-9._-]{1,30}(?:\s*(?:으로|로))?(?:\s*(?:변경|수정|바꿔|바꿔줘|해줘))?$/.test(t);
 }
 
 function parseKakaoSpenderChoiceValue(text = "") {
   let t = normalizeText(text).replace(/\s+/g, " ").trim();
   t = t.replace(/(?:^|\s)\d{1,2}\s*번/g, " ").replace(/방금|최근|마지막/g, " ");
-  t = t.replace(/^(?:지출자|결제자)(?:\s*이름)?\s*/, "");
-  t = t.replace(/(?:지출자|결제자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/^(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
+  t = t.replace(/(?:지출자|결제자|수입자)(?:\s*이름)?\s*/, "");
   t = t.replace(/\s*(?:으로|로)?\s*(?:변경|수정|바꾸기|바꿔|바꿔줘|변경해줘|수정해줘|해줘|해주세요)\s*$/g, "");
   return t.trim();
 }
@@ -38223,12 +39197,14 @@ function kakaoActiveSpenderMembers(members = []) {
 }
 
 // V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
+// V22.9.76 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
 function kakaoEditMenuTextV4(row = {}, seq = 0) {
+  const person = row.type === "income" ? "수입자" : "지출자";
   return [
     kakaoRowLabel(row, seq),
     "무엇을 바꿀까요? 번호를 보내주세요.",
-    "1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. 지출자  7. 삭제",
-    "한 줄로도 돼요: 지출자 엄마 / 금액 13000",
+    `1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. ${person}  7. 삭제`,
+    `한 줄로도 돼요: ${person} 엄마 / 금액 13000`,
     "(그만하려면: 취소)",
   ].join("\n");
 }
@@ -38250,6 +39226,7 @@ function kakaoEditGuideText(origin = "") {
     "수정 01번 내용 점심",
     "수정 01번 날짜 어제",
     "수정 01번 지출자 엄마",
+    "(수입 기록은 ‘수정 01번 수입자 엄마’)",
     "",
     "삭제: 삭제 01번",
     "되돌리기: 복구 01번",
@@ -38286,7 +39263,7 @@ const FIELD_SYNONYMS = {
   method:   ["결제수단", "결재수단", "수단", "지불수단", "지불방법", "결제방법", "카드변경"],
   content:  ["내용", "이름", "품목", "제목", "메모"],
   date:     ["날짜", "일자", "날자"],
-  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람"],
+  payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람", "수입자", "받은사람"],
   delete:   ["삭제", "지우기", "지워", "삭제해줘"],
 };
 
@@ -38299,6 +39276,18 @@ const FIELD_LABEL = {
   amount: "금액", category: "분류", method: "결제수단",
   content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
 };
+
+// V22.9.76 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
+// 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
+function payerWord(session = {}) { return session && session.rowType === "income" ? "수입자" : "지출자"; }
+function fieldLabel(field, session = {}) { return field === "payer" ? payerWord(session) : FIELD_LABEL[field]; }
+
+// V22.9.76 카카오 감사 2: 분류 목록의 기본값은 구분별 표준 분류 이름(CATEGORY_RULES 이름과 기타수입·기타지출)이다.
+// 예전 기본 목록은 구분 없이 지출 이름뿐이었고 "의료"·"생활"처럼 표준이 아닌 이름이라 예산 집계에서 빠졌다.
+const KAKAO_EDIT_DEFAULT_CATEGORIES = Object.freeze({
+  expense: Object.freeze(["외식", "배달", "카페/간식", "장보기", "편의점", "교통", "생활용품", "쇼핑", "의료/병원", "문화/여가", "기타지출"]),
+  income: Object.freeze(["급여", "용돈", "환급", "이자배당", "부업/매출", "기타수입"]),
+});
 
 const FILLER_TOKENS = new Set([
   "변경", "바꿔", "바꾸기", "바꿔줘", "수정", "수정해줘",
@@ -38388,6 +39377,16 @@ function tokenToFieldFuzzy(tokenRaw) {
 
 // T6: 수정 세션 중 이 입력이 항목 이름(오타 포함)이나 1~7 번호로 시작하는지. 아니면서 금액과 내용을 갖춘
 // 문장("점심 12000원 국민카드")은 수정 값이 아니라 새 기록이다.
+// V22.9.76 감사 B-3: 끝난 수정 세션 뒤에 온 말이 수정 값 모양인지 본다("금액 13000", "지출자 엄마", "3", "6번 엄마").
+// 새 기록의 첫 낱말이 우연히 필드 이름으로 시작하는 경우("사람들 회식 5만원")는 피하려고, 앞 낱말이 필드 이름이나
+// 메뉴 번호와 똑같을 때만 맞다고 본다.
+function isExactKakaoEditFieldStart(textRaw = "") {
+  const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
+  if (/^[1-7]$/.test(token)) return true;
+  const c = compact(token);
+  return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
+}
+
 function startsWithKakaoEditField(textRaw = "") {
   const first = normalize(textRaw).split(" ")[0] || "";
   return !!(tokenToField(first) || tokenToFieldFuzzy(first));
@@ -38486,13 +39485,13 @@ function failMessage(session, userText) {
   const no = session.entryNo;
   const variants = [
     // 1회차: 짧은 재안내
-    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: 지출자 엄마 / 금액 13000 / 6`,
+    `🤔 무엇을 바꿀지 못 알아들었어요.\n항목 이름이나 번호를 보내주세요.\n예: ${payerWord(session)} 엄마 / 금액 13000 / 6`,
     // 2회차: 원문 echo + 근접 후보 + 복사용 완성 예시 [L9]
     (() => {
       const guess = nearestField(userText);
       let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
-      if (guess) msg += `\n혹시 ${FIELD_LABEL[guess]} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess)}`;
-      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제`;
+      if (guess) msg += `\n혹시 ${fieldLabel(guess, session)} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess, session)}`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제`;
       return msg;
     })(),
     // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
@@ -38514,10 +39513,10 @@ function nearestField(text) {
   return bestDist <= 2 ? best : null;
 }
 
-function exampleFor(field) {
+function exampleFor(field, session = {}) {
   return {
     amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
-    content: "내용 점심", date: "날짜 어제", payer: "지출자 엄마", delete: "삭제",
+    content: "내용 점심", date: "날짜 어제", payer: `${payerWord(session)} 엄마`, delete: "삭제",
   }[field];
 }
 
@@ -38530,14 +39529,14 @@ function buildValuePrompt(field, config = {}) {
 
   if (field === "payer") {
     const options = config.members || ["아빠", "엄마"];
-    return { prompt: `지출자를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
+    return { prompt: `${config.rowType === "income" ? "수입자" : "지출자"}를 누구로 바꿀까요? 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "method") {
     const options = [...new Set([...(config.methods || []), "현금", "체크카드", "신용카드", "계좌이체"])];
     return { prompt: `결제수단을 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "category") {
-    const options = config.categories || ["식비", "카페/간식", "교통", "생활", "의료", "교육", "문화", "기타"];
+    const options = config.categories || [...KAKAO_EDIT_DEFAULT_CATEGORIES[config.rowType === "income" ? "income" : "expense"]];
     return { prompt: `분류를 번호로 골라주세요.\n${numbered(options)}`, options };
   }
   if (field === "date") {
@@ -38551,13 +39550,13 @@ function buildValuePrompt(field, config = {}) {
   return { prompt: "내용을 무엇으로 바꿀까요? 예: 점심", options: null };
 }
 
-const HELP_TEXT = (no) =>
+const HELP_TEXT = (no, session = {}) =>
   `📖 수정 방법 안내\n` +
   `① 숫자로 차근차근 (가장 안전):\n` +
   `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
-  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 지출자 / 7 삭제\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제\n` +
   `② 한 줄로 바로 (가장 빠름):\n` +
-  `👉 지출자 엄마 / 금액 13000 / 날짜 어제\n` +
+  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제\n` +
   `그만하려면: 취소`;
 
 // ------------------------- 세션 상태머신 -------------------------
@@ -38581,7 +39580,7 @@ function expiredReply(session) {
     action: "cancel",
     reply:
       `⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 종료했어요.\n` +
-      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 지출자 엄마`,
+      `다시 하려면 한 줄로 보내주세요:\n👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마`,
     nextSession: null,
   };
 }
@@ -38600,7 +39599,7 @@ function handleEditMessage(session, textRaw, config = {}) {
       reply:
         `😅 대화가 길어져 ${session.entryNo}번 수정을 종료했어요.\n` +
         `한 줄로 다시 보내주시면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000`,
       nextSession: null,
     };
@@ -38622,7 +39621,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (HELP_WORDS.has(c)) {
     return finish(session, {
       action: "reprompt",
-      reply: HELP_TEXT(session.entryNo),
+      reply: HELP_TEXT(session.entryNo, session),
       nextSession: { ...session, updatedAt: now }, // 도움말은 실패 카운트 증가 없음
     });
   }
@@ -38637,7 +39636,7 @@ function handleEditMessage(session, textRaw, config = {}) {
         action: "reprompt",
         // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
         // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
-        reply: `그럼 무엇을 바꿀까요?\n예: 지출자 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
+        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -38684,7 +39683,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.field === "delete") {
     return finish(session, {
       action: "delete",
-      reply: `🗑️ ${session.entryNo}번 지출을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
+      reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
       nextSession: null,
     });
   }
@@ -38693,7 +39692,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.via === "infer" && parsed.confidence === "low") {
     return finish(session, {
       action: "confirm",
-      reply: `혹시 ${FIELD_LABEL[parsed.field]}${josa(FIELD_LABEL[parsed.field], "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
+      reply: `혹시 ${fieldLabel(parsed.field, session)}${josa(fieldLabel(parsed.field, session), "을를")} ${editValueLabel(parsed.field, parsed.value)}${josa(editValueLabel(parsed.field, parsed.value).replace(/'$/, ""), "으로로")} 바꾸는 건가요? (네/아니오)`,
       // 주의: repeatCount를 리셋하지 않는다. 저신뢰 확인이 반복되며
       // 실패 카운트가 초기화되는 루프를 fuzz 테스트가 실제로 잡아냈다.
       nextSession: { ...session, step: "awaiting_confirm", pendingField: parsed.field, pendingValue: parsed.value, updatedAt: now },
@@ -38703,7 +39702,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (parsed.value) return applyResult(session, parsed.field, parsed.value);
 
   // 필드만 → 값 되묻기 [V4: 선택형은 숫자 옵션 제시]
-  const vp = buildValuePrompt(parsed.field, config);
+  const vp = buildValuePrompt(parsed.field, { ...config, rowType: config.rowType || session.rowType });
   return finish(session, {
     action: "ask_value",
     reply: `✏️ ${vp.prompt}\n(그만하려면: 취소)`,
@@ -38723,7 +39722,7 @@ function applyResult(session, field, value) {
     action: "apply",
     field,
     value,
-    reply: `✅ ${session.entryNo}번 ${FIELD_LABEL[field]}${josa(FIELD_LABEL[field], "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
+    reply: `✅ ${session.entryNo}번 ${fieldLabel(field, session)}${josa(fieldLabel(field, session), "을를")} ${shown}${josa(shown.replace(/'$/, ""), "으로로")} 변경했어요.`,
     nextSession: null,
   });
 }
@@ -38739,7 +39738,7 @@ function fail(session, now, userText, customMsg) {
       reply:
         `😅 계속 이해하지 못해서 ${session.entryNo}번 수정을 취소했어요.\n` +
         `아래 예시를 그대로 복사해서 한 줄로 보내면 바로 돼요:\n` +
-        `👉 수정 ${session.entryNo}번 지출자 엄마\n` +
+        `👉 수정 ${session.entryNo}번 ${payerWord(session)} 엄마\n` +
         `👉 수정 ${session.entryNo}번 금액 13000\n` +
         `👉 수정 ${session.entryNo}번 날짜 어제`,
       nextSession: null,
@@ -38778,6 +39777,7 @@ const MENU_EXAMPLES = [
   { input: "지출자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결재자 엄마",      expect: { field: "payer", value: "엄마" } },
   { input: "결제자 엄마",      expect: { field: "payer", value: "엄마" } },
+  { input: "수입자 엄마",      expect: { field: "payer", value: "엄마" } },   // V22.9.76 수입 기록 안내
   { input: "지츨자 엄마",      expect: { field: "payer", value: "엄마" } },   // fuzzy
   { input: "6",               expect: { field: "payer", value: null } },
   { input: "6번 엄마",         expect: { field: "payer", value: "엄마" } },
@@ -38850,8 +39850,33 @@ function loopFuzzTest(config = {}, rounds = 200) {
 // V4 Worker 통합 — 위 모듈을 실제 카카오 스킬 라우팅·DB에 연결한다.
 // =====================================================================
 
+// V22.9.76 카카오 감사 2: 수입·지출 분류 이름표. 다른 구분의 분류를 고르면 반영하지 않는다. 번들의 위쪽 순서와
+// 상관없도록 처음 쓸 때 만든다. 사용자 분류는 같은 구분이면 이름이 겹쳐도 받는다(예: 지출 분류 "용돈").
+let kakaoEditCategoryTypeSetsCacheV4 = null;
+function kakaoEditCategoryTypeSetsV4() {
+  if (kakaoEditCategoryTypeSetsCacheV4) return kakaoEditCategoryTypeSetsCacheV4;
+  const income = new Set([...CATEGORY_RULES.filter((rule) => rule.type === "income").map((rule) => rule.name), "기타수입", "상여/보너스", "용돈수입", "월급", "상여/성과급", "부수입"]);
+  const expense = new Set([...CATEGORY_RULES.filter((rule) => rule.type === "expense").map((rule) => rule.name), ...Object.keys(LEGACY_CATEGORY_SPLITS), "식비", "가족/용돈", "건강", "기타지출"].filter((name) => !income.has(name)));
+  kakaoEditCategoryTypeSetsCacheV4 = { income, expense };
+  return kakaoEditCategoryTypeSetsCacheV4;
+}
+
+// 고른 분류가 기록과 다른 구분의 분류면 그 구분("income"|"expense"), 아니면 "". "기타"와 모르는 이름은 받는다.
+function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}) {
+  const value = String(name || "").trim();
+  if (!value || value === "기타") return "";
+  const own = rowType === "income" ? "income" : "expense";
+  const other = own === "income" ? "expense" : "income";
+  if (safeArray(config.customCategoryTypes?.[own]).includes(value)) return "";
+  if (safeArray(config.customCategoryTypes?.[other]).includes(value)) return other;
+  const sets = kakaoEditCategoryTypeSetsV4();
+  if (sets[own].has(value)) return "";
+  return sets[other].has(value) ? other : "";
+}
+
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
-async function buildKakaoEditConfigV4(env, householdId = "") {
+// V22.9.76: 분류 목록은 기록의 구분(rowType)에 맞는 사용자 분류만, 없으면 그 구분의 표준 분류다.
+async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense") {
   const [members, paymentAssets, categoryRows] = await Promise.all([
     fetchHouseholdMembers(env, householdId).catch(() => []),
     fetchPaymentAssets(env, householdId).catch(() => []),
@@ -38870,21 +39895,32 @@ async function buildKakaoEditConfigV4(env, householdId = "") {
     if (name && !methods.includes(name)) methods.push(name);
     if (methods.length >= 10) break;
   }
-  const categories = [];
+  const categoriesByType = { expense: [], income: [] };
+  const customCategoryTypes = { expense: [], income: [] };
   for (const categoryRow of safeArray(categoryRows)) {
     const name = String(categoryRow?.name || "").trim();
-    if (name && !categories.includes(name)) categories.push(name);
-    if (categories.length >= 12) break;
+    const type = categoryRow?.type === "income" ? "income" : "expense";
+    if (!name) continue;
+    if (!customCategoryTypes[type].includes(name)) customCategoryTypes[type].push(name);
+    if (!categoriesByType[type].includes(name) && categoriesByType[type].length < 12) categoriesByType[type].push(name);
   }
-  if (categories.length && !categories.includes("기타")) {
-    if (categories.length >= 12) categories.pop();
-    categories.push("기타");
+  for (const type of ["expense", "income"]) {
+    const categories = categoriesByType[type];
+    if (!categories.length) { categories.push(...KAKAO_EDIT_DEFAULT_CATEGORIES[type]); continue; }
+    if (!categories.includes("기타")) {
+      if (categories.length >= 12) categories.pop();
+      categories.push("기타");
+    }
   }
+  const type = rowType === "income" ? "income" : "expense";
   return {
     members: memberOptions.map((m) => m.label),
     memberOptions,
     methods,
-    categories: categories.length ? categories : undefined,
+    rowType: type,
+    categories: categoriesByType[type],
+    categoriesByType,
+    customCategoryTypes,
   };
 }
 
@@ -38909,7 +39945,7 @@ async function sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, rep
     if (guard >= 2) {
       // 가드조차 2회면 세션을 강제 폐기하고 탈출 안내
       finalReply = `😅 응답이 반복되어 ${session.entryNo}번 수정을 종료했어요.\n` +
-        `다시 하려면: 수정 ${session.entryNo}번 지출자 엄마`;
+        `다시 하려면: 수정 ${session.entryNo}번 ${session.rowType === "income" ? "수입자" : "지출자"} 엄마`;
       finalNext = null;
     } else {
       finalReply += `\n(같은 안내가 반복됐어요 — '취소'로 나가거나 '도움말'을 보내주세요)`;
@@ -38950,6 +39986,23 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     }
     patch.amount = amount;
   } else if (field === "category") {
+    // V22.9.76 카카오 감사 2: 다른 구분의 분류("수정 01번 분류 급여"를 지출 기록에)는 반영하지 않고 같은 구분 목록에서 다시 고르게 한다.
+    const rowType = row.type === "income" ? "income" : "expense";
+    const conflict = kakaoEditCategoryConflictV4(value, rowType, config);
+    if (conflict) {
+      const typeText = rowType === "income" ? "수입" : "지출";
+      const options = safeArray(config.categoriesByType?.[rowType]).length ? safeArray(config.categoriesByType[rowType]) : [...KAKAO_EDIT_DEFAULT_CATEGORIES[rowType]];
+      const head = `⚠️ ‘${String(value).trim()}’ 분류는 ${conflict === "income" ? "수입" : "지출"} 분류라서 ${typeText} 기록에 넣지 않았어요. 기록은 그대로예요.`;
+      const count = (Number(session.repeatCount) || 0) + 1;
+      if (count >= MAX_FAILS) {
+        return { log: { type: "unrecognized_final", entryNo: session.entryNo, input: String(value) }, reply: `${head}\n${typeText} 분류로 한 줄로 보내면 바로 돼요:\n👉 수정 ${session.entryNo}번 분류 ${options[0]}`, nextSession: null };
+      }
+      return {
+        log: { type: "unrecognized", entryNo: session.entryNo, input: String(value), attempt: count },
+        reply: `${head}\n${typeText} 분류를 번호로 골라 주세요.\n${options.map((name, i) => `${i + 1}. ${name}`).join("  ")}`,
+        nextSession: { ...session, rowType, step: "awaiting_value", field: "category", valueOptions: options, pendingField: null, pendingValue: null, repeatCount: count, updatedAt: Date.now() },
+      };
+    }
     patch.category = String(value).slice(0, 80);
   } else if (field === "method") {
     patch.payment_method = String(value).slice(0, 80);
@@ -38974,7 +40027,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   } else if (field === "payer") {
     // T12: 웹(/my/update)과 같은 규칙 — 지출자는 소유자·관리자만 바꾼다.
     if (!canManageMyHousehold(role)) {
-      return { reply: "지출자는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.", nextSession: null };
+      return { reply: `${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`, nextSession: null };
     }
     const options = safeArray(config.memberOptions);
     if (!options.length) {
@@ -38990,7 +40043,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
           reply:
             `😅 구성원 이름을 찾지 못해 ${session.entryNo}번 수정을 취소했어요.\n` +
             `아래 예시를 그대로 복사해 한 줄로 보내면 바로 돼요:\n` +
-            `👉 수정 ${session.entryNo}번 지출자 ${options[0].label}\n` +
+            `👉 수정 ${session.entryNo}번 ${row.type === "income" ? "수입자" : "지출자"} ${options[0].label}\n` +
             `👉 수정 ${session.entryNo}번 금액 13000`,
           nextSession: null,
         };
@@ -39074,6 +40127,12 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
   if (isSessionExpired(session, Date.now())) {
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
+    // V22.9.76 감사 B-3: 수정 메뉴 5분 뒤 온 "금액 13000"이 새 지출 ‘금액 / 13,000원’으로 저장됐고, "1번 13000"은 오늘의
+    // 01번을 바로 바꿀 수 있었다. 세션이 끝난 지 30분 안에 온 수정 값 모양의 말은 끝났다고 알리고 한 줄 명령을 보여 준다.
+    const sinceUpdateMs = Date.now() - Number(session.updatedAt || 0);
+    if (session.updatedAt && sinceUpdateMs <= 35 * 60 * 1000 && (isExactKakaoEditFieldStart(utterance) || isKakaoSessionSeqReplyV4(utterance))) {
+      return kakaoText(kakaoEditExpiredTextV4(session, utterance));
+    }
     return null;
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
@@ -39082,9 +40141,20 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
     return { passThrough: true, notice: `✏️ ${session.entryNo}번 수정은 끝내고, 보낸 내용을 새 기록으로 처리했어요.\n` };
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
-  const config = await buildKakaoEditConfigV4(env, session.householdId);
+  const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+}
+
+// V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
+// 보낸 말로 만들어 보여 준다(어제 기록이면 ‘어제’·‘8월 4일’을 앞에 붙인다).
+function kakaoEditExpiredTextV4(session = {}, utterance = "") {
+  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
+  const text = normalizeText(utterance).slice(0, 40);
+  const person = session.rowType === "income" ? "수입자" : "지출자";
+  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-7]$/.test(text) && isExactKakaoEditFieldStart(text);
+  const examples = [fieldFirst ? `${head} ${text}` : `${head} 금액 13000`, `${head} ${person} 엄마`];
+  return [`⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 끝냈어요. 보낸 내용은 반영하지 않았어요.`, "다시 하려면 한 줄로 보내 주세요:", ...[...new Set(examples)].map((line) => `👉 ${line}`)].join("\n");
 }
 
 async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
@@ -39114,6 +40184,8 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
     entryNo: twoDigitSeq(seq),
     entryId: row.id,
     entryDate: row.transaction_date || "",
+    // V22.9.76 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
+    rowType: row.type === "income" ? "income" : "expense",
     householdId: household.id,
     householdName: String(household.name || "").slice(0, 60),
     userId: user.id,
@@ -39132,7 +40204,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
   if (!rest) {
     return sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, kakaoEditMenuTextV4(row, seq), session);
   }
-  const config = await buildKakaoEditConfigV4(env, household.id);
+  const config = await buildKakaoEditConfigV4(env, household.id, session.rowType);
   const result = handleEditMessage(session, rest, { ...config, now: Date.now() });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
@@ -39162,14 +40234,18 @@ async function handleKakaoEditCommandV4(env, ctx) {
   if (isKakaoEditGuideCommand(raw)) return kakaoText(kakaoEditGuideText(origin));
 
   if (isKakaoDailyListCommand(raw)) {
-    const date = extractDate(raw);
+    // V22.9.76 카카오 감사 6: "어제기록"·"그제기록"·"7월7일기록"처럼 붙여 쓰면 날짜를 못 읽어 오늘 목록을 보였다.
+    // 날짜 부분과 뒤의 ‘기록·내역·목록’을 띄어 읽는다.
+    const date = extractDate(raw.replace(/\s*(기록|내역|목록)(\s*보기)?$/, " $1"));
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
+    // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
+    const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
+    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -39266,8 +40342,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
   if (isKakaoTransactionSpenderChangeCommand(raw)) {
+    // V22.9.76 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
+    // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
+    { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
     if (!row) return kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
+    if (!canManageMyHousehold(ctx.role)) return kakaoText(`${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`);
     const value = parseKakaoSpenderChoiceValue(raw);
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자" });
   }
@@ -39310,18 +40390,18 @@ function looksLikeKakaoEditCommandV4(text = "") {
   const control = kakaoEditControlTextV4(text);
   const original = normalizeText(stripKakaoBotMention(text)).replace(/^\/+\s*/, "");
   return /^(?:수정|삭제|복구)\s*\d+/.test(control)
-    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
     // V22.9.63 감사(1:1 1): "수정 01번 금액을 13000원으로", "01번 가격 13200", "수정 01번 13300원으로"처럼 조사·동의어·값만 있는
     // 수정 말이 새 지출로 저장됐다(stripLeadingCommand 가 앞의 ‘수정’을 떼고 나면 위 두 규칙이 못 알아봤다). 앞에 ‘수정 NN번’이
     // 있었거나 번호 뒤에 수정 낱말(동의어·조사 포함)이 오면 수정 명령이다. "2번 출구 택시 8000원"처럼 수정 낱말이 없는 번호는 기록이다.
     || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
     // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
     // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
-    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
     || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
-    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
-    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
+    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
 }
 
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
@@ -39421,12 +40501,17 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
   return true;
 }
 
-function kakaoRepeatGuardText(origin = "") {
+// V22.9.76 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
+function kakaoRepeatGuardText(origin = "", utterance = "") {
+  const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
+  const example = text && extractAmount(text)?.amount ? text : "";
+  const income = example && detectType(example) === "income";
   return [
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
     "‘오늘기록’로 저장 결과를 확인해 주세요.",
-    "서로 다른 구매라면 ‘별도 구매 추가 커피 4500원’처럼 원래 내용을 보내 후보를 확인해 주세요.",
+    income ? `따로 들어온 돈이라면 ‘별도 기록 추가 ${example}’라고 보내 후보를 확인해 주세요.`
+      : `서로 다른 구매라면 ‘별도 구매 추가 ${example || "커피 4500원"}’처럼 원래 내용을 보내 후보를 확인해 주세요.`,
   ].join("\n");
 }
 
@@ -39687,7 +40772,7 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   if (KAKAO_REPRESENTATIVE_COMMANDS.some((item) => normalizeText(item.messageText || item.command).replace(/\s+/g, "") === compact)) return true;
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
-  if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자)/.test(t)) return true;
+  if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자|수입자)/.test(t)) return true;
   if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
   return false;
@@ -39853,10 +40938,14 @@ function kakaoHouseholdChoiceQuickReplies(rows = [], prefix = "가계부 선택"
 }
 
 function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
-  return safeArray(rows).slice(0, 10).map((h, index) => {
+  const list = safeArray(rows).slice(0, 10);
+  // V22.9.76 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
+  const sameName = (h) => list.filter((other) => normalizeText(other?.name || "") === normalizeText(h?.name || "")).length > 1;
+  return list.map((h, index) => {
     const role = userHouseholdRoleLabel(h?.role || "member");
     const code = showCodes && h?.invite_code ? ` · 코드 ${h.invite_code}` : "";
-    return `${index + 1}. ${h?.name || "가계부"} · ${role}${code}`;
+    const made = sameName(h) && h?.created_at ? ` · 만든 날 ${String(h.created_at).slice(0, 10)}` : "";
+    return `${index + 1}. ${h?.name || "가계부"} · ${role}${made}${code}`;
   });
 }
 
@@ -39869,7 +40958,11 @@ function parseKakaoHouseholdChoice(text = "", rows = []) {
   }
   const stripped = t.replace(/^(?:가계부\s*)?(?:선택|전환|바꾸기|연결)\s*/, "").trim();
   if (!stripped) return null;
-  return rows.find((h) => normalizeText(h?.name || "") === stripped) || null;
+  // V22.9.76 감사 D-6: 이름이 같은 가계부가 둘 이상이면 첫 번째를 고르지 않는다(남의 같은 이름 가계부에 기록이 저장될 수 있었다).
+  // 부르는 쪽이 번호로 다시 묻는다.
+  const matches = rows.filter((h) => normalizeText(h?.name || "") === stripped);
+  if (matches.length > 1) return { ambiguous: true, name: matches[0].name, count: matches.length };
+  return matches[0] || null;
 }
 
 async function beginKakaoHouseholdChoice(env, { user, payload, households = [], action = "select", origin = "", groupKey = "", forceChoice = false } = {}) {
@@ -40098,8 +41191,11 @@ function parseBudgetMonthHint(text = "") {
   if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
-    const year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
+    // V22.9.76 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
+    // (예전: 지난 1월에 저장). 앞뒤 거리가 같으면(6개월) 앞날로 본다.
+    let year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
     const month = Number(m[2]);
+    if (!m[1]) { const diff = month - Number(currentMonthKst().slice(5, 7)); if (diff <= -6) year += 1; else if (diff > 6) year -= 1; }
     if (month >= 1 && month <= 12) return `${year}-${String(month).padStart(2, "0")}`;
   }
   return currentMonthKst();
@@ -40164,7 +41260,14 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
       assertFresh();
       await saveKakaoBudget(env, householdId, month, String(row.category || ""), Number(row.amount || 0));
     }
-    return { previous, count: copyRows.length };
+    // V22.9.76 카카오 감사 13: 개수에는 전체 예산(__total)과 수입 목표(__income:…)도 들어 있다. 답장이 무엇을 셌는지 나눠 말한다.
+    const categoryOf = (row) => String(row.category || "");
+    return {
+      previous, count: copyRows.length,
+      categoryCount: copyRows.filter((row) => !categoryOf(row).startsWith("__")).length,
+      totalCount: copyRows.filter((row) => categoryOf(row) === "__total").length,
+      incomeCount: copyRows.filter((row) => categoryOf(row).startsWith("__income")).length,
+    };
   });
 }
 
@@ -40177,13 +41280,23 @@ async function getHouseholdById(env, householdId = "") {
 
 function parseKakaoSummaryRange(text = "") {
   let t = normalizeText(text);
-  const natural = t.match(/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
+  // V22.9.76 감사 A-13: ‘저번달’·‘전달’·‘저번주’는 지난달·지난주와 같은 말이다. 예전에는 기간을 못 읽어 이번 달로 답했다.
+  t = t.replace(/^(?:저번\s*달|전달|전월)(?=\s|$|요약|수입|얼마)/, "지난달").replace(/^저번\s*주(?=\s|$|요약|수입|얼마)/, "지난주");
+  // V22.9.76 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
+  // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
+  let focus = "";
+  const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
+  const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
-  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
+  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
   if (/오늘/.test(t)) {
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); end = addDays(start, 1); label = "오늘";
+  } else if (/그제|그저께/.test(t)) {
+    end = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -1); start = addDays(end, -1); label = "그제";
   } else if (/어제/.test(t)) {
     end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); start = addDays(end, -1); label = "어제";
   } else if (/지난\s*주/.test(t)) {
@@ -40192,23 +41305,31 @@ function parseKakaoSummaryRange(text = "") {
   } else if (/이번\s*주/.test(t)) {
     const dow = (now.getDay() + 6) % 7; start = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow); end = addDays(start, 7); label = "이번 주";
   } else if (/지난\s*달/.test(t)) {
-    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getMonth()+1}월`;
+    const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getFullYear() === now.getFullYear() ? "" : `${start.getFullYear()}년 `}${start.getMonth()+1}월`;
   } else {
     const dateMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
     if (dateMatch) {
-      const y = Number(dateMatch[1] || now.getFullYear()), m = Number(dateMatch[2]), d = Number(dateMatch[3]);
-      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${m}월 ${d}일`;
+      // V22.9.76 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
+      let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
+      if (!dateMatch[1] && new Date(y, m - 1, d) > now) y -= 1;
+      start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
-      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*요약)?$/);
-      if (monthMatch) {
-        const y = Number(monthMatch[1] || now.getFullYear()), m = Number(monthMatch[2]);
-        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${m}월`;
+      // V22.9.76 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
+      // (1월에 보낸 "12월 요약"이 올해 12월의 0원으로 답했다). 올해가 아니면 제목에 연도를 붙인다.
+      const monthMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월(?:\s*(?:지출|수입|가계부))?(?:\s*(?:요약|현황|통계))?$/);
+      if (monthMatch && Number(monthMatch[2]) >= 1 && Number(monthMatch[2]) <= 12) {
+        let y = Number(monthMatch[1] || now.getFullYear()); const m = Number(monthMatch[2]);
+        if (!monthMatch[1] && m > now.getMonth() + 1) y -= 1;
+        start = new Date(y, m - 1, 1); end = new Date(y, m, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월`;
       } else {
+        // V22.9.76 감사 A-13: 기간 말을 읽지 못한 요약("저저번달 요약", "작년 요약", "13월 요약")에 이번 달로 답하지 않는다.
+        const rest = t.replace(/\s*(?:요약|현황|통계)$/, "").replace(/이번\s*달|이달|금월|월간/g, "").trim();
+        if (rest !== "월" && /[0-9]|년|해|분기|반기|주|달|월|일|그끄/.test(rest)) return { unreadable: true, text: rest.slice(0, 20) };
         start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now.getFullYear(), now.getMonth()+1, 1); label = "이번 달";
       }
     }
   }
-  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7) };
+  return { start: formatDate(start), end: formatDate(end), label, month: formatDate(start).slice(0,7), ...(focus ? { focus } : {}) };
 }
 
 async function maybeKakaoCta(env, userId = "", householdId = "", origin = "", kind = "analysis", href = "", label = "상세 분석 보기", cooldownHours = 24) {
@@ -40280,9 +41401,21 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   if (!rows.length) {
     return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
   }
-  const members = await fetchHouseholdMembers(env, household.id);
+  // V22.9.76: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
+  //   skill-handler 의 정기 알림 줄(kakaoReserveAlert)에 닿지 못했다 — 카카오에서는 정기 알림이 한 번도 나가지 않았다.
+  //   알림을 못 읽어도 kakaoReserveAlert 가 빈 문자열을 돌려주므로 요약은 그대로 나간다.
+  const [members, reserveLine] = await Promise.all([
+    fetchHouseholdMembers(env, household.id),
+    range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
+  ]);
   const names = memberNameMap(members);
-  const income = rows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const incomes = rows.filter((r) => r.type === "income");
+  const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
+  // V22.9.76 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
+  const incomeFocus = range.focus === "income";
+  const byIncomeCategory = Object.create(null);
+  for (const row of incomes) { const c = row.category || "기타수입"; byIncomeCategory[c] = (byIncomeCategory[c] || 0) + Number(row.amount || 0); }
+  const incomeCategories = incomeFocus ? Object.entries(byIncomeCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`) : [];
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
   const byCategory = Object.create(null);
@@ -40299,11 +41432,13 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     `가계부: ${household.name || "가계부"}`,
     "",
     `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건`,
-    `수입: ${numberWithCommas(income)}원`,
+    `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}`,
+    incomeCategories.length ? "수입 분류" : "", ...incomeCategories,
+    incomeFocus && !incomes.length ? `아직 ${range.label} 수입 기록이 없어요.` : "",
     "",
     categories.length ? "카테고리" : "", ...categories,
     users.length ? "" : "", users.length ? "지출자" : "", ...users,
-  ].filter(Boolean).join("\n") + cta };
+  ].filter(Boolean).join("\n") + reserveLine + cta };
 }
 
 // V22.9.37 감사 H7·H13: "같은 이름의 가계부"는 내가 소유한 가계부와만 비교한다. 참여만 한(조회 전용 포함) 가계부와
@@ -40467,6 +41602,13 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       return { text: "선택하려던 가계부가 삭제되었거나 권한이 변경됐어요. ‘시작’을 입력해 현재 목록을 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
     const chosen = parseKakaoHouseholdChoice(utterance, candidates);
+    // V22.9.76 감사 D-6: 같은 이름의 가계부가 여럿이면 묻지 않고 첫 번째를 고르던 것을, 역할·만든 날을 붙인 목록에서 번호로 고르게 한다.
+    if (chosen?.ambiguous) {
+      return {
+        text: [`‘${chosen.name}’ 이름의 가계부가 ${chosen.count}개예요. 어느 가계부인지 번호로 골라 주세요.`, "", ...kakaoHouseholdListLines(candidates)].join("\n"),
+        quickReplies: [...kakaoHouseholdChoiceQuickReplies(candidates), kakaoQr("취소", "취소")].filter(Boolean),
+      };
+    }
     if (!chosen && isInviteCommand(utterance)) {
       const nextState = { ...state, data: { ...safeObject(state.data), action: "invite" } };
       await saveKakaoFlowState(env, user.id, payload, nextState);
@@ -40498,7 +41640,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-      return { text: `✅ ‘${chosen.name}’ 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
+      const roleNote = candidates.filter((h) => normalizeText(h?.name || "") === normalizeText(chosen.name || "")).length > 1 ? `(${userHouseholdRoleLabel(chosen.role || "member")})` : "";
+      return { text: `✅ ‘${chosen.name}’${roleNote} 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H10: 고른 가계부에서 소유자·관리자가 아니면 초대코드를 보여 주지 않는다.
@@ -40673,7 +41816,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘이름설정’을 눌러 주세요.", quickReplies: [["이름설정", "이름설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 지출은 ${alias} 지출로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
+    return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${alias}’ 이름으로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
   }
   if (state.flow === "budget_setup") {
     const role = await getHouseholdMemberRole(env, user.id, household.id);
@@ -40708,7 +41851,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
           };
         }
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은예산", "남은예산"], ["예산설정", "예산설정"]] };
+        return { text: (copied.count ? `✅ ${copied.previous} 예산 ${copied.count}개를 ${month}로 복사했어요.\n${[copied.categoryCount ? `분류별 예산 ${copied.categoryCount}개` : "", copied.totalCount ? "전체 예산" : "", copied.incomeCount ? `수입 목표 ${copied.incomeCount}개` : ""].filter(Boolean).join(" · ")}` : `${copied.previous}에 복사할 예산이 없어요.`) + cleanupNotice, quickReplies: [["남은예산", "남은예산"], ["예산설정", "예산설정"]] };
       }
       return kakaoFlowRetryOrExit(env, user, payload, state, { text: "아래 버튼 중 하나를 눌러 주세요.", quickReplies: kakaoBudgetRootQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
     }
@@ -40882,7 +42025,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     abMonitorOutcome(env, "ok");
     rememberSkillEvent({ kind: "repeat_guard", user_key: userKey, utterance, detail: `${repeat.elapsedMs}ms` });
     rememberDuplicateEvent({ kind: "kakao_repeat", source: "kakao_skill", user_id: userKey, detail: utterance, path: "/skill", method: "POST" });
-    return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin)), payload, origin);
+    return kakaoGroupCompatibleResponse(kakaoText(kakaoRepeatGuardText(origin, utterance)), payload, origin);
   }
 
   // V22.9.44: 카카오는 5초 안에 답이 없으면 '스킬 서버 연결 오류'(폴백 블록 오류 알림)로 끝낸다. 처리가 응답 예산(기본 4초)을
@@ -40927,7 +42070,10 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: "error" });
-    const fallback = await kakaoGroupCompatibleResponse(kakaoText(kakaoSkillSafeFallbackText(origin)), payload, origin);
+    // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
+    // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
+    const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
+    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
     headers.set("x-accountbook-intent", intentMatch.intent);
@@ -40977,6 +42123,27 @@ function normalizeKakaoButtonLabel(text = "") {
   return KAKAO_LEGACY_BUTTON_LABELS[base] || base;
 }
 
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있으면 저장하지 않고 구분을 묻는다. 단톡방은 바로답장 버튼을
+// 버리므로 글로도 다시 보낼 문장을 알려 준다.
+// V22.9.76 감사 B-4: 열린 수정 세션이 날짜별 목록 보기 같은 조회·이동 명령을 ‘내용 변경’ 값으로 삼켰다(‘네’ 하면 메모가 바뀜).
+// 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 가서 원래 답을 받는다. 세션 값이 될 수 있는 말
+// (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
+function isKakaoEditSessionBypassCommand(text = "") {
+  const t = normalizeText(text);
+  if (!t || startsWithKakaoEditField(t) || /^\d+\s*번?$/.test(t)) return false;
+  // ‘오늘’·‘어제’ 한 낱말은 요약 명령이기도 하지만, 세션 안에서는 날짜 값(1. 오늘 2. 어제 3. 그제)이다.
+  if (/^(?:오늘|어제|그제|그저께|엊그제|이번\s*주|지난\s*주|이번\s*달|지난\s*달)$/.test(t)) return false;
+  return isKakaoDailyListCommand(t) || isRecentCommand(t) || isSummaryCommand(t) || !!parseKakaoSummaryRange(t) ||
+    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
+}
+
+function kakaoMixedTypeConfirmationReply(utterance = "") {
+  const text = String(utterance || "").replace(/\s+/g, " ").trim();
+  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  const replies = text.length <= 200 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
+  return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
+}
+
 async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
@@ -40984,8 +42151,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
-  if (!separatePurchaseCommand && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
-  if (!separatePurchaseCommand && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
+  // V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
+  // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
+  const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
+  if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
+    if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
+    return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
+  }
+  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(utterance, preParsedList);
@@ -41044,8 +42217,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       routingSnapshot = {edit:values.get(keys[0]) ?? null,selected:values.get(keys[1]) ?? null,flow:values.get(keys[2]) ?? null};
     }
   }
-  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey &&
-      !parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)) {
+  // V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
+  // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
+  // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
+  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
+      (isKakaoSessionSeqReplyV4(utterance) || (!parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
@@ -41360,7 +42536,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     await saveMemberAlias(env, household.id, user.id, directAlias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     return kakaoText(`✅ 가계부: ${household.name}
-이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 지출은 ${directAlias} 지출로 집계됩니다.` + cleanupNotice, [["이번달요약", "이번달요약"], ["기록방법", "기록방법"]]);
+이 가계부에서 내 이름을 ‘${directAlias}’로 변경했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${directAlias}’ 이름으로 집계됩니다.` + cleanupNotice, [["이번달요약", "이번달요약"], ["기록방법", "기록방법"]]);
   }
 
   if (!strongTransactionInput && isKakaoMemberAliasCommand(utterance)) {
@@ -41419,6 +42595,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
+  // V22.9.76 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
+  if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {
     const dateSummary = await kakaoDateSummaryParts(env, household, user, summaryRange, origin);
     return dateSummary.empty ? kakaoNextStepReply(dateSummary.text, payload) : kakaoText(dateSummary.text);
@@ -41516,7 +42694,19 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
-  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · 합계 ${numberWithCommas(savedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}원` + (duplicateCount ? "\n서로 다른 구매라면 ‘별도 구매 추가’ 뒤에 원래 기록문장을 보내 후보를 확인해 주세요." : "");
+  // V22.9.76 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
+  const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const expenseTotal = totalOf("expense");
+  const incomeTotal = totalOf("income");
+  const totalText = incomeTotal && expenseTotal ? `지출 합계 ${numberWithCommas(expenseTotal)}원 · 수입 합계 ${numberWithCommas(incomeTotal)}원`
+    : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
+  // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
+  const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
+  const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const duplicateNotice = !duplicateCount ? ""
+    : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
+    : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice;
 
   let finalizeNotice = "";
   if (onSaved) {
@@ -41555,7 +42745,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}\n지출자: ${payerName}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
@@ -41573,7 +42763,9 @@ async function fetchKakaoInputSettings(env, householdId, userId = "") {
   if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");
   const values=new Map(settings.map(row=>[row.key,row.value]));
   const map=parseStrictSettingsObject(values.get(keys[0]),"category_keywords");
-  const customCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  const listedCategoryRows=[...attachCategoryKeywords(categories,map),...defaultCategoryKeywordRows(map,householdId),...attachCategoryKeywords(normalizeStoredCategoryList(values.get(keys[1]),householdId),map)];
+  // V22.9.76 감사 D-9: 기본 목록에 없는 이름의 키워드 카드(통신·교육/육아·용돈·부수입 등)도 분류에 쓴다. 같은 조회 결과라 DB 왕복은 늘지 않는다.
+  const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
   return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
@@ -41767,11 +42959,12 @@ async function handleKakaoRecentDebug(request, env, url) {
 // A confirmation is a server-issued action, never a platform event identity.
 function parseKakaoSeparatePurchaseCommand(text = "") {
   const value = String(text).trim();
-  const add = value.match(/^별도\s+구매\s+추가\s+([\s\S]+)$/);
+  // V22.9.76 카카오 감사 11: 수입은 ‘구매’가 아니므로 ‘별도 기록 …’도 같은 명령으로 받는다.
+  const add = value.match(/^별도\s+(?:구매|기록)\s+추가\s+([\s\S]+)$/);
   if (add) return { action: "prepare", text: add[1].trim() };
-  const control = value.match(/^별도\s+구매\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
+  const control = value.match(/^별도\s+(?:구매|기록)\s+(확인|취소|조회)\s+([a-f0-9]{16})$/);
   if (control) return { action: control[1] === "확인" ? "confirm" : control[1] === "취소" ? "cancel" : "status", token: control[2] };
-  return /^별도\s*구매/.test(value) ? { action: "invalid" } : null;
+  return /^별도\s*(?:구매|기록)/.test(value) ? { action: "invalid" } : null;
 }
 
 async function kakaoSeparateStateKey(householdId, userId, scope) {
@@ -41809,15 +43002,16 @@ async function saveKakaoSeparateState(env, key, state, assertFresh) {
 
 function kakaoSeparateCandidateReply(state, household, payload) {
   const row = state.row;
-  const confirm = `별도 구매 확인 ${state.confirmation_id}`;
-  const cancel = `별도 구매 취소 ${state.confirmation_id}`;
+  const word = row.type === "income" ? "기록" : "구매";
+  const confirm = `별도 ${word} 확인 ${state.confirmation_id}`;
+  const cancel = `별도 ${word} 취소 ${state.confirmation_id}`;
   return kakaoText([
-    "같은 내용의 별도 구매 후보입니다. 아직 추가하지 않았어요.",
+    `같은 내용의 별도 ${word} 후보입니다. 아직 추가하지 않았어요.`,
     `가계부: ${household.name}`, `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${numberWithCommas(row.amount)}원`,
     `${row.category} · ${row.memo || "내용 없음"} · ${row.payment_method || "결제수단 없음"}`,
     "5분 안에 내용을 확인한 뒤 확정해 주세요.",
     ...(getKakaoBotGroupKey(payload) ? [confirm,cancel] : []),
-  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [["별도 구매 확정",confirm],["추가 취소",cancel]]);
+  ].join("\n"), getKakaoBotGroupKey(payload) ? null : [[`별도 ${word} 확정`,confirm],["추가 취소",cancel]]);
 }
 
 async function recoverKakaoPendingForSeparate(env, householdId, userId, assertFresh) {
@@ -41918,7 +43112,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       }
       state.state="confirmed";
       await saveKakaoSeparateState(env,key,state,assertFresh);
-      return kakaoText(`별도 구매 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
+      return kakaoText(`별도 ${state.row.type === "income" ? "기록" : "구매"} 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
     },{localMutex:false}));
   try {
     return await withKakaoUserLifecycleLease(env,user.id,async ({assertFresh:userFresh}) => groupKey
@@ -42201,11 +43395,12 @@ async function handleUserNotifications(request, env, url) {
   });
 
   // 3) 미분류 지출
+  // V22.9.76: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
-    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 지출 ${uncategorized.length}건`,
       body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
-      href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
+      href: `/app?month=${mq}${hh}&type=expense&quality=missing_category&feed=all#feed` });
   }
 
   // 4) 이번 달 반영 대기 정기지출
@@ -42228,12 +43423,17 @@ async function handleUserNotifications(request, env, url) {
       href: `/reserve-plans?month=${mq}${hh}` });
   }
 
-  // 5) 준비 납부 임박 (상위 3)
+  // 5) 정기 항목 기한 임박 (상위 3)
+  // V22.9.76: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
-    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: s.days_left <= 7 ? "warn" : "info",
-      title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
-      body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
+    const income = isIncomeReservePlan(s.plan);
+    const when = Number(s.days_left) > 0 ? `${s.days_left}일 전` : "오늘";
+    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: !income && s.days_left <= 7 ? "warn" : "info",
+      title: income ? `${s.plan?.name || "정기 수입"} 입금 ${when}` : `${s.plan?.name || "정기지출"} 납부 ${when}`,
+      body: income
+        ? `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 들어올 예정`
+        : `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
       href: `/reserve-plans?month=${mq}${hh}` });
   });
 
@@ -42411,28 +43611,39 @@ function normalizeGoalList(value) {
 function enrichGoal(g) {
   const progress = g.target > 0 ? Math.min(100, Math.round((g.saved / g.target) * 100)) : 0;
   const remaining = Math.max(0, g.target - g.saved);
-  let monthsLeft = null, neededMonthly = null, status;
+  let monthsLeft = null, neededMonthly = null, status, overdue = false;
   if (g.target > 0 && g.saved >= g.target) {
     status = "done";
   } else if (g.deadline) {
     const [ny, nm] = currentMonthKst().split("-").map(Number);
     const [dy, dm] = g.deadline.split("-").map(Number);
-    monthsLeft = Math.max(1, (dy - ny) * 12 + (dm - nm) + 1);
-    neededMonthly = Math.ceil(remaining / monthsLeft);
-    status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+    const left = (dy - ny) * 12 + (dm - nm) + 1;
+    if (left < 1) {
+      // V22.9.76 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
+      // 남은 달·월 필요액을 비워 화면에서 빼고, 상태는 '부족'으로 둔다.
+      overdue = true;
+      status = "behind";
+    } else {
+      monthsLeft = left;
+      neededMonthly = Math.ceil(remaining / monthsLeft);
+      status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+    }
   } else {
     status = g.monthly > 0 ? "onTrack" : "behind";
   }
-  return { ...g, progress, remaining, monthsLeft, neededMonthly, status };
+  return { ...g, progress, remaining, monthsLeft, neededMonthly, status, overdue };
 }
 function goalsPayload(householdId, list) {
   const goals = list.map(enrichGoal);
   const totalTarget = goals.reduce((a, g) => a + g.target, 0);
   const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
+  // V22.9.76 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
+  // 채워 "100%"가 되던 것(비상금 200% + 휴가 0% → 100%)을 막는다. 모은 돈 합계(total_saved)는 그대로다.
+  const totalCountedSaved = goals.reduce((a, g) => a + Math.min(Math.max(0, Number(g.saved || 0)), Math.max(0, Number(g.target || 0))), 0);
   return {
     ok: true, household_id: householdId, count: goals.length,
     total_target: totalTarget, total_saved: totalSaved,
-    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0,
+    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalCountedSaved / totalTarget) * 100)) : 0,
     goals,
   };
 }
@@ -43631,6 +44842,23 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
   if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
+  // V22.9.76 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
+  // 예전에는 appUserId·plusfriendUserKey 가 실린 요청마다 잠금을 잡아, 서로 다른 사용자 둘이 동시에 보내면 늦은 쪽이
+  // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
+  // 예전 잠금 경로가 다시 읽고 판단한다(충돌·대상 없음 오류도 그 경로가 그대로 낸다).
+  try {
+    const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
+    const links = canonicalUid ? await fetchUserIdentityLinks(env) : null;
+    let allLinked = !!links;
+    for (const key of links ? aliases : []) {
+      const existingUid = String(safeObject(links[key]).user_id || "").trim();
+      if (!existingUid || (existingUid !== canonicalUid && await resolveEffectiveUserId(env, existingUid) !== canonicalUid)) { allLinked = false; break; }
+    }
+    if (allLinked) {
+      if (env.__AB_IDENTITY_CONFIRMED) for (const alias of aliases) env.__AB_IDENTITY_CONFIRMED.set(alias, canonicalUid);
+      return false;
+    }
+  } catch (_) {}
   let lastBusyError = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -44014,6 +45242,24 @@ async function getHouseholdMemberRole(env, userId, householdId) {
   return bestRoleFromRows(rows);
 }
 
+// V22.9.76 감사 D-27: getHouseholdMemberRole 은 조회가 실패(503 등)하면 빈 역할("")을 돌려줘 "권한이 없습니다"·
+// "참여자가 아닙니다"로 안내됐다. 권한을 바꾸거나 거절을 알리는 곳은 이 엄격판을 써서 '확인하지 못함'을 따로 알린다.
+async function getHouseholdMemberRoleStrict(env, userId, householdId) {
+  if (!userId || !householdId) return "";
+  let rows;
+  try {
+    rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" });
+  } catch (err) {
+    throw Object.assign(new Error(`household_role_check_failed: ${String(err?.message || err).slice(0, 120)}`), { code: "household_role_check_failed" });
+  }
+  if (!Array.isArray(rows)) throw Object.assign(new Error("household_role_check_failed: invalid response"), { code: "household_role_check_failed" });
+  return bestRoleFromRows(rows);
+}
+
+function isHouseholdRoleCheckFailure(err) {
+  return err?.code === "household_role_check_failed" || /household_role_check_failed/.test(String(err?.message || ""));
+}
+
 function roleBlockedMessage(role, householdName = "") {
   if (role === "blocked") return `⛔ 이 가계부에서 사용이 제한되어 있습니다.\n가계부: ${householdName || "-"}\n\n관리자에게 /households 화면에서 권한을 확인해달라고 요청하세요.`;
   if (role === "viewer") return `👀 조회 전용 권한입니다.\n가계부: ${householdName || "-"}\n\n요약/최근 조회는 가능하지만 새 지출 입력은 관리자 승인이 필요합니다.`;
@@ -44188,8 +45434,12 @@ function parseKakaoMemberPolicyCommand(text = "") {
   return { show: true, unknown: true };
 }
 
+// V22.9.76 감사 A-04: 자연어 판정은 ‘메뉴’·‘기능’을 부분 문자열로 찾아서 "스타벅스 신메뉴 6500"·"건강기능식품 35000"·
+// "점심 메뉴 12000" 같은 기록이 도움말로 바뀌고 저장되지 않았다. 자연어 판정은 금액이 없는 말에만 쓰고,
+// 아래의 짧은 도움말 명령은 그대로 받는다.
 function isHelpCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "HELP" || /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
+  if (detectKakaoNaturalIntent(text).intent === "HELP" && !extractAmount(text)) return true;
+  return /^(도움말|help|사용법|사용 방법|사용방법|사용법 알려줘|사용 방법 알려줘|어떻게 써|어떻게써|어떻게 사용해|어떻게사용해|명령어|명령어 알려줘|가이드|설명|처음|시작|시작하기|메뉴|웰컴|안내|무엇을|무엇을 할 수 있어|뭐해|뭐 할 수 있어|뭐할수있어|기능 알려줘|기능알려줘)$/i.test(normalizeText(text));
 }
 
 function isInviteCommand(text) {
@@ -44226,7 +45476,9 @@ async function kakaoSettlementParts(env, household = {}) {
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
   const model = buildSettlementModel(rows, members);
-  const refundNotice = "환급 계산은 미리보기 전용이며 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
+  // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
+  // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
+  const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   if (!model.totalExpense || !model.people.length) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
     return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
@@ -44281,8 +45533,10 @@ function isReserveGuideCommand(text) {
   return detectKakaoNaturalIntent(text).intent === "RESERVE_GUIDE" || /^(정기지출|정기 지출|자동차세|재산세|자동차보험|보험준비|보험 준비|준비금|알림|납부알림|납부 알림)$/i.test(normalizeText(text));
 }
 
+// V22.9.76: 운영자용 오픈빌더 설정 안내(Skill URL·블록 연결)는 운영자 낱말로만 연다. 예전에는 사용자가 칠 만한
+// '카카오 설정'·'봇 설정'·'심사'·'운영 점검'·'챗봇 점검'·'블록 설정'에도 이 안내가 나갔다.
 function isOpenBuilderGuideCommand(text) {
-  return /^(오픈빌더|openbuilder|블록설정|블록 설정|카카오설정|카카오 설정|폴백|스킬연결|스킬 연결|발화목록|발화 목록|봇설정|봇 설정|심사|심사준비|심사 준비|챗봇점검|챗봇 점검|운영점검|운영 점검)$/i.test(normalizeText(text));
+  return /^(오픈빌더|openbuilder|폴백|스킬연결|스킬 연결|발화목록|발화 목록)$/i.test(normalizeText(text));
 }
 
 function isBrandGuideCommand(text) {
@@ -44310,21 +45564,30 @@ function parseMultipleTransactions(text, payload) {
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
     const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
+    if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
     return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
     const parsed = parseTransaction(clause, {});
     if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
+    if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
   }
   return out;
 }
 
+// V22.9.76 카카오 감사 1: 수입 낱말과 쓰는 말이 함께 있는 줄("월급 받아서 카드값 냈어 50만원")은 어느 쪽으로도
+// 저장하지 않고 묻는다. parseTransaction 은 가져오기와 같이 쓰므로 ok 를 그대로 두고 표식만 붙이며, 카카오가 쓰는
+// 이 함수만 막는다.
+function mixedTypeConfirmation(parsed = {}) {
+  return { message: "transaction_type_confirmation_required", reason: parsed.type_confirmation, amount: parsed.amount };
+}
+
 // V22.9.34 감사 N11: 저장하지 않은 이유를 빈 결과에 붙여 둔다. 배열로만 쓰는 호출부는 그대로 빈 목록을 본다.
 function blockedTransactionParse(parsed = {}) {
   const out = [];
-  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0) };
+  if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) out.blocked = { message: parsed.message, amount: Number(parsed.amount || 0), ...(parsed.reason ? { reason: parsed.reason } : {}) };
   return out;
 }
 
@@ -44396,7 +45659,8 @@ function parseTransaction(text, payload) {
   const raw = normalizeText(text);
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
-  const type = entityType || detectType(raw);
+  const typeDetail = entityType ? null : detectTypeDetail(raw);
+  const type = entityType || typeDetail.type;
   if (!entityType && /(?:결제|승인)\s*취소/.test(raw) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(raw)) return {ok:false,message:"transaction_type_confirmation_required"};
 
   const entityAmountValue = params.amount || params.amount_text || params.금액;
@@ -44426,6 +45690,7 @@ function parseTransaction(text, payload) {
     memo,
     payment_method: paymentMethod,
     transaction_date: transactionDate,
+    ...(typeDetail && typeDetail.ambiguous ? { type_confirmation: "mixed_cues" } : {}),
   };
 }
 
@@ -44491,6 +45756,19 @@ function normalizeText(text) {
     .replace(/처눤/g, "천원")
     .replace(/백 원/g, "백원")
     .replace(/십 원/g, "십원")
+    // V22.9.76 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
+    // 앞뒤가 두 금액으로 읽혀 두 건(10,000원 + 기타지출 5,000원)으로 저장되거나 뒤의 금액이 사라졌다. 앞이 만·억·천·백으로
+    // 끝나고, 뒤가 그보다 작은 단위(천·백·십)의 수이며 ‘원’이 붙거나 문장이 끝날 때만 붙인다. 앞이 숫자 단위("3만 5천원")면
+    // 예전부터 한 금액으로 읽으므로 건드리지 않는다.
+    .replace(/(^|\s)([일이삼사오육칠팔구십백천]*[만억천백])\s+((?:[일이삼사오육칠팔구]|\d{1,3})?([천백십])[일이삼사오육칠팔구십백]*)(?=\s*원|\s*$)/g,
+      (all, lead, head, tail, unit) => {
+        const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
+        if (!(unitValue > { 천: 1000, 백: 100, 십: 10 }[unit])) return all;
+        if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
+        // 뒤가 숫자("만 2천원")면 앞도 숫자 단위("1만")로 바꿔야 한 금액("1만2천원")으로 읽힌다.
+        const coefficient = parseKoreanAmount(head) / unitValue;
+        return Number.isInteger(coefficient) && coefficient > 0 ? `${lead}${coefficient}${head.slice(-1)}${tail}` : all;
+      })
     // V22.9.34 감사 D1·N2: 시각(19:40)·괄호 속 카드 끝자리((1234))·가린 카드번호·카드 문자의 누적·잔액·한도
     // 금액은 기호를 지우기 전에 뺀다. 지우고 나면 "19 40", " 1234 " 가 되어 금액으로 읽혔다.
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ")
@@ -44512,6 +45790,8 @@ function normalizeType(value) {
 }
 
 function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
+// V22.9.76: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
+function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -44891,6 +46171,9 @@ const CATEGORY_RULES = [
   // 무게는 "겹칠 때 누가 이기는가"다. 좁은 분류가 넓은 분류보다 높다 —
   // "쿠팡이츠"는 쇼핑(쿠팡)이 아니라 배달이어야 하고, "자동차보험"은 차량관리가
   // 아니라 보험이어야 한다.
+  //
+  // V22.9.76 감사 A-10: except 는 그 규칙의 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 "마트", 농협카드의 "농협").
+  // 다른 규칙의 더 긴 낱말이 덮는 경우(수술의 "술")는 inferCategory 가 따로 거른다 — except 에 적지 않는다.
   { name: "주거/월세", type: "expense", weight: 100, words: ["월세","전세","전월세","임대료","집세","주택","원룸","부동산"] },
   { name: "관리비", type: "expense", weight: 99, words: ["관리비","아파트관리"] },
   { name: "대출/이자", type: "expense", weight: 98, words: ["대출","대출이자","원리금","상환","할부이자"] },
@@ -44899,29 +46182,29 @@ const CATEGORY_RULES = [
   { name: "통신비", type: "expense", weight: 95, words: ["통신","통신비","핸드폰","휴대폰","휴대전화","인터넷","와이파이","알뜰폰","유플러스","lg유플러스"], exact: ["kt","skt"] },
   { name: "보험", type: "expense", weight: 94, words: ["보험","보험료","실비","암보험","화재보험","자동차보험"] },
   { name: "약국", type: "expense", weight: 92, words: ["약국","약값","의약품","처방","영양제"] },
-  { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트"] },
+  { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트","수술"] },
   { name: "차량관리", type: "expense", weight: 89, words: ["세차","정비","엔진오일","타이어","주차","주차비","하이패스","톨비","카센터","대리운전"] },
-  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전"], exact: ["ev"] },
+  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전","전기차"], exact: ["ev"] },
   { name: "택시", type: "expense", weight: 87, words: ["택시","카카오t","타다"] },
   { name: "교통", type: "expense", weight: 86, words: ["교통","버스","지하철","기차","ktx","srt","티머니","캐시비"] },
   { name: "구독", type: "expense", weight: 85, words: ["구독","넷플릭스","유튜브","유튜브고급","멤버십","멜론","디즈니","쿠팡와우","스포티파이","왓챠","티빙","웨이브","애플뮤직","클라우드"] },
   { name: "배달", type: "expense", weight: 84, words: ["배달","배민","요기요","쿠팡이츠"] },
   { name: "편의점", type: "expense", weight: 83, words: ["편의점","gs25","세븐일레븐","이마트24"], exact: ["cu"] },
-  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"] },
-  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리"] },
-  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인"] },
-  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"] },
+  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"], except: ["스마트","농협카드","농협체크","농협은행","농협계좌","농협통장","농협페이"] },
+  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리","아메리카노","라떼"] },
+  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인","쌀국수"], except: ["기술","예술","마술","무술","학술","술래"] },
+  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"], except: ["아이패드","아이폰","아이맥","아이템","아이디","아이돌","아이스","아이섀도","아이라이너","아이크림","아이브로우","아이코스","아이허브"] },
   { name: "교육/학습", type: "expense", weight: 75, words: ["교육","학원","수업","수강","강의","교재","학교","인강","문제집","자격증","등록금","공부"] },
-  { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24"] },
-  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"] },
+  { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24","서적"], except: ["책상"] },
+  { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"], except: ["청소년"] },
   { name: "의류/잡화", type: "expense", weight: 71, words: ["옷","의류","신발","가방","잡화","패션"] },
   { name: "미용", type: "expense", weight: 70, words: ["미용","미용실","헤어","커트","염색","네일","피부관리","마사지","화장품","올리브영"] },
   { name: "쇼핑", type: "expense", weight: 68, words: ["쇼핑","쿠팡","네이버쇼핑","11번가","g마켓","옥션","무신사","구매","샀","주문","택배"] },
   { name: "운동", type: "expense", weight: 66, words: ["헬스","운동","필라테스","요가","골프","수영"] },
   { name: "여행", type: "expense", weight: 65, words: ["여행","호텔","숙박","항공","리조트","펜션","캠핑"] },
-  { name: "문화/여가", type: "expense", weight: 64, words: ["영화","공연","전시","게임","노래방","취미","놀이","콘서트"] },
+  { name: "문화/여가", type: "expense", weight: 64, words: ["영화","공연","전시","게임","노래방","취미","놀이","콘서트","미술"], except: ["에이전시"] },
   { name: "경조사/선물", type: "expense", weight: 63, words: ["축의금","부의금","조의금","경조사","선물","생일","명절","용돈드림","화환"] },
-  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드","펫"] },
+  { name: "반려동물", type: "expense", weight: 62, words: ["강아지","고양이","반려","사료","동물병원","애견","애묘","배변패드","펫"], except: ["카펫"] },
   { name: "세금/수수료", type: "expense", weight: 58, words: ["세금","자동차세","재산세","종부세","부가세","수수료","과태료","벌금"] },
 ];
 
@@ -44958,7 +46241,7 @@ const AB_TYPE_HINTS = Object.freeze({
 
 // 1년 캐시되는 불변 자산. 홈 HTML 안에 규칙을 인라인으로 싣던 2,248 B 가 여기로
 // 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다.
-const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22948.js";
+const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22976.js";
 const AB_CATEGORY_RULES_SCRIPT_TAG = `<script src="${AB_CATEGORY_RULES_ASSET_PATH}"></script>`;
 function abCategoryRulesJsAsset() {
   return `window.AB_CATEGORY_RULES=${JSON.stringify(CATEGORY_RULES)};window.AB_TYPE_HINTS=${JSON.stringify(AB_TYPE_HINTS)};`;
@@ -44976,27 +46259,59 @@ function inferCategory(text, type) {
   // 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓴다. 표의 낱말은
   // 소문자로 적어 두고 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
   const raw = normalizeText(text).toLowerCase();
-  // Exact rules need only token membership, not an array containing every
-  // token in a potentially multi-megabyte import cell.
-  const hasExactToken = word => {
-    if (!word) return false;
-    for (let at = raw.indexOf(word); at >= 0; at = raw.indexOf(word, at + 1)) {
+  // V22.9.76 감사 A-10: 낱말 속 글자가 분류를 정하지 않게 한다. 걸린 낱말이 다른 규칙의 더 긴 낱말 안에 들어 있으면
+  // 세지 않는다(동물병원 속 병원, 전기차 속 전기, 수술·미술 속 술, 이마트24 속 이마트). 규칙의 except 는 그 규칙의
+  // 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 마트, 농협카드의 농협, 아이패드의 아이). 같은 규칙 안에서 겹치는
+  // 낱말(미용실·미용)과 서로 겹치지 않는 낱말은 예전처럼 무게를 더해 겨룬다("맥도날드 배달"은 배달). 한 낱말의 위치는
+  // 앞에서 16곳까지만 본다. exact 낱말은 앞뒤가 글자·숫자가 아닐 때만 맞는다(큰 가져오기 칸에서도 낱말 배열을 만들지 않는다).
+  const spans = [];
+  const collect = (rule, word, exact) => {
+    for (let at = raw.indexOf(word), seen = 0; at >= 0 && seen < 16; at = raw.indexOf(word, at + 1)) {
       const end = at + word.length;
-      if ((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end]))) return true;
+      if (exact && !((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end])))) continue;
+      spans.push({ start: at, end, rule, id: (exact ? "=" : "~") + word, gain: rule.weight + Math.min(word.length, 8), dead: false });
+      seen += 1;
     }
-    return false;
   };
-  let best = null;
   for (const rule of CATEGORY_RULES) {
     if (rule.type !== type) continue;
-    let score = 0;
-    for (const word of rule.words) {
-      if (!word) continue;
-      if (raw.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
+    const first = spans.length;
+    for (const word of rule.words) if (word) collect(rule, word, false);
+    for (const word of rule.exact || []) if (word) collect(rule, word, true);
+    if (spans.length === first) continue;
+    for (const block of rule.except || []) {
+      for (let at = block ? raw.indexOf(block) : -1, seen = 0; at >= 0 && seen < 16; at = raw.indexOf(block, at + 1), seen += 1) {
+        for (let k = first; k < spans.length; k += 1) if (spans[k].start >= at && spans[k].end <= at + block.length) spans[k].dead = true;
+      }
     }
-    for (const word of rule.exact || []) {
-      if (hasExactToken(word)) score += rule.weight + Math.min(word.length, 8);
+  }
+  if (spans.some((span) => span.rule !== spans[0].rule)) {
+    // 시작 위치 순으로 훑으며, 앞선 위치들에서 가장 멀리 끝나는 낱말을 규칙이 다른 두 개까지 기억한다.
+    spans.sort((a, b) => a.start - b.start || b.end - a.end);
+    let reach = [];
+    let group = [];
+    const remember = (span) => {
+      const same = reach.findIndex((item) => item.rule === span.rule);
+      if (same < 0) reach.push(span); else if (span.end > reach[same].end) reach[same] = span;
+      reach = reach.sort((a, b) => b.end - a.end).slice(0, 2);
+    };
+    for (const span of spans) {
+      if (group.length && group[0].start !== span.start) { group.forEach(remember); group = []; }
+      const outer = reach.find((item) => item.rule !== span.rule);
+      if ((outer && outer.end >= span.end) || group.some((item) => item.rule !== span.rule && item.end > span.end)) span.dead = true;
+      group.push(span);
     }
+  }
+  const scores = new Map();
+  const counted = new Set();
+  for (const span of spans) {
+    if (span.dead || counted.has(span.rule.name + span.id)) continue;
+    counted.add(span.rule.name + span.id);
+    scores.set(span.rule, (scores.get(span.rule) || 0) + span.gain);
+  }
+  let best = null;
+  for (const rule of CATEGORY_RULES) {
+    const score = scores.get(rule) || 0;
     if (score > 0 && (!best || score > best.score)) best = { category: rule.name, score };
   }
   return best ? best.category : (type === "income" ? "기타수입" : "기타지출");
@@ -45006,7 +46321,9 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   let memo = normalizeText(raw);
   const removals = [
     amountRaw,
-    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부", "들어옴", "들어온", "입금됨", "받음", "받았",
+    // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
+    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부",
+    "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
     "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
     paymentMethod,
   ].filter(Boolean);

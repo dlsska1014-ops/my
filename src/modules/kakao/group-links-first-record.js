@@ -731,10 +731,10 @@ async function kakaoRoomBindDoneText(env, household = {}) {
 export {
   bindKakaoGroupByInviteCode, fetchKakaoGroupLinkMap, fetchLegacyKakaoGroupLinkMap,
   getExplicitKakaoBotGroupKey, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
-  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey, kakaoRoomBindConfirmLine,
-  kakaoRoomBindDoneText, markKakaoGroupDeparture, markKakaoGroupRetired,
-  normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
-  readKakaoGroupFirstSnapshot, reassignKakaoGroupLinkOwner, removeKakaoGroupLink,
-  removeKakaoGroupLinksForHousehold, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
+  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey,
+  kakaoGroupLinksSettingsKey, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
+  markKakaoGroupDeparture, normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker,
+  preserveKakaoGroupDeparturesForMerge, readKakaoGroupFirstSnapshot, reassignKakaoGroupLinkOwner,
+  removeKakaoGroupLink, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
 };
 // @build:exports-end

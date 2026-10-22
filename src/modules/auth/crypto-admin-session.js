@@ -159,9 +159,16 @@ function kakaoSkillSecretMatches(request, expected = "") {
 
 function kakaoSkillCallerAuthorized(request, env = {}) {
   const expected = String(env.KAKAO_SKILL_SECRET || "").trim();
-  if (!expected) return true;
-  const matched = kakaoSkillSecretMatches(request, expected);
   const at = new Date().toISOString();
+  // V22.9.76 (감사 G-8): 인증 필수(KAKAO_SKILL_AUTH_REQUIRED=1)로 정해 놓고 Secret 이 빠지면 /ready 만 503 이고
+  // /skill 은 누구에게나 열려 있었다. 필수로 정한 배포는 막고, 필수가 아니면 기존처럼 열어 둔다.
+  if (!expected) {
+    if (String(env.KAKAO_SKILL_AUTH_REQUIRED || "0") !== "1") return true;
+    AB_SKILL_AUTH_STATS.denied++;
+    AB_SKILL_AUTH_STATS.last_denied_at = at;
+    return false;
+  }
+  const matched = kakaoSkillSecretMatches(request, expected);
   if (matched) {
     AB_SKILL_AUTH_STATS.accepted++;
     AB_SKILL_AUTH_STATS.last_accepted_at = at;
@@ -302,6 +309,8 @@ function safeAdminReturnPath(raw = "", fallback = "/?legacy=1") {
   try {
     const parsed = new URL(value, "https://accountbook.local");
     if (parsed.origin !== "https://accountbook.local" || ["/login", "/logout", "/my/logout"].includes(parsed.pathname)) return fallback;
+    // V22.9.76 감사 C-2: "/.//x" 는 앞의 검사를 통과하지만 정규화하면 "//x"(다른 사이트 주소)가 된다. 정규화한 결과로 다시 본다.
+    if (parsed.pathname.startsWith("//")) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (err) {
     return fallback;

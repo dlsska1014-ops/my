@@ -1,3 +1,12 @@
+## V22.9.76 배포 판단
+
+Worker 코드 변경(카카오 판정·답장, 웹 화면 문구·숫자, 예약 자동 반영, 가져오기, 관리 화면, 배포 스크립트). SQL·스키마·RPC·Secret·환경변수·카카오 콘솔·광고 모드 변경 없음. 선택 사항: `KAKAO_SKILL_AUTH_REQUIRED=1` 을 넣으면 스킬 Secret 이 비었을 때 호출을 막는다(넣지 않으면 지금과 같다).
+
+- 배포 날짜: 매월 1일은 피한다(예약 반영 첫 실행 규칙, KNOWN-ISSUES V22.9.76 절).
+- /ready 필수 표가 10개에서 13개(users·accountbook_budgets·accountbook_recurring)로 는다. 세 표는 운영에 있다: users 는 로그인 표, accountbook_budgets 는 2026-08-07 V22.8.79 사후점검(`upsert_ready=true`), accountbook_recurring 은 2026-10-08 적용한 V22.9.29 migration 이 표가 없으면 멈추게 돼 있다. 배포 직후 /ready 의 `ready:true`·`checked_required_tables:13`·`failed_tables:[]` 를 확인한다.
+- 배포 다음 날: 관제의 `scheduled_error` 0, 예약 반영 결과(빠짐·중복 없음). 정기 수입이 있는 가계부의 알림 화면에서 “입금 N일 전”으로 보이는지 운영자가 본다(수동 확인).
+- 되돌릴 때 주의: 되돌린 판은 예전 커서 방식으로 돌아가고 새 상태 키는 읽지 않는다. 그사이 기록된 정기 항목은 반영 표시가 있어 다시 들어가지 않는다.
+
 ## V22.9.75 배포 판단
 
 홈 head에 네이버 소유 확인 메타만 추가. V22.9.74 공개 글 32편·사이트맵 51개를 유지한다. SQL·Secret·환경변수·카카오·광고 모드 변경 없음. 배포 후 네이버 소유 확인·사이트맵 제출을 진행한다.

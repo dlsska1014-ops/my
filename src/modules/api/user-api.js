@@ -6,7 +6,9 @@ import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
 } from "../admin/transactions-households.js";
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
-import { fetchReservePlans, reserveDashboard } from "../settings/reserve-plans.js";
+import {
+  fetchReservePlans, isIncomeReservePlan, reserveDashboard,
+} from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, attachSpenderNamesWithHistory, fetchAdminRows, fetchAdminRowsRange,
   fetchHouseholdMembers, fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
@@ -306,11 +308,12 @@ async function handleUserNotifications(request, env, url) {
   });
 
   // 3) 미분류 지출
+  // V22.9.76: 지출만 세므로 링크도 지출만 거른다. 예전 링크는 미분류 수입까지 보여 "1건" 알림을 눌러 2건이 나왔다.
   const uncategorized = rows.filter((t) => t.type === "expense" && isMissingCategory(t.category));
   if (uncategorized.length) {
-    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 거래 ${uncategorized.length}건`,
+    notifs.push({ key: `uncat:${month}`, level: "info", title: `분류가 필요한 지출 ${uncategorized.length}건`,
       body: "미분류 지출을 정리하면 예산·리포트가 정확해져요.",
-      href: `/app?month=${mq}${hh}&quality=missing_category&feed=all#feed` });
+      href: `/app?month=${mq}${hh}&type=expense&quality=missing_category&feed=all#feed` });
   }
 
   // 4) 이번 달 반영 대기 정기지출
@@ -333,12 +336,17 @@ async function handleUserNotifications(request, env, url) {
       href: `/reserve-plans?month=${mq}${hh}` });
   }
 
-  // 5) 준비 납부 임박 (상위 3)
+  // 5) 정기 항목 기한 임박 (상위 3)
+  // V22.9.76: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
   const dash = reserveDashboard(plans);
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
-    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: s.days_left <= 7 ? "warn" : "info",
-      title: `${s.plan?.name || "정기지출"} 납부 ${s.days_left}일 전`,
-      body: `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
+    const income = isIncomeReservePlan(s.plan);
+    const when = Number(s.days_left) > 0 ? `${s.days_left}일 전` : "오늘";
+    notifs.push({ key: `reserve-${s.plan?.id || idx}:${s.due_date || month}`, level: !income && s.days_left <= 7 ? "warn" : "info",
+      title: income ? `${s.plan?.name || "정기 수입"} 입금 ${when}` : `${s.plan?.name || "정기지출"} 납부 ${when}`,
+      body: income
+        ? `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 들어올 예정`
+        : `${numberWithCommas(s.plan?.amount || 0)}원 · ${s.due_date} 예정 · 월 준비 ${numberWithCommas(s.monthly_reserve)}원`,
       href: `/reserve-plans?month=${mq}${hh}` });
   });
 
@@ -516,28 +524,39 @@ function normalizeGoalList(value) {
 function enrichGoal(g) {
   const progress = g.target > 0 ? Math.min(100, Math.round((g.saved / g.target) * 100)) : 0;
   const remaining = Math.max(0, g.target - g.saved);
-  let monthsLeft = null, neededMonthly = null, status;
+  let monthsLeft = null, neededMonthly = null, status, overdue = false;
   if (g.target > 0 && g.saved >= g.target) {
     status = "done";
   } else if (g.deadline) {
     const [ny, nm] = currentMonthKst().split("-").map(Number);
     const [dy, dm] = g.deadline.split("-").map(Number);
-    monthsLeft = Math.max(1, (dy - ny) * 12 + (dm - nm) + 1);
-    neededMonthly = Math.ceil(remaining / monthsLeft);
-    status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+    const left = (dy - ny) * 12 + (dm - nm) + 1;
+    if (left < 1) {
+      // V22.9.76 감사 D-22: 마감월이 지난 목표는 "남은 1개월"이 아니다(예전에는 1개월로 올려 셌다).
+      // 남은 달·월 필요액을 비워 화면에서 빼고, 상태는 '부족'으로 둔다.
+      overdue = true;
+      status = "behind";
+    } else {
+      monthsLeft = left;
+      neededMonthly = Math.ceil(remaining / monthsLeft);
+      status = g.monthly >= neededMonthly ? "onTrack" : "behind";
+    }
   } else {
     status = g.monthly > 0 ? "onTrack" : "behind";
   }
-  return { ...g, progress, remaining, monthsLeft, neededMonthly, status };
+  return { ...g, progress, remaining, monthsLeft, neededMonthly, status, overdue };
 }
 function goalsPayload(householdId, list) {
   const goals = list.map(enrichGoal);
   const totalTarget = goals.reduce((a, g) => a + g.target, 0);
   const totalSaved = goals.reduce((a, g) => a + g.saved, 0);
+  // V22.9.76 감사 D-22: 전체 진행률은 목표마다 목표액까지만 센다. 한 목표에 넘치게 모은 돈이 다른 목표의 빈 몫을
+  // 채워 "100%"가 되던 것(비상금 200% + 휴가 0% → 100%)을 막는다. 모은 돈 합계(total_saved)는 그대로다.
+  const totalCountedSaved = goals.reduce((a, g) => a + Math.min(Math.max(0, Number(g.saved || 0)), Math.max(0, Number(g.target || 0))), 0);
   return {
     ok: true, household_id: householdId, count: goals.length,
     total_target: totalTarget, total_saved: totalSaved,
-    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0,
+    overall_progress: totalTarget > 0 ? Math.min(100, Math.round((totalCountedSaved / totalTarget) * 100)) : 0,
     goals,
   };
 }

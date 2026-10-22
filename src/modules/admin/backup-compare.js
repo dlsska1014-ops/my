@@ -8,7 +8,8 @@ import { normalizeTransactionType } from "./transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchReservePlans } from "../settings/reserve-plans.js";
 import {
-  fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
+  fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
+  fetchPostgrestRows, isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { fetchBudgets, fetchRecurring, fetchRecurringStrict } from "../domain/budgets.js";
@@ -33,10 +34,27 @@ function backupScopeParams(month, householdId) {
   return qs.toString();
 }
 
-async function buildBackupPayload(env, { month, householdId }) {
+// V22.9.76 감사 E-16: 백업센터의 "전체 가계부 백업"은 고른 한 달 치만 담았다. 선택한 가계부의 전체 기간 백업
+// (모든 달의 거래·예산, 거래 ADMIN_FULL_BACKUP_ROW_LIMIT 건까지)을 따로 두고, 한 달만 담는 단추에는 그 달을 적는다.
+// 모든 가계부를 한꺼번에 담는 백업은 가계부마다 읽기가 다섯 번씩 늘어 요청 한도(50회)에 걸리므로 계속 한 달 단위다.
+// 전체 기간 백업의 요청 수: 가계부 1 + 거래 쪽수(1,000건당 1, 최대 16) + 참여자·예산·정기·분류·적립 5~6.
+const ADMIN_FULL_BACKUP_ROW_LIMIT = 15000;
+
+async function fetchAllBudgetsForBackup(env, householdId) {
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,month,category,amount,created_at");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("order", "month.asc,category.asc,id.asc");
+  return fetchPostgrestRows(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { maxRows: 20000 });
+}
+
+async function buildBackupPayload(env, { month, householdId, range = "month" }) {
+  const allMonths = range === "all" && !!householdId;
   const households = await fetchAdminHouseholds(env);
   const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
-  const transactions = await fetchAdminRows(env, { month, householdId, type: "all" });
+  const transactions = allMonths
+    ? await fetchAdminRowsRange(env, { householdId, type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
+    : await fetchAdminRows(env, { month, householdId, type: "all" });
   const membersByHousehold = Object.create(null);
   const budgetsByHousehold = Object.create(null);
   const recurringByHousehold = Object.create(null);
@@ -46,16 +64,19 @@ async function buildBackupPayload(env, { month, householdId }) {
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
   for (const h of selectedHouseholds) {
     membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
-    budgetsByHousehold[h.id] = await fetchBudgets(env, h.id, month, { strict: true });
+    budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
     categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
+  const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];
   return {
     app: "kakao-accountbook",
     version: APP_VERSION,
     exported_at: new Date().toISOString(),
-    scope: { month, household_id: householdId || "", household_scope: householdId ? "selected" : "all" },
+    scope: allMonths
+      ? { month, range: "all", household_id: householdId, household_scope: "selected", first_date: dates[0] || "", last_date: dates[dates.length - 1] || "" }
+      : { month, range: "month", household_id: householdId || "", household_scope: householdId ? "selected" : "all" },
     counts: {
       households: selectedHouseholds.length,
       transactions: transactions.length,
@@ -75,7 +96,10 @@ async function buildBackupPayload(env, { month, householdId }) {
     notes: [
       "이 파일은 백업용 JSON입니다.",
       "민감한 가계부 데이터가 포함될 수 있으므로 외부 공유를 피하세요.",
-      "복구 자동 반영 기능은 아직 제공하지 않으며, 운영 안정화를 위해 먼저 내보내기만 제공합니다."
+      "복구 자동 반영 기능은 아직 제공하지 않으며, 운영 안정화를 위해 먼저 내보내기만 제공합니다.",
+      allMonths
+        ? "선택한 가계부의 모든 달 거래와 예산을 담은 전체 기간 백업입니다. 백업센터의 복구 단계는 한 달씩 진행합니다(비교·후보 화면에서 달을 고르세요)."
+        : `선택한 달(${month})의 거래와 예산만 담은 백업입니다.`,
     ],
   };
 }
@@ -84,15 +108,18 @@ async function handleAdminExportJson(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const householdId = String(url.searchParams.get("household_id") || "").trim();
+  const range = url.searchParams.get("range") === "all" ? "all" : "month";
+  if (range === "all" && !householdId) return jsonResponse({ ok: false, error: "household_required", message: "전체 기간 백업은 가계부를 하나 골라야 만들 수 있습니다." }, 400);
   let payload;
   try {
-    payload = await buildBackupPayload(env, { month, householdId });
+    payload = await buildBackupPayload(env, { month, householdId, range });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
+    if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 달별 백업을 이용해 주세요.` }, 413);
     return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
   }
   const scope = householdId ? "household" : "all";
-  return backupJsonResponse(payload, `accountbook_backup_${month}_${scope}.json`);
+  return backupJsonResponse(payload, `accountbook_backup_${range === "all" ? "all-months" : month}_${scope}.json`);
 }
 
 async function handleBackupCenterPage(request, env, url) {
@@ -109,6 +136,7 @@ async function handleBackupCenterPage(request, env, url) {
   const categories = hid ? await fetchCustomCategories(env, hid) : [];
   const qs = backupScopeParams(month, hid);
   const allQs = backupScopeParams(month, "");
+  const fullQs = `${qs}&range=all`;
   const cards = [
     ["거래 기록", `${numberWithCommas(rows.length)}건`, "현재 선택한 월의 수입·지출 데이터"],
     ["참여자", `${numberWithCommas(members.length)}명`, "가계부 구성원 정보"],
@@ -116,7 +144,7 @@ async function handleBackupCenterPage(request, env, url) {
     ["고정항목", `${numberWithCommas(recurring.length)}개`, "반복 기록 설정"],
     ["사용자 분류", `${numberWithCommas(categories.length)}개`, "직접 추가한 분류"],
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(qs)}">1. 현재 가계부 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">전체 가계부 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다. 전체 기간 백업은 선택한 가계부의 모든 달(거래 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건까지)을, ‘${escapeHtml(month)}만’ 단추는 그 달만 담습니다. 모든 가계부 백업은 요청 한도 때문에 한 달씩만 만듭니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(fullQs)}">1. 현재 가계부 전체 기간 백업</a><a class="btn light" href="/admin/export/json?${escapeHtml(qs)}">현재 가계부 ${escapeHtml(month)}만 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV(${escapeHtml(month)})</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">모든 가계부 ${escapeHtml(month)}만 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
 }
 
 function safeArray(value) {
@@ -245,6 +273,17 @@ async function handleBackupPreviewPost(request, env) {
   }
 }
 
+// V22.9.76 감사 E-16: 전체 기간 백업 파일은 복구 단계에서 고른 달(비우면 백업 기준 월)의 거래만 비교한다. 다른 달
+// 거래를 그 달의 현재 기록과 견주면 모두 '신규'로 보이기 때문이다. 한 달 백업 파일은 예전처럼 백업 기준 월을 쓴다.
+function backupRestoreView(payload, formMonth = "") {
+  const scope = safeObject(safeObject(payload).scope);
+  const rows = safeArray(safeObject(payload).transactions);
+  if (scope.range !== "all") return { month: validMonth(scope.month) || currentMonthKst(), rows, note: "" };
+  const month = validMonth(String(formMonth || "")) || validMonth(scope.month) || currentMonthKst();
+  const monthRows = rows.filter((row) => String(safeObject(row).transaction_date || "").slice(0, 7) === month);
+  return { month, rows: monthRows, note: `전체 기간 백업(거래 ${numberWithCommas(rows.length)}건)에서 ${month} 거래 ${numberWithCommas(monthRows.length)}건만 비교합니다. 다른 달은 달을 바꿔 다시 올려 주세요.` };
+}
+
 function normalizeComparableText(value) {
   return String(value || "").trim();
 }
@@ -274,50 +313,56 @@ function transactionDiffFields(a, b) {
   return fields.filter((f) => String(aa[f]) !== String(bb[f]));
 }
 
+// V22.9.76 감사 E-7: 같은 날 같은 내용의 거래 두 건 중 한 건이 복구에서 영구히 빠졌다. '내용이 같은 현재 기록이
+// 하나라도 있으면 중복'으로 봤기 때문이다. 이제 백업 행 하나가 현재 기록 하나와만 짝을 이룬다(먼저 같은 ID, 다음 같은
+// 내용). 짝이 없는 행이 신규 후보이고, 후보마다 그 내용으로 이미 짝지은 개수(occurrence_base)를 적어 둔다. 최종 확인과
+// 적용은 '현재 개수 < occurrence_base + 계획 안에서 몇 번째'일 때만 신규로 보므로, 같은 계획을 다시 적용해도 늘지 않는다.
 function compareBackupTransactions(backupRows, currentRows) {
-  const backup = safeArray(backupRows);
-  const current = safeArray(currentRows);
+  const backup = safeArray(backupRows).map((row) => safeObject(row));
+  const current = safeArray(currentRows).map((row) => safeObject(row));
   const currentById = new Map();
-  const currentBySignature = new Map();
-  for (const row of current) {
-    const r = safeObject(row);
-    if (r.id) currentById.set(String(r.id), r);
+  for (const r of current) if (r.id) currentById.set(String(r.id), r);
+  const paired = new Set();
+  const idPairs = new Map();
+  backup.forEach((r, index) => {
+    const cur = r.id ? currentById.get(String(r.id)) : null;
+    if (cur && !paired.has(cur)) { idPairs.set(index, cur); paired.add(cur); }
+  });
+  const freeBySignature = new Map();
+  for (const r of current) {
+    if (paired.has(r)) continue;
     const sig = transactionSignature(r);
-    if (!currentBySignature.has(sig)) currentBySignature.set(sig, []);
-    currentBySignature.get(sig).push(r);
+    if (!freeBySignature.has(sig)) freeBySignature.set(sig, []);
+    freeBySignature.get(sig).push(r);
   }
 
-  const backupIds = new Set();
-  const backupSigs = new Set();
+  const matchedBySignature = new Map();
   const sameId = [];
   const contentDuplicates = [];
   const conflicts = [];
-  const newCandidates = [];
+  const unmatched = [];
 
-  for (const row of backup) {
-    const r = safeObject(row);
-    const id = String(r.id || "");
+  backup.forEach((r, index) => {
     const sig = transactionSignature(r);
-    if (id) backupIds.add(id);
-    backupSigs.add(sig);
-    if (id && currentById.has(id)) {
-      const cur = currentById.get(id);
+    const cur = idPairs.get(index);
+    if (cur) {
       const diff = transactionDiffFields(r, cur);
       if (diff.length) conflicts.push({ backup: r, current: cur, diff });
-      else sameId.push(r);
-    } else if (currentBySignature.has(sig)) {
-      contentDuplicates.push({ backup: r, current: currentBySignature.get(sig)[0] });
-    } else {
-      newCandidates.push(r);
+      else { sameId.push(r); matchedBySignature.set(sig, (matchedBySignature.get(sig) || 0) + 1); }
+      return;
     }
-  }
-
-  const currentOnly = current.filter((row) => {
-    const r = safeObject(row);
-    const id = String(r.id || "");
-    const sig = transactionSignature(r);
-    return (!id || !backupIds.has(id)) && !backupSigs.has(sig);
+    const free = freeBySignature.get(sig);
+    if (free && free.length) {
+      const match = free.shift();
+      paired.add(match);
+      contentDuplicates.push({ backup: r, current: match });
+      matchedBySignature.set(sig, (matchedBySignature.get(sig) || 0) + 1);
+      return;
+    }
+    unmatched.push({ r, sig });
   });
+  const newCandidates = unmatched.map(({ r, sig }) => ({ ...r, occurrence_base: matchedBySignature.get(sig) || 0 }));
+  const currentOnly = current.filter((r) => !paired.has(r));
 
   const risk = conflicts.length ? "danger" : (sameId.length || contentDuplicates.length) ? "warn" : "good";
   return {
@@ -349,7 +394,8 @@ function renderBackupCompareRows(rows, type = "new") {
   }).join("");
 }
 
-function renderBackupCompareHtml({ payload = null, validation = null, summary = null, compare = null, month = "", householdId = "", households = [], error = "" } = {}) {
+function renderBackupCompareHtml({ payload = null, validation = null, summary = null, compare = null, month = "", householdId = "", households = [], error = "", note = "" } = {}) {
+  const noteBox = note ? `<section class="card warn"><p>${escapeHtml(note)}</p></section>` : "";
   const hasResult = !!compare;
   const riskLabel = compare?.risk === "danger" ? "충돌 위험" : compare?.risk === "warn" ? "중복 가능성" : "안전";
   const riskText = compare?.risk === "danger" ? "같은 ID인데 내용이 다른 거래가 있습니다. 자동 복구/가져오기는 위험합니다." : compare?.risk === "warn" ? "이미 존재하는 거래가 있어 중복 저장 위험이 있습니다. 가져오기 전에 확인이 필요합니다." : "현재 데이터와 충돌·중복 위험이 낮습니다.";
@@ -366,7 +412,7 @@ function renderBackupCompareHtml({ payload = null, validation = null, summary = 
   const errorBox = error ? `<section class="card bad"><h2>비교 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>백업 파일 구조: ${validation.ok ? "정상" : "확인 필요"}</h2>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const resultHtml = hasResult ? `<section class="card ${compare.risk}"><h2>비교 결과: ${escapeHtml(riskLabel)}</h2><p>${escapeHtml(riskText)}</p></section><section class="grid">${cards}</section><section class="card"><h2>충돌 항목</h2><p class="note">같은 ID인데 백업과 현재 데이터 내용이 다른 항목입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID/차이</th></tr></thead><tbody>${renderBackupCompareRows(compare.conflicts, "conflict")}</tbody></table></section><section class="card"><h2>신규 후보</h2><p class="note">현재 데이터에 없어 보이는 백업 거래입니다. 아직 DB에 저장하지 않습니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows(compare.newCandidates, "new")}</tbody></table></section><section class="card"><h2>중복 가능 항목</h2><p class="note">ID 또는 내용 기준으로 이미 존재하는 거래입니다.</p><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>ID</th></tr></thead><tbody>${renderBackupCompareRows([...compare.sameId.slice(0, 15), ...compare.contentDuplicates.slice(0, 15)], "dup")}</tbody></table></section>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업 비교</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1140px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.danger,.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button{background:#111827;color:#fff;font-weight:1000;cursor:pointer}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}table{width:100%;border-collapse:collapse;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}table{min-width:760px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>백업 비교/중복 위험 분석</h1><p>백업 JSON을 현재 Supabase 데이터와 비교해, 복구 전에 중복·충돌 위험을 확인합니다. 이 화면은 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/preview">백업 미리보기</a></p></section><section class="card"><h2>백업 파일 비교</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 같은 ID, 같은 내용, 충돌 항목, 신규 후보만 분석합니다.</p><form class="upload" method="post" action="/backup/compare" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><button type="submit">비교 분석</button></form></section>${errorBox}${validationBox}${resultHtml}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업 비교</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1140px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.danger,.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button{background:#111827;color:#fff;font-weight:1000;cursor:pointer}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}table{width:100%;border-collapse:collapse;background:#fff}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}table{min-width:760px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId })}<main class="wrap"><section class="hero"><h1>백업 비교/중복 위험 분석</h1><p>백업 JSON을 현재 Supabase 데이터와 비교해, 복구 전에 중복·충돌 위험을 확인합니다. 이 화면은 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/preview">백업 미리보기</a></p></section><section class="card"><h2>백업 파일 비교</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 같은 ID, 같은 내용, 충돌 항목, 신규 후보만 분석합니다.</p><form class="upload" method="post" action="/backup/compare" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><label class="note">전체 기간 백업이면 비교할 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">비교 분석</button></form></section>${errorBox}${noteBox}${validationBox}${resultHtml}</main></body></html>`;
 }
 
 async function handleBackupComparePage(request, env, url) {
@@ -394,15 +440,16 @@ async function handleBackupComparePost(request, env) {
     const validation = validateBackupPayloadShape(payload);
     const summary = summarizeBackupPayload(payload);
     const scope = safeObject(payload.scope);
-    const month = validMonth(scope.month) || currentMonthKst();
+    const view = backupRestoreView(payload, form.get("month"));
+    const month = view.month;
     const formHouseholdId = String(form.get("household_id") || "").trim();
     const householdId = formHouseholdId || String(scope.household_id || "").trim();
     if (!validation.ok) {
       return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, households, month, householdId }), 400);
     }
     const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const compare = compareBackupTransactions(safeArray(payload.transactions), currentRows);
-    return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, compare, households, month, householdId }));
+    const compare = compareBackupTransactions(view.rows, currentRows);
+    return htmlResponse(renderBackupCompareHtml({ payload, validation, summary, compare, households, month, householdId, note: view.note }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_compare_failed", severity: "warn", path: "/backup/compare", method: "POST", detail: safeError(err) });
     return htmlResponse(renderBackupCompareHtml({ households, error: "백업 비교를 완료하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
@@ -410,8 +457,9 @@ async function handleBackupComparePost(request, env) {
 }
 // @build:exports-start
 export {
-  compareBackupTransactions, handleAdminExportJson, handleBackupCenterPage, handleBackupComparePage,
-  handleBackupComparePost, handleBackupPreviewPage, handleBackupPreviewPost, safeArray, safeObject,
-  transactionComparable, transactionSignature, validateBackupPayloadShape,
+  backupRestoreView, compareBackupTransactions, handleAdminExportJson, handleBackupCenterPage,
+  handleBackupComparePage, handleBackupComparePost, handleBackupPreviewPage,
+  handleBackupPreviewPost, safeArray, safeObject, transactionComparable, transactionSignature,
+  validateBackupPayloadShape,
 };
 // @build:exports-end

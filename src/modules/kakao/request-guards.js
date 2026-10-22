@@ -27,7 +27,7 @@ import {
   isSummaryCommand, isUndoCommand, parseGroupBindCommand,
 } from "./simple-commands.js";
 import { extractLeadingDateHint, parseMultipleTransactions } from "../nlu/transaction-parser.js";
-import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
+import { detectType, extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
 // @build:imports-end
 
@@ -66,18 +66,18 @@ function looksLikeKakaoEditCommandV4(text = "") {
   const control = kakaoEditControlTextV4(text);
   const original = normalizeText(stripKakaoBotMention(text)).replace(/^\/+\s*/, "");
   return /^(?:수정|삭제|복구)\s*\d+/.test(control)
-    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|분류|결제수단|내용|날짜|지출자|수입자|수입|지출|수정|삭제|제거|복구)(?=\s|$)/.test(control)
     // V22.9.63 감사(1:1 1): "수정 01번 금액을 13000원으로", "01번 가격 13200", "수정 01번 13300원으로"처럼 조사·동의어·값만 있는
     // 수정 말이 새 지출로 저장됐다(stripLeadingCommand 가 앞의 ‘수정’을 떼고 나면 위 두 규칙이 못 알아봤다). 앞에 ‘수정 NN번’이
     // 있었거나 번호 뒤에 수정 낱말(동의어·조사 포함)이 오면 수정 명령이다. "2번 출구 택시 8000원"처럼 수정 낱말이 없는 번호는 기록이다.
     || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
     // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
     // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
-    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
     || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
-    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
+    || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
-    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
+    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
 }
 
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
@@ -177,12 +177,17 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
   return true;
 }
 
-function kakaoRepeatGuardText(origin = "") {
+// V22.9.76 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
+function kakaoRepeatGuardText(origin = "", utterance = "") {
+  const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
+  const example = text && extractAmount(text)?.amount ? text : "";
+  const income = example && detectType(example) === "income";
   return [
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
     "‘오늘기록’로 저장 결과를 확인해 주세요.",
-    "서로 다른 구매라면 ‘별도 구매 추가 커피 4500원’처럼 원래 내용을 보내 후보를 확인해 주세요.",
+    income ? `따로 들어온 돈이라면 ‘별도 기록 추가 ${example}’라고 보내 후보를 확인해 주세요.`
+      : `서로 다른 구매라면 ‘별도 구매 추가 ${example || "커피 4500원"}’처럼 원래 내용을 보내 후보를 확인해 주세요.`,
   ].join("\n");
 }
 
