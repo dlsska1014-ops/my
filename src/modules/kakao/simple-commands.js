@@ -1,5 +1,7 @@
 // @build:imports-start
-import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
+import {
+  fetchAdminRows, fetchFormerSpenderMembers, fetchHouseholdMembers,
+} from "../data/households-members-rows.js";
 import { buildSettlementModel } from "../features/settlement-ops-pages.js";
 import { detectKakaoNaturalIntent } from "./intent-nlu.js";
 import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
@@ -70,7 +72,9 @@ async function kakaoSettlementParts(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
-  const model = buildSettlementModel(rows, members);
+  // V22.9.77 감사 B-5: 웹 정산과 같이 나간 사람의 이름을 읽어 ‘별명(나간 구성원)’으로 구분한다(명단에 없는 지출자가 없으면 읽지 않는다).
+  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+  const model = buildSettlementModel(rows, members, { formerMembers });
   // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";

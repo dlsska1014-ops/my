@@ -293,30 +293,37 @@ async function verifyHouseholdDeleteReauth(request, env, userId = "", householdI
   }
 }
 
-async function findUserByKakaoLoginId(env, kakaoId = "") {
+// V22.9.77 감사 B-7: 카카오 로그인 id 의 주인 계정을 웹 로그인과 같은 순서(강한 식별 → 식별 링크 표 → 사용자 행)로 찾는다.
+// 아무것도 쓰지 않는다. 웹 로그인(findUserByKakaoLoginId)은 찾은 뒤 강한 식별로 옮겨 적고, 채팅(appUserId)은 이것으로
+// 이미 있는 웹 계정을 찾거나 별칭을 다른 사람에게 묶지 않는지 확인한다. options.links 를 주면 링크 표를 다시 읽지 않는다.
+async function lookupKakaoLoginOwner(env, kakaoId = "", options = {}) {
   const kid = String(kakaoId || "").trim();
   if (!kid) return null;
   const strong = await fetchStrongIdentityBySubject(env, "kakao", kid);
   if (strong?.user_id) {
     const user = await fetchUserById(env, strong.user_id);
-    if (user) return user;
+    if (user) return { user, source: "strong" };
   }
-  const key = kakaoLoginUserKey(kakaoId);
-  const links = await fetchUserIdentityLinks(env);
+  const key = kakaoLoginUserKey(kid);
+  const links = options.links || await fetchUserIdentityLinks(env);
   const linkedUserId = String(safeObject(links[key]).user_id || "");
   if (linkedUserId) {
     const linked = await fetchUserById(env, linkedUserId);
-    if (linked) {
-      try { await linkKakaoLoginToUser(env, kid, linked.id, { nickname: linked.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
-      return linked;
-    }
+    if (linked) return { user: linked, source: "link" };
   }
   const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${encodeURIComponent(key)}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
-  if (existing?.[0]) {
-    try { await linkKakaoLoginToUser(env, kid, existing[0].id, { nickname: existing[0].nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
-    return existing[0];
-  }
+  if (existing?.[0]) return { user: existing[0], source: "user_key" };
   return null;
+}
+
+async function findUserByKakaoLoginId(env, kakaoId = "") {
+  const kid = String(kakaoId || "").trim();
+  const found = await lookupKakaoLoginOwner(env, kid);
+  if (!found) return null;
+  if (found.source !== "strong") {
+    try { await linkKakaoLoginToUser(env, kid, found.user.id, { nickname: found.user.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
+  }
+  return found.user;
 }
 
 async function ensureKakaoLoginUser(env, kakaoId, nickname) {
@@ -351,7 +358,7 @@ export {
   fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
   handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
-  linkKakaoLoginToUser, makeCredentialProof, makeHouseholdDeleteReauthToken,
+  linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeHouseholdDeleteReauthToken,
   normalizeLocalLoginName, readPurposeToken, replaceLocalLoginForUser, saveUserIdentityLinks,
   signedPurposeToken, verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
 };

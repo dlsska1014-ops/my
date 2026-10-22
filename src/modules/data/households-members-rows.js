@@ -352,10 +352,71 @@ async function countHouseholdTransactions(env, householdId) {
   return supabaseExactCount(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(householdId)}&select=id`);
 }
 
+// V22.9.77 감사 B-5: 이름이 같은 사람이 요약·정산·기록 목록에서 한 사람처럼 보였다. 단톡방 구성원은 payload 에 별명이 없어
+// 모두 ‘카카오사용자’라서 "카카오사용자: 36,000원" 한 줄, "카카오사용자 → 카카오사용자" 송금 제안이 나왔다.
+// 같은 이름이 둘 이상이면 넘겨받은 순서대로 ‘이름 1’·‘이름 2’를 붙인다. 다른 사람이 이미 쓰는 이름(예: 별명 ‘카카오사용자 1’)은
+// 건너뛰고, 이름이 하나뿐이면 그대로 둔다. reserved 는 이 목록 밖에서 이미 쓰는 이름이다(겹치면 하나뿐이어도 번호를 붙인다).
+// 돌려주는 Map 은 id → 겹치지 않는 이름이다.
+function distinctPersonLabels(entries = [], reserved = new Set()) {
+  const labels = new Map();
+  const groups = new Map();
+  for (const entry of safeArray(entries)) {
+    const id = String(entry?.id ?? "").trim();
+    if (!id || labels.has(id)) continue;
+    const label = String(entry?.label || "").trim() || "구성원";
+    labels.set(id, label);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(id);
+  }
+  const taken = new Set([...reserved, ...labels.values()]);
+  for (const [label, ids] of groups) {
+    if (ids.length < 2 && !reserved.has(label)) continue;
+    let n = 0;
+    for (const id of ids) {
+      let candidate = "";
+      do { n += 1; candidate = `${label} ${n}`; } while (taken.has(candidate));
+      taken.add(candidate);
+      labels.set(id, candidate);
+    }
+  }
+  return labels;
+}
+
+// 번호는 지금 구성원끼리 참여 순서(가계부에 들어온 시각, fetchHouseholdMembers 와 같은 비교)로 매긴다. 부르는 쪽이 명단을
+// 어떤 순서로 넘겨도, 나간 사람(role "left", fetchFormerSpenderMembers)을 섞어 넘겨도 같은 사람은 요약·정산·기록 목록에서
+// 같은 이름을 받는다. 나간 사람은 나간 사람끼리 번호를 매기고(정산의 formerMap 과 같다), 지금 구성원과 이름이 겹치면
+// 정산의 D-20 규칙처럼 ‘이름(나간 구성원)’으로 쓴다. 겹치지 않으면 예전처럼 기록 당시 이름 그대로다.
 function memberNameMap(members = []) {
+  const ordered = safeArray(members)
+    .map((member, index) => ({ member, index }))
+    .filter(({ member }) => member && member.user_id)
+    .sort((a, b) => String(a.member.created_at || "").localeCompare(String(b.member.created_at || "")) || a.index - b.index);
+  const entry = ({ member }) => ({ id: String(member.user_id).trim(), label: String(member.nickname || "").trim() || "구성원" });
+  const current = ordered.filter(({ member }) => member.role !== "left").map(entry);
+  const currentLabels = distinctPersonLabels(current);
+  const reserved = new Set([...current.map((item) => item.label), ...currentLabels.values()]);
+  const departedRaw = ordered.filter(({ member }) => member.role === "left").map(entry);
+  const departedNumbered = distinctPersonLabels(departedRaw);
+  const departed = departedRaw.map((item) => {
+    const label = departedNumbered.get(item.id) || item.label;
+    return { id: item.id, label: reserved.has(item.label) || reserved.has(label) ? `${label}(나간 구성원)` : label };
+  });
   const map = Object.create(null);
-  for (const m of members) if (m.user_id) map[m.user_id] = m.nickname || "구성원";
+  for (const [id, label] of currentLabels) map[id] = label;
+  for (const [id, label] of distinctPersonLabels(departed, reserved)) if (!(id in map)) map[id] = label;
   return map;
+}
+
+// V22.9.77 감사 B-5: 카카오 요약의 지출자별 합계에 쓰는 이름. 정산(buildSettlementModel, V22.9.58 지문으로 고정)과 같은 규칙이다 —
+// 지금 구성원은 memberNameMap(같은 이름이면 참여 순서 번호), 나간 사람은 V22.9.76 D-20 규칙(‘별명(나간 구성원)’,
+// 이름을 모르면 ‘이전 구성원’·‘이전 구성원 N’). 끝에 한 번 더 겹치지 않게 맞춘다(별명을 일부러 ‘이전 구성원’처럼 지은 경우).
+function householdPersonLabels(members = [], formerMembers = [], ids = []) {
+  const memberMap = memberNameMap(members);
+  const formerMap = memberNameMap(safeArray(formerMembers));
+  const list = [...new Set(safeArray(ids).map((id) => String(id ?? "").trim()).filter(Boolean))];
+  const departedIds = list.filter((id) => !memberMap[id]);
+  const departedName = (id) => formerMap[id] ? `${formerMap[id]}(나간 구성원)` : departedIds.length > 1 ? `이전 구성원 ${departedIds.indexOf(id) + 1}` : "이전 구성원";
+  return distinctPersonLabels(list.map((id) => ({ id, label: memberMap[id] || departedName(id) })));
 }
 
 function attachSpenderNames(rows = [], members = []) {
@@ -392,9 +453,11 @@ async function attachSpenderNamesWithHistory(env, rows = [], members = []) {
 
 function renderSpenderOptions(members = [], selected = "", blankLabel = "지출자 미지정") {
   const opts = [`<option value=""${!selected ? " selected" : ""}>${escapeHtml(blankLabel)}</option>`];
+  // V22.9.77 감사 B-5: 이름이 같은 구성원(‘카카오사용자’ 여럿)도 고를 수 있게 요약·정산과 같은 구분 이름을 쓴다.
+  const names = memberNameMap(members);
   for (const m of members) {
     if (!memberCanBeSpender(m)) continue;
-    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
+    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(names[m.user_id] || m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
   }
   return opts.join("");
 }
@@ -451,9 +514,10 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
 // @build:exports-start
 export {
   attachSpenderNames, attachSpenderNamesWithHistory, bestRoleFromRows, countHouseholdTransactions,
-  fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange, fetchAnalysisRowsRange,
-  fetchFormerSpenderMembers, fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap,
-  fetchPostgrestRows, fetchRowsByPlainIds, getScopedHouseholdsForPage, isRowLimitExceededError,
+  distinctPersonLabels, fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange,
+  fetchAnalysisRowsRange, fetchFormerSpenderMembers, fetchHouseholdMemberCounts,
+  fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds,
+  getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
   memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist,
   renderSpenderOptions, roleRank, saveMemberAlias, selectRequestedScopedHousehold,
   supabaseExactCount,

@@ -4,7 +4,8 @@ import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { kakaoReserveAlert } from "../settings/reserve-plans.js";
 import {
-  fetchAdminRowsRange, fetchHouseholdMembers, isRowLimitExceededError, memberNameMap,
+  fetchAdminRowsRange, fetchFormerSpenderMembers, fetchHouseholdMembers, householdPersonLabels,
+  isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -550,7 +551,6 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     fetchHouseholdMembers(env, household.id),
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
   ]);
-  const names = memberNameMap(members);
   const incomes = rows.filter((r) => r.type === "income");
   const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
   // V22.9.76 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
@@ -561,13 +561,18 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
   const byCategory = Object.create(null);
-  const byUser = Object.create(null);
+  // V22.9.77 감사 B-5: 지출자별 합계는 사용자 id 로 모은다. 이름으로 모으면 이름이 같은 구성원(단톡방의 ‘카카오사용자’ 셋)이
+  // "카카오사용자: 36,000원" 한 줄이 됐고, 나간 사람은 지출자 없는 기록과 함께 ‘미지정’으로 묶였다. 이름은 정산과 같은 규칙이다.
+  const byUser = new Map();
   for (const row of expenses) {
     const c = row.category || "기타"; byCategory[c] = (byCategory[c] || 0) + Number(row.amount || 0);
-    const name = names[row.user_id] || "미지정"; byUser[name] = (byUser[name] || 0) + Number(row.amount || 0);
+    const uid = String(row.user_id ?? "").trim();
+    byUser.set(uid, (byUser.get(uid) || 0) + Number(row.amount || 0));
   }
+  const formerMembers = await fetchFormerSpenderMembers(env, expenses, members);
+  const spenderLabels = householdPersonLabels(members, formerMembers, [...byUser.keys()]);
   const categories = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
-  const users = Object.entries(byUser).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
+  const users = [...byUser].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([uid,v])=>`• ${uid ? spenderLabels.get(uid) || "이전 구성원" : "미지정"}: ${numberWithCommas(v)}원`);
   const cta = await maybeKakaoCta(env, user.id, household.id, origin, "analysis", `${origin}/my/analysis?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(range.month)}`);
   return { empty: false, text: [
     `📊 ${range.label} 요약`,

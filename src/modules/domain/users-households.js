@@ -19,6 +19,9 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   if (!rawKey) throw new Error("missing_kakao_user_identity");
   const key = encodeURIComponent(rawKey);
   const aliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
+  // V22.9.77 감사 B-7: Secret 으로 확인된 카카오 요청일 때만 appUserId 로 기존 웹(카카오 로그인) 계정을 찾고, 그 별칭이 다른
+  // 계정의 것이면 별칭만 빼고 지금 계정으로 계속한다. 그 밖의 호출은 예전 계약(찾지 않음, 충돌이면 실패)을 그대로 쓴다.
+  const trust = { trustedKakaoCaller: options.trustedKakaoCaller === true };
   const existing = options.absenceConfirmed ? [] : await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
   if (existing?.[0]) {
     const rawUser = existing[0];
@@ -31,16 +34,16 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const effectiveId = await resolveEffectiveUserId(env, rawUser.id);
     const effective = effectiveId === String(rawUser.id) ? rawUser : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
 
-  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases);
+  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases, trust);
   if (linked) {
     const effectiveId = await resolveEffectiveUserId(env, linked.id);
     const effective = effectiveId === String(linked.id) ? linked : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
 
@@ -48,7 +51,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   // Only a confirmed absence of every existing identity may seed first-use eligibility.
   // The durable marker precedes the user insert so an interrupted first request can resume.
   if (options.seedChatFirst === true && options.bootstrapSeeded !== true) {
-    return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases);
+    return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases, trust);
   }
 
   let user = null;
@@ -83,7 +86,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const effectiveId = await resolveEffectiveUserId(env, user.id);
     const effective = effectiveId === String(user.id) ? user : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
   return user;

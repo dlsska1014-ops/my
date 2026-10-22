@@ -341,14 +341,16 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
   const botGroupKey = getKakaoBotGroupKey(payload);
-  const trustedIdentity = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
+  // V22.9.77 감사 B-7: Secret 으로 확인된 요청만 appUserId 로 기존 웹 계정을 찾는다(ensureUser 의 trustedKakaoCaller).
+  const trustedKakaoCaller = trustedChatFirstSkillCaller(request, env);
+  const trustedIdentity = trustedKakaoCaller && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
   const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
   const earlyUserPromise = skillConfigured && kakaoUserKey && !earlyReply
-    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) }).then((user) => ({ user }), (error) => ({ error }))
+    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedKakaoCaller, trustedKakaoCaller }).then((user) => ({ user }), (error) => ({ error }))
     : null;
 
   // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
@@ -401,7 +403,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
   const earlyUser = earlyUserPromise ? await earlyUserPromise : null;
   if (earlyUser?.error) throw earlyUser.error;
-  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) });
+  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedKakaoCaller, trustedKakaoCaller });
   if (!user?.id) return kakaoText("skill_identity_untrusted: \uC778\uC99D\uB41C \uCE74\uCE74\uC624 \uC694\uCCAD\uC5D0\uC11C \uCC98\uC74C \uAE30\uB85D\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
 
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
