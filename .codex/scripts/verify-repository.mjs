@@ -59,7 +59,7 @@ const validationScripts = [
   ["V22.9.76 돈 계산·정기 자동 반영·가져오기", "validation/validate-money-fixes-v22976.mjs"],
   ["V22.9.76 데이터·백업·관리 화면(키워드 카드·분류 낱말·전체 기간 백업·같은 거래 복원·가계부 삭제·복귀 경로·정산 구성원)", "validation/validate-data-fixes-v22976.mjs"],
   ["V22.9.76 감사 발견 추적표(모든 항목·상태·검사 연결)", "validation/validate-findings-ledger-v22976.mjs"],
-  ["V22.9.77 카카오 수정 흐름 구분 바꾸기·같은 이름 가계부 저장 답장·오늘 기록 최근순·메모 낱말 보존", "validation/validate-kakao-edit-v22977.mjs"],
+  ["V22.9.77 카카오 수정 흐름 구분 바꾸기·같은 이름 가계부 저장 답장·오늘 기록 최근순·메모 낱말 보존(결제수단·요일 말 포함)·메모 해석 정규식 재사용", "validation/validate-kakao-edit-v22977.mjs"],
   ["V22.9.77 단톡방 사람별 합계·앱 계정 연결", "validation/validate-identity-v22977.mjs"],
   ["V22.9.77 관제 경고 재발송·처리 중 결과·cron CPU", "validation/validate-monitor-v22977.mjs"],
   ["V22.9.77 지난달 리포트 다시 만들기·가져오기 해석 CPU", "validation/validate-cron-import-v22977.mjs"],
@@ -289,7 +289,8 @@ function run(command, args, label) {
 // 2026-10-19 정비(main 병합): 배포 스크립트의 이전 판 폴더 기록 조회 검사 +6.
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
 // V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
-const EXPECTED_MINIMUM_CHECKS = 26442;
+// V22.9.77: 감사 후속 검사 4개(카카오 수정 89·신원 66·관제 61·예약·가져오기 55)와 추적표 V77 출처. 두 모드 실측: 일반 26,850 · 분류 표 부재 26,847.
+const EXPECTED_MINIMUM_CHECKS = 26847;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
