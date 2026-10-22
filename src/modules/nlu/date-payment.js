@@ -234,27 +234,35 @@ function normalizePaymentMethod(value) {
 // 메모에서 결제수단을 지울 때(category-rules.js cleanMemo)도 같은 끝 조건을 쓴다.
 const AB_PAYMENT_WORD_END = "(?=$|[^가-힣]|(?:으로|로|에|이|가|을|를|은|는|도|만|와|과|의|랑|하고|결제|계산|지불|사용|썼|씀|긁|냄|냈|승인|취소|할부|일시불|송금|입금|출금))";
 
+// V22.9.77 감사 E-1(남은 것): 결제수단 정규식은 처음 부를 때 한 번만 만든다(예전에는 부를 때마다 카드사 수만큼 14개를 새로
+// 만들었다). 찾는 순서와 낱말은 위 결제수단 판정 그대로다. 정규식에 g 깃발이 없어 test 가 이전 호출의 상태를 남기지 않는다.
+let AB_PAYMENT_PATTERNS = null;
+function paymentMethodPatterns() {
+  if (AB_PAYMENT_PATTERNS) return AB_PAYMENT_PATTERNS;
+  const end = AB_PAYMENT_WORD_END;
+  const word = (pattern) => new RegExp(`(?:${pattern})${end}`);
+  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
+  AB_PAYMENT_PATTERNS = [
+    ...cardBrands.map((brand) => [new RegExp(brand + "\\s*카드" + end, "i"), ["KB", "NH", "BC"].includes(brand.toUpperCase()) ? `${brand.toUpperCase()}카드` : `${brand}카드`]),
+    [word("삼성\\s*페이|삼페"), "삼성페이"],
+    [word("카카오\\s*페이|카페이"), "카카오페이"],
+    [word("네이버\\s*페이|네페"), "네이버페이"],
+    [word("애플\\s*페이|애플페이"), "애플페이"],
+    [word("페이코"), "페이코"],
+    [word("제로\\s*페이|제로페이"), "제로페이"],
+    [word("토스(?:\\s*(?:페이|뱅크))?(?:\\s*카드)?"), "토스"],
+    [word("신용(?:\\s*카드)?"), "신용카드"],
+    [word("체크(?:\\s*카드)?"), "체크카드"],
+    [word("카드"), "카드"],
+    [word("현금"), "현금"],
+    [/(계좌|이체|송금|자동이체|무통장)/, "계좌이체"],
+  ];
+  return AB_PAYMENT_PATTERNS;
+}
+
 function detectPaymentMethod(text) {
   const raw = normalizeText(text);
-  const end = AB_PAYMENT_WORD_END;
-  const word = (pattern) => new RegExp(`(?:${pattern})${end}`).test(raw);
-  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-  for (const brand of cardBrands) {
-    const re = new RegExp(brand + "\\s*카드" + end, "i");
-    if (re.test(raw)) return brand.toUpperCase() === "KB" || brand.toUpperCase() === "NH" || brand.toUpperCase() === "BC" ? `${brand.toUpperCase()}카드` : `${brand}카드`;
-  }
-  if (word("삼성\\s*페이|삼페")) return "삼성페이";
-  if (word("카카오\\s*페이|카페이")) return "카카오페이";
-  if (word("네이버\\s*페이|네페")) return "네이버페이";
-  if (word("애플\\s*페이|애플페이")) return "애플페이";
-  if (word("페이코")) return "페이코";
-  if (word("제로\\s*페이|제로페이")) return "제로페이";
-  if (word("토스(?:\\s*(?:페이|뱅크))?(?:\\s*카드)?")) return "토스";
-  if (word("신용(?:\\s*카드)?")) return "신용카드";
-  if (word("체크(?:\\s*카드)?")) return "체크카드";
-  if (word("카드")) return "카드";
-  if (word("현금")) return "현금";
-  if (/(계좌|이체|송금|자동이체|무통장)/.test(raw)) return "계좌이체";
+  for (const [pattern, method] of paymentMethodPatterns()) if (pattern.test(raw)) return method;
   return "";
 }
 // @build:exports-start
