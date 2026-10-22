@@ -1,4 +1,4 @@
-export const MONITOR_VERSION = "1.1.1";
+export const MONITOR_VERSION = "1.2.0";
 export const PRICING_VERIFIED_AT = "2026-10-01";
 export const DAY = 86400000;
 
@@ -27,15 +27,19 @@ export function monthlyForecast(value, periodStart, periodEnd, measuredAt) {
   return n * (end - start) / (at - start);
 }
 
-export function daysToLimit(points, value, limit) {
-  const sorted = points.filter(p => numberOrNull(p.value) !== null && Number.isFinite(Date.parse(p.at))).sort((a,b) => Date.parse(a.at)-Date.parse(b.at));
-  if (sorted.length < 3 || numberOrNull(value) === null || numberOrNull(limit) === null) return null;
-  const first = sorted[0];
-  const last = sorted.at(-1);
+// 1.2.0(V44:G-6): 성장 예측은 가장 이른 점·가장 늦은 점과 점 개수(3개 이상)만 쓴다. 5분 cron 은 이 셋을 D1 에서 바로 받아
+// 7일치 2,016행을 읽지 않는다(growthDaysToLimit). 화면용 daysToLimit 은 시각을 한 번만 해석해 정렬한다(예전에는 비교마다 Date.parse).
+export function growthDaysToLimit(first, last, count, value, limit) {
+  if (!(count >= 3) || !first || !last || numberOrNull(value) === null || numberOrNull(limit) === null) return null;
   const days = (Date.parse(last.at)-Date.parse(first.at))/DAY;
   const growth = (last.value-first.value)/days;
   if (days < 2 || growth <= 0) return null;
   return Math.max(0, (limit-value)/growth);
+}
+
+export function daysToLimit(points, value, limit) {
+  const sorted = points.map(p => ({ at: p.at, value: p.value, t: Date.parse(p.at) })).filter(p => numberOrNull(p.value) !== null && Number.isFinite(p.t)).sort((a,b) => a.t-b.t);
+  return growthDaysToLimit(sorted[0], sorted.at(-1), sorted.length, value, limit);
 }
 
 export function freshState(row, maxAgeMs, now = Date.now()) {
@@ -91,23 +95,34 @@ export function workersCost(requests, cpuMs) {
   return { minimum_usd: minimum, total_usd: cpu === null ? null : minimum+Math.max(0,cpu-30000000)/1000000*0.02, complete: cpu !== null };
 }
 
+// 표본 30건 미만이면 p95 를 내지 않는다. cron 은 이 위치만 D1 에 물어 한 행을 받는다(1.2.0).
+export function percentileIndex(count, p = 0.95) {
+  return count < 30 ? null : Math.max(0,Math.ceil(count*p)-1);
+}
+
 export function percentile(values, p = 0.95) {
   const numbers = values.map(numberOrNull).filter(v => v !== null).sort((a,b)=>a-b);
-  if (numbers.length < 30) return null;
-  return numbers[Math.max(0,Math.ceil(numbers.length*p)-1)];
+  const index = percentileIndex(numbers.length, p);
+  return index === null ? null : numbers[index];
 }
 
 export function sanitizeTelemetry(input, now = Date.now()) {
   const routes = new Set(["skill", "web", "api", "auth", "import"]);
-  const outcomes = new Set(["ok", "error", "fallback", "clarify", "saved", "auth_denied", "http_error", "unknown"]);
+  // 1.2.0(V44:G-5): "deferred" = 카카오 5초 제한 때문에 '처리 중'으로 먼저 답한 요청. 뒤 작업이 끝나면 앱이 최종 결과 표본을
+  // 하나 더 보내고(ref = 첫 표본 id), 관제는 그 결과로 첫 표본 행을 고친다. 예전에는 "deferred"가 unknown 으로 바뀌었다.
+  const outcomes = new Set(["ok", "error", "fallback", "clarify", "saved", "auth_denied", "http_error", "deferred", "unknown"]);
+  const idPattern = /^[a-zA-Z0-9-]{8,64}$/;
   const at = Number(input?.at);
   const status = Number(input?.status);
   if (!input || !routes.has(input.route) || !Number.isFinite(at) || Math.abs(now-at)>10*60000 || !Number.isInteger(status) || status<100 || status>599) throw new Error("invalid_telemetry");
   const bounded = (value,max) => Math.min(max, Math.max(0, Math.round(Number(value)||0)));
+  const id = typeof input.id === "string" && idPattern.test(input.id) ? input.id : crypto.randomUUID();
+  const outcome = outcomes.has(input.outcome) ? input.outcome : "unknown";
   return {
-    id: typeof input.id === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(input.id) ? input.id : crypto.randomUUID(),
+    id,
     at, route: input.route, method: ["GET","POST","PATCH","DELETE","PUT","HEAD"].includes(input.method) ? input.method : "OTHER",
     status, duration_ms: bounded(input.duration_ms,120000), db_count: bounded(input.db_count,1000), db_ms: bounded(input.db_ms,300000), db_failures: bounded(input.db_failures,1000),
-    outcome: outcomes.has(input.outcome) ? input.outcome : "unknown", sample_kind: input.sample_kind === "random" ? "random" : "incident",
+    outcome, sample_kind: input.sample_kind === "random" ? "random" : "incident",
+    ref: outcome !== "deferred" && typeof input.ref === "string" && idPattern.test(input.ref) && input.ref !== id ? input.ref : null,
   };
 }
