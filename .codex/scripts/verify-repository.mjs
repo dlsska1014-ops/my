@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_76.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_77.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -59,6 +59,10 @@ const validationScripts = [
   ["V22.9.76 돈 계산·정기 자동 반영·가져오기", "validation/validate-money-fixes-v22976.mjs"],
   ["V22.9.76 데이터·백업·관리 화면(키워드 카드·분류 낱말·전체 기간 백업·같은 거래 복원·가계부 삭제·복귀 경로·정산 구성원)", "validation/validate-data-fixes-v22976.mjs"],
   ["V22.9.76 감사 발견 추적표(모든 항목·상태·검사 연결)", "validation/validate-findings-ledger-v22976.mjs"],
+  ["V22.9.77 카카오 수정 흐름 구분 바꾸기·같은 이름 가계부 저장 답장·오늘 기록 최근순·메모 낱말 보존", "validation/validate-kakao-edit-v22977.mjs"],
+  ["V22.9.77 단톡방 사람별 합계·앱 계정 연결", "validation/validate-identity-v22977.mjs"],
+  ["V22.9.77 관제 경고 재발송·처리 중 결과·cron CPU", "validation/validate-monitor-v22977.mjs"],
+  ["V22.9.77 지난달 리포트 다시 만들기·가져오기 해석 CPU", "validation/validate-cron-import-v22977.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
