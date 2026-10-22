@@ -58,9 +58,23 @@ function normalizeType(value) {
   return "";
 }
 
-function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
+// V22.9.77 감사 E-1: 수입 분류 낱말 검사는 정규식 하나로 한 번만 만든다. transactionTypeFromText 는 화면 자산에도 그대로
+// 실리는 함수라 고치지 않는다. 그 함수가 규칙 목록으로 하는 일은 "수입 규칙의 낱말 하나가 앞은 처음·공백, 뒤는 공백·숫자·끝인
+// 자리에 있는가"뿐이라, 여기서 먼저 찾은 낱말 하나만 넘겨도(없으면 빈 목록) 답이 같다. 예전에는 부를 때마다 수입 낱말 수
+// (31개)만큼 RegExp 를 새로 만들어 가져오기 해석 시간의 약 4분의 1을 썼다. CATEGORY_RULES 는 실행 중에 바뀌지 않는다.
+let INCOME_RULE_WORD_PATTERN = null;
+function incomeRuleWordsFor(text) {
+  if (!INCOME_RULE_WORD_PATTERN) {
+    const words = CATEGORY_RULES.filter((rule) => rule.type === "income").flatMap((rule) => rule.words || []).map((word) => String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    INCOME_RULE_WORD_PATTERN = new RegExp("(?:^|\\s)(" + words.join("|") + ")(?=\\s|\\d|$)");
+  }
+  const hit = String(text || "").trim().match(INCOME_RULE_WORD_PATTERN);
+  return hit ? [{ type: "income", words: [hit[1]] }] : [];
+}
+
+function detectType(text) { const raw = normalizeText(text); return transactionTypeFromText(raw, incomeRuleWordsFor(raw)); }
 // V22.9.76: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
-function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
+function detectTypeDetail(text) { const raw = normalizeText(text); return transactionTypeFromText(raw, incomeRuleWordsFor(raw), { detail: true }); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;

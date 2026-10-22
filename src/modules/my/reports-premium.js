@@ -254,6 +254,56 @@ async function runAutomaticReports(env, opts = {}) {
   }
 }
 
+// V22.9.77 감사 M-8: 월간 스냅숏은 그 달 말일 예약 실행이 만든다. 말일 예약 반영이 멈추거나 한도에 걸려 새 달 실행이
+// 지난달 몫을 따라잡으면(1일, 넘치면 2일 뒤) 이미 만든 지난달 스냅숏에 그 기록이 빠진 채 남았다. 예약 반영이 지난 달에
+// 기록을 넣은 가계부·달을 넘기면 그 달 스냅숏이 이미 있을 때만 지금 기록으로 다시 만든다(없으면 월말 생성이 나중에 새로
+// 만든다). 저장소 호출: 스냅숏 확인 1회(앞 REPORT_REBUILD_LOOKUP 개) + 다시 만드는 가계부마다 기록 조회 1회(1,000행마다
+// 1회 더)·저장 1회. 한 번에 limit 개까지만 만들고, 못 한 항목은 remaining 으로 돌려줘 호출부가 다음 실행에 넘긴다.
+const REPORT_REBUILD_LOOKUP = 40;
+
+async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
+  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && validMonth(entry.month));
+  const keyOf = (entry) => freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
+  const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
+  if (!list.length || !canSpend(1)) return result;
+  const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
+  const done = new Set();
+  let values;
+  try { values = await fetchSettingValues(env, lookup.map(keyOf)); }
+  catch (err) {
+    result.failed++;
+    rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `lookup:${safeError(err)}` });
+    return result;
+  }
+  const rebuild = [];
+  for (const entry of lookup) {
+    if (values.get(keyOf(entry))) rebuild.push(entry);
+    else { done.add(keyOf(entry)); result.dropped++; }
+  }
+  for (const entry of rebuild.slice(0, Math.max(0, limit))) {
+    if (!canSpend(2)) break;
+    const key = keyOf(entry);
+    try {
+      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: `${entry.month}-01`, end: nextMonthStart(entry.month), limit: 9001 });
+      const previous = parseJsonSetting(values.get(key), {});
+      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: "monthly", period: entry.month }));
+      done.add(key); result.rebuilt++;
+    } catch (err) {
+      result.failed++;
+      if (isRowLimitExceededError(err)) {
+        // 월말 생성과 같이, 기록이 한도를 넘으면 일부만으로 덮지 않고 예전 스냅숏을 둔다.
+        done.add(key);
+        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:monthly:${entry.month}` });
+        continue;
+      }
+      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.month}:${safeError(err)}` });
+      break;
+    }
+  }
+  result.remaining = list.filter((entry) => !done.has(keyOf(entry)));
+  return result;
+}
+
 async function handleAutomaticReportCron(request, env, url) {
   if (!verifyCronExecutionAuth(request, env)) return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "예약 실행 인증이 필요합니다." }, 401);
   // V22.9.26: 날짜가 아닌 today 는 버린다. 예전에는 "NaN-NaN" 스냅샷 키가 저장됐다.
@@ -697,7 +747,7 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
 export {
   cardTargetsKey, freeReportPreferenceKey, handleAutomaticReportCron, handleCardTargetSave,
   handleFreeReportsPage, handleMyPremiumPage, handleReportPreferenceSave,
-  parseJsonArraySettingStrict, parseJsonSetting, renderMiniCategoryRows, runAutomaticReports,
-  saveSettingValue,
+  parseJsonArraySettingStrict, parseJsonSetting, rebuildMonthlyReportSnapshots,
+  renderMiniCategoryRows, runAutomaticReports, saveSettingValue,
 };
 // @build:exports-end

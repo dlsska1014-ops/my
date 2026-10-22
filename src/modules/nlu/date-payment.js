@@ -124,8 +124,19 @@ function qaFixedNowMs() {
   return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
 }
 
-function nowKstDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 쓰고, 같은 1초 안에서는
+// 읽은 시각을 다시 쓴다(결과는 초 단위라 같다). 예전에는 부를 때마다 Intl.DateTimeFormat 을 새로 만들어 자연어 가져오기가 행마다
+// 하나씩(1,000행이면 1,000개) 만들었다. 범위는 동기 해석 한 번 동안만 있고 요청 사이에 남지 않는다. 범위 밖(카카오 문장 한 줄
+// 등)은 예전과 같다. 돌려주는 Date 는 예전처럼 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다).
+let KST_NOW_SCOPE = null;
+function withKstNowScope(task) {
+  if (KST_NOW_SCOPE) return task();
+  KST_NOW_SCOPE = { format: null, second: NaN, parts: null };
+  try { return task(); } finally { KST_NOW_SCOPE = null; }
+}
+
+function kstNowFormat() {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
@@ -134,9 +145,31 @@ function nowKstDate() {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(new Date(qaFixedNowMs()));
+  });
+}
+
+function kstNowParts(ms, format) {
+  const parts = format.formatToParts(new Date(ms));
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+}
+
+function nowKstDate() {
+  const ms = qaFixedNowMs();
+  const scope = KST_NOW_SCOPE;
+  let parts;
+  if (!scope) parts = kstNowParts(ms, kstNowFormat());
+  else {
+    const second = Math.floor(ms / 1000);
+    if (second !== scope.second) {
+      if (!scope.format) scope.format = kstNowFormat();
+      scope.parts = kstNowParts(ms, scope.format);
+      scope.second = second;
+    }
+    parts = scope.parts;
+  }
+  const [year, month, day, hour, minute, second] = parts;
+  return new Date(year, month, day, hour, minute, second);
 }
 
 function addDays(date, days) {
@@ -220,6 +253,6 @@ function detectPaymentMethod(text) {
 export {
   addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
   normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs, resolveWeekdayPhrase, safeYmd,
-  validMonth, weekdayIndexOfYmd,
+  validMonth, weekdayIndexOfYmd, withKstNowScope,
 };
 // @build:exports-end
