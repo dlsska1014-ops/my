@@ -3,7 +3,9 @@ import { scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
 import { isUniqueConstraintError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
-import { fetchPaymentAssets } from "../settings/payment-assets.js";
+import {
+  fetchPaymentAssets, resolveManualInputClassification,
+} from "../settings/payment-assets.js";
 import {
   commitImportedTransactionRows, importStorageTextIssue,
 } from "../import/flexible-import-parser.js";
@@ -12,7 +14,7 @@ import { safeArray } from "../admin/backup-compare.js";
 import { myImportStoredValue, reconcileImportedTransactionIds } from "../my/backup-import.js";
 import {
   canChangeMyHouseholdRecords, canManageMyHousehold, canWriteMyHousehold,
-  memberRecordOnlyRefusalText,
+  memberRecordOnlyRefusalText, myReturnLocation,
 } from "../my/access-control.js";
 import { isUncertainStorageWrite, kakaoNextStepReply, kakaoText } from "./response-builders.js";
 import {
@@ -28,7 +30,7 @@ import {
 } from "./edit-session-v4.js";
 import {
   KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isExactKakaoEditFieldStart,
-  isSessionExpired, josa, startsWithKakaoEditField,
+  isSessionExpired, josa, kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
 import { getHouseholdMemberRole } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
@@ -64,6 +66,29 @@ function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}
   const sets = kakaoEditCategoryTypeSetsV4();
   if (sets[own].has(value)) return "";
   return sets[other].has(value) ? other : "";
+}
+
+// V22.9.77 감사 K-4: 이 이름이 그 구분의 분류인지(사용자 분류 포함). 구분을 바꿀 때 지금 분류를 그대로 둘 수 있는지 본다.
+function kakaoEditCategoryKnownForTypeV4(name = "", type = "expense", config = {}) {
+  const own = type === "income" ? "income" : "expense";
+  if (safeArray(config.customCategoryTypes?.[own]).includes(name)) return true;
+  return kakaoEditCategoryTypeSetsV4()[own].has(name);
+}
+
+// V22.9.77 감사 K-4: 구분을 바꾸면 분류도 새 구분의 분류여야 요약·예산이 맞는다. 새 기록과 같은 분류기(사용자 분류·키워드 →
+// 기본 규칙)로 메모와 원문을 다시 읽는다. 기본값(기타수입·기타지출)밖에 못 찾았을 때, 지금 분류가 새 구분에도 있는 이름이면
+// (사용자 분류 포함) 그대로 두고, 아니면 그 구분의 기본 분류다. 분류기를 읽지 못해도 기본 분류로 바꾼다(다른 구분의 분류를 남기지 않는다).
+async function kakaoEditTypeChangeCategoryV4(env, householdId = "", row = {}, toType = "expense", config = {}) {
+  const fallback = toType === "income" ? "기타수입" : "기타지출";
+  let found = "";
+  try {
+    const classified = await resolveManualInputClassification(env, householdId, toType, { raw_text: row.raw_text || "", memo: row.memo || "" });
+    found = String(classified?.category || "").trim();
+  } catch (_) {}
+  if (found && found !== fallback) return found.slice(0, 80);
+  const current = String(row.category || "").trim();
+  if (current && !["기타", "기타수입", "기타지출"].includes(current) && kakaoEditCategoryKnownForTypeV4(current, toType, config)) return current;
+  return fallback;
 }
 
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
@@ -200,6 +225,26 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     patch.payment_method = String(value).slice(0, 80);
   } else if (field === "content") {
     patch.memo = String(value).slice(0, 160);
+  } else if (field === "type") {
+    // V22.9.77 감사 K-4: 수입↔지출 구분 바꾸기. 예전에는 지우고 다시 기록해야 했다. 금액은 그대로(양수)이고, 분류는 새 구분에
+    // 맞게 다시 정해 요약·예산이 새 구분으로 센다. 세션을 연 뒤 웹에서 이미 바뀌었으면 아무것도 바꾸지 않는다.
+    const word = kakaoEditTypeValue(String(value || ""));
+    const fromType = row.type === "income" ? "income" : "expense";
+    const fromWord = fromType === "income" ? "수입" : "지출";
+    if (!word) {
+      return { reply: `⚠️ 구분은 ‘수입’이나 ‘지출’로 보내 주세요. 기록은 그대로예요.\n예: 수정 ${session.entryNo}번 구분 ${fromType === "income" ? "지출" : "수입"}`, nextSession: null };
+    }
+    const toType = word === "수입" ? "income" : "expense";
+    if (toType === fromType) {
+      return { reply: `${session.entryNo}번은 이미 ${fromWord} 기록이에요. 바꾸지 않았어요.\n${kakaoEditRecordLineV4(row)}`, nextSession: null };
+    }
+    patch.type = toType;
+    patch.category = await kakaoEditTypeChangeCategoryV4(env, session.householdId, row, toType, config);
+    const before = String(row.category || "").trim() || "-";
+    reply = [
+      `✅ ${session.entryNo}번 구분을 ${fromWord} → ${word}${josa(word, "으로로")} 바꿨어요.`,
+      before === patch.category ? `분류: ${patch.category}(그대로)` : `분류: ${before} → ${patch.category}`,
+    ].join("\n");
   } else if (field === "date") {
     // N4·D5: 풀리지 않는 날짜를 오늘로 바꾸지 않는다. 기록은 그대로 두고 다시 묻는다.
     const date = resolveKakaoEditDateV4(value);
@@ -344,7 +389,7 @@ function kakaoEditExpiredTextV4(session = {}, utterance = "") {
   const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
   const text = normalizeText(utterance).slice(0, 40);
   const person = session.rowType === "income" ? "수입자" : "지출자";
-  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-7]$/.test(text) && isExactKakaoEditFieldStart(text);
+  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-8]$/.test(text) && isExactKakaoEditFieldStart(text);
   const examples = [fieldFirst ? `${head} ${text}` : `${head} 금액 13000`, `${head} ${person} 엄마`];
   return [`⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 끝냈어요. 보낸 내용은 반영하지 않았어요.`, "다시 하려면 한 줄로 보내 주세요:", ...[...new Set(examples)].map((line) => `👉 ${line}`)].join("\n");
 }
@@ -365,6 +410,33 @@ function kakaoEditRowNotFoundTextV4(target = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
   return `${date}${seqText} 기록을 찾지 못했어요.\n"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`;
+}
+
+// V22.9.77 감사 A-14: ‘오늘 기록 보기’는 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
+// 예전처럼 01번부터 모두 보인다. 넘치면 최근 기록을 번호순으로 남기고 오래된 기록부터 줄 단위로 뺀다(20건·900자 안 — 카카오
+// 답장 안전 길이 950자보다 짧게). 뺀 건수(외 N건)와 전체를 볼 곳(웹 가계부의 그 달 기록)을 적는다. 번호는 저장 순서 그대로다.
+const KAKAO_DAILY_LIST_MAX_ROWS_V22977 = 20;
+const KAKAO_DAILY_LIST_MAX_CHARS_V22977 = 900;
+function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
+  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine];
+  const guide = (seq) => ["", `수정: "${dayPrefix}수정 ${seq}번" 또는 "${dayPrefix}수정 ${seq}번 금액 13000"`, `삭제: "${dayPrefix}삭제 ${seq}번"`];
+  const lines = safeArray(rows).map((r, i) => kakaoRowLabel(r, i + 1).replace(/\s*\n+\s*/g, " "));
+  const all = [...head, "", ...lines, ...guide("01")].join("\n");
+  if (lines.length <= KAKAO_DAILY_LIST_MAX_ROWS_V22977 && all.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977) return all;
+  for (let shown = Math.min(lines.length - 1, KAKAO_DAILY_LIST_MAX_ROWS_V22977); shown >= 1; shown -= 1) {
+    const omitted = lines.length - shown;
+    const text = [
+      ...head,
+      `최근 ${shown}건을 번호순으로 보여요.`,
+      "",
+      ...lines.slice(omitted),
+      `… 외 ${omitted}건(01~${twoDigitSeq(omitted)}번)은 웹 가계부 기록에서 볼 수 있어요.`,
+      ...(webLink ? [webLink] : []),
+      ...guide(twoDigitSeq(omitted + 1)),
+    ].join("\n");
+    if (text.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977 || shown === 1) return text;
+  }
+  return all;
 }
 
 // 3장 1단계: "수정 NN번 [나머지]" — 나머지가 없으면 메뉴, 있으면 모듈 파서로.
@@ -437,7 +509,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
+    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, rows, dayPrefix, webLink }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);

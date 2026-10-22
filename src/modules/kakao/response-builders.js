@@ -31,7 +31,14 @@ function kakaoSaveFailedText(origin = "") {
 function kakaoSafeText(text = "") {
   const raw = String(text || "").replace(/\r\n/g, "\n").trim();
   // Kakao simpleText는 길이가 과하면 스킬 테스트에서 응답 검증 실패로 처리될 수 있어 안전 길이로 자릅니다.
-  return raw.length > 950 ? `${raw.slice(0, 930)}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.` : (raw || "잠시 후 다시 시도해주세요.");
+  if (raw.length <= 950) return raw || "잠시 후 다시 시도해주세요.";
+  // V22.9.77 감사 A-14: 자를 때는 줄 경계에서 자른다(예전에는 930자에서 줄 중간이 잘렸다). 줄바꿈이 앞쪽 절반에만 있으면
+  // 낱말 경계에서, 그것도 없으면 예전처럼 930자에서 자른다.
+  const head = raw.slice(0, 930);
+  const line = head.lastIndexOf("\n");
+  const space = head.lastIndexOf(" ");
+  const cut = line >= 465 ? line : space >= 465 ? space : head.length;
+  return `${head.slice(0, cut).trimEnd()}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.`;
 }
 
 function kakaoQr(label, messageText = label, extra = null) {

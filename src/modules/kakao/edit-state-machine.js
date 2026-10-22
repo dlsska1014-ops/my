@@ -30,17 +30,43 @@ const FIELD_SYNONYMS = {
   date:     ["날짜", "일자", "날자"],
   payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람", "수입자", "받은사람"],
   delete:   ["삭제", "지우기", "지워", "삭제해줘"],
+  // V22.9.77 감사 K-4: 수입↔지출 구분. 오타(퍼지) 매칭에서는 뺀다 — "기분"·"부분"·"구경"이 구분으로 읽히면 안 된다.
+  type:     ["구분", "구분변경", "수입지출", "지출수입"],
 };
 
+// V22.9.77 감사 K-4: 8번은 맨 뒤에 붙인다. 1~7번의 뜻은 예전 그대로다(손에 익은 번호를 바꾸지 않는다).
 const FIELD_BY_NUMBER = {
   1: "amount", 2: "category", 3: "method", 4: "content",
-  5: "date", 6: "payer", 7: "delete",
+  5: "date", 6: "payer", 7: "delete", 8: "type",
 };
 
 const FIELD_LABEL = {
   amount: "금액", category: "분류", method: "결제수단",
-  content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
+  content: "내용", date: "날짜", payer: "지출자", delete: "삭제", type: "구분",
 };
+
+// V22.9.77 감사 K-4: 구분 값. "수입"·"지출"과 "수입으로"·"지출로 바꿔줘"·"수입 기록"을 같은 값으로 읽는다. 아니면 "".
+function kakaoEditTypeValue(textRaw = "") {
+  const c = compact(textRaw)
+    .replace(/(?:바꿔줘|바꿔주세요|바꿔|바꾸기|변경해줘|변경|수정해줘|수정|해줘|해주세요)$/, "")
+    .replace(/(?:으로|로)$/, "")
+    .replace(/(?:기록|거래|내역)$/, "");
+  if (c === "수입" || c === "income") return "수입";
+  if (c === "지출" || c === "expense") return "지출";
+  return "";
+}
+
+// V22.9.77 감사 K-4: 항목 이름 없이 온 구분 값. "수입으로"·"지출로 바꿔줘"처럼 방향이 있으면 바로 바꾸고, 낱말 하나("수입")는
+// 확인을 받는다. 기록과 같은 구분의 낱말 하나("지출" 기록에 "지출")는 바꿀 것이 없으니 예전 해석(항목 이름 오타)에 맡긴다.
+function inferKakaoEditTypeChange(textRaw = "", config = {}) {
+  const value = kakaoEditTypeValue(textRaw);
+  if (!value) return null;
+  const bare = compact(textRaw) === value;
+  if (bare && value === (config.rowType === "income" ? "수입" : "지출")) return null;
+  return { field: "type", value, confidence: bare ? "low" : "high" };
+}
+
+function otherTypeWord(session = {}) { return session && session.rowType === "income" ? "지출" : "수입"; }
 
 // V22.9.76 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
 // 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
@@ -119,7 +145,7 @@ function editDistance(a, b) {
 // 토큰 → 필드: 정확일치 단계 (번호 → 완전일치 → 접두일치)
 function tokenToField(tokenRaw) {
   const token = normalize(tokenRaw).replace(/번$/, "");
-  if (/^[1-7]$/.test(token)) return FIELD_BY_NUMBER[Number(token)];
+  if (/^[1-8]$/.test(token)) return FIELD_BY_NUMBER[Number(token)];
   const c = compact(token);
   if (!c) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
@@ -135,6 +161,7 @@ function tokenToFieldFuzzy(tokenRaw) {
   const c = compact(normalize(tokenRaw).replace(/번$/, ""));
   if (!c || c.length < 2) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
+    if (field === "type") continue; // V22.9.77 감사 K-4: 구분은 정확히 쓴 말만 받는다(기분·부분 ≠ 구분).
     if (words.some((w) => w.length >= 2 && editDistance(c, w) <= 1)) return field;
   }
   return null;
@@ -147,7 +174,7 @@ function tokenToFieldFuzzy(tokenRaw) {
 // 메뉴 번호와 똑같을 때만 맞다고 본다.
 function isExactKakaoEditFieldStart(textRaw = "") {
   const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
-  if (/^[1-7]$/.test(token)) return true;
+  if (/^[1-8]$/.test(token)) return true;
   const c = compact(token);
   return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
 }
@@ -223,6 +250,16 @@ function parseEditInput(textRaw, config = {}) {
     let value = valueTokens.join(" ") || null;
     if (field === "amount" && value) value = normalizeKakaoEditAmountValue(value);
     if (field === "delete") value = "confirm";
+    if (field === "type") {
+      // V22.9.77 감사 K-4: "구분 수입"·"구분을 지출로"·"구분수입"(붙여 씀)·"8 수입"을 같은 값으로 읽는다. 값이 없으면
+      // null(반대 구분으로 바꿀지 묻는다), 알 수 없는 값이면 invalid 로 표시해 다시 묻는다.
+      const head = compact(tokens[0]).replace(/번$/, "");
+      const word = FIELD_SYNONYMS.type.filter((w) => head.startsWith(w)).sort((a, b) => b.length - a.length)[0] || "";
+      const glued = word ? head.slice(word.length).replace(/^(?:을|를|은|는|이|가)/, "") : "";
+      const raw = [glued, ...valueTokens].filter(Boolean).join(" ");
+      const typed = raw ? kakaoEditTypeValue(raw) : "";
+      return typed ? { field, value: typed, via: "field" } : { field, value: null, ...(raw ? { invalid: raw } : {}), via: "field" };
+    }
     return { field, value, via: "field" };
   };
 
@@ -233,6 +270,10 @@ function parseEditInput(textRaw, config = {}) {
   // ② 고신뢰 값 추론 (숫자/구성원명/날짜어/결제수단)
   const inferred = inferFieldFromValue(text, config);
   if (inferred && inferred.confidence === "high") return { ...inferred, via: "infer" };
+
+  // ②-2 V22.9.77 감사 K-4: 구분 값("수입으로", "지출로 바꿔줘", "수입"). ③보다 앞이어야 "수입"이 ‘수입자’ 오타로 읽히지 않는다.
+  const typeChange = inferKakaoEditTypeChange(text, config);
+  if (typeChange) return { ...typeChange, via: "infer" };
 
   // ③ fuzzy 필드 매칭 (오타: "지츨자")
   const fuzzy = tokenToFieldFuzzy(tokens[0]);
@@ -256,7 +297,7 @@ function failMessage(session, userText) {
       const guess = nearestField(userText);
       let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
       if (guess) msg += `\n혹시 ${fieldLabel(guess, session)} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess, session)}`;
-      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제 / 8 구분`;
       return msg;
     })(),
     // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
@@ -282,6 +323,7 @@ function exampleFor(field, session = {}) {
   return {
     amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
     content: "내용 점심", date: "날짜 어제", payer: `${payerWord(session)} 엄마`, delete: "삭제",
+    type: `구분 ${otherTypeWord(session)}`,
   }[field];
 }
 
@@ -319,9 +361,9 @@ const HELP_TEXT = (no, session = {}) =>
   `📖 수정 방법 안내\n` +
   `① 숫자로 차근차근 (가장 안전):\n` +
   `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
-  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제 / 8 구분(수입↔지출)\n` +
   `② 한 줄로 바로 (가장 빠름):\n` +
-  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제\n` +
+  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제 / 구분 ${otherTypeWord(session)}\n` +
   `그만하려면: 취소`;
 
 // ------------------------- 세션 상태머신 -------------------------
@@ -401,7 +443,7 @@ function handleEditMessage(session, textRaw, config = {}) {
         action: "reprompt",
         // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
         // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
-        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
+        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~8)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -441,7 +483,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   }
 
   // ---- awaiting_field: 필드(+값) 파싱 [L1][L2] ----
-  const parsed = parseEditInput(text, config);
+  const parsed = parseEditInput(text, { ...config, rowType: config.rowType || session.rowType });
 
   if (!parsed) return fail(session, now, text);
 
@@ -450,6 +492,19 @@ function handleEditMessage(session, textRaw, config = {}) {
       action: "delete",
       reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
       nextSession: null,
+    });
+  }
+
+  // V22.9.77 감사 K-4: 구분(8번)을 값 없이 고르면 반대 구분으로 바꿀지 묻는다. 둘 중 하나라 목록이 필요 없고, 잘못 누른
+  // 8번이 분류까지 바꾸지 않도록 ‘네’를 받은 뒤에만 반영한다. 알 수 없는 값("구분 뭐")은 바꾸지 않고 다시 묻는다.
+  if (parsed.field === "type" && !parsed.value) {
+    if (parsed.invalid) return fail(session, now, text, `구분은 ‘수입’이나 ‘지출’로 보내 주세요.\n예: ${exampleFor("type", session)}`);
+    const from = session.rowType === "income" ? "수입" : "지출";
+    const to = otherTypeWord(session);
+    return finish(session, {
+      action: "confirm",
+      reply: `✏️ ${session.entryNo}번 기록을 ${from}에서 ${to}${josa(to, "으로로")} 바꿀까요? (네/아니오)\n분류는 ${to} 분류로 다시 정해요.\n(그만하려면: 취소)`,
+      nextSession: { ...session, step: "awaiting_confirm", pendingField: "type", pendingValue: to, updatedAt: now },
     });
   }
 
@@ -478,6 +533,7 @@ function handleEditMessage(session, textRaw, config = {}) {
 // V22.9.17: 저장 응답은 "60,000원"인데 수정 응답만 '60000'이었다. 금액은 저장과 같은 표기로 보여 준다.
 function editValueLabel(field, value) {
   if (field === "amount" && /^\d+$/.test(String(value ?? "").trim())) return `${numberWithCommas(Number(value))}원`;
+  if (field === "type") return String(value ?? ""); // V22.9.77 감사 K-4: "구분을 수입으로"
   return `'${value}'`;
 }
 
@@ -551,6 +607,10 @@ const MENU_EXAMPLES = [
   { input: "13000",           expect: { field: "amount", value: "13000" } }, // 값 추론
   { input: "어제",             expect: { field: "date", value: "어제" } },    // 값 추론
   { input: "체크카드",         expect: { field: "method", value: "체크카드" } },
+  { input: "8",               expect: { field: "type", value: null } },      // V22.9.77 감사 K-4 구분
+  { input: "구분 수입",        expect: { field: "type", value: "수입" } },
+  { input: "구분 지출",        expect: { field: "type", value: "지출" } },
+  { input: "수입으로",         expect: { field: "type", value: "수입" } },    // 값 추론
 ];
 
 function selfTest(config = {}) {
@@ -614,7 +674,7 @@ function loopFuzzTest(config = {}, rounds = 200) {
 export {
   FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS,
   MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact, handleEditMessage,
-  isExactKakaoEditFieldStart, isSessionExpired, josa, loopFuzzTest, normalizeKakaoEditAmountValue,
-  parseEditInput, selfTest, startsWithKakaoEditField,
+  isExactKakaoEditFieldStart, isSessionExpired, josa, kakaoEditTypeValue, loopFuzzTest,
+  normalizeKakaoEditAmountValue, parseEditInput, selfTest, startsWithKakaoEditField,
 };
 // @build:exports-end
