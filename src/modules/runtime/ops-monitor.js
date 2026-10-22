@@ -28,8 +28,40 @@ function abMonitorRequestContext(request, env = {}) {
   return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, db_retries: 0, outcome: "unknown" };
 }
 
-function abMonitorOutcome(env, outcome) {
-  if (env.__AB_MONITOR_REQUEST) env.__AB_MONITOR_REQUEST.outcome = outcome;
+// V22.9.77(감사 G-5): '처리 중'으로 먼저 답한 요청(deferred)은 응답 시점 표본 하나만 남아, 뒤 작업에서 저장이 실패해도 관제에는
+// outcome=deferred·db_failures=0 으로 보였다. 스킬 처리가 그 뒤 작업(pending)을 넘기면 작업이 끝날 때 최종 결과 표본을 한 번 더
+// 보낸다(ref = 첫 표본 id. 관제 1.2.0 이 첫 표본 행을 최종 결과로 고친다). 카카오 응답 경로에는 요청을 더하지 않는다.
+function abMonitorOutcome(env, outcome, pending = null) {
+  const record = env.__AB_MONITOR_REQUEST;
+  if (!record) return;
+  record.outcome = outcome;
+  if (pending && typeof pending.then === "function") record.pending = pending;
+}
+
+function abMonitorSend(env, event) {
+  const minute = Math.floor(Date.now() / 60000);
+  if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
+  if (AB_MONITOR_SEND_BUDGET.count >= 100) return null;
+  AB_MONITOR_SEND_BUDGET.count += 1;
+  // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
+  return (async () => {
+    try {
+      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
+      if (result.body) await result.body.cancel();
+      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
+    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
+  })();
+}
+
+async function abMonitorDeferredResult(env, record, first) {
+  try {
+    let response = null;
+    try { response = await record.pending; } catch (_) { response = null; /* 뒤 작업이 던졌으면 실패로 남긴다. */ }
+    const status = response ? response.status : 500;
+    const reported = response?.headers?.get("x-accountbook-nlu-result") || "";
+    const outcome = reported && reported !== "deferred" && reported !== "unknown" ? reported : status < 400 ? "ok" : "error";
+    await abMonitorSend(env, { ...first, id: crypto.randomUUID(), ref: first.id, at: Date.now(), status, duration_ms: Math.max(0, Date.now() - record.started_at), db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, db_retries: record.db_retries || 0, outcome });
+  } catch (_) { /* Telemetry must never interrupt application handling. */ }
 }
 
 function abMonitorCompleted(env, ctx, response) {
@@ -40,22 +72,13 @@ function abMonitorCompleted(env, ctx, response) {
   const status = response ? response.status : 500;
   const outcome = response?.headers.get("x-accountbook-nlu-result") || record.outcome;
   const randomSample = Math.random() < 0.02;
-  const incident = status >= 500 || status === 403 || record.db_failures > 0 || (record.db_retries || 0) > 0 || outcome === "error" || duration >= 3500;
+  // '처리 중' 먼저 답은 응답 예산을 3.5초보다 짧게 둬도 늘 오류·지연 표본이다(최종 결과 표본과 짝을 이룬다).
+  const incident = outcome === "deferred" || status >= 500 || status === 403 || record.db_failures > 0 || (record.db_retries || 0) > 0 || outcome === "error" || duration >= 3500;
   if (!randomSample && !incident) return;
-  const minute = Math.floor(Date.now() / 60000);
-  if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
-  if (AB_MONITOR_SEND_BUDGET.count >= 100) return;
-  AB_MONITOR_SEND_BUDGET.count += 1;
   const event = { id: crypto.randomUUID(), at: Date.now(), route: record.route, method: record.method, status, duration_ms: duration, db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, db_retries: record.db_retries || 0, outcome: outcome === "unknown" && status < 400 ? "ok" : outcome, sample_kind: randomSample ? "random" : "incident" };
-  // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
-  const persistence = (async () => {
-    try {
-      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
-      if (result.body) await result.body.cancel();
-      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
-    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
-  })();
-  try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ }
+  const persistence = abMonitorSend(env, event);
+  if (persistence) { try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ } }
+  if (outcome === "deferred" && record.pending) { try { ctx.waitUntil(abMonitorDeferredResult(env, record, event)); } catch (_) { /* Do not change a completed response. */ } }
   } catch (_) { /* Telemetry must never interrupt application handling. */ }
 }
 

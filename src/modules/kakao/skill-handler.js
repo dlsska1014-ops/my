@@ -243,6 +243,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   if (deadlineTimer) clearTimeout(deadlineTimer);
   if (first) return first;
   ctx.waitUntil(work.then(() => {}, () => {}));
+  abMonitorOutcome(env, "deferred", work); // V22.9.77(G-5): 뒤 작업이 끝나면 관제에 최종 결과 표본을 한 번 더 보낸다.
   rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
   // V22.9.72: 짧은 안내 + 다시 묻는 버튼(기록이면 ‘오늘기록’ 확인, 조회·명령이면 같은 명령). 2026-10-20 디자이너 피드백.
   const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
