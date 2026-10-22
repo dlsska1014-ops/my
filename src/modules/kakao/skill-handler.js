@@ -53,11 +53,11 @@ import {
 import {
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
   inferKakaoCreateKind, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
-  kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
-  kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
-  parseDirectBudgetSetCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoHouseholdReplyName,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
+  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -788,7 +788,9 @@ ${formatRecentTransactions(rows)}`);
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
-  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
+  // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
+  const savedHousehold = household.role ? household : { ...household, role: accessRole };
+  return await saveKakaoParsedTransactionsReply(env, { household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 // @build:exports-start
 export { handleKakaoSkillStable };

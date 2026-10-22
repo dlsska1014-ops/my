@@ -92,6 +92,20 @@ function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
   });
 }
 
+// V22.9.77 감사 D-6(남은 것): 저장 답장의 ‘가계부: 이름’이 같은 이름의 두 가계부를 구별하지 못했다. 내 가계부 목록에 같은 이름이
+// 또 있을 때만, 고를 때 본 목록 줄과 같은 꼴로 역할·만든 날을 붙인다("우리집 생활비 · 소유자 · 만든 날 2026-07-01").
+// 같은 이름이 없으면 이름만 그대로다. 역할·만든 날은 목록의 그 가계부 행에서 읽는다(없으면 넘겨받은 값).
+function kakaoHouseholdReplyName(household = {}, rows = []) {
+  const name = String(household?.name || "가계부");
+  const id = String(household?.id || "");
+  const list = safeArray(rows);
+  const twin = list.some((other) => String(other?.id || "") !== id && normalizeText(other?.name || "") === normalizeText(name));
+  if (!twin) return name;
+  const own = list.find((h) => String(h?.id || "") === id) || household;
+  const madeAt = own?.created_at || household?.created_at || "";
+  return `${name} · ${userHouseholdRoleLabel(own?.role || household?.role || "member")}${madeAt ? ` · 만든 날 ${String(madeAt).slice(0, 10)}` : ""}`;
+}
+
 function parseKakaoHouseholdChoice(text = "", rows = []) {
   const t = normalizeText(text).trim();
   const m = t.match(/^(?:가계부\s*)?(?:선택\s*)?(\d{1,2})(?:번)?$/) || t.match(/^(\d{1,2})(?:번)?\s*(?:가계부)?$/);
@@ -635,12 +649,12 @@ export {
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryParts,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
-  kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
-  maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind,
-  parseKakaoHouseholdChoice, parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput,
-  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoHouseholdReplyName,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
+  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand,
+  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end
