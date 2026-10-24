@@ -1,14 +1,14 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-22 (운영 V22.9.75-NAVER-VERIFY, V22.9.76-PRELAUNCH-AUDIT 는 PR #91 병합·배포 대기, 그 위에 V22.9.77-AUDIT-FOLLOWUP 작성). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-24 (V22.9.76 다음날 점검 및 운영 기록 PR #93 병합 확인. 사용자 요청으로 V22.9.77 PR #92 병합·배포 준비를 재개했으나, 새 통합판 검증과 앱 연동 전제는 아직 미완료). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
 | 항목 | 값 |
 |---|---|
 | 운영 Worker | `kakao-accountbook`, 도메인 https://malhaebook.com |
-| 운영 판 | **V22.9.75-NAVER-VERIFY** (2026-10-21 17:17 KST 승격), version `df9b5e22-e755-4c15-b652-59550022c5d0`, 배포 `f6e14738-1f59-4875-b793-e13c13731b57`, 소스 SHA-256 `6e737437…`(main fdd05ca 와 같음). 로컬 기록 `D:/Github_Kakao_Account/my-deploy-v22974/output/deploy/V22.9.75-NAVER-VERIFY/`. 그 전 V22.9.74 기록 docs/deployments/V22_9_74_2026_10_21.md |
-| 되돌리기 대상 | V22.9.74-ADSENSE-CONTENT `1e135de7-5f38-4301-a2c2-337ba345ef0c` |
+| 운영 판 | **V22.9.76-PRELAUNCH-AUDIT** (2026-10-22 19:32:58 KST), version `f0cfc8d7-02f6-4ed0-aa04-dd6109f04906`, 배포 `7c694744-e639-4cbb-b4e2-a1e1abc7928c`, SHA-256 `68375f230742e1778af03dfb5c37e7664933b5d1ca3d4302b1969b1c7c2b7875`(main25c2dc7). 기록 docs/deployments/V22_9_76_2026_10_22.md. V75기록 docs/deployments/V22_9_75_2026_10_21.md |
+| 되돌리기 대상 | V22.9.75-NAVER-VERIFY `df9b5e22-e755-4c15-b652-59550022c5d0`(별도 사용자 승인 뒤에만) |
 | 운영 DB | Supabase. 2026-10-18 V61 수명주기 migration 적용 완료. 재실행·V44 복귀·구형 RPC 권한 복원 금지 |
 | 외부 콘솔 | OpenBuilder v3.4 전체 배포(2026-10-20 18:53, ASIDE): 봇 입장 블록(웹가계부·도움말 보기·기록하기), 도움말 하단 창, 대표 명령어 13개(짧은 이름), 01 블록 패턴 34개. Kakao Developers·채널 변경 없음 |
 | 확인 명령 | `curl -s https://malhaebook.com/health` 의 `version`; 배포 기록 `docs/deployments/`, 로컬 `output/deploy/<판>/` |
@@ -17,18 +17,18 @@
 
 | 항목 | 값 |
 |---|---|
-| GitHub main | `fdd05ca` = V22.9.75-NAVER-VERIFY 소스(PR #90 병합) = 운영 |
-| 진행 중 | `claude/v22977-audit-followup` = **V22.9.77-AUDIT-FOLLOWUP**(감사 추적표 후속: 카카오 수정에서 수입↔지출 바꾸기 K-4, 단톡방 사람별 합계·앱 계정 연결 B-5·B-7, 관제 G-3·G-5·G-6 과 관제 1.2.0, 지난달 리포트 다시 만들기 M-8, 가져오기 해석 CPU E-1). V22.9.76 위에 올림. 새로 찾은 항목 docs/codex/FOLLOWUP_FINDINGS_V22_9_77.md. 운영 반영 전 |
-| 병합 대기 | PR #91 `claude/v22976-prelaunch-audit` = **V22.9.76-PRELAUNCH-AUDIT**(출시 전 전체 점검: 정기 수입 알림 버그와 같은 종류의 결함, 2026-10-14 감사 재현 결함, 예약 자동 반영 재설계). 점검·원인 docs/codex/PRELAUNCH_AUDIT_V22_9_76.md, 항목 상태 docs/codex/FINDINGS_LEDGER.md. 운영 반영 전 |
+| GitHub main | `6ac4913` = V22.9.76 운영 소스 + 다음날 점검 결과·검증 한계 기록(PR #93 병합). 앱 V77 배포 완료를 뜻하지 않음 |
+| 진행 중 | `claude/v22977-audit-followup` PR #92 = **V22.9.77-AUDIT-FOLLOWUP**. main 문서 충돌 정리·현재 관제 1.1.2 진단 보존·새 체크섬/두 모드 CI·N-7 앱 연결 확인 뒤에만 병합·배포. 카카오 K-4/B-5/B-7, 관제 G-3/G-5/G-6, M-8/E-1 후보이며 운영 반영 전 |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256`. 운영 /ready 에 `accountbook_categories` 가 없으므로 분류 표 부재 모드가 실제 운영 모드다 |
 | 운영 설정 | 필요한 Secret·환경변수·cron·관제 한 장: `docs/OPERATIONS_CONFIG.md` |
 
 ## 열린 일
 
-- **V22.9.77 배포**: V22.9.76 뒤에. 배포 전 봇 채널의 연결 앱이 웹 로그인 앱인지 확인(V77 N-7), 앱 Worker → 관제 1.2.0 순서, 말일·1일·2일 피함. 직후·다음 날 확인은 DEPLOYMENT_MATRIX V22.9.77 절.
-- **V22.9.76 배포**(ASIDE 지시문 `review-artifacts/v76-release-2026-10-22/ASIDE_V22_9_76.md`, 병합은 사용자 승인 뒤): 매월 1일은 피한다(예약 반영 첫 실행 규칙). 배포 직후 /ready 필수 표 13개·실패 0, 다음 날 관제 `scheduled_error` 0. 운영자의 예전 정기 수입 계획(‘수당’)은 분류가 ‘세금/수수료’로 남아 있으니 정기 항목 화면에서 고친다. 결정 필요(D-5·M-7 환급, W-5, W-7, W-10, G-13 RPC 정의, G-2 단톡방 7개 이상 가계부 삭제, D-20 나간 구성원 별명)와 남은 항목은 docs/codex/FINDINGS_LEDGER.md.
-- **AdSense 재검토**: 2026-10-21 03:33 KST ‘주의 필요’(사유 `가치가 별로 없는 콘텐츠`). V22.9.74 반영 뒤 Search Console 사이트맵 재제출·새 글 색인 요청 → 네이버 서치어드바이저 등록 → 1~2주 뒤 ‘검토 요청’. 같은 AdSense 사이트인 `tools.malhaebook.com`(양식 121쪽·계산기 80쪽, 저장소 밖)은 별도 점검 대상. 운영자 결정: 글 바이라인 실명 공개 여부, /about 의 생성형 도구 고지 문구.
+- **V22.9.77 배포 준비**: 사용자 10/24 후속 요청으로 재개. V76 이후·PR93 기록 main 반영은 확인했으나 예약 전수 결과의 미확인을 정상으로 바꾸지 않는다. 봇 채널의 연결 앱과 웹 로그인 앱 일치(N-7), 현 운영 관제1.1.2 진단 보존, 새 통합판 두 모드·CI 확인이 전제다. 앱 Worker → 관제1.2.0 순서이며 말일·1일·2일은 피한다.
+- **V22.9.76 후속 확인**: 10/23 20:00 점검 수행 완료, health200/missing0·ready200/필수13/실패[]/RPC누락[]. [blocked] 배포 이후 scheduled_error·scheduled_partial 및 예약 실제 성공·실패·누락·중복 전기간 근거가 없어 건수는 null. 정기수입 분류와 입금 N일 전 알림은 별도 운영자 화면에서 확인했으나 자동 예약 거래 성공 증거와는 구분한다. 개인 항목명·금액은 이 문서에 복제하지 않는다. PR93은 병합됐으며 임시20시 슬롯은 제거되고 매일09시 예약이 복구된 것으로 확인했다. 상세는 docs/deployments/V22_9_76_2026_10_22.md.
+- **운영자 결정7건**: D-5·M-7은 명시적으로 원지출과 연결된 환불만 차감, W-5는 대기 고정지출 중복 제외 포함, W-7은 화면 간 예측 기준 통일, W-10은 기존 CSV 열 호환 유지, G-13은 운영 RPC3개 정의 읽기 확보(DDL없음), N-12는 주 없이 쓴 지난 요일을 오늘 제외 직전 요일로 해석하는 방향으로 확정했다. 결정과 코드 구현을 구분하며 이 문서 수정만으로 구현 완료라고 하지 않는다.
+- **AdSense 재검토**: 10/21 주의 필요/가치가 별로 없는 콘텐츠. 네이버 소유 확인·사이트맵 제출은10/22 완료 기록. 기존 예약의10/31 이전 금지를 유지하며, 날짜만으로 제출하지 않고 실제 품질 보강 근거를 확인한다. tools.malhaebook.com은 별도 점검 대상이고 상여금 안내·레거시 공유링크 예외 범위 정리 등 후속이 남아 있다. 바이라인은 운영팀명 유지, 생성형 도구 고지는 실제 사용·검증 범위에 맞게 정리하는 방향으로 확정했지만 공개 문구 변경은 아직 미반영이다.
 - **Worker→Supabase 요청 멈춤**: 2026-10-20 12:07~12:09 세 요청이 10초 조회 제한에 걸려 실패(요청이 Supabase 에 도착하지 않음), ‘점심 오천원’ 미저장 → 테스터 재입력 요청. V22.9.73(23:29 반영)이 조회 재시도·쓰기 시한으로 완화하지만 원인은 미확정 — 하루 뒤 `/nlu-ops.json?hours=24` 의 db_retries·supabase_read_timeout 실패를 보고, 남으면 Cloudflare Workers 로그로 좁힌다.
 - 실제 새 단톡방 확인(요구사항 문서 5절: 빈 멘션 → 도움말 보기 → 참여 전 오늘기록 → 기록 → 이번달요약·남은예산·정산), ‘도움말 보기’ 머신러닝 매칭, ‘기록하기’ 위치는 테스터 확인 전까지 가정. 테스터에게 반영 알림(R13).
 - V22.9.68 실제 단톡방 확인(‘새 가계부 만들기 → 연결하기 → 기록’)은 미실시.
