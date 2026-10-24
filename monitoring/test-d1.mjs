@@ -135,20 +135,26 @@ try {
   await runScheduled(alertEnv,new Date(base.getTime()+7*3600000));
   eq(mails.length,2,"still-active critical alert is resent after 6 hours");
   uptimeFails=false;
+  // 1.2.0(V44:G-3): 해소는 5분 수집 3번 연속(10분 이상) 정상일 때만 판정한다. 정상 한 번·두 번으로는 해소 메일이 없다.
+  const uptimeRecord=()=>JSON.parse(sqlite.prepare("SELECT value FROM settings WHERE key LIKE 'alert:%'").all().map(row=>row.value).find(value=>JSON.parse(value).title==="서비스 접속 또는 DB 준비 상태 실패")||"null");
   await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+300000));
-  eq(mails.length,3,"recovery of a critical alert is sent once");
-  ok(hooks.at(-1).text.includes("[해소] 서비스 접속 또는 DB 준비 상태 실패"),"recovery message names the recovered alert");
   await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+600000));
+  eq(mails.length,2,"one or two healthy checks are not yet a recovery (1.2.0 flapping guard)");
+  await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+900000));
+  eq(mails.length,3,"recovery of a critical alert is sent once, on the third consecutive healthy check");
+  ok(hooks.at(-1).text.includes("[해소] 서비스 접속 또는 DB 준비 상태 실패"),"recovery message names the recovered alert");
+  eq(uptimeRecord()?.sent_at,new Date(base.getTime()+7*3600000).toISOString(),"the recovered alert keeps its last send time (1.2.0: no deletion on recovery)");
+  await runScheduled(alertEnv,new Date(base.getTime()+7*3600000+1200000));
   eq(mails.length,3,"nothing new means nothing sent");
   uptimeFails=true; webhookFails=true;
   const failingEnv={...alertEnv,ALERT_EMAIL:{async send(){throw Object.assign(new Error("sender domain is not verified"),{code:"E_SENDER_NOT_VERIFIED"});}}};
   await runScheduled(failingEnv,new Date(base.getTime()+8*3600000));
   const failedCode=String(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code);
   ok(failedCode.startsWith("delivery_failed")&&failedCode.includes("email:E_SENDER_NOT_VERIFIED")&&failedCode.includes("webhook:"),`every channel failing is recorded as delivery_failed with the per-channel cause (1.1.1): ${failedCode}`);
-  eq(sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n,0,"failed delivery leaves no sent record, so the next run retries");
+  eq(uptimeRecord()?.sent_at,new Date(base.getTime()+7*3600000).toISOString(),"failed delivery records no new send, so the next run retries");
   webhookFails=false;
   await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+300000));
-  ok(hooks.at(-1).text.includes("서비스 접속 또는 DB 준비 상태 실패")&&sqlite.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'alert:%'").get().n>=1,"retry succeeds through the remaining channel");
+  ok(hooks.at(-1).text.includes("[긴급] 서비스 접속 또는 DB 준비 상태 실패 · 해소 뒤 다시 생김")&&uptimeRecord()?.sent_at===new Date(base.getTime()+8*3600000+300000).toISOString(),"retry succeeds through the remaining channel, flagged as a recurrence after the recovery mail");
   uptimeFails=false;
   await runScheduled(env,new Date(base.getTime()+9*3600000));
   eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"not_connected","no alert channel is recorded as not_connected");
@@ -200,8 +206,14 @@ try {
   const healthyAt=new Date(quotaAt.getTime()+900000);
   seedDatabase("ok",{database_bytes:30*1024**2},healthyAt);
   ok((await summary(alertEnv,healthyAt.getTime())).unknown.length>0,"unrelated unknown collectors remain in the recovery fixture");
-  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,1,"fresh normal DB evidence confirms recovery despite unrelated unknown collectors");
-  ok(hooks.at(-1).text.includes("[해소] DB 논리 용량")&&!quotaRecord(),"confirmed recovery is delivered before its dedupe record is removed");
-  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,0,"confirmed DB recovery is sent only once");
+  eq((await deliverAlerts(alertEnv,healthyAt)).recovered,0,"one fresh normal DB check is not yet a recovery (1.2.0 flapping guard)");
+  const secondHealthyAt=new Date(healthyAt.getTime()+300000);
+  seedDatabase("ok",{database_bytes:30*1024**2},secondHealthyAt);
+  eq((await deliverAlerts(alertEnv,secondHealthyAt)).recovered,0,"two fresh normal DB checks are not yet a recovery");
+  const confirmedAt=new Date(healthyAt.getTime()+600000);
+  seedDatabase("ok",{database_bytes:30*1024**2},confirmedAt);
+  eq((await deliverAlerts(alertEnv,confirmedAt)).recovered,1,"three consecutive fresh normal DB checks confirm recovery despite unrelated unknown collectors");
+  ok(hooks.at(-1).text.includes("[해소] DB 논리 용량")&&JSON.parse(quotaRecord().value).resolved_at===confirmedAt.toISOString()&&JSON.parse(quotaRecord().value).sent_at===JSON.parse(criticalRecord).sent_at,"confirmed recovery is delivered and the record keeps its last send time (1.2.0)");
+  eq((await deliverAlerts(alertEnv,confirmedAt)).recovered,0,"confirmed DB recovery is sent only once");
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;sqlite.close();}

@@ -1,3 +1,7 @@
+## V22.9.77 DB 변경 없음
+
+스키마·RPC·RLS·권한 변경 없음. 카카오 수정의 구분 바꾸기는 기존 `accountbook_update_transaction_v227` 이 받는 `type`(income·expense)을 쓴다. 예약 상태 키 `cron_recurring_state_v22976` 에는 다시 만들 리포트 목록이 남을 때만 선택 칸 `report_rebuild` 가 생긴다. 관제 D1(`monitoring/schema.sql`)도 그대로다.
+
 ## V22.9.76 DB 변경 없음
 
 스키마·RPC·RLS·권한 변경 없음. 예약 자동 반영의 진행 상태가 `accountbook_settings` 의 새 키 `cron_recurring_state_v22976` 한 행에 저장된다. 예전 커서 키 `cron_recurring_cursor_v22930` 은 더 읽지 않으며 지우지 않는다. /ready 필수 표에 users·accountbook_budgets·accountbook_recurring 를 더했다(세 표 모두 운영에 있음, DEPLOYMENT_MATRIX V22.9.76 절).

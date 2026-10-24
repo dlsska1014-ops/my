@@ -1,5 +1,6 @@
 // @build:imports-start
 import { detectType, normalizeText } from "./amount-parser.js";
+import { AB_PAYMENT_WORD_END } from "./date-payment.js";
 // @build:imports-end
 
 const CATEGORY_RULES = [
@@ -163,26 +164,57 @@ function inferCategory(text, type) {
   return best ? best.category : (type === "income" ? "기타수입" : "기타지출");
 }
 
+const CLEAN_MEMO_COMMAND_WORDS = ["수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부"];
+const CLEAN_MEMO_FIXED_WORDS = [
+  ...CLEAN_MEMO_COMMAND_WORDS,
+  // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
+  "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
+  "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
+];
+// V22.9.77: 카드 이름 앞에 붙은 카드사 이름("KB국민카드"의 KB, "NH농협카드"의 NH, "IBK기업카드"의 IBK기업,
+// "국민체크카드"의 국민)과 띄어 쓴 영문 카드사 이름("KB 국민카드"의 KB)도 결제수단의 일부라 함께 지운다. 예전에는
+// "커피 4500 KB국민카드"의 메모가 "커피 KB"였다. 결제수단 낱말은 낱말 끝에서만 지운다(AB_PAYMENT_WORD_END).
+// 예전에는 "토스트"가 "트", "현금영수증"이 "영수증"이 됐다.
+const CLEAN_MEMO_CARD_NAME_PREFIX = "(?:(?<![A-Za-z가-힣])(?:(?:KB|NH|IBK|SC|BC|BNK|DGB|KDB|KEB)\\s+|[A-Za-z]{1,6}[가-힣]{0,4}|신한|현대|삼성|국민|우리|롯데|하나|농협|비씨|카카오|토스|기업|씨티|수협|신협|우체국|새마을|케이뱅크|카카오뱅크|토스뱅크))?";
+// 카드사 이름이 붙은 카드와 온전한 간편결제 이름은 결제수단 찾기(date-payment.js)처럼 낱말 끝을 따지지 않고 지우고, 띄어
+// 쓴 것("현대 카드", "삼성 페이")도 통째로 지운다. 예전에는 메모에 ‘현대’, ‘삼성 페이’가 남았다.
+const CLEAN_MEMO_PAYMENT_ANYWHERE = /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i;
+// V22.9.77 감사 E-1(남은 것): 메모 다듬기의 고정 낱말 정규식은 처음 부를 때 한 번만 만든다. 예전에는 부를 때마다 낱말 수
+// (37개)만큼 RegExp 를 새로 만들어 자연어 가져오기 한 줄에 50개 남짓이 들었다. 낱말 순서와 하나씩 차례로 지우는 방식은
+// 예전 그대로라 결과가 같다(전역 정규식은 replace 가 처음부터 다시 찾는다). 금액·결제수단처럼 문장마다 다른 말만 그때 만든다.
+// date-payment.js 와 서로 가져오는 모듈이라, 그 모듈의 상수(AB_PAYMENT_WORD_END)를 쓰는 정규식은 처음 부를 때 만든다.
+let CLEAN_MEMO_PATTERNS = null;
+function cleanMemoPatterns() {
+  if (CLEAN_MEMO_PATTERNS) return CLEAN_MEMO_PATTERNS;
+  CLEAN_MEMO_PATTERNS = {
+    fixed: CLEAN_MEMO_FIXED_WORDS.map((item) => new RegExp(CLEAN_MEMO_COMMAND_WORDS.includes(item) ? "(^|\\s)" + escapeRegExp(item) + "(?=\\s|\\d|$)" : escapeRegExp(item), "g")),
+    cardName: new RegExp(`${CLEAN_MEMO_CARD_NAME_PREFIX}(?:신용카드|체크카드|카드)${AB_PAYMENT_WORD_END}`, "gi"),
+    paymentWord: new RegExp(`(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)${AB_PAYMENT_WORD_END}`, "g"),
+  };
+  return CLEAN_MEMO_PATTERNS;
+}
+
 function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   let memo = normalizeText(raw);
-  const removals = [
-    amountRaw,
-    // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
-    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부",
-    "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
-    "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
-    paymentMethod,
-  ].filter(Boolean);
-
-  for (const item of removals) {
-    const token = escapeRegExp(item);
-    const command = ["수입","입금","지출","출금","사용","결제","구매","납부","정산","기록","가계부"].includes(item);
-    memo = memo.replace(new RegExp(command ? "(^|\\s)" + token + "(?=\\s|\\d|$)" : token, "g"), " ");
+  const patterns = cleanMemoPatterns();
+  // 금액 → 고정 낱말(명령어·받은 말·날짜 말) → 결제수단 순서로 하나씩 지운다(예전 순서 그대로).
+  if (amountRaw) memo = memo.replace(new RegExp(escapeRegExp(amountRaw), "g"), " ");
+  for (const pattern of patterns.fixed) memo = memo.replace(pattern, " ");
+  if (paymentMethod) {
+    const token = escapeRegExp(paymentMethod);
+    const prefix = /카드$/.test(paymentMethod) ? CLEAN_MEMO_CARD_NAME_PREFIX : "";
+    memo = CLEAN_MEMO_COMMAND_WORDS.includes(paymentMethod)
+      ? memo.replace(new RegExp("(^|\\s)" + token + "(?=\\s|\\d|$)", "g"), " ")
+      : CLEAN_MEMO_PAYMENT_ANYWHERE.test(paymentMethod)
+        ? memo.replace(new RegExp(prefix + token.replace(/(카드|페이)$/, "\\s*$1"), "gi"), " ")
+        : memo.replace(new RegExp(prefix + token + AB_PAYMENT_WORD_END, "gi"), " ");
   }
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
-    .replace(/(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일/g, " ")
+    // V22.9.77: 요일 앞의 ‘지난·저번·이번·다음’도 ‘주’ 없이 쓰면("지난 금요일") 함께 지운다. 예전에는 "지난 금요일 회식"의
+    // 메모가 "지난 회식"이었다. 날짜는 예전과 같다(날짜는 요일로 정하고, 이 줄은 메모만 다듬는다).
+    .replace(/(?:(?<![가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\s*)?[월화수목금토일]요일/g, " ")
     .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
@@ -195,16 +227,22 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
     .replace(/(?:^|\s)\d{1,2}일(?:\s|$)/g, " ")
-    .replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g, " ")
+    .replace(patterns.cardName, " ")
+    .replace(patterns.paymentWord, " ")
     // 조사·서술어는 낱말 "끝"에서만 떼어낸다. 위치를 가리지 않고 지우면
     // 타이어교체→"타 어교체", 이발→"발", 가방→"방"처럼 내용이 파괴된다.
     // 한 글자 조사(이·가·로·에·은·는·을·를)는 떼어내지 않는다. 고양이→"고양",
     // 목걸이→"목걸", 을지로→"을지"처럼 멀쩡한 낱말의 끝 글자와 구분할 수 없다.
     // 두 글자 조사만 떼어낸다. "마트에서 12000"→"마트" 같은 주된 사례는 그대로 처리된다.
     .replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\s|$)/g, "$1 ")
-    .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, "$1 ")
+    // V22.9.77 감사 A-15: 붙여 쓴 말끝은 동사 꼴(썼어·샀어·했어 …)만 뗀다. 사용·결제·구매·납부·송금·이체는 앞말과 붙으면 한
+    // 낱말(공동구매·간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 띄어 쓴 토막은 아래 줄이 그대로 지운다.
+    .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다)(?=\s|$)/g, "$1 ")
     // 홀로 남은 조사·서술어 토막만 따로 지운다.
     .replace(/(?:^|\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썻어|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, " ")
+    // V22.9.77 감사 A-15: 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’("만원 정도")도 지운다.
+    // 낱말 속 ‘원’·‘정도’(원정·공원·정도전)는 그대로다.
+    .replace(/(?:^|\s)(?:원|정도)(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 

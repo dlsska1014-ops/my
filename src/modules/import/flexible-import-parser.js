@@ -19,7 +19,7 @@ import { parseTransaction } from "../nlu/transaction-parser.js";
 import { detectType, normalizeText } from "../nlu/amount-parser.js";
 import {
   currentMonthKst, detectPaymentMethod, formatDate, nowKstDate, parseDateStrict, safeYmd,
-  validMonth,
+  validMonth, withKstNowScope,
 } from "../nlu/date-payment.js";
 import { cleanMemo, inferCategory } from "../nlu/category-rules.js";
 import { numberWithCommas } from "../domain/transactions-core.js";
@@ -869,7 +869,12 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
 
+// V22.9.77 \uac10\uc0ac E-1: \ud574\uc11d \ud55c \ubc88 \ub3d9\uc548 KST \ud604\uc7ac \uc2dc\uac01 \ud615\uc2dd\uae30\ub97c \ud558\ub098\ub9cc \uc4f4\ub2e4(\uc790\uc5f0\uc5b4 \ud589\ub9c8\ub2e4 \uc0c8\ub85c \ub9cc\ub4e4\ub358 \uac83). \uacb0\uacfc\ub294 \uadf8\ub300\ub85c\ub2e4.
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
+  return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+}
+
+function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId = "", options = {}) {
   const text = String(rawText || "").replace(/^\ufeff/, "");
   const result = { rows: [], accepted: [], rejected: [], skipped: 0, warnings: [], mappings: [], delimiter: "", format: "natural_text", header_row: 0, total_rows: 0, sign_convention: { mode: "default", amount_rows: 0, negative_rows: 0 }, two_digit_year_rows: 0 };
   if (!text.trim()) return result;

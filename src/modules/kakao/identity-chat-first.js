@@ -1,5 +1,5 @@
 // @build:imports-start
-import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { pruneTimestampMap, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import {
   parseStrictSettingsObject, safeError, settingsDataError, withGlobalIdentitySettingsRmw,
   withSettingsRmwLease,
@@ -8,7 +8,9 @@ import { kakaoSkillSecretMatches, sha256Hex } from "../auth/crypto-admin-session
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { kakaoLoginUserKey, resolveEffectiveUserId } from "../auth/user-session.js";
-import { fetchUserIdentityLinks, saveUserIdentityLinks } from "../auth/identity-reauth.js";
+import {
+  fetchUserIdentityLinks, lookupKakaoLoginOwner, saveUserIdentityLinks,
+} from "../auth/identity-reauth.js";
 import {
   createUserHousehold, ensureOwnerMembership, fetchUserById, fetchUserHouseholds,
   withKakaoUserLifecycleLease,
@@ -74,15 +76,39 @@ function stableShortHash(text) {
   return (h >>> 0).toString(36);
 }
 
+// V22.9.77 감사 B-7: appUserId 는 카카오 로그인 id(숫자)라 표시 이름이 아니다. 예전에는 별명이 없으면 이것을 이름으로 써
+// 이름이 "2265"인 사용자가 생겼다. 별명이 없으면 기본 이름을 쓴다.
 function getKakaoNickname(payload) {
-  return String(
-    payload?.userRequest?.user?.properties?.nickname ||
-      payload?.userRequest?.user?.properties?.appUserId ||
-      "카카오사용자"
-  ).slice(0, 80);
+  return String(payload?.userRequest?.user?.properties?.nickname || "카카오사용자").slice(0, 80);
 }
 
-async function resolveLinkedIdentityUser(env, aliasKeys = []) {
+function kakaoLoginIdFromAlias(alias = "") {
+  const text = String(alias || "");
+  return text.startsWith("kakao_login:") ? text.slice("kakao_login:".length).trim() : "";
+}
+
+// 같은 요청 안에서 같은 카카오 로그인 id 의 주인을 두 번 읽지 않는다(사용자 찾기 → 별칭 저장). 하위 요청이 50개 한도에
+// 가까운 단톡방 첫 기록(25건)에서 조회가 두 번이면 한도 바로 밑까지 갔다. 요청마다 라우터가 새로 만드는
+// env.__AB_IDENTITY_CONFIRMED 맵에 매달아 요청이 끝나면 함께 버린다. 그 맵이 없거나 링크 표에 이미 연결이 있으면 늘 새로 읽는다.
+const AB_KAKAO_LOGIN_OWNER_LOOKUPS = new WeakMap();
+function lookupKakaoLoginOwnerOnce(env, kakaoId = "", links = {}) {
+  const scope = env?.__AB_IDENTITY_CONFIRMED;
+  if (!(scope instanceof Map) || String(safeObject(links[`kakao_login:${kakaoId}`]).user_id || "")) return lookupKakaoLoginOwner(env, kakaoId, { links });
+  let cache = AB_KAKAO_LOGIN_OWNER_LOOKUPS.get(scope);
+  if (!cache) {
+    cache = new Map();
+    AB_KAKAO_LOGIN_OWNER_LOOKUPS.set(scope, cache);
+  }
+  if (!cache.has(kakaoId)) {
+    const pending = lookupKakaoLoginOwner(env, kakaoId, { links });
+    // 읽기에 실패하면 기억하지 않는다(같은 요청의 다음 확인은 다시 읽는다).
+    pending.catch(() => { if (cache.get(kakaoId) === pending) cache.delete(kakaoId); });
+    cache.set(kakaoId, pending);
+  }
+  return cache.get(kakaoId);
+}
+
+async function resolveLinkedIdentityUser(env, aliasKeys = [], options = {}) {
   if (!safeArray(aliasKeys).length) return null;
   const links = await fetchUserIdentityLinks(env);
   for (const alias of aliasKeys) {
@@ -91,7 +117,55 @@ async function resolveLinkedIdentityUser(env, aliasKeys = []) {
     const linked = await fetchUserById(env, linkedUserId);
     if (linked) return linked;
   }
+  // V22.9.77 감사 B-7: 웹(카카오 로그인)으로 먼저 가입한 사람은 링크 표에 kakao_login 별칭이 없고 강한 식별·사용자 행에만 있다.
+  // 링크 표로 아무도 찾지 못했을 때만, 새 사용자를 만들기 전에 웹 로그인과 같은 순서로 그 계정을 찾아 쓴다. 예전에는 이름이
+  // appUserId 인 새 계정을 만들고 kakao_login 별칭을 그쪽에 묶어, 옛 계정의 웹 로그인까지 새 채팅 계정으로 열렸다.
+  // 링크 표에 이미 있는 연결(봇 사용자 별칭 등)은 위에서 예전 순서 그대로 먼저 쓴다(지금 연결을 바꾸지 않는다).
+  // Secret 으로 확인된 카카오 요청(trustedKakaoCaller)에서만 찾는다. 확인되지 않은 요청의 appUserId 는 누구나 적어 보낼 수 있어,
+  // 이 조회를 열어 두면 남의 카카오 로그인 id 만으로 그 웹 계정을 채팅으로 열 수 있다.
+  if (options.trustedKakaoCaller !== true) return null;
+  for (const alias of aliasKeys) {
+    const kakaoId = kakaoLoginIdFromAlias(alias);
+    if (!kakaoId) continue;
+    const owner = await lookupKakaoLoginOwnerOnce(env, kakaoId, links);
+    if (owner?.user) return owner.user;
+  }
   return null;
+}
+
+const AB_KAKAO_LOGIN_CONFLICT_TRACED = globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRACED || (globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRACED = new Map());
+
+// 운영 이벤트(ops-telemetry)에 남긴다. 받은 말·카카오 id 는 넣지 않고, 사용자 id 는 앞 8자만 적는다(전체 id 는 이벤트에서 가려진다).
+// 같은 두 계정은 isolate 마다 10분에 한 번만 적는다.
+function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") {
+  const key = `${chatUid}|${ownerUid}`;
+  const now = Date.now();
+  if (now - Number(AB_KAKAO_LOGIN_CONFLICT_TRACED.get(key) || 0) < 10 * 60 * 1000) return;
+  AB_KAKAO_LOGIN_CONFLICT_TRACED.set(key, now);
+  pruneTimestampMap(AB_KAKAO_LOGIN_CONFLICT_TRACED, now, 10 * 60 * 1000, 2000);
+  rememberOpsEvent({
+    kind: "kakao_login_alias_conflict", severity: "warn", path: "/skill", method: "POST", label: "채팅 계정과 카카오 로그인 계정이 다름",
+    detail: `자동 병합 안 함·지금 연결 유지 · 채팅 ${String(chatUid).slice(0, 8)} · 카카오 로그인 ${String(ownerUid).slice(0, 8)} · 근거 ${source || "-"}`,
+  });
+}
+
+// V22.9.77 감사 B-7: kakao_login:<appUserId> 별칭의 주인이 이 사용자가 아닌 다른 계정인지 본다(링크 표에 있으면 그 사람,
+// 없으면 강한 식별·사용자 행 — 웹 로그인과 같은 순서). 다른 계정이면 { ownerUid, source, explicit }, 주인이 없거나 같은 사람이면 null.
+// 주인이 따로 있는 별칭은 누구의 요청이든 이 사용자에게 묶지 않는다 — 옛 웹 계정의 로그인이 채팅 계정으로 바뀌던 길이다.
+// explicit 은 링크 표에서 이미 다른 사람에게 묶여 있다는 뜻이다(예전에도 충돌 오류였던 경우).
+async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links = {}) {
+  const kakaoId = kakaoLoginIdFromAlias(alias);
+  if (!kakaoId || !canonicalUid) return null;
+  const linkedUid = String(safeObject(links[alias]).user_id || "").trim();
+  let ownerUid = linkedUid;
+  let source = "link";
+  if (!ownerUid) {
+    const owner = await lookupKakaoLoginOwnerOnce(env, kakaoId, links);
+    ownerUid = String(owner?.user?.id || "").trim();
+    source = owner?.source || "";
+  }
+  if (!ownerUid || ownerUid === canonicalUid || await resolveEffectiveUserId(env, ownerUid) === canonicalUid) return null;
+  return { ownerUid, source, explicit: !!linkedUid };
 }
 
 function identityAliasPersistenceError(error) {
@@ -106,11 +180,37 @@ function isSettingsRmwBusyError(error) {
   return /settings_rmw_busy/.test(safeError(error));
 }
 
-async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill") {
+async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill", options = {}) {
   const requestedUid = String(userId || "").trim();
-  const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
+  let aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
   if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
+  // V22.9.77 감사 B-7: 주인이 따로 있는 kakao_login 별칭(foreignKakaoLoginOwner)은 묶지 않는다.
+  //  - Secret 으로 확인된 카카오 요청(options.trustedKakaoCaller): 봇 채널의 appUserId 가 로그인 앱과 같은 번호 체계인지
+  //    확인되지 않았으므로 두 계정을 자동으로 합치지 않고, 그 별칭만 빼고 지금 계정으로 계속한다(운영 이벤트를 남긴다).
+  //    예전에는 링크 표에 있으면 충돌 오류로 그 사람의 요청이 매번 실패했고, 사용자 행·강한 식별에만 있으면 새로 묶었다.
+  //  - 그 밖의 호출: 링크 표에서 다른 사람에게 묶인 별칭은 예전처럼 identity_alias_conflict 로 실패한다(V22.9.26 계약 —
+  //    다른 사람의 별칭을 함부로 옮기지 않는다). 강한 식별·사용자 행으로만 아는 주인이면 묶지 않고 조용히 건너뛴다(예전에는
+  //    묶었다. 실패로 바꾸면 Secret 없이 들어온 요청의 기록이 저장되지 않으므로 기록은 지금 계정으로 계속한다).
+  // 확인한 별칭은 기억해 잠금 경로에서 같은 조회를 되풀이하지 않는다. 확인하지 못한 별칭은 잠금 경로가 새로 읽은 링크 표로 다시 본다.
+  const keepCurrentOnConflict = options.trustedKakaoCaller === true;
+  const kakaoLoginChecked = new Set();
+  const dropForeignKakaoLogin = async (canonicalUid, links) => {
+    const kept = [];
+    for (const alias of aliases) {
+      if (!kakaoLoginIdFromAlias(alias) || kakaoLoginChecked.has(alias)) { kept.push(alias); continue; }
+      const foreign = await foreignKakaoLoginOwner(env, alias, canonicalUid, links);
+      if (foreign && (keepCurrentOnConflict || !foreign.explicit)) {
+        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+        // 이 요청 안에서는 다시 확인하지 않는다(별칭은 쓰지 않았고, 채팅은 지금 계정으로 계속한다).
+        if (env.__AB_IDENTITY_CONFIRMED) env.__AB_IDENTITY_CONFIRMED.set(alias, requestedUid);
+        continue;
+      }
+      if (!foreign) kakaoLoginChecked.add(alias);
+      kept.push(alias);
+    }
+    aliases = kept;
+  };
   // V22.9.76 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
   // 예전에는 appUserId·plusfriendUserKey 가 실린 요청마다 잠금을 잡아, 서로 다른 사용자 둘이 동시에 보내면 늦은 쪽이
   // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
@@ -118,6 +218,8 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   try {
     const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
     const links = canonicalUid ? await fetchUserIdentityLinks(env) : null;
+    if (links) await dropForeignKakaoLogin(canonicalUid, links);
+    if (!aliases.length) return false;
     let allLinked = !!links;
     for (const key of links ? aliases : []) {
       const existingUid = String(safeObject(links[key]).user_id || "").trim();
@@ -139,6 +241,15 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
         let changed = false;
         for (const key of aliases) {
           const existingUid = String(safeObject(links[key]).user_id || "").trim();
+          // V22.9.77 감사 B-7: 다른 사람에게 묶였거나 주인이 따로 있는 kakao_login 별칭은 절대 이 사용자에게 옮기지 않는다.
+          // 확인된 카카오 요청은 그 별칭만 건너뛰고, 그 밖의 호출은 링크 표 충돌이면 오류, 아니면 건너뛴다(위 설명).
+          const foreign = kakaoLoginIdFromAlias(key) && (existingUid || !kakaoLoginChecked.has(key))
+            ? await foreignKakaoLoginOwner(env, key, canonicalUid, links) : null;
+          if (foreign) {
+            if (!keepCurrentOnConflict && foreign.explicit) throw new Error("identity_alias_conflict");
+            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+            continue;
+          }
           if (existingUid) {
             const existingCanonicalUid = await resolveEffectiveUserId(env, existingUid);
             if (existingCanonicalUid && existingCanonicalUid !== canonicalUid) throw new Error("identity_alias_conflict");
@@ -230,12 +341,14 @@ function parseKakaoChatFirstMarker(value) {
   return marker;
 }
 
-async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
+async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = [], options = {}) {
+  // V22.9.77 감사 B-7: 확인된 카카오 요청 표시(trustedKakaoCaller)를 다시 확인·생성에도 그대로 넘긴다.
+  const trustedKakaoCaller = options.trustedKakaoCaller === true;
   const key = await kakaoChatFirstSettingsKey(rawKey);
   return await withSettingsRmwLease(env, key, async ({ assertFresh }) => {
     // Recheck under the database lease. A parallel request may already have resolved an
     // identity, and zero memberships alone is never permission to create a new household.
-    const existing = await ensureUser(env, rawKey, nickname, aliases, { create: false });
+    const existing = await ensureUser(env, rawKey, nickname, aliases, { create: false, trustedKakaoCaller });
     if (existing) return existing;
     let marker = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
     if (marker?.user_id || marker?.state === "complete") throw new Error("kakao_first_record_identity_missing");
@@ -244,7 +357,7 @@ async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
       assertFresh();
       await saveSettingValue(env, key, JSON.stringify(marker));
     }
-    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh, absenceConfirmed: true });
+    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh, absenceConfirmed: true, trustedKakaoCaller });
     if (!user?.id) throw new Error("kakao_first_record_user_missing");
     assertFresh();
     await saveSettingValue(env, key, JSON.stringify({ ...marker, user_id: String(user.id) }));
@@ -265,7 +378,8 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
       let marker = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
       if (!marker || marker.state !== "pending" || (marker.user_id && marker.user_id !== String(user.id))) return null;
       // Finish identity-map work before taking the user lifecycle lease.
-      await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill");
+      // 이 길은 Secret 으로 확인된 1:1 첫 기록(seedChatFirst)에서만 온다.
+      await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill", { trustedKakaoCaller: true });
       markerFresh();
       return withKakaoUserLifecycleLease(env, user.id, async ({ assertFresh: lifecycleFresh }) => {
         const assertFresh = () => { markerFresh(); lifecycleFresh(); };

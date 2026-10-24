@@ -3,7 +3,8 @@ import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { normalizePaymentAssetList, paymentAssetsKey } from "../settings/payment-assets.js";
 import { normalizeReservePlanList, reservePlansKey } from "../settings/reserve-plans.js";
 import {
-  fetchAdminRows, fetchAdminRowsRange, memberAliasSettingsKey, normalizeMemberAliasMap,
+  distinctPersonLabels, fetchAdminRows, fetchAdminRowsRange, memberAliasSettingsKey,
+  normalizeMemberAliasMap,
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { isIncomeBudgetCategory } from "../my/groups-budget-bulk.js";
@@ -263,14 +264,17 @@ function renderBudgetCategoryUsageTree(category = "", rows = [], categories = nu
   // V22.9.76 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
   const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
-  const groups = Object.create(null);
+  // V22.9.77 감사 B-5: 사람별 묶음은 사용자 id 로 만든다(이름으로 묶으면 같은 이름의 구성원·나간 사람이 한 묶음이 됐다).
+  const groups = new Map();
   for (const r of filtered) {
     const name = r.spender_name || r.user_name || r.nickname || r.user_id || "미지정";
-    if (!groups[name]) groups[name] = { total: 0, rows: [] };
-    groups[name].total += Number(r.amount || 0);
-    groups[name].rows.push(r);
+    const key = String(r.user_id ?? "").trim() || `name:${name}`;
+    if (!groups.has(key)) groups.set(key, { name, total: 0, rows: [] });
+    groups.get(key).total += Number(r.amount || 0);
+    groups.get(key).rows.push(r);
   }
-  return `<div class="budgetTree">${Object.entries(groups).map(([name, group]) => {
+  const groupLabels = distinctPersonLabels([...groups].map(([key, group]) => ({ id: key, label: group.name })));
+  return `<div class="budgetTree">${[...groups].map(([key, group]) => [groupLabels.get(key) || group.name, group]).map(([name, group]) => {
     const detailRows = group.rows.sort((a,b)=>String(a.transaction_date||"").localeCompare(String(b.transaction_date||""))).map((r) => `<li><span>${escapeHtml(r.transaction_date || "-")}</span><b>${numberWithCommas(r.amount || 0)}원</b><em>${escapeHtml(r.memo || r.raw_text || "-")}</em></li>`).join("");
     return `<details class="memberUse"><summary>${escapeHtml(name)} · ${numberWithCommas(group.total)}원 · ${numberWithCommas(group.rows.length)}건</summary><ul>${detailRows}</ul></details>`;
   }).join("")}</div>`;

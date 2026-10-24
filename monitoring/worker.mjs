@@ -1,4 +1,4 @@
-import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, freshState, cpuPercent, percentile, sanitizeTelemetry } from "./model.mjs";
+import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, growthDaysToLimit, freshState, cpuPercent, percentile, percentileIndex, sanitizeTelemetry } from "./model.mjs";
 import { dashboardHtml } from "./dashboard.mjs";
 
 const HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY" };
@@ -52,7 +52,7 @@ async function requestJson(request,max=16384) { return JSON.parse(await readBoun
 // 1.1.1: Cloudflare Email Service 는 오류를 `code`(E_SENDER_NOT_VERIFIED 등)로 던진다. 그 코드가 있으면 그대로 쓴다.
 const failureCode = error => (/^E_[A-Z_]+$/.exec(String(error?.code||""))?.[0]) || /E_[A-Z_]+|not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|delivery_failed|metrics_unavailable|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
 
-async function writeCollector(env,name,task,now) {
+export async function writeCollector(env,name,task,now) {
   const at=now.toISOString();
   try {
     const value=await task();
@@ -66,8 +66,8 @@ async function writeCollector(env,name,task,now) {
     // 1.1.1: 발송 실패는 채널별 원인(`delivery_failed email:E_SENDER_NOT_VERIFIED webhook:http_500`)을 error_code 에 그대로 남겨
     // 화면의 "확인되지 않은 항목"에 보이게 하고, 모든 수집 실패를 Workers Logs 에도 적는다(예전에는 코드만 남아 원인을 알 수 없었다).
     const message=String(error?.message||error).replace(/\s+/g," ").trim();
-    const code=name==="alerts"&&/^delivery_failed\b/.test(message)?message.slice(0,160):failureCode(error);
-    console.error(`monitor collector ${name} failed: ${code}${code===message?"":` — ${message.slice(0,200)}`}`);
+    const code=name==="token" ? (/^(?:token_(?:user|account)_(?:transport|http_\d{3}(?:_api_\d+(?:_\d+){0,3})?(?:_unsupported)?))(?:;token_account_(?:transport|http_\d{3}(?:_api_\d+(?:_\d+){0,3})?(?:_unsupported)?))?$/.test(message) ? message : failureCode(error)) : name==="alerts"&&/^delivery_failed\b/.test(message)?message.slice(0,160):failureCode(error);
+    console.error(`monitor collector ${name} failed: ${code}${name==="token"||code===message?"":` — ${message.slice(0,200)}`}`);
     await env.MONITOR_DB.prepare("INSERT INTO collector_state(name,last_attempt_at,status,error_code) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,status=excluded.status,error_code=excluded.error_code").bind(name,at,code==="not_connected"?"not_connected":"error",code).run();
   }
 }
@@ -152,12 +152,41 @@ async function collectDatabase(env) {
 }
 
 // 1.1.0: 분석 토큰의 만료일. README 4단계는 1년 만료 토큰을 권하지만 아무도 만료일을 보지 않았다.
-async function collectToken(env) {
-  if(!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
-  const body=await fetchJson("https://api.cloudflare.com/client/v4/user/tokens/verify",{headers:{authorization:`Bearer ${env.CF_ANALYTICS_TOKEN}`}});
-  const result=body?.result;
-  if(!body?.success||!result||typeof result.status!=="string") throw new Error("unsupported_fields");
-  return {status:result.status,expires_on:typeof result.expires_on==="string"?result.expires_on:null};
+// Keep reviewed 1.1.2 token validation and bounded, secret-free diagnostics in 1.2.0.
+export function tokenVerification(result){if(!result||!["active","disabled","expired"].includes(result.status))throw new Error("unsupported_token_status");const expiry=result.expires_on;if(expiry!==void 0&&expiry!==null){const parts=typeof expiry==="string"&&/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(expiry);if(!parts)throw new Error("invalid_token_expiry");const[,year,month,day,hour,minute,second,offsetHour,offsetMinute]=parts.map((value,index)=>index===0?value:Number(value??0));const leap=year%4===0&&(year%100!==0||year%400===0);const daysInMonth=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31][month-1];if(!(day>=1&&day<=daysInMonth)||hour>23||minute>59||second>59||offsetHour>23||offsetMinute>59||!Number.isFinite(Date.parse(expiry)))throw new Error("invalid_token_expiry")}return{status:result.status,expires_on:expiry??null}}
+
+export async function collectToken(env) {
+  if (!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
+  const verify = async (scope) => {
+    let response;
+    // V22.9.77 N-14: Workers(workerd) 의 fetch 는 redirect 로 follow·manual 만 받고 "error" 는 TypeError 로 거절한다.
+    // 1.1.2 는 "error" 를 넣어 토큰이 정상이어도 늘 token_user_transport 로 끝났다. manual 은 3xx 를 따라가지 않고
+    // 그 응답을 돌려주므로 아래 !response.ok 가 token_<scope>_http_3xx 로 남긴다(토큰을 다른 주소로 보내지 않는다).
+    try {
+      response = await fetch(scope === "user" ? "https://api.cloudflare.com/client/v4/user/tokens/verify" : "https://api.cloudflare.com/client/v4/accounts/" + env.CF_ACCOUNT_ID + "/tokens/verify", {
+        method: "GET", redirect: "manual",
+        headers: { authorization: "Bearer " + env.CF_ANALYTICS_TOKEN },
+        signal: AbortSignal.timeout(8000)
+      });
+    } catch (_) { return { http: null, error: "token_" + scope + "_transport" }; }
+    let body = null, issue = null;
+    try { body = JSON.parse(await readBounded(response)); } catch (_) { issue = "invalid_body"; }
+    const codes = Array.isArray(body?.errors) ? body.errors.map(e => e?.code).filter(c => Number.isSafeInteger(c) && c >= 0).slice(0, 4) : [];
+    const safe = "token_" + scope + "_http_" + response.status + (codes.length ? "_api_" + codes.join("_") : "");
+    if (!response.ok) return { http: response.status, error: safe };
+    if (issue || body?.success !== true) return { http: response.status, error: safe + "_unsupported" };
+    try { return { http: response.status, value: { ...tokenVerification(body.result), scope } }; }
+    catch (_) { return { http: response.status, error: safe + "_unsupported" }; }
+  };
+  const user = await verify("user");
+  if (user.value) return user.value;
+  // User endpoint transport failures also get one bounded account-scoped probe.
+  if ((user.http === null || [401, 403].includes(user.http)) && /^[a-fA-F0-9]{32}$/.test(env.CF_ACCOUNT_ID || "")) {
+    const account = await verify("account");
+    if (account.value) return account.value;
+    throw new Error(user.error + ";" + account.error);
+  }
+  throw new Error(user.error);
 }
 
 async function collectSupabasePlan(env) {
@@ -185,7 +214,41 @@ export async function collect(env,now=new Date()) {
   if(now.getUTCHours()===0&&now.getUTCMinutes()<5) await env.MONITOR_DB.prepare("DELETE FROM samples WHERE (source,bucket) IN (SELECT source,bucket FROM samples WHERE bucket < ? LIMIT 2000)").bind(new Date(now.getTime()-30*DAY).toISOString()).run();
 }
 
-export async function summary(env,now=Date.now()) {
+// ── 1.2.0(V44:G-6) 5분 cron 의 CPU ─────────────────────────────────────────────
+// Free 의 Cron CPU 한도는 10ms 인데 5분마다 도는 알림 판정이 summary() 전체를 돌려 7일치 DB 표본 2,016행과 요청 표본
+// 1,000행을 받아 해석·정렬했다(약 8.7ms, 7일치가 차는 10-19 무렵부터 1102 위험). 알림 판정(alerting)은 경고와 해소 판단에
+// 쓰는 값만 D1 에 집계해 묻는다: 성장 예측은 첫 점·끝 점·점 개수, 요청 표본은 건수·실패 수·마지막 시각과 p95 한 행.
+// 화면(/api/summary)은 그래프·최근 표본 때문에 예전처럼 전부 읽는다. 두 범위의 경고·상태가 같다는 것은 검사가 확인한다.
+const DB_BYTES_POINTS="FROM samples WHERE source='database' AND bucket >= ?1 AND json_type(payload,'$.database_bytes') IN ('integer','real') AND json_extract(payload,'$.database_bytes') >= 0";
+async function alertGrowthDays(env,now,value,limit) {
+  if(numberOrNull(value)===null||numberOrNull(limit)===null) return null;
+  const row=await env.MONITOR_DB.prepare(`SELECT (SELECT COUNT(*) FROM (SELECT 1 ${DB_BYTES_POINTS} LIMIT 3)) AS n,(SELECT collected_at ${DB_BYTES_POINTS} ORDER BY bucket LIMIT 1) AS first_at,(SELECT json_extract(payload,'$.database_bytes') ${DB_BYTES_POINTS} ORDER BY bucket LIMIT 1) AS first_value,(SELECT collected_at ${DB_BYTES_POINTS} ORDER BY bucket DESC LIMIT 1) AS last_at,(SELECT json_extract(payload,'$.database_bytes') ${DB_BYTES_POINTS} ORDER BY bucket DESC LIMIT 1) AS last_value`).bind(new Date(now-7*DAY).toISOString()).first();
+  return growthDaysToLimit({at:row?.first_at,value:row?.first_value},{at:row?.last_at,value:row?.last_value},Number(row?.n)||0,value,limit);
+}
+// 1.2.0(V44:G-5): '처리 중'으로 먼저 답한 요청(outcome "deferred")의 최종 결과 표본이 10분 넘게 오지 않으면 결과 미확인 실패로 센다.
+const DEFERRED_RESULT_GRACE_MS=10*60000;
+const failedSample=(e,stuckBefore)=>e.outcome==="error"||e.status>=500||e.db_failures>0||(e.outcome==="deferred"&&e.at<stuckBefore);
+async function dashboardTelemetry(env,now,stuckBefore) {
+  const events=(await env.MONITOR_DB.prepare("SELECT route,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ? ORDER BY at DESC LIMIT 1000").bind(now-DAY).all()).results;
+  const random=events.filter(e=>e.sample_kind==="random");
+  const skillRandom=random.filter(e=>e.route==="skill");
+  const web=random.filter(e=>e.route==="web");
+  const incidents=events.filter(e=>e.sample_kind==="incident"||failedSample(e,stuckBefore));
+  return {count:events.length,last_observed:events.length?Math.max(...events.map(e=>e.at)):null,random:random.length,skill_random:skillRandom.length,web_random:web.length,
+    skill_p95:percentile(skillRandom.map(e=>e.duration_ms)),web_p95:percentile(web.map(e=>e.duration_ms)),incidents:incidents.length,failures:incidents.filter(e=>failedSample(e,stuckBefore)).length,recent:events.slice(0,30)};
+}
+const ALERT_EVENTS="WITH e AS (SELECT route,status,duration_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ?1 ORDER BY at DESC LIMIT 1000)";
+async function alertTelemetry(env,now,stuckBefore) {
+  const row=await env.MONITOR_DB.prepare(`${ALERT_EVENTS} SELECT COUNT(*) AS n,MAX(at) AS last_at,SUM(sample_kind='random') AS random_n,SUM(sample_kind='random' AND route='skill') AS skill_n,SUM(sample_kind='random' AND route='web') AS web_n,SUM(outcome='error' OR status>=500 OR db_failures>0 OR (outcome='deferred' AND at<?2)) AS failures,SUM(sample_kind='incident' OR outcome='error' OR status>=500 OR db_failures>0 OR (outcome='deferred' AND at<?2)) AS incidents FROM e`).bind(now-DAY,stuckBefore).first();
+  const count=Number(row?.n)||0;
+  const skill=Number(row?.skill_n)||0;
+  const index=percentileIndex(skill);
+  const p95=index===null?null:await env.MONITOR_DB.prepare(`${ALERT_EVENTS} SELECT duration_ms FROM e WHERE sample_kind='random' AND route='skill' ORDER BY duration_ms LIMIT 1 OFFSET ?2`).bind(now-DAY,index).first();
+  return {count,last_observed:count&&Number.isFinite(Number(row?.last_at))?Number(row.last_at):null,random:Number(row?.random_n)||0,skill_random:skill,web_random:Number(row?.web_n)||0,
+    skill_p95:p95?numberOrNull(p95.duration_ms):null,web_p95:null,incidents:Number(row?.incidents)||0,failures:Number(row?.failures)||0,recent:[]};
+}
+
+export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const rows=(await env.MONITOR_DB.prepare("SELECT * FROM collector_state").all()).results;
   const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key='plans'").all()).results;
   const plans=settings[0]?JSON.parse(settings[0].value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
@@ -207,9 +270,10 @@ export async function summary(env,now=Date.now()) {
   const db=states.database;
   const previous=(await env.MONITOR_DB.prepare("SELECT collected_at,payload FROM samples WHERE source='database' AND collected_at < ? ORDER BY bucket DESC LIMIT 1").bind(db.last_success_at||"").first());
   const cpu=db.fresh?cpuPercent(db.data?.cpu_counter,previous?JSON.parse(previous.payload).cpu_counter:null):null;
-  const history=(await env.MONITOR_DB.prepare("SELECT collected_at,payload FROM samples WHERE source='database' AND bucket >= ? ORDER BY bucket LIMIT 3000").bind(new Date(now-7*DAY).toISOString()).all()).results;
   const dbCap=sbPlan==="free"?500*1024*1024:sbPlan==="pro"?8*1024*1024*1024:null;
-  const days=daysToLimit(history.map(row=>({at:row.collected_at,value:JSON.parse(row.payload).database_bytes})),db.data?.database_bytes,dbCap);
+  // 화면용 7일치도 표본 전체(payload)를 받아 2,016번 JSON.parse 하지 않고 DB 크기 값만 받는다(그래프는 숫자가 아닌 값을 뺀다).
+  const history=alerting?[]:(await env.MONITOR_DB.prepare("SELECT collected_at AS at,json_extract(payload,'$.database_bytes') AS value FROM samples WHERE source='database' AND bucket >= ? ORDER BY bucket LIMIT 3000").bind(new Date(now-7*DAY).toISOString()).all()).results;
+  const days=alerting?await alertGrowthDays(env,now,db.data?.database_bytes,dbCap):daysToLimit(history,db.data?.database_bytes,dbCap);
   // Pro disk allowance differs from logical database size; no incorrect cross-comparison.
   const dbLimit=sbPlan==="free"?dbCap:null;
   const dbQuota=quotaStatus(db.data?.database_bytes,dbLimit,{fresh:db.fresh});
@@ -229,11 +293,8 @@ export async function summary(env,now=Date.now()) {
     const predicted=key==="storage"?null:row?monthlyForecast(row.value,row.period_start,row.period_end,row.verified_at):null;
     quotas.push({key,name,unit:"bytes",scope:"Supabase 조직 전체",source:"공식 청구 화면 · 수동 확인",value:fresh?row.value:null,last_verified_at:row?.verified_at||null,limit,forecast:predicted,period_start:row?.period_start,period_end:row?.period_end,...quotaStatus(row?.value,limit,{fresh,forecast:predicted})});
   }
-  const events=(await env.MONITOR_DB.prepare("SELECT route,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ? ORDER BY at DESC LIMIT 1000").bind(now-DAY).all()).results;
-  const random=events.filter(e=>e.sample_kind==="random");
-  const skillRandom=random.filter(e=>e.route==="skill");
-  const incidents=events.filter(e=>e.sample_kind==="incident"||e.status>=500||e.outcome==="error"||e.db_failures>0);
-  const lastObserved=events.length?Math.max(...events.map(e=>e.at)):null;
+  const tele=alerting?await alertTelemetry(env,now,now-DEFERRED_RESULT_GRACE_MS):await dashboardTelemetry(env,now,now-DEFERRED_RESULT_GRACE_MS);
+  const lastObserved=tele.last_observed;
   const telemetryStatus=lastObserved===null?"not_connected":now-lastObserved>3600000?"stale":"ok";
   const alerts=quotas.filter(q=>["warning","upgrade","critical"].includes(q.status)).map(q=>({status:q.status,title:q.name,message:q.status==="upgrade"?"증가 추세와 한도를 확인하고 해당 서비스의 요금제 전환을 검토하세요.":q.status==="critical"?"한도에 근접했습니다. 요청 제한과 용량 확보를 함께 검토하세요.":"사용량 증가 추세를 확인하세요."}));
   if(cf.fresh&&cf.data.hour.requests>=100&&cf.data.hour.errors/cf.data.hour.requests>=0.01) alerts.push({status:cf.data.hour.errors/cf.data.hour.requests>=0.05?"critical":"warning",title:"Workers 런타임 오류 증가",message:"최근 1시간의 계정 전체 런타임 오류입니다. 앱이 반환한 HTTP 오류 및 카카오 처리 실패와 별도로 확인하세요."});
@@ -244,9 +305,9 @@ export async function summary(env,now=Date.now()) {
   if(states.uptime.fresh&&states.uptime.data.checks.some(c=>!c.ok)) alerts.unshift({status:"critical",title:"서비스 접속 또는 DB 준비 상태 실패",message:"최근 접속 검사 결과를 확인하세요. 요금제 한도와 앱 오류를 구분해야 합니다."});
   if(cpu!==null&&cpu>=85) alerts.push({status:"warning",title:"DB CPU 사용률 상승",message:"쿼리 지연과 연결 수를 함께 확인하세요."});
   if(db.fresh&&numberOrNull(db.data?.connections)!==null&&numberOrNull(db.data?.max_connections)>0&&db.data.connections/db.data.max_connections>=0.85) alerts.push({status:"warning",title:"DB 연결 수 포화 위험",message:"연결 사용량과 쿼리 처리 시간을 확인하세요."});
-  const skillP95=percentile(skillRandom.map(e=>e.duration_ms));
+  const skillP95=tele.skill_p95;
   if(skillP95!==null&&skillP95>=3500) alerts.push({status:"warning",title:"카카오 응답 지연",message:"표본 p95가 3.5초 이상입니다. DB 지연과 저장 오류를 확인하세요."});
-  if(incidents.some(e=>e.outcome==="error"||e.status>=500||e.db_failures>0)) alerts.push({status:"warning",title:"최근 처리 실패 기록",message:"최근 24시간의 오류 표본을 확인하세요. 실패 횟수는 관제 누락 가능성이 있는 최소 관측값입니다."});
+  if(tele.failures>0) alerts.push({status:"warning",title:"최근 처리 실패 기록",message:"최근 24시간의 오류 표본을 확인하세요('처리 중'으로 먼저 답한 뒤의 저장 실패·결과 미확인 포함). 실패 횟수는 관제 누락 가능성이 있는 최소 관측값입니다."});
   const unknown=quotas.filter(q=>q.status==="unknown").map(q=>q.name);
   if(cpu===null) unknown.push(db.fresh&&db.data?.cpu_counter ? "DB CPU 비교 표본 부족 또는 카운터 초기화" : "DB CPU 지표 미관측 또는 갱신 지연");
   if(!db.fresh||numberOrNull(db.data?.connections)===null||!(numberOrNull(db.data?.max_connections)>0)) unknown.push("DB 연결 수 또는 최대 연결 수 미관측");
@@ -255,7 +316,7 @@ export async function summary(env,now=Date.now()) {
   // 1.1.0: p95 표본 부족은 낮은 트래픽에서 정상이다. "확인 불가"가 아니라 참고 사항으로 둔다(예전에는 이 둘 때문에 전체 상태가 늘 확인 불가였다).
   const notes=[];
   if(skillP95===null) notes.push("카카오 p95 표본 부족(하루 무작위 표본 30건 미만)");
-  if(percentile(random.filter(e=>e.route==="web").map(e=>e.duration_ms))===null) notes.push("웹 p95 표본 부족(하루 무작위 표본 30건 미만)");
+  if(percentileIndex(tele.web_random)===null) notes.push("웹 p95 표본 부족(하루 무작위 표본 30건 미만)");
   if(planStale) { notes.push(`요금제 확인 기록이 7일을 넘었습니다(마지막 확인 ${String(plans.verified_at||"").slice(0,10)||"없음"}). 마지막 확인 요금제의 한도로 비교합니다.`); alerts.push({status:"warning",title:"요금제 확인 기록 만료",message:"공식 Billing 에서 Workers·Supabase 요금제를 다시 확인하고 관제 화면에 저장하세요. 그동안은 마지막 확인 요금제의 한도로 비교합니다."}); }
   if(!cfFresh||numberOrNull(cf.data?.app.requests)===null) unknown.push("앱 Worker 공급자 지표 미관측");
   // 1.1.0: 알림 발송·토큰 만료 상태. 두 수집기는 행이 없으면(아직 한 번도 돌지 않음) 조용히 넘기고, 있으면 다른 수집기와 같이 본다.
@@ -266,12 +327,12 @@ export async function summary(env,now=Date.now()) {
   else if(tokenDaysLeft!==null&&tokenDaysLeft<=30) alerts.push({status:tokenDaysLeft<=7?"critical":"warning",title:"Cloudflare 분석 토큰 만료 임박",message:`${String(tokenData.expires_on).slice(0,10)} 만료(D-${Math.max(0,tokenDaysLeft)})입니다. 새 토큰을 만들어 CF_ANALYTICS_TOKEN 을 교체하세요.`});
   const stateLabels={cloudflare:"Cloudflare 수집",database:"DB 수집",uptime:"접속 검사",supabase_plan:"요금제 자동 확인",d1:"관제 저장소 사용량 수집",token:"분석 토큰 만료 확인",alerts:"알림 발송"};
   for(const [name,state] of Object.entries(states)) if(!state.fresh&&!(name==="supabase_plan"&&sbPlan!=="unknown")&&!(name==="token"&&state.status==="stale"&&tokenData)) unknown.push(name==="alerts"&&state.error_code==="not_connected"?"알림 발송 채널 미연결(ALERT_TO 또는 ALERT_WEBHOOK_URL)":`${stateLabels[name]||name}${state.error_code?`(${state.error_code})`:""}`);
-  return {version:MONITOR_VERSION,generated_at:new Date(now).toISOString(),status:alerts.some(a=>a.status==="critical")?"critical":alerts.some(a=>a.status==="upgrade")?"upgrade":alerts.length?"warning":unknown.length?"unknown":"normal",plans:{cloudflare:cfPlan,supabase:sbPlan,verified_at:plans.verified_at,stale:planStale},states,quotas,alerts,unknown,notes,
+  return {version:MONITOR_VERSION,scope:alerting?"alerts":"full",generated_at:new Date(now).toISOString(),status:alerts.some(a=>a.status==="critical")?"critical":alerts.some(a=>a.status==="upgrade")?"upgrade":alerts.length?"warning":unknown.length?"unknown":"normal",plans:{cloudflare:cfPlan,supabase:sbPlan,verified_at:plans.verified_at,stale:planStale},states,quotas,alerts,unknown,notes,
     delivery:{...delivery,channels:[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean)},
     token:{status:tokenData?.status||null,expires_on:tokenData?.expires_on||null,days_left:tokenDaysLeft,checked_at:states.token?.last_success_at||null},
     database:{cpu_percent:cpu,connections:db.fresh?numberOrNull(db.data?.connections):null,max_connections:db.fresh?numberOrNull(db.data?.max_connections):null,memory_used_percent:db.fresh&&numberOrNull(db.data?.memory_available_bytes)!==null&&db.data?.memory_total_bytes?100*(1-db.data.memory_available_bytes/db.data.memory_total_bytes):null},
-    application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:random.length,skill_random_samples:skillRandom.length,skill_p95_ms:skillP95,web_p95_ms:percentile(random.filter(e=>e.route==="web").map(e=>e.duration_ms)),incident_count:incidents.length,recent:events.slice(0,30),truncated:events.length===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null},
-    database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.collected_at,value:JSON.parse(r.payload).database_bytes})),
+    application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:tele.random,skill_random_samples:tele.skill_random,skill_p95_ms:skillP95,web_p95_ms:tele.web_p95,incident_count:tele.incidents,recent:tele.recent,truncated:tele.count===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null},
+    database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.at,value:r.value})),
     pricing:{verified_at:PRICING_VERIFIED_AT,workers_base_usd:5,supabase_pro_base_usd:25,currency:"USD",estimate_complete:false,note:"사용량 기반 추가 요금, CPU 합계, 추가 프로젝트·컴퓨트, 세금과 환율을 포함한 실제 청구액은 공식 Billing에서 확인해야 합니다."},
     limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다."]};
 }
@@ -293,6 +354,15 @@ async function manualUsage(request,env) {
 // 발송 기록은 D1 settings 의 alert:* 행이며, 발송에 실패하면 기록을 남기지 않아 다음 수집 때 다시 시도한다.
 const ALERT_RESEND_MS={critical:6*3600000,upgrade:12*3600000,warning:24*3600000};
 const ALERT_LABELS={critical:"긴급",upgrade:"전환 검토",warning:"주의"};
+// 1.2.0(V44:G-3): 경고가 임계값 근처에서 깜빡이면(5분마다 실패·정상) 예전에는 정상 한 번에 기억 행을 지워 다음 실패를 새 경고로
+// 보냈다(긴급 1시간 12통, DB CPU 86%·84% 주의 6통). 이제 해소는 5분 수집 3번 연속(10분 이상) 정상일 때만 판정하고, 해소된
+// 뒤에도 기억 행과 마지막 발송 시각을 남겨 같은 경고를 등급별 간격 안에 다시 보내지 않는다. 등급이 오르면 바로 보낸다.
+// '해소'를 알린 뒤 다시 생기면 운영자가 해소를 믿고 있으므로 한 번 더 보낸다. '해소'는 경고 메일을 보낸 긴급 경고에만, 같은
+// 경고마다 6시간에 한 번 보내고(그 사이 다시 해소되면 6시간이 지나 아직 정상일 때 보낸다), 간격이 지난 해소 기록은 지운다.
+const ALERT_RECOVERY_CHECKS=3;
+const ALERT_RECOVERY_MIN_MS=10*60000;
+const ALERT_RANK={warning:1,upgrade:2,critical:3};
+const kstText=at=>new Date(at+9*3600000).toISOString().replace("T"," ").slice(0,16)+" KST";
 function alertKey(title) { let hash=2166136261; for(const c of String(title)) hash=Math.imul(hash^c.charCodeAt(0),16777619); return `alert:${(hash>>>0).toString(16)}`; }
 function base64Utf8(text) { const bytes=new TextEncoder().encode(text); let binary=""; for(let i=0;i<bytes.length;i+=0x4000) binary+=String.fromCharCode(...bytes.subarray(i,i+0x4000)); return btoa(binary); }
 export function rawAlertEmail({from,to,subject,text,now}) {
@@ -300,12 +370,11 @@ export function rawAlertEmail({from,to,subject,text,now}) {
   return [`From: ${from}`,`To: ${to}`,`Subject: =?UTF-8?B?${base64Utf8(subject)}?=`,`Date: ${now.toUTCString()}`,`Message-ID: <${crypto.randomUUID()}@${domain}>`,"MIME-Version: 1.0","Content-Type: text/plain; charset=utf-8","Content-Transfer-Encoding: base64","",base64Utf8(text).replace(/.{76}/g,"$&\r\n"),""].join("\r\n");
 }
 export function renderAlertText(result,due,recovered,now,origin="") {
-  const kst=new Date(now.getTime()+9*3600000).toISOString().replace("T"," ").slice(0,16)+" KST";
-  const lines=[`말해가계부 관제 ${kst} · 전체 상태 ${ALERT_LABELS[result.status]||result.status}`,""];
-  for(const alert of due) lines.push(`[${ALERT_LABELS[alert.status]||alert.status}] ${alert.title}`,`  ${alert.message}`);
-  for(const prev of recovered) lines.push(`[해소] ${prev.title}`);
+  const lines=[`말해가계부 관제 ${kstText(now.getTime())} · 전체 상태 ${ALERT_LABELS[result.status]||result.status}`,""];
+  for(const alert of due) lines.push(`[${ALERT_LABELS[alert.status]||alert.status}] ${alert.title}${alert.again?" · 해소 뒤 다시 생김":""}`,`  ${alert.message}`);
+  for(const prev of recovered) { const resolvedAt=Date.parse(prev.resolved_at||""); lines.push(`[해소] ${prev.title}${Number.isFinite(resolvedAt)&&now.getTime()-resolvedAt>=300000?` · ${kstText(resolvedAt)}부터 정상`:""}`); }
   if(result.unknown?.length) lines.push("",`확인되지 않은 항목: ${result.unknown.join(", ")}`);
-  lines.push("",`관제 화면: ${origin?`${origin}/ops-monitor`:"/ops-monitor"}`,"이 메일은 5분 수집마다 새 경고가 있을 때만 발송되며, 같은 경고는 긴급 6시간·전환 검토 12시간·주의 24시간 안에 다시 보내지 않습니다.");
+  lines.push("",`관제 화면: ${origin?`${origin}/ops-monitor`:"/ops-monitor"}`,"이 메일은 5분 수집마다 새 경고가 있을 때만 발송되며, 같은 경고는 긴급 6시간·전환 검토 12시간·주의 24시간 안에 다시 보내지 않습니다(등급이 오르거나, 해소를 알린 뒤 다시 생기면 보냄). 해소는 5분 수집 3번 연속(10분 이상) 정상일 때 판정하며, 긴급 경고의 해소는 같은 경고마다 6시간에 한 번 알립니다.");
   return lines.join("\n");
 }
 async function sendAlertEmail(env,subject,text,now) {
@@ -345,25 +414,50 @@ function alertRecoveryConfirmed(result,title) {
 export async function deliverAlerts(env,now=new Date()) {
   const channels=[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean);
   if(!channels.length) throw new Error("not_connected");
-  const result=await summary(env,now.getTime());
+  const result=await summary(env,now.getTime(),{alerting:true});
+  const at=now.getTime();const stamp=now.toISOString();
+  const time=value=>{ const parsed=Date.parse(value||""); return Number.isFinite(parsed)?parsed:null; };
   const active=result.alerts.filter(alert=>ALERT_RESEND_MS[alert.status]);
   const rows=(await env.MONITOR_DB.prepare("SELECT key,value FROM settings WHERE key LIKE 'alert:%'").all()).results;
   const remembered=new Map(rows.map(row=>{ try { return [row.key,JSON.parse(row.value)]; } catch(_) { return [row.key,{}]; } }));
-  const due=[];const statements=[];
+  const due=[];const recovered=[];const statements=[];
+  const save=(key,record)=>statements.push(env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,JSON.stringify(record)));
   for(const alert of active) {
     const key=alertKey(alert.title);
     const previous=remembered.get(key);
     remembered.delete(key);
-    const sentAt=Date.parse(previous?.sent_at||"");
-    if(previous&&previous.status===alert.status&&Number.isFinite(sentAt)&&now.getTime()-sentAt<ALERT_RESEND_MS[alert.status]) continue;
-    due.push(alert);
-    statements.push(env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,JSON.stringify({title:alert.title,status:alert.status,sent_at:now.toISOString()})));
+    const sentAt=time(previous?.sent_at);
+    const recoveredAt=time(previous?.recovered_at);
+    // 마지막으로 보낸 메일이 '해소'였다면 운영자는 해소를 믿고 있다. 다시 생긴 것을 한 번 알린다.
+    const again=sentAt!==null&&recoveredAt!==null&&recoveredAt>=sentAt;
+    if(sentAt!==null&&!again&&at-sentAt<ALERT_RESEND_MS[alert.status]&&(ALERT_RANK[alert.status]||0)<=(ALERT_RANK[previous.status]||0)) {
+      // 간격 안: 보내지 않는다. 진행 중이던 해소 판정(연속 정상)만 처음으로 되돌린다.
+      if(previous.resolved_at||previous.ok) save(key,{...previous,resolved_at:null,ok:0,ok_since:null});
+      continue;
+    }
+    due.push(again?{...alert,again:true}:alert);
+    save(key,{title:alert.title,status:alert.status,sent_at:stamp,resolved_at:null,ok:0,ok_since:null,recovered_at:previous?.recovered_at||null});
   }
-  const recovered=[];
   for(const [key,previous] of remembered) {
-    if(!alertRecoveryConfirmed(result,previous?.title)) continue;
-    statements.push(env.MONITOR_DB.prepare("DELETE FROM settings WHERE key=?").bind(key));
-    if(previous?.status==="critical") recovered.push(previous);
+    let record=previous;
+    let resolvedNow=false;
+    if(!record?.resolved_at) {
+      // 사라진 경고도 같은 출처의 새 정상 측정이 있어야 해소 쪽으로 센다(수집 오류·지연은 세지 않고 되돌리지도 않는다).
+      if(!alertRecoveryConfirmed(result,record?.title)) continue;
+      const ok=(Number(record.ok)||0)+1;
+      const okSince=time(record.ok_since)??at;
+      if(ok<ALERT_RECOVERY_CHECKS||at-okSince<ALERT_RECOVERY_MIN_MS) { save(key,{...record,ok,ok_since:new Date(okSince).toISOString()}); continue; }
+      record={...record,ok:0,ok_since:null,resolved_at:stamp};
+      resolvedNow=true;
+    }
+    const sentAt=time(record.sent_at);
+    const recoveredAt=time(record.recovered_at);
+    const owed=record.status==="critical"&&sentAt!==null&&!(recoveredAt!==null&&recoveredAt>=sentAt);
+    if(owed&&(recoveredAt===null||at-recoveredAt>=ALERT_RESEND_MS.critical)&&(resolvedNow||alertRecoveryConfirmed(result,record.title))) {
+      recovered.push(record);
+      save(key,{...record,recovered_at:stamp});
+    } else if(!owed&&at-Math.max(sentAt??0,recoveredAt??0)>=(ALERT_RESEND_MS[record.status]||ALERT_RESEND_MS.warning)) statements.push(env.MONITOR_DB.prepare("DELETE FROM settings WHERE key=?").bind(key));
+    else if(resolvedNow) save(key,record);
   }
   if(!due.length&&!recovered.length) { if(statements.length) await env.MONITOR_DB.batch(statements); return {channels,sent:0,recovered:0,active:active.length,status:result.status}; }
   const counts=["critical","upgrade","warning"].map(status=>`${ALERT_LABELS[status]} ${due.filter(a=>a.status===status).length}`).join(" · ");
@@ -409,7 +503,14 @@ export default {
         const data=sanitizeTelemetry(await requestJson(request));
         let hash=2166136261; for(const c of data.id) hash=Math.imul(hash^c.charCodeAt(0),16777619);
         const slot=`${Math.floor(data.at/300000)}:${data.sample_kind}:${(hash>>>0)%10}`;
-        await env.MONITOR_DB.prepare("INSERT OR IGNORE INTO telemetry(id,at,route,method,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,slot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(...Object.values(data),slot).run();
+        // 1.2.0(V44:G-5): '처리 중'으로 먼저 답한 요청의 최종 결과 표본(ref = 첫 표본 id)은 첫 표본 행을 그 결과로 고친다.
+        // 첫 표본이 없으면(상한·유실) 최종 결과를 첫 표본 id 로 넣는다. 그러면 늦게 도착한 "deferred" 표본은 같은 id 라 무시된다.
+        // 칸(slot)은 최종 표본 자신의 id 로 정해 첫 표본과 같은 칸에 부딪혀 사라지지 않게 한다.
+        if(data.ref) {
+          const updated=await env.MONITOR_DB.prepare("UPDATE telemetry SET status=?,duration_ms=?,db_count=?,db_ms=?,db_failures=?,outcome=? WHERE id=? AND outcome='deferred'").bind(data.status,data.duration_ms,data.db_count,data.db_ms,data.db_failures,data.outcome,data.ref).run();
+          if(Number(updated?.meta?.changes)>0) return json({ok:true},202);
+        }
+        await env.MONITOR_DB.prepare("INSERT OR IGNORE INTO telemetry(id,at,route,method,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,slot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(data.ref||data.id,data.at,data.route,data.method,data.status,data.duration_ms,data.db_count,data.db_ms,data.db_failures,data.outcome,data.sample_kind,slot).run();
         return json({ok:true},202);
       }
       if(url.pathname==="/internal/ticket"&&request.method==="POST") {

@@ -1591,8 +1591,40 @@ function abMonitorRequestContext(request, env = {}) {
   return { started_at: Date.now(), route, method: request.method, db_count: 0, db_ms: 0, db_failures: 0, db_retries: 0, outcome: "unknown" };
 }
 
-function abMonitorOutcome(env, outcome) {
-  if (env.__AB_MONITOR_REQUEST) env.__AB_MONITOR_REQUEST.outcome = outcome;
+// V22.9.77(감사 G-5): '처리 중'으로 먼저 답한 요청(deferred)은 응답 시점 표본 하나만 남아, 뒤 작업에서 저장이 실패해도 관제에는
+// outcome=deferred·db_failures=0 으로 보였다. 스킬 처리가 그 뒤 작업(pending)을 넘기면 작업이 끝날 때 최종 결과 표본을 한 번 더
+// 보낸다(ref = 첫 표본 id. 관제 1.2.0 이 첫 표본 행을 최종 결과로 고친다). 카카오 응답 경로에는 요청을 더하지 않는다.
+function abMonitorOutcome(env, outcome, pending = null) {
+  const record = env.__AB_MONITOR_REQUEST;
+  if (!record) return;
+  record.outcome = outcome;
+  if (pending && typeof pending.then === "function") record.pending = pending;
+}
+
+function abMonitorSend(env, event) {
+  const minute = Math.floor(Date.now() / 60000);
+  if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
+  if (AB_MONITOR_SEND_BUDGET.count >= 100) return null;
+  AB_MONITOR_SEND_BUDGET.count += 1;
+  // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
+  return (async () => {
+    try {
+      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
+      if (result.body) await result.body.cancel();
+      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
+    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
+  })();
+}
+
+async function abMonitorDeferredResult(env, record, first) {
+  try {
+    let response = null;
+    try { response = await record.pending; } catch (_) { response = null; /* 뒤 작업이 던졌으면 실패로 남긴다. */ }
+    const status = response ? response.status : 500;
+    const reported = response?.headers?.get("x-accountbook-nlu-result") || "";
+    const outcome = reported && reported !== "deferred" && reported !== "unknown" ? reported : status < 400 ? "ok" : "error";
+    await abMonitorSend(env, { ...first, id: crypto.randomUUID(), ref: first.id, at: Date.now(), status, duration_ms: Math.max(0, Date.now() - record.started_at), db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, db_retries: record.db_retries || 0, outcome });
+  } catch (_) { /* Telemetry must never interrupt application handling. */ }
 }
 
 function abMonitorCompleted(env, ctx, response) {
@@ -1603,22 +1635,13 @@ function abMonitorCompleted(env, ctx, response) {
   const status = response ? response.status : 500;
   const outcome = response?.headers.get("x-accountbook-nlu-result") || record.outcome;
   const randomSample = Math.random() < 0.02;
-  const incident = status >= 500 || status === 403 || record.db_failures > 0 || (record.db_retries || 0) > 0 || outcome === "error" || duration >= 3500;
+  // '처리 중' 먼저 답은 응답 예산을 3.5초보다 짧게 둬도 늘 오류·지연 표본이다(최종 결과 표본과 짝을 이룬다).
+  const incident = outcome === "deferred" || status >= 500 || status === 403 || record.db_failures > 0 || (record.db_retries || 0) > 0 || outcome === "error" || duration >= 3500;
   if (!randomSample && !incident) return;
-  const minute = Math.floor(Date.now() / 60000);
-  if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
-  if (AB_MONITOR_SEND_BUDGET.count >= 100) return;
-  AB_MONITOR_SEND_BUDGET.count += 1;
   const event = { id: crypto.randomUUID(), at: Date.now(), route: record.route, method: record.method, status, duration_ms: duration, db_count: record.db_count, db_ms: record.db_ms, db_failures: record.db_failures, db_retries: record.db_retries || 0, outcome: outcome === "unknown" && status < 400 ? "ok" : outcome, sample_kind: randomSample ? "random" : "incident" };
-  // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
-  const persistence = (async () => {
-    try {
-      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
-      if (result.body) await result.body.cancel();
-      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
-    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
-  })();
-  try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ }
+  const persistence = abMonitorSend(env, event);
+  if (persistence) { try { ctx.waitUntil(persistence); } catch (_) { /* Do not change a completed response. */ } }
+  if (outcome === "deferred" && record.pending) { try { ctx.waitUntil(abMonitorDeferredResult(env, record, event)); } catch (_) { /* Do not change a completed response. */ } }
   } catch (_) { /* Telemetry must never interrupt application handling. */ }
 }
 
@@ -2911,7 +2934,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.76-PRELAUNCH-AUDIT";
+const APP_VERSION = "V22.9.77-AUDIT-FOLLOWUP";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -12258,8 +12281,17 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
+// V22.9.77 N-15: 분류 표가 없는 운영 모드(404 PGRST205)만 '표 없음'으로 본다. 다른 실패는 엄격 조회에서 그대로 올린다.
+function categoriesTableAbsent(err) {
+  const message = String(err?.message || err || "");
+  return /^Supabase 404:/.test(message) && /PGRST205/.test(message);
+}
+
 async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
+  // V22.9.77 N-15: options.strict(백업)는 읽기 실패를 빈 목록으로 바꾸지 않는다. 설정 조회가 실패하면 기본 분류만 든 백업이
+  // 정상 파일로 내려받아졌다(V22.9.34 S10: 못 읽은 자료가 있으면 파일을 만들지 않는다). 저장된 값은 화면과 같은 방식으로 읽는다.
+  const strict = options.strict === true;
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
   if (householdId) params.set("household_id", `eq.${householdId}`);
@@ -12269,8 +12301,14 @@ async function fetchCustomCategories(env, householdId = "", options = {}) {
   // Read both fallback settings together so absence does not add a serial database round trip.
   const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
   const [rows, settings] = await Promise.all([
-    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch(() => null),
-    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
+    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch((err) => {
+      if (strict && !categoriesTableAbsent(err)) throw err;
+      return null;
+    }),
+    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch((err) => {
+      if (strict) throw err;
+      return [];
+    }),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
   let keywordMap = Object.create(null);
@@ -14537,7 +14575,12 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
 
+// V22.9.77 \uac10\uc0ac E-1: \ud574\uc11d \ud55c \ubc88 \ub3d9\uc548 KST \ud604\uc7ac \uc2dc\uac01 \ud615\uc2dd\uae30\ub97c \ud558\ub098\ub9cc \uc4f4\ub2e4(\uc790\uc5f0\uc5b4 \ud589\ub9c8\ub2e4 \uc0c8\ub85c \ub9cc\ub4e4\ub358 \uac83). \uacb0\uacfc\ub294 \uadf8\ub300\ub85c\ub2e4.
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
+  return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+}
+
+function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId = "", options = {}) {
   const text = String(rawText || "").replace(/^\ufeff/, "");
   const result = { rows: [], accepted: [], rejected: [], skipped: 0, warnings: [], mappings: [], delimiter: "", format: "natural_text", header_row: 0, total_rows: 0, sign_convention: { mode: "default", amount_rows: 0, negative_rows: 0 }, two_digit_year_rows: 0 };
   if (!text.trim()) return result;
@@ -14884,7 +14927,8 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
     ? Promise.resolve(normalizeMemberAliasMap(options.aliases))
     : options?.aliasesPromise
       ? Promise.resolve(options.aliasesPromise).then(normalizeMemberAliasMap).catch(() => ({}))
-      : fetchMemberAliasMap(env, householdId);
+      // V22.9.77 N-15: options.strict(백업)는 별명 읽기 실패를 빈 별명으로 바꾸지 않는다.
+      : fetchMemberAliasMap(env, householdId, { strict: options?.strict === true });
   // V22.9.16: 구성원 행에 사용자 행을 포함해 한 번에 읽는다(외래키가 없으면 두 단계로 복귀).
   const memberPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}`;
   const [{ rows: rawMembers, embedded }, aliases] = await Promise.all([
@@ -15075,10 +15119,71 @@ async function countHouseholdTransactions(env, householdId) {
   return supabaseExactCount(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(householdId)}&select=id`);
 }
 
+// V22.9.77 감사 B-5: 이름이 같은 사람이 요약·정산·기록 목록에서 한 사람처럼 보였다. 단톡방 구성원은 payload 에 별명이 없어
+// 모두 ‘카카오사용자’라서 "카카오사용자: 36,000원" 한 줄, "카카오사용자 → 카카오사용자" 송금 제안이 나왔다.
+// 같은 이름이 둘 이상이면 넘겨받은 순서대로 ‘이름 1’·‘이름 2’를 붙인다. 다른 사람이 이미 쓰는 이름(예: 별명 ‘카카오사용자 1’)은
+// 건너뛰고, 이름이 하나뿐이면 그대로 둔다. reserved 는 이 목록 밖에서 이미 쓰는 이름이다(겹치면 하나뿐이어도 번호를 붙인다).
+// 돌려주는 Map 은 id → 겹치지 않는 이름이다.
+function distinctPersonLabels(entries = [], reserved = new Set()) {
+  const labels = new Map();
+  const groups = new Map();
+  for (const entry of safeArray(entries)) {
+    const id = String(entry?.id ?? "").trim();
+    if (!id || labels.has(id)) continue;
+    const label = String(entry?.label || "").trim() || "구성원";
+    labels.set(id, label);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(id);
+  }
+  const taken = new Set([...reserved, ...labels.values()]);
+  for (const [label, ids] of groups) {
+    if (ids.length < 2 && !reserved.has(label)) continue;
+    let n = 0;
+    for (const id of ids) {
+      let candidate = "";
+      do { n += 1; candidate = `${label} ${n}`; } while (taken.has(candidate));
+      taken.add(candidate);
+      labels.set(id, candidate);
+    }
+  }
+  return labels;
+}
+
+// 번호는 지금 구성원끼리 참여 순서(가계부에 들어온 시각, fetchHouseholdMembers 와 같은 비교)로 매긴다. 부르는 쪽이 명단을
+// 어떤 순서로 넘겨도, 나간 사람(role "left", fetchFormerSpenderMembers)을 섞어 넘겨도 같은 사람은 요약·정산·기록 목록에서
+// 같은 이름을 받는다. 나간 사람은 나간 사람끼리 번호를 매기고(정산의 formerMap 과 같다), 지금 구성원과 이름이 겹치면
+// 정산의 D-20 규칙처럼 ‘이름(나간 구성원)’으로 쓴다. 겹치지 않으면 예전처럼 기록 당시 이름 그대로다.
 function memberNameMap(members = []) {
+  const ordered = safeArray(members)
+    .map((member, index) => ({ member, index }))
+    .filter(({ member }) => member && member.user_id)
+    .sort((a, b) => String(a.member.created_at || "").localeCompare(String(b.member.created_at || "")) || a.index - b.index);
+  const entry = ({ member }) => ({ id: String(member.user_id).trim(), label: String(member.nickname || "").trim() || "구성원" });
+  const current = ordered.filter(({ member }) => member.role !== "left").map(entry);
+  const currentLabels = distinctPersonLabels(current);
+  const reserved = new Set([...current.map((item) => item.label), ...currentLabels.values()]);
+  const departedRaw = ordered.filter(({ member }) => member.role === "left").map(entry);
+  const departedNumbered = distinctPersonLabels(departedRaw);
+  const departed = departedRaw.map((item) => {
+    const label = departedNumbered.get(item.id) || item.label;
+    return { id: item.id, label: reserved.has(item.label) || reserved.has(label) ? `${label}(나간 구성원)` : label };
+  });
   const map = Object.create(null);
-  for (const m of members) if (m.user_id) map[m.user_id] = m.nickname || "구성원";
+  for (const [id, label] of currentLabels) map[id] = label;
+  for (const [id, label] of distinctPersonLabels(departed, reserved)) if (!(id in map)) map[id] = label;
   return map;
+}
+
+// V22.9.77 감사 B-5: 카카오 요약의 지출자별 합계에 쓰는 이름. 정산(buildSettlementModel, V22.9.58 지문으로 고정)과 같은 규칙이다 —
+// 지금 구성원은 memberNameMap(같은 이름이면 참여 순서 번호), 나간 사람은 V22.9.76 D-20 규칙(‘별명(나간 구성원)’,
+// 이름을 모르면 ‘이전 구성원’·‘이전 구성원 N’). 끝에 한 번 더 겹치지 않게 맞춘다(별명을 일부러 ‘이전 구성원’처럼 지은 경우).
+function householdPersonLabels(members = [], formerMembers = [], ids = []) {
+  const memberMap = memberNameMap(members);
+  const formerMap = memberNameMap(safeArray(formerMembers));
+  const list = [...new Set(safeArray(ids).map((id) => String(id ?? "").trim()).filter(Boolean))];
+  const departedIds = list.filter((id) => !memberMap[id]);
+  const departedName = (id) => formerMap[id] ? `${formerMap[id]}(나간 구성원)` : departedIds.length > 1 ? `이전 구성원 ${departedIds.indexOf(id) + 1}` : "이전 구성원";
+  return distinctPersonLabels(list.map((id) => ({ id, label: memberMap[id] || departedName(id) })));
 }
 
 function attachSpenderNames(rows = [], members = []) {
@@ -15115,9 +15220,11 @@ async function attachSpenderNamesWithHistory(env, rows = [], members = []) {
 
 function renderSpenderOptions(members = [], selected = "", blankLabel = "지출자 미지정") {
   const opts = [`<option value=""${!selected ? " selected" : ""}>${escapeHtml(blankLabel)}</option>`];
+  // V22.9.77 감사 B-5: 이름이 같은 구성원(‘카카오사용자’ 여럿)도 고를 수 있게 요약·정산과 같은 구분 이름을 쓴다.
+  const names = memberNameMap(members);
   for (const m of members) {
     if (!memberCanBeSpender(m)) continue;
-    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
+    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(names[m.user_id] || m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
   }
   return opts.join("");
 }
@@ -15754,11 +15861,12 @@ async function buildBackupPayload(env, { month, householdId, range = "month" }) 
   const reservePlansByHousehold = Object.create(null);
   // V22.9.34 감사 S10: 백업은 읽기 실패를 빈 값으로 넣지 않는다. 일부가 빈 백업 파일은 정상처럼 보여
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
+  // V22.9.77 N-15: 분류·키워드와 구성원 별명도 엄격 조회로 읽는다(예전에는 실패하면 빈 목록이 들어간 파일이 정상으로 나갔다).
   for (const h of selectedHouseholds) {
-    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
+    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id, { strict: true });
     budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
-    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
+    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id, { strict: true });
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
   const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];
@@ -22103,30 +22211,37 @@ async function verifyHouseholdDeleteReauth(request, env, userId = "", householdI
   }
 }
 
-async function findUserByKakaoLoginId(env, kakaoId = "") {
+// V22.9.77 감사 B-7: 카카오 로그인 id 의 주인 계정을 웹 로그인과 같은 순서(강한 식별 → 식별 링크 표 → 사용자 행)로 찾는다.
+// 아무것도 쓰지 않는다. 웹 로그인(findUserByKakaoLoginId)은 찾은 뒤 강한 식별로 옮겨 적고, 채팅(appUserId)은 이것으로
+// 이미 있는 웹 계정을 찾거나 별칭을 다른 사람에게 묶지 않는지 확인한다. options.links 를 주면 링크 표를 다시 읽지 않는다.
+async function lookupKakaoLoginOwner(env, kakaoId = "", options = {}) {
   const kid = String(kakaoId || "").trim();
   if (!kid) return null;
   const strong = await fetchStrongIdentityBySubject(env, "kakao", kid);
   if (strong?.user_id) {
     const user = await fetchUserById(env, strong.user_id);
-    if (user) return user;
+    if (user) return { user, source: "strong" };
   }
-  const key = kakaoLoginUserKey(kakaoId);
-  const links = await fetchUserIdentityLinks(env);
+  const key = kakaoLoginUserKey(kid);
+  const links = options.links || await fetchUserIdentityLinks(env);
   const linkedUserId = String(safeObject(links[key]).user_id || "");
   if (linkedUserId) {
     const linked = await fetchUserById(env, linkedUserId);
-    if (linked) {
-      try { await linkKakaoLoginToUser(env, kid, linked.id, { nickname: linked.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
-      return linked;
-    }
+    if (linked) return { user: linked, source: "link" };
   }
   const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${encodeURIComponent(key)}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
-  if (existing?.[0]) {
-    try { await linkKakaoLoginToUser(env, kid, existing[0].id, { nickname: existing[0].nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
-    return existing[0];
-  }
+  if (existing?.[0]) return { user: existing[0], source: "user_key" };
   return null;
+}
+
+async function findUserByKakaoLoginId(env, kakaoId = "") {
+  const kid = String(kakaoId || "").trim();
+  const found = await lookupKakaoLoginOwner(env, kid);
+  if (!found) return null;
+  if (found.source !== "strong") {
+    try { await linkKakaoLoginToUser(env, kid, found.user.id, { nickname: found.user.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
+  }
+  return found.user;
 }
 
 async function ensureKakaoLoginUser(env, kakaoId, nickname) {
@@ -24141,11 +24256,18 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // (겹친 실행이나 같은 때의 수동 반영과 부딪쳐도 한 건).
 // 새 달 첫 실행은 지난달에 실행이 끝까지 처리하지 못한 날짜(checked_date 뒤)의 규칙만 지난달 몫으로 따라잡는다(D-10):
 // 지난달이 끝난 뒤 만든 규칙, 지난달 지정일에 꺼 두었던 규칙은 지난달로 넣지 않는다.
+// V22.9.77 감사 M-8: 지난 달에 기록을 넣은(따라잡기·?month= 실행) 가계부는 그 달 월간 리포트 스냅숏이 이미 있으면 같은
+// 실행 끝에서 다시 만든다. 한 실행에 RECURRING_REPORT_REBUILDS 개(월말 생성과 같은 가계부 2개)까지, 이 단계 몫(30회) 안에서만
+// 만들고, 못 만든 가계부·달은 상태 키의 report_rebuild 에 남겨 다음 실행이 잇는다. 넣은 기록이 없는 실행은 예전과 같다.
+// V22.9.77 N-17: report_rebuild 는 RECURRING_REPORT_QUEUE_MAX 개까지만 저장한다. 넘친 항목은 저장 때 잘려 그 가계부의 스냅숏이
+// 예전 금액으로 남았으므로, 대기에 자리가 없는 가계부·달의 지난 달 몫은 이번 실행에서 넣지 않고 남겨 다음 실행이 잇는다.
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
 const RECURRING_CRON_CHUNK = 40;
 const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22976";
 const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at";
+const RECURRING_REPORT_REBUILDS = 2;
+const RECURRING_REPORT_QUEUE_MAX = 300;
 
 function recurringCronLastDay(month = "") {
   return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -24192,7 +24314,27 @@ function recurringCronState(raw) {
   return {
     checked_date: isValidTransactionDateString(String(state.checked_date || "")) ? String(state.checked_date) : "",
     pending_month: validMonth(state.pending_month) || "",
+    report_rebuild: recurringReportQueue(state.report_rebuild),
   };
+}
+
+// V22.9.77 감사 M-8: 월간 스냅숏을 다시 만들 가계부·달 목록("YYYY-MM|가계부ID"). 형식이 틀린 항목·겹친 항목은 버린다.
+function recurringReportQueue(values = []) {
+  const out = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const text = String(value ?? "");
+    if (text[7] === "|" && validMonth(text.slice(0, 7)) && /^[^|\s"(),]{1,80}$/.test(text.slice(8))) out.add(text);
+  }
+  return [...out];
+}
+
+function recurringReportEntries(queue = []) {
+  return queue.map((item) => ({ month: item.slice(0, 7), household_id: item.slice(8) }));
+}
+
+function recurringStateBody(checkedDate = "", pendingMonth = "", queue = []) {
+  // 다시 만들 스냅숏이 없으면 예전과 같은 두 값만 쓴다.
+  return JSON.stringify({ checked_date: checkedDate, pending_month: pendingMonth, ...(queue.length ? { report_rebuild: queue.slice(0, RECURRING_REPORT_QUEUE_MAX) } : {}) });
 }
 
 function recurringCronBudgetStop(err) {
@@ -24267,13 +24409,17 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const touched = new Set();
   const members = new Map();
   const caughtUp = new Set();
+  const reportTouched = [];
   const phases = [];
   let stored = null;
   let checkedDate = "";
   let partial = false;
+  let queuedBefore = [];
   if (explicitMonth) {
     // 운영자가 ?month= 로 달을 지정하면 그 달만 본다. 지난 달은 모든 날짜, 이번 달은 오늘까지가 지정일이다. 앞으로 올 달은 넣지 않는다.
     if (explicitMonth <= currentMonth) phases.push({ kind: "explicit", month: explicitMonth, dueDay: explicitMonth < currentMonth ? 31 : currentDay });
+    // N-17: 지난 달 ?month= 실행도 다시 만들기 대기에 남은 자리를 본다. report_rebuild 만 쓰고 checked_date·pending_month 는 보지 않는다.
+    if (explicitMonth < currentMonth) queuedBefore = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY)).report_rebuild;
   } else {
     stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
     // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
@@ -24309,14 +24455,35 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
   const markerOf = (rule) => caughtUp.has(String(rule.id)) ? previousMonth : String(rule.last_applied_month || "");
   const report = (detail, kind = "recurring_auto_apply_failed") => rememberOpsEvent({ kind, severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail });
+  // V22.9.77 N-17: 지난 달 몫을 넣으면 그 가계부·달이 다시 만들기 대기에 오른다. 대기(앞선 실행이 남긴 것 + 이번 실행)가
+  // RECURRING_REPORT_QUEUE_MAX 개를 넘지 않게, 자리가 없는 가계부·달의 규칙은 이번에 넣지 않는다. 그 규칙은 표식이 그대로라
+  // 남은 규칙(partial)이 되고 다음 실행이 잇는다. 이번 달 몫은 대기에 오르지 않으므로 그대로 넣는다.
+  let reportDeferred = 0;
+  const reportQueueWork = (phase, candidates) => {
+    if (phase.month >= currentMonth) return candidates;
+    const queued = new Set([...(stored ? stored.report_rebuild : queuedBefore), ...reportTouched]);
+    const work = candidates.filter((rule) => {
+      const key = `${phase.month}|${String(rule.household_id || "")}`;
+      if (queued.has(key)) return true;
+      if (queued.size >= RECURRING_REPORT_QUEUE_MAX) return false;
+      queued.add(key);
+      return true;
+    });
+    if (work.length < candidates.length) {
+      reportDeferred += candidates.length - work.length;
+      report(`${phase.month}:report_rebuild_full:${candidates.length - work.length}`, "recurring_report_rebuild_deferred");
+    }
+    return work;
+  };
   const processPhase = async (phase) => {
     const candidates = phase.rows.filter((rule) => isCandidate(rule, phase));
     const done = new Set();
     phase.candidates = candidates.length;
     phase.confirmed = 0;
     stats.scanned += candidates.length;
-    for (let index = 0; index < candidates.length; index += RECURRING_CRON_CHUNK) {
-      const chunk = candidates.slice(index, index + RECURRING_CRON_CHUNK);
+    const work = reportQueueWork(phase, candidates);
+    for (let index = 0; index < work.length; index += RECURRING_CRON_CHUNK) {
+      const chunk = work.slice(index, index + RECURRING_CRON_CHUNK);
       const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
       if (!room((missing.length ? 1 : 0) + 3)) { partial = true; break; }
       if (missing.length) {
@@ -24388,6 +24555,9 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       }
       // 거래 저장이나 기존 거래 확인이 끝난 규칙만 표식을 바꾼다. 더 나중 달 표식은 되돌리지 않는다(SIM-8).
       const advance = confirmed.filter((rule) => { const marker = markerOf(rule); return !marker || marker < phase.month; });
+      // V22.9.77 감사 M-8: 지난 달 몫을 이 실행에서 넣었거나(표식이 그 달에 못 미친 기존 기록 포함) 확인한 가계부는 그 달 월간
+      // 스냅숏이 이미 있으면 다시 만든다. 표식이 이미 그 달 이후인 규칙(?month= 재실행의 기존 기록)은 앞선 실행이 맡았다.
+      if (phase.month < currentMonth) for (const rule of advance) reportTouched.push(`${phase.month}|${String(rule.household_id || "")}`);
       for (const rule of confirmed) {
         done.add(String(rule.id));
         touched.add(String(rule.household_id || ""));
@@ -24414,6 +24584,18 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const remainingOf = (phase) => safeArray(phase?.remaining);
   const remaining = phases.reduce((sum, phase) => sum + remainingOf(phase).length, 0);
   partial = partial || remaining > 0;
+  // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(예약 실행 1회,
+  // ?month= 실행은 읽기·저장 2회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
+  let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
+  let reportRebuilt = 0;
+  if (reportQueue.length) {
+    const reserve = stored ? 1 : 2;
+    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
+    stats.failed += outcome.failed;
+    reportRebuilt = outcome.rebuilt;
+    reportQueue = recurringReportQueue(outcome.remaining.map((entry) => `${entry.month}|${entry.household_id}`));
+    if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
+  }
   let nextChecked = checkedDate;
   if (stored) {
     // checked_date = 그 날짜까지 지정일인 규칙을 모두 처리했다는 표시. 끝까지 처리한 실행만 오늘로 옮기고, 남은 규칙이
@@ -24428,16 +24610,25 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     }
     const currentPhase = phases.find((phase) => phase.kind === "current");
     const nextPending = remainingOf(currentPhase).length ? currentMonth : remainingOf(catchupPhase).length ? previousMonth : "";
-    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month) {
-      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, JSON.stringify({ checked_date: nextChecked, pending_month: nextPending })); }
+    const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
+    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged) {
+      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue)); }
       catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
+  } else if (reportQueue.length) {
+    // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month 는 읽은 값 그대로 쓴다.
+    try {
+      const current = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, recurringReportQueue([...current.report_rebuild, ...reportQueue])));
+    } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
   }
   const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
   return {
     ok: stats.failed === 0 && !partial, partial, month, today,
     months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length })),
     households: touched.size, ...stats, remaining, checked_date: stored ? nextChecked : "",
+    ...(reportRebuilt || reportQueue.length ? { report_rebuilt: reportRebuilt, report_rebuild_pending: reportQueue.length } : {}),
+    ...(reportDeferred ? { report_rebuild_deferred: reportDeferred } : {}),
   };
 }
 
@@ -24459,7 +24650,11 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   if (recurringCronDueDate(existing, previousMonth) <= checked) return "none";
   if (!recurringCronExistedIn(existing, previousMonth, state.pending_month)) return "none";
   if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, householdId), existing.user_id)) return "none";
-  return applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
+  const outcome = await applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
+  // V22.9.77 감사 M-8: 이 지난달 몫은 따라잡기가 넣었을 기록인데 표식이 지난달로 바뀌어 다음 예약 실행은 이 가계부를 다시
+  // 보지 않는다. 지난달 월간 스냅숏이 이미 있으면 여기서 다시 만든다(실패해도 고친 내용 저장은 막지 않는다).
+  if (outcome === "applied" || outcome === "deduplicated") await rebuildMonthlyReportSnapshots(env, [{ household_id: householdId, month: previousMonth }], { limit: 1, path: "/recurring/edit", method: "POST" });
+  return outcome;
 }
 
 async function runRecurringAutoApply(env, opts = {}) {
@@ -25319,6 +25514,56 @@ async function runAutomaticReports(env, opts = {}) {
   } finally {
     await releaseOperationLease(env, lease);
   }
+}
+
+// V22.9.77 감사 M-8: 월간 스냅숏은 그 달 말일 예약 실행이 만든다. 말일 예약 반영이 멈추거나 한도에 걸려 새 달 실행이
+// 지난달 몫을 따라잡으면(1일, 넘치면 2일 뒤) 이미 만든 지난달 스냅숏에 그 기록이 빠진 채 남았다. 예약 반영이 지난 달에
+// 기록을 넣은 가계부·달을 넘기면 그 달 스냅숏이 이미 있을 때만 지금 기록으로 다시 만든다(없으면 월말 생성이 나중에 새로
+// 만든다). 저장소 호출: 스냅숏 확인 1회(앞 REPORT_REBUILD_LOOKUP 개) + 다시 만드는 가계부마다 기록 조회 1회(1,000행마다
+// 1회 더)·저장 1회. 한 번에 limit 개까지만 만들고, 못 한 항목은 remaining 으로 돌려줘 호출부가 다음 실행에 넘긴다.
+const REPORT_REBUILD_LOOKUP = 40;
+
+async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
+  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && validMonth(entry.month));
+  const keyOf = (entry) => freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
+  const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
+  if (!list.length || !canSpend(1)) return result;
+  const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
+  const done = new Set();
+  let values;
+  try { values = await fetchSettingValues(env, lookup.map(keyOf)); }
+  catch (err) {
+    result.failed++;
+    rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `lookup:${safeError(err)}` });
+    return result;
+  }
+  const rebuild = [];
+  for (const entry of lookup) {
+    if (values.get(keyOf(entry))) rebuild.push(entry);
+    else { done.add(keyOf(entry)); result.dropped++; }
+  }
+  for (const entry of rebuild.slice(0, Math.max(0, limit))) {
+    if (!canSpend(2)) break;
+    const key = keyOf(entry);
+    try {
+      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: `${entry.month}-01`, end: nextMonthStart(entry.month), limit: 9001 });
+      const previous = parseJsonSetting(values.get(key), {});
+      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: "monthly", period: entry.month }));
+      done.add(key); result.rebuilt++;
+    } catch (err) {
+      result.failed++;
+      if (isRowLimitExceededError(err)) {
+        // 월말 생성과 같이, 기록이 한도를 넘으면 일부만으로 덮지 않고 예전 스냅숏을 둔다.
+        done.add(key);
+        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:monthly:${entry.month}` });
+        continue;
+      }
+      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.month}:${safeError(err)}` });
+      break;
+    }
+  }
+  result.remaining = list.filter((entry) => !done.has(keyOf(entry)));
+  return result;
 }
 
 async function handleAutomaticReportCron(request, env, url) {
@@ -29494,14 +29739,17 @@ function renderBudgetCategoryUsageTree(category = "", rows = [], categories = nu
   // V22.9.76 D-4: 카드의 사용액과 같은 분류 목록(budgetSummary 의 행 categories)으로 사용 내역을 보인다.
   const filtered = safeArray(rows).filter((r) => r.type !== "income" && (Array.isArray(categories) ? categories.includes(normalizeText(r.category || "기타")) : budgetCategoryMatches(category, r.category)));
   if (!filtered.length) return `<div class="budgetTree emptyTree">아직 이 분류로 사용된 기록이 없습니다.</div>`;
-  const groups = Object.create(null);
+  // V22.9.77 감사 B-5: 사람별 묶음은 사용자 id 로 만든다(이름으로 묶으면 같은 이름의 구성원·나간 사람이 한 묶음이 됐다).
+  const groups = new Map();
   for (const r of filtered) {
     const name = r.spender_name || r.user_name || r.nickname || r.user_id || "미지정";
-    if (!groups[name]) groups[name] = { total: 0, rows: [] };
-    groups[name].total += Number(r.amount || 0);
-    groups[name].rows.push(r);
+    const key = String(r.user_id ?? "").trim() || `name:${name}`;
+    if (!groups.has(key)) groups.set(key, { name, total: 0, rows: [] });
+    groups.get(key).total += Number(r.amount || 0);
+    groups.get(key).rows.push(r);
   }
-  return `<div class="budgetTree">${Object.entries(groups).map(([name, group]) => {
+  const groupLabels = distinctPersonLabels([...groups].map(([key, group]) => ({ id: key, label: group.name })));
+  return `<div class="budgetTree">${[...groups].map(([key, group]) => [groupLabels.get(key) || group.name, group]).map(([name, group]) => {
     const detailRows = group.rows.sort((a,b)=>String(a.transaction_date||"").localeCompare(String(b.transaction_date||""))).map((r) => `<li><span>${escapeHtml(r.transaction_date || "-")}</span><b>${numberWithCommas(r.amount || 0)}원</b><em>${escapeHtml(r.memo || r.raw_text || "-")}</em></li>`).join("");
     return `<details class="memberUse"><summary>${escapeHtml(name)} · ${numberWithCommas(group.total)}원 · ${numberWithCommas(group.rows.length)}건</summary><ul>${detailRows}</ul></details>`;
   }).join("")}</div>`;
@@ -37970,6 +38218,7 @@ function kakaoEditSimpleGuideText(origin = "") {
     "• 수정 01번  ← 메뉴로 하나씩 선택",
     "• 수정 01번 금액 13000",
     "• 수정 01번 지출자 엄마",
+    "• 수정 01번 구분 수입  ← 지출↔수입 바꾸기",
     "• 삭제 01번",
   ].join("\n");
 }
@@ -38405,7 +38654,14 @@ function kakaoSaveFailedText(origin = "") {
 function kakaoSafeText(text = "") {
   const raw = String(text || "").replace(/\r\n/g, "\n").trim();
   // Kakao simpleText는 길이가 과하면 스킬 테스트에서 응답 검증 실패로 처리될 수 있어 안전 길이로 자릅니다.
-  return raw.length > 950 ? `${raw.slice(0, 930)}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.` : (raw || "잠시 후 다시 시도해주세요.");
+  if (raw.length <= 950) return raw || "잠시 후 다시 시도해주세요.";
+  // V22.9.77 감사 A-14: 자를 때는 줄 경계에서 자른다(예전에는 930자에서 줄 중간이 잘렸다). 줄바꿈이 앞쪽 절반에만 있으면
+  // 낱말 경계에서, 그것도 없으면 예전처럼 930자에서 자른다.
+  const head = raw.slice(0, 930);
+  const line = head.lastIndexOf("\n");
+  const space = head.lastIndexOf(" ");
+  const cut = line >= 465 ? line : space >= 465 ? space : head.length;
+  return `${head.slice(0, cut).trimEnd()}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.`;
 }
 
 function kakaoQr(label, messageText = label, extra = null) {
@@ -39162,7 +39418,7 @@ function parseKakaoEditCommandV4(text = "") {
   if (m) {
     seq = Number(m[1]);
     rest = m[2] || "";
-  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)/.test(body)) {
+  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자|구분)/.test(body)) {
     latest = true;
     rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
   } else {
@@ -39172,7 +39428,7 @@ function parseKakaoEditCommandV4(text = "") {
   rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
   // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
   rest = normalizeText(rest)
-    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
+    .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|구분)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
     .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
     .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
@@ -39198,13 +39454,15 @@ function kakaoActiveSpenderMembers(members = []) {
 
 // V4 메뉴 (지침서 1-1장): 안내되는 모든 예시 입력은 selfTest 케이스에 존재한다.
 // V22.9.76 카카오 감사 8: 수입 기록의 메뉴는 ‘수입자’라고 쓴다(‘지출자’라고 보내도 같은 칸이다).
+// V22.9.77 감사 K-4: 8번 ‘구분’으로 수입↔지출을 바꾼다(예전에는 지우고 다시 기록해야 했다). 1~7번은 그대로다.
 function kakaoEditMenuTextV4(row = {}, seq = 0) {
   const person = row.type === "income" ? "수입자" : "지출자";
+  const other = row.type === "income" ? "지출" : "수입";
   return [
     kakaoRowLabel(row, seq),
     "무엇을 바꿀까요? 번호를 보내주세요.",
-    `1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. ${person}  7. 삭제`,
-    `한 줄로도 돼요: ${person} 엄마 / 금액 13000`,
+    `1. 금액  2. 분류  3. 결제수단  4. 내용  5. 날짜  6. ${person}  7. 삭제  8. 구분(수입↔지출)`,
+    `한 줄로도 돼요: ${person} 엄마 / 금액 13000 / 구분 ${other}`,
     "(그만하려면: 취소)",
   ].join("\n");
 }
@@ -39227,6 +39485,7 @@ function kakaoEditGuideText(origin = "") {
     "수정 01번 날짜 어제",
     "수정 01번 지출자 엄마",
     "(수입 기록은 ‘수정 01번 수입자 엄마’)",
+    "수정 01번 구분 수입  ← 지출을 수입으로(반대는 ‘구분 지출’)",
     "",
     "삭제: 삭제 01번",
     "되돌리기: 복구 01번",
@@ -39265,17 +39524,43 @@ const FIELD_SYNONYMS = {
   date:     ["날짜", "일자", "날자"],
   payer:    ["지출자", "결제자", "결재자", "낸사람", "결제한사람", "지불자", "누가", "사람", "수입자", "받은사람"],
   delete:   ["삭제", "지우기", "지워", "삭제해줘"],
+  // V22.9.77 감사 K-4: 수입↔지출 구분. 오타(퍼지) 매칭에서는 뺀다 — "기분"·"부분"·"구경"이 구분으로 읽히면 안 된다.
+  type:     ["구분", "구분변경", "수입지출", "지출수입"],
 };
 
+// V22.9.77 감사 K-4: 8번은 맨 뒤에 붙인다. 1~7번의 뜻은 예전 그대로다(손에 익은 번호를 바꾸지 않는다).
 const FIELD_BY_NUMBER = {
   1: "amount", 2: "category", 3: "method", 4: "content",
-  5: "date", 6: "payer", 7: "delete",
+  5: "date", 6: "payer", 7: "delete", 8: "type",
 };
 
 const FIELD_LABEL = {
   amount: "금액", category: "분류", method: "결제수단",
-  content: "내용", date: "날짜", payer: "지출자", delete: "삭제",
+  content: "내용", date: "날짜", payer: "지출자", delete: "삭제", type: "구분",
 };
+
+// V22.9.77 감사 K-4: 구분 값. "수입"·"지출"과 "수입으로"·"지출로 바꿔줘"·"수입 기록"을 같은 값으로 읽는다. 아니면 "".
+function kakaoEditTypeValue(textRaw = "") {
+  const c = compact(textRaw)
+    .replace(/(?:바꿔줘|바꿔주세요|바꿔|바꾸기|변경해줘|변경|수정해줘|수정|해줘|해주세요)$/, "")
+    .replace(/(?:으로|로)$/, "")
+    .replace(/(?:기록|거래|내역)$/, "");
+  if (c === "수입" || c === "income") return "수입";
+  if (c === "지출" || c === "expense") return "지출";
+  return "";
+}
+
+// V22.9.77 감사 K-4: 항목 이름 없이 온 구분 값. "수입으로"·"지출로 바꿔줘"처럼 방향이 있으면 바로 바꾸고, 낱말 하나("수입")는
+// 확인을 받는다. 기록과 같은 구분의 낱말 하나("지출" 기록에 "지출")는 바꿀 것이 없으니 예전 해석(항목 이름 오타)에 맡긴다.
+function inferKakaoEditTypeChange(textRaw = "", config = {}) {
+  const value = kakaoEditTypeValue(textRaw);
+  if (!value) return null;
+  const bare = compact(textRaw) === value;
+  if (bare && value === (config.rowType === "income" ? "수입" : "지출")) return null;
+  return { field: "type", value, confidence: bare ? "low" : "high" };
+}
+
+function otherTypeWord(session = {}) { return session && session.rowType === "income" ? "지출" : "수입"; }
 
 // V22.9.76 카카오 감사 8: 수입 기록의 사람 칸은 웹(수입자·지출자)과 같이 ‘수입자’라고 부른다. ‘지출자’라고 보내도
 // 같은 칸으로 알아듣는다. session.rowType 은 수정 세션을 열 때 기록의 구분으로 정한다(예전 세션은 지출로 본다).
@@ -39354,7 +39639,7 @@ function editDistance(a, b) {
 // 토큰 → 필드: 정확일치 단계 (번호 → 완전일치 → 접두일치)
 function tokenToField(tokenRaw) {
   const token = normalize(tokenRaw).replace(/번$/, "");
-  if (/^[1-7]$/.test(token)) return FIELD_BY_NUMBER[Number(token)];
+  if (/^[1-8]$/.test(token)) return FIELD_BY_NUMBER[Number(token)];
   const c = compact(token);
   if (!c) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
@@ -39370,6 +39655,7 @@ function tokenToFieldFuzzy(tokenRaw) {
   const c = compact(normalize(tokenRaw).replace(/번$/, ""));
   if (!c || c.length < 2) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
+    if (field === "type") continue; // V22.9.77 감사 K-4: 구분은 정확히 쓴 말만 받는다(기분·부분 ≠ 구분).
     if (words.some((w) => w.length >= 2 && editDistance(c, w) <= 1)) return field;
   }
   return null;
@@ -39382,7 +39668,7 @@ function tokenToFieldFuzzy(tokenRaw) {
 // 메뉴 번호와 똑같을 때만 맞다고 본다.
 function isExactKakaoEditFieldStart(textRaw = "") {
   const token = (normalize(textRaw).split(" ")[0] || "").replace(/번$/, "");
-  if (/^[1-7]$/.test(token)) return true;
+  if (/^[1-8]$/.test(token)) return true;
   const c = compact(token);
   return !!c && Object.values(FIELD_SYNONYMS).some((words) => words.includes(c));
 }
@@ -39458,6 +39744,16 @@ function parseEditInput(textRaw, config = {}) {
     let value = valueTokens.join(" ") || null;
     if (field === "amount" && value) value = normalizeKakaoEditAmountValue(value);
     if (field === "delete") value = "confirm";
+    if (field === "type") {
+      // V22.9.77 감사 K-4: "구분 수입"·"구분을 지출로"·"구분수입"(붙여 씀)·"8 수입"을 같은 값으로 읽는다. 값이 없으면
+      // null(반대 구분으로 바꿀지 묻는다), 알 수 없는 값이면 invalid 로 표시해 다시 묻는다.
+      const head = compact(tokens[0]).replace(/번$/, "");
+      const word = FIELD_SYNONYMS.type.filter((w) => head.startsWith(w)).sort((a, b) => b.length - a.length)[0] || "";
+      const glued = word ? head.slice(word.length).replace(/^(?:을|를|은|는|이|가)/, "") : "";
+      const raw = [glued, ...valueTokens].filter(Boolean).join(" ");
+      const typed = raw ? kakaoEditTypeValue(raw) : "";
+      return typed ? { field, value: typed, via: "field" } : { field, value: null, ...(raw ? { invalid: raw } : {}), via: "field" };
+    }
     return { field, value, via: "field" };
   };
 
@@ -39468,6 +39764,10 @@ function parseEditInput(textRaw, config = {}) {
   // ② 고신뢰 값 추론 (숫자/구성원명/날짜어/결제수단)
   const inferred = inferFieldFromValue(text, config);
   if (inferred && inferred.confidence === "high") return { ...inferred, via: "infer" };
+
+  // ②-2 V22.9.77 감사 K-4: 구분 값("수입으로", "지출로 바꿔줘", "수입"). ③보다 앞이어야 "수입"이 ‘수입자’ 오타로 읽히지 않는다.
+  const typeChange = inferKakaoEditTypeChange(text, config);
+  if (typeChange) return { ...typeChange, via: "infer" };
 
   // ③ fuzzy 필드 매칭 (오타: "지츨자")
   const fuzzy = tokenToFieldFuzzy(tokens[0]);
@@ -39491,7 +39791,7 @@ function failMessage(session, userText) {
       const guess = nearestField(userText);
       let msg = `⚠️ '${userText}' 입력을 이해하지 못했어요.`;
       if (guess) msg += `\n혹시 ${fieldLabel(guess, session)} 변경이라면 이걸 그대로 복사해서 보내주세요:\n👉 ${exampleFor(guess, session)}`;
-      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제`;
+      msg += `\n번호만 보내도 돼요: 1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제 / 8 구분`;
       return msg;
     })(),
     // 3회차: 세션 종료 직전 최후 안내는 cancel 쪽에서 처리
@@ -39517,6 +39817,7 @@ function exampleFor(field, session = {}) {
   return {
     amount: "금액 13000", category: "분류 카페/간식", method: "결제수단 현금",
     content: "내용 점심", date: "날짜 어제", payer: `${payerWord(session)} 엄마`, delete: "삭제",
+    type: `구분 ${otherTypeWord(session)}`,
   }[field];
 }
 
@@ -39554,9 +39855,9 @@ const HELP_TEXT = (no, session = {}) =>
   `📖 수정 방법 안내\n` +
   `① 숫자로 차근차근 (가장 안전):\n` +
   `번호를 보내면 → 바꿀 값도 번호로 골라요\n` +
-  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제\n` +
+  `1 금액 / 2 분류 / 3 결제수단 / 4 내용 / 5 날짜 / 6 ${payerWord(session)} / 7 삭제 / 8 구분(수입↔지출)\n` +
   `② 한 줄로 바로 (가장 빠름):\n` +
-  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제\n` +
+  `👉 ${payerWord(session)} 엄마 / 금액 13000 / 날짜 어제 / 구분 ${otherTypeWord(session)}\n` +
   `그만하려면: 취소`;
 
 // ------------------------- 세션 상태머신 -------------------------
@@ -39636,7 +39937,7 @@ function handleEditMessage(session, textRaw, config = {}) {
         action: "reprompt",
         // 여기서 탈출 안내를 빼면, 수정 세션인 줄 모르고 새 지출을 보낸 사람이
         // 계속 같은 확인 질문만 받으며 아무것도 저장하지 못한 채 갇힌다.
-        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~7)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
+        reply: `그럼 무엇을 바꿀까요?\n예: ${payerWord(session)} 엄마 / 금액 13000 / 번호(1~8)\n새로 기록하려면 '취소'를 먼저 보내주세요.`,
         nextSession: { ...session, step: "awaiting_field", pendingField: null, pendingValue: null, repeatCount: 0, updatedAt: now },
       });
     }
@@ -39676,7 +39977,7 @@ function handleEditMessage(session, textRaw, config = {}) {
   }
 
   // ---- awaiting_field: 필드(+값) 파싱 [L1][L2] ----
-  const parsed = parseEditInput(text, config);
+  const parsed = parseEditInput(text, { ...config, rowType: config.rowType || session.rowType });
 
   if (!parsed) return fail(session, now, text);
 
@@ -39685,6 +39986,19 @@ function handleEditMessage(session, textRaw, config = {}) {
       action: "delete",
       reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
       nextSession: null,
+    });
+  }
+
+  // V22.9.77 감사 K-4: 구분(8번)을 값 없이 고르면 반대 구분으로 바꿀지 묻는다. 둘 중 하나라 목록이 필요 없고, 잘못 누른
+  // 8번이 분류까지 바꾸지 않도록 ‘네’를 받은 뒤에만 반영한다. 알 수 없는 값("구분 뭐")은 바꾸지 않고 다시 묻는다.
+  if (parsed.field === "type" && !parsed.value) {
+    if (parsed.invalid) return fail(session, now, text, `구분은 ‘수입’이나 ‘지출’로 보내 주세요.\n예: ${exampleFor("type", session)}`);
+    const from = session.rowType === "income" ? "수입" : "지출";
+    const to = otherTypeWord(session);
+    return finish(session, {
+      action: "confirm",
+      reply: `✏️ ${session.entryNo}번 기록을 ${from}에서 ${to}${josa(to, "으로로")} 바꿀까요? (네/아니오)\n분류는 ${to} 분류로 다시 정해요.\n(그만하려면: 취소)`,
+      nextSession: { ...session, step: "awaiting_confirm", pendingField: "type", pendingValue: to, updatedAt: now },
     });
   }
 
@@ -39713,6 +40027,7 @@ function handleEditMessage(session, textRaw, config = {}) {
 // V22.9.17: 저장 응답은 "60,000원"인데 수정 응답만 '60000'이었다. 금액은 저장과 같은 표기로 보여 준다.
 function editValueLabel(field, value) {
   if (field === "amount" && /^\d+$/.test(String(value ?? "").trim())) return `${numberWithCommas(Number(value))}원`;
+  if (field === "type") return String(value ?? ""); // V22.9.77 감사 K-4: "구분을 수입으로"
   return `'${value}'`;
 }
 
@@ -39786,6 +40101,10 @@ const MENU_EXAMPLES = [
   { input: "13000",           expect: { field: "amount", value: "13000" } }, // 값 추론
   { input: "어제",             expect: { field: "date", value: "어제" } },    // 값 추론
   { input: "체크카드",         expect: { field: "method", value: "체크카드" } },
+  { input: "8",               expect: { field: "type", value: null } },      // V22.9.77 감사 K-4 구분
+  { input: "구분 수입",        expect: { field: "type", value: "수입" } },
+  { input: "구분 지출",        expect: { field: "type", value: "지출" } },
+  { input: "수입으로",         expect: { field: "type", value: "수입" } },    // 값 추론
 ];
 
 function selfTest(config = {}) {
@@ -39872,6 +40191,29 @@ function kakaoEditCategoryConflictV4(name = "", rowType = "expense", config = {}
   const sets = kakaoEditCategoryTypeSetsV4();
   if (sets[own].has(value)) return "";
   return sets[other].has(value) ? other : "";
+}
+
+// V22.9.77 감사 K-4: 이 이름이 그 구분의 분류인지(사용자 분류 포함). 구분을 바꿀 때 지금 분류를 그대로 둘 수 있는지 본다.
+function kakaoEditCategoryKnownForTypeV4(name = "", type = "expense", config = {}) {
+  const own = type === "income" ? "income" : "expense";
+  if (safeArray(config.customCategoryTypes?.[own]).includes(name)) return true;
+  return kakaoEditCategoryTypeSetsV4()[own].has(name);
+}
+
+// V22.9.77 감사 K-4: 구분을 바꾸면 분류도 새 구분의 분류여야 요약·예산이 맞는다. 새 기록과 같은 분류기(사용자 분류·키워드 →
+// 기본 규칙)로 메모와 원문을 다시 읽는다. 기본값(기타수입·기타지출)밖에 못 찾았을 때, 지금 분류가 새 구분에도 있는 이름이면
+// (사용자 분류 포함) 그대로 두고, 아니면 그 구분의 기본 분류다. 분류기를 읽지 못해도 기본 분류로 바꾼다(다른 구분의 분류를 남기지 않는다).
+async function kakaoEditTypeChangeCategoryV4(env, householdId = "", row = {}, toType = "expense", config = {}) {
+  const fallback = toType === "income" ? "기타수입" : "기타지출";
+  let found = "";
+  try {
+    const classified = await resolveManualInputClassification(env, householdId, toType, { raw_text: row.raw_text || "", memo: row.memo || "" });
+    found = String(classified?.category || "").trim();
+  } catch (_) {}
+  if (found && found !== fallback) return found.slice(0, 80);
+  const current = String(row.category || "").trim();
+  if (current && !["기타", "기타수입", "기타지출"].includes(current) && kakaoEditCategoryKnownForTypeV4(current, toType, config)) return current;
+  return fallback;
 }
 
 // 4장: config 주입 — 이 가계부의 실데이터가 값 옵션이자 검증 규칙이다.
@@ -40008,6 +40350,26 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     patch.payment_method = String(value).slice(0, 80);
   } else if (field === "content") {
     patch.memo = String(value).slice(0, 160);
+  } else if (field === "type") {
+    // V22.9.77 감사 K-4: 수입↔지출 구분 바꾸기. 예전에는 지우고 다시 기록해야 했다. 금액은 그대로(양수)이고, 분류는 새 구분에
+    // 맞게 다시 정해 요약·예산이 새 구분으로 센다. 세션을 연 뒤 웹에서 이미 바뀌었으면 아무것도 바꾸지 않는다.
+    const word = kakaoEditTypeValue(String(value || ""));
+    const fromType = row.type === "income" ? "income" : "expense";
+    const fromWord = fromType === "income" ? "수입" : "지출";
+    if (!word) {
+      return { reply: `⚠️ 구분은 ‘수입’이나 ‘지출’로 보내 주세요. 기록은 그대로예요.\n예: 수정 ${session.entryNo}번 구분 ${fromType === "income" ? "지출" : "수입"}`, nextSession: null };
+    }
+    const toType = word === "수입" ? "income" : "expense";
+    if (toType === fromType) {
+      return { reply: `${session.entryNo}번은 이미 ${fromWord} 기록이에요. 바꾸지 않았어요.\n${kakaoEditRecordLineV4(row)}`, nextSession: null };
+    }
+    patch.type = toType;
+    patch.category = await kakaoEditTypeChangeCategoryV4(env, session.householdId, row, toType, config);
+    const before = String(row.category || "").trim() || "-";
+    reply = [
+      `✅ ${session.entryNo}번 구분을 ${fromWord} → ${word}${josa(word, "으로로")} 바꿨어요.`,
+      before === patch.category ? `분류: ${patch.category}(그대로)` : `분류: ${before} → ${patch.category}`,
+    ].join("\n");
   } else if (field === "date") {
     // N4·D5: 풀리지 않는 날짜를 오늘로 바꾸지 않는다. 기록은 그대로 두고 다시 묻는다.
     const date = resolveKakaoEditDateV4(value);
@@ -40152,7 +40514,7 @@ function kakaoEditExpiredTextV4(session = {}, utterance = "") {
   const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
   const text = normalizeText(utterance).slice(0, 40);
   const person = session.rowType === "income" ? "수입자" : "지출자";
-  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-7]$/.test(text) && isExactKakaoEditFieldStart(text);
+  const fieldFirst = !isKakaoSessionSeqReplyV4(text) && !/^[1-8]$/.test(text) && isExactKakaoEditFieldStart(text);
   const examples = [fieldFirst ? `${head} ${text}` : `${head} 금액 13000`, `${head} ${person} 엄마`];
   return [`⏰ 수정 시간이 지나 ${session.entryNo}번 수정을 끝냈어요. 보낸 내용은 반영하지 않았어요.`, "다시 하려면 한 줄로 보내 주세요:", ...[...new Set(examples)].map((line) => `👉 ${line}`)].join("\n");
 }
@@ -40173,6 +40535,33 @@ function kakaoEditRowNotFoundTextV4(target = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
   return `${date}${seqText} 기록을 찾지 못했어요.\n"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`;
+}
+
+// V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
+// 예전처럼 01번부터 모두 보인다. 넘치면 최근 기록을 번호순으로 남기고 오래된 기록부터 줄 단위로 뺀다(20건·900자 안 — 카카오
+// 답장 안전 길이 950자보다 짧게). 뺀 건수(외 N건)와 전체를 볼 곳(웹 가계부의 그 달 기록)을 적는다. 번호는 저장 순서 그대로다.
+const KAKAO_DAILY_LIST_MAX_ROWS_V22977 = 20;
+const KAKAO_DAILY_LIST_MAX_CHARS_V22977 = 900;
+function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
+  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine];
+  const guide = (seq) => ["", `수정: "${dayPrefix}수정 ${seq}번" 또는 "${dayPrefix}수정 ${seq}번 금액 13000"`, `삭제: "${dayPrefix}삭제 ${seq}번"`];
+  const lines = safeArray(rows).map((r, i) => kakaoRowLabel(r, i + 1).replace(/\s*\n+\s*/g, " "));
+  const all = [...head, "", ...lines, ...guide("01")].join("\n");
+  if (lines.length <= KAKAO_DAILY_LIST_MAX_ROWS_V22977 && all.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977) return all;
+  for (let shown = Math.min(lines.length - 1, KAKAO_DAILY_LIST_MAX_ROWS_V22977); shown >= 1; shown -= 1) {
+    const omitted = lines.length - shown;
+    const text = [
+      ...head,
+      `최근 ${shown}건을 번호순으로 보여요.`,
+      "",
+      ...lines.slice(omitted),
+      `… 외 ${omitted}건(01~${twoDigitSeq(omitted)}번)은 웹 가계부 기록에서 볼 수 있어요.`,
+      ...(webLink ? [webLink] : []),
+      ...guide(twoDigitSeq(omitted + 1)),
+    ].join("\n");
+    if (text.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977 || shown === 1) return text;
+  }
+  return all;
 }
 
 // 3장 1단계: "수정 NN번 [나머지]" — 나머지가 없으면 메뉴, 있으면 모듈 파서로.
@@ -40245,7 +40634,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
-    return kakaoText([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...rows.slice(0, 20).map((r, i) => kakaoRowLabel(r, i + 1)), ...(rows.length > 20 ? [`… 외 ${rows.length - 20}건 (21번부터 번호가 이어져요. 예: "수정 ${String(rows.length).padStart(2, "0")}번")`] : []), "",`수정: "${dayPrefix}수정 01번" 또는 "${dayPrefix}수정 01번 금액 13000"`, `삭제: "${dayPrefix}삭제 01번"`].join("\n"));
+    const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
+    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, rows, dayPrefix, webLink }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -40949,6 +41339,20 @@ function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
   });
 }
 
+// V22.9.77 감사 D-6(남은 것): 저장 답장의 ‘가계부: 이름’이 같은 이름의 두 가계부를 구별하지 못했다. 내 가계부 목록에 같은 이름이
+// 또 있을 때만, 고를 때 본 목록 줄과 같은 꼴로 역할·만든 날을 붙인다("우리집 생활비 · 소유자 · 만든 날 2026-07-01").
+// 같은 이름이 없으면 이름만 그대로다. 역할·만든 날은 목록의 그 가계부 행에서 읽는다(없으면 넘겨받은 값).
+function kakaoHouseholdReplyName(household = {}, rows = []) {
+  const name = String(household?.name || "가계부");
+  const id = String(household?.id || "");
+  const list = safeArray(rows);
+  const twin = list.some((other) => String(other?.id || "") !== id && normalizeText(other?.name || "") === normalizeText(name));
+  if (!twin) return name;
+  const own = list.find((h) => String(h?.id || "") === id) || household;
+  const madeAt = own?.created_at || household?.created_at || "";
+  return `${name} · ${userHouseholdRoleLabel(own?.role || household?.role || "member")}${madeAt ? ` · 만든 날 ${String(madeAt).slice(0, 10)}` : ""}`;
+}
+
 function parseKakaoHouseholdChoice(text = "", rows = []) {
   const t = normalizeText(text).trim();
   const m = t.match(/^(?:가계부\s*)?(?:선택\s*)?(\d{1,2})(?:번)?$/) || t.match(/^(\d{1,2})(?:번)?\s*(?:가계부)?$/);
@@ -41408,7 +41812,6 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     fetchHouseholdMembers(env, household.id),
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
   ]);
-  const names = memberNameMap(members);
   const incomes = rows.filter((r) => r.type === "income");
   const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
   // V22.9.76 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
@@ -41419,13 +41822,18 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   const expenses = rows.filter((r) => r.type !== "income");
   const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
   const byCategory = Object.create(null);
-  const byUser = Object.create(null);
+  // V22.9.77 감사 B-5: 지출자별 합계는 사용자 id 로 모은다. 이름으로 모으면 이름이 같은 구성원(단톡방의 ‘카카오사용자’ 셋)이
+  // "카카오사용자: 36,000원" 한 줄이 됐고, 나간 사람은 지출자 없는 기록과 함께 ‘미지정’으로 묶였다. 이름은 정산과 같은 규칙이다.
+  const byUser = new Map();
   for (const row of expenses) {
     const c = row.category || "기타"; byCategory[c] = (byCategory[c] || 0) + Number(row.amount || 0);
-    const name = names[row.user_id] || "미지정"; byUser[name] = (byUser[name] || 0) + Number(row.amount || 0);
+    const uid = String(row.user_id ?? "").trim();
+    byUser.set(uid, (byUser.get(uid) || 0) + Number(row.amount || 0));
   }
+  const formerMembers = await fetchFormerSpenderMembers(env, expenses, members);
+  const spenderLabels = householdPersonLabels(members, formerMembers, [...byUser.keys()]);
   const categories = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
-  const users = Object.entries(byUser).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
+  const users = [...byUser].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([uid,v])=>`• ${uid ? spenderLabels.get(uid) || "이전 구성원" : "미지정"}: ${numberWithCommas(v)}원`);
   const cta = await maybeKakaoCta(env, user.id, household.id, origin, "analysis", `${origin}/my/analysis?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(range.month)}`);
   return { empty: false, text: [
     `📊 ${range.label} 요약`,
@@ -42089,6 +42497,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   if (deadlineTimer) clearTimeout(deadlineTimer);
   if (first) return first;
   ctx.waitUntil(work.then(() => {}, () => {}));
+  abMonitorOutcome(env, "deferred", work); // V22.9.77(G-5): 뒤 작업이 끝나면 관제에 최종 결과 표본을 한 번 더 보낸다.
   rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
   // V22.9.72: 짧은 안내 + 다시 묻는 버튼(기록이면 ‘오늘기록’ 확인, 조회·명령이면 같은 명령). 2026-10-20 디자이너 피드백.
   const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
@@ -42186,14 +42595,16 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
   const botGroupKey = getKakaoBotGroupKey(payload);
-  const trustedIdentity = trustedChatFirstSkillCaller(request, env) && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
+  // V22.9.77 감사 B-7: Secret 으로 확인된 요청만 appUserId 로 기존 웹 계정을 찾는다(ensureUser 의 trustedKakaoCaller).
+  const trustedKakaoCaller = trustedChatFirstSkillCaller(request, env);
+  const trustedIdentity = trustedKakaoCaller && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
   const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
   const earlyUserPromise = skillConfigured && kakaoUserKey && !earlyReply
-    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) }).then((user) => ({ user }), (error) => ({ error }))
+    ? ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedKakaoCaller, trustedKakaoCaller }).then((user) => ({ user }), (error) => ({ error }))
     : null;
 
   // V22.8.16 지침서 3장 3단계: 유효한 수정 세션이 있으면 메시지 전체를
@@ -42246,7 +42657,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
   const earlyUser = earlyUserPromise ? await earlyUserPromise : null;
   if (earlyUser?.error) throw earlyUser.error;
-  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedChatFirstSkillCaller(request, env) });
+  const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedKakaoCaller, trustedKakaoCaller });
   if (!user?.id) return kakaoText("skill_identity_untrusted: \uC778\uC99D\uB41C \uCE74\uCE74\uC624 \uC694\uCCAD\uC5D0\uC11C \uCC98\uC74C \uAE30\uB85D\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
 
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
@@ -42631,11 +43042,15 @@ ${formatRecentTransactions(rows)}`);
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
-  return await saveKakaoParsedTransactionsReply(env, { household: household.role ? household : { ...household, role: accessRole }, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
+  // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
+  const savedHousehold = household.role ? household : { ...household, role: accessRole };
+  return await saveKakaoParsedTransactionsReply(env, { household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
+  // V22.9.77 감사 D-6: 같은 이름의 가계부가 또 있으면 호출부가 역할·만든 날을 붙인 이름을 넘긴다(없으면 이름 그대로).
+  const householdLine = String(context.householdLabel || household.name || "가계부");
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
@@ -42725,7 +43140,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     });
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
       ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${household.name}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
+    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -42745,7 +43160,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${household.name}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
   } finally { if (messageLease?.acquired) await (releasePromise || releaseOperationLease(env,messageLease)); }
 }
 
@@ -44805,15 +45220,39 @@ function stableShortHash(text) {
   return (h >>> 0).toString(36);
 }
 
+// V22.9.77 감사 B-7: appUserId 는 카카오 로그인 id(숫자)라 표시 이름이 아니다. 예전에는 별명이 없으면 이것을 이름으로 써
+// 이름이 "2265"인 사용자가 생겼다. 별명이 없으면 기본 이름을 쓴다.
 function getKakaoNickname(payload) {
-  return String(
-    payload?.userRequest?.user?.properties?.nickname ||
-      payload?.userRequest?.user?.properties?.appUserId ||
-      "카카오사용자"
-  ).slice(0, 80);
+  return String(payload?.userRequest?.user?.properties?.nickname || "카카오사용자").slice(0, 80);
 }
 
-async function resolveLinkedIdentityUser(env, aliasKeys = []) {
+function kakaoLoginIdFromAlias(alias = "") {
+  const text = String(alias || "");
+  return text.startsWith("kakao_login:") ? text.slice("kakao_login:".length).trim() : "";
+}
+
+// 같은 요청 안에서 같은 카카오 로그인 id 의 주인을 두 번 읽지 않는다(사용자 찾기 → 별칭 저장). 하위 요청이 50개 한도에
+// 가까운 단톡방 첫 기록(25건)에서 조회가 두 번이면 한도 바로 밑까지 갔다. 요청마다 라우터가 새로 만드는
+// env.__AB_IDENTITY_CONFIRMED 맵에 매달아 요청이 끝나면 함께 버린다. 그 맵이 없거나 링크 표에 이미 연결이 있으면 늘 새로 읽는다.
+const AB_KAKAO_LOGIN_OWNER_LOOKUPS = new WeakMap();
+function lookupKakaoLoginOwnerOnce(env, kakaoId = "", links = {}) {
+  const scope = env?.__AB_IDENTITY_CONFIRMED;
+  if (!(scope instanceof Map) || String(safeObject(links[`kakao_login:${kakaoId}`]).user_id || "")) return lookupKakaoLoginOwner(env, kakaoId, { links });
+  let cache = AB_KAKAO_LOGIN_OWNER_LOOKUPS.get(scope);
+  if (!cache) {
+    cache = new Map();
+    AB_KAKAO_LOGIN_OWNER_LOOKUPS.set(scope, cache);
+  }
+  if (!cache.has(kakaoId)) {
+    const pending = lookupKakaoLoginOwner(env, kakaoId, { links });
+    // 읽기에 실패하면 기억하지 않는다(같은 요청의 다음 확인은 다시 읽는다).
+    pending.catch(() => { if (cache.get(kakaoId) === pending) cache.delete(kakaoId); });
+    cache.set(kakaoId, pending);
+  }
+  return cache.get(kakaoId);
+}
+
+async function resolveLinkedIdentityUser(env, aliasKeys = [], options = {}) {
   if (!safeArray(aliasKeys).length) return null;
   const links = await fetchUserIdentityLinks(env);
   for (const alias of aliasKeys) {
@@ -44822,7 +45261,55 @@ async function resolveLinkedIdentityUser(env, aliasKeys = []) {
     const linked = await fetchUserById(env, linkedUserId);
     if (linked) return linked;
   }
+  // V22.9.77 감사 B-7: 웹(카카오 로그인)으로 먼저 가입한 사람은 링크 표에 kakao_login 별칭이 없고 강한 식별·사용자 행에만 있다.
+  // 링크 표로 아무도 찾지 못했을 때만, 새 사용자를 만들기 전에 웹 로그인과 같은 순서로 그 계정을 찾아 쓴다. 예전에는 이름이
+  // appUserId 인 새 계정을 만들고 kakao_login 별칭을 그쪽에 묶어, 옛 계정의 웹 로그인까지 새 채팅 계정으로 열렸다.
+  // 링크 표에 이미 있는 연결(봇 사용자 별칭 등)은 위에서 예전 순서 그대로 먼저 쓴다(지금 연결을 바꾸지 않는다).
+  // Secret 으로 확인된 카카오 요청(trustedKakaoCaller)에서만 찾는다. 확인되지 않은 요청의 appUserId 는 누구나 적어 보낼 수 있어,
+  // 이 조회를 열어 두면 남의 카카오 로그인 id 만으로 그 웹 계정을 채팅으로 열 수 있다.
+  if (options.trustedKakaoCaller !== true) return null;
+  for (const alias of aliasKeys) {
+    const kakaoId = kakaoLoginIdFromAlias(alias);
+    if (!kakaoId) continue;
+    const owner = await lookupKakaoLoginOwnerOnce(env, kakaoId, links);
+    if (owner?.user) return owner.user;
+  }
   return null;
+}
+
+const AB_KAKAO_LOGIN_CONFLICT_TRACED = globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRACED || (globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRACED = new Map());
+
+// 운영 이벤트(ops-telemetry)에 남긴다. 받은 말·카카오 id 는 넣지 않고, 사용자 id 는 앞 8자만 적는다(전체 id 는 이벤트에서 가려진다).
+// 같은 두 계정은 isolate 마다 10분에 한 번만 적는다.
+function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") {
+  const key = `${chatUid}|${ownerUid}`;
+  const now = Date.now();
+  if (now - Number(AB_KAKAO_LOGIN_CONFLICT_TRACED.get(key) || 0) < 10 * 60 * 1000) return;
+  AB_KAKAO_LOGIN_CONFLICT_TRACED.set(key, now);
+  pruneTimestampMap(AB_KAKAO_LOGIN_CONFLICT_TRACED, now, 10 * 60 * 1000, 2000);
+  rememberOpsEvent({
+    kind: "kakao_login_alias_conflict", severity: "warn", path: "/skill", method: "POST", label: "채팅 계정과 카카오 로그인 계정이 다름",
+    detail: `자동 병합 안 함·지금 연결 유지 · 채팅 ${String(chatUid).slice(0, 8)} · 카카오 로그인 ${String(ownerUid).slice(0, 8)} · 근거 ${source || "-"}`,
+  });
+}
+
+// V22.9.77 감사 B-7: kakao_login:<appUserId> 별칭의 주인이 이 사용자가 아닌 다른 계정인지 본다(링크 표에 있으면 그 사람,
+// 없으면 강한 식별·사용자 행 — 웹 로그인과 같은 순서). 다른 계정이면 { ownerUid, source, explicit }, 주인이 없거나 같은 사람이면 null.
+// 주인이 따로 있는 별칭은 누구의 요청이든 이 사용자에게 묶지 않는다 — 옛 웹 계정의 로그인이 채팅 계정으로 바뀌던 길이다.
+// explicit 은 링크 표에서 이미 다른 사람에게 묶여 있다는 뜻이다(예전에도 충돌 오류였던 경우).
+async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links = {}) {
+  const kakaoId = kakaoLoginIdFromAlias(alias);
+  if (!kakaoId || !canonicalUid) return null;
+  const linkedUid = String(safeObject(links[alias]).user_id || "").trim();
+  let ownerUid = linkedUid;
+  let source = "link";
+  if (!ownerUid) {
+    const owner = await lookupKakaoLoginOwnerOnce(env, kakaoId, links);
+    ownerUid = String(owner?.user?.id || "").trim();
+    source = owner?.source || "";
+  }
+  if (!ownerUid || ownerUid === canonicalUid || await resolveEffectiveUserId(env, ownerUid) === canonicalUid) return null;
+  return { ownerUid, source, explicit: !!linkedUid };
 }
 
 function identityAliasPersistenceError(error) {
@@ -44837,11 +45324,37 @@ function isSettingsRmwBusyError(error) {
   return /settings_rmw_busy/.test(safeError(error));
 }
 
-async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill") {
+async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill", options = {}) {
   const requestedUid = String(userId || "").trim();
-  const aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
+  let aliases = [...new Set(safeArray(aliasKeys).map((alias) => String(alias || "").trim()).filter(Boolean))];
   if (!requestedUid || !aliases.length) return false;
   if (env.__AB_IDENTITY_CONFIRMED && aliases.every(alias => env.__AB_IDENTITY_CONFIRMED.get(alias) === requestedUid)) return false;
+  // V22.9.77 감사 B-7: 주인이 따로 있는 kakao_login 별칭(foreignKakaoLoginOwner)은 묶지 않는다.
+  //  - Secret 으로 확인된 카카오 요청(options.trustedKakaoCaller): 봇 채널의 appUserId 가 로그인 앱과 같은 번호 체계인지
+  //    확인되지 않았으므로 두 계정을 자동으로 합치지 않고, 그 별칭만 빼고 지금 계정으로 계속한다(운영 이벤트를 남긴다).
+  //    예전에는 링크 표에 있으면 충돌 오류로 그 사람의 요청이 매번 실패했고, 사용자 행·강한 식별에만 있으면 새로 묶었다.
+  //  - 그 밖의 호출: 링크 표에서 다른 사람에게 묶인 별칭은 예전처럼 identity_alias_conflict 로 실패한다(V22.9.26 계약 —
+  //    다른 사람의 별칭을 함부로 옮기지 않는다). 강한 식별·사용자 행으로만 아는 주인이면 묶지 않고 조용히 건너뛴다(예전에는
+  //    묶었다. 실패로 바꾸면 Secret 없이 들어온 요청의 기록이 저장되지 않으므로 기록은 지금 계정으로 계속한다).
+  // 확인한 별칭은 기억해 잠금 경로에서 같은 조회를 되풀이하지 않는다. 확인하지 못한 별칭은 잠금 경로가 새로 읽은 링크 표로 다시 본다.
+  const keepCurrentOnConflict = options.trustedKakaoCaller === true;
+  const kakaoLoginChecked = new Set();
+  const dropForeignKakaoLogin = async (canonicalUid, links) => {
+    const kept = [];
+    for (const alias of aliases) {
+      if (!kakaoLoginIdFromAlias(alias) || kakaoLoginChecked.has(alias)) { kept.push(alias); continue; }
+      const foreign = await foreignKakaoLoginOwner(env, alias, canonicalUid, links);
+      if (foreign && (keepCurrentOnConflict || !foreign.explicit)) {
+        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+        // 이 요청 안에서는 다시 확인하지 않는다(별칭은 쓰지 않았고, 채팅은 지금 계정으로 계속한다).
+        if (env.__AB_IDENTITY_CONFIRMED) env.__AB_IDENTITY_CONFIRMED.set(alias, requestedUid);
+        continue;
+      }
+      if (!foreign) kakaoLoginChecked.add(alias);
+      kept.push(alias);
+    }
+    aliases = kept;
+  };
   // V22.9.76 감사 B-6: 별칭이 이미 이 사용자에게 연결돼 있으면 전역 식별 잠금(settings-rmw:user_identity_links)을 잡지 않는다.
   // 예전에는 appUserId·plusfriendUserKey 가 실린 요청마다 잠금을 잡아, 서로 다른 사용자 둘이 동시에 보내면 늦은 쪽이
   // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
@@ -44849,6 +45362,8 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   try {
     const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
     const links = canonicalUid ? await fetchUserIdentityLinks(env) : null;
+    if (links) await dropForeignKakaoLogin(canonicalUid, links);
+    if (!aliases.length) return false;
     let allLinked = !!links;
     for (const key of links ? aliases : []) {
       const existingUid = String(safeObject(links[key]).user_id || "").trim();
@@ -44870,6 +45385,15 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
         let changed = false;
         for (const key of aliases) {
           const existingUid = String(safeObject(links[key]).user_id || "").trim();
+          // V22.9.77 감사 B-7: 다른 사람에게 묶였거나 주인이 따로 있는 kakao_login 별칭은 절대 이 사용자에게 옮기지 않는다.
+          // 확인된 카카오 요청은 그 별칭만 건너뛰고, 그 밖의 호출은 링크 표 충돌이면 오류, 아니면 건너뛴다(위 설명).
+          const foreign = kakaoLoginIdFromAlias(key) && (existingUid || !kakaoLoginChecked.has(key))
+            ? await foreignKakaoLoginOwner(env, key, canonicalUid, links) : null;
+          if (foreign) {
+            if (!keepCurrentOnConflict && foreign.explicit) throw new Error("identity_alias_conflict");
+            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+            continue;
+          }
           if (existingUid) {
             const existingCanonicalUid = await resolveEffectiveUserId(env, existingUid);
             if (existingCanonicalUid && existingCanonicalUid !== canonicalUid) throw new Error("identity_alias_conflict");
@@ -44961,12 +45485,14 @@ function parseKakaoChatFirstMarker(value) {
   return marker;
 }
 
-async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
+async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = [], options = {}) {
+  // V22.9.77 감사 B-7: 확인된 카카오 요청 표시(trustedKakaoCaller)를 다시 확인·생성에도 그대로 넘긴다.
+  const trustedKakaoCaller = options.trustedKakaoCaller === true;
   const key = await kakaoChatFirstSettingsKey(rawKey);
   return await withSettingsRmwLease(env, key, async ({ assertFresh }) => {
     // Recheck under the database lease. A parallel request may already have resolved an
     // identity, and zero memberships alone is never permission to create a new household.
-    const existing = await ensureUser(env, rawKey, nickname, aliases, { create: false });
+    const existing = await ensureUser(env, rawKey, nickname, aliases, { create: false, trustedKakaoCaller });
     if (existing) return existing;
     let marker = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
     if (marker?.user_id || marker?.state === "complete") throw new Error("kakao_first_record_identity_missing");
@@ -44975,7 +45501,7 @@ async function seedKakaoChatFirstUser(env, rawKey, nickname, aliases = []) {
       assertFresh();
       await saveSettingValue(env, key, JSON.stringify(marker));
     }
-    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh, absenceConfirmed: true });
+    const user = await ensureUser(env, rawKey, nickname, aliases, { bootstrapSeeded: true, assertFresh, absenceConfirmed: true, trustedKakaoCaller });
     if (!user?.id) throw new Error("kakao_first_record_user_missing");
     assertFresh();
     await saveSettingValue(env, key, JSON.stringify({ ...marker, user_id: String(user.id) }));
@@ -44996,7 +45522,8 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
       let marker = parseKakaoChatFirstMarker(await getSettingValueStrict(env, key));
       if (!marker || marker.state !== "pending" || (marker.user_id && marker.user_id !== String(user.id))) return null;
       // Finish identity-map work before taking the user lifecycle lease.
-      await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill");
+      // 이 길은 Secret 으로 확인된 1:1 첫 기록(seedChatFirst)에서만 온다.
+      await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill", { trustedKakaoCaller: true });
       markerFresh();
       return withKakaoUserLifecycleLease(env, user.id, async ({ assertFresh: lifecycleFresh }) => {
         const assertFresh = () => { markerFresh(); lifecycleFresh(); };
@@ -45056,6 +45583,9 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   if (!rawKey) throw new Error("missing_kakao_user_identity");
   const key = encodeURIComponent(rawKey);
   const aliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
+  // V22.9.77 감사 B-7: Secret 으로 확인된 카카오 요청일 때만 appUserId 로 기존 웹(카카오 로그인) 계정을 찾고, 그 별칭이 다른
+  // 계정의 것이면 별칭만 빼고 지금 계정으로 계속한다. 그 밖의 호출은 예전 계약(찾지 않음, 충돌이면 실패)을 그대로 쓴다.
+  const trust = { trustedKakaoCaller: options.trustedKakaoCaller === true };
   const existing = options.absenceConfirmed ? [] : await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
   if (existing?.[0]) {
     const rawUser = existing[0];
@@ -45068,16 +45598,16 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const effectiveId = await resolveEffectiveUserId(env, rawUser.id);
     const effective = effectiveId === String(rawUser.id) ? rawUser : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
 
-  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases);
+  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases, trust);
   if (linked) {
     const effectiveId = await resolveEffectiveUserId(env, linked.id);
     const effective = effectiveId === String(linked.id) ? linked : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
 
@@ -45085,7 +45615,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   // Only a confirmed absence of every existing identity may seed first-use eligibility.
   // The durable marker precedes the user insert so an interrupted first request can resume.
   if (options.seedChatFirst === true && options.bootstrapSeeded !== true) {
-    return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases);
+    return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases, trust);
   }
 
   let user = null;
@@ -45120,7 +45650,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const effectiveId = await resolveEffectiveUserId(env, user.id);
     const effective = effectiveId === String(user.id) ? user : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill");
+    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
     return effective;
   }
   return user;
@@ -45475,7 +46005,9 @@ async function kakaoSettlementParts(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
   const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
-  const model = buildSettlementModel(rows, members);
+  // V22.9.77 감사 B-5: 웹 정산과 같이 나간 사람의 이름을 읽어 ‘별명(나간 구성원)’으로 구분한다(명단에 없는 지출자가 없으면 읽지 않는다).
+  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
+  const model = buildSettlementModel(rows, members, { formerMembers });
   // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
@@ -45749,7 +46281,10 @@ function normalizeText(text) {
     .replace(/^\/+/, "")
     .replace(/[，]/g, ",")
     .replace(/[₩￦]/g, "원")
-    .replace(/원정/g, "원")
+    // V22.9.77 감사 A-15: ‘원정’(금 오만원정)은 금액 바로 뒤에서만 ‘원’이다. 예전에는 낱말 속까지 바꿔 "원정 경기"가 "원 경기"가 됐다.
+    // 금액 뒤에 말이 붙어 있으면("만원정도"·"만원정산") ‘원’ 뒤를 띄어 그 말의 ‘정’을 살린다(예전: "만원도"·"만원산").
+    .replace(/([\d일이삼사오육칠팔구십백천만억])(\s*)원정(?![가-힣])/g, "$1$2원")
+    .replace(/([\d일이삼사오육칠팔구십백천만억])(\s*)원정(?=[가-힣])/g, "$1$2원 정")
     .replace(/만 원/g, "만원")
     .replace(/천 원/g, "천원")
     .replace(/처넌/g, "천원")
@@ -45789,9 +46324,23 @@ function normalizeType(value) {
   return "";
 }
 
-function detectType(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES); }
+// V22.9.77 감사 E-1: 수입 분류 낱말 검사는 정규식 하나로 한 번만 만든다. transactionTypeFromText 는 화면 자산에도 그대로
+// 실리는 함수라 고치지 않는다. 그 함수가 규칙 목록으로 하는 일은 "수입 규칙의 낱말 하나가 앞은 처음·공백, 뒤는 공백·숫자·끝인
+// 자리에 있는가"뿐이라, 여기서 먼저 찾은 낱말 하나만 넘겨도(없으면 빈 목록) 답이 같다. 예전에는 부를 때마다 수입 낱말 수
+// (31개)만큼 RegExp 를 새로 만들어 가져오기 해석 시간의 약 4분의 1을 썼다. CATEGORY_RULES 는 실행 중에 바뀌지 않는다.
+let INCOME_RULE_WORD_PATTERN = null;
+function incomeRuleWordsFor(text) {
+  if (!INCOME_RULE_WORD_PATTERN) {
+    const words = CATEGORY_RULES.filter((rule) => rule.type === "income").flatMap((rule) => rule.words || []).map((word) => String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    INCOME_RULE_WORD_PATTERN = new RegExp("(?:^|\\s)(" + words.join("|") + ")(?=\\s|\\d|$)");
+  }
+  const hit = String(text || "").trim().match(INCOME_RULE_WORD_PATTERN);
+  return hit ? [{ type: "income", words: [hit[1]] }] : [];
+}
+
+function detectType(text) { const raw = normalizeText(text); return transactionTypeFromText(raw, incomeRuleWordsFor(raw)); }
 // V22.9.76: { type, ambiguous } — ambiguous 는 수입 낱말과 쓰는 말이 함께 있거나 수입·지출을 둘 다 적은 문장이다.
-function detectTypeDetail(text) { return transactionTypeFromText(normalizeText(text), CATEGORY_RULES, { detail: true }); }
+function detectTypeDetail(text) { const raw = normalizeText(text); return transactionTypeFromText(raw, incomeRuleWordsFor(raw), { detail: true }); }
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -46063,8 +46612,19 @@ function qaFixedNowMs() {
   return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
 }
 
-function nowKstDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 쓰고, 같은 1초 안에서는
+// 읽은 시각을 다시 쓴다(결과는 초 단위라 같다). 예전에는 부를 때마다 Intl.DateTimeFormat 을 새로 만들어 자연어 가져오기가 행마다
+// 하나씩(1,000행이면 1,000개) 만들었다. 범위는 동기 해석 한 번 동안만 있고 요청 사이에 남지 않는다. 범위 밖(카카오 문장 한 줄
+// 등)은 예전과 같다. 돌려주는 Date 는 예전처럼 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다).
+let KST_NOW_SCOPE = null;
+function withKstNowScope(task) {
+  if (KST_NOW_SCOPE) return task();
+  KST_NOW_SCOPE = { format: null, second: NaN, parts: null };
+  try { return task(); } finally { KST_NOW_SCOPE = null; }
+}
+
+function kstNowFormat() {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
@@ -46073,9 +46633,31 @@ function nowKstDate() {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(new Date(qaFixedNowMs()));
+  });
+}
+
+function kstNowParts(ms, format) {
+  const parts = format.formatToParts(new Date(ms));
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+}
+
+function nowKstDate() {
+  const ms = qaFixedNowMs();
+  const scope = KST_NOW_SCOPE;
+  let parts;
+  if (!scope) parts = kstNowParts(ms, kstNowFormat());
+  else {
+    const second = Math.floor(ms / 1000);
+    if (second !== scope.second) {
+      if (!scope.format) scope.format = kstNowFormat();
+      scope.parts = kstNowParts(ms, scope.format);
+      scope.second = second;
+    }
+    parts = scope.parts;
+  }
+  const [year, month, day, hour, minute, second] = parts;
+  return new Date(year, month, day, hour, minute, second);
 }
 
 function addDays(date, days) {
@@ -46134,25 +46716,44 @@ function normalizePaymentMethod(value) {
   return detectPaymentMethod(t);
 }
 
+// V22.9.77: 짧거나 다른 낱말 속에 흔한 결제수단 말(토스·현금·체크·신용·카드·삼페·카페이·네페)은 그 낱말에서 끝날 때만
+// 결제수단이다. 예전에는 낱말 속에서도 읽어 "토스트 3000"이 결제수단 ‘토스’·메모 ‘트’로 저장됐다(현금영수증→현금,
+// 체크인→체크카드, 신용점수→신용카드, 카드지갑→카드, 카페이용→카카오페이도 같은 결함). 뒤에 조사(로·으로·에 …)나
+// 결제·결재·승인·했·줬·보냄 같은 말이 붙은 것("토스로", "카드결재", "현금줬어")은 예전처럼 읽는다. 카드사 이름이 붙은
+// 카드(현대카드·KB국민카드)와 온전한 간편결제 이름(카카오페이·네이버페이·토스페이·토스뱅크 …)은 헷갈릴 낱말이 없어 예전처럼
+// 어디에 있든 읽는다("현대카드제로", "카카오페이머니로"). 메모에서 결제수단을 지울 때(category-rules.js cleanMemo)도 같은 기준이다.
+const AB_PAYMENT_WORD_END = "(?=$|[^가-힣]|(?:으로|로|에|이|가|을|를|은|는|도|만|와|과|의|랑|하고|결제|결재|계산|지불|지출|지급|구매|구입|납부|환불|사용|썼|씀|긁|찍|냄|냈|했|함|해|줌|줬|줘|드림|드렸|보냄|보냈|승인|취소|할부|일시불|송금|입금|출금))";
+
+// V22.9.77 감사 E-1(남은 것): 결제수단 정규식은 처음 부를 때 한 번만 만든다(예전에는 부를 때마다 카드사 수만큼 14개를 새로
+// 만들었다). 찾는 순서와 낱말은 위 결제수단 판정 그대로다. 정규식에 g 깃발이 없어 test 가 이전 호출의 상태를 남기지 않는다.
+let AB_PAYMENT_PATTERNS = null;
+function paymentMethodPatterns() {
+  if (AB_PAYMENT_PATTERNS) return AB_PAYMENT_PATTERNS;
+  const end = AB_PAYMENT_WORD_END;
+  // 앞: 어디에 있든 읽는 온전한 이름, 뒤: 낱말 끝에서만 읽는 짧은 말.
+  const pick = (anywhere, short) => new RegExp([anywhere, short && `(?:${short})${end}`].filter(Boolean).join("|"));
+  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
+  AB_PAYMENT_PATTERNS = [
+    ...cardBrands.map((brand) => [new RegExp(brand + "\\s*카드", "i"), ["KB", "NH", "BC"].includes(brand.toUpperCase()) ? `${brand.toUpperCase()}카드` : `${brand}카드`]),
+    [pick("삼성\\s*페이", "삼페"), "삼성페이"],
+    [pick("카카오\\s*페이", "카페이"), "카카오페이"],
+    [pick("네이버\\s*페이", "네페"), "네이버페이"],
+    [pick("애플\\s*페이"), "애플페이"],
+    [pick("페이코"), "페이코"],
+    [pick("제로\\s*페이"), "제로페이"],
+    [pick("토스\\s*(?:페이|뱅크)", "토스"), "토스"],
+    [pick("", "신용(?:\\s*카드)?"), "신용카드"],
+    [pick("", "체크(?:\\s*카드)?"), "체크카드"],
+    [pick("", "카드"), "카드"],
+    [pick("", "현금"), "현금"],
+    [/(계좌|이체|송금|자동이체|무통장)/, "계좌이체"],
+  ];
+  return AB_PAYMENT_PATTERNS;
+}
+
 function detectPaymentMethod(text) {
   const raw = normalizeText(text);
-  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-  for (const brand of cardBrands) {
-    const re = new RegExp(brand + "\\s*카드", "i");
-    if (re.test(raw)) return brand.toUpperCase() === "KB" || brand.toUpperCase() === "NH" || brand.toUpperCase() === "BC" ? `${brand.toUpperCase()}카드` : `${brand}카드`;
-  }
-  if (/삼성\s*페이|삼페/.test(raw)) return "삼성페이";
-  if (/카카오\s*페이|카페이/.test(raw)) return "카카오페이";
-  if (/네이버\s*페이|네페/.test(raw)) return "네이버페이";
-  if (/애플\s*페이|애플페이/.test(raw)) return "애플페이";
-  if (/페이코/.test(raw)) return "페이코";
-  if (/제로\s*페이|제로페이/.test(raw)) return "제로페이";
-  if (/토스/.test(raw)) return "토스";
-  if (/신용/.test(raw)) return "신용카드";
-  if (/체크/.test(raw)) return "체크카드";
-  if (/카드/.test(raw)) return "카드";
-  if (/현금/.test(raw)) return "현금";
-  if (/(계좌|이체|송금|자동이체|무통장)/.test(raw)) return "계좌이체";
+  for (const [pattern, method] of paymentMethodPatterns()) if (pattern.test(raw)) return method;
   return "";
 }
 
@@ -46317,26 +46918,57 @@ function inferCategory(text, type) {
   return best ? best.category : (type === "income" ? "기타수입" : "기타지출");
 }
 
+const CLEAN_MEMO_COMMAND_WORDS = ["수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부"];
+const CLEAN_MEMO_FIXED_WORDS = [
+  ...CLEAN_MEMO_COMMAND_WORDS,
+  // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
+  "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
+  "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
+];
+// V22.9.77: 카드 이름 앞에 붙은 카드사 이름("KB국민카드"의 KB, "NH농협카드"의 NH, "IBK기업카드"의 IBK기업,
+// "국민체크카드"의 국민)과 띄어 쓴 영문 카드사 이름("KB 국민카드"의 KB)도 결제수단의 일부라 함께 지운다. 예전에는
+// "커피 4500 KB국민카드"의 메모가 "커피 KB"였다. 결제수단 낱말은 낱말 끝에서만 지운다(AB_PAYMENT_WORD_END).
+// 예전에는 "토스트"가 "트", "현금영수증"이 "영수증"이 됐다.
+const CLEAN_MEMO_CARD_NAME_PREFIX = "(?:(?<![A-Za-z가-힣])(?:(?:KB|NH|IBK|SC|BC|BNK|DGB|KDB|KEB)\\s+|[A-Za-z]{1,6}[가-힣]{0,4}|신한|현대|삼성|국민|우리|롯데|하나|농협|비씨|카카오|토스|기업|씨티|수협|신협|우체국|새마을|케이뱅크|카카오뱅크|토스뱅크))?";
+// 카드사 이름이 붙은 카드와 온전한 간편결제 이름은 결제수단 찾기(date-payment.js)처럼 낱말 끝을 따지지 않고 지우고, 띄어
+// 쓴 것("현대 카드", "삼성 페이")도 통째로 지운다. 예전에는 메모에 ‘현대’, ‘삼성 페이’가 남았다.
+const CLEAN_MEMO_PAYMENT_ANYWHERE = /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i;
+// V22.9.77 감사 E-1(남은 것): 메모 다듬기의 고정 낱말 정규식은 처음 부를 때 한 번만 만든다. 예전에는 부를 때마다 낱말 수
+// (37개)만큼 RegExp 를 새로 만들어 자연어 가져오기 한 줄에 50개 남짓이 들었다. 낱말 순서와 하나씩 차례로 지우는 방식은
+// 예전 그대로라 결과가 같다(전역 정규식은 replace 가 처음부터 다시 찾는다). 금액·결제수단처럼 문장마다 다른 말만 그때 만든다.
+// date-payment.js 와 서로 가져오는 모듈이라, 그 모듈의 상수(AB_PAYMENT_WORD_END)를 쓰는 정규식은 처음 부를 때 만든다.
+let CLEAN_MEMO_PATTERNS = null;
+function cleanMemoPatterns() {
+  if (CLEAN_MEMO_PATTERNS) return CLEAN_MEMO_PATTERNS;
+  CLEAN_MEMO_PATTERNS = {
+    fixed: CLEAN_MEMO_FIXED_WORDS.map((item) => new RegExp(CLEAN_MEMO_COMMAND_WORDS.includes(item) ? "(^|\\s)" + escapeRegExp(item) + "(?=\\s|\\d|$)" : escapeRegExp(item), "g")),
+    cardName: new RegExp(`${CLEAN_MEMO_CARD_NAME_PREFIX}(?:신용카드|체크카드|카드)${AB_PAYMENT_WORD_END}`, "gi"),
+    paymentWord: new RegExp(`(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)${AB_PAYMENT_WORD_END}`, "g"),
+  };
+  return CLEAN_MEMO_PATTERNS;
+}
+
 function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
   let memo = normalizeText(raw);
-  const removals = [
-    amountRaw,
-    // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
-    "수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부",
-    "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
-    "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
-    paymentMethod,
-  ].filter(Boolean);
-
-  for (const item of removals) {
-    const token = escapeRegExp(item);
-    const command = ["수입","입금","지출","출금","사용","결제","구매","납부","정산","기록","가계부"].includes(item);
-    memo = memo.replace(new RegExp(command ? "(^|\\s)" + token + "(?=\\s|\\d|$)" : token, "g"), " ");
+  const patterns = cleanMemoPatterns();
+  // 금액 → 고정 낱말(명령어·받은 말·날짜 말) → 결제수단 순서로 하나씩 지운다(예전 순서 그대로).
+  if (amountRaw) memo = memo.replace(new RegExp(escapeRegExp(amountRaw), "g"), " ");
+  for (const pattern of patterns.fixed) memo = memo.replace(pattern, " ");
+  if (paymentMethod) {
+    const token = escapeRegExp(paymentMethod);
+    const prefix = /카드$/.test(paymentMethod) ? CLEAN_MEMO_CARD_NAME_PREFIX : "";
+    memo = CLEAN_MEMO_COMMAND_WORDS.includes(paymentMethod)
+      ? memo.replace(new RegExp("(^|\\s)" + token + "(?=\\s|\\d|$)", "g"), " ")
+      : CLEAN_MEMO_PAYMENT_ANYWHERE.test(paymentMethod)
+        ? memo.replace(new RegExp(prefix + token.replace(/(카드|페이)$/, "\\s*$1"), "gi"), " ")
+        : memo.replace(new RegExp(prefix + token + AB_PAYMENT_WORD_END, "gi"), " ");
   }
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
-    .replace(/(?:지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)?\s*[월화수목금토일]요일/g, " ")
+    // V22.9.77: 요일 앞의 ‘지난·저번·이번·다음’도 ‘주’ 없이 쓰면("지난 금요일") 함께 지운다. 예전에는 "지난 금요일 회식"의
+    // 메모가 "지난 회식"이었다. 날짜는 예전과 같다(날짜는 요일로 정하고, 이 줄은 메모만 다듬는다).
+    .replace(/(?:(?<![가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\s*)?[월화수목금토일]요일/g, " ")
     .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
@@ -46349,16 +46981,22 @@ function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
     .replace(/(?:^|\s)\d{1,2}일(?:\s|$)/g, " ")
-    .replace(/(신용카드|체크카드|카드|현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스|계좌이체|자동이체|무통장|체크|신용)/g, " ")
+    .replace(patterns.cardName, " ")
+    .replace(patterns.paymentWord, " ")
     // 조사·서술어는 낱말 "끝"에서만 떼어낸다. 위치를 가리지 않고 지우면
     // 타이어교체→"타 어교체", 이발→"발", 가방→"방"처럼 내용이 파괴된다.
     // 한 글자 조사(이·가·로·에·은·는·을·를)는 떼어내지 않는다. 고양이→"고양",
     // 목걸이→"목걸", 을지로→"을지"처럼 멀쩡한 낱말의 끝 글자와 구분할 수 없다.
     // 두 글자 조사만 떼어낸다. "마트에서 12000"→"마트" 같은 주된 사례는 그대로 처리된다.
     .replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\s|$)/g, "$1 ")
-    .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, "$1 ")
+    // V22.9.77 감사 A-15: 붙여 쓴 말끝은 동사 꼴(썼어·샀어·했어 …)만 뗀다. 사용·결제·구매·납부·송금·이체는 앞말과 붙으면 한
+    // 낱말(공동구매·간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 띄어 쓴 토막은 아래 줄이 그대로 지운다.
+    .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다)(?=\s|$)/g, "$1 ")
     // 홀로 남은 조사·서술어 토막만 따로 지운다.
     .replace(/(?:^|\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썻어|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, " ")
+    // V22.9.77 감사 A-15: 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’("만원 정도")도 지운다.
+    // 낱말 속 ‘원’·‘정도’(원정·공원·정도전)는 그대로다.
+    .replace(/(?:^|\s)(?:원|정도)(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 

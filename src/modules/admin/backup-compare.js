@@ -62,11 +62,12 @@ async function buildBackupPayload(env, { month, householdId, range = "month" }) 
   const reservePlansByHousehold = Object.create(null);
   // V22.9.34 감사 S10: 백업은 읽기 실패를 빈 값으로 넣지 않는다. 일부가 빈 백업 파일은 정상처럼 보여
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
+  // V22.9.77 N-15: 분류·키워드와 구성원 별명도 엄격 조회로 읽는다(예전에는 실패하면 빈 목록이 들어간 파일이 정상으로 나갔다).
   for (const h of selectedHouseholds) {
-    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
+    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id, { strict: true });
     budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
-    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
+    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id, { strict: true });
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
   const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];

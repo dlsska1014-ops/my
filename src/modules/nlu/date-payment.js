@@ -124,8 +124,19 @@ function qaFixedNowMs() {
   return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
 }
 
-function nowKstDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 쓰고, 같은 1초 안에서는
+// 읽은 시각을 다시 쓴다(결과는 초 단위라 같다). 예전에는 부를 때마다 Intl.DateTimeFormat 을 새로 만들어 자연어 가져오기가 행마다
+// 하나씩(1,000행이면 1,000개) 만들었다. 범위는 동기 해석 한 번 동안만 있고 요청 사이에 남지 않는다. 범위 밖(카카오 문장 한 줄
+// 등)은 예전과 같다. 돌려주는 Date 는 예전처럼 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다).
+let KST_NOW_SCOPE = null;
+function withKstNowScope(task) {
+  if (KST_NOW_SCOPE) return task();
+  KST_NOW_SCOPE = { format: null, second: NaN, parts: null };
+  try { return task(); } finally { KST_NOW_SCOPE = null; }
+}
+
+function kstNowFormat() {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
@@ -134,9 +145,31 @@ function nowKstDate() {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(new Date(qaFixedNowMs()));
+  });
+}
+
+function kstNowParts(ms, format) {
+  const parts = format.formatToParts(new Date(ms));
   const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+}
+
+function nowKstDate() {
+  const ms = qaFixedNowMs();
+  const scope = KST_NOW_SCOPE;
+  let parts;
+  if (!scope) parts = kstNowParts(ms, kstNowFormat());
+  else {
+    const second = Math.floor(ms / 1000);
+    if (second !== scope.second) {
+      if (!scope.format) scope.format = kstNowFormat();
+      scope.parts = kstNowParts(ms, scope.format);
+      scope.second = second;
+    }
+    parts = scope.parts;
+  }
+  const [year, month, day, hour, minute, second] = parts;
+  return new Date(year, month, day, hour, minute, second);
 }
 
 function addDays(date, days) {
@@ -195,31 +228,50 @@ function normalizePaymentMethod(value) {
   return detectPaymentMethod(t);
 }
 
+// V22.9.77: 짧거나 다른 낱말 속에 흔한 결제수단 말(토스·현금·체크·신용·카드·삼페·카페이·네페)은 그 낱말에서 끝날 때만
+// 결제수단이다. 예전에는 낱말 속에서도 읽어 "토스트 3000"이 결제수단 ‘토스’·메모 ‘트’로 저장됐다(현금영수증→현금,
+// 체크인→체크카드, 신용점수→신용카드, 카드지갑→카드, 카페이용→카카오페이도 같은 결함). 뒤에 조사(로·으로·에 …)나
+// 결제·결재·승인·했·줬·보냄 같은 말이 붙은 것("토스로", "카드결재", "현금줬어")은 예전처럼 읽는다. 카드사 이름이 붙은
+// 카드(현대카드·KB국민카드)와 온전한 간편결제 이름(카카오페이·네이버페이·토스페이·토스뱅크 …)은 헷갈릴 낱말이 없어 예전처럼
+// 어디에 있든 읽는다("현대카드제로", "카카오페이머니로"). 메모에서 결제수단을 지울 때(category-rules.js cleanMemo)도 같은 기준이다.
+const AB_PAYMENT_WORD_END = "(?=$|[^가-힣]|(?:으로|로|에|이|가|을|를|은|는|도|만|와|과|의|랑|하고|결제|결재|계산|지불|지출|지급|구매|구입|납부|환불|사용|썼|씀|긁|찍|냄|냈|했|함|해|줌|줬|줘|드림|드렸|보냄|보냈|승인|취소|할부|일시불|송금|입금|출금))";
+
+// V22.9.77 감사 E-1(남은 것): 결제수단 정규식은 처음 부를 때 한 번만 만든다(예전에는 부를 때마다 카드사 수만큼 14개를 새로
+// 만들었다). 찾는 순서와 낱말은 위 결제수단 판정 그대로다. 정규식에 g 깃발이 없어 test 가 이전 호출의 상태를 남기지 않는다.
+let AB_PAYMENT_PATTERNS = null;
+function paymentMethodPatterns() {
+  if (AB_PAYMENT_PATTERNS) return AB_PAYMENT_PATTERNS;
+  const end = AB_PAYMENT_WORD_END;
+  // 앞: 어디에 있든 읽는 온전한 이름, 뒤: 낱말 끝에서만 읽는 짧은 말.
+  const pick = (anywhere, short) => new RegExp([anywhere, short && `(?:${short})${end}`].filter(Boolean).join("|"));
+  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
+  AB_PAYMENT_PATTERNS = [
+    ...cardBrands.map((brand) => [new RegExp(brand + "\\s*카드", "i"), ["KB", "NH", "BC"].includes(brand.toUpperCase()) ? `${brand.toUpperCase()}카드` : `${brand}카드`]),
+    [pick("삼성\\s*페이", "삼페"), "삼성페이"],
+    [pick("카카오\\s*페이", "카페이"), "카카오페이"],
+    [pick("네이버\\s*페이", "네페"), "네이버페이"],
+    [pick("애플\\s*페이"), "애플페이"],
+    [pick("페이코"), "페이코"],
+    [pick("제로\\s*페이"), "제로페이"],
+    [pick("토스\\s*(?:페이|뱅크)", "토스"), "토스"],
+    [pick("", "신용(?:\\s*카드)?"), "신용카드"],
+    [pick("", "체크(?:\\s*카드)?"), "체크카드"],
+    [pick("", "카드"), "카드"],
+    [pick("", "현금"), "현금"],
+    [/(계좌|이체|송금|자동이체|무통장)/, "계좌이체"],
+  ];
+  return AB_PAYMENT_PATTERNS;
+}
+
 function detectPaymentMethod(text) {
   const raw = normalizeText(text);
-  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-  for (const brand of cardBrands) {
-    const re = new RegExp(brand + "\\s*카드", "i");
-    if (re.test(raw)) return brand.toUpperCase() === "KB" || brand.toUpperCase() === "NH" || brand.toUpperCase() === "BC" ? `${brand.toUpperCase()}카드` : `${brand}카드`;
-  }
-  if (/삼성\s*페이|삼페/.test(raw)) return "삼성페이";
-  if (/카카오\s*페이|카페이/.test(raw)) return "카카오페이";
-  if (/네이버\s*페이|네페/.test(raw)) return "네이버페이";
-  if (/애플\s*페이|애플페이/.test(raw)) return "애플페이";
-  if (/페이코/.test(raw)) return "페이코";
-  if (/제로\s*페이|제로페이/.test(raw)) return "제로페이";
-  if (/토스/.test(raw)) return "토스";
-  if (/신용/.test(raw)) return "신용카드";
-  if (/체크/.test(raw)) return "체크카드";
-  if (/카드/.test(raw)) return "카드";
-  if (/현금/.test(raw)) return "현금";
-  if (/(계좌|이체|송금|자동이체|무통장)/.test(raw)) return "계좌이체";
+  for (const [pattern, method] of paymentMethodPatterns()) if (pattern.test(raw)) return method;
   return "";
 }
 // @build:exports-start
 export {
-  addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
-  normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs, resolveWeekdayPhrase, safeYmd,
-  validMonth, weekdayIndexOfYmd,
+  AB_PAYMENT_WORD_END, addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate,
+  normalizeDateValue, normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs,
+  resolveWeekdayPhrase, safeYmd, validMonth, weekdayIndexOfYmd, withKstNowScope,
 };
 // @build:exports-end
