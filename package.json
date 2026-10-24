@@ -38,6 +38,7 @@
     "validate:identity-v22977": "node validation/validate-identity-v22977.mjs",
     "validate:monitor-v22977": "node validation/validate-monitor-v22977.mjs",
     "validate:cron-import-v22977": "node validation/validate-cron-import-v22977.mjs",
+    "validate:backup-strict-v22977": "node validation/validate-backup-strict-v22977.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",

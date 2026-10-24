@@ -159,9 +159,12 @@ export async function collectToken(env) {
   if (!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
   const verify = async (scope) => {
     let response;
+    // V22.9.77 N-14: Workers(workerd) 의 fetch 는 redirect 로 follow·manual 만 받고 "error" 는 TypeError 로 거절한다.
+    // 1.1.2 는 "error" 를 넣어 토큰이 정상이어도 늘 token_user_transport 로 끝났다. manual 은 3xx 를 따라가지 않고
+    // 그 응답을 돌려주므로 아래 !response.ok 가 token_<scope>_http_3xx 로 남긴다(토큰을 다른 주소로 보내지 않는다).
     try {
       response = await fetch(scope === "user" ? "https://api.cloudflare.com/client/v4/user/tokens/verify" : "https://api.cloudflare.com/client/v4/accounts/" + env.CF_ACCOUNT_ID + "/tokens/verify", {
-        method: "GET", redirect: "error",
+        method: "GET", redirect: "manual",
         headers: { authorization: "Bearer " + env.CF_ANALYTICS_TOKEN },
         signal: AbortSignal.timeout(8000)
       });

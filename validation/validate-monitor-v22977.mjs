@@ -5,9 +5,10 @@
 // G-6: 5분 cron 의 알림 판정이 summary() 전체로 7일치 표본 2,016행과 요청 표본 1,000행을 받아 해석·정렬했다(약 8.7ms, Free 한도 10ms).
 // 관제 Worker 는 Node 22 의 SQLite(실제 SQL)로, 앱은 메모리 픽스처로 돌린다. 네트워크는 쓰지 않는다(Node 22 이상 필요, test-d1 과 같음).
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import monitor, { deliverAlerts, summary } from "../monitoring/worker.mjs";
+import { fileURLToPath } from "node:url";
+import monitor, { collectToken, deliverAlerts, summary } from "../monitoring/worker.mjs";
 import { MONITOR_VERSION, daysToLimit, sanitizeTelemetry } from "../monitoring/model.mjs";
 import { app, BASE, counter, failure, fixture, intercept } from "./lib-audit-v22934.mjs";
 
@@ -39,7 +40,15 @@ function monitorDb() {
 // 관제 수집기가 부르는 바깥 주소(Cloudflare GraphQL·토큰 확인·앱 /health·/ready)를 흉내 낸다.
 const world = { uptimeFails: false, hourErrors: 0 };
 const asJson = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+// V22.9.77 N-14: Workers(workerd) 의 fetch 는 redirect 로 follow·manual 만 받는다. Node 의 fetch 는 "error" 도 받아서
+// 흉내 낸 주소만으로는 운영에서 늘 실패하던 토큰 확인(redirect:"error")이 통과했다. 바깥 주소 흉내가 workerd 처럼 거절한다.
+function workerdRedirectGuard(init) {
+  if (init?.redirect !== undefined && !["follow", "manual"].includes(String(init.redirect).toLowerCase())) {
+    throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\" (\"error\" won't be implemented since it does not make sense at the edge; use \"manual\" and check the response status code).");
+  }
+}
 async function monitorFetch(input, init) {
+  workerdRedirectGuard(init);
   const url = new URL(typeof input === "string" ? input : input.url);
   if (url.hostname === "api.cloudflare.com") {
     if (url.pathname === "/client/v4/user/tokens/verify") return asJson({ success: true, result: { id: "t", status: "active", expires_on: null } });
@@ -277,6 +286,61 @@ try {
       const sent = await deliverAlerts({ ...env, ALERT_EMAIL: { async send(message) { mails.push(message); } }, ALERT_TO: "ops@example.com", ALERT_FROM: "monitor@app.example", APP_ORIGIN: "https://app.example" }, new Date(at + 11 * MIN));
       ok(sent.titles?.includes("최근 처리 실패 기록") && bodyOf(mails[0]).includes("'처리 중'으로 먼저 답한 뒤"), "결과 미확인 요청이 알림 메일로 나간다");
     }
+  }
+
+  // ── 7b. N-14 분석 토큰 확인: workerd 가 받는 redirect 값으로 보내고, 정상 토큰은 성공으로 남긴다 ─────────────
+  // 1.1.2 는 redirect:"error" 로 보내 workerd 가 TypeError 로 거절했고, 관제는 그것을 token_user_transport 로 적었다
+  // (2026-10-23 21:00·10-24 00:00 실측). 같은 api.cloudflare.com 의 사용량 수집은 그 값을 쓰지 않아 성공했다.
+  {
+    const ACCOUNT = "0123456789abcdef0123456789abcdef";
+    const verified = { success: true, result: { id: "t", status: "active", expires_on: "2027-10-23T14:59:59Z" } };
+    const seen = [];
+    const tokenFetch = (answers) => async (input, init) => {
+      workerdRedirectGuard(init);
+      const url = new URL(typeof input === "string" ? input : input.url);
+      const scope = url.pathname.startsWith(`/client/v4/accounts/${ACCOUNT}/`) ? "account" : url.pathname === "/client/v4/user/tokens/verify" ? "user" : "";
+      if (!scope) throw new Error(`unexpected network ${url.href}`);
+      seen.push({ scope, redirect: init?.redirect });
+      const answer = answers[scope];
+      if (answer === "network") throw new TypeError("fetch failed");
+      if (answer === 302) return new Response(null, { status: 302, headers: { location: "https://elsewhere.example/verify" } });
+      if (typeof answer === "number") return asJson({ success: false, errors: [{ code: 1000, message: "Invalid API Token" }] }, answer);
+      return asJson(answer);
+    };
+    const attempt = async (answers) => {
+      globalThis.fetch = tokenFetch(answers);
+      try { return { value: await collectToken({ CF_ANALYTICS_TOKEN: "x", CF_ACCOUNT_ID: ACCOUNT }) }; }
+      catch (error) { return { error: String(error?.message || error) }; }
+      finally { globalThis.fetch = monitorFetch; }
+    };
+    const user = await attempt({ user: verified });
+    eq(JSON.stringify(user.value), JSON.stringify({ status: "active", expires_on: "2027-10-23T14:59:59Z", scope: "user" }), `N-14 사용자 토큰 확인이 workerd 에서도 성공해 상태·만료일을 남긴다 (${user.error || "성공"})`);
+    ok(seen.length > 0 && seen.every((call) => call.redirect === "manual"), `N-14 토큰 확인 요청은 workerd 가 받는 redirect:manual 로 보낸다 (${[...new Set(seen.map((call) => call.redirect))].join(",")})`);
+    eq((await attempt({ user: 401, account: verified })).value?.scope, "account", "N-14 사용자 경로 401 이면 계정 경로로 한 번 더 확인한다(1.1.2 동작 유지)");
+    eq((await attempt({ user: "network", account: verified })).value?.scope, "account", "N-14 사용자 경로 연결 실패도 계정 경로로 한 번 더 확인한다");
+    eq((await attempt({ user: "network", account: "network" })).error, "token_user_transport;token_account_transport", "N-14 두 경로가 모두 연결 실패면 그 사실만 비밀 없이 남긴다");
+    eq((await attempt({ user: 302 })).error, "token_user_http_302", "N-14 3xx 는 따라가지 않고 token_user_http_302 로 남긴다(토큰을 다른 주소로 보내지 않는다)");
+
+    // 매시 0~4분 수집이 실제로 토큰 행을 '수집됨'으로 쓴다(바깥 주소 흉내는 workerd 처럼 redirect 값을 거른다).
+    const { sqlite, db } = monitorDb();
+    await cron(monitorEnv(db, []), Date.parse("2026-10-24T01:00:30.000Z"));
+    const tokenRow = sqlite.prepare("SELECT status, error_code FROM collector_state WHERE name='token'").get();
+    eq(`${tokenRow?.status}/${tokenRow?.error_code ?? ""}`, "ok/", "N-14 매시 수집의 토큰 확인 행이 '수집됨'이고 오류 코드가 없다");
+
+    // Workers 에서 도는 코드(앱 서버 모듈·관제 Worker)에 workerd 가 거절하는 redirect 값이 없다. 브라우저 코드(client/)와
+    // Node 로 도는 외부 점검(external-check.mjs)은 "error" 를 받으므로 보지 않는다.
+    const workerSources = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) { if (!["client", "assets"].includes(entry.name)) walk(path); }
+        else if (/\.(?:m?js)$/.test(entry.name)) workerSources.push(path);
+      }
+    };
+    walk(fileURLToPath(new URL("../src/modules", import.meta.url)));
+    for (const name of ["worker.mjs", "model.mjs", "dashboard.mjs"]) workerSources.push(fileURLToPath(new URL(`../monitoring/${name}`, import.meta.url)));
+    const offenders = workerSources.filter((path) => /redirect\s*:\s*["'`]error["'`]/.test(readFileSync(path, "utf8")));
+    ok(workerSources.length > 50 && offenders.length === 0, `N-14 Workers 코드 ${workerSources.length}개 파일에 redirect:"error" 가 없다 ${offenders.join(", ")}`);
   }
 } finally {
   globalThis.fetch = originalFetch;

@@ -1,14 +1,14 @@
 ## V22.9.77 배포 판단
 
-Worker 코드 변경(카카오 수정·답장·메모, 단톡방 사람 이름·계정 연결, 예약 리포트 다시 만들기, 가져오기 해석, 관제 표본)과 관제 Worker 1.1.1→1.2.0. SQL·스키마·RPC·Secret·환경변수·카카오 콘솔·광고 모드 변경 없음. 관제 D1 이전 없음.
+Worker 코드 변경(카카오 수정·답장·메모, 단톡방 사람 이름·계정 연결, 예약 리포트 다시 만들기, 가져오기 해석, 관제 표본, 백업 엄격 조회)과 관제 Worker 운영 1.1.2→1.2.0. SQL·스키마·RPC·Secret·환경변수·카카오 콘솔·광고 모드 변경 없음. 관제 D1 이전 없음.
 
-- 전제: V22.9.76 이 먼저 운영에 반영돼 있어야 한다.
-- 배포 전 운영자 확인(N-7): 카카오 챗봇 관리자센터의 봇 설정에서 연결된 카카오 앱이 웹 로그인에 쓰는 앱(REST API 키의 앱)과 같은지. 다르거나 확인할 수 없으면 배포를 멈추고 알린다(B-7 의 appUserId 조회를 뺀 판을 따로 만든다).
+- 전제: V22.9.76 운영 반영(2026-10-22 19:32, `f0cfc8d7-02f6-4ed0-aa04-dd6109f04906`)과 운영 기록 PR #93 병합(2026-10-23, main `6ac4913`) — 충족.
+- N-7(2026-10-22·23 확인, 결함 아님): 운영 그룹 챗봇·채널 챗봇 모두 디벨로퍼스 앱 연결이 없어 appUserId 가 오지 않고 B-7 조회는 돌지 않는다. 배포를 막지 않는다. 배포 뒤 봇에 앱을 연결하려면 웹 로그인 앱(1489689)만 연결하고, 다른 앱이면 연결하기 전에 멈춘다.
 - 순서: 앱 Worker(V22.9.77) → 관제 1.2.0. 관제만 먼저 올리면 옛 앱의 ‘처리 중’ 표본이 10분 뒤 ‘결과 미확인’ 주의로 잡힌다.
 - 날짜: 매월 1일·2일과 말일은 피한다.
-- 배포 직후: /health version, /ready 필수 표 13개·실패 0. 관제 1.2.0 첫 5분 수집에서 /ops-monitor 의 ‘알림 발송’이 ‘수집됨’이고 error_code 가 없는지(N-8).
-- 다음 날: 예약 실행 `scheduled_failed`·`scheduled_error` 0, 운영 이벤트 `free_report_rebuild_failed`·`recurring_report_rebuild_overflow`·`free_report_row_limit`·`kakao_login_alias_conflict` 확인, 설정 키 `cron_recurring_state_v22976` 이 평소 두 칸(checked_date·pending_month)인지.
-- 되돌릴 때: V22.9.76 으로 되돌려도 옛 코드는 `report_rebuild` 칸을 무시한다(남은 다시 만들기만 버려진다). 관제는 1.1.1 로 되돌려도 D1 행을 그대로 읽는다.
+- 배포 직후: /health version, /ready 필수 표 13개·실패 0. 관제 1.2.0 첫 5분 수집에서 /ops-monitor 의 ‘알림 발송’이 ‘수집됨’이고 error_code 가 없는지(N-8). 그다음 정각(매시 0~4분) 수집에서 ‘분석 토큰 만료 확인’이 ‘수집됨’이고 만료일 2027-10-23 이 보이는지(N-14, 1.1.2 는 늘 token_user_transport).
+- 다음 날(N-18: 운영 이벤트는 인스턴스 메모리에만 남아 근거가 되지 못한다 — DB 에 남는 값을 읽기만 해서 본다): 설정 키 `cron_recurring_state_v22976` 의 checked_date 가 확인 날짜이고 pending_month 가 비어 있는지(`report_rebuild` 칸은 남은 다시 만들기가 있을 때만), 지정일이 지난 활성 규칙의 last_applied_month 가 이번 달인지, `recurring:<규칙 id>:<달>` 기록이 규칙·달마다 한 건인지. 관제·관리자 화면의 `scheduled_error`·`free_report_rebuild_failed`·`recurring_report_rebuild_deferred`·`recurring_report_rebuild_overflow`(N-17 뒤에는 나오지 않아야 한다)·`free_report_row_limit`·`kakao_login_alias_conflict` 는 보이면 건수만 적는다(안 보인다고 0 으로 쓰지 않는다).
+- 되돌릴 때: V22.9.76 으로 되돌려도 옛 코드는 `report_rebuild` 칸을 무시한다(남은 다시 만들기만 버려진다). 관제는 직전 1.1.2(`53f50762-32c9-4560-bb66-9b8110a292bf`)로 되돌려도 D1 행을 그대로 읽는다(토큰 확인은 다시 늘 실패로 보인다).
 
 ## V22.9.76 배포 판단
 

@@ -122,6 +122,8 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // V22.9.77 감사 M-8: 지난 달에 기록을 넣은(따라잡기·?month= 실행) 가계부는 그 달 월간 리포트 스냅숏이 이미 있으면 같은
 // 실행 끝에서 다시 만든다. 한 실행에 RECURRING_REPORT_REBUILDS 개(월말 생성과 같은 가계부 2개)까지, 이 단계 몫(30회) 안에서만
 // 만들고, 못 만든 가계부·달은 상태 키의 report_rebuild 에 남겨 다음 실행이 잇는다. 넣은 기록이 없는 실행은 예전과 같다.
+// V22.9.77 N-17: report_rebuild 는 RECURRING_REPORT_QUEUE_MAX 개까지만 저장한다. 넘친 항목은 저장 때 잘려 그 가계부의 스냅숏이
+// 예전 금액으로 남았으므로, 대기에 자리가 없는 가계부·달의 지난 달 몫은 이번 실행에서 넣지 않고 남겨 다음 실행이 잇는다.
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
 const RECURRING_CRON_CHUNK = 40;
@@ -275,9 +277,12 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   let stored = null;
   let checkedDate = "";
   let partial = false;
+  let queuedBefore = [];
   if (explicitMonth) {
     // 운영자가 ?month= 로 달을 지정하면 그 달만 본다. 지난 달은 모든 날짜, 이번 달은 오늘까지가 지정일이다. 앞으로 올 달은 넣지 않는다.
     if (explicitMonth <= currentMonth) phases.push({ kind: "explicit", month: explicitMonth, dueDay: explicitMonth < currentMonth ? 31 : currentDay });
+    // N-17: 지난 달 ?month= 실행도 다시 만들기 대기에 남은 자리를 본다. report_rebuild 만 쓰고 checked_date·pending_month 는 보지 않는다.
+    if (explicitMonth < currentMonth) queuedBefore = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY)).report_rebuild;
   } else {
     stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
     // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
@@ -313,14 +318,35 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
   const markerOf = (rule) => caughtUp.has(String(rule.id)) ? previousMonth : String(rule.last_applied_month || "");
   const report = (detail, kind = "recurring_auto_apply_failed") => rememberOpsEvent({ kind, severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail });
+  // V22.9.77 N-17: 지난 달 몫을 넣으면 그 가계부·달이 다시 만들기 대기에 오른다. 대기(앞선 실행이 남긴 것 + 이번 실행)가
+  // RECURRING_REPORT_QUEUE_MAX 개를 넘지 않게, 자리가 없는 가계부·달의 규칙은 이번에 넣지 않는다. 그 규칙은 표식이 그대로라
+  // 남은 규칙(partial)이 되고 다음 실행이 잇는다. 이번 달 몫은 대기에 오르지 않으므로 그대로 넣는다.
+  let reportDeferred = 0;
+  const reportQueueWork = (phase, candidates) => {
+    if (phase.month >= currentMonth) return candidates;
+    const queued = new Set([...(stored ? stored.report_rebuild : queuedBefore), ...reportTouched]);
+    const work = candidates.filter((rule) => {
+      const key = `${phase.month}|${String(rule.household_id || "")}`;
+      if (queued.has(key)) return true;
+      if (queued.size >= RECURRING_REPORT_QUEUE_MAX) return false;
+      queued.add(key);
+      return true;
+    });
+    if (work.length < candidates.length) {
+      reportDeferred += candidates.length - work.length;
+      report(`${phase.month}:report_rebuild_full:${candidates.length - work.length}`, "recurring_report_rebuild_deferred");
+    }
+    return work;
+  };
   const processPhase = async (phase) => {
     const candidates = phase.rows.filter((rule) => isCandidate(rule, phase));
     const done = new Set();
     phase.candidates = candidates.length;
     phase.confirmed = 0;
     stats.scanned += candidates.length;
-    for (let index = 0; index < candidates.length; index += RECURRING_CRON_CHUNK) {
-      const chunk = candidates.slice(index, index + RECURRING_CRON_CHUNK);
+    const work = reportQueueWork(phase, candidates);
+    for (let index = 0; index < work.length; index += RECURRING_CRON_CHUNK) {
+      const chunk = work.slice(index, index + RECURRING_CRON_CHUNK);
       const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
       if (!room((missing.length ? 1 : 0) + 3)) { partial = true; break; }
       if (missing.length) {
@@ -465,6 +491,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length })),
     households: touched.size, ...stats, remaining, checked_date: stored ? nextChecked : "",
     ...(reportRebuilt || reportQueue.length ? { report_rebuilt: reportRebuilt, report_rebuild_pending: reportQueue.length } : {}),
+    ...(reportDeferred ? { report_rebuild_deferred: reportDeferred } : {}),
   };
 }
 

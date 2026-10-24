@@ -63,6 +63,7 @@ const validationScripts = [
   ["V22.9.77 단톡방 사람별 합계·앱 계정 연결", "validation/validate-identity-v22977.mjs"],
   ["V22.9.77 관제 경고 재발송·처리 중 결과·cron CPU", "validation/validate-monitor-v22977.mjs"],
   ["V22.9.77 지난달 리포트 다시 만들기·가져오기 해석 CPU", "validation/validate-cron-import-v22977.mjs"],
+  ["V22.9.77 백업 엄격 조회(분류·키워드·구성원 별명)", "validation/validate-backup-strict-v22977.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -290,7 +291,8 @@ function run(command, args, label) {
 // V22.9.72: add 346 chat-feedback assertions (short button names, 도움말 wording, bottom 기록하기, empty states, deferred replies); 13 validators re-pointed.
 // V22.9.73: add 67 Supabase stall-guard assertions (read attempt deadline + one retry, write deadline → uncertain, monitor db_retries).
 // V22.9.77: 감사 후속 검사 4개(카카오 수정 89·신원 66·관제 61·예약·가져오기 55)와 추적표 V77 출처. 두 모드 실측: 일반 26,850 · 분류 표 부재 26,847.
-const EXPECTED_MINIMUM_CHECKS = 26847;
+// V22.9.77 2026-10-24: main(V76 기록 PR #93) 병합 뒤 관제 토큰 확인 N-14(+8)·다시 만들기 대기 N-17(+14)·백업 엄격 조회 N-15(15)·추적표 V77 N-14~N-18. 두 모드 실측: 일반 26,933 · 분류 표 부재 26,930.
+const EXPECTED_MINIMUM_CHECKS = 26930;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

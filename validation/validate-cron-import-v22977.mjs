@@ -4,6 +4,8 @@
 //        다시 만든다. 한 실행에 2개까지만 만들고 남은 가계부·달은 상태 키(report_rebuild)에 남겨 다음 실행이 잇는다. 스냅숏이 없는
 //        가계부는 만들지 않는다. 따라잡을 것이 없는 실행은 스냅숏을 찾지 않고 상태 값도 예전 두 칸 그대로다. ?month= 실행과
 //        새 달에 규칙을 고쳐 지난달 몫이 들어가는 경우(D-10)도 같다.
+//   N-17 다시 만들기 대기(report_rebuild)는 300개까지만 저장한다. 예전에는 넘친 항목을 저장 때 잘라 그 가계부의 스냅숏이
+//        예전 금액으로 남았다. 대기에 자리가 없으면 지난달 몫을 넣지 않고 남겨 다음 실행이 잇는다(M-8-F).
 //   E-1  가져오기 해석: KST 형식기를 행마다 만들지 않고(해석 한 번에 1개 이하), 제목 별칭 정규화가 행 수 × 별칭 수로 늘지 않고,
 //        수입 분류 낱말 정규식을 행마다 만들지 않는다. 1,000행 해석이 옛 3.1초보다 훨씬 짧다. 결과는 고치기 전(V22.9.76)과
 //        바이트 단위로 같다(입력 표본마다 SHA-256), 빠른 수입 판정은 옛 계산식과 모든 표본에서 같다.
@@ -188,7 +190,65 @@ async function m8() {
     ok(ids.every((id) => snapshotOf(fx, id, "2026-10")?.transaction_count === 2 && snapshotOf(fx, id, "2026-10")?.expense === 50000), "M-8-E 다음 예약 실행이 남은 스냅숏까지 다시 만든다");
     deepEq(Object.keys(stateOf(fx)).sort(), ["checked_date", "pending_month"], "M-8-E 다 만든 뒤 상태 값은 예전 두 칸이다");
   });
+
+  // ── M-8-F(N-17): 다시 만들기 대기가 거의 찼으면 자리가 나는 만큼만 지난달 몫을 넣고, 대기 항목은 하나도 버리지 않는다 ─────
+  // 예전에는 따라잡기가 다 넣은 뒤 저장 때 300개로 잘라 맨 뒤(방금 넣은 가계부)가 사라졌다. 거래와 표식은 이미 바뀐 뒤라
+  // 그 가계부의 10월 스냅숏은 다시 만들어지지 않았다.
+  const fakeQueue = (fx, count) => Array.from({ length: count }, (_, i) => {
+    const id = `m8f-x${String(i + 1).padStart(3, "0")}`;
+    putSetting(fx, snapshotKey(id), JSON.stringify({ version: 1, household_id: id, household_name: `${id} 가계부`, kind: "monthly", period: "2026-10", generated_at: "2026-10-31T00:10:00.000Z", income: 0, expense: 0, balance: 0, transaction_count: 0, spend_days: 0, top_categories: [], biggest: null }));
+    return `2026-10|${id}`;
+  });
+  const seedStale = (fx, id) => putSetting(fx, snapshotKey(id), JSON.stringify({ version: 1, household_id: id, household_name: `${id} 가계부`, kind: "monthly", period: "2026-10", generated_at: "2026-10-31T00:10:00.000Z", income: 0, expense: 30000, balance: -30000, transaction_count: 1, spend_days: 1, top_categories: [], biggest: null }));
+  await fixture(async (fx) => {
+    fx.db.accountbook_recurring.length = 0;
+    const real = ["m8f-h1", "m8f-h2", "m8f-h3"];
+    for (const id of real) { seedHousehold(fx, id); seedStale(fx, id); seedRule(fx, { id: `${id}-r`, household_id: id, amount: 10000, category: "구독", memo: "구독료", day_of_month: 31 }); }
+    // 10/31 실행이 없었고(checked_date 10/30) 앞선 따라잡기가 남긴 대기가 300개로 찼다. 예전 코드는 11/1 에 세 가계부를
+    // 모두 넣고 303개 중 2개를 다시 만든 뒤 301개를 300개로 잘라 h3 를 잃었다.
+    const queued = fakeQueue(fx, 300);
+    putSetting(fx, STATE_KEY, JSON.stringify({ checked_date: "2026-10-30", pending_month: "", report_rebuild: queued }));
+    let maxQueue = queued.length;
+    const results = {}, inserted = {};
+    for (const day of ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"]) {
+      globalThis.__AB_QA_FIXED_NOW_MS = KST(day);
+      results[day] = await runRecurringAutoApply(fx.env, { today: day });
+      maxQueue = Math.max(maxQueue, safeQueue(stateOf(fx)).length);
+      inserted[day] = real.filter((id) => recurringTx(fx, `${id}-r`).length === 1).join(",");
+      if (day === "2026-11-01") {
+        const state = stateOf(fx);
+        eq(inserted[day], "", "M-8-F 11/1 대기가 300개로 찼으면 지난달 몫을 하나도 넣지 않는다");
+        eq(results[day].report_rebuild_deferred, 3, "M-8-F 11/1 자리가 없는 세 가계부의 규칙을 미룬다");
+        ok(results[day].partial && results[day].remaining === 3, `M-8-F 11/1 미룬 규칙은 남은 규칙으로 끝난다 (remaining ${results[day].remaining})`);
+        ok(state.checked_date === "2026-10-30" && state.pending_month === "2026-10", `M-8-F 11/1 checked_date·pending_month 가 다음 실행이 10월 31일 몫을 잇게 남는다 (${state.checked_date}·${state.pending_month})`);
+        eq(safeQueue(state).length, 298, "M-8-F 11/1 실행도 대기에서 2개를 다시 만든다(300 → 298)");
+        eq(ruleNow(fx, "m8f-h1-r").last_applied_month, "2026-09", "M-8-F 11/1 미룬 규칙의 표식은 그대로다");
+      }
+    }
+    eq(inserted["2026-11-02"], "m8f-h1,m8f-h2", "M-8-F 11/2 자리가 난 2개만큼 h1·h2 의 10월 몫을 넣는다");
+    eq(inserted["2026-11-03"], "m8f-h1,m8f-h2,m8f-h3", "M-8-F 11/3 남은 h3 의 10월 몫을 넣는다(가계부마다 한 건)");
+    const finalQueue = safeQueue(stateOf(fx));
+    ok(real.every((id) => finalQueue.includes(`2026-10|${id}`)), `M-8-F 넣은 세 가계부가 모두 대기에 남아 있다(잘리지 않는다): ${real.filter((id) => !finalQueue.includes(`2026-10|${id}`)).join(",") || "모두 있음"}`);
+    ok(maxQueue <= 300, `M-8-F 대기는 어느 실행 뒤에도 300개를 넘지 않는다 (최대 ${maxQueue})`);
+    eq(results["2026-11-04"].applied, 0, "M-8-F 11/4 실행은 이미 넣은 몫을 다시 넣지 않는다");
+  });
+  // ?month= 지난 달 실행도 대기가 찼으면 넣지 않는다(예전에는 넣은 뒤 상태에 보태며 잘라 그 가계부를 잃었다).
+  await fixture(async (fx) => {
+    fx.db.accountbook_recurring.length = 0;
+    seedHousehold(fx, "m8f-e1"); seedStale(fx, "m8f-e1");
+    await runCron(fx, "2026-11-04");
+    const before = stateOf(fx);
+    const full = fakeQueue(fx, 300);
+    putSetting(fx, STATE_KEY, JSON.stringify({ ...before, report_rebuild: full }));
+    seedRule(fx, { id: "m8f-e1-r", household_id: "m8f-e1", amount: 20000, category: "교육", memo: "학원", day_of_month: 15 });
+    globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-11-05", "10:00");
+    const result = await runRecurringAutoApply(fx.env, { month: "2026-10", today: "2026-11-05" });
+    eq(recurringTx(fx, "m8f-e1-r").length, 0, "M-8-F ?month= 대기가 300개로 찼으면 지난 달 몫을 넣지 않는다");
+    ok(result.report_rebuild_deferred === 1 && result.partial, `M-8-F ?month= 미룬 규칙을 결과에 적고 partial 로 끝난다 (${JSON.stringify({ deferred: result.report_rebuild_deferred, partial: result.partial })})`);
+    deepEq(stateOf(fx), { ...before, report_rebuild: full }, "M-8-F ?month= 상태 키(대기·checked_date·pending_month)는 그대로다");
+  });
 }
+const safeQueue = (state) => (Array.isArray(state?.report_rebuild) ? state.report_rebuild : []);
 
 // ── E-1 ────────────────────────────────────────────────────────────────────────
 const MERCHANTS = ["스타벅스 강남점", "이마트 성수점", "GS25 역삼점", "쿠팡", "배달의민족", "카카오T 택시", "올리브영 신촌", "CGV 용산", "교보문고 광화문", "SK주유소 서초"];

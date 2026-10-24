@@ -161,7 +161,8 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
     ? Promise.resolve(normalizeMemberAliasMap(options.aliases))
     : options?.aliasesPromise
       ? Promise.resolve(options.aliasesPromise).then(normalizeMemberAliasMap).catch(() => ({}))
-      : fetchMemberAliasMap(env, householdId);
+      // V22.9.77 N-15: options.strict(백업)는 별명 읽기 실패를 빈 별명으로 바꾸지 않는다.
+      : fetchMemberAliasMap(env, householdId, { strict: options?.strict === true });
   // V22.9.16: 구성원 행에 사용자 행을 포함해 한 번에 읽는다(외래키가 없으면 두 단계로 복귀).
   const memberPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}`;
   const [{ rows: rawMembers, embedded }, aliases] = await Promise.all([

@@ -438,8 +438,17 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
+// V22.9.77 N-15: 분류 표가 없는 운영 모드(404 PGRST205)만 '표 없음'으로 본다. 다른 실패는 엄격 조회에서 그대로 올린다.
+function categoriesTableAbsent(err) {
+  const message = String(err?.message || err || "");
+  return /^Supabase 404:/.test(message) && /PGRST205/.test(message);
+}
+
 async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
+  // V22.9.77 N-15: options.strict(백업)는 읽기 실패를 빈 목록으로 바꾸지 않는다. 설정 조회가 실패하면 기본 분류만 든 백업이
+  // 정상 파일로 내려받아졌다(V22.9.34 S10: 못 읽은 자료가 있으면 파일을 만들지 않는다). 저장된 값은 화면과 같은 방식으로 읽는다.
+  const strict = options.strict === true;
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
   if (householdId) params.set("household_id", `eq.${householdId}`);
@@ -449,8 +458,14 @@ async function fetchCustomCategories(env, householdId = "", options = {}) {
   // Read both fallback settings together so absence does not add a serial database round trip.
   const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
   const [rows, settings] = await Promise.all([
-    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch(() => null),
-    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
+    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch((err) => {
+      if (strict && !categoriesTableAbsent(err)) throw err;
+      return null;
+    }),
+    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch((err) => {
+      if (strict) throw err;
+      return [];
+    }),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
   let keywordMap = Object.create(null);

@@ -12281,8 +12281,17 @@ async function deleteSettingsCategory(env, householdId = "", id = "") {
   });
 }
 
+// V22.9.77 N-15: 분류 표가 없는 운영 모드(404 PGRST205)만 '표 없음'으로 본다. 다른 실패는 엄격 조회에서 그대로 올린다.
+function categoriesTableAbsent(err) {
+  const message = String(err?.message || err || "");
+  return /^Supabase 404:/.test(message) && /PGRST205/.test(message);
+}
+
 async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
+  // V22.9.77 N-15: options.strict(백업)는 읽기 실패를 빈 목록으로 바꾸지 않는다. 설정 조회가 실패하면 기본 분류만 든 백업이
+  // 정상 파일로 내려받아졌다(V22.9.34 S10: 못 읽은 자료가 있으면 파일을 만들지 않는다). 저장된 값은 화면과 같은 방식으로 읽는다.
+  const strict = options.strict === true;
   const params = new URLSearchParams();
   params.set("select", "id,household_id,name,type,sort_order,created_at");
   if (householdId) params.set("household_id", `eq.${householdId}`);
@@ -12292,8 +12301,14 @@ async function fetchCustomCategories(env, householdId = "", options = {}) {
   // Read both fallback settings together so absence does not add a serial database round trip.
   const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
   const [rows, settings] = await Promise.all([
-    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch(() => null),
-    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch(() => []),
+    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch((err) => {
+      if (strict && !categoriesTableAbsent(err)) throw err;
+      return null;
+    }),
+    supabase(env, `/rest/v1/accountbook_settings?key=in.(${keys.map(encodeURIComponent).join(",")})&select=key,value`, { method: "GET" }).catch((err) => {
+      if (strict) throw err;
+      return [];
+    }),
   ]);
   const values = new Map(safeArray(settings).map((row) => [row.key, row.value]));
   let keywordMap = Object.create(null);
@@ -14912,7 +14927,8 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
     ? Promise.resolve(normalizeMemberAliasMap(options.aliases))
     : options?.aliasesPromise
       ? Promise.resolve(options.aliasesPromise).then(normalizeMemberAliasMap).catch(() => ({}))
-      : fetchMemberAliasMap(env, householdId);
+      // V22.9.77 N-15: options.strict(백업)는 별명 읽기 실패를 빈 별명으로 바꾸지 않는다.
+      : fetchMemberAliasMap(env, householdId, { strict: options?.strict === true });
   // V22.9.16: 구성원 행에 사용자 행을 포함해 한 번에 읽는다(외래키가 없으면 두 단계로 복귀).
   const memberPath = `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}`;
   const [{ rows: rawMembers, embedded }, aliases] = await Promise.all([
@@ -15845,11 +15861,12 @@ async function buildBackupPayload(env, { month, householdId, range = "month" }) 
   const reservePlansByHousehold = Object.create(null);
   // V22.9.34 감사 S10: 백업은 읽기 실패를 빈 값으로 넣지 않는다. 일부가 빈 백업 파일은 정상처럼 보여
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
+  // V22.9.77 N-15: 분류·키워드와 구성원 별명도 엄격 조회로 읽는다(예전에는 실패하면 빈 목록이 들어간 파일이 정상으로 나갔다).
   for (const h of selectedHouseholds) {
-    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id);
+    membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id, { strict: true });
     budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
-    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id);
+    categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id, { strict: true });
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
   const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];
@@ -24242,6 +24259,8 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // V22.9.77 감사 M-8: 지난 달에 기록을 넣은(따라잡기·?month= 실행) 가계부는 그 달 월간 리포트 스냅숏이 이미 있으면 같은
 // 실행 끝에서 다시 만든다. 한 실행에 RECURRING_REPORT_REBUILDS 개(월말 생성과 같은 가계부 2개)까지, 이 단계 몫(30회) 안에서만
 // 만들고, 못 만든 가계부·달은 상태 키의 report_rebuild 에 남겨 다음 실행이 잇는다. 넣은 기록이 없는 실행은 예전과 같다.
+// V22.9.77 N-17: report_rebuild 는 RECURRING_REPORT_QUEUE_MAX 개까지만 저장한다. 넘친 항목은 저장 때 잘려 그 가계부의 스냅숏이
+// 예전 금액으로 남았으므로, 대기에 자리가 없는 가계부·달의 지난 달 몫은 이번 실행에서 넣지 않고 남겨 다음 실행이 잇는다.
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
 const RECURRING_CRON_CHUNK = 40;
@@ -24395,9 +24414,12 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   let stored = null;
   let checkedDate = "";
   let partial = false;
+  let queuedBefore = [];
   if (explicitMonth) {
     // 운영자가 ?month= 로 달을 지정하면 그 달만 본다. 지난 달은 모든 날짜, 이번 달은 오늘까지가 지정일이다. 앞으로 올 달은 넣지 않는다.
     if (explicitMonth <= currentMonth) phases.push({ kind: "explicit", month: explicitMonth, dueDay: explicitMonth < currentMonth ? 31 : currentDay });
+    // N-17: 지난 달 ?month= 실행도 다시 만들기 대기에 남은 자리를 본다. report_rebuild 만 쓰고 checked_date·pending_month 는 보지 않는다.
+    if (explicitMonth < currentMonth) queuedBefore = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY)).report_rebuild;
   } else {
     stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
     // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
@@ -24433,14 +24455,35 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   };
   const markerOf = (rule) => caughtUp.has(String(rule.id)) ? previousMonth : String(rule.last_applied_month || "");
   const report = (detail, kind = "recurring_auto_apply_failed") => rememberOpsEvent({ kind, severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail });
+  // V22.9.77 N-17: 지난 달 몫을 넣으면 그 가계부·달이 다시 만들기 대기에 오른다. 대기(앞선 실행이 남긴 것 + 이번 실행)가
+  // RECURRING_REPORT_QUEUE_MAX 개를 넘지 않게, 자리가 없는 가계부·달의 규칙은 이번에 넣지 않는다. 그 규칙은 표식이 그대로라
+  // 남은 규칙(partial)이 되고 다음 실행이 잇는다. 이번 달 몫은 대기에 오르지 않으므로 그대로 넣는다.
+  let reportDeferred = 0;
+  const reportQueueWork = (phase, candidates) => {
+    if (phase.month >= currentMonth) return candidates;
+    const queued = new Set([...(stored ? stored.report_rebuild : queuedBefore), ...reportTouched]);
+    const work = candidates.filter((rule) => {
+      const key = `${phase.month}|${String(rule.household_id || "")}`;
+      if (queued.has(key)) return true;
+      if (queued.size >= RECURRING_REPORT_QUEUE_MAX) return false;
+      queued.add(key);
+      return true;
+    });
+    if (work.length < candidates.length) {
+      reportDeferred += candidates.length - work.length;
+      report(`${phase.month}:report_rebuild_full:${candidates.length - work.length}`, "recurring_report_rebuild_deferred");
+    }
+    return work;
+  };
   const processPhase = async (phase) => {
     const candidates = phase.rows.filter((rule) => isCandidate(rule, phase));
     const done = new Set();
     phase.candidates = candidates.length;
     phase.confirmed = 0;
     stats.scanned += candidates.length;
-    for (let index = 0; index < candidates.length; index += RECURRING_CRON_CHUNK) {
-      const chunk = candidates.slice(index, index + RECURRING_CRON_CHUNK);
+    const work = reportQueueWork(phase, candidates);
+    for (let index = 0; index < work.length; index += RECURRING_CRON_CHUNK) {
+      const chunk = work.slice(index, index + RECURRING_CRON_CHUNK);
       const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
       if (!room((missing.length ? 1 : 0) + 3)) { partial = true; break; }
       if (missing.length) {
@@ -24585,6 +24628,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length })),
     households: touched.size, ...stats, remaining, checked_date: stored ? nextChecked : "",
     ...(reportRebuilt || reportQueue.length ? { report_rebuilt: reportRebuilt, report_rebuild_pending: reportQueue.length } : {}),
+    ...(reportDeferred ? { report_rebuild_deferred: reportDeferred } : {}),
   };
 }
 
