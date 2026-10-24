@@ -52,7 +52,7 @@ async function requestJson(request,max=16384) { return JSON.parse(await readBoun
 // 1.1.1: Cloudflare Email Service 는 오류를 `code`(E_SENDER_NOT_VERIFIED 등)로 던진다. 그 코드가 있으면 그대로 쓴다.
 const failureCode = error => (/^E_[A-Z_]+$/.exec(String(error?.code||""))?.[0]) || /E_[A-Z_]+|not_connected|unauthorized|forbidden|timeout|payload_too_large|invalid_|truncated|graphql|unsupported|empty|delivery_failed|metrics_unavailable|http_\d+/.exec(String(error?.message||error))?.[0] || "collection_failed";
 
-async function writeCollector(env,name,task,now) {
+export async function writeCollector(env,name,task,now) {
   const at=now.toISOString();
   try {
     const value=await task();
@@ -66,8 +66,8 @@ async function writeCollector(env,name,task,now) {
     // 1.1.1: 발송 실패는 채널별 원인(`delivery_failed email:E_SENDER_NOT_VERIFIED webhook:http_500`)을 error_code 에 그대로 남겨
     // 화면의 "확인되지 않은 항목"에 보이게 하고, 모든 수집 실패를 Workers Logs 에도 적는다(예전에는 코드만 남아 원인을 알 수 없었다).
     const message=String(error?.message||error).replace(/\s+/g," ").trim();
-    const code=name==="alerts"&&/^delivery_failed\b/.test(message)?message.slice(0,160):failureCode(error);
-    console.error(`monitor collector ${name} failed: ${code}${code===message?"":` — ${message.slice(0,200)}`}`);
+    const code=name==="token" ? (/^(?:token_(?:user|account)_(?:transport|http_\d{3}(?:_api_\d+(?:_\d+){0,3})?(?:_unsupported)?))(?:;token_account_(?:transport|http_\d{3}(?:_api_\d+(?:_\d+){0,3})?(?:_unsupported)?))?$/.test(message) ? message : failureCode(error)) : name==="alerts"&&/^delivery_failed\b/.test(message)?message.slice(0,160):failureCode(error);
+    console.error(`monitor collector ${name} failed: ${code}${name==="token"||code===message?"":` — ${message.slice(0,200)}`}`);
     await env.MONITOR_DB.prepare("INSERT INTO collector_state(name,last_attempt_at,status,error_code) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,status=excluded.status,error_code=excluded.error_code").bind(name,at,code==="not_connected"?"not_connected":"error",code).run();
   }
 }
@@ -152,12 +152,38 @@ async function collectDatabase(env) {
 }
 
 // 1.1.0: 분석 토큰의 만료일. README 4단계는 1년 만료 토큰을 권하지만 아무도 만료일을 보지 않았다.
-async function collectToken(env) {
-  if(!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
-  const body=await fetchJson("https://api.cloudflare.com/client/v4/user/tokens/verify",{headers:{authorization:`Bearer ${env.CF_ANALYTICS_TOKEN}`}});
-  const result=body?.result;
-  if(!body?.success||!result||typeof result.status!=="string") throw new Error("unsupported_fields");
-  return {status:result.status,expires_on:typeof result.expires_on==="string"?result.expires_on:null};
+// Keep reviewed 1.1.2 token validation and bounded, secret-free diagnostics in 1.2.0.
+export function tokenVerification(result){if(!result||!["active","disabled","expired"].includes(result.status))throw new Error("unsupported_token_status");const expiry=result.expires_on;if(expiry!==void 0&&expiry!==null){const parts=typeof expiry==="string"&&/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(expiry);if(!parts)throw new Error("invalid_token_expiry");const[,year,month,day,hour,minute,second,offsetHour,offsetMinute]=parts.map((value,index)=>index===0?value:Number(value??0));const leap=year%4===0&&(year%100!==0||year%400===0);const daysInMonth=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31][month-1];if(!(day>=1&&day<=daysInMonth)||hour>23||minute>59||second>59||offsetHour>23||offsetMinute>59||!Number.isFinite(Date.parse(expiry)))throw new Error("invalid_token_expiry")}return{status:result.status,expires_on:expiry??null}}
+
+export async function collectToken(env) {
+  if (!env.CF_ANALYTICS_TOKEN) throw new Error("not_connected");
+  const verify = async (scope) => {
+    let response;
+    try {
+      response = await fetch(scope === "user" ? "https://api.cloudflare.com/client/v4/user/tokens/verify" : "https://api.cloudflare.com/client/v4/accounts/" + env.CF_ACCOUNT_ID + "/tokens/verify", {
+        method: "GET", redirect: "error",
+        headers: { authorization: "Bearer " + env.CF_ANALYTICS_TOKEN },
+        signal: AbortSignal.timeout(8000)
+      });
+    } catch (_) { return { http: null, error: "token_" + scope + "_transport" }; }
+    let body = null, issue = null;
+    try { body = JSON.parse(await readBounded(response)); } catch (_) { issue = "invalid_body"; }
+    const codes = Array.isArray(body?.errors) ? body.errors.map(e => e?.code).filter(c => Number.isSafeInteger(c) && c >= 0).slice(0, 4) : [];
+    const safe = "token_" + scope + "_http_" + response.status + (codes.length ? "_api_" + codes.join("_") : "");
+    if (!response.ok) return { http: response.status, error: safe };
+    if (issue || body?.success !== true) return { http: response.status, error: safe + "_unsupported" };
+    try { return { http: response.status, value: { ...tokenVerification(body.result), scope } }; }
+    catch (_) { return { http: response.status, error: safe + "_unsupported" }; }
+  };
+  const user = await verify("user");
+  if (user.value) return user.value;
+  // User endpoint transport failures also get one bounded account-scoped probe.
+  if ((user.http === null || [401, 403].includes(user.http)) && /^[a-fA-F0-9]{32}$/.test(env.CF_ACCOUNT_ID || "")) {
+    const account = await verify("account");
+    if (account.value) return account.value;
+    throw new Error(user.error + ";" + account.error);
+  }
+  throw new Error(user.error);
 }
 
 async function collectSupabasePlan(env) {
