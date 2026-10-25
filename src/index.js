@@ -14286,6 +14286,29 @@ function importColumnMetadata(headers = []) {
 
 const IMPORT_EDITABLE_FIELDS = Object.freeze(["date", "amount", "type", "income", "expense", "memo", "category", "payment", "spender", "ignore"]);
 
+// V22.9.79 감사 E-15: 백업 CSV 내보내기(csvSafeText)는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 글 앞에 엑셀 수식 방지용 작은따옴표를 붙인다.
+// 다시 가져올 때 그 작은따옴표를 뺀다. 작은따옴표가 하나 이상 이어진 뒤에 수식 기호가 올 때만 하나를 빼므로, 진짜로 작은따옴표로
+// 시작하는 글('점심')은 그대로 남고, 작은따옴표 뒤에 수식 기호가 오는 글('=x)은 내보낼 때 이미 하나가 더 붙어 있어 되돌아온다.
+const IMPORT_GUARDED_FIELDS = new Set(["memo", "category", "payment", "spender", "raw_text"]);
+function unguardImportText(value) {
+  return typeof value === "string" && value.charCodeAt(0) === 39 && /^'+[=+\-@\t\r]/.test(value) ? value.slice(1) : value;
+}
+
+// V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV(열 9개가 모두 있는 표)인지. 내보낸 파일의 빈 칸은 "값이 없음"이므로 가져올 때 글에서 추측해
+// 채우지 않는다. 열 이름은 import/csv-duplicates.js READABLE_CSV_COLUMNS 와 같아야 한다(검사기가 맞춰 본다).
+const BACKUP_EXPORT_HEADER_KEYS = ["날짜", "구분", "금액", "분류", "내용", "결제수단", "지출자", "출처", "기록ID"].map(normalizeImportHeader);
+function isBackupExportColumns(columns = []) {
+  const keys = new Set(safeArray(columns).map((column) => column?.key));
+  return BACKUP_EXPORT_HEADER_KEYS.every((key) => keys.has(key));
+}
+
+// V22.9.79 감사 E-11: 카드 명세서의 ‘결제방법’ 열에는 결제수단이 아니라 일시불·할부 같은 결제 방식이 적힌다. 이 값을 결제수단 이름으로 쓰면
+// 결제수단별 통계에 ‘일시불’이 한 갈래로 생긴다. 이런 말만 적힌 칸은 결제수단으로 읽지 않는다(‘이용카드’ 열이 있으면 그 값을 쓴다).
+const IMPORT_INSTALLMENT_LABEL = /^(?:일시불(?:\s*\([^)]*\))?|할부|무이자(?:\s*할부)?|\d{1,2}\s*개월(?:\s*(?:무이자\s*)?할부)?|할부\s*\d{1,2}\s*개월?|\d{1,2}\s*회\s*할부)$/;
+function isInstallmentLabel(value) {
+  return IMPORT_INSTALLMENT_LABEL.test(String(value ?? "").trim());
+}
+
 function isImportSheetMarker(cells = []) {
   return /^(?:#\s*)?(?:시트|sheet)\s*[:：]/i.test(String(cells[0] || "").trim());
 }
@@ -14528,8 +14551,8 @@ function isTwoDigitYearImportDate(value = "") {
   return /^\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2}(?:\s|$)/.test(String(value ?? "").trim());
 }
 
-// V22.9.79 \uac10\uc0ac E-1: \ud55c \ubc88\uc758 \ud574\uc11d \ub3d9\uc548\ub9cc \uc4f0\ub294 \uae30\uc5b5 \uce78. \uac19\uc740 \ub0a0\uc9dc \uce78\uc744 \uc81c\ubaa9 \ud589 \ud310\uc815\u00b7\ud569\uacc4 \ud589 \ud310\uc815\u00b7\ubd80\ud638 \uaddc\uce59\u00b7\uc5f0\ub3c4 \ucc3e\uae30\u00b7\ubcf8 \ud574\uc11d\uc5d0\uc11c
-// \ud589\ub9c8\ub2e4 \ub124\ub2e4\uc12f \ubc88 \uc77d\ub294\ub370, \uac12\uacfc \ub0a0\uc9dc \uae30\uc900(dateContext)\uc774 \uac19\uc73c\uba74 \uacb0\uacfc\ub3c4 \uac19\ub2e4. \uc0ac\uc6a9\uc790 \uce78 \uac12\uc740 \uc804\uc5ed\uc5d0 \ub0a8\uae30\uc9c0 \uc54a\uace0 \ud574\uc11d\uc774 \ub05d\ub098\uba74 \ubc84\ub9b0\ub2e4.
+// V22.9.79 감사 E-1: 한 번의 해석 동안만 쓰는 기억 칸. 같은 날짜 칸을 제목 행 판정·합계 행 판정·부호 규칙·연도 찾기·본 해석에서
+// 행마다 네다섯 번 읽는데, 값과 날짜 기준(dateContext)이 같으면 결과도 같다. 사용자 칸 값은 전역에 남기지 않고 해석이 끝나면 버린다.
 let importParseScope = null;
 const IMPORT_SCOPE_DATE_LIMIT = 8192;
 const IMPORT_SCOPE_TYPE_LIMIT = 4096;
@@ -14703,21 +14726,22 @@ function importRejection(code = "unsupported_row", rowNumber = 0, raw = "") {
   return { row_number: rowNumber, reason_code: code, reason, suggestion, raw: String(raw || "").replace(/\s+/g, " ").trim().slice(0, 240) };
 }
 
-function importObjectFromHeaders(headers = [], cells = [], columns = importColumnMetadata(headers)) {
-  const obj = Object.assign(Object.create(null), { __canonical: Object.create(null), __mapped: true, __has_date: columns.some((column) => column.field === "date"), __context: [], __headers: headers, __cells: cells });
+function importObjectFromHeaders(headers = [], cells = [], columns = importColumnMetadata(headers), backup = false) {
+  const obj = Object.assign(Object.create(null), { __canonical: Object.create(null), __mapped: true, __backup: backup === true, __has_date: columns.some((column) => column.field === "date"), __context: [], __headers: headers, __cells: cells });
   const localMoney = new Set();
   headers.forEach((header, index) => {
     const column = columns[index];
     const key = column.key || `col${index + 1}`;
-    const value = cells[index] ?? "";
     const field = column.field;
+    const cell = cells[index] ?? "";
+    const value = IMPORT_GUARDED_FIELDS.has(field) ? unguardImportText(cell) : cell;
     const moneyField = ["amount", "income", "expense"].includes(field);
     const foreign = column.foreign;
     if (foreign && (moneyField || column.original_money || /금액|amount|통화|currency/i.test(String(header)))) { obj.__foreign_money = true; return; }
     obj[key] = value;
     const local = moneyField && column.local;
     if (["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(field)) obj.__context.push(value);
-    if (field && !["ignore", "time"].includes(field) && String(value).trim()) {
+    if (field && !["ignore", "time"].includes(field) && String(value).trim() && !(field === "payment" && isInstallmentLabel(value))) {
       if (local || !obj.__canonical[field]) obj.__canonical[field] = String(value).trim();
       else if (field === "memo" || field === "category") obj.__canonical[field] = `${obj.__canonical[field]} / ${String(value).trim()}`;
       if (local) localMoney.add(field);
@@ -14817,6 +14841,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const contextText = obj.__mapped === true ? contextCells.join(" ") : rawText;
   const warnings = [];
   const natural = !!options.natural;
+  const backup = obj.__backup === true;
   const currency = canonicalImportValue(obj,"currency");
   if (currency && !/^(?:KRW|WON|원|원화|₩|￦)$/i.test(String(currency).trim()) && !obj.__local_money) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["원화 통화와 금액을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
   if (obj.__foreign_money && !obj.__local_money) return {row:null, rejection:importRejection("ambiguous_amount",options.rowNumber,rawText), warnings:["원화 금액 열을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
@@ -14900,7 +14925,9 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.26: 구분 열이 지출인데 금액이 음수면 카드사 명세서의 취소·환불 표기다. 양수 지출로
   // 더하면 원거래와 취소가 둘 다 지출로 집계된다. 환급(수입)으로 돌리고 확인 표시를 남긴다.
   let refundFlipped = false;
-  const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
+  // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 구분(수입·지출)이 이미 정해져 있고 취소·환불 표기를 풀어 읽을 파일이 아니므로 메모의 ‘취소’
+  // 같은 말로 확인 필요 표시를 하지 않는다(예전에는 그런 행이 기본 선택에서 빠져 복원 때 조용히 빠졌다).
+  const cancellation = !backup && /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
   if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
@@ -14923,9 +14950,11 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const memoVal = canonicalImportValue(obj, "memo");
   const rawField = canonicalImportValue(obj, "raw_text");
   if (categoryVal.length > 80 || [paymentVal, categoryVal].some((value) => /[\u0000-\u001f\u007f]/.test(value))) return { row: null, rejection: importRejection("invalid_field", options.rowNumber, rawText), warnings };
-  const payment = paymentVal ? String(paymentVal).trim() : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type));
-  const memo = memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category;
+  // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 빈 결제수단·분류·내용 칸이 "값이 없음"이다. 내용 글에서 결제수단·분류를 추측하거나 빈 내용을
+  // 분류 이름으로 채우지 않고 파일에 적힌 그대로 되살린다(분류가 비면 구분별 기본 분류).
+  const payment = paymentVal ? String(paymentVal).trim() : backup ? "" : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type)));
+  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category);
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
   const spender = canonicalImportValue(obj, "spender");
@@ -14939,7 +14968,9 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     payment_method: String(payment || ""),
     transaction_date: transactionDate,
     source: options.source || "import_smart",
-    raw_text: String(rawField || rawText).slice(0, 500),
+    // 백업 CSV 에는 원문(raw_text) 열이 없고 내보낼 때 내용 칸에 메모(메모가 비면 원문)를 적는다. 열 전체를 이은 글(기록ID·출처까지 든 줄)을
+    // 원문으로 남기지 않고 내용 칸 값을 원문으로 둔다 — 메모가 비어 있던 기록은 원문이 그대로 돌아온다.
+    raw_text: String(rawField || (backup ? memoVal : rawText)).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
     _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
@@ -14947,9 +14978,11 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
 
-// V22.9.77 \uac10\uc0ac E-1: \ud574\uc11d \ud55c \ubc88 \ub3d9\uc548 KST \ud604\uc7ac \uc2dc\uac01 \ud615\uc2dd\uae30\ub97c \ud558\ub098\ub9cc \uc4f4\ub2e4(\uc790\uc5f0\uc5b4 \ud589\ub9c8\ub2e4 \uc0c8\ub85c \ub9cc\ub4e4\ub358 \uac83). \uacb0\uacfc\ub294 \uadf8\ub300\ub85c\ub2e4.
-// V22.9.79 \uac10\uc0ac E-1: \uac19\uc740 \ubc94\uc704\uc5d0\uc11c \ub0a0\uc9dc \uce78\u00b7\uad6c\ubd84 \uce78\uc758 \ud574\uc11d \uacb0\uacfc\ub3c4 \uae30\uc5b5\ud55c\ub2e4(importParseScope). \ud574\uc11d\uc774 \ub05d\ub098\uba74(\uc608\uc678\ub85c \ub05d\ub098\ub3c4) \ubc84\ub9b0\ub2e4.
+// V22.9.77 감사 E-1: 해석 한 번 동안 KST 현재 시각 형식기를 하나만 쓴다(자연어 행마다 새로 만들던 것). 결과는 그대로다.
+// V22.9.79 감사 E-1: 같은 범위에서 날짜 칸·구분 칸의 해석 결과와 같은 글의 정규화 결과도 기억한다(importParseScope, withNormalizeTextScope).
+// 해석이 끝나면(예외로 끝나도) 버린다. 검사용: options.scopeMemo === false 면 기억 없이 예전처럼 매번 계산한다(결과는 같다).
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
+  if (options?.scopeMemo === false) return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
   const outer = importParseScope;
   importParseScope = { dates: new WeakMap(), types: new Map() };
   try {
@@ -14997,6 +15030,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
   let sectionId = 1;
   let currentHeaders = headerIndex >= 0 ? table[headerIndex] : [];
   let columns = effectiveImportColumns(currentHeaders, sectionId, options);
+  let backupExport = isBackupExportColumns(columns);
   // An unambiguous explicit year in a dated table is stronger evidence than a
   // missing year. No request-global clock or module-load year is used.
   if (headerIndex >= 0 && !options.dateContext.file_year) {
@@ -15078,6 +15112,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
       sectionId++;
       currentHeaders = cells;
       columns = effectiveImportColumns(currentHeaders, sectionId, options);
+      backupExport = isBackupExportColumns(columns);
       registerMappings(currentHeaders);
       addRejected(importRejection("repeated_header", rowNumber, raw));
       continue;
@@ -15092,7 +15127,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
       if (!aligned.matched) { addRejected(importRejection("column_mismatch", rowNumber, raw)); continue; }
       effectiveCells = aligned.cells;
       alignmentWarnings = aligned.warnings;
-      obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns);
+      obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns, backupExport);
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
     const summaryCells = obj.__mapped === true ? obj.__context : cells;
     if (isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
@@ -23935,11 +23970,14 @@ async function withHouseholdCreateLock(env, userId = "", name = "", task) {
 // 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
 // 참여자의 PC에서 실행되지 않도록 내보내기 시점에 무력화한다. 따옴표로 감싸는
 // 것은 CSV 구분자 이스케이프일 뿐 수식 실행을 막지 못한다.
+// V22.9.79 감사 E-15: 이 작은따옴표는 가져올 때 되돌릴 수 있어야 한다(flexible-import-parser.js unguardImportText: 작은따옴표가
+// 하나 이상 이어진 뒤 수식 기호가 오면 하나를 뺀다). 그래서 원래 값이 이미 작은따옴표로 시작하고 그 뒤에 수식 기호가 오는 경우('=x)에도
+// 하나를 더 붙여 되돌아온 값이 원래 값과 같게 한다. 작은따옴표로만 시작하는 값('점심)은 그대로 둔다.
 function csvSafeText(value) {
   const text = String(value ?? "");
   if (!text) return text;
   if (/^-?\d+(?:\.\d+)?$/.test(text)) return text;
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /^'*[=+\-@\t\r]/.test(text) ? `'${text}` : text;
 }
 
 function readableCsvCell(value = "") {
@@ -24510,7 +24548,7 @@ async function handleMyBackupPage(request, env, url) {
   const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const canImport = canWriteMyHousehold(selected.role);
   const disabled = canImport ? "" : " disabled";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}${cardImportCss()}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 읽기 쉬운 UTF-8 CSV로 받습니다. 원문은 별도 보관하지 않으며 완전 복원용 백업 형식은 아닙니다. 수식 방지용 작은따옴표는 가져오기에서도 유지합니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a> <a class="btn" href="/my/backup.csv?${hh}&amp;range=all">전체 기간 CSV</a></p><p class="muted">컬럼: ${escapeHtml(backupCsvColumnsNote())}. 컬럼 이름은 예전 백업과 같아 가져오기에서 그대로 읽습니다. 가계부를 삭제하기 전에는 전체 기간 CSV를 받아 두세요.</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted">연도 없는 날짜의 기준<select name="date_basis_mode"${disabled}><option value="default"${month === currentMonthKst() ? " selected" : ""}>현재 기준일 · 183일 넘는 연말 날짜는 전년으로 보정</option><option value="selected"${month !== currentMonthKst() ? " selected" : ""}>선택한 ${escapeHtml(month.slice(0,4))}년 · 미래 날짜도 지정 연도 유지</option></select></label><p class="muted">파일에 명시한 연도가 하나이면 그 연도를 우선합니다. 분석 결과에서 적용한 기준을 확인해 주세요.</p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section>${renderCardImportSection({ canImport })}<section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script><script id="cardImportRuntime">(${cardImportClientMain.toString()})({formId:"myImportForm",fileId:"myImportFile",textId:"myImportText"});</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 백업/가져오기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 48%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828;letter-spacing:-.025em}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#e5e7eb;line-height:1.6}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.aliasGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.alias{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.alias b{display:block}.alias span{display:block;color:#64748b;font-size:13px;line-height:1.5;margin-top:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff;min-width:0}textarea{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}button,.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000;cursor:pointer}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px}.error,.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:11px;line-height:1.6}.fileStatus{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:14px;padding:10px;line-height:1.5}button:disabled,input:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding:12px}.hero,.card{border-radius:22px}}${cardImportCss()}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>다른 가계부에서 안전하게 옮기기</h1><p>CSV·TSV·TXT·엑셀의 여러 시트를 받고, 제목 유사어와 자연어 행을 함께 분석합니다. 저장 전 미리보기에서 인식 결과와 중복 후보를 확인하고 필요한 행만 선택합니다.</p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="card"><form method="get" action="/my/backup"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}" style="margin-top:8px"/><p><button type="submit">조회</button> <a class="btn secondary" href="/my?${hh}">내 가계부</a></p></form></section><section class="grid"><div class="card"><h2>백업 다운로드</h2><p class="muted">선택한 월의 기록을 읽기 쉬운 UTF-8 CSV로 받습니다. 입력한 원문 문장은 따로 담지 않아 완전 복원용 백업 형식은 아닙니다. 다시 가져오면 내용 칸의 글이 원문이 됩니다. 엑셀이 수식으로 읽지 않도록 =, +, -, @ 로 시작하는 칸 앞에 붙인 작은따옴표는 다시 가져올 때 자동으로 빼고, 원래 작은따옴표로 시작하는 글은 그대로 둡니다.</p><p><a class="btn" href="/my/backup.csv?${hh}">CSV 다운로드</a> <a class="btn" href="/my/backup.csv?${hh}&amp;range=all">전체 기간 CSV</a></p><p class="muted">컬럼: ${escapeHtml(backupCsvColumnsNote())}. 컬럼 이름은 예전 백업과 같아 가져오기에서 그대로 읽습니다. 가계부를 삭제하기 전에는 전체 기간 CSV를 받아 두세요.</p></div><div class="card"><h2>파일·붙여넣기 가져오기</h2><p class="muted">첫 단계는 분석 미리보기이며 거래를 저장하지 않습니다. 미리보기에서 행을 선택하고 다시 확인해야 실제 저장됩니다.</p>${canImport ? "" : `<div class="warn"><b>조회 전용 권한</b><br/>현재 권한에서는 백업 다운로드만 가능하고 가져오기는 소유자·관리자·구성원만 할 수 있습니다.</div>`}<form id="myImportForm" method="post" action="/my/import" enctype="multipart/form-data"><input type="hidden" name="import_action" value="preview"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><p><input id="myImportFile" type="file" name="csv_file" accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"${disabled}/></p><div id="myImportFileStatus" class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다. XLS/XLSX는 이 브라우저에서 모든 시트를 텍스트 표로 변환합니다.</div><p><textarea id="myImportText" name="csv_text" placeholder="${escapeHtml(sample)}&#10;&#10;또는 자연어:&#10;어제 점심 12000원 국민카드&#10;7월 14일 월급 250만원"${disabled}></textarea></p><label class="muted">연도 없는 날짜의 기준<select name="date_basis_mode"${disabled}><option value="default"${month === currentMonthKst() ? " selected" : ""}>현재 기준일 · 183일 넘는 연말 날짜는 전년으로 보정</option><option value="selected"${month !== currentMonthKst() ? " selected" : ""}>선택한 ${escapeHtml(month.slice(0,4))}년 · 미래 날짜도 지정 연도 유지</option></select></label><p class="muted">파일에 명시한 연도가 하나이면 그 연도를 우선합니다. 분석 결과에서 적용한 기준을 확인해 주세요.</p><label class="muted"><input type="checkbox" name="skip_duplicates" value="1" checked style="width:auto"${disabled}/> 같은 날짜·금액·내용은 중복 후보로 미리 제외</label><p><button id="myImportSubmit" type="submit"${disabled}>1. 분석 미리보기</button></p></form></div></section>${renderCardImportSection({ canImport })}<section class="card"><h2>자동 인식하는 제목 유사어</h2><div class="aliasGrid"><div class="alias"><b>날짜</b><span>날짜, 일자, 거래일, 사용일, 승인일, 결제일, date, datetime</span></div><div class="alias"><b>금액</b><span>금액, 거래금액, 승인금액, 결제금액, 지출·출금, 수입·입금, debit·credit</span></div><div class="alias"><b>내용</b><span>내용, 내역, 적요, 메모, 사용처, 가맹점, 상호, description, merchant</span></div><div class="alias"><b>분류</b><span>분류, 카테고리, 항목, 대·중·소분류, category, tag</span></div><div class="alias"><b>결제수단</b><span>결제수단, 카드, 계좌, 은행, 자산, payment, account</span></div><div class="alias"><b>지출자</b><span>지출자, 결제자, 사용자, 구성원, 담당자, payer, spender</span></div></div></section><section class="card"><h2>붙여넣기 예시</h2><textarea readonly>${escapeHtml(sample)}</textarea><p class="muted">날짜가 없는 자연어 행은 오늘 날짜로 보정하며 미리보기에 표시합니다. 제목이 있는 표에서 날짜가 없거나 형식이 잘못된 행은 임의 저장하지 않고 이유를 안내합니다.</p></section></div></div></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>(function(){var input=document.getElementById('myImportFile');var area=document.getElementById('myImportText');var status=document.getElementById('myImportFileStatus');var form=document.getElementById('myImportForm');var submit=document.getElementById('myImportSubmit');if(!input||!area||!form)return;function setStatus(text,bad){status.textContent=text;status.style.background=bad?'#fff7ed':'#eff6ff';status.style.borderColor=bad?'#fed7aa':'#bfdbfe';status.style.color=bad?'#9a3412':'#1e3a8a';}input.addEventListener('change',function(){var file=input.files&&input.files[0];if(!file)return;var name=String(file.name||'').toLowerCase();if(!/\.xlsx?$/.test(name)){setStatus('선택한 '+file.name+' 파일은 서버에서 제목 유사어와 자연어를 분석합니다.',false);return;}var reader=new FileReader();setStatus('엑셀의 모든 시트를 변환하고 있습니다…',false);reader.onload=function(event){try{if(!window.XLSX)throw new Error('엑셀 변환 라이브러리를 불러오지 못했습니다. 파일을 CSV로 저장하거나 표를 복사해 붙여넣어 주세요.');var workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array',cellDates:false});var chunks=[];workbook.SheetNames.forEach(function(sheetName){var sheet=workbook.Sheets[sheetName];var tsv=XLSX.utils.sheet_to_csv(sheet,{FS:'\t',RS:'\n',rawNumbers:false});if(String(tsv||'').trim())chunks.push('# 시트: '+sheetName+'\n'+String(tsv).trim());});if(!chunks.length)throw new Error('값이 있는 시트를 찾지 못했습니다.');area.value=chunks.join('\n');input.value='';setStatus('엑셀 '+workbook.SheetNames.length+'개 시트를 변환했습니다. 아래 내용 확인 후 미리보기를 누르세요.',false);}catch(error){setStatus(error.message||String(error),true);}};reader.onerror=function(){setStatus('엑셀 파일을 읽지 못했습니다. CSV로 저장하거나 표를 복사해 붙여넣어 주세요.',true);};reader.readAsArrayBuffer(file);});form.addEventListener('submit',function(event){var file=input.files&&input.files[0];if(file&&/\.xlsx?$/.test(String(file.name||'').toLowerCase())){event.preventDefault();setStatus('엑셀 변환이 끝날 때까지 기다리거나 CSV로 저장해 주세요.',true);return;}if(submit&&!submit.disabled){submit.disabled=true;submit.setAttribute('aria-busy','true');submit.textContent='미리보기 분석 중…';}});})();</script><script id="cardImportRuntime">(${cardImportClientMain.toString()})({formId:"myImportForm",fileId:"myImportFile",textId:"myImportText"});</script></body></html>`);
 }
 
 async function handleMyBackupCsv(request, env, url) {
@@ -24594,11 +24632,15 @@ function buildMyImportMemberLookup(members = []) {
   return lookup;
 }
 
+// V22.9.79 감사 E-15: 백업 CSV 의 지출자 칸에는 지금 참여자가 아닌 사람이 "이전 구성원"(나간 사람)·"미지정"(지출자 없음)으로 적힌다.
+// 이 말은 지출자를 지정한 것이 아니므로(참여자 이름과 같지 않을 때만) 행을 버리지 않고 가져오는 사람 이름으로 두되 확인 후 저장하게 한다.
+const BACKUP_SPENDER_PLACEHOLDER = /^(?:미지정|이전 구성원(?: ?\d+)?|.{1,40}\(나간 구성원\))$/;
+
 function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLookup = new Map(), jti = "") {
   const internal = safeObject(entry.row);
-  const spender = String(internal._import_spender || "").trim();
+  let spender = String(internal._import_spender || "").trim();
   const warnings = [...safeArray(entry.warnings), ...safeArray(internal._import_warnings)];
-  const needsConfirmation = internal._import_needs_confirmation === true;
+  let needsConfirmation = internal._import_needs_confirmation === true;
   const row = { ...internal, user_id: userId, source: "my_import" };
   delete row._import_spender;
   delete row._import_warnings;
@@ -24607,7 +24649,11 @@ function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLook
   if (spender) {
     const key = normalizeText(spender).toLowerCase().replace(/\s+/g, "");
     const matches = memberLookup.get(key) || [];
-    if (matches.length !== 1 || !canWriteMyHousehold(matches[0].role) || (!canManageMyHousehold(selected.role) && matches[0].user_id !== userId)) {
+    if (!matches.length && BACKUP_SPENDER_PLACEHOLDER.test(spender)) {
+      warnings.push(`지출자가 ‘${spender.slice(0, 40)}’이라 지금 참여자와 이어지지 않아 가져오는 분 이름으로 저장합니다. 확인 후 저장하세요.`);
+      needsConfirmation = true;
+      spender = "";
+    } else if (matches.length !== 1 || !canWriteMyHousehold(matches[0].role) || (!canManageMyHousehold(selected.role) && matches[0].user_id !== userId)) {
       errorCode = "invalid_spender";
       warnings.push("명시한 지출자를 현재 권한으로 저장할 수 없습니다. 지출자와 참여 권한을 확인한 뒤 다시 분석해 주세요.");
     } else row.user_id = matches[0].user_id;

@@ -248,7 +248,7 @@ try {
     const original = { ...row(9876), id: "roundtrip", memo: "=coffee", payment_method: "국민카드(1234)", raw_text: "별도 원문" }; fx.db.transactions.push(original);
     const response = await worker.default.fetch(new Request(BASE + "/my/backup.csv?household_id=house-home&month=2026-07", { headers: { cookie: fx.cookie } }), fx.env, {});
     eq(response.status, 200, "actual user CSV export"); const text = await response.text(); ok(text.includes("'=coffee"), "formula protection remains");
-    const restored = parse(text).rows.find(t => t.amount === 9876); eq(restored.payment_method, "국민카드(1234)", "explicit payment survives actual export/import"); eq(restored.memo, "'=coffee", "formula escape is not guessed away"); ok(restored.raw_text !== original.raw_text, "readable CSV does not claim unavailable raw restoration");
+    const restored = parse(text).rows.find(t => t.amount === 9876); eq(restored.payment_method, "국민카드(1234)", "explicit payment survives actual export/import"); eq(restored.memo, "=coffee", "formula guard apostrophe is removed on import (V22.9.79 E-15; a memo that really starts with an apostrophe is kept)"); ok(restored.raw_text !== original.raw_text, "readable CSV does not claim unavailable raw restoration");
   });
   await fixture(async fx => {
     const a = await preview(fx, csv()), b = await preview(fx, csv()); const before = fx.db.transactions.length;
