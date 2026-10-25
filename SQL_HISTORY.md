@@ -1,3 +1,7 @@
+## V22.9.78 DB 변경 없음
+
+스키마·RPC·RLS·권한 변경 없음. 새 설정 키 `cron_run_log_v22978`(예약 실행 요약 최근 14번, 기존 설정 저장과 같은 accountbook_settings 행)과 상태 키 `cron_recurring_state_v22976` 의 선택 칸 `scan_after`(이어 읽을 자리, 다 읽으면 사라짐)가 생길 수 있다. `migrations/RPC_DEFINITIONS_PROD_2026_10_23.sql` 은 운영 함수 3개 정의의 읽기 전용 사본이다(실행 금지). 환불 연결 변경안(`docs/codex/PROPOSAL_REFUND_LINKS_V22_9_78.md`)의 표·트리거·RPC 는 검토용 초안이고 적용하지 않았다.
+
 ## V22.9.77 DB 변경 없음
 
 스키마·RPC·RLS·권한 변경 없음. 카카오 수정의 구분 바꾸기는 기존 `accountbook_update_transaction_v227` 이 받는 `type`(income·expense)을 쓴다. 예약 상태 키 `cron_recurring_state_v22976` 에는 다시 만들 리포트 목록이 남을 때만 선택 칸 `report_rebuild` 가 생긴다. 관제 D1(`monitoring/schema.sql`)도 그대로다.

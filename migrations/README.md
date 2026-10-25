@@ -44,8 +44,11 @@ pg_dump \
 `READINESS_OPTIONAL_TABLES`(대체 경로가 있는 `accountbook_categories`). 이 문서에 목록을 옮겨 적지 않는다(V22.9.44 감사 G-14:
 옛 목록은 ‘핵심 4개’와 없는 표 이름을 적고 있었다).
 
-코드가 부르는 RPC 의 이름·인자는 `RPC_SIGNATURES_INFERRED.sql` 에 있지만 **추정**이다. 실제 함수 본문은 저장소에 없으니
-(V22.9.44 감사 G-13) 운영 DB 에서 아래 `pg_dump --schema-only` 결과를 받아 정본으로 삼는다.
+코드가 부르는 RPC 의 이름·인자는 `RPC_SIGNATURES_INFERRED.sql` 에 있지만 **추정**이다.
+V22.9.44 감사 G-13 이 짚은 3개(`accountbook_mutate_payment_assets_v2280`·`record_nlu_metric`·`record_nlu_failure_sample`)는
+2026-10-23 운영 DB 에서 읽기만 해서 받은 정의를 `RPC_DEFINITIONS_PROD_2026_10_23.sql` 에 두었다(V22.9.78). 이 파일도 **실행 금지**다.
+운영 함수를 바꾸면 새 마이그레이션 파일을 따로 만들고 이 사본을 다시 받는다. 나머지 함수 본문은 아직 저장소에 없으니
+운영 DB 에서 아래 `pg_dump --schema-only` 결과를 받아 정본으로 삼는다.
 
 ## 코드가 REST 로 직접 읽고 쓰는 표 (2026-10-21 grep)
 

@@ -34,7 +34,7 @@ const browser=()=>{const b=createInputBrowser();b.run(quickAmountFieldState.toSt
 }
 await withClock('2026-07-15',()=>fixture(async fx=>{
  let calls=0;const restore=intercept(()=>{calls++;});
- const before=await page(fx,'/app?month=2026-07&household_id=house-home');eq(calls,8,'initial home requests unchanged');ok(Buffer.byteLength(before.html)<=35*1024,'normal home remains below 35 KiB');ok(!before.html.includes('/assets/accountbook-quick-input-v22951.js'),'home does not preload input asset');
+ const before=await page(fx,'/app?month=2026-07&household_id=house-home');eq(calls,9,'initial home requests: the earlier 8 plus one V22.9.78 W-5 recurring-rule read in the same batch');ok(Buffer.byteLength(before.html)<=35*1024,'normal home remains below 35 KiB');ok(!before.html.includes('/assets/accountbook-quick-input-v22951.js'),'home does not preload input asset');
  const count=calls;
  for(const method of ['GET','HEAD']){const response=await app.fetch(new Request(BASE+'/assets/accountbook-quick-input-v22951.js',{method}),fx.env,{});eq(response.status,200,'input asset '+method);eq(response.headers.get('cache-control'),'public, max-age=31536000, immutable','input asset immutable');eq(response.headers.get('etag'),'"accountbook-quick-input-v22951-js"','input asset versioned ETag');const body=await response.text();if(method==='GET')ok(body.includes('accountbookInputReviewClientMain'),'asset serves real client');else eq(body,'','HEAD has no body');}
  eq(calls,count,'static input asset needs no DB requests');restore();

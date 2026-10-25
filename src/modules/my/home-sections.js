@@ -1,5 +1,6 @@
 // @build:imports-start
 import { abEditOriginalFields } from "../admin/transactions-households.js";
+import { isIncomeReservePlan, reserveDueDateInMonth } from "../settings/reserve-plans.js";
 import { memberNameMap, renderSpenderOptions } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { memeCollectionFor } from "../features/meme-cards.js";
@@ -103,6 +104,7 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
 // 같은 값을 두 번 적으면 읽는 사람이 어느 쪽을 봐야 할지 다시 고민하게 된다.
 //
 // 새 질의는 없다. 넘겨받는 값은 전부 홈이 이미 계산해 둔 것이다(통과 조건).
+// V22.9.78 W-5: 넷째 카드만 예외로 이번 달 고정지출 규칙을 홈이 한 번 더 읽는다(정기 항목과 같은 조건·같은 묶음).
 // 데스크톱은 2×2 로 넷, 모바일은 앞의 둘만 보여 준다(5장 M2 의 "리포트 2칸").
 // 같은 마크업을 CSS 로 나누므로 모바일이 안 쓰는 카드의 바이트만 부담한다.
 // V22.8.94 (8.4) 위젯형 홈 커스터마이즈 — 새 표 없이 accountbook_settings 키-값
@@ -164,10 +166,45 @@ function applyHomeLayoutSection(section, parts) {
     .join("");
 }
 
+// V22.9.78 감사 V76 W-5: ‘앞으로 나갈 돈’ 카드의 기준 — 이번 달에 아직 기록되지 않은 지출만 더한다.
+// 예전 카드는 정기 지출 항목의 건수·월 준비액만 적어, 알림센터·예산 알림이 세는 ‘반영 대기’ 고정지출이 빠져 있었다.
+//   - 고정지출(매월 자동 기록 규칙): 켜져 있고 금액이 있는 지출 규칙 중 이번 달 몫이 아직 없는 것. 이번 달 표식
+//     (last_applied_month)이 있거나 그 규칙이 만든 이번 달 기록(raw_text "recurring:<규칙 id>:<달>")이 있으면 이미 기록됐다.
+//   - 정기지출(준비 항목): 납부일이 오늘부터 말일 사이인 지출 항목. 지난 납부일·다른 달 납부는 세지 않는다.
+//   - 같은 이름(공백·대소문자 무시)의 고정지출 규칙이 있는 정기지출은 규칙 쪽으로만 센다. 기록을 만드는 쪽이 규칙이라
+//     규칙이 대기면 규칙 금액으로 한 번, 이미 기록됐으면 둘 다 세지 않는다.
+//   - 수입(규칙·항목)은 더하지 않고 "수입만 등록" 안내에만 센다.
+// recurring 이 배열이 아니면(읽기 실패) 합계를 내지 않는다(available: false).
+function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = [], plans = [], recurring = [] } = {}) {
+  const available = Array.isArray(recurring);
+  const rules = available ? recurring.filter(Boolean) : [];
+  const nameKey = (text) => String(text || "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+  const isIncomeRule = (r) => String(r.type || "expense") === "income";
+  const usable = (r) => !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0;
+  const recorded = new Set(safeArray(rows).map((row) => String(row?.raw_text || "")).filter((text) => text.startsWith("recurring:")));
+  const outRules = rules.filter((r) => !isIncomeRule(r) && usable(r));
+  const fixed = outRules.filter((r) => String(r.last_applied_month || "") !== month && !recorded.has(`recurring:${r.id}:${month}`));
+  const ruleNames = new Set(outRules.map((r) => nameKey(r.memo || r.category)).filter(Boolean));
+  const allPlans = safeArray(plans).filter(Boolean);
+  const outPlans = allPlans.filter((p) => !isIncomeReservePlan(p));
+  const due = outPlans.filter((p) => {
+    const date = reserveDueDateInMonth(p, month);
+    return Number(p.amount || 0) > 0 && !!date && date >= today && !ruleNames.has(nameKey(p.name));
+  });
+  const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const planTotal = due.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  return {
+    available, total: fixedTotal + planTotal,
+    fixedCount: fixed.length, fixedTotal, planCount: due.length, planTotal,
+    expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
+    incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
+  };
+}
+
 function renderHomeReportCards(options = {}) {
   const {
     month = "", householdId = "", rows = [], stats = null, budgetAlerts = [],
-    reserveHeadline = "", reserveHref = "", reserveCount = 0, reserveIncomeCount = 0, reserveLoaded = true, isCurrentMonth = false,
+    upcoming = null, reserveHref = "", reserveLoaded = true, isCurrentMonth = false,
     layout = null, layoutHref = "",
   } = options;
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
@@ -240,10 +277,14 @@ function renderHomeReportCards(options = {}) {
   const budgetCardState = !worst ? "" : worstRate > 100 ? " isOver" : worstRate >= 85 ? " isWarn" : "";
   const budgetCard = `<article class="homeReport${budgetCardState}"><div class="homeReportTop"><span>예산 항목</span><a href="${escapeHtml(budgetsHref)}">예산 설정</a></div><b>${worst ? `${escapeHtml(worst.category || "미분류")} ${worstRate}%` : "미설정"}</b><div class="homeReportBars">${worst ? `<i style="width:${Math.max(2, Math.min(100, worstRate))}%"></i>` : ""}</div><small>${budgetRead}</small></article>`;
 
-  // 4. 앞으로 나갈 돈 — 정기지출·준비금.
-  // V22.9.76: reserveCount 는 지출 항목 수다. 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
-  const reserveValue = !reserveLoaded ? "이번 달 기준" : reserveCount ? (String(reserveHeadline).split(" · ")[0] || `${reserveCount}건`) : reserveIncomeCount ? "나갈 항목 없음" : "등록 없음";
-  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : reserveCount ? String(reserveHeadline) : reserveIncomeCount ? `정기 수입 ${numberWithCommas(reserveIncomeCount)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
+  // 4. 앞으로 나갈 돈 — 이번 달에 아직 기록되지 않은 고정지출·정기지출(homeUpcomingOut).
+  // V22.9.76: 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
+  // V22.9.78 W-5: 대표 숫자는 그 합계이고, 아래 한 줄은 합계에 든 건수를 출처별로 적는다(금액은 되풀이하지 않는다).
+  // 고정지출을 못 읽었으면 일부만 더한 합계를 내지 않는다.
+  const up = upcoming || homeUpcomingOut();
+  const upParts = [up.fixedCount ? `고정지출 ${numberWithCommas(up.fixedCount)}건` : "", up.planCount ? `정기지출 ${numberWithCommas(up.planCount)}건` : ""].filter(Boolean).join(" · ");
+  const reserveValue = !reserveLoaded ? "이번 달 기준" : !up.available ? "확인 불가" : up.total ? `${numberWithCommas(up.total)}원` : up.expenseItems ? "0원" : up.incomeItems ? "나갈 항목 없음" : "등록 없음";
+  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : !up.available ? "고정지출을 불러오지 못했어요" : up.total ? `이번 달 남은 ${upParts}` : up.expenseItems ? "이번 달 남은 고정·정기지출이 없어요" : up.incomeItems ? `정기 수입 ${numberWithCommas(up.incomeItems)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
   const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
 
   const heading = isCurrentMonth ? "이번 달 리포트" : `${Number(String(month).slice(5, 7))}월 리포트`;
@@ -369,8 +410,8 @@ function todayExpense(rows = []) {
 // @build:exports-start
 export {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
-  lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
-  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
+  homeUpcomingOut, lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex,
+  memeCardFor, memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
   renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm, todayExpense,
 };
 // @build:exports-end

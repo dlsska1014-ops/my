@@ -103,7 +103,9 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 
 // 함수 본문은 그대로 브라우저 자산에 실리므로 설명은 여기 둔다. 마지막의 요일 표현(QA B04)은 명시 날짜보다
 // 뒤에 본다. 주는 월요일에 시작하고, 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
-// 카카오 resolveWeekdayPhrase 와 같은 규칙이며 validate-qa-fixes-v22933 이 둘을 대조한다.
+// V22.9.78(V77 N-12, 운영자 결정 2026-10-23): 주 없이 ‘지난·저번 금요일’로 쓰면 오늘을 뺀 바로 앞의 그 요일이다
+// (금요일에 쓴 ‘지난 금요일’은 7일 전). 요일만 쓴 ‘금요일’은 예전처럼 오늘을 포함한다.
+// 카카오 resolveWeekdayPhrase 와 같은 규칙이며 validate-qa-fixes-v22933·validate-nlu-weekday-v22978 이 둘을 대조한다.
 // V22.9.34 감사 N6·D8·D4: 엊그제·그끄저께, "일주일/이틀/한 달 전" 같은 말, "지난달 말일", "작년 12월 25일"을 읽는다.
 // 연도 없는 "12월 25일"·"12/25"는 올해 날짜가 오늘보다 반년(183일) 넘게 뒤면 작년으로 본다(1월에 적는 지난 연말 기록).
 // 반년 안쪽의 앞날은 예전처럼 올해다.
@@ -159,15 +161,16 @@ function quickInputDate(text = "", today = "") {
     if (!current || !past) return current || past;
     return Date.parse(todayIso) - Date.parse(past) <= Date.parse(current) - Date.parse(todayIso) ? past : current;
   }
-  m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/);
+  m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;
   const target = monday("일월화수목금토".indexOf(m[2])), current = monday(now.getUTCDay());
   const scope = String(m[1] || "").replace(/\s+/g, "");
   const offset = scope === "이번주" || scope === "금주" ? target - current
     : scope === "다음주" || scope === "내주" ? target - current + 7
-      : scope ? target - current - 7
-        : -((current - target + 7) % 7);
+      : scope === "지난" || scope === "저번" ? -((current - target + 7) % 7 || 7)
+        : scope ? target - current - 7
+          : -((current - target + 7) % 7);
   now.setUTCDate(now.getUTCDate() + offset);
   return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
 }

@@ -24,9 +24,12 @@ function readableCsvCell(value = "") {
   return text;
 }
 
+// V22.9.78(V76 W-10, 운영자 결정 2026-10-23): 백업 CSV 열 이름은 예전 그대로 둔다. 가져오기(IMPORT_FIELD_LABELS)가
+// 이 이름으로 다시 읽으므로 화면 용어에 맞춰 바꾸지 않는다. 백업 화면의 열 안내도 이 목록에서 만든다.
+const READABLE_CSV_COLUMNS = Object.freeze(["날짜", "구분", "금액", "분류", "내용", "결제수단", "지출자", "출처", "기록ID"]);
+
 function buildReadableTransactionsCsv(rows = []) {
-  const header = ["날짜", "구분", "금액", "분류", "내용", "결제수단", "지출자", "출처", "기록ID"];
-  const lines = [header.map(readableCsvCell).join(",")];
+  const lines = [READABLE_CSV_COLUMNS.map(readableCsvCell).join(",")];
   for (const r of rows || []) {
     lines.push([
       r.transaction_date || "",
@@ -143,5 +146,7 @@ async function findExactDuplicateTransaction(env, row = {}, options = {}) {
   }) || null;
 }
 // @build:exports-start
-export { buildReadableTransactionsCsv, csvSafeText, findExactDuplicateTransaction };
+export {
+  READABLE_CSV_COLUMNS, buildReadableTransactionsCsv, csvSafeText, findExactDuplicateTransaction,
+};
 // @build:exports-end

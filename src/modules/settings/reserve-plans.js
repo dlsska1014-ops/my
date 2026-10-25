@@ -530,7 +530,7 @@ async function handleReservePlanDelete(request, env) {
 export {
   addReservePlan, deleteReservePlan, fetchReservePlans, handleReservePlanCreate,
   handleReservePlanDelete, handleReservePlanUpdate, handleReservePlansPage, isIncomeReservePlan,
-  kakaoReserveAlert, normalizeReservePlanList, reserveDashboard, reservePlanStatus, reservePlansKey,
-  updateReservePlan,
+  kakaoReserveAlert, normalizeReservePlanList, reserveDashboard, reserveDueDateInMonth,
+  reservePlanStatus, reservePlansKey, updateReservePlan,
 };
 // @build:exports-end

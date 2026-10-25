@@ -199,7 +199,8 @@ function weekdayIndexOfYmd(date = "") {
 
 // V22.9.26: "지난주 금요일", "이번주 월요일", "다음주 일요일", "금요일" 을 날짜로 푼다.
 // 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
-const AB_WEEKDAY_PHRASE = /(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주)\s*)?([월화수목금토일])요일/;
+// V22.9.78(V77 N-12): 주 없이 ‘지난·저번 금요일’로 쓰면 오늘을 뺀 바로 앞의 그 요일이다(금요일에 쓰면 7일 전).
+const AB_WEEKDAY_PHRASE = /(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/;
 function resolveWeekdayPhrase(raw = "", now = nowKstDate()) {
   const m = String(raw || "").match(AB_WEEKDAY_PHRASE);
   if (!m) return "";
@@ -210,6 +211,7 @@ function resolveWeekdayPhrase(raw = "", now = nowKstDate()) {
   let offset;
   if (scope === "이번주" || scope === "금주") offset = mondayBased(target) - mondayBased(now.getDay());
   else if (scope === "다음주" || scope === "내주") offset = mondayBased(target) - mondayBased(now.getDay()) + 7;
+  else if (scope === "지난" || scope === "저번") offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7 || 7);
   else if (scope) offset = mondayBased(target) - mondayBased(now.getDay()) - 7;
   else offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7);
   return formatDate(addDays(now, offset));

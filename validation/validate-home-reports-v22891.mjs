@@ -65,6 +65,8 @@ eq(home.status, 200, "데스크톱 홈이 렌더된다");
 // — 거래·예산·가계부 조회는 한 번도 늘지 않았다. 늘어난 하나가 정확히 그 설정 한
 // 줄인지는 validate-home-layout-v22894.mjs 가 키까지 보고 확인한다.
 // V22.9.16: 11회 → 9회 이하(가계부 행 포함 조회 · 홈 구성 설정 묶음). 첫 요청 기준 상한이다.
+// V22.9.78(V76 W-5): 이번 달 홈은 ‘앞으로 나갈 돈’의 고정지출 규칙 조회 1회가 더해져 9회로 이 상한에 닿았다(리포트 네 장은 여전히 새 질의 0).
+// 홈에서 더 읽을 것이 생기면 조회를 합치거나 상한을 다시 정한다.
 ok(home.calls.length <= 9, `홈의 DB 질의 수가 늘지 않는다 (${home.calls.length}회, 상한 9회)`);
 ok(source.includes("renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts"), "리포트가 이미 받아 둔 값만 넘겨받는다");
 eq(source.includes("await fetchAdminRowsRange(env, { householdId, start: weekStart"), false, "리포트를 위해 새 조회를 덧붙이지 않았다");
