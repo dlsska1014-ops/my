@@ -128,15 +128,6 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   };
 }
 
-async function fetchRecurring(env, householdId) {
-  if (!householdId) return [];
-  const params = new URLSearchParams();
-  params.set("select", "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at");
-  params.set("household_id", `eq.${householdId}`);
-  params.set("order", "day_of_month.asc,created_at.asc");
-  return await optionalSupabase(env, `/rest/v1/accountbook_recurring?${params.toString()}`, { method: "GET" }, []);
-}
-
 async function fetchRecurringStrict(env, householdId) {
   if (!householdId) return [];
   const params = new URLSearchParams();
