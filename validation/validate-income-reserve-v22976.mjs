@@ -72,7 +72,8 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   t.ok(out.home.includes("수입 1건 · 매월 300,000원 들어와요"), "홈 정기 카드는 수입 건수와 월 환산을 적는다");
   t.ok(out.home.includes("입금 예정 1건") && !out.home.includes("준비 알림 1건"), "홈 정기 카드는 '준비 알림'이 아니라 '입금 예정'을 센다");
   const outCard = after(out.home, "앞으로 나갈 돈");
-  t.ok(outCard.includes("나갈 항목 없음") && outCard.includes("정기 수입 1건만 등록돼 있어요"), `'앞으로 나갈 돈' 카드에 수입 항목을 세지 않는다 (${outCard.slice(0, 90)})`);
+  // V22.9.78 W-5: 카드는 반영 대기 고정지출(픽스처의 월세 650,000원)도 센다. 수입 항목은 합계에도 건수에도 없다.
+  t.ok(outCard.startsWith("앞으로 나갈 돈 정기지출 650,000원 이번 달 남은 고정지출 1건 "), `'앞으로 나갈 돈' 카드에 수입 항목을 세지 않는다 (${outCard.slice(0, 90)})`);
   t.ok(!out.reports.includes("30일 안에 나갈 적립 계획"), "리포트의 '30일 안에 나갈 적립 계획'에 수입 항목을 넣지 않는다");
   t.ok(out.reserveRaw.includes("<title>정기 수입·지출</title>"), "정기 항목 화면 제목이 메뉴 이름과 같다");
   t.ok(/<body[^>]*class="[^"]*abPageReserve/.test(out.reserveRaw), "제목을 바꿔도 화면 꾸밈(abPageReserve)이 그대로 붙는다");
@@ -95,7 +96,8 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   t.eq(tax?.level, "info", "7일보다 먼 지출 항목은 안내 등급이다");
   t.ok(out.home.includes("통신비 납부가 4일 남았습니다. 월 55,000원씩 준비하세요."), "홈 안내 문장은 가장 가까운 지출 기한을 말한다");
   t.ok(out.home.includes("2건 · 매월 95,000원 준비") && out.home.includes("준비 알림 2건"), "지출만 있는 가계부의 홈 정기 카드 문구는 예전과 같다");
-  t.ok(after(out.home, "앞으로 나갈 돈").includes("2건"), "'앞으로 나갈 돈' 카드는 지출 항목 수를 센다");
+  // V22.9.78 W-5: 이번 달 남은 지출의 합계다(대기 월세 650,000 + 25일 통신비 55,000, 12월 자동차세 제외).
+  t.ok(after(out.home, "앞으로 나갈 돈").startsWith("앞으로 나갈 돈 정기지출 705,000원 이번 달 남은 고정지출 1건 · 정기지출 1건 "), "'앞으로 나갈 돈' 카드는 이번 달 남은 지출 항목을 센다");
   t.ok(out.reports.includes("30일 안에 나갈 적립 계획") && after(out.reports, "30일 안에 나갈 적립 계획").includes("통신비"), "리포트는 30일 안의 지출 항목을 적는다");
   t.ok(out.reserveRaw.includes("<span>준비 알림</span><b>2건</b>"), "정기 항목 화면의 준비 알림은 지출 항목 수다");
 }));
@@ -108,7 +110,7 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   t.ok(out.home.includes("통신비 납부가 4일 남았습니다."), "홈 안내 문장은 같은 날이어도 지출 기한을 먼저 말한다");
   t.ok(out.home.includes("지출 2건 · 매월 95,000원 준비 · 수입 1건"), "홈 정기 카드는 지출과 수입을 나눠 센다");
   t.ok(out.home.includes("준비 알림 2건 · 입금 예정 1건"), "홈 정기 카드의 알림 건수도 나눠 센다");
-  t.ok(after(out.home, "앞으로 나갈 돈").includes("2건 · 매월 95,000원 준비"), "'앞으로 나갈 돈' 카드는 수입 항목을 빼고 센다");
+  t.ok(after(out.home, "앞으로 나갈 돈").startsWith("앞으로 나갈 돈 정기지출 705,000원 이번 달 남은 고정지출 1건 · 정기지출 1건 "), "'앞으로 나갈 돈' 카드는 수입 항목을 빼고 센다");
   const list = after(out.reports, "30일 안에 나갈 적립 계획", 200);
   t.ok(list.includes("통신비") && !list.includes("직무수당"), `리포트의 나갈 적립 계획에 수입 항목이 없다 (${list.slice(0, 120)})`);
   t.ok(out.summary.includes("통신비: 4일 후 55,000원") && out.summary.includes("준비 권장: 월 55,000원"), "카카오 요약은 지출 항목에 준비 권장액을 적는다");

@@ -80,7 +80,9 @@ await page(`/app?month=${month}&household_id=${householdId}`);
 // 상한은 V22.9.16 에서 잰 값 그대로다(V22.9.15 는 홈 11회/10단계, 예산 11회/12단계, 설정
 // 9회/11단계였다). 늘리려면 왜 왕복이 하나 더 필요한지 여기 적는다.
 const screens = [
-  ["홈", `/app?month=${month}&household_id=${householdId}`, { calls: 8, depth: 3 }],
+  // V22.9.78 W-5: 이번 달 홈의 '앞으로 나갈 돈'이 반영 대기 고정지출을 세려고 고정지출 규칙을 한 번 읽는다.
+  // 기존 첫 묶음(Promise.all)에 함께 보내므로 깊이는 그대로이고 왕복만 하나 는다(지난달 홈은 읽지 않는다).
+  ["홈", `/app?month=${month}&household_id=${householdId}`, { calls: 9, depth: 3 }],
   ["예산", `/budgets?month=${month}&household_id=${householdId}`, { calls: 9, depth: 3 }],
   ["설정", `/my/settings?household_id=${householdId}`, { calls: 8, depth: 3 }],
   ["정기", `/reserve-plans?household_id=${householdId}`, { calls: 9, depth: 3 }],
@@ -191,7 +193,8 @@ for (const [label, utterance, limit, expected] of kakaoCases) {
   ok(fallback.text.includes("homeDailyPlan") && (fallback.text.includes("WIFI♥") || fallback.text.includes("Bin")), "두 단계 조회로도 같은 데이터를 그린다");
   ok(support.household_members_households === false && support.household_members_users === false, "거절을 기억해 다음 요청부터는 바로 두 단계로 간다");
   const again = await page(`/app?month=${month}&household_id=${householdId}`);
-  ok(again.status === 200 && again.calls <= 11, `두 단계 조회 경로의 왕복도 예전 수준(11회) 안이다 (${again.calls}회)`);
+  // V22.9.78 W-5: 위 홈 상한과 같은 이유로 고정지출 규칙 읽기 하나가 더해졌다.
+  ok(again.status === 200 && again.calls <= 12, `두 단계 조회 경로의 왕복도 예전 수준(11회)에 W-5 고정지출 규칙 읽기 하나를 더한 12회 안이다 (${again.calls}회)`);
   db.__embed_unsupported = false;
   support.household_members_households = true;
   support.household_members_users = true;
