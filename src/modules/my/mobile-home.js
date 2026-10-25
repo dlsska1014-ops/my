@@ -284,9 +284,13 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.78 감사 V76 W-5: 리포트 넷째 카드(앞으로 나갈 돈)는 반영 대기 고정지출과 이번 달 남은 정기지출을 한 번씩만 더한다.
   // 아래에서 rows 가 최근 내역용 필터 결과로 바뀌므로 그 전에 그 달 전체 기록으로 센다(이미 기록된 고정지출을 빼는 데 쓴다).
   const homeUpcoming = homeUpcomingOut({ month, today: todayStr, rows, plans: reservePlans, recurring });
+  // V22.9.79 V78 S-2: 정기 항목을 못 읽었으면(null) ‘등록 없음’이라고 하지 않는다(‘앞으로 나갈 돈’ 카드는 확인 불가).
+  const homeReserveUnread = reserveLoaded && !Array.isArray(reservePlans);
   const homeReserveHeadline = !reserveLoaded
     ? "이번 달 기준으로 관리해요"
-    : homeReserveCount
+    : homeReserveUnread
+      ? "정기 항목을 불러오지 못했어요"
+      : homeReserveCount
       ? (!homeReserve.incomeCount
         ? homeReserveOutHeadline
         : homeReserve.expenseCount
@@ -299,7 +303,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   ].filter(Boolean).join(" · ");
   const homeReserveSub = !reserveLoaded
     ? "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"
-    : homeReserveCount
+    : homeReserveUnread
+      ? "새로고침하면 다시 불러와요"
+      : homeReserveCount
       ? (homeReserveUpcoming || (homeReserve.expenseCount ? "다가오는 납부 없음" : "다가오는 입금 없음"))
       : "세금·보험처럼 큰돈이 나가는 달을 미리 준비하세요";
   const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">정기 수입·지출</span><b>${escapeHtml(homeReserveHeadline)}</b><small>${escapeHtml(homeReserveSub)}</small></div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;

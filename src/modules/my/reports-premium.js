@@ -30,6 +30,7 @@ import {
   memberPolicySettingsKey, memberRecordChangeError, parseMemberPolicyValue,
 } from "./access-control.js";
 import { fetchRecurringStrict } from "../domain/budgets.js";
+import { recurringMarkerSet, recurringRuleAppliedInMonth } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
 } from "../admin/pc-analysis-calendar.js";
@@ -496,8 +497,10 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const biggestIncrease = comparisonAvailable ? buckets.filter((b) => b.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null : null;
   const rules = safeArray(recurring).filter((r) => r.is_active !== false && String(r.type || "expense") !== "income");
   const monthRows = expenseRows.filter((r) => inWindow(r, `${month}-01`, monthLastYmd(month)));
+  // V22.9.79 V78 S-2: 홈·예산 알림과 같은 판정(그 달 표식 또는 그 달 기록)이다. 반영된 기록을 지워도 표식이 그 달이면 반영됨이다.
+  const monthMarkers = recurringMarkerSet(monthRows);
   const ruleItems = rules.map((rule) => {
-    const applied = monthRows.some((r) => String(r.raw_text || "") === `recurring:${rule.id}:${month}`);
+    const applied = recurringRuleAppliedInMonth(rule, month, monthMarkers);
     return { id: String(rule.id || ""), memo: String(rule.memo || rule.category || "정기지출"), amount: Number(rule.amount || 0), day: Number(rule.day_of_month || 1), category: String(rule.category || ""), applied };
   });
   const fixedTotal = ruleItems.reduce((s, r) => s + r.amount, 0);

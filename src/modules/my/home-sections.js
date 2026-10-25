@@ -247,11 +247,11 @@ function renderHomeReportCards(options = {}) {
   // 4. 앞으로 나갈 돈 — 이번 달에 아직 기록되지 않은 고정지출·정기지출(homeUpcomingOut).
   // V22.9.76: 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
   // V22.9.78 W-5: 대표 숫자는 그 합계이고, 아래 한 줄은 합계에 든 건수를 출처별로 적는다(금액은 되풀이하지 않는다).
-  // 고정지출을 못 읽었으면 일부만 더한 합계를 내지 않는다.
+  // 고정지출을 못 읽었으면 일부만 더한 합계를 내지 않는다(V22.9.79 S-2: 정기지출 항목을 못 읽었을 때도 같다).
   const up = upcoming || homeUpcomingOut();
   const upParts = [up.fixedCount ? `고정지출 ${numberWithCommas(up.fixedCount)}건` : "", up.planCount ? `정기지출 ${numberWithCommas(up.planCount)}건` : ""].filter(Boolean).join(" · ");
   const reserveValue = !reserveLoaded ? "이번 달 기준" : !up.available ? "확인 불가" : up.total ? `${numberWithCommas(up.total)}원` : up.expenseItems ? "0원" : up.incomeItems ? "나갈 항목 없음" : "등록 없음";
-  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : !up.available ? "고정지출을 불러오지 못했어요" : up.total ? `이번 달 남은 ${upParts}` : up.expenseItems ? "이번 달 남은 고정·정기지출이 없어요" : up.incomeItems ? `정기 수입 ${numberWithCommas(up.incomeItems)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
+  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : !up.available ? `${up.rulesKnown === false ? (up.plansKnown === false ? "고정·정기지출" : "고정지출") : "정기지출"}을 불러오지 못했어요` : up.total ? `이번 달 남은 ${upParts}` : up.expenseItems ? "이번 달 남은 고정·정기지출이 없어요" : up.incomeItems ? `정기 수입 ${numberWithCommas(up.incomeItems)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
   const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
 
   const heading = isCurrentMonth ? "이번 달 리포트" : `${Number(String(month).slice(5, 7))}월 리포트`;

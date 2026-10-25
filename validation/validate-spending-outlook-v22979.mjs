@@ -4,7 +4,8 @@
 // 이제 한 함수(domain/spending-outlook.js 의 monthSpendingOutlook)가 이번 달을
 //   오늘까지 기록 + 오늘 뒤 날짜의 정기 기록 + 반영 대기 고정지출 + 남은 정기지출 납부 + round(변동 지출 ÷ 지난 날 × 남은 날)
 // 로 센다. 이 검사는 제안서의 시험 계획 1~7과 함께 고친 항목을 본다:
-//   V44 D-18(하루 사용 가능 내림), V78 S-1(정기지출·고정지출 짝짓기), V78 S-2(반영 대기 판정·이름), V44 D-4(외식 갈래·예산 밖),
+//   V44 D-18(하루 사용 가능 내림), V78 S-1(정기지출·고정지출 짝짓기), V78 S-2(반영 대기 판정·이름 — 홈·예산 알림·알림센터·
+//   /reserve-plans·/reports 가 같은 판정, 홈 정기지출 항목 읽기 실패는 확인 불가), V44 D-4(외식 갈래·예산 밖),
 //   V44 D-12(예산 없을 때 사용률), V44 D-13(이전 값 0원의 증감률).
 // 검사마다 따로 성공·실패를 적는다(옛 코드에서 몇 개가 실패하는지 셀 수 있게). 네트워크는 쓰지 않는다(메모리 픽스처).
 import { isDeepStrictEqual } from "node:util";
@@ -425,6 +426,61 @@ await withClock("2026-10-15", () => fixture(async (fx) => {
   fx.db.transactions.push(tx("2026-09-10", 300000));
   const pc = await adminPage(fx, `/analysis?${Q}`);
   await check("D-13 이전 값이 있으면 예전처럼 증감률을 보인다(지난달 대비 +50%)", () => has(pc.html, "지난달 대비 +50%"));
+}));
+
+// ── V78 S-2 마무리: 모든 화면이 같은 ‘반영됨’ 판정·같은 ‘못 읽음’ 처리를 쓴다 ───────────────────────────────
+// (a) 홈의 정기지출 항목 읽기가 실패하면 ‘항목 없음’이 아니라 확인 불가다(조회 수는 그대로 9회).
+await check("S-2 homeUpcomingOut: 정기지출 항목을 못 읽으면(null) 합계를 내지 않고 무엇을 못 읽었는지 돌려준다", () => {
+  const u = need(outlookModule, "homeUpcomingOut")({ month: MONTH, today: "2026-10-10", rows: [], recurring: [RULE], plans: null });
+  const both = need(outlookModule, "homeUpcomingOut")({ month: MONTH, today: "2026-10-10", rows: [], recurring: null, plans: null });
+  return same([u.available, u.rulesKnown, u.plansKnown, both.rulesKnown, both.plansKnown], [false, true, false, false, false]);
+});
+await withClock("2026-10-10", () => fixture(async (fx) => {
+  seed(fx, [tx("2026-10-04", 200000, { category: "식비" })], [{ category: "__total", amount: 3000000 }], [PHONE]);
+  await page(fx, `/app?${Q}`);
+  const reads = captureReads();
+  const stop = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/accountbook_settings") && String(url.searchParams.get("key") || "").startsWith("in.(") && String(url.searchParams.get("key") || "").includes(`reserve_plans:${HH}`) ? failure() : null));
+  let home;
+  try { home = await page(fx, `/app?${Q}`); } finally { stop(); }
+  await check("S-2 홈 정기지출 항목 읽기 실패: ‘앞으로 나갈 돈’은 확인 불가이고 정기지출을 못 읽었다고 적는다", () => all(same(home.status, 200), same(homeCard(home.html), "확인 불가"), has(home.html, "정기지출을 불러오지 못했어요")));
+  await check("S-2 홈 정기지출 항목 읽기 실패: 정기 수입·지출 카드가 ‘등록한 항목이 없어요’라고 하지 않는다", () => all(lacks(home.html, "아직 등록한 항목이 없어요"), has(home.html, "정기 항목을 불러오지 못했어요")));
+  await check("S-2 홈 정기지출 항목 읽기 실패: 월말 예상 한 줄은 빠진 몫을 빼고 말하지 않는다(숨김)", () => same(homePlanNote(home.html), ""));
+  await check("S-2 홈 정기지출 항목 읽기 실패에도 조회는 9회 그대로다(같은 설정 조회를 엄격하게 읽을 뿐)", () => same(reads.length <= 9, true));
+}));
+// (b) /reserve-plans ‘반영 완료’도 홈·예산 알림과 같은 판정이다(그 달 표식 또는 그 달 기록).
+const reservePage = async (fx) => (await page(fx, `/reserve-plans?${Q}`)).html;
+const reserveBadge = (html) => (String(html).match(/<b>월세<\/b><span>[\s\S]*?<\/span><span>(이번 달 [^<]*)<\/span>/) || [])[1] || "";
+const applyButtonCount = (html) => (String(html).match(/고정 수입·지출 기록하기( \([0-9,]+건 반영됨\))?<\/button>/) || [])[1] || "";
+await withClock("2026-10-10", () => fixture(async (fx) => {
+  const rule = fx.db.accountbook_recurring.find((item) => item.id === "recurring-rent");
+  rule.last_applied_month = "2026-09";
+  fx.db.transactions.push(fixedRow("recurring-rent", MONTH, "2026-10-05", 650000, { id: "s2-rent-oct" }));
+  const reads = [];
+  intercept(({ url, method }) => { if (method === "GET" && url.pathname.endsWith("/transactions")) reads.push(url.searchParams.getAll("raw_text").join("&")); });
+  const html = await reservePage(fx);
+  await check("S-2 /reserve-plans: 표식 저장이 늦어도(9월) 그 달 기록이 있으면 ‘이번 달 반영 완료’다(홈·예산 알림과 같음)", () => all(same(reserveBadge(html), "이번 달 반영 완료"), same(applyButtonCount(html), " (1건 반영됨)")));
+  await check("S-2 /reserve-plans: 그 달 반영 표식이 달린 기록만 한 번 읽는다(+1)", () => same(reads, [`like.recurring:*:${MONTH}`]));
+  rule.last_applied_month = MONTH;
+  fx.db.transactions = fx.db.transactions.filter((row) => row.id !== "s2-rent-oct");
+  await check("S-2 /reserve-plans: 반영된 기록을 지워도 표식이 그 달이면 반영 완료다(예전과 같음)", async () => same(reserveBadge(await reservePage(fx)), "이번 달 반영 완료"));
+  rule.last_applied_month = "2026-09";
+  fx.db.transactions.push(fixedRow("recurring-rent", MONTH, "2026-10-05", 650000, { id: "s2-rent-oct" }));
+  const stop = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/transactions") ? failure() : null));
+  let failed;
+  try { failed = await page(fx, `/reserve-plans?${Q}`); } finally { stop(); }
+  await check("S-2 /reserve-plans: 표식 기록을 못 읽어도 화면은 열리고 예전처럼 표식(last_applied_month)만으로 센다", () => all(same(failed.status, 200), same(reserveBadge(failed.html), "이번 달 아직 반영 안 됨")));
+}));
+// (c) 생활비 리포트(/reports)의 ‘이번 달 반영’도 같은 판정이다.
+const reportTag = (html) => (String(html).match(/<b>월세<\/b><small>[^<]*<\/small><\/div><div class="amt">[^<]*<span class="lrTag[^"]*">([^<]*)<\/span>/) || [])[1] || "";
+await withClock("2026-10-10", () => fixture(async (fx) => {
+  const rule = fx.db.accountbook_recurring.find((item) => item.id === "recurring-rent");
+  rule.last_applied_month = MONTH;
+  await check("S-2 /reports: 반영된 기록을 지워도 표식이 그 달이면 ‘이번 달 반영’이다(홈은 반영됨으로 본다)", async () => all(same(reportTag((await page(fx, `/reports?${Q}`)).html), "이번 달 반영"), same(homeCard((await page(fx, `/app?${Q}`)).html), "0원")));
+  rule.last_applied_month = "2026-09";
+  fx.db.transactions.push(fixedRow("recurring-rent", MONTH, "2026-10-05", 650000, { id: "s2-rent-report" }));
+  await check("S-2 /reports: 표식 저장이 늦어도 그 달 기록이 있으면 ‘이번 달 반영’이다(예전과 같음)", async () => same(reportTag((await page(fx, `/reports?${Q}`)).html), "이번 달 반영"));
+  fx.db.transactions = fx.db.transactions.filter((row) => row.id !== "s2-rent-report");
+  await check("S-2 /reports: 표식도 기록도 없으면 ‘반영 전’이다", async () => same(reportTag((await page(fx, `/reports?${Q}`)).html), "반영 전"));
 }));
 
 const failed = results.filter((result) => !result.ok);

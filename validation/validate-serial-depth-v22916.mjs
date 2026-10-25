@@ -85,7 +85,9 @@ const screens = [
   ["홈", `/app?month=${month}&household_id=${householdId}`, { calls: 9, depth: 3 }],
   ["예산", `/budgets?month=${month}&household_id=${householdId}`, { calls: 9, depth: 3 }],
   ["설정", `/my/settings?household_id=${householdId}`, { calls: 8, depth: 3 }],
-  ["정기", `/reserve-plans?household_id=${householdId}`, { calls: 9, depth: 3 }],
+  // V22.9.79 V78 S-2: '반영 완료'를 홈·예산 알림과 같은 판정(그 달 표식 또는 그 달 기록)으로 세려고 그 달 반영 표식이 달린
+  // 기록만 한 번 읽는다. 기존 묶음과 같은 때 보내므로 깊이는 그대로다(9회 → 10회).
+  ["정기", `/reserve-plans?household_id=${householdId}`, { calls: 10, depth: 3 }],
   ["리포트", `/reports?month=${month}&household_id=${householdId}`, { calls: 10, depth: 4 }],
   // V22.9.79 V76 W-7: 분석 화면의 '월말 예상 지출'이 반영 대기 고정지출·남은 정기지출을 더하려고 고정지출 규칙과 정기지출 항목을
   // 한 번씩 읽는다(제안서대로 +2). 기존 첫 묶음(Promise.all)에 함께 보내므로 깊이는 그대로다(7회 → 9회).

@@ -13,7 +13,7 @@ import { parseJsonSetting } from "../my/reports-premium.js";
 import { homeMemberPolicyValue, memberPolicySettingsKey } from "../my/access-control.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { currentMonthKst } from "../nlu/date-payment.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { LEGACY_CATEGORY_SPLITS } from "../nlu/category-rules.js";
 import {
   calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
@@ -107,11 +107,21 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   params.set("key", `in.(${[...new Set(keys)].join(",")})`);
   params.set("select", "key,value");
   params.set("limit", String(keys.length));
-  const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" }, []) || [];
+  // V22.9.79 V78 S-2: 정기지출 항목은 홈 월말 예상·‘앞으로 나갈 돈’에 들어간다. 같은 한 번의 조회를 엄격하게 읽고, 실패하면
+  // reservePlans 만 null 로 돌려준다(‘항목 없음’과 구분 — 화면은 확인 불가·그 몫을 빼고 계산). 나머지 설정은 예전처럼 기본값이다.
+  let rows = [];
+  let settingsUnavailable = false;
+  try {
+    const read = await supabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" });
+    if (!Array.isArray(read)) throw new Error("home_settings_read_invalid");
+    rows = read;
+  } catch (error) {
+    settingsUnavailable = true;
+  }
   const values = new Map(safeArray(rows).map((row) => [String(row.key || ""), row.value]));
   return {
     aliases: normalizeMemberAliasMap(values.get(memberAliasSettingsKey(householdId)) || {}),
-    reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
+    reservePlans: options.includeReserve ? (settingsUnavailable ? null : normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId)) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
     memberPolicy: options.includeMemberPolicy ? homeMemberPolicyValue(values.get(memberPolicySettingsKey(householdId))) : "",
@@ -144,6 +154,22 @@ async function fetchObservationMonthRows(env, householdId, month) {
   const result = await fetchAdminRowsRange(env, { householdId, start: `${month}-01`, end: nextMonthStart(month), limit: 100000, complete: false, analysisReceipt: true });
   if (result.receipt.status !== "complete") throw new Error("observation_read_incomplete");
   return result.rows;
+}
+
+// V22.9.79 V78 S-2: 그 달 고정지출 반영 표식(raw_text recurring:<규칙 id>:<달>)이 달린 기록만 좁게 읽는다. 홈·예산 알림과 같은
+// ‘반영됨’ 판정(그 달 표식 또는 그 달 기록)을 그 달 기록 전체 없이 하려는 화면(/reserve-plans)이 쓴다. 실패하면 던진다.
+async function fetchRecurringMarkerRows(env, householdId = "", month = "") {
+  if (!householdId || !validMonth(month)) return [];
+  const params = new URLSearchParams();
+  params.set("select", "raw_text");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("transaction_date", `gte.${month}-01`);
+  params.append("transaction_date", `lt.${nextMonthStart(month)}`);
+  params.set("raw_text", `like.recurring:*:${month}`);
+  params.set("limit", "1000");
+  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_marker_read_invalid");
+  return rows;
 }
 
 async function fetchRecurringRuleByIdStrict(env, id = "") {
@@ -497,8 +523,8 @@ function budgetPlanMessage(code = "") {
 export {
   budgetAlertText, budgetCategoryScope, budgetCenterSummary, budgetFeedbackLine,
   budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
-  fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringRuleByIdStrict,
-  fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase, renderBudgetBasisRows,
-  renderBudgetConsistencyAlert, renderBudgetRows,
+  fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringMarkerRows,
+  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase,
+  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };
 // @build:exports-end

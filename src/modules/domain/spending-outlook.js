@@ -105,18 +105,22 @@ function unrecordedOutgoingInMonth({ month = "", today = "", rows = [], recurrin
 //   - 정기지출(준비 항목): 납부일이 오늘부터 말일 사이인 지출 항목. 같은 지출로 짝지은 규칙이 있으면 규칙 쪽으로만 센다(S-1).
 //   - 수입(규칙·항목)은 더하지 않고 "수입만 등록" 안내에만 센다.
 // recurring 이 배열이 아니면(읽기 실패) 합계를 낼 수 없다(available: false).
+// V22.9.79 V78 S-2: 정기지출 항목도 같다 — plans 가 null(읽기 실패)이면 ‘항목 없음’으로 세지 않고 available: false 다.
+// 어느 쪽을 못 읽었는지 rulesKnown·plansKnown 으로 돌려준다(카드 안내 문구).
 function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = [], plans = [], recurring = [] } = {}) {
-  const available = Array.isArray(recurring);
-  const rules = available ? recurring.filter(Boolean) : [];
+  const rulesKnown = Array.isArray(recurring);
+  const plansKnown = Array.isArray(plans);
+  const available = rulesKnown && plansKnown;
+  const rules = rulesKnown ? recurring.filter(Boolean) : [];
   const isIncomeRule = (r) => String(r.type || "expense") === "income";
   const allPlans = safeArray(plans).filter(Boolean);
   const outPlans = allPlans.filter((p) => !isIncomeReservePlan(p));
-  const unrecorded = unrecordedOutgoingInMonth({ month, today, rows, recurring: available ? rules : null, plans: allPlans });
+  const unrecorded = unrecordedOutgoingInMonth({ month, today, rows, recurring: rulesKnown ? rules : null, plans: allPlans });
   const fixed = safeArray(unrecorded.pending);
   const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const planTotal = unrecorded.planEntries.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);
   return {
-    available, total: fixedTotal + planTotal,
+    available, rulesKnown, plansKnown, total: fixedTotal + planTotal,
     fixedCount: fixed.length, fixedTotal, planCount: unrecorded.planEntries.length, planTotal,
     expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
     incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
@@ -237,6 +241,6 @@ function spendingOutlookCaption(outlook) {
 // @build:exports-start
 export {
   homeUpcomingOut, isOutgoingRecurringRule, monthSpendingOutlook, pendingRecurringRules,
-  spendingOutlookBreakdown, spendingOutlookCaption,
+  recurringMarkerSet, recurringRuleAppliedInMonth, spendingOutlookBreakdown, spendingOutlookCaption,
 };
 // @build:exports-end
