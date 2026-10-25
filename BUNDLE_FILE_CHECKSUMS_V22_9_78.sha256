@@ -2,7 +2,7 @@
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 3650639de7d91f5d4fabfb73118006066c86fe765730d75edce3f21ebdd20305  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-fa28f5abb12f6bd9037ccbc0bb738d78483136d70a89079284f5d662e8319734  ./.codex/scripts/verify-repository.mjs
+13379cc3545957831d004909ed7c219916b81dd12e2b4c8b4998cabd186231e1  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
 97af5a3086d1d42c6cb8adbd3ef41c024bf33b4a5dacd8ceac75fdf195074a86  ./.github/workflows/monitoring.yml
 2116fb38bdf1e30332f2be4d557bdca857dc8b374622d7950861fd0d825bfb90  ./.github/workflows/verify.yml
@@ -269,7 +269,7 @@ a2ce72d35b4b20020bafd57631bf931b63b22e19ab0ed60b85482a6098d97280  ./monitoring/m
 4e6e4bb5e1f61408fe9c4a4acbf4f23e6103900e2e055e861714f20ee6dadab0  ./monitoring/worker.mjs
 a70ac192ae4ec8466fffac75ae7811deb9a8cd8a53ec74c08b85147a005e045e  ./monitoring/wrangler.jsonc
 e75d341893f1d30f4499b8e2e03810fc82a566c2df5e216e71bde34bc89ea6b0  ./package.json
-8b8e16936f30c6c0641e54150a4c76e6ba18b79c41b7baaef4af1b94bacf0669  ./src/index.js
+738b841d9c9f112b71a24df16f97225b5bd9fe1412df7f1f9af642fce7e60cf2  ./src/index.js
 fb674aec534286b2cb79c97e5e689baa4685627a921d46d286dd76f38859f9df  ./src/modules/MANIFEST.txt
 58e7e49567d1d7f04d7266087de78b6ce581f29c3e187795a3d42c0c2ae27946  ./src/modules/admin/backup-apply.js
 48be2b7c9182e47a7969fb4534bd5af39ac94b4427570a689a934b163737b5e1  ./src/modules/admin/backup-compare.js
@@ -319,7 +319,7 @@ e7615b7c0429c41028943ea9a7895b8eb5cc571b1773ff16f36d8b3eeac147ae  ./src/modules/
 e0a3f0957abdbf693d120f663d9804016c10658454ce8506a5926d7a3efcc816  ./src/modules/client/nav-search-notif-mains.js
 fc990ca1fecc9ec63ca6dd2fa55f4624a16407b64db91c8a221d780f904339c4  ./src/modules/client/shared-input-parsers.js
 b88ac89f1394007548ca98963626d553a23b76cb33ca8a8af90655d8aaf66ea7  ./src/modules/client/v5-bundle-mains.js
-aba6cbb150add79461ab4ca6cd316a2a299a65618349d629b2dda658d63f8f67  ./src/modules/cron/recurring-auto-apply.js
+5d686a95a2fb13903b0bc4ebff972b4d7ec88df67af2b3b64de139cfefbc1b04  ./src/modules/cron/recurring-auto-apply.js
 ec8ac8b77409994d7ba6e519a2ccd34699ecc086ad30447e0835b357dd3b19b6  ./src/modules/data/households-members-rows.js
 a7160e4f4e97cfed20c437d99f22677ef3e1af757ff6bcbfa81265dba45727f1  ./src/modules/data/supabase-client.js
 05efdbdecd92b2bfd8f253f3a44a4bca2906b3ca9731148799ae181d721d8124  ./src/modules/data/users-household-create.js
