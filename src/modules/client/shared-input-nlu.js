@@ -156,7 +156,12 @@ function detectInputPayment(raw) {
 // 멀리 끝나는 낱말을 규칙이 다른 두 개까지 기억해 가려낸다.
 function inferInputCategory(raw, type, rules) {
   const spans = [];
+  // V22.9.79 감사 E-1: 낱말 수백 개를 글에서 찾는 indexOf 가 가져오기 카드 표 해석 시간의 약 3할이었다. 글에 없는 글자로 시작하는 낱말은
+  // 찾아볼 필요가 없으므로(indexOf 는 첫 글자 단위가 글에 있어야 맞는다) 글의 글자 단위 표를 한 번 만들어 거른다. 결과는 같다.
+  const present = new Set();
+  for (let i = 0; i < raw.length; i++) present.add(raw.charCodeAt(i));
   const collect = (rule, word, exact) => {
+    if (!present.has(word.charCodeAt(0))) return;
     for (let at = raw.indexOf(word), seen = 0; at >= 0 && seen < 16; at = raw.indexOf(word, at + 1)) {
       const end = at + word.length;
       if (exact && !((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end])))) continue;

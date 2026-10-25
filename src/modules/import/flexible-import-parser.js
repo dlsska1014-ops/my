@@ -16,7 +16,7 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { readJson } from "../api/admin-api.js";
 import { supabase } from "../data/supabase-client.js";
 import { parseTransaction } from "../nlu/transaction-parser.js";
-import { detectType, normalizeText } from "../nlu/amount-parser.js";
+import { detectType, normalizeText, withNormalizeTextScope } from "../nlu/amount-parser.js";
 import {
   currentMonthKst, detectPaymentMethod, formatDate, nowKstDate, parseDateStrict, safeYmd,
   validMonth, withKstNowScope,
@@ -910,7 +910,7 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
   const outer = importParseScope;
   importParseScope = { dates: new WeakMap(), types: new Map() };
   try {
-    return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+    return withNormalizeTextScope(() => withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options)));
   } finally {
     importParseScope = outer;
   }

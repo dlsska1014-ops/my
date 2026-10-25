@@ -8992,7 +8992,12 @@ function detectInputPayment(raw) {
 // 멀리 끝나는 낱말을 규칙이 다른 두 개까지 기억해 가려낸다.
 function inferInputCategory(raw, type, rules) {
   const spans = [];
+  // V22.9.79 감사 E-1: 낱말 수백 개를 글에서 찾는 indexOf 가 가져오기 카드 표 해석 시간의 약 3할이었다. 글에 없는 글자로 시작하는 낱말은
+  // 찾아볼 필요가 없으므로(indexOf 는 첫 글자 단위가 글에 있어야 맞는다) 글의 글자 단위 표를 한 번 만들어 거른다. 결과는 같다.
+  const present = new Set();
+  for (let i = 0; i < raw.length; i++) present.add(raw.charCodeAt(i));
   const collect = (rule, word, exact) => {
+    if (!present.has(word.charCodeAt(0))) return;
     for (let at = raw.indexOf(word), seen = 0; at >= 0 && seen < 16; at = raw.indexOf(word, at + 1)) {
       const end = at + word.length;
       if (exact && !((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end])))) continue;
@@ -14948,7 +14953,7 @@ function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", op
   const outer = importParseScope;
   importParseScope = { dates: new WeakMap(), types: new Map() };
   try {
-    return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+    return withNormalizeTextScope(() => withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options)));
   } finally {
     importParseScope = outer;
   }
@@ -48613,7 +48618,27 @@ function unwrapKakaoParam(value) {
 
 // V22.9.79: 거래 문장 다듬기의 본문은 화면 빠른 입력과 함께 쓰는 공유 함수(client/shared-input-nlu.js normalizeInputText)로 옮겼다.
 // 이 이름은 이름·로그인 값 등 거래 문장이 아닌 곳에서도 쓰이므로 전각 숫자 변환은 하지 않는다(거래 문장 입구에서 따로 한다).
+// V22.9.79 감사 E-1: 가져오기 해석 한 번 동안만 같은 글의 정규화 결과를 기억한다. 한 행의 분류·구분·결제수단 판정이 같은 글을
+// 각자 다시 정규화한다(카드 표 행당 2번 중 1번, 자연어 행당 11번 중 4번이 직전과 같은 글). 범위 밖에서는 예전 그대로 매번 계산한다.
+let normalizeTextScope = null;
+function withNormalizeTextScope(task) {
+  const outer = normalizeTextScope;
+  normalizeTextScope = new Map();
+  try { return task(); } finally { normalizeTextScope = outer; }
+}
+
 function normalizeText(text) {
+  const scope = normalizeTextScope;
+  if (scope === null || typeof text !== "string" || text.length > 600) return normalizeTextUncached(text);
+  let out = scope.get(text);
+  if (out === undefined) {
+    out = normalizeTextUncached(text);
+    if (scope.size < 4096) scope.set(text, out);
+  }
+  return out;
+}
+
+function normalizeTextUncached(text) {
   return normalizeInputText(text);
 }
 

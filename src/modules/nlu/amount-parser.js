@@ -6,7 +6,27 @@ import { CATEGORY_RULES } from "./category-rules.js";
 
 // V22.9.79: 거래 문장 다듬기의 본문은 화면 빠른 입력과 함께 쓰는 공유 함수(client/shared-input-nlu.js normalizeInputText)로 옮겼다.
 // 이 이름은 이름·로그인 값 등 거래 문장이 아닌 곳에서도 쓰이므로 전각 숫자 변환은 하지 않는다(거래 문장 입구에서 따로 한다).
+// V22.9.79 감사 E-1: 가져오기 해석 한 번 동안만 같은 글의 정규화 결과를 기억한다. 한 행의 분류·구분·결제수단 판정이 같은 글을
+// 각자 다시 정규화한다(카드 표 행당 2번 중 1번, 자연어 행당 11번 중 4번이 직전과 같은 글). 범위 밖에서는 예전 그대로 매번 계산한다.
+let normalizeTextScope = null;
+function withNormalizeTextScope(task) {
+  const outer = normalizeTextScope;
+  normalizeTextScope = new Map();
+  try { return task(); } finally { normalizeTextScope = outer; }
+}
+
 function normalizeText(text) {
+  const scope = normalizeTextScope;
+  if (scope === null || typeof text !== "string" || text.length > 600) return normalizeTextUncached(text);
+  let out = scope.get(text);
+  if (out === undefined) {
+    out = normalizeTextUncached(text);
+    if (scope.size < 4096) scope.set(text, out);
+  }
+  return out;
+}
+
+function normalizeTextUncached(text) {
   return normalizeInputText(text);
 }
 
@@ -190,5 +210,6 @@ function koreanSimpleNumber(s, digit) {
 // @build:exports-start
 export {
   detectType, detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
+  withNormalizeTextScope,
 };
 // @build:exports-end
