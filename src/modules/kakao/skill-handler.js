@@ -703,9 +703,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
   if (accessRole === "viewer") {
+    // V22.9.79: 조회 전용도 "어제 기록 보기"·"7월 3일 기록 보기"를 볼 수 있다. "오늘 기록 보기"는 최근 기록 낱말로 통과했는데 다른 날짜의 같은
+    // 목록은 막혀 "요약/최근 조회는 가능하지만"이라는 안내와 맞지 않았다. 이 목록은 읽기뿐이고(내 기록을 번호로 보일 뿐), 수정·삭제·복구 말은
+    // 날짜 목록 말이 아니라서 아래 막는 길을 그대로 지난다.
     const viewerReadCommand = isHelpCommand(utterance)
       || isSummaryCommand(utterance)
       || isRecentCommand(utterance)
+      || isKakaoDailyListCommand(utterance)
       || isBudgetCommand(utterance)
       || isSettlementCommand(utterance)
       || !!parseKakaoSummaryRange(utterance)

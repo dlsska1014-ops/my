@@ -1,9 +1,10 @@
 // @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { quickInputDate } from "../client/shared-input-parsers.js";
 import { parseStrictSettingsObject, safeError, withSettingsRmwLease } from "../runtime/leases.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
-import { isUncertainStorageWrite } from "./response-builders.js";
+import { isDefiniteStorageFailure, isUncertainStorageWrite } from "./response-builders.js";
 import { SESSION_TTL_MS, isSessionExpired } from "./edit-state-machine.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { stableShortHash } from "./identity-chat-first.js";
@@ -241,14 +242,46 @@ async function dailySeqForKakaoRow(env, householdId, userId, kakaoUserKey, row =
   return idx >= 0 ? idx + 1 : 0;
 }
 
+// V22.9.79: PostgREST 논리 조건의 값은 큰따옴표로 감싼다(쉼표·점·콜론·괄호가 든 키도 값 그대로 읽힌다). 따옴표와 역슬래시만 이스케이프한다.
+function postgrestQuotedValueV22979(value = "") {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+}
+
+// V22.9.79: isKakaoRowOwnedByRequesterV2254 와 같은 규칙을 서버 조건으로 쓴다 — 기록에 source_user_key 가 있으면 그 키가 내 카카오 키일 때만 내 것이고,
+// source_user_key 가 비어 있으면(null 또는 빈 문자열) user_id 가 나일 때 내 것이다. 서버 쪽 조건이라 limit 이 내 기록에만 걸린다.
+// 반환은 [쿼리 이름, 값] 이거나, 가릴 기준이 하나도 없으면 null 이다(그때는 예전처럼 서버가 거르지 않는다).
+function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
+  const byUser = userId ? `user_id.eq.${postgrestQuotedValueV22979(userId)},or(source_user_key.is.null,source_user_key.eq."")` : "";
+  if (kakaoUserKey) return ["or", `(source_user_key.eq.${postgrestQuotedValueV22979(kakaoUserKey)}${byUser ? `,and(${byUser})` : ""})`];
+  return byUser ? ["and", `(${byUser})`] : null;
+}
+
+// V22.9.79: 최근 기록 조회('최근 기록'·'내 기록'·'마지막', '방금 삭제·수정·지출자 변경'의 대상). 예전에는 가계부 전체의 최근 max(20, 5×개수)건을
+// 읽은 뒤 내 것만 걸러서, 같은 가계부의 다른 구성원이 그 뒤로 20~50건을 넘게 저장했으면 내 기록이 창 밖이라 "아직 내가 기록한 내역이 없어요"/
+// "삭제할 최근 기록이 없어요"가 나왔다. 이제 내 기록만 서버가 거르고 limit 이 그 위에 걸린다 — 조회는 한 번 그대로이고 읽는 줄은 더 적다.
+// 서버가 조건을 거절하면(4xx — 운영 PostgREST 에서 이 문법을 실제로 돌려 본 적이 없다) 운영 이벤트를 남기고 예전 조회로 한 번 더 읽는다.
+// 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
 async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5) {
-  const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
-  params.set("household_id", `eq.${householdId}`);
-  params.set("order", "created_at.desc");
-  params.set("limit", String(Math.max(20, Number(limit || 5) * 10)));
-  const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, Math.max(1, Number(limit || 5)));
+  const wanted = Math.max(1, Number(limit || 5));
+  const query = (extra) => {
+    const params = new URLSearchParams();
+    params.set("select", KAKAO_TX_SELECT_V4);
+    params.set("household_id", `eq.${householdId}`);
+    params.set("order", "created_at.desc");
+    if (extra) params.set(extra[0], extra[1]);
+    params.set("limit", String(extra ? wanted : Math.max(20, wanted * 10)));
+    return `/rest/v1/transactions?${params.toString()}`;
+  };
+  const ownerFilter = kakaoOwnerFilterV22979(userId, kakaoUserKey);
+  let rows;
+  try {
+    rows = (await supabase(env, query(ownerFilter), { method: "GET" })) || [];
+  } catch (error) {
+    if (!ownerFilter || !isDefiniteStorageFailure(error)) throw error;
+    rememberOpsEvent({ kind: "kakao_recent_owner_filter_rejected", severity: "warn", path: "/skill", method: "GET", detail: safeError(error) });
+    rows = (await supabase(env, query(null), { method: "GET" })) || [];
+  }
+  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, wanted);
 }
 
 function isKakaoDailyListCommand(text = "") {

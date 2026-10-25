@@ -501,6 +501,11 @@ function parseKakaoSummaryRange(text = "") {
   if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
   const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
+  // V22.9.79: ‘이번 주 뭐 썼어’·‘이번 달 쓴 거’는 날짜와 상관없이 방금 입력한 5건을 보였다(헤더만 ‘최근 입력 내역’). 기간을 가리킨 이 말은
+  // 그 기간의 요약으로 답한다. 하루를 가리킨 ‘오늘·어제 뭐 썼어’는 그날의 기록 목록(skill-handler 의 kakaoRecentDayListUtterance)이고,
+  // 기간 없는 ‘최근 기록’은 그대로 최근 5건이다.
+  const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
+  if (periodAsk) t = `${periodAsk[1]} 요약`;
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";

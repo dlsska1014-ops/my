@@ -15248,10 +15248,6 @@ function renderSpenderOptions(members = [], selected = "", blankLabel = "지출�
   return opts.join("");
 }
 
-function renderSpenderDatalist(members = []) {
-  return `<datalist id="spenderNameList">${members.map((m) => `<option value="${escapeHtml(m.nickname || "")}"></option>`).join("")}</datalist>`;
-}
-
 async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "" }) {
   const start = `${month}-01`;
   const end = nextMonthStart(month);
@@ -15660,7 +15656,6 @@ ${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="
 ${renderTabs(tab, month, householdValue, { type, q, quality, category: categoryFilter, payment_method: paymentFilter, group_by: groupBy })}
 <datalist id="categoryList">${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("")}</datalist><datalist id="paymentList">${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
 ${tabHtml}
-${renderSpenderDatalist(householdMembers)}
 ${renderMobileBottomNav(tab, month, householdValue)}
 <div class="footerNote">관리자 웹과 모바일 입력 화면을 분리해 더 빠르게 사용할 수 있습니다.</div>
 </main>${renderCalendarFilterScript(date)}${renderAutoRefreshScript()}</body></html>`;
@@ -39658,14 +39653,46 @@ async function dailySeqForKakaoRow(env, householdId, userId, kakaoUserKey, row =
   return idx >= 0 ? idx + 1 : 0;
 }
 
+// V22.9.79: PostgREST 논리 조건의 값은 큰따옴표로 감싼다(쉼표·점·콜론·괄호가 든 키도 값 그대로 읽힌다). 따옴표와 역슬래시만 이스케이프한다.
+function postgrestQuotedValueV22979(value = "") {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+}
+
+// V22.9.79: isKakaoRowOwnedByRequesterV2254 와 같은 규칙을 서버 조건으로 쓴다 — 기록에 source_user_key 가 있으면 그 키가 내 카카오 키일 때만 내 것이고,
+// source_user_key 가 비어 있으면(null 또는 빈 문자열) user_id 가 나일 때 내 것이다. 서버 쪽 조건이라 limit 이 내 기록에만 걸린다.
+// 반환은 [쿼리 이름, 값] 이거나, 가릴 기준이 하나도 없으면 null 이다(그때는 예전처럼 서버가 거르지 않는다).
+function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
+  const byUser = userId ? `user_id.eq.${postgrestQuotedValueV22979(userId)},or(source_user_key.is.null,source_user_key.eq."")` : "";
+  if (kakaoUserKey) return ["or", `(source_user_key.eq.${postgrestQuotedValueV22979(kakaoUserKey)}${byUser ? `,and(${byUser})` : ""})`];
+  return byUser ? ["and", `(${byUser})`] : null;
+}
+
+// V22.9.79: 최근 기록 조회('최근 기록'·'내 기록'·'마지막', '방금 삭제·수정·지출자 변경'의 대상). 예전에는 가계부 전체의 최근 max(20, 5×개수)건을
+// 읽은 뒤 내 것만 걸러서, 같은 가계부의 다른 구성원이 그 뒤로 20~50건을 넘게 저장했으면 내 기록이 창 밖이라 "아직 내가 기록한 내역이 없어요"/
+// "삭제할 최근 기록이 없어요"가 나왔다. 이제 내 기록만 서버가 거르고 limit 이 그 위에 걸린다 — 조회는 한 번 그대로이고 읽는 줄은 더 적다.
+// 서버가 조건을 거절하면(4xx — 운영 PostgREST 에서 이 문법을 실제로 돌려 본 적이 없다) 운영 이벤트를 남기고 예전 조회로 한 번 더 읽는다.
+// 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
 async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5) {
-  const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
-  params.set("household_id", `eq.${householdId}`);
-  params.set("order", "created_at.desc");
-  params.set("limit", String(Math.max(20, Number(limit || 5) * 10)));
-  const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, Math.max(1, Number(limit || 5)));
+  const wanted = Math.max(1, Number(limit || 5));
+  const query = (extra) => {
+    const params = new URLSearchParams();
+    params.set("select", KAKAO_TX_SELECT_V4);
+    params.set("household_id", `eq.${householdId}`);
+    params.set("order", "created_at.desc");
+    if (extra) params.set(extra[0], extra[1]);
+    params.set("limit", String(extra ? wanted : Math.max(20, wanted * 10)));
+    return `/rest/v1/transactions?${params.toString()}`;
+  };
+  const ownerFilter = kakaoOwnerFilterV22979(userId, kakaoUserKey);
+  let rows;
+  try {
+    rows = (await supabase(env, query(ownerFilter), { method: "GET" })) || [];
+  } catch (error) {
+    if (!ownerFilter || !isDefiniteStorageFailure(error)) throw error;
+    rememberOpsEvent({ kind: "kakao_recent_owner_filter_rejected", severity: "warn", path: "/skill", method: "GET", detail: safeError(error) });
+    rows = (await supabase(env, query(null), { method: "GET" })) || [];
+  }
+  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, wanted);
 }
 
 function isKakaoDailyListCommand(text = "") {
@@ -41523,7 +41550,7 @@ function isKakaoTopLevelCommandV2254(text = "") {
     !!parseKakaoSummaryRange(t) || isRecentCommand(t) || isSettlementCommand(t) ||
     isInviteCommand(t) || isGroupLinkInfoCommand(t) || !!parseGroupBindCommand(t) ||
     isInputExampleCommand(t) || isKakaoMemberAliasCommand(t) || isKakaoEditGuideCommand(t) ||
-    isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t) || isLinkCommand(t);
+    isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t) || isLinkCommand(t) || isKakaoDailyListCommand(t);
 }
 
 function isExplicitKakaoTopLevelCommandV2254(text = "") {
@@ -41534,6 +41561,9 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   if (KAKAO_REPRESENTATIVE_COMMANDS.some((item) => normalizeText(item.messageText || item.command).replace(/\s+/g, "") === compact)) return true;
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
+  // V22.9.79: ‘어제 기록 보기’·‘7월 3일 기록 보기’도 ‘오늘기록’처럼 열려 있던 단계 흐름을 끊고 목록으로 답한다. 조회 전용도 이 목록을 볼 수 있게
+  // 되면서(skill-handler), 남아 있던 이름 입력 흐름이 이 말을 입력값으로 삼키지 않도록 하는 쪽이다.
+  if (isKakaoDailyListCommand(t)) return true;
   if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자|수입자)/.test(t)) return true;
   if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
@@ -42120,6 +42150,11 @@ function parseKakaoSummaryRange(text = "") {
   if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
   const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
+  // V22.9.79: ‘이번 주 뭐 썼어’·‘이번 달 쓴 거’는 날짜와 상관없이 방금 입력한 5건을 보였다(헤더만 ‘최근 입력 내역’). 기간을 가리킨 이 말은
+  // 그 기간의 요약으로 답한다. 하루를 가리킨 ‘오늘·어제 뭐 썼어’는 그날의 기록 목록(skill-handler 의 kakaoRecentDayListUtterance)이고,
+  // 기간 없는 ‘최근 기록’은 그대로 최근 5건이다.
+  const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
+  if (periodAsk) t = `${periodAsk[1]} 요약`;
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
@@ -43388,9 +43423,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
   if (accessRole === "viewer") {
+    // V22.9.79: 조회 전용도 "어제 기록 보기"·"7월 3일 기록 보기"를 볼 수 있다. "오늘 기록 보기"는 최근 기록 낱말로 통과했는데 다른 날짜의 같은
+    // 목록은 막혀 "요약/최근 조회는 가능하지만"이라는 안내와 맞지 않았다. 이 목록은 읽기뿐이고(내 기록을 번호로 보일 뿐), 수정·삭제·복구 말은
+    // 날짜 목록 말이 아니라서 아래 막는 길을 그대로 지난다.
     const viewerReadCommand = isHelpCommand(utterance)
       || isSummaryCommand(utterance)
       || isRecentCommand(utterance)
+      || isKakaoDailyListCommand(utterance)
       || isBudgetCommand(utterance)
       || isSettlementCommand(utterance)
       || !!parseKakaoSummaryRange(utterance)

@@ -6,7 +6,7 @@ import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchPaymentAssets } from "../settings/payment-assets.js";
 import {
   attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchAnalysisRowsRange,
-  fetchHouseholdMembers, renderSpenderDatalist, renderSpenderOptions,
+  fetchHouseholdMembers, renderSpenderOptions,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import {
@@ -401,7 +401,6 @@ ${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="
 ${renderTabs(tab, month, householdValue, { type, q, quality, category: categoryFilter, payment_method: paymentFilter, group_by: groupBy })}
 <datalist id="categoryList">${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("")}</datalist><datalist id="paymentList">${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
 ${tabHtml}
-${renderSpenderDatalist(householdMembers)}
 ${renderMobileBottomNav(tab, month, householdValue)}
 <div class="footerNote">관리자 웹과 모바일 입력 화면을 분리해 더 빠르게 사용할 수 있습니다.</div>
 </main>${renderCalendarFilterScript(date)}${renderAutoRefreshScript()}</body></html>`;
