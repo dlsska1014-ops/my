@@ -200,7 +200,7 @@ async function handleRecurringSave(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 저장 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "고정지출 저장 권한이 없습니다.")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "").trim();
@@ -259,7 +259,7 @@ async function handleRecurringDelete(request, env) {
   if (!id || !existingRule || !householdId) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
   const access = await resolveTransactionAccess(request, env, householdId, { manageOnly: true });
   if (!access.ok) {
-    if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: "고정지출 삭제 권한이 없습니다." }));
+    if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: access.lookupCode || "고정지출 삭제 권한이 없습니다." }));
     return redirectResponse("/?legacy=1");
   }
   try {
@@ -305,7 +305,7 @@ async function handleRecurringApply(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent("고정지출 반영 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "고정지출 반영 권한이 없습니다.")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "");

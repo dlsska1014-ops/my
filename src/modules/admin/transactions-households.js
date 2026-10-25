@@ -37,7 +37,7 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
 import {
-  getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+  getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import {
@@ -182,11 +182,24 @@ function transactionReturnFallback(month, householdId, extra = {}) {
   return dashboardQuery(month, householdId, { tab: "transactions", ...extra });
 }
 
+// V22.9.79 D-27: 역할 조회(household_members)가 503·시간 초과로 실패하면 예전에는 getHouseholdMemberRole 이 빈 역할을 돌려줘
+// "기록 입력 권한이 없습니다"·"이 기록을 수정할 권한이 없습니다"·"고정지출 저장 권한이 없습니다"로 안내했다. 권한이 있는 사람에게 권한이 없다고 말한 것이다.
+// V22.9.76 이 가계부 이름 바꾸기·나가기·참여자 권한에 적용한 엄격 조회를 여기에도 쓴다. 조회가 실패하면 ok=false 에 lookupFailed·lookupMessage 를
+// 실어 돌려준다. 호출한 화면은 거절 문구 대신 안내를 보여 준다(아무것도 바꾸지 않았다는 말과 다시 시도하라는 말). 쿼리로 돌아가는 화면은 lookupCode(formatMessage 가
+// 아는 코드 — 자유 문장은 일반 안내로 닫힌다), JSON·조각 응답은 lookupMessage 문장을 쓴다.
+const TRANSACTION_ROLE_CHECK_FAILED_MESSAGE = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
 async function resolveTransactionAccess(request, env, householdId, { manageOnly = false } = {}) {
   if (await verifyAdminSession(request, env)) return { ok: true, admin: true, userId: "", role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId || !householdId) return { ok: false, admin: false, userId: userId || "", role: "" };
-  const role = String(await getHouseholdMemberRole(env, userId, householdId) || "").toLowerCase();
+  let role = "";
+  try {
+    role = String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase();
+  } catch (err) {
+    if (!isHouseholdRoleCheckFailure(err)) throw err;
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: new URL(request.url).pathname, method: request.method, detail: safeError(err) });
+    return { ok: false, admin: false, userId, role: "", lookupFailed: true, lookupCode: "household_role_check_failed", lookupMessage: TRANSACTION_ROLE_CHECK_FAILED_MESSAGE };
+  }
   const ok = manageOnly ? ["owner", "admin"].includes(role) : canWriteMyHousehold(role) && !!role;
   return { ok, admin: false, userId, role };
 }
@@ -226,7 +239,7 @@ async function handleAdminAddTransaction(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const access = await resolveTransactionAccess(request, env, householdId);
   if (!access.ok) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "기록 입력 권한이 없습니다." }), transactionAddRedirectExtras(form, { err: "기록 입력 권한이 없습니다." }, "error")));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "기록 입력 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), transactionAddRedirectExtras(form, { err: denied }, "error"))); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   const txType = normalizeTransactionType(form.get("type"));
@@ -330,12 +343,13 @@ async function handleAdminDeleteTransaction(request, env) {
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (wantsJson) {
     if (!access.admin && !access.userId) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인이 만료되었습니다. 다시 로그인해 주세요." }, 401);
+    if (access.lookupFailed) return jsonResponse({ ok: false, error: "role_check_failed", message: access.lookupMessage }, 503);
     if (!access.ok) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
     if (!targetRow || rowHousehold !== householdId) return jsonResponse({ ok: false, error: "record_not_found", message: "이 가계부에서 기록을 찾지 못했습니다." }, 404);
     if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
   }
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 삭제할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
@@ -385,17 +399,17 @@ async function handleTransactionEditPage(request, env, url) {
   const backTo = safeUserReturnPath(url.searchParams.get("return_to") || "", fallbackPath);
 
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    const denied = "이 기록을 수정할 권한이 없습니다.";
+    const denied = access.lookupMessage || "이 기록을 수정할 권한이 없습니다.";
     if (wantsFragment) {
       // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
       return new Response(`<p class="v8-editError">${escapeHtml(denied)}</p>`, {
-        status: 403,
+        status: access.lookupFailed ? 503 : 403,
         headers: { ...HTML_HEADERS },
       });
     }
     if (!access.admin && access.userId) {
       const target = new URL(backTo, "https://accountbook.local");
-      target.searchParams.set("err", denied);
+      target.searchParams.set("err", access.lookupCode || denied);
       return redirectResponse(`${target.pathname}${target.search}`);
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
@@ -452,7 +466,7 @@ async function handleAdminUpdateTransaction(request, env) {
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 수정할 권한이 없습니다." }), { err: "이 기록을 수정할 권한이 없습니다." }));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 수정할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).

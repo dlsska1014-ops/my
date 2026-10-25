@@ -28,6 +28,7 @@ function formatMessage(msg) {
     delete_confirm_required: "삭제 전 확인 문구를 정확히 입력해 주세요.",
     display_name_required: "이 가계부에서 사용할 내 이름을 입력해 주세요.",
     household_deleted: "가계부와 연결된 기록을 안전하게 삭제했습니다.",
+    household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
     household_left: "가계부에서 나왔습니다. 기존 기록의 지출자 이름은 유지됩니다.",
     household_required: "먼저 사용할 가계부를 선택해 주세요.",
     household_updated: "가계부 이름을 변경했습니다.",
