@@ -41596,7 +41596,18 @@ function isKakaoFlowLocalReplyV2254(state = null, text = "") {
   return false;
 }
 
+// V22.9.79: 이름 입력 단계에서 ‘오늘 뭐 썼어’·‘이번 달 뭐 썼어’·‘최근 기록 보여줘’ 같은 조회 질문을 이름으로 저장하지 않고 흐름을 끊어 답한다.
+// 모든 명령으로 끊으면 ‘정산담당’ 같은 이름이 막히므로 조회 질문 꼴만 좁게 본다.
+function isKakaoReadQuestionV22979(text = "") {
+  const t = normalizeText(text).trim();
+  if (!t) return false;
+  return /(?:뭐|뭘|얼마)\s*(?:썼|샀|나갔|벌었|들어왔)/.test(t) || /(?:쓴|산|나간)\s*(?:거|것|내역)/.test(t) ||
+    /기록\s*(?:보여|보기|봐|확인|알려)/.test(t) ||
+    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달)\s*(?:기록|내역|지출|수입)/.test(t) || /[?？]\s*$/.test(t);
+}
+
 function shouldInterruptKakaoFlowV2254(state = null, text = "") {
+  if (state?.flow === "member_alias" && isKakaoReadQuestionV22979(text)) return true;
   return !!state?.flow && isExplicitKakaoTopLevelCommandV2254(text) && !isKakaoFlowLocalReplyV2254(state, text);
 }
 

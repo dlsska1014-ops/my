@@ -704,6 +704,23 @@ await scenario("기간 질문", async (fx) => {
   ok(!(await say(fx, "저저번달 뭐 썼어")).text.includes("📊 이번 달 요약"), "읽지 못한 기간을 이번 달 요약으로 바꾸지 않는다");
 });
 
+// ── 이름 입력 단계가 조회 질문을 이름으로 삼키지 않는다(통합 때 더함: 카카오 묶음 후속 발견) ──────────────────────────
+await scenario("이름 입력 단계의 조회 질문", async (fx) => {
+  for (const [ask, expect] of [["오늘 뭐 썼어", `🧾 ${DAY} 기록`], ["이번 달 뭐 썼어", "📊 이번 달 요약"], ["어제 뭐 썼어", ""], ["최근 기록 보여줘", ""], ["이번 주 쓴 거", "📊 이번 주 요약"]]) {
+    await say(fx, "내 이름 설정");
+    const aliasBefore = settingValue(fx, `member_aliases:${HH}`);
+    const reply = (await say(fx, ask)).text;
+    eq(settingValue(fx, `member_aliases:${HH}`), aliasBefore, `이름 입력 단계에서 ‘${ask}’는 이름으로 저장되지 않는다`);
+    ok(!reply.includes("내 이름을") && (!expect || reply.includes(expect)), `‘${ask}’는 이름 입력을 끊고 그 질문에 답한다 (${reply.slice(0, 100)})`);
+  }
+  // 명령처럼 보이는 이름도 조회 질문 꼴이 아니면 그대로 저장된다(좁게만 거른다).
+  for (const name of ["정산담당", "기록왕", "엄마"]) {
+    await say(fx, "내 이름 설정");
+    const named = (await say(fx, name)).text;
+    ok(named.includes(`‘${name}’로 설정했어요`), `‘${name}’ 같은 이름은 그대로 저장된다 (${named.slice(0, 80)})`);
+  }
+});
+
 if (SOFT) {
   console.log(`V22979_SOFT: 통과 ${base.done()} · 실패 ${failures.length}`);
   for (const message of failures) console.log(`  실패: ${message}`);
