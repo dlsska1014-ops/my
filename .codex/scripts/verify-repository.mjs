@@ -77,6 +77,7 @@ const validationScripts = [
   ["V22.9.79 월말 예상 하나(분석·예산 알림·알림센터·홈 같은 숫자)·하루 사용 가능 내림·외식 갈래·증감률", "validation/validate-spending-outlook-v22979.mjs"],
   ["V22.9.79 금액·분류·결제수단 해석(웹·카카오 같은 해석: A-07·A-10·A-16·N-11·N-13)", "validation/validate-nlu-v22979.mjs"],
   ["V22.9.79 웹 화면 결함(지난 달 쓰는 속도·주별 탭·수정 폼 제안 목록·구성원 403 링크·검색 결과 이동·가입 오류 폼)", "validation/validate-web-ui-v22979.mjs"],
+  ["V22.9.79 백업 CSV 왕복·백업센터 전체 기간·가져오기 해석 비용", "validation/validate-backup-import-v22979.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
