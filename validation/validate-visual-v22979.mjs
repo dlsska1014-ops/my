@@ -218,7 +218,7 @@ await section("F-4", () => fixture(async (fx) => {
   ok(homeCss.includes(".form,.v8-edit,.v8-edit-field{grid-template-columns:minmax(0,1fr)}"), "홈: 빠른 입력 폼·수정 폼 격자가 minmax(0,1fr) 한 열이다");
   ok(homeCss.includes(".v8-edit-field select,.v8-edit select,.v8-edit input{min-width:0;max-width:100%}"), "홈: 수정 폼의 지출자 select 가 폼 폭 안에서 줄어든다");
   ok(homeCss.includes(".v8-tx-main>div{min-width:0;overflow-wrap:anywhere}"), "홈: 최근 내역 행의 내용 칸이 줄어들고 줄바꿈 없는 긴 글자도 꺾여 금액이 밀려나지 않는다");
-  ok(homeCss.includes(".chipRow button{max-width:100%;overflow:hidden;text-overflow:ellipsis}"), "홈: 긴 결제수단 칩이 줄 폭에서 말줄임된다");
+  ok(homeCss.includes(".chipRow button{max-width:100%;white-space:normal;overflow-wrap:anywhere}"), "홈: 줄 폭보다 긴 결제수단 칩은 잘리지 않고 줄 폭 안에서 줄바꿈된다");
   ok(/\.v8-tx-main strong\{white-space:nowrap\}/.test(homeCss), "금액은 여전히 한 줄(nowrap)이다 — 줄 바꿈은 내용 칸이 맡는다");
   const alerts = await page(fx, `/budget-alerts?month=2026-07&household_id=${HH}`);
   ok(alerts.html.includes(".filters{display:grid;grid-template-columns:minmax(0,1fr) 160px 110px;gap:8px;margin-top:12px}") && alerts.html.includes(".filters select,.filters input,.filters button{min-width:0;width:100%;height:44px;"), "예산 알림: 조회 줄이 minmax(0,1fr) 이고 입력칸이 줄어든다");
@@ -235,6 +235,7 @@ await section("F-4", () => fixture(async (fx) => {
   ok(edit.html.includes(".v8-edit,.v8-edit-field{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}") && edit.html.includes(".v8-edit select,.v8-edit input{min-width:0;max-width:100%;width:100%}"), "수정 화면: 홈 스타일시트를 받지 않는 이 화면이 폼을 한 열 격자로 두고 지출자 select 를 폭 안에 가둔다");
   const homeShellPath = assetPath(home.html, /href="(\/assets\/accountbook-shell-[^"]+\.css)"/);
   const homeShell = (await asset(fx, homeShellPath)).text;
+  ok(homeShell.includes("body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}"), "홈 '자세히' 줄: 긴 지출자 이름이 와도 라벨(자세히)은 한 줄로 남고 요약만 말줄임된다");
   ok(homeShell.includes("body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}"), "머리말 제목('…님 시작가이드')의 줄바꿈 없는 긴 표시 이름이 360px 밖으로 나가지 않고 꺾인다");
   const backupLogin = await page(fx, `/my/backup-login?household_id=${HH}`);
   eq(backupLogin.status, 200, "내 계정 로그인 설정 화면이 열린다");

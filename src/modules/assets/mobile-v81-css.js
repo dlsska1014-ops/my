@@ -139,7 +139,7 @@ html[data-ab-resolved-theme="dark"] .filterAdvanced summary{color:var(--ab12-mut
 .form,.v8-edit,.v8-edit-field{grid-template-columns:minmax(0,1fr)}
 .v8-edit-field select,.v8-edit select,.v8-edit input{min-width:0;max-width:100%}
 .v8-tx-main>div{min-width:0;overflow-wrap:anywhere}
-.chipRow button{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.chipRow button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 `;
 // @build:exports-start
 export { MOBILE_V81_CSS };
