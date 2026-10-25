@@ -252,7 +252,9 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const rows=(await env.MONITOR_DB.prepare("SELECT * FROM collector_state").all()).results;
   const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key='plans'").all()).results;
   const plans=settings[0]?JSON.parse(settings[0].value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
-  const states=Object.fromEntries(rows.map(row=>[row.name,{...freshState(row,row.name==="supabase_plan"?2*3600000:20*60000,now),data:row.payload?JSON.parse(row.payload):null}]));
+  // 1.2.1(V77:N-19): 요금제·토큰 확인은 매시 0~4분에만 돈다. 토큰을 5분 수집기와 같은 20분 기준으로 보면 정상이어도 매시간 약 40분 '갱신 지연'으로 보였다.
+  const maxAgeMs=name=>name==="supabase_plan"?2*3600000:name==="token"?70*60000:20*60000;
+  const states=Object.fromEntries(rows.map(row=>[row.name,{...freshState(row,maxAgeMs(row.name),now),data:row.payload?JSON.parse(row.payload):null}]));
   for(const name of ["cloudflare","database","uptime","supabase_plan","d1"]) if(!states[name]) states[name]={...freshState(null,0,now),data:null};
   const planFresh=Number.isFinite(Date.parse(plans.verified_at))&&now-Date.parse(plans.verified_at)>=-60000&&now-Date.parse(plans.verified_at)<7*DAY;
   // 1.1.0: 확인 기록이 7일을 넘어도 마지막으로 확인한 요금제의 한도는 계속 비교한다. 예전에는 8일째부터 모든 한도가
