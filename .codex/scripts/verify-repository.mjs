@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_77.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_78.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],

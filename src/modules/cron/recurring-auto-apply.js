@@ -726,7 +726,7 @@ function scheduledRunErrorCode(err) {
 function scheduledRunStage(value, fields = [], flags = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (value.error !== undefined) return { error: scheduledRunCode(value.error) };
-  const out = {};
+  const out = Object.create(null);
   for (const field of fields) out[field] = scheduledRunCount(value[field]);
   for (const flag of flags) if (value[flag] === true) out[flag] = true;
   return out;
