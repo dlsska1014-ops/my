@@ -485,7 +485,27 @@ function isTwoDigitYearImportDate(value = "") {
   return /^\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2}(?:\s|$)/.test(String(value ?? "").trim());
 }
 
+// V22.9.79 \uac10\uc0ac E-1: \ud55c \ubc88\uc758 \ud574\uc11d \ub3d9\uc548\ub9cc \uc4f0\ub294 \uae30\uc5b5 \uce78. \uac19\uc740 \ub0a0\uc9dc \uce78\uc744 \uc81c\ubaa9 \ud589 \ud310\uc815\u00b7\ud569\uacc4 \ud589 \ud310\uc815\u00b7\ubd80\ud638 \uaddc\uce59\u00b7\uc5f0\ub3c4 \ucc3e\uae30\u00b7\ubcf8 \ud574\uc11d\uc5d0\uc11c
+// \ud589\ub9c8\ub2e4 \ub124\ub2e4\uc12f \ubc88 \uc77d\ub294\ub370, \uac12\uacfc \ub0a0\uc9dc \uae30\uc900(dateContext)\uc774 \uac19\uc73c\uba74 \uacb0\uacfc\ub3c4 \uac19\ub2e4. \uc0ac\uc6a9\uc790 \uce78 \uac12\uc740 \uc804\uc5ed\uc5d0 \ub0a8\uae30\uc9c0 \uc54a\uace0 \ud574\uc11d\uc774 \ub05d\ub098\uba74 \ubc84\ub9b0\ub2e4.
+let importParseScope = null;
+const IMPORT_SCOPE_DATE_LIMIT = 8192;
+const IMPORT_SCOPE_TYPE_LIMIT = 4096;
+
 function parseImportDateCell(value, options = {}) {
+  const scope = importParseScope, context = options.dateContext;
+  if (!scope || !context) return readImportDateCell(value, options);
+  let known = scope.dates.get(context);
+  if (!known) scope.dates.set(context, known = new Map());
+  const key = (options.allowSerial === true ? "s|" : "-|") + String(value ?? "");
+  let date = known.get(key);
+  if (date === undefined) {
+    date = readImportDateCell(value, options);
+    if (known.size < IMPORT_SCOPE_DATE_LIMIT) known.set(key, date);
+  }
+  return date;
+}
+
+function readImportDateCell(value, options = {}) {
   const text = String(value ?? "").replace(/\ufeff/g, "").trim().replace(/^["']|["']$/g, "").trim();
   if (!text) return "";
   if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text), options) : "";
@@ -612,7 +632,22 @@ function parseImportAmountCell(value = "") {
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
 }
 
+// V22.9.79 감사 E-1: 구분 칸은 "지출"·"수입"처럼 같은 값이 거의 모든 행에서 반복된다. 빈 칸은 바로 돌려주고, 같은 값은 해석 한 번 안에서 다시 계산하지 않는다.
 function normalizeImportTypeValue(value = "") {
+  if (value === "" || value === null || value === undefined) return "";
+  const scope = importParseScope;
+  if (scope && typeof value === "string") {
+    let type = scope.types.get(value);
+    if (type === undefined) {
+      type = readImportTypeValue(value);
+      if (scope.types.size < IMPORT_SCOPE_TYPE_LIMIT) scope.types.set(value, type);
+    }
+    return type;
+  }
+  return readImportTypeValue(value);
+}
+
+function readImportTypeValue(value = "") {
   const text = normalizeText(value).toLowerCase();
   if (!text) return "";
   if (/(수입|입금|받음|급여|매출|대변|credit|income|deposit|money\s*in|\bin\b)/i.test(text)) return "income";
@@ -870,8 +905,15 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
 }
 
 // V22.9.77 \uac10\uc0ac E-1: \ud574\uc11d \ud55c \ubc88 \ub3d9\uc548 KST \ud604\uc7ac \uc2dc\uac01 \ud615\uc2dd\uae30\ub97c \ud558\ub098\ub9cc \uc4f4\ub2e4(\uc790\uc5f0\uc5b4 \ud589\ub9c8\ub2e4 \uc0c8\ub85c \ub9cc\ub4e4\ub358 \uac83). \uacb0\uacfc\ub294 \uadf8\ub300\ub85c\ub2e4.
+// V22.9.79 \uac10\uc0ac E-1: \uac19\uc740 \ubc94\uc704\uc5d0\uc11c \ub0a0\uc9dc \uce78\u00b7\uad6c\ubd84 \uce78\uc758 \ud574\uc11d \uacb0\uacfc\ub3c4 \uae30\uc5b5\ud55c\ub2e4(importParseScope). \ud574\uc11d\uc774 \ub05d\ub098\uba74(\uc608\uc678\ub85c \ub05d\ub098\ub3c4) \ubc84\ub9b0\ub2e4.
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
-  return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+  const outer = importParseScope;
+  importParseScope = { dates: new WeakMap(), types: new Map() };
+  try {
+    return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+  } finally {
+    importParseScope = outer;
+  }
 }
 
 function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId = "", options = {}) {

@@ -252,13 +252,19 @@ function createImportDuplicateMatcher(candidates = [], reservedIds = []) {
   const used = new Set(reservedIds.map(String)), groups = new Map();
   const normal = row => ({ raw: normalizeText(row.raw_text || ""), basic: JSON.stringify([normalizeText(row.category || ""), normalizeText(row.memo || ""), normalizeText(row.payment_method || "")]) });
   const key = row => JSON.stringify([row.household_id, row.transaction_date, row.type, Number(row.amount)]);
+  // V22.9.79 감사 E-1: 후보 행의 내용 정규화는 같은 날짜·구분·금액인 행과 견줄 때 처음 한 번만 한다. 예전에는 후보 전체(최대 4만 건,
+  // 건당 정규화 4번)를 미리 정규화해, 기존 기록이 1만 건인 가계부에서 120행 미리보기가 약 100ms 더 걸렸다. 견줘 보는 규칙은 그대로다.
   for (const row of candidates) {
     const groupKey = key(row); if (!groups.has(groupKey)) groups.set(groupKey, []);
-    groups.get(groupKey).push({ row, ...normal(row) });
+    groups.get(groupKey).push({ row, normal: null });
   }
   return { consume(row, explicitSpender = false) {
     const value = normal(row);
-    const other = (groups.get(key(row)) || []).find(item => !used.has(String(item.row.id)) && (!explicitSpender || String(item.row.user_id) === String(row.user_id)) && (value.raw && value.raw === item.raw || value.basic === item.basic));
+    const other = (groups.get(key(row)) || []).find(item => {
+      if (used.has(String(item.row.id)) || explicitSpender && String(item.row.user_id) !== String(row.user_id)) return false;
+      const known = item.normal || (item.normal = normal(item.row));
+      return value.raw && value.raw === known.raw || value.basic === known.basic;
+    });
     if (!other) return null;
     used.add(String(other.row.id)); return other.row;
   } };
