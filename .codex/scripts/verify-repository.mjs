@@ -67,6 +67,7 @@ const validationScripts = [
   ["V22.9.78 관제 토큰 확인 수집 기준(관제 1.2.1)", "validation/validate-monitor-v22978.mjs"],
   ["V22.9.78 주 없이 쓴 지난·저번 요일 날짜", "validation/validate-nlu-weekday-v22978.mjs"],
   ["V22.9.78 백업 CSV 열 이름 유지·화면 안내 일치", "validation/validate-backup-columns-v22978.mjs"],
+  ["V22.9.78 운영 함수 정의 사본·코드 호출 인자 대조(G-13)", "validation/validate-rpc-definitions-v22978.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
