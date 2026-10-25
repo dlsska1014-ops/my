@@ -35398,6 +35398,8 @@ body.abV22812Shell .filters select{min-width:0;max-width:100%}
 body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}
 /* V22.9.79 F-4: 홈 빠른 입력 '자세히' 줄은 긴 지출자 이름이 들어오면 라벨이 글자 하나씩(자/세/히) 줄바꿈됐다 → 라벨은 줄지 않고 요약(em)만 말줄임된다. */
 body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
+/* V22.9.79 F-4: 머리말 조회 줄(.abV5ControlBar)의 3열 규칙(1fr 1fr auto)은 컨트롤이 가계부·월·조회 셋일 때 맞춘 것이다. 정산 화면은 select 가 둘이라 월 입력이 88px 로 줄어 "2026년 07월"이 "2026"만 보였다(390px, 정상 데이터도 같다) → select 가 둘인 줄은 모바일에서 두 열로 쌓는다. */
+@media(max-width:560px){body.abV22812Shell .abV5ControlBar:has(select~select){grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 /* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려

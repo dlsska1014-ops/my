@@ -236,6 +236,7 @@ await section("F-4", () => fixture(async (fx) => {
   const homeShellPath = assetPath(home.html, /href="(\/assets\/accountbook-shell-[^"]+\.css)"/);
   const homeShell = (await asset(fx, homeShellPath)).text;
   ok(homeShell.includes("body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}"), "홈 '자세히' 줄: 긴 지출자 이름이 와도 라벨(자세히)은 한 줄로 남고 요약만 말줄임된다");
+  ok(homeShell.includes("@media(max-width:560px){body.abV22812Shell .abV5ControlBar:has(select~select){grid-template-columns:repeat(2,minmax(0,1fr))!important}}"), "머리말 조회 줄에 select 가 둘(정산: 가계부·방식)이면 모바일에서 두 열로 쌓아 월 입력이 88px 로 줄지 않는다");
   ok(homeShell.includes("body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}"), "머리말 제목('…님 시작가이드')의 줄바꿈 없는 긴 표시 이름이 360px 밖으로 나가지 않고 꺾인다");
   const backupLogin = await page(fx, `/my/backup-login?household_id=${HH}`);
   eq(backupLogin.status, 200, "내 계정 로그인 설정 화면이 열린다");
