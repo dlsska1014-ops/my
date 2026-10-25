@@ -2902,27 +2902,43 @@ const ACCOUNTBOOK_WORKER = {
   },
   async scheduled(controller, env, ctx) {
     scrubPrototypePollution("scheduled:start");
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 } };
+    // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
+      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), errors: [] };
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) { if (recurringResult.failed > 0) firstError = firstError || new Error("scheduled_recurring_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
+        run.recurring = recurringResult;
+        if (!recurringResult.ok) { if (recurringResult.failed > 0) { firstError = firstError || new Error("scheduled_recurring_failed"); run.errors.push("recurring:failed"); } rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
+        run.recurring = { error: scheduledRunErrorCode(err) };
+        run.errors.push(`recurring:${scheduledRunErrorCode(err)}`);
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) { if (reportResult.failed > 0) firstError = firstError || new Error("scheduled_reports_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
+        run.reports = reportResult;
+        if (!reportResult.ok) { if (reportResult.failed > 0) { firstError = firstError || new Error("scheduled_reports_failed"); run.errors.push("reports:failed"); } rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
+        run.reports = { error: scheduledRunErrorCode(err) };
+        run.errors.push(`reports:${scheduledRunErrorCode(err)}`);
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
       }
-      try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
+      try { run.cleanup = await cleanupNluOpsRetention(env); } catch (nluErr) {
+        run.cleanup = { error: scheduledRunErrorCode(nluErr) };
+        run.errors.push(`cleanup:${scheduledRunErrorCode(nluErr)}`);
+        rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
+      }
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
+      // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
+      run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
+      env.__AB_DB_BUDGET.limit = 50;
+      await recordScheduledRun(env, run);
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
       // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
       if (firstError) { logWorkerError({ event: "scheduled_failed", path: "/cron", method: "SCHEDULED", error: firstError }); throw firstError; }
@@ -20935,6 +20951,24 @@ async function handleDuplicateSafetyPage(request, env, url) {
   return htmlResponse(renderDuplicateSafetyHtml(env));
 }
 
+// V22.9.78 N-18: 저장된 예약 실행 요약 한 줄. 값은 recordScheduledRun 이 거른 건수·짧은 코드뿐이다.
+function renderScheduledRunRow(run = {}) {
+  const kst = (iso) => { const ms = Date.parse(iso); return Number.isFinite(ms) ? new Date(ms + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : ""; };
+  const statusLabel = { ok: "정상", partial: "일부 남음", error: "오류" }[run.status] || "오류";
+  const statusClass = run.status === "ok" ? "ok" : run.status === "partial" ? "warn" : "bad";
+  const reasonLabel = { page_cap: "읽기 한도", budget: "호출 한도", error: "오류", report_queue: "스냅숏 대기", remaining: "남은 규칙" };
+  const count = (value) => numberWithCommas(Number(value || 0));
+  const r = run.recurring || {};
+  const recurring = !run.recurring ? "-" : r.error ? `오류 ${r.error}` : r.skipped_run ? "다른 실행이 처리 중이라 건너뜀"
+    : `적용 ${count(r.applied)} · 건너뜀 ${count(r.skipped)} · 실패 ${count(r.failed)} · 남음 ${count(r.remaining)} · ${count(r.pages)}쪽${r.partial_reason ? ` · ${reasonLabel[r.partial_reason] || r.partial_reason}` : ""}`;
+  const p = run.reports || {};
+  const reports = !run.reports ? "-" : p.error ? `오류 ${p.error}` : p.skipped_run ? "다른 실행이 처리 중이라 건너뜀"
+    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}${p.pending_scopes ? ` · 남은 범위 ${count(p.pending_scopes)}` : ""}`;
+  const c = run.cleanup || {};
+  const cleanup = !run.cleanup ? "-" : c.error ? `오류 ${c.error}` : c.skipped ? "건너뜀" : "완료";
+  return `<tr><td>${escapeHtml(kst(run.started_at))}</td><td class="${statusClass}">${statusLabel}</td><td>${escapeHtml(recurring)}</td><td>${escapeHtml(reports)}</td><td>${escapeHtml(cleanup)}</td><td>${escapeHtml((run.errors || []).join(", ") || "-")}</td></tr>`;
+}
+
 async function handleOpsDashboardPage(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
   if (!adminOk) return redirectResponse("/admin-view");
@@ -20948,9 +20982,14 @@ async function handleOpsDashboardPage(request, env, url) {
   const skillRows = (skill.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(maskKey(e.user_key || ""))}</td><td>${escapeHtml(e.utterance || "")}</td><td>${escapeHtml(e.detail || "")}</td></tr>`).join("") || `<tr><td colspan="5">최근 카카오 발화 이벤트가 없습니다.</td></tr>`;
   const opsRows = (events.recent || []).slice(0, 16).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.severity)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="6">최근 운영 이벤트가 없습니다.</td></tr>`;
   const trafficRows = (traffic.recent || []).slice(0, 12).map((e) => `<tr><td>${escapeHtml(e.at)}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.method)}</td><td>${escapeHtml(e.path)}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") || `<tr><td colspan="5">최근 제한 이벤트가 없습니다.</td></tr>`;
+  // V22.9.78 N-18: 예약 실행 요약은 설정 키에 남아 다른 인스턴스·재시작 뒤에도 보인다. 읽지 못하면 그렇다고만 보인다.
+  let runLog = null;
+  try { runLog = await readScheduledRunLog(env); } catch (_) { runLog = null; }
+  const runRows = !runLog ? `<tr><td colspan="6">예약 실행 기록을 불러오지 못했어요.</td></tr>`
+    : runLog.entries.map(renderScheduledRunRow).join("") || `<tr><td colspan="6">${runLog.invalid ? "저장된 예약 실행 기록이 깨져 있어요. 다음 예약 실행이 새로 씁니다." : "아직 저장된 예약 실행 기록이 없어요."}</td></tr>`;
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
   const statusClass = errCount ? "bad" : warnCount ? "warn" : "ok";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 장기 저장은 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 예약 실행 요약 말고는 장기 저장을 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 예약 실행</h2><div class="scroll"><table><thead><tr><th>시작(KST)</th><th>상태</th><th>정기 반영</th><th>자동 리포트</th><th>기록 정리</th><th>오류 코드</th></tr></thead><tbody>${runRows}</tbody></table></div><p class="note">매일 예약 실행(정기 반영·자동 리포트·기록 정리)의 결과 요약입니다. 저장소에 최근 14번까지 남아 인스턴스가 바뀌어도 보입니다.</p></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleTrafficOpsPage(request, env, url) {
@@ -24274,8 +24313,17 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // 만들고, 못 만든 가계부·달은 상태 키의 report_rebuild 에 남겨 다음 실행이 잇는다. 넣은 기록이 없는 실행은 예전과 같다.
 // V22.9.77 N-17: report_rebuild 는 RECURRING_REPORT_QUEUE_MAX 개까지만 저장한다. 넘친 항목은 저장 때 잘려 그 가계부의 스냅숏이
 // 예전 금액으로 남았으므로, 대기에 자리가 없는 가계부·달의 지난 달 몫은 이번 실행에서 넣지 않고 남겨 다음 실행이 잇는다.
+// V22.9.78 N-16: 목록은 (지정일·가계부·id) 순서로 500개씩 읽고, 꽉 찬 쪽이면 마지막 규칙 뒤부터 다음 쪽을 읽는다(키셋, 중간에
+// 바뀐 규칙이 있어도 쪽이 밀리지 않는다). 예전에는 한 쪽만 읽어 표식이 그대로인 건너뛴 규칙(조회 전용·차단 지출자·저장 거절)이
+// 앞쪽을 채우면 뒤 규칙에 닿지 못한 채 '다 처리함'으로 끝났고, 말일이면 checked_date 가 넘어가 다음 달 따라잡기에서도 빠졌다.
+// 한 실행은 RECURRING_CRON_PAGES 쪽까지만 읽고(읽기·해석 CPU), 다음 쪽은 저장소 호출 몫이 남을 때만 읽는다. 다 못 읽거나 다 못
+// 넣으면 partial 로 끝나고, 앞에서부터 끝까지 처리한 마지막 자리를 상태 키 scan_after 에 달마다 남겨 다음 실행이 그 뒤부터 잇는다.
+// checked_date 는 처리하지 못한 가장 앞 규칙(못 읽은 쪽은 마지막으로 읽은 규칙)의 지정일 전날을 넘지 않는다. 그래서 건너뛴 규칙이
+// 아무리 많아도 실행마다 앞으로 나아가고, 말일에 닿지 못한 규칙은 새 달 따라잡기가 그 자리부터 잇는다.
 const RECURRING_CRON_DB_CAP = 30;
 const RECURRING_CRON_PAGE = 500;
+const RECURRING_CRON_PAGES = 4;
+const RECURRING_CRON_PAGE_ROOM = 5;
 const RECURRING_CRON_CHUNK = 40;
 const RECURRING_CRON_STATE_KEY = "cron_recurring_state_v22976";
 const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at";
@@ -24328,7 +24376,52 @@ function recurringCronState(raw) {
     checked_date: isValidTransactionDateString(String(state.checked_date || "")) ? String(state.checked_date) : "",
     pending_month: validMonth(state.pending_month) || "",
     report_rebuild: recurringReportQueue(state.report_rebuild),
+    scan_after: recurringScanAfter(state.scan_after),
   };
+}
+
+// V22.9.78 N-16: 달마다 이어 읽을 자리({month, day, household_id, id}). 예전 상태(칸 없음)와 형식이 틀린 항목은 자리 없음이다.
+// 자리가 없으면 앞에서부터 읽으므로(다시 확인할 뿐 빠뜨리지 않는다) 버려도 안전하다.
+function recurringScanAfter(values = []) {
+  const out = [];
+  for (const item of Array.isArray(values) ? values : []) {
+    const month = validMonth(item?.month);
+    const day = Number(item?.day);
+    const householdId = typeof item?.household_id === "string" ? item.household_id : "";
+    const id = typeof item?.id === "string" ? item.id : "";
+    if (!month || !Number.isSafeInteger(day) || !householdId || !id || householdId.length > 120 || id.length > 120) continue;
+    if (!out.some((entry) => entry.month === month)) out.push({ month, day, household_id: householdId, id });
+  }
+  return out.slice(0, 2);
+}
+
+// 저장소 정렬(지정일·가계부·id)과 같은 순서의 비교 열쇠. 정수끼리는 수로, 나머지(uuid)는 글자로 견준다.
+function recurringCronKey(rule = {}) {
+  return [Math.round(Number(rule.day_of_month)), String(rule.household_id ?? ""), String(rule.id ?? "")];
+}
+
+function recurringCronCompareText(a = "", b = "") {
+  if (/^-?\d{1,15}$/.test(a) && /^-?\d{1,15}$/.test(b)) return Number(a) - Number(b);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function recurringCronCompareKey(a = [], b = []) {
+  return (a[0] - b[0]) || recurringCronCompareText(a[1], b[1]) || recurringCronCompareText(a[2], b[2]);
+}
+
+// 한 쪽의 규칙을 자리 뒤의 것만 순서대로 돌려준다. 저장소가 자리·정렬을 지키면 그대로이고, 지키지 않아도(검사 픽스처) 같은
+// 순서로 판정해 자리 앞 규칙을 두 번 세지 않는다.
+function recurringCronPageRows(rows = [], after = null) {
+  const keyed = safeArray(rows).map((rule) => ({ rule, key: recurringCronKey(rule) })).filter((item) => !after || recurringCronCompareKey(item.key, after) > 0);
+  if (keyed.some((item, index) => index && recurringCronCompareKey(keyed[index - 1].key, item.key) > 0)) keyed.sort((a, b) => recurringCronCompareKey(a.key, b.key));
+  return keyed;
+}
+
+// (지정일·가계부·id) > 자리. PostgREST 논리식 값은 큰따옴표로 감싸고, 값 안의 \ 와 " 는 앞에 \ 를 붙여 그대로 보낸다.
+function recurringCronAfterFilter(key = []) {
+  const day = Math.round(Number(key[0]));
+  const quote = (value) => `"${String(value).replace(/[\\"]/g, (ch) => `\\${ch}`)}"`;
+  return `(or(day_of_month.gt.${day},and(day_of_month.eq.${day},household_id.gt.${quote(key[1])}),and(day_of_month.eq.${day},household_id.eq.${quote(key[1])},id.gt.${quote(key[2])})))`;
 }
 
 // V22.9.77 감사 M-8: 월간 스냅숏을 다시 만들 가계부·달 목록("YYYY-MM|가계부ID"). 형식이 틀린 항목·겹친 항목은 버린다.
@@ -24345,9 +24438,13 @@ function recurringReportEntries(queue = []) {
   return queue.map((item) => ({ month: item.slice(0, 7), household_id: item.slice(8) }));
 }
 
-function recurringStateBody(checkedDate = "", pendingMonth = "", queue = []) {
-  // 다시 만들 스냅숏이 없으면 예전과 같은 두 값만 쓴다.
-  return JSON.stringify({ checked_date: checkedDate, pending_month: pendingMonth, ...(queue.length ? { report_rebuild: queue.slice(0, RECURRING_REPORT_QUEUE_MAX) } : {}) });
+function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = []) {
+  // 다시 만들 스냅숏도 이어 읽을 자리도 없으면 예전과 같은 두 값만 쓴다.
+  return JSON.stringify({
+    checked_date: checkedDate, pending_month: pendingMonth,
+    ...(queue.length ? { report_rebuild: queue.slice(0, RECURRING_REPORT_QUEUE_MAX) } : {}),
+    ...(scanAfter.length ? { scan_after: scanAfter } : {}),
+  });
 }
 
 function recurringCronBudgetStop(err) {
@@ -24358,13 +24455,16 @@ function recurringCronInList(values = []) {
   return `(${values.map((value) => `"${String(value).split("\"").join("")}"`).join(",")})`;
 }
 
-async function fetchRecurringCronRows(env, phase) {
+async function fetchRecurringCronRows(env, phase, after = null) {
   const params = new URLSearchParams();
   params.set("select", RECURRING_CRON_SELECT);
   params.set("is_active", "not.is.false");
   params.set("amount", "gt.0");
   params.set("or", phase.kind === "catchup" ? `(last_applied_month.is.null,last_applied_month.lt.${phase.month})` : `(last_applied_month.is.null,last_applied_month.neq.${phase.month})`);
   params.set("day_of_month", `lte.${phase.queryDay}`);
+  // V22.9.78 N-16: 따라잡기는 checked_date 다음 지정일부터 읽는다(그 앞 지정일은 따라잡을 몫이 아니다). 자리가 있으면 그 뒤부터.
+  if (phase.minDay > 0) params.append("day_of_month", `gt.${phase.minDay}`);
+  if (after) params.set("and", recurringCronAfterFilter(after));
   params.set("order", "day_of_month.asc,household_id.asc,id.asc");
   params.set("limit", String(RECURRING_CRON_PAGE));
   const rows = await supabase(env, `/rest/v1/accountbook_recurring?${params}`, { method: "GET" });
@@ -24428,6 +24528,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   let checkedDate = "";
   let partial = false;
   let queuedBefore = [];
+  let pagesRead = 0;
+  const trouble = new Set();
   if (explicitMonth) {
     // 운영자가 ?month= 로 달을 지정하면 그 달만 본다. 지난 달은 모든 날짜, 이번 달은 오늘까지가 지정일이다. 앞으로 올 달은 넣지 않는다.
     if (explicitMonth <= currentMonth) phases.push({ kind: "explicit", month: explicitMonth, dueDay: explicitMonth < currentMonth ? 31 : currentDay });
@@ -24444,7 +24546,13 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const lastDay = recurringCronLastDay(currentMonth);
   for (const phase of phases) {
     phase.queryDay = phase.month < currentMonth || phase.dueDay >= lastDay ? 31 : phase.dueDay;
-    phase.rows = await fetchRecurringCronRows(env, phase);
+    // V22.9.78 N-16: 앞선 실행이 이 달을 다 못 읽었으면 남긴 자리 뒤부터 읽는다. 따라잡기는 checked_date 가 지난달 안이면 그 다음
+    // 지정일부터다. 첫 쪽은 예전처럼 처리 전에 읽는다(읽기 실패는 아무것도 바꾸지 않고 단계 오류로 끝난다).
+    const resume = stored?.scan_after.find((entry) => entry.month === phase.month);
+    phase.resume = resume ? [resume.day, resume.household_id, resume.id] : null;
+    phase.minDay = phase.kind === "catchup" && phase.after >= `${phase.month}-01` ? Number(phase.after.slice(8, 10)) : 0;
+    phase.firstPage = await fetchRecurringCronRows(env, phase, phase.resume);
+    pagesRead += 1;
   }
   const pendingMonth = stored?.pending_month || "";
   const catchupPhase = phases.find((phase) => phase.kind === "catchup") || null;
@@ -24456,15 +24564,27 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     if (recurringCronDueDate(rule, previousMonth) <= catchupPhase.after) return false;
     return recurringCronExistedIn(rule, previousMonth, pendingMonth);
   };
-  const isCandidate = (rule, phase) => {
-    if (!usable(rule)) return false;
-    if (phase.kind === "catchup") return catchUpDue(rule);
-    if (recurringCronDueDay(rule, phase.month) > phase.dueDay) return false;
-    if (String(rule.last_applied_month || "") === phase.month) return false;
-    if (phase.month < currentMonth && !recurringCronExistedIn(rule, phase.month)) return false;
+  // "yes" 이번 단계가 넣을 규칙, "wait" 지난달 몫을 먼저 넣어야 해 이번 달 몫을 미룬 규칙, "no" 이번 단계 몫이 아닌 규칙.
+  const candidacy = (rule, phase) => {
+    if (!usable(rule)) return "no";
+    if (phase.kind === "catchup") return catchUpDue(rule) ? "yes" : "no";
+    if (recurringCronDueDay(rule, phase.month) > phase.dueDay) return "no";
+    if (String(rule.last_applied_month || "") === phase.month) return "no";
+    if (phase.month < currentMonth && !recurringCronExistedIn(rule, phase.month)) return "no";
     // 지난달 몫이 빠진 규칙은 지난달을 먼저 넣는다. 이번 달을 먼저 넣으면 표식이 이번 달이 되어 지난달을 다시 찾지 못한다.
-    if (phase.kind === "current" && !caughtUp.has(String(rule.id)) && catchUpDue(rule)) return false;
-    return true;
+    if (phase.kind === "current" && !caughtUp.has(String(rule.id)) && catchUpDue(rule)) return "wait";
+    return "yes";
+  };
+  const isCandidate = (rule, phase) => candidacy(rule, phase) === "yes";
+  // N-16: 이어 읽을 자리는 끝까지 처리한 앞부분까지만 옮긴다. 넣을 규칙은 처리(넣음·확인·건너뜀·거절)가 끝나야 지나간다. 지난달
+  // 몫을 기다리는 이번 달 규칙은 이번 달 몫을 아직 넣지 않았으므로 멈춘다. 따라잡기에서 지출자 자격이 없어 건너뛴 규칙만 이번 달도
+  // 똑같이 건너뛰므로 지나간다.
+  const ineligible = new Set();
+  const unsettled = (item, phase) => {
+    const id = String(item.rule.id);
+    const state = candidacy(item.rule, phase);
+    if (state === "yes") return !phase.done.has(id);
+    return state === "wait" && !ineligible.has(id);
   };
   const markerOf = (rule) => caughtUp.has(String(rule.id)) ? previousMonth : String(rule.last_applied_month || "");
   const report = (detail, kind = "recurring_auto_apply_failed") => rememberOpsEvent({ kind, severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail });
@@ -24488,28 +24608,25 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     }
     return work;
   };
-  const processPhase = async (phase) => {
-    const candidates = phase.rows.filter((rule) => isCandidate(rule, phase));
-    const done = new Set();
-    phase.candidates = candidates.length;
-    phase.confirmed = 0;
-    stats.scanned += candidates.length;
-    const work = reportQueueWork(phase, candidates);
+  // 넣을 규칙을 묶음(40개)마다 처리한다. 저장소 호출 몫이 모자라거나 확인·저장 결과를 모르면 멈추고 그 까닭(budget·error)을
+  // 돌려준다. 처리하지 못한 규칙은 done 에 없으므로 남은 규칙이 된다.
+  const processChunks = async (phase, work) => {
+    const done = phase.done;
     for (let index = 0; index < work.length; index += RECURRING_CRON_CHUNK) {
       const chunk = work.slice(index, index + RECURRING_CRON_CHUNK);
       const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
-      if (!room((missing.length ? 1 : 0) + 3)) { partial = true; break; }
+      if (!room((missing.length ? 1 : 0) + 3)) return "budget";
       if (missing.length) {
         let rows;
         try { rows = await fetchRecurringCronMembers(env, missing); }
-        catch (err) { stats.failed++; partial = true; report(`${phase.month}:members:${safeError(err)}`, "recurring_household_scan_failed"); break; }
+        catch (err) { stats.failed++; report(`${phase.month}:members:${safeError(err)}`, "recurring_household_scan_failed"); return "error"; }
         for (const id of missing) members.set(id, []);
         for (const row of rows) members.get(String(row.household_id || ""))?.push(row);
       }
       const items = [];
       for (const rule of chunk) {
         // 소유자·관리자·구성원 지출자의 규칙만 넣는다(V22.9.37 T7·SIM-5). 건너뛴 규칙의 표식은 그대로 둔다.
-        if (!recurringSpenderEligible(members.get(String(rule.household_id || "")) || [], rule.user_id)) { stats.skipped++; done.add(String(rule.id)); continue; }
+        if (!recurringSpenderEligible(members.get(String(rule.household_id || "")) || [], rule.user_id)) { stats.skipped++; done.add(String(rule.id)); ineligible.add(String(rule.id)); continue; }
         items.push({ rule, row: recurringCronTransaction(rule, phase.month) });
       }
       if (!items.length) continue;
@@ -24517,7 +24634,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       try { existing = await fetchRecurringCronExisting(env, [...new Set(items.map((item) => item.row.household_id))], items.map((item) => item.row.raw_text)); }
       catch (err) {
         // 무인 자동화에서는 확인 실패를 "중복 없음"으로 간주하지 않는다.
-        stats.failed++; partial = true; report(`${phase.month}:${safeError(err)}`, "duplicate_check_error"); break;
+        stats.failed++; report(`${phase.month}:${safeError(err)}`, "duplicate_check_error"); return "error";
       }
       const confirmed = [];
       const groups = new Map();
@@ -24531,9 +24648,9 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
         if (!groups.has(signature)) groups.set(signature, []);
         groups.get(signature).push({ ...item, clean });
       }
-      let halted = false;
+      let halted = "";
       for (const group of groups.values()) {
-        if (!room(2)) { halted = true; break; }
+        if (!room(2)) { halted = "budget"; break; }
         try {
           const created = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(group.map((item) => item.clean)) });
           const saved = new Set(safeArray(created).map((row) => `${row.household_id}|${row.raw_text}`));
@@ -24546,18 +24663,18 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
           if (recurringCronBudgetStop(err) || isUncertainStorageWrite(err)) {
             // 보내지 못했거나 결과를 모르는 저장은 표식을 바꾸지 않는다. 다음 실행의 기록 확인이 저장 여부를 가린다.
             if (!recurringCronBudgetStop(err)) { stats.failed += group.length; report(`${phase.month}:batch:${safeError(err)}`); }
-            halted = true; break;
+            halted = recurringCronBudgetStop(err) ? "budget" : "error"; break;
           }
           // 확실히 거절된 묶음(같은 때 수동 반영과 겹친 고유 색인 충돌, 한 건의 잘못된 값)은 한 건씩 다시 넣는다.
           // 묶음 저장은 한 문장이라 한 건만 걸려도 전부 되돌려지므로, 나머지 규칙이 그 한 건에 막히지 않게 한다.
           for (const item of group) {
-            if (!room(2)) { halted = true; break; }
+            if (!room(2)) { halted = "budget"; break; }
             try {
               await createManualTransaction(env, item.row);
               stats.applied++; confirmed.push(item.rule);
             } catch (rowError) {
-              if (recurringCronBudgetStop(rowError)) { halted = true; break; }
-              if (isUncertainStorageWrite(rowError)) { stats.failed++; report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(rowError)}`); halted = true; break; }
+              if (recurringCronBudgetStop(rowError)) { halted = "budget"; break; }
+              if (isUncertainStorageWrite(rowError)) { stats.failed++; report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(rowError)}`); halted = "error"; break; }
               if (isUniqueConstraintError(rowError)) { stats.deduplicated++; confirmed.push(item.rule); continue; }
               stats.failed++; done.add(String(item.rule.id));
               report(`${item.row.household_id}:${String(item.rule.id || "")}:${safeError(rowError)}`);
@@ -24586,17 +24703,65 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
           await supabase(env, `/rest/v1/accountbook_recurring?${params}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: phase.month }) });
         } catch (err) {
           // 표식 저장 실패는 이미 들어간 거래를 되돌리지 않는다. 다음 실행이 같은 거래를 확인하고 표식을 다시 쓴다.
-          stats.failed++; partial = true; report(`${phase.month}:marker:${safeError(err)}`);
+          stats.failed++; partial = true; trouble.add("error"); report(`${phase.month}:marker:${safeError(err)}`);
         }
       }
-      if (halted) { partial = true; break; }
+      if (halted) return halted;
     }
-    phase.remaining = candidates.filter((rule) => !done.has(String(rule.id)));
+    return "";
+  };
+  // V22.9.78 N-16: 쪽마다 넣을 규칙을 처리하고, 앞에서부터 끝까지 처리한 마지막 자리(cursor)를 옮긴다. 꽉 찬 쪽이면 마지막 규칙
+  // 뒤부터 다음 쪽을 읽는다. 처리가 멈췄거나(budget·error), 쪽 한도(page_cap)·호출 몫(budget)에 걸렸거나, 다음 쪽을 못 읽으면
+  // (error) 거기서 멈추고 partial 이 된다.
+  const processPhase = async (phase) => {
+    phase.done = new Set();
+    phase.candidates = 0; phase.confirmed = 0; phase.seen = 0; phase.pages = 1;
+    phase.remaining = [];
+    phase.cursor = phase.resume;
+    phase.lastKey = phase.resume;
+    let raw = phase.firstPage, after = phase.resume;
+    for (;;) {
+      const items = recurringCronPageRows(raw, after);
+      const candidates = items.map((item) => item.rule).filter((rule) => isCandidate(rule, phase));
+      phase.seen += items.length;
+      phase.candidates += candidates.length;
+      stats.scanned += candidates.length;
+      const halt = await processChunks(phase, reportQueueWork(phase, candidates));
+      for (const rule of candidates) if (!phase.done.has(String(rule.id))) phase.remaining.push(rule);
+      for (const item of items) {
+        if (phase.firstUnsettled) break;
+        if (unsettled(item, phase)) { phase.firstUnsettled = item; break; }
+        phase.cursor = item.key;
+      }
+      if (items.length) phase.lastKey = items[items.length - 1].key;
+      const full = safeArray(raw).length >= RECURRING_CRON_PAGE;
+      if (halt) { phase.stop = halt; phase.end = !full; break; }
+      if (!full) { phase.end = true; break; }
+      // 꽉 찬 쪽인데 자리 뒤 규칙이 없으면 저장소가 자리를 무시한 것이다. 같은 쪽을 되풀이해 읽지 않는다.
+      if (!items.length) { phase.stop = "error"; stats.failed++; report(`${phase.month}:page_not_advanced`, "recurring_page_failed"); break; }
+      if (pagesRead >= RECURRING_CRON_PAGES) { phase.stop = "page_cap"; break; }
+      if (!room(RECURRING_CRON_PAGE_ROOM)) { phase.stop = "budget"; break; }
+      after = phase.lastKey;
+      try {
+        raw = await fetchRecurringCronRows(env, phase, after);
+        pagesRead += 1; phase.pages += 1;
+      } catch (err) {
+        phase.stop = recurringCronBudgetStop(err) ? "budget" : "error";
+        if (phase.stop === "error") { stats.failed++; report(`${phase.month}:page:${safeError(err)}`, "recurring_page_failed"); }
+        break;
+      }
+    }
+    if (phase.stop) { partial = true; trouble.add(phase.stop); }
   };
   for (const phase of phases) await processPhase(phase);
   const remainingOf = (phase) => safeArray(phase?.remaining);
   const remaining = phases.reduce((sum, phase) => sum + remainingOf(phase).length, 0);
-  partial = partial || remaining > 0;
+  // 끝까지 읽었고 처리하지 못한 규칙이 없는 단계만 끝난 것이다. 못 읽은 쪽은 마지막으로 읽은 규칙의 지정일부터 남은 일이다.
+  const complete = (phase) => !!phase && !!phase.end && !phase.firstUnsettled;
+  const unread = phases.some((phase) => !phase.end);
+  const frontierOf = (phase) => phase.firstUnsettled ? recurringCronDueDate(phase.firstUnsettled.rule, phase.month)
+    : !phase.end ? recurringCronDueDate({ day_of_month: phase.lastKey ? phase.lastKey[0] : 1 }, phase.month) : "";
+  partial = partial || remaining > 0 || unread || phases.some((phase) => phase.firstUnsettled);
   // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(예약 실행 1회,
   // ?month= 실행은 읽기·저장 2회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
   let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
@@ -24611,35 +24776,45 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   }
   let nextChecked = checkedDate;
   if (stored) {
-    // checked_date = 그 날짜까지 지정일인 규칙을 모두 처리했다는 표시. 끝까지 처리한 실행만 오늘로 옮기고, 남은 규칙이
-    // 있으면 가장 이른 남은 지정일 전날로 둔다. 다음 달 첫 실행은 그 뒤 날짜의 지난달 규칙만 따라잡는다.
+    // checked_date = 그 날짜까지 지정일인 규칙을 모두 처리했다는 표시. 끝까지 처리한 실행만 오늘로 옮긴다. 남은 일이 있으면
+    // 처리하지 못한 가장 앞 규칙(못 읽은 쪽은 마지막으로 읽은 규칙)의 지정일 전날을 넘지 않는다. 다음 달 첫 실행은 그 뒤
+    // 날짜의 지난달 규칙만 따라잡는다.
     let base = checkedDate;
-    if (catchupPhase && !remainingOf(catchupPhase).length && base < previousMonthEnd) base = previousMonthEnd;
-    if (!remaining) nextChecked = base > today ? base : today;
+    if (complete(catchupPhase) && base < previousMonthEnd) base = previousMonthEnd;
+    const frontier = phases.map(frontierOf).filter(Boolean).sort()[0];
+    if (!frontier) nextChecked = base > today ? base : today;
     else {
-      const earliest = phases.flatMap((phase) => remainingOf(phase).map((rule) => recurringCronDueDate(rule, phase.month))).sort()[0];
-      const before = recurringCronAddDays(earliest, -1);
+      const before = recurringCronAddDays(frontier, -1);
       nextChecked = base < before ? base : before;
     }
+    // pending_month 는 예전처럼 남은 규칙이 있는 달이다. 못 읽은 쪽이 있는 달도 남은 규칙이 있는 달로 본다.
     const currentPhase = phases.find((phase) => phase.kind === "current");
-    const nextPending = remainingOf(currentPhase).length ? currentMonth : remainingOf(catchupPhase).length ? previousMonth : "";
+    const pendingIn = (phase) => !!phase && (remainingOf(phase).length > 0 || !phase.end);
+    const nextPending = pendingIn(currentPhase) ? currentMonth : pendingIn(catchupPhase) ? previousMonth : "";
+    // N-16: 끝내지 못한 달만 이어 읽을 자리를 남긴다. 끝낸 달은 자리를 지워 다음 실행이 앞에서부터 다시 본다.
+    const scanAfter = phases.filter((phase) => !complete(phase) && phase.cursor)
+      .map((phase) => ({ month: phase.month, day: phase.cursor[0], household_id: phase.cursor[1], id: phase.cursor[2] }));
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
-    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged) {
-      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue)); }
+    const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
+    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
+      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter)); }
       catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
   } else if (reportQueue.length) {
-    // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month 는 읽은 값 그대로 쓴다.
+    // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
     try {
       const current = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
-      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, recurringReportQueue([...current.report_rebuild, ...reportQueue])));
+      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, recurringReportQueue([...current.report_rebuild, ...reportQueue]), current.scan_after));
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
   }
   const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
+  const partialReason = !partial ? "" : trouble.has("error") ? "error" : trouble.has("page_cap") ? "page_cap" : trouble.has("budget") ? "budget" : reportDeferred ? "report_queue" : "remaining";
   return {
     ok: stats.failed === 0 && !partial, partial, month, today,
-    months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length })),
+    months: phases.map((phase) => ({ month: phase.month, kind: phase.kind, candidates: phase.candidates || 0, remaining: remainingOf(phase).length, pages: phase.pages || 0, more: !phase.end })),
     households: touched.size, ...stats, remaining, checked_date: stored ? nextChecked : "",
+    pages: pagesRead, rules_seen: phases.reduce((sum, phase) => sum + (phase.seen || 0), 0), more: unread,
+    ...(partialReason ? { partial_reason: partialReason } : {}),
     ...(reportRebuilt || reportQueue.length ? { report_rebuilt: reportRebuilt, report_rebuild_pending: reportQueue.length } : {}),
     ...(reportDeferred ? { report_rebuild_deferred: reportDeferred } : {}),
   };
@@ -24700,6 +24875,107 @@ async function handleRecurringCronApply(request, env, url) {
   }
   const result = await runRecurringAutoApply(env, { month: requestedMonth, today: requestedToday || formatDate(nowKstDate()) });
   return jsonResponse(result, result.ok ? 200 : 207);
+}
+
+// V22.9.78 N-18: 예약 실행마다 결과 요약을 설정 키 cron_run_log_v22978 에 남긴다(최근 14번, 새것이 앞). 예전에는 결과가 인스턴스
+// 메모리 운영 이벤트에만 있어 다른 인스턴스·재시작 뒤에는 지난 실행이 끝까지 됐는지 알 수 없었다. 가계부 id·사람·금액·비밀 값은
+// 넣지 않고 건수·상태·짧은 오류 코드만 쓴다. 기록 저장은 덤이라 읽기·저장이 실패해도 실행 결과를 바꾸거나 다시 시도하지 않고
+// 운영 이벤트만 남긴다. 저장소 호출은 읽기 1회·저장 1회이고, 예약 실행은 그 몫(SCHEDULED_RUN_LOG_CALLS)을 남겨 두고 단계를 돈다.
+const SCHEDULED_RUN_LOG_KEY = "cron_run_log_v22978";
+const SCHEDULED_RUN_LOG_MAX = 14;
+const SCHEDULED_RUN_LOG_CALLS = 2;
+const SCHEDULED_RUN_LOG_BYTES = 16000;
+const SCHEDULED_RUN_RECURRING_FIELDS = ["households", "rules_seen", "scanned", "applied", "deduplicated", "skipped", "failed", "remaining", "pages", "report_rebuilt", "report_rebuild_pending", "report_rebuild_deferred"];
+const SCHEDULED_RUN_REPORT_FIELDS = ["scanned", "generated", "skipped", "invalid", "failed", "pending_scopes"];
+
+function scheduledRunCount(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 1000000000) : 0;
+}
+
+function scheduledRunCode(value = "") {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_:.-]{0,59}$/.test(text) ? text : "error";
+}
+
+// 오류에서 짧은 코드만 꺼낸다. 저장소 오류 본문(값·키가 들어갈 수 있다)은 남기지 않고 상태 번호만 쓴다.
+function scheduledRunErrorCode(err) {
+  const code = String(err?.code || "");
+  if (/^[a-z][a-z0-9_]{2,59}$/i.test(code)) return code.toLowerCase();
+  const message = String(err?.message || err || "");
+  const status = message.match(/^Supabase (\d{3})\b/);
+  if (status) return `db_${status[1]}`;
+  const token = message.match(/^([a-z][a-z0-9_]{2,59})(?=:|$)/);
+  return token ? token[1] : "error";
+}
+
+function scheduledRunStage(value, fields = [], flags = []) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.error !== undefined) return { error: scheduledRunCode(value.error) };
+  const out = {};
+  for (const field of fields) out[field] = scheduledRunCount(value[field]);
+  for (const flag of flags) if (value[flag] === true) out[flag] = true;
+  return out;
+}
+
+// 새 기록과 저장돼 있던 기록을 같은 틀로 거른다. 아는 칸만 남기고 수는 0~10억, 글자는 짧은 코드로 줄인다.
+function normalizeScheduledRun(entry = {}) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const time = (value) => {
+    const text = String(value || "");
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(text) && Number.isFinite(Date.parse(text)) ? text : "";
+  };
+  const startedAt = time(entry.started_at);
+  if (!startedAt) return null;
+  const recurring = scheduledRunStage(entry.recurring, SCHEDULED_RUN_RECURRING_FIELDS, ["partial", "more", "skipped_run"]);
+  if (recurring && !recurring.error) {
+    if (entry.recurring.partial_reason) recurring.partial_reason = scheduledRunCode(entry.recurring.partial_reason);
+    if (isValidTransactionDateString(String(entry.recurring.checked_date || ""))) recurring.checked_date = String(entry.recurring.checked_date);
+  }
+  const reports = scheduledRunStage(entry.reports, SCHEDULED_RUN_REPORT_FIELDS, ["partial", "skipped_run"]);
+  const cleanup = scheduledRunStage(entry.cleanup, [], ["ok", "skipped"]);
+  const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
+  return {
+    started_at: startedAt, finished_at: time(entry.finished_at) || startedAt,
+    status: ["ok", "partial", "error"].includes(entry.status) ? entry.status : "error",
+    ...(version ? { version } : {}),
+    ...(recurring ? { recurring } : {}), ...(reports ? { reports } : {}), ...(cleanup ? { cleanup } : {}),
+    errors: safeArray(entry.errors).slice(0, 6).map(scheduledRunCode),
+  };
+}
+
+// 실행 요약 하나를 앞에 붙여 저장한다. 앞선 기록을 읽지 못하면(저장소 오류) 이번 기록만으로 덮어쓰지 않고 건너뛴다. 저장된 값이
+// 깨졌으면(JSON 아님·배열 아님) 고치려 하지 않고 새로 시작한다. 어떤 경우에도 오류를 던지지 않는다.
+async function recordScheduledRun(env, entry = {}) {
+  const report = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/run-log", method: "SCHEDULED", detail });
+  try {
+    const fresh = normalizeScheduledRun({ ...entry, finished_at: entry.finished_at || new Date(qaFixedNowMs()).toISOString(), version: APP_VERSION });
+    if (!fresh) return false;
+    let previous;
+    try { previous = await getSettingValueStrict(env, SCHEDULED_RUN_LOG_KEY); }
+    catch (err) { report("scheduled_run_log_failed", `read:${scheduledRunErrorCode(err)}`); return false; }
+    let stored = [];
+    try { stored = parseStrictSettingsArray(previous, "scheduled_run_log"); }
+    catch (err) { report("scheduled_run_log_invalid", safeError(err)); }
+    const entries = [fresh, ...stored.map(normalizeScheduledRun).filter(Boolean)].slice(0, SCHEDULED_RUN_LOG_MAX);
+    let body = JSON.stringify(entries);
+    while (body.length > SCHEDULED_RUN_LOG_BYTES && entries.length > 1) { entries.pop(); body = JSON.stringify(entries); }
+    try { await saveSettingValue(env, SCHEDULED_RUN_LOG_KEY, body); }
+    catch (err) { report("scheduled_run_log_failed", `write:${scheduledRunErrorCode(err)}`); return false; }
+    return true;
+  } catch (err) {
+    report("scheduled_run_log_failed", `record:${scheduledRunErrorCode(err)}`);
+    return false;
+  }
+}
+
+// 관리 화면(/ops-dashboard)용. 읽기 실패는 호출부로 던지고, 깨진 값은 빈 기록과 invalid 로 돌려준다.
+async function readScheduledRunLog(env) {
+  const raw = await getSettingValueStrict(env, SCHEDULED_RUN_LOG_KEY);
+  let entries = [];
+  try { entries = parseStrictSettingsArray(raw, "scheduled_run_log"); }
+  catch (_) { return { entries: [], invalid: true }; }
+  return { entries: entries.map(normalizeScheduledRun).filter(Boolean).slice(0, SCHEDULED_RUN_LOG_MAX), invalid: false };
 }
 
 // 키워드 편집기는 설정 화면과 분류·키워드 화면 두 곳에서 쓴다. 결과를 항상 설정 화면으로 돌려보내면

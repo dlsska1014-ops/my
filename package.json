@@ -44,6 +44,7 @@
     "validate:backup-columns-v22978": "node validation/validate-backup-columns-v22978.mjs",
     "validate:rpc-definitions-v22978": "node validation/validate-rpc-definitions-v22978.mjs",
     "validate:home-upcoming-v22978": "node validation/validate-home-upcoming-v22978.mjs",
+    "validate:cron-v22978": "node validation/validate-cron-v22978.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",

@@ -108,7 +108,10 @@ import {
 } from "../auth/kakao-oauth.js";
 import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
-import { handleRecurringCronApply, runRecurringAutoApply } from "../cron/recurring-auto-apply.js";
+import {
+  SCHEDULED_RUN_LOG_CALLS, handleRecurringCronApply, recordScheduledRun, runRecurringAutoApply,
+  scheduledRunErrorCode,
+} from "../cron/recurring-auto-apply.js";
 import { handleMyBudgetBulkSave, handleMyGroupsPage } from "../my/groups-budget-bulk.js";
 import { handleReportChallengeSave } from "../my/report-challenge.js";
 import {
@@ -174,7 +177,7 @@ import {
 } from "../api/user-api.js";
 import { handleApi } from "../api/admin-api.js";
 import { handleIdentityAuditPage, handleIdentityMerge } from "../admin/identity-merge.js";
-import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { currentMonthKst, qaFixedNowMs, validMonth } from "../nlu/date-payment.js";
 import {
   handleBetaReleaseCandidateFinalPage, handleDomainMigrationGuidePage,
   handleGroupChatbotLaunchGuidePage, handleGroupChatbotTrafficScalePage, handlePersonalUrlAuditPage,
@@ -1362,27 +1365,43 @@ const ACCOUNTBOOK_WORKER = {
   },
   async scheduled(controller, env, ctx) {
     scrubPrototypePollution("scheduled:start");
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 } };
+    // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
+      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), errors: [] };
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
-        if (!recurringResult.ok) { if (recurringResult.failed > 0) firstError = firstError || new Error("scheduled_recurring_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
+        run.recurring = recurringResult;
+        if (!recurringResult.ok) { if (recurringResult.failed > 0) { firstError = firstError || new Error("scheduled_recurring_failed"); run.errors.push("recurring:failed"); } rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `recurring failed=${recurringResult.failed};partial=${!!recurringResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
+        run.recurring = { error: scheduledRunErrorCode(err) };
+        run.errors.push(`recurring:${scheduledRunErrorCode(err)}`);
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/recurring/apply", method: "SCHEDULED", detail: safeError(err) });
       }
       try {
         const reportResult = await runAutomaticReports(env);
-        if (!reportResult.ok) { if (reportResult.failed > 0) firstError = firstError || new Error("scheduled_reports_failed"); rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
+        run.reports = reportResult;
+        if (!reportResult.ok) { if (reportResult.failed > 0) { firstError = firstError || new Error("scheduled_reports_failed"); run.errors.push("reports:failed"); } rememberOpsEvent({ kind: "scheduled_partial", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `reports failed=${reportResult.failed};partial=${!!reportResult.partial}` }); }
       } catch (err) {
         firstError = firstError || err;
+        run.reports = { error: scheduledRunErrorCode(err) };
+        run.errors.push(`reports:${scheduledRunErrorCode(err)}`);
         rememberOpsEvent({ kind: "scheduled_error", severity: "error", path: "/cron/reports/generate", method: "SCHEDULED", detail: safeError(err) });
       }
-      try { await cleanupNluOpsRetention(env); } catch (nluErr) { rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) }); }
+      try { run.cleanup = await cleanupNluOpsRetention(env); } catch (nluErr) {
+        run.cleanup = { error: scheduledRunErrorCode(nluErr) };
+        run.errors.push(`cleanup:${scheduledRunErrorCode(nluErr)}`);
+        rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
+      }
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
+      // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
+      run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
+      env.__AB_DB_BUDGET.limit = 50;
+      await recordScheduledRun(env, run);
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
       // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
       if (firstError) { logWorkerError({ event: "scheduled_failed", path: "/cron", method: "SCHEDULED", error: firstError }); throw firstError; }
