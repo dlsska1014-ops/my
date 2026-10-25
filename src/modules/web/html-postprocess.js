@@ -96,7 +96,7 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace(/<p class="notice"><b>운영 원칙<\/b><br\/>밈카드와 카드 실적 기능은[\s\S]*?<\/p>/, "");
     const today = nowKstDate();
     const basis = (today.getMonth() + 1) + "/" + today.getDate();
-    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 현재 월의 단순 일평균을 사용하며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
+    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
   }
 
   source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");

@@ -63,6 +63,12 @@ const addExpense = (fixture, total, count = 4, day = "02") => {
     fixture.db.transactions.push({ id: `plan-${index}`, household_id: householdId, user_id: "user-bin", transaction_date: `${currentMonth}-${day}`, type: "expense", amount: Math.round(total / count), category: "식비", memo: `지출 ${index}`, payment_method: "현금", source: "web", created_at: `${currentMonth}-${day}T09:00:00.000Z` });
   }
 };
+// V22.9.79 V76 W-7: 하루 계획 아래 한 줄은 월말 예상(기록 + 남은 고정·정기 + 남은 날 예상)으로 말한다. 속도 갈래만 재려고
+// 픽스처의 고정지출 규칙(반영 대기 월세)·정기지출 항목을 비운다. 고정지출이 든 갈래는 validate-spending-outlook-v22979 가 본다.
+const noFixedItems = (fixture) => {
+  fixture.db.accountbook_recurring = fixture.db.accountbook_recurring.filter((rule) => rule.household_id !== householdId);
+  fixture.db.accountbook_settings = fixture.db.accountbook_settings.filter((row) => row.key !== `reserve_plans:${householdId}`);
+};
 const planOf = (html) => {
   const block = (html.match(/<div class="homeDailyPlan[^"]*">[\s\S]*?<\/div>/) || [""])[0];
   return { block, text: block.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() };
@@ -109,7 +115,7 @@ ok(/남은 \d+일 동안/.test(slowPlan.text), `남은 일수를 말한다 (${sl
 ok(/하루 [\d,]+\s*원/.test(slowPlan.text), `하루 기준 금액을 말한다 (${slowPlan.text})`);
 // 그리고 그 금액에는 스크립트가 굴릴 값이 실려 있어야 한다(9.1).
 ok(/<span data-ab-num="\d+" data-ab-num-unit="원">/.test(slowPlan.block), "하루 환산 금액에 전환 대상 값이 실려 있다");
-ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니다"), "느린 속도에서는 남을 금액을 말한다");
+ok(slowPlan.text.includes("월말 예상대로면") && slowPlan.text.includes("남아요"), "느린 속도에서는 남을 금액을 말한다");
 
 // V22.9.16: 이 검사는 "오늘이 며칠인지"에 따라 결과가 달라졌다. 예산 100만원에 80만원을
 // 썼을 때 "먼저 끝난다"가 되려면 이 속도로 달 끝까지 갔을 때 예산을 넘어야 하는데,
@@ -117,26 +123,26 @@ ok(slowPlan.text.includes("이 속도면") && slowPlan.text.includes("남습니�
 // 월말(9/28)에는 하네스 전체가 실패했다.
 // V22.9.17: 서버의 검증 전용 고정 시계로 "이번 달 10일 정오(KST)"에 고정해 잰다. 어느 날에
 // 돌려도 같은 결과가 나오고, 마지막 날에 안내가 비는 갈래는 아래에서 따로 확인한다.
-const fast = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
+const fast = await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
 const fastPlan = planOf(fast.html);
-ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
 const lastDay = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() + 1, 0)).getUTCDate();
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
-const lastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
+const lastDayPlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
 ok(/남은 1일 동안/.test(lastDayPlan.text), `마지막 날에는 남은 하루를 말한다 (${lastDayPlan.text})`);
-ok(!/먼저 끝납니다/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
+ok(!/먼저 끝나요/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
 // 월초에는 같은 금액도 빠른 속도로 판단하고, 월말에는 느린 속도로 판단한다.
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 1, 3, 0, 0);
 // V22.9.76: 예전에는 2일 날짜 기록 20만원을 1일에 세어 "빠른 속도"가 됐다(미래 날짜 기록까지 지난 날수로 나눈 결함).
 // 1일에 쓴 20만원으로 잰다. 2일 날짜 기록만 있으면 아직 쓴 돈이 없으므로 빠르다고 하지 않는다.
-const firstDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000, 4, "01"); })).html);
-const firstDayFuturePlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
-ok(!/먼저 끝납니다/.test(firstDayFuturePlan.text), `1일에 다음 날짜로 미리 적은 지출만 있으면 빠른 속도라고 하지 않는다 (${firstDayFuturePlan.text})`);
-ok(/지금 속도라면 \d+일 먼저 끝납니다/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
+const firstDayPlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 3000000); addExpense(fixture, 200000, 4, "01"); })).html);
+const firstDayFuturePlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
+ok(!/먼저 끝나요/.test(firstDayFuturePlan.text), `1일에 다음 날짜로 미리 적은 지출만 있으면 빠른 속도라고 하지 않는다 (${firstDayFuturePlan.text})`);
+ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const slowLastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
 ok(/남은 1일 동안/.test(slowLastDayPlan.text), "느린 속도도 마지막 날에는 남은 하루를 표시한다");
-ok(slowLastDayPlan.text.includes("남습니다"), "마지막 날에는 남을 금액을 표시한다");
+ok(slowLastDayPlan.text.includes("남아요"), "마지막 날에는 남을 금액을 표시한다");
 globalThis.__AB_QA_FIXED_NOW_MS = pinnedNow;
 
 const over = await renderHome((fixture) => { addTotalBudget(fixture, 500000); addExpense(fixture, 900000); });

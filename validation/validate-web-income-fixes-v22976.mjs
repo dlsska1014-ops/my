@@ -235,9 +235,10 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   const observation = (await api(fx, `/u/api/notifications?${Q}`)).data?.budget_observation || {};
   t.eq(observation.forecast, 124000, "+ 알림센터의 관측 월말 예상은 오늘까지의 84,000원으로 센다");
   const home = strip((await page(fx, `/app?${Q}`)).html);
-  t.ok(home.includes(`이 속도면 ${won(500000 - observation.forecast)}이 남습니다`), `+ 홈 '이 속도면'이 알림센터 예상과 같은 숫자다 (${(home.match(/이 속도면 [^ ]+/) || [""])[0]})`);
+  // V22.9.79 V76 W-7: 홈 한 줄과 예산 알림의 이름이 ‘월말 예상’ 하나로 바뀌었다(숫자는 같은 monthSpendingOutlook).
+  t.ok(home.includes(`월말 예상대로면 ${won(500000 - observation.forecast)}이 남아요`), `+ 홈 '월말 예상대로면'이 알림센터 예상과 같은 숫자다 (${(home.match(/월말 예상대로면 [^ ]+/) || [""])[0]})`);
   const alerts = strip((await page(fx, `/budget-alerts?${Q}`)).html);
-  t.ok(alerts.includes(`관측 속도 월말 예상 ${won(observation.forecast)}`), "+ 예산 알림 화면도 같은 관측 예상을 보여 준다");
+  t.ok(alerts.includes(`월말 예상 지출 ${won(observation.forecast)}`), "+ 예산 알림 화면도 같은 월말 예상을 보여 준다");
   t.ok(home.includes("316,000") && home.includes("하루 28,727"), "+ 남은 예산·하루 금액은 예전처럼 미래 날짜 기록을 포함한 월 전체 기준이다");
 }));
 

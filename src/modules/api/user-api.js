@@ -282,8 +282,9 @@ async function handleUserNotifications(request, env, url) {
   const rows = attachSpenderNames(await fetchObservationMonthRows(env, household.id, month), members);
   const budgets = await fetchBudgets(env, household.id, month, { strict: true });
   const recurring = await fetchRecurringStrict(env, household.id).catch(() => null);
-  const plans = await fetchReservePlans(env, household.id).catch(() => []);
-  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring });
+  // V22.9.79 V76 W-7: 월말 예상에 남은 정기지출 납부가 들어가므로 못 읽은 정기지출 항목을 0건으로 바꾸지 않는다(null → 그 몫을 빼고 계산).
+  const plans = await fetchReservePlans(env, household.id, { strict: true }).catch(() => null);
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans });
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
   const mq = encodeURIComponent(month);
   // V22.9.37 감사 U5: 알림 키에 월(납부 알림은 기한)을 붙인다. 달이 없는 키는 한 번 닫으면 다음 달에 같은 알림이 생겨도 숨었다.
@@ -298,7 +299,7 @@ async function handleUserNotifications(request, env, url) {
     } else if (model.status === "forecast" || model.status === "warning") {
       notifs.push({ key: `budget-warn:${month}`, level: "warn", banner: true,
         title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "월 전체 등록액이 예산의 85% 이상이에요",
-        body: model.status === "forecast" ? `오늘까지 관측 속도 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원` : `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
+        body: model.status === "forecast" ? `남은 고정지출까지 더한 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원` : `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
         href: `/budget-alerts?month=${mq}${hh}` });
     }
   }
@@ -319,10 +320,11 @@ async function handleUserNotifications(request, env, url) {
       href: `/app?month=${mq}${hh}&type=expense&quality=missing_category&feed=all#feed` });
   }
 
-  // 4) 이번 달 반영 대기 정기지출
+  // 4) 이번 달 반영 대기 고정지출
+  // V22.9.79 V78 S-2: 홈 ‘앞으로 나갈 돈’과 같은 판정(표식 또는 그 달 기록이 있으면 반영됨)·같은 이름(고정지출)이다.
   const pending = safeArray(model.pendingRecurring);
   if (pending.length) {
-    notifs.push({ key: `recurring-pending:${month}`, level: "info", title: `이번 달 반영 대기 정기지출 ${pending.length}건`,
+    notifs.push({ key: `recurring-pending:${month}`, level: "info", title: `이번 달 반영 대기 고정지출 ${pending.length}건`,
       body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
       href: `/reserve-plans?month=${mq}${hh}` });
   }
@@ -341,7 +343,7 @@ async function handleUserNotifications(request, env, url) {
 
   // 5) 정기 항목 기한 임박 (상위 3)
   // V22.9.76: 수입 항목(예: 수당)은 "납부 N일 전 · 월 준비"가 아니라 입금 예정으로 알리고 경고 등급을 쓰지 않는다.
-  const dash = reserveDashboard(plans);
+  const dash = reserveDashboard(safeArray(plans));
   safeArray(dash.upcoming).slice(0, 3).forEach((s, idx) => {
     const income = isIncomeReservePlan(s.plan);
     const when = Number(s.days_left) > 0 ? `${s.days_left}일 전` : "오늘";
@@ -354,7 +356,10 @@ async function handleUserNotifications(request, env, url) {
   });
 
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs,
-    budget_observation: { status: model.observation.status, observed_spent: model.observedSpent, average: model.avgDaily, forecast: model.forecastExpense, pending_state: model.pendingState, pending_total: model.pendingRecurringTotal, after_pending_assumption: model.afterPendingForecast } });
+    // V22.9.79 V76 W-7: 키는 그대로 두고 forecast 를 월말 예상(기록 + 남은 고정·정기 + 남은 날 예상)으로 바꿨다. 내역은 expected_parts.
+    // after_pending_assumption 은 한 판 동안 forecast 와 같은 값으로 남긴다(반영 대기를 모르면 null).
+    budget_observation: { status: model.observation.status, observed_spent: model.observedSpent, average: model.avgDaily, forecast: model.forecastExpense, pending_state: model.pendingState, pending_total: model.pendingRecurringTotal, after_pending_assumption: model.afterPendingForecast,
+      expected_parts: model.forecastExpense == null || !model.outlook.expected ? null : { recorded: model.outlook.expected.recorded, fixed_remaining: model.outlook.expected.fixedRemaining, pace: model.outlook.expected.pace, remaining_days: model.outlook.remainingDays, reserve_state: model.reserveState, partial: model.outlook.expected.partial } } });
 }
 
 // V22.9.37 감사 H1: 저장(목표·즐겨찾기)은 가계부를 반드시 받는다. 가계부 없는 저장이 "첫 가계부"로 가서 화면과 다른

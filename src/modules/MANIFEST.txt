@@ -71,6 +71,7 @@ my/households-lifecycle.js
 domain/budget-plan-contract.js
 client/lucian-d-budget.js
 domain/budgets.js
+domain/spending-outlook.js
 my/home-sections.js
 features/meme-cards.js
 web/quick-chip-icons.js

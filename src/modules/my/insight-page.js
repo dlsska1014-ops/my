@@ -1,6 +1,7 @@
 // @build:imports-start
 import { APP_VERSION, appName } from "../public/site-config.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, fetchAdminRowsRange, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
@@ -27,6 +28,7 @@ import {
 import {
   budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
+import { monthSpendingOutlook } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
 } from "../admin/pc-analysis-calendar.js";
@@ -46,14 +48,16 @@ function analysisFlashCode(value) {
 }
 
 async function handleMyAnalysisPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url, { observedComparison: true });
+  // V22.9.79 V76 W-7: 고정지출 규칙은 월말 예상과 함께 ctx 에서 읽는다(반복 후보도 같은 값). 이 화면의 추가 요청은 정기지출 항목 하나다.
+  const ctx = await getMyPageContext(request, env, url, { observedComparison: true, outlook: true });
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
-  const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
+  // V22.9.79: 못 읽은 목록(null)을 빈 목록으로 바꾸지 않는다 — 아래에서 반복 후보를 고르지 않고 '확인 불가'로 보인다.
+  const registeredRecurring = ctx.recurring;
+  const [prevRows, historyRaw, challengeValue] = await Promise.all([
     householdId ? fetchObservationMonthRows(env, householdId, addMonthsYm(month, -1)) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
-    householdId ? fetchRecurringStrict(env, householdId).catch(() => null) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
   const truncated = historyRaw.length > 9000;
@@ -90,11 +94,14 @@ async function handleMyInsightPage(request, env, url) {
   const dataEnd = nextMonthStart(month);
   // Reuse the existing paged transaction GETs, including their exact-count
   // metadata. Members, budget and settings still use the existing parallel read.
-  const [members, budgets, history, challengeValue] = await Promise.all([
+  // V22.9.79 V76 W-7: ‘월말 예상 지출’에 남은 고정지출·정기지출을 넣으려고 규칙·정기 항목을 같은 단계에서 읽는다(+2, 직렬 깊이 그대로).
+  const [members, budgets, history, challengeValue, recurring, reservePlans] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
     fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false, analysisReceipt: true }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
+    fetchRecurringStrict(env, selected.id).catch(() => null),
+    fetchReservePlans(env, selected.id, { strict: true }).catch(() => null),
   ]);
   const rawRows = history.rows;
   const truncated = rawRows.length > 9000;
@@ -105,7 +112,8 @@ async function handleMyInsightPage(request, env, url) {
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets);
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
-  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month), householdId: selected.id };
+  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans });
+  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook }), householdId: selected.id };
   return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
 }
 

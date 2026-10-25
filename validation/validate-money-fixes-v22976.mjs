@@ -297,17 +297,21 @@ await fixture(async (fx) => {
   tx("fuel", "2026-10-07", "주유/충전", 150000, "주유"); tx("coffee", "2026-10-08", "카페/간식", 4500, "커피");
   tx("legacy", "2026-10-09", "교통/차량", 5000, "하이패스");
   // 교통 행: 교통 1,500 + 택시 18,000 + 옛 교통/차량 5,000 = 24,500(주유는 따로 예산 행이 있어 주유/충전 행에서만 센다).
-  // 예산을 잡은 사용액 191,000원 / 전체 예산 550,000원 = 35%, 남은 예산 359,000원, 예산 밖(배달) 23,000원.
+  // V22.9.79 감사 V44 D-4(남은 몫): 시작 분류 ‘외식’ 행도 옛 식비 갈래(외식·배달·편의점)를 센다 — 외식 12,000 + 배달 23,000 = 35,000.
+  // 예산을 잡은 사용액 214,000원 / 전체 예산 550,000원 = 39%, 남은 예산 336,000원, 예산 밖 지출 없음(예전: 191,000원·35%·배달 23,000원 예산 밖).
   const kakao = await skill(fx, "남은예산");
-  ok(kakao.includes("사용 금액: 191,000원") && kakao.includes("남은 예산: 359,000원") && kakao.includes("사용률: 35%"), `D-4 카카오 남은예산 합계 (${kakao.split(String.fromCharCode(10)).join(" ").slice(0, 160)})`);
+  ok(kakao.includes("사용 금액: 214,000원") && kakao.includes("남은 예산: 336,000원") && kakao.includes("사용률: 39%"), `D-4 카카오 남은예산 합계 (${kakao.split(String.fromCharCode(10)).join(" ").slice(0, 160)})`);
   ok(kakao.includes("• 교통: 24,500원 사용 / 75,500원 남음 · 25%"), "D-4 카카오 교통 행은 택시·옛 교통/차량까지 센다");
   ok(kakao.includes("• 주유/충전: 150,000원 사용 / 50,000원 남음 · 75%"), "D-4 따로 예산을 잡은 주유/충전은 교통 행에서 빼고 자기 행에서 센다");
+  ok(kakao.includes("• 외식: 35,000원 사용 / 165,000원 남음 · 18%"), "D-4(V22.9.79) 카카오 외식 행은 배달까지 센다");
+  ok(!kakao.includes("예산 밖 지출"), "D-4(V22.9.79) 예산 밖 지출이 없으면 카카오에 그 줄을 쓰지 않는다");
   const budgets = strip((await page(fx, "/budgets?month=2026-10&household_id=house-home")).html);
-  ok(budgets.includes("이번 달 남은 예산 359,000 원 전체 예산 550,000원 · 사용 191,000원 (35%)"), `D-4 예산 화면 합계가 카카오와 같다 (${(budgets.match(/이번 달 남은 예산 .{0,80}/) || [""])[0]})`);
+  ok(budgets.includes("이번 달 남은 예산 336,000 원 전체 예산 550,000원 · 사용 214,000원 (39%)"), `D-4 예산 화면 합계가 카카오와 같다 (${(budgets.match(/이번 달 남은 예산 .{0,80}/) || [""])[0]})`);
   ok(/교통 [가-힣]+ 예산 100,000원 사용 24,500원/.test(budgets), `D-4 예산 화면 교통 카드도 24,500원 (${(budgets.match(/교통 [가-힣]+ 예산 [0-9,]+원 사용 [0-9,]+원/) || [""])[0]})`);
-  ok(/예산 밖 지출 23,000원/.test(budgets), "D-4 예산 밖 지출은 배달 23,000원만 남는다");
+  ok(/외식 [가-힣]+ 예산 200,000원 사용 35,000원/.test(budgets), `D-4(V22.9.79) 예산 화면 외식 카드도 배달까지 35,000원 (${(budgets.match(/외식 [가-힣]+ 예산 [0-9,]+원 사용 [0-9,]+원/) || [""])[0]})`);
+  ok(!/예산 밖 지출 [0-9,]+원/.test(budgets), "D-4(V22.9.79) 배달이 외식 행에 들어가 예산 밖 지출이 남지 않는다");
   const home = strip((await page(fx, "/app?month=2026-10&household_id=house-home")).html);
-  ok(/예산 사용률 35%/.test(home) && home.includes("359,000") && /지출 191,000원/.test(home), `D-4 홈 대표 숫자도 같다 (${(home.match(/이번 달 쓸 수 있는 돈 .{0,110}/) || [""])[0]})`);
+  ok(/예산 사용률 39%/.test(home) && home.includes("336,000") && /지출 214,000원/.test(home) && !home.includes("예산 밖"), `D-4 홈 대표 숫자도 같다 (${(home.match(/이번 달 쓸 수 있는 돈 .{0,110}/) || [""])[0]})`);
 });
 
 // ── P1-1: 지정일 전에 '반영'을 눌러도 추가 가정값이 그대로 ──────────────────────
@@ -327,9 +331,11 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   const after = await observe();
   eq(Number(after.pending_total), 0, "P1-1 반영 뒤 대기 금액은 0");
   eq(after.after_pending_assumption, before.after_pending_assumption, `P1-1 반영 전후 추가 가정값이 같다(${before.after_pending_assumption} → ${after.after_pending_assumption})`);
-  eq(after.forecast, before.forecast, "P1-1 오늘까지의 관측 속도 예상은 그대로");
+  // V22.9.79 V76 W-7: forecast 는 대기 고정지출·앞 날짜 정기 기록을 포함한 월말 예상이다. 반영 전(대기)과 뒤(앞 날짜 기록)가 같다.
+  eq(after.forecast, before.forecast, "P1-1 월말 예상은 반영 전후 같다");
+  eq(after.forecast, after.after_pending_assumption, "P1-1 옛 추가 가정값 키는 한 판 동안 월말 예상과 같은 값이다");
   const alerts = strip((await page(fx, "/budget-alerts?household_id=house-home&month=2026-10")).html);
-  ok(alerts.includes("날짜가 아직 오지 않은 반영된 정기지출 1건(650,000원)은 추가 가정값에 넣었습니다."), "P1-1 예산 알림 화면이 가정값에 남은 반영분을 말한다");
+  ok(alerts.includes("날짜가 아직 오지 않은 반영된 고정지출 1건(650,000원)은 월말 예상에 넣었습니다."), "P1-1 예산 알림 화면이 월말 예상에 남은 반영분을 말한다");
 }));
 
 // ── P1-3: 음수 수입 행 ───────────────────────────────────────────────────────
@@ -433,9 +439,10 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   );
   for (const r of fx.db.accountbook_recurring) if (r.id !== "recurring-rent" && r.type !== "income") r.is_active = false;
   const text = strip((await page(fx, "/budget-alerts?household_id=house-home&month=2026-10")).html);
-  ok(!text.includes("이번 달에 아직 반영 대기 중인 정기지출이 없습니다."), "P2-1 예산 밖 대기 항목이 있으면 '대기 중인 정기지출이 없습니다'라고 하지 않는다");
-  ok(text.includes("예산을 정한 분류에는 반영을 기다리는 정기지출이 0건입니다."), "P2-1 목록 범위(예산을 정한 분류)를 말한다");
-  ok(text.includes("예산 밖 분류의 반영 대기 정기지출 1건(650,000원)은 이 목록과 추가 가정값에 넣지 않았습니다."), "P2-1 예산 밖 대기 건수·금액을 보여 준다");
+  // V22.9.79 V78 S-2: 예산 알림도 홈과 같이 매월 자동 기록 규칙을 ‘고정지출’이라 부른다. 대기분은 월말 예상에 들어간다(W-7).
+  ok(!text.includes("이번 달에 아직 반영 대기 중인 고정지출이 없습니다."), "P2-1 예산 밖 대기 항목이 있으면 '대기 중인 고정지출이 없습니다'라고 하지 않는다");
+  ok(text.includes("예산을 정한 분류에는 반영을 기다리는 고정지출이 0건입니다."), "P2-1 목록 범위(예산을 정한 분류)를 말한다");
+  ok(text.includes("예산 밖 분류의 반영 대기 고정지출·정기지출 1건(650,000원)은 이 목록과 예산과 견주는 월말 예상에 넣지 않았습니다."), "P2-1 예산 밖 대기 건수·금액을 보여 준다");
 }));
 
 done();

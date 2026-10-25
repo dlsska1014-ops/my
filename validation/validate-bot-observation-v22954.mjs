@@ -24,6 +24,9 @@ await withClock("2026-10-15", async () => {
   deepEq([summary.expense,summary.observedExpense,summary.forecast],[450000,300000,620000],"default analysis dashboard agrees");
   for (const path of ["/my/analysis", "/my/analysis?view=report", "/analysis", "/admin-view?tab=overview", "/?tab=premium", "/smart-tools"]) await fixture(async fx => {
     fx.db.transactions = structuredClone(rows);
+    // V22.9.79 V76 W-7: 사용자 화면의 월말 예상은 반영 대기 고정지출을 더한다. 기록만 재는 이 검사는 픽스처의 월세 규칙을 비운다
+    // (고정지출이 든 화면끼리의 같음은 validate-spending-outlook-v22979 가 본다).
+    fx.db.accountbook_recurring = [];
     const p=await analysisPage(fx,path+(path.includes("?")?"&":"?")+"month=2026-10&household_id=house-home");
     eq(p.status,200,"actual HTML route " + path);
     ok(p.html.includes("450,000원"),"full monthly total retained");
@@ -47,7 +50,7 @@ await withClock("2026-10-15", async () => {
     const p=await analysisPage(fx,path+(path.includes("?")?"&":"?")+"month=2026-11&household_id=house-home");
     eq(p.status,200,"actual future HTML route " + path);
     ok(p.html.includes("관측 전"),"future month explicit state " + path);
-    ok(!/현재 속도 기준 수입 대비 0%|<b>0원<\/b><span>절약 후보|<b>0점<\/b><span>관리 점수|절약 후보<\/span><b>0원|현재 위험점수 0점|무지출일 0일/.test(p.html),"all future derived summaries retain unavailable state " + path);
+    ok(!/(?:현재 속도|월말 예상) 기준 수입 대비 0%|<b>0원<\/b><span>절약 후보|<b>0점<\/b><span>관리 점수|절약 후보<\/span><b>0원|현재 위험점수 0점|무지출일 0일/.test(p.html),"all future derived summaries retain unavailable state " + path);
     ok(!/월말 예상(?: 지출)?<\/span><b>0원/.test(p.html),"future month is not 0 forecast");
     ok(!/소비 위험도<\/[^>]+><[^>]+>0점|정상 범위|위험 점수<\/span><b[^>]*>null점|관리 점수<\/[^>]+><[^>]+>100점/.test(p.html),"future risk and achievement not fabricated");
   });

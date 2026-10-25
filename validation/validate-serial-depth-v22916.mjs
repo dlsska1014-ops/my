@@ -87,7 +87,9 @@ const screens = [
   ["설정", `/my/settings?household_id=${householdId}`, { calls: 8, depth: 3 }],
   ["정기", `/reserve-plans?household_id=${householdId}`, { calls: 9, depth: 3 }],
   ["리포트", `/reports?month=${month}&household_id=${householdId}`, { calls: 10, depth: 4 }],
-  ["소비 분석", `/my/analysis?month=${month}&household_id=${householdId}`, { calls: 8, depth: 4 }],
+  // V22.9.79 V76 W-7: 분석 화면의 '월말 예상 지출'이 반영 대기 고정지출·남은 정기지출을 더하려고 고정지출 규칙과 정기지출 항목을
+  // 한 번씩 읽는다(제안서대로 +2). 기존 첫 묶음(Promise.all)에 함께 보내므로 깊이는 그대로다(7회 → 9회).
+  ["소비 분석", `/my/analysis?month=${month}&household_id=${householdId}`, { calls: 10, depth: 4 }],
   ["전체 메뉴", `/menu?month=${month}&household_id=${householdId}`, { calls: 4, depth: 3 }],
 ];
 console.log("화면              상태   왕복  깊이   (상한: 왕복/깊이)");

@@ -706,16 +706,18 @@ function renderMiniCategoryRows(stats = {}) {
 }
 
 async function handleMyPremiumPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url);
+  // V22.9.79 V76 W-7: 고정지출 규칙은 월말 예상과 함께 ctx 에서 읽는다(반복 후보도 같은 값). 추가 요청은 정기지출 항목 하나다.
+  const ctx = await getMyPageContext(request, env, url, { outlook: true });
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
   const historyStart = `${addMonthsYm(month, -2)}-01`;
   const historyEnd = nextMonthStart(month);
-  const [prevRows, historyRows, registeredRecurring] = await Promise.all([
+  // V22.9.79: 못 읽은 목록(null)을 빈 목록으로 바꾸지 않는다 — 아래에서 반복 후보를 고르지 않고 '확인 불가'로 보인다.
+  const registeredRecurring = ctx.recurring;
+  const [prevRows, historyRows] = await Promise.all([
     householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: historyStart, end: historyEnd }) : [],
-    householdId ? fetchRecurringStrict(env, householdId).catch(() => null) : [],
   ]);
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows: historyRows, rowsBase: ctx.rows });
   // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 새 후보(등록 단추)로 보이므로 후보를 고르지 않는다(null: '확인 불가').

@@ -17,7 +17,8 @@ ok(!source.includes('data-ab-nav-budget'), "no sidebar budget markup or client r
 // V22.8.93(9.3): 사용률 숫자와 게이지 막대에 스크립트가 쓸 값이 붙었다. 지키던
 // 성질은 "예산 사용률을 한 곳에서, 홈 P0 에서 말한다"이고 그건 그대로다. 마크업이
 // 한 벌만 있는지를 보면 되므로 문구와 값 배선만 견주고 속성은 따지지 않는다.
-ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em></div>'), "budget usage is stated once, in the home P0");
+// V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(금액 자리는 이미 ‘예산 미설정’). 문구는 예산이 있을 때만 나온다.
+ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div>'), "budget usage is stated once, in the home P0");
 ok((source.match(/예산 사용률 <span data-ab-num/g) || []).length === 1, "the usage sentence exists exactly once");
 ok(source.includes('<div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>'), "the P0 draws the usage gauge");
 ok(source.includes('const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));'), "the gauge is still capped at 100 percent");

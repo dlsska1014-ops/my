@@ -33,7 +33,11 @@ eq(Object.fromEntries(aggregate.categoryAlerts.map(row => [row.category, row.spe
 eq(budgetSummary(tx,[{category:"교통",amount:10000}]).budgetedExpense,22500,"교통 alone counts the transport family (D-4)");
 eq(budgetSummary(tx,[{category:"교통",amount:10000},{category:"주유/충전",amount:10000}]).categoryAlerts.find(row => row.category === "교통").spent,15500,"교통 leaves a separately budgeted sibling to its own row (D-4)");
 eq(budgetSummary(tx,[{category:"식비",amount:100000}]).budgetedExpense,28000,"food does not infer grocery or cafe membership");
-eq(budgetSummary(tx,[{category:"외식",amount:50000}]).budgetedExpense,12000,"child-only membership");
+// V22.9.79 감사 V44 D-4(남은 몫): 시작 분류 ‘외식’ 한 줄만 있으면 옛 식비 갈래(외식·배달·편의점·옛 식비)를 센다. 장보기·카페는 넣지 않는다.
+// 예전 기대값 12,000(외식만)은 권하는 대로 예산을 잡으면 배달·편의점이 예산 밖으로 빠지던 D-4 결함이었다.
+// 진짜 상위 행 식비가 함께 있으면 외식은 하위 행으로 남는다(위의 {외식:12000} 기대값 그대로).
+eq(budgetSummary(tx,[{category:"외식",amount:50000}]).budgetedExpense,28000,"외식 alone counts the food family without grocery or cafe (D-4)");
+eq(budgetSummary(tx,[{category:"외식",amount:50000},{category:"배달",amount:20000}]).categoryAlerts.find(row => row.category === "외식").spent,15000,"외식 leaves a separately budgeted sibling to its own row (D-4)");
 eq(budgetSummary([{type:"expense",category:"/식비",amount:1},{type:"expense",category:"커스텀(1234)",amount:7},{type:"income",category:"식비",amount:999}], [{category:"식비",amount:100},{category:"커스텀",amount:20}]).budgetedExpense,8,"custom and normalized names share budget interpretation; income excluded");
 ok(budgetFeedbackLine(tx,[{category:"식비",amount:20000}],"외식").includes("28,000원"),"Kakao feedback uses parent usage");
 ok(budgetAlertText(tx,[{category:"식비",amount:20000}],"외식").includes("8,000원"),"Kakao alert uses parent usage");

@@ -7,6 +7,7 @@ import {
 } from "./report-challenge.js";
 import { renderMiniCategoryRows } from "./reports-premium.js";
 import { canManageMyHousehold } from "./access-control.js";
+import { spendingOutlookCaption } from "../domain/spending-outlook.js";
 import {
   renderAnomalyList, renderDonutChart, renderMonthlySeriesChart, renderRecurringInsightList,
   renderWeeklyReportCard,
@@ -55,7 +56,8 @@ function fairMoMDisplay(fair) {
 
 function renderPatternBoxes(analysis = {}) {
   const items = [
-    ["월말 예상", `${renderObservedMoney(analysis, analysis.burnForecast)}`, "현재 지출 속도 기준"],
+    // V22.9.79 V76 W-7: 부제는 월말 예상의 근거(기록 + 남은 고정 + 남은 날 예상)를 말한다.
+    ["월말 예상", `${renderObservedMoney(analysis, analysis.burnForecast)}`, spendingOutlookCaption(analysis.spendingOutlook)],
     ["카페/간식", `${numberWithCommas(analysis.cafeAmount || 0)}원`, `${numberWithCommas(analysis.cafeCount || 0)}건`],
     ["배달/외식", `${numberWithCommas(analysis.deliveryAmount || 0)}원`, `${numberWithCommas(analysis.deliveryCount || 0)}건`],
     ["쇼핑", `${numberWithCommas(analysis.shoppingAmount || 0)}원`, `${numberWithCommas(analysis.shoppingCount || 0)}건`],
@@ -162,7 +164,7 @@ function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month
   const tools = [
     ["현금흐름", `${numberWithCommas(saving)}원`, `수입-지출 · 저축률 ${savingRate}%`],
     ["잔여 총예산", `${numberWithCommas(budgetRemain)}원`, `이번 달 사용 가능 금액`],
-    ["월말 예상 지출", `${renderObservedMoney(analysis, analysis.burnForecast)}`, `현재 속도 기준`],
+    ["월말 예상 지출", `${renderObservedMoney(analysis, analysis.burnForecast)}`, spendingOutlookCaption(analysis.spendingOutlook)],
     ["소비 위험도", analysis.basisDays === 0 ? "관측 전" : `${risk}점`, analysis.basisDays === 0 ? "관측 기간 없음" : risk >= 70 ? "주의 필요" : "정상 범위"],
     ["고정비", `${numberWithCommas(analysis.fixedExpense || 0)}원`, `지출 중 ${analysis.fixedRate || 0}%`],
     // V22.9.34 2차 점검 U01: 이번 달은 오늘까지, 앞으로 올 달은 세지 않는다.

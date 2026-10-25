@@ -1,8 +1,8 @@
 // @build:imports-start
 import { abEditOriginalFields } from "../admin/transactions-households.js";
-import { isIncomeReservePlan, reserveDueDateInMonth } from "../settings/reserve-plans.js";
 import { memberNameMap, renderSpenderOptions } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { homeUpcomingOut } from "../domain/spending-outlook.js";
 import { memeCollectionFor } from "../features/meme-cards.js";
 import { addDays, currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
@@ -166,40 +166,7 @@ function applyHomeLayoutSection(section, parts) {
     .join("");
 }
 
-// V22.9.78 감사 V76 W-5: ‘앞으로 나갈 돈’ 카드의 기준 — 이번 달에 아직 기록되지 않은 지출만 더한다.
-// 예전 카드는 정기 지출 항목의 건수·월 준비액만 적어, 알림센터·예산 알림이 세는 ‘반영 대기’ 고정지출이 빠져 있었다.
-//   - 고정지출(매월 자동 기록 규칙): 켜져 있고 금액이 있는 지출 규칙 중 이번 달 몫이 아직 없는 것. 이번 달 표식
-//     (last_applied_month)이 있거나 그 규칙이 만든 이번 달 기록(raw_text "recurring:<규칙 id>:<달>")이 있으면 이미 기록됐다.
-//   - 정기지출(준비 항목): 납부일이 오늘부터 말일 사이인 지출 항목. 지난 납부일·다른 달 납부는 세지 않는다.
-//   - 같은 이름(공백·대소문자 무시)의 고정지출 규칙이 있는 정기지출은 규칙 쪽으로만 센다. 기록을 만드는 쪽이 규칙이라
-//     규칙이 대기면 규칙 금액으로 한 번, 이미 기록됐으면 둘 다 세지 않는다.
-//   - 수입(규칙·항목)은 더하지 않고 "수입만 등록" 안내에만 센다.
-// recurring 이 배열이 아니면(읽기 실패) 합계를 내지 않는다(available: false).
-function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = [], plans = [], recurring = [] } = {}) {
-  const available = Array.isArray(recurring);
-  const rules = available ? recurring.filter(Boolean) : [];
-  const nameKey = (text) => String(text || "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
-  const isIncomeRule = (r) => String(r.type || "expense") === "income";
-  const usable = (r) => !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0;
-  const recorded = new Set(safeArray(rows).map((row) => String(row?.raw_text || "")).filter((text) => text.startsWith("recurring:")));
-  const outRules = rules.filter((r) => !isIncomeRule(r) && usable(r));
-  const fixed = outRules.filter((r) => String(r.last_applied_month || "") !== month && !recorded.has(`recurring:${r.id}:${month}`));
-  const ruleNames = new Set(outRules.map((r) => nameKey(r.memo || r.category)).filter(Boolean));
-  const allPlans = safeArray(plans).filter(Boolean);
-  const outPlans = allPlans.filter((p) => !isIncomeReservePlan(p));
-  const due = outPlans.filter((p) => {
-    const date = reserveDueDateInMonth(p, month);
-    return Number(p.amount || 0) > 0 && !!date && date >= today && !ruleNames.has(nameKey(p.name));
-  });
-  const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const planTotal = due.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  return {
-    available, total: fixedTotal + planTotal,
-    fixedCount: fixed.length, fixedTotal, planCount: due.length, planTotal,
-    expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
-    incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
-  };
-}
+// V22.9.79 W-7: ‘앞으로 나갈 돈’ 기준(homeUpcomingOut)은 월말 예상과 같은 계산이라 domain/spending-outlook.js 로 옮겼다.
 
 function renderHomeReportCards(options = {}) {
   const {
@@ -410,8 +377,8 @@ function todayExpense(rows = []) {
 // @build:exports-start
 export {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
-  homeUpcomingOut, lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex,
-  memeCardFor, memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
+  lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
+  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
   renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm, todayExpense,
 };
 // @build:exports-end
