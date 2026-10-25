@@ -1,4 +1,5 @@
-// V22.9.79 — 카카오 명령 답장이 실제로 일어난 일을 말하는지 검사한다(V44 A-18·B-8·B-9·B-10, V77 N-4·N-5).
+// V22.9.79 — 카카오 명령 답장이 실제로 일어난 일을 말하는지 검사한다(V44 A-18·B-8·B-9·B-10, V77 N-4·N-5, 그리고 같은 판에서 더 고친 네 가지: 최근 기록 창·
+// 조회 전용의 날짜 목록·쓰이지 않던 지출자 datalist·기간을 가리킨 ‘뭐 썼어’).
 //
 // ── 이 파일이 왜 생겼는지 ──
 //   A-18 ‘오늘 뭐 썼어’가 날짜와 상관없는 최근 5건을 보여 줬다(헤더만 ‘최근 입력 내역’). 오늘(KST)의 내 기록을 보여야 한다.
@@ -10,19 +11,25 @@
 //        "기록을 보내면 바로 참여"(실제로는 자동 참여 안 함), 한 번도 연결된 적 없거나 만드는 중인 방에 "삭제됐거나 해제된 방"/"기록하면 만들어져요".
 //   N-4  카카오 저장 답장의 ‘지출자:’와 웹 지출자 고르기가 서로 다른 이름 규칙이었다(같은 이름 구성원: 답장 ‘카카오사용자’, 웹 목록 ‘카카오사용자’ ×2,
 //        카카오 수정 메뉴 ‘카카오사용자·2’, 요약·정산 ‘카카오사용자 2’).
+//   P2   ‘최근 기록’·‘방금 삭제·수정’이 가계부 전체의 최근 20~50건 안에서만 내 기록을 찾았다(그 뒤로 다른 구성원이 많이 저장하면 "내 기록이 없어요").
+//        조회 전용(viewer)은 ‘오늘 기록 보기’만 되고 ‘어제 기록 보기’는 막혔다. 아무도 쓰지 않는 지출자 이름 datalist(원래 별명 그대로)가 관리자 화면에 있었다.
+//        ‘이번 주·이번 달 뭐 썼어’가 그 기간이 아니라 방금 입력한 5건을 보였다.
 //   N-5  이름·역할·만든 날이 같은 가계부는 고르는 목록과 저장 답장에서 구분되지 않았고, 단톡방 기록의 저장 답장은 같은 이름 표시를 아예 하지 않았다.
 //
 // ── 어떻게 잡는가 ──
 //   메모리 픽스처(DB·서버 없음)에서 실제 카카오 스킬 경로(/skill)로 발화를 차례로 보내고, 저장된 행·답장 문구·요청 순서를 함께 확인한다.
 //   단톡방은 공식 그룹 챗봇 모양(userRequest.chat)과 Secret 헤더로 보낸다. 잠금 충돌은 잠금 RPC 응답을 가로채 만들고, 방의 상태(만드는 중·해제)는
 //   방 표식 설정 행을 넣어 만든다. 네트워크는 쓰지 않는다.
+//   픽스처는 PostgREST 의 or=/and= 논리 조건을 무시하고 전부 돌려준다. P2 장면은 그 조건(eq·is.null·중첩 and()/or()·큰따옴표 값)을 흉내 내는 가로채기
+//   (emulateOwnerFilter)로 서버가 내 기록만 거르는 것처럼 만들고, 보낸 조건 문자열을 그대로 못 박는다 — 실제 PostgREST 가 이 문법을 받는지는 운영에서 본다.
 //   V22979_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 번들에서 어느 검사가 떨어지는지 확인하는 용도).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { app, BASE, ctx, counter, failure, fixture, intercept, putSetting, withClock } from "./lib-audit-v22934.mjs";
+import { readFileSync } from "node:fs";
+import { app, BASE, ctx, counter, failure, fixture, intercept, page, post, putSetting, settingValue, withClock } from "./lib-audit-v22934.mjs";
 
 const SOFT = process.env.V22979_SOFT === "1";
-const base = counter("V22.9.79 카카오 명령 답장 검사(오늘 뭐 썼어·복구 안내와 가계부 구분·단톡방 안내·지출자 이름·같은 이름 가계부)");
+const base = counter("V22.9.79 카카오 명령 답장 검사(오늘 뭐 썼어·복구 안내와 가계부 구분·단톡방 안내·지출자 이름·같은 이름 가계부·최근 기록 창·조회 전용 날짜 목록·기간 질문)");
 const failures = [];
 const ok = (value, message) => {
   if (value) return base.ok(true, message);
@@ -478,6 +485,224 @@ await scenario("N-5 단톡방 기록의 저장 답장", async (fx) => {
   const alone = (await said("점심 9000", "bot-n5-w")).text;
   eq(homeLine(alone), "가계부: 우리집 생활비", "N-5 같은 이름의 가계부가 없는 사람의 답장은 이름만(예전과 같다)");
 }, { secret: true, selections: [] });
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// 조정 요청(2026-10-25)으로 더한 네 항목: 최근 기록 창(P2)·조회 전용의 날짜 목록·쓰이지 않는 지출자 목록 코드·기간 질문
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+
+// PostgREST 의 논리 조건을 흉내 낸다 — or=/and= 목록, 중첩 and(...)/or(...), eq·is.null, 큰따옴표로 감싼 값(\" 와 \\ 이스케이프). 픽스처는 or/and 를
+// 무시하고 조건이 없는 것처럼 전부 돌려주므로, 서버가 내 기록만 거른 뒤 limit 을 거는 것처럼 보이게 해야 "limit 이 내 기록에만 걸린다"를 볼 수 있다.
+function parsePostgrestLogic(source) {
+  let i = 0;
+  const fail = () => { throw new Error(`논리 조건을 읽지 못함(${i}번째): ${source}`); };
+  const list = () => {
+    if (source[i] !== "(") fail();
+    i += 1;
+    const items = [];
+    for (;;) {
+      items.push(item());
+      if (source[i] === ",") { i += 1; continue; }
+      if (source[i] === ")") { i += 1; return items; }
+      fail();
+    }
+  };
+  const item = () => {
+    const group = /^(and|or)\(/.exec(source.slice(i));
+    if (group) { i += group[1].length; return { op: group[1], items: list() }; }
+    const leaf = /^([a-z_]+)\.(eq|is)\./.exec(source.slice(i));
+    if (!leaf) fail();
+    i += leaf[0].length;
+    let value = "";
+    if (source[i] === "\"") {
+      i += 1;
+      while (i < source.length && source[i] !== "\"") { if (source[i] === "\\") i += 1; value += source[i]; i += 1; }
+      if (source[i] !== "\"") fail();
+      i += 1;
+    } else {
+      while (i < source.length && source[i] !== "," && source[i] !== ")") { value += source[i]; i += 1; }
+    }
+    return { column: leaf[1], op: leaf[2], value };
+  };
+  const tree = list();
+  if (i !== source.length) fail();
+  return tree;
+}
+// SQL 처럼: null 은 eq 와 같지 않고, is.null 만 null 과 같다.
+const logicMatches = (node, row) => node.items
+  ? (node.op === "and" ? node.items.every((child) => logicMatches(child, row)) : node.items.some((child) => logicMatches(child, row)))
+  : node.op === "is" ? (node.value === "null" ? row[node.column] == null : String(row[node.column]) === node.value)
+    : (row[node.column] != null && String(row[node.column]) === node.value);
+
+// transactions 조회에 or=/and= 가 있으면 위 규칙으로 거르고 order(created_at 내림차순)·limit 을 적용해 돌려준다. trace 에는 모든 transactions 조회를 적는다.
+function emulateOwnerFilter(fx, trace = []) {
+  const emulate = intercept(async ({ url, method }) => {
+    if (method !== "GET" || !url.pathname.endsWith("/rest/v1/transactions")) return null;
+    const orSource = url.searchParams.get("or");
+    const andSource = url.searchParams.get("and");
+    if (!orSource && !andSource) return null;
+    const tree = parsePostgrestLogic(orSource || andSource);
+    const household = String(url.searchParams.get("household_id") || "").replace(/^eq\./, "");
+    const rows = fx.db.transactions
+      .filter((row) => row.household_id === household && (orSource ? tree.some((node) => logicMatches(node, row)) : tree.every((node) => logicMatches(node, row))))
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .slice(0, Number(url.searchParams.get("limit")));
+    return new Response(JSON.stringify(JSON.parse(JSON.stringify(rows))), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const log = intercept(async ({ url, method }) => {
+    if (method === "GET" && url.pathname.endsWith("/rest/v1/transactions")) trace.push({ limit: url.searchParams.get("limit"), or: url.searchParams.get("or"), and: url.searchParams.get("and"), date: url.searchParams.get("transaction_date"), id: url.searchParams.get("id") });
+    return null;
+  });
+  return () => { log(); emulate(); };
+}
+
+// ── P2. 최근 기록(‘최근 기록’·‘내 기록’·‘마지막’, ‘방금 삭제·수정’)은 같은 가계부의 다른 사람이 20건 넘게 저장한 뒤에도 내 기록을 찾는다 ───────────
+// 예전에는 가계부 전체의 최근 max(20, 5×개수)건을 읽은 뒤 내 것만 걸러서 내 기록이 창 밖이면 "아직 내가 기록한 내역이 없어요"가 나왔다.
+const OTHER_KEY = "kakao_login:9999";
+const OWNER_FILTER = "(source_user_key.eq.\"kakao_login:2265\",and(user_id.eq.\"user-bin\",or(source_user_key.is.null,source_user_key.eq.\"\")))";
+const txRow = (id, memo, createdAt, extra = {}) => ({ id, household_id: HH, user_id: "user-bin", type: "expense", amount: 1100, category: "기타지출", memo, payment_method: "", transaction_date: DAY, source: "kakao_skill", source_user_key: BIN, raw_text: memo, created_at: createdAt, ...extra });
+const recentMemos = (text) => [...text.matchAll(/^\d+\. \d{4}-\d{2}-\d{2} (?:지출|수입) [\d,]+원 · (.+)$/gm)].map((match) => match[1]);
+await scenario("P2 최근 기록 창", async (fx) => {
+  fx.db.transactions.push(
+    txRow("p2-b1", "내커피1", "2026-08-05T01:00:01.000Z"), txRow("p2-b2", "내커피2", "2026-08-05T01:00:02.000Z"), txRow("p2-b3", "내커피3", "2026-08-05T01:00:03.000Z"),
+    txRow("p2-web", "웹점심", "2026-08-05T01:00:00.000Z", { source: "web", source_user_key: null }), // 웹에서 쓴 내 기록: 카카오 키 없음 → 사용자 id 로 내 것
+    txRow("p2-empty", "빈키", "2026-08-05T00:59:00.000Z", { source_user_key: "" }),                    // 빈 문자열 키도 키 없음
+    txRow("p2-other", "다른키", "2026-08-05T01:30:00.000Z", { source_user_key: OTHER_KEY }),           // 같은 사용자 id 지만 다른 카카오 키 → 내 기록이 아니다
+  );
+  for (let n = 0; n < 60; n += 1) fx.db.transactions.push(txRow(`p2-w${n}`, `남의기록${n}`, new Date(Date.UTC(2026, 7, 5, 2, 0, 0, n)).toISOString(), { user_id: "user-wifi", source_user_key: WIFI }));
+  const trace = [];
+  const release = emulateOwnerFilter(fx, trace);
+  try {
+    for (const phrase of ["최근 기록", "내 기록", "마지막"]) {
+      trace.length = 0;
+      const recent = (await say(fx, phrase)).text;
+      eq(recentMemos(recent).join("/"), "내커피3/내커피2/내커피1/웹점심/빈키", `P2 ‘${phrase}’는 남이 60건 더 저장한 뒤에도 내 기록 5건을 최근 순으로 보인다(다른 키·남의 기록 제외) (${recent.slice(0, 160)})`);
+      eq(trace.length, 1, `P2 ‘${phrase}’의 transactions 조회는 한 번 그대로다`);
+      eq(trace[0]?.limit, "5", `P2 ‘${phrase}’는 limit 5 를 서버가 내 기록에만 건다(예전: 가계부 전체 50건)`);
+    }
+    eq(trace[0]?.or, OWNER_FILTER, "P2 서버 조건: 내 카카오 키가 같거나, 키가 비어 있고 사용자 id 가 나인 기록(isKakaoRowOwnedByRequester 와 같은 규칙)");
+    // 방금 고치기·지우기도 내 가장 최근 기록을 찾는다.
+    trace.length = 0;
+    const edit = await say(fx, "방금 금액 7000");
+    eq(trace.filter((entry) => !entry.date && !entry.id).length, 1, "P2 ‘방금 금액’의 최근 기록 조회도 한 번이다");
+    ok(fx.db.transactions.find((row) => row.id === "p2-b3")?.amount === 7000 && fx.db.transactions.find((row) => row.id === "p2-w59")?.amount === 1100, `P2 ‘방금 금액 7000’은 남이 60건 더 저장한 뒤에도 내 가장 최근 기록(내커피3)만 고친다 (${edit.text.slice(0, 160)})`);
+    trace.length = 0;
+    const deleted = await say(fx, "방금 삭제");
+    eq(trace.filter((entry) => !entry.date && !entry.id)[0]?.limit, "1", "P2 ‘방금 삭제’는 limit 1 을 내 기록에 건다(예전: 가계부 전체 20건)");
+    ok(deleted.text.includes("삭제했어요") && deleted.text.includes("내커피3") && !fx.db.transactions.some((row) => row.id === "p2-b3") && fx.db.transactions.filter((row) => row.id.startsWith("p2-w") && row.id !== "p2-web").length === 60, `P2 ‘방금 삭제’는 내 가장 최근 기록을 지운다 (${deleted.text.slice(0, 160)})`);
+    const restored = await say(fx, "복구");
+    ok(restored.text.includes("복구했어요") && fx.db.transactions.some((row) => row.id === "p2-b3"), "P2 지운 기록은 복구된다");
+  } finally { release(); }
+  // 다른 사람이 보면 그 사람 기록이 나온다(서버 조건이 사람마다 다르다).
+  const wifiTrace = [];
+  const wifiRelease = emulateOwnerFilter(fx, wifiTrace);
+  try {
+    const wifi = (await say(fx, "최근 기록", { user: WIFI })).text;
+    ok(recentMemos(wifi).length === 5 && recentMemos(wifi).every((memo) => memo.startsWith("남의기록")) && !wifi.includes("내커피"), "P2 다른 구성원의 ‘최근 기록’은 그 사람의 기록만");
+    ok(wifiTrace[0]?.or?.includes("kakao_login:2266") && wifiTrace[0]?.or?.includes("user-wifi") && !wifiTrace[0]?.or?.includes("kakao_login:2265"), "P2 서버 조건은 요청한 사람의 키·사용자 id 로 만든다");
+  } finally { wifiRelease(); }
+});
+
+await scenario("P2 서버 조건을 거절하면 예전 조회로", async (fx) => {
+  fx.db.transactions.push(txRow("p2f-1", "내것1", "2026-08-05T01:00:01.000Z"), txRow("p2f-2", "내것2", "2026-08-05T01:00:02.000Z"), txRow("p2f-3", "남의것", "2026-08-05T01:00:03.000Z", { user_id: "user-wifi", source_user_key: WIFI }));
+  const trace = [];
+  const reject = intercept(async ({ url, method }) => (method === "GET" && url.pathname.endsWith("/rest/v1/transactions") && (url.searchParams.get("or") || url.searchParams.get("and"))) ? failure(400, "simulated filter rejected") : null);
+  const logOnly = intercept(async ({ url, method }) => { if (method === "GET" && url.pathname.endsWith("/rest/v1/transactions")) trace.push({ limit: url.searchParams.get("limit"), filtered: !!(url.searchParams.get("or") || url.searchParams.get("and")) }); return null; });
+  try {
+    const recent = (await say(fx, "최근 기록")).text;
+    ok(recentMemos(recent).slice(0, 2).join("/") === "내것2/내것1" && !recent.includes("남의것"), `P2 서버가 조건을 거절(4xx)해도 예전 조회로 한 번 더 읽어 내 기록을 보인다 (${recent.slice(0, 160)})`);
+    eq(trace.map((entry) => `${entry.filtered ? "조건" : "예전"}:${entry.limit}`).join(","), "조건:5,예전:50", "P2 거절되면 조건 조회 한 번 + 예전 조회(가계부 전체 50건) 한 번");
+    ok((globalThis.__AB_OPS_EVENTS || []).some((event) => event.kind === "kakao_recent_owner_filter_rejected"), "P2 거절은 운영 이벤트로 남는다(조용히 두 번 읽는 채로 남지 않는다)");
+    trace.length = 0;
+  } finally { logOnly(); reject(); }
+  // 서버 오류(5xx)·시간 초과는 가리지 않는다: 두 번째 조회 없이 안전 안내로 끝난다.
+  const down = intercept(async ({ url, method }) => (method === "GET" && url.pathname.endsWith("/rest/v1/transactions") && url.searchParams.get("or")) ? failure(503, "simulated outage") : null);
+  const trace2 = [];
+  const logOnly2 = intercept(async ({ url, method }) => { if (method === "GET" && url.pathname.endsWith("/rest/v1/transactions") && url.searchParams.get("limit")) trace2.push(url.searchParams.get("limit")); return null; });
+  try {
+    const failed = (await say(fx, "최근 기록")).text;
+    ok(!failed.includes("🧾 최근 입력 내역") && !recentMemos(failed).length, "P2 5xx 는 최근 기록처럼 보이는 답을 내지 않는다");
+    eq(trace2.join(","), "5", "P2 5xx 는 예전 조회로 숨기지 않는다(한 번만 시도)");
+  } finally { logOnly2(); down(); }
+});
+
+// ── 조회 전용(viewer)도 날짜가 붙은 기록 목록을 본다. 쓰는 길은 그대로 닫혀 있다 ───────────────────────────────────
+await scenario("조회 전용의 날짜 목록", async (fx) => {
+  const wifiMember = fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi");
+  fx.db.transactions.push(txRow("v-old", "옛빵", "2026-08-04T03:00:00.000Z", { user_id: "user-wifi", source_user_key: WIFI, transaction_date: "2026-08-04", amount: 3300 }));
+  // 이름 입력 흐름을 연 채로 조회 전용이 된 구성원(다른 사람이 권한을 바꿨다): 열려 있던 흐름이 날짜 목록 말을 이름으로 삼키지 않아야 한다.
+  await say(fx, "내 이름 설정", { user: WIFI });
+  wifiMember.role = "viewer";
+  const aliasBefore = settingValue(fx, `member_aliases:${HH}`);
+  const staleFlow = (await say(fx, "어제 기록 보기", { user: WIFI })).text;
+  ok(staleFlow.includes("🧾 2026-08-04 기록") && staleFlow.includes("01번 - 옛빵"), `조회 전용 ‘어제 기록 보기’는 열려 있던 이름 입력 흐름을 끊고 목록을 보인다 (${staleFlow.slice(0, 160)})`);
+  eq(settingValue(fx, `member_aliases:${HH}`), aliasBefore, "조회 전용 구성원의 이름은 바뀌지 않았다(날짜 목록 말이 이름으로 저장되지 않는다)");
+  const stillBlocked = (await say(fx, "민지민지", { user: WIFI })).text;
+  ok(stillBlocked.includes("조회 전용 권한입니다") && settingValue(fx, `member_aliases:${HH}`) === aliasBefore, "조회 전용이 보낸 이름 말은 막혀 있고 이름은 그대로");
+
+  for (const [phrase, expect] of [["어제 기록 보기", "🧾 2026-08-04 기록"], ["어제 내역", "🧾 2026-08-04 기록"], ["어제 뭐 썼어", "🧾 2026-08-04 기록"], ["8월 4일 기록 보기", "🧾 2026-08-04 기록"], ["2026-08-04 기록", "🧾 2026-08-04 기록"], ["그제 기록 보기", "🧾 2026-08-03 기록"], ["7월 3일 기록 보기", "🧾 2026-07-03 기록"], ["오늘 기록 보기", `🧾 ${DAY} 기록`]]) {
+    const reply = (await say(fx, phrase, { user: WIFI })).text;
+    ok(reply.includes(expect) && !reply.includes("조회 전용 권한입니다"), `조회 전용 ‘${phrase}’는 날짜 목록을 본다 (${reply.slice(0, 100)})`);
+  }
+  const summary = (await say(fx, "이번 달 요약", { user: WIFI })).text;
+  ok(summary.includes("📊 이번 달 요약"), "조회 전용의 요약 조회는 그대로");
+
+  // 쓰는 길은 여전히 닫혀 있다: 조회 전용 안내가 나가고 아무 데이터도 바뀌지 않는다.
+  const snapshot = () => JSON.stringify([fx.db.transactions, fx.db.household_members, fx.db.accountbook_budgets, fx.db.accountbook_recurring,
+    fx.db.accountbook_settings.filter((row) => /^(member_aliases|household_member_policy_v22943|budgets|reserve_plans|payment_assets|kakao_edit_undo_v4|kakao_edit_v4)/.test(String(row.key)))]);
+  const before = snapshot();
+  for (const text of ["커피 4500", "어제 점심 9000", "수정 01번 금액 100", "어제 수정 01번 금액 100", "삭제 01번", "어제 삭제 01번", "복구", "복구 01번", "방금 삭제", "방금 금액 7000", "지출자 변경",
+    "예산 설정", "식비 예산 30만원", "내 이름 설정", "구성원 권한 기록만", "별도 구매 추가 커피 4500"]) {
+    const reply = (await say(fx, text, { user: WIFI })).text;
+    ok(reply.includes("조회 전용 권한입니다"), `조회 전용 ‘${text}’는 막힌다 (${reply.slice(0, 80)})`);
+  }
+  eq(snapshot(), before, "조회 전용이 보낸 쓰는 말들 뒤에도 기록·구성원·예산·정기·별명·권한·복구 버퍼가 그대로다");
+});
+
+// ── 지출자 이름 목록 속 쓰이지 않는 datalist 는 지웠다(웹 날짜 시트·수정 폼의 지출자 고르기는 memberNameMap 이름을 쓴다) ─────────────────────
+await fixture(async (fx) => {
+  fx.env.ADMIN_PASSWORD = "replies-admin-v22979";
+  fx.env.ADMIN_SESSION_SECRET = "replies-admin-session-v22979";
+  const login = await post(fx, "/login", { password: fx.env.ADMIN_PASSWORD, return_to: "/?legacy=1" }, { cookie: "" });
+  const admin = (login.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
+  const dashboard = await page(fx, `/?legacy=1&household_id=${HH}`, { cookie: admin });
+  eq(dashboard.status, 200, "옛 관리자 화면은 관리자 세션으로 200");
+  ok(dashboard.html.includes("<datalist id=\"categoryList\">") && dashboard.html.includes("<datalist id=\"paymentList\">"), "옛 관리자 화면의 분류·결제수단 datalist 는 그대로");
+  ok(!dashboard.html.includes("spenderNameList"), "옛 관리자 화면에 아무도 쓰지 않던 지출자 이름 datalist(원래 별명 그대로)가 없다");
+  const bundle = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  ok(!bundle.includes("spenderNameList") && !bundle.includes("renderSpenderDatalist"), "번들에 지출자 datalist 도우미가 남지 않았다(서버·클라이언트 자산 어디에도 참조가 없었다)");
+});
+
+// ── 기간을 가리킨 ‘뭐 썼어’는 최근 5건이 아니라 그 기간의 요약으로 답한다 ──────────────────────────────────────────
+await scenario("기간 질문", async (fx) => {
+  await say(fx, "7월 30일 병원 15000"); // 지난 주(7/27~8/2)
+  await say(fx, "그제 마트 30000");      // 이번 주(8/3~8/9) 월요일
+  await say(fx, "어제 택시 8000");
+  await say(fx, "커피 4500");
+  await say(fx, "점심 9000");
+  const strip = (text) => text.replace(/\n\n상세 분석 보기\n\S+$/, ""); // 첫 요약에만 붙는 ‘상세 분석 보기’ 링크(24시간에 한 번)는 비교에서 뺀다
+  for (const [ask, summary, header, expense] of [
+    ["이번 주 뭐 썼어", "이번 주 요약", "📊 이번 주 요약", "지출: 51,500원 · 4건"],
+    ["이번주 뭐썼어", "이번 주 요약", "📊 이번 주 요약", "지출: 51,500원 · 4건"],
+    ["이번 주에 뭐 썼어요", "이번 주 요약", "📊 이번 주 요약", "지출: 51,500원 · 4건"],
+    ["이번 달 뭐 썼어", "이번 달 요약", "📊 이번 달 요약", "지출: 51,500원 · 4건"],
+    ["이번 달 뭐 썼어?", "이번 달 요약", "📊 이번 달 요약", "지출: 51,500원 · 4건"],
+    ["이번 달 뭐 썼는지 알려줘", "이번 달 요약", "📊 이번 달 요약", "지출: 51,500원 · 4건"],
+    ["이번 달 쓴 거", "이번 달 요약", "📊 이번 달 요약", "지출: 51,500원 · 4건"],
+    ["지난주 뭐 썼어", "지난주 요약", "📊 지난 주 요약", "지출: 15,000원 · 1건"],
+    ["저번 주 뭐 썼어", "지난주 요약", "📊 지난 주 요약", "지출: 15,000원 · 1건"],
+    ["지난달 쓴 거", "지난달 요약", "📊 7월 요약", "지출: 263,600원 · 4건"],
+  ]) {
+    const expected = strip((await say(fx, summary)).text);
+    const reply = strip((await say(fx, ask)).text);
+    ok(reply === expected && reply.includes(header) && reply.includes(expense) && !reply.includes("최근 입력 내역"), `기간 질문 ‘${ask}’는 ‘${summary}’와 같은 기간 요약으로 답한다(${header}, ${expense}) (${reply.slice(0, 90)})`);
+  }
+  // 하루를 가리킨 말은 그날 기록 목록, 기간 없는 말은 최근 5건 그대로.
+  ok((await say(fx, "오늘 뭐 썼어")).text.includes(`🧾 ${DAY} 기록`), "하루를 가리킨 ‘오늘 뭐 썼어’는 그날 기록 목록 그대로");
+  const recent = (await say(fx, "최근 기록")).text;
+  ok(recent.includes("🧾 최근 입력 내역") && recentMemos(recent).length === 5, "‘최근 기록’은 최근 5건 그대로");
+  // 기간을 읽지 못한 말은 이번 달로 바꿔 답하지 않는다(예전과 같다).
+  ok(!(await say(fx, "저저번달 뭐 썼어")).text.includes("📊 이번 달 요약"), "읽지 못한 기간을 이번 달 요약으로 바꾸지 않는다");
+});
 
 if (SOFT) {
   console.log(`V22979_SOFT: 통과 ${base.done()} · 실패 ${failures.length}`);
