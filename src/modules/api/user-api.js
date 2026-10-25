@@ -28,7 +28,8 @@ import {
 } from "../domain/budgets.js";
 import { detectRecurringCandidates } from "../admin/pc-analysis-calendar.js";
 import { addMonthsYm } from "../domain/analytics.js";
-import { formatMessage, isMissingCategory } from "../kakao/reply-texts.js";
+import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
+import { formatMessage, isMissingCategory, mergedOptions } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { readJson } from "./admin-api.js";
 import { supabase } from "../data/supabase-client.js";
@@ -253,6 +254,10 @@ async function handleUserDayTransactions(request, env, url) {
     date,
     can_write: canWrite,
     can_manage_spender: canManageSpender,
+    // V22.9.79 V44 F-3: 날짜 시트 수정 칸의 분류·결제수단 제안 목록. 기본 목록에 그날 기록의 값만 더한다(새 조회 없음).
+    // 수정 폼을 쓸 수 없는 역할에는 비워 보낸다.
+    categories: canWrite ? mergedOptions(DEFAULT_CATEGORIES, items.map((item) => item.category)) : [],
+    payments: canWrite ? mergedOptions(DEFAULT_PAYMENTS, items.map((item) => item.payment_method)) : [],
     // V22.9.79 감사 N-4: 날짜 시트의 지출자 고르기 이름도 같은 날 목록의 지출자(item.member)·요약·정산·카카오 저장 답장과 같은 규칙이다.
     // 이름이 같은 구성원(‘카카오사용자’ 여럿)이 목록에서는 ‘카카오사용자 1·2’인데 여기서는 둘 다 ‘카카오사용자’여서 고를 수 없었다.
     members: canManageSpender ? activeMembers.map((member) => ({ user_id: String(member.user_id || ""), nickname: String(spenderNames[member.user_id] || member.nickname || "구성원"), role: String(member.role || "member") })) : [],

@@ -62,7 +62,7 @@ async function handleMySettingsPage(request, env, url, budgetDraft = null) {
   // V22.9.63 감사(웹 2): 내 가계부가 아닌 ID 는 시작 화면이 아니라 찾을 수 없음(404)으로 답한다(V22.9.37 H9, /menu 와 같다).
   if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
-  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
+  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true, screen: "settings" });
   // V22.8.81: 키워드 편집기는 /keyword-guide 한 곳으로 모았다. 여기서는 더 읽지 않는다.
   const [rows, budgetRead, customCategories, recurring] = await Promise.all([
     fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),

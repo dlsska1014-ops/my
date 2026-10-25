@@ -4,6 +4,8 @@ import { memberNameMap, renderSpenderOptions } from "../data/households-members-
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { homeUpcomingOut } from "../domain/spending-outlook.js";
 import { memeCollectionFor } from "../features/meme-cards.js";
+import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
+import { mergedOptions } from "../kakao/reply-texts.js";
 import { addDays, currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -86,6 +88,14 @@ function txEditPath(id = "", returnTo = "") {
   return `/transactions/edit?${params.toString()}`;
 }
 
+// V22.9.79 V44 F-3: 수정 폼의 분류·결제수단 칸은 홈 빠른 입력과 같은 제안 목록(#categoryList·#paymentList)을 가리킨다.
+// 홈 안에서 열리는 폼 조각은 홈이 이미 그려 둔 목록을 쓴다(홈에 같은 id 가 겹치지 않도록 조각에는 목록을 싣지 않는다).
+// 홈 밖의 온전한 수정 화면(전체 화면·충돌 안내)은 이 도우미로 목록을 직접 붙인다. 새 조회 없이 기본 목록과 그 기록의 현재 값만 쓴다.
+function renderTxEditSuggestionLists(t = {}) {
+  const options = (list) => list.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+  return `<datalist id="categoryList">${options(mergedOptions(DEFAULT_CATEGORIES, [t.category]))}</datalist><datalist id="paymentList">${options(mergedOptions(DEFAULT_PAYMENTS, [t.payment_method]))}</datalist>`;
+}
+
 function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpender = false) {
   const memo = t.memo || t.raw_text || "-";
   const spenderLabel = t.type === "income" ? "수입자" : "지출자";
@@ -94,7 +104,7 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
   const spenderEditor = canEditSpender
     ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
     : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
-  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/>${abEditOriginalFields(t)}<input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(t.memo || "")}" placeholder="${escapeHtml(t.raw_text || "내용")}" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
+  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/>${abEditOriginalFields(t)}<input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(t.memo || "")}" placeholder="${escapeHtml(t.raw_text || "내용")}" aria-label="내용"/><input name="category" list="categoryList" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" list="paymentList" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
 }
 
 // V22.8.91 통합 작업지시서 4.3 — "이번 달 리포트" 4장.
@@ -193,10 +203,18 @@ function renderHomeReportCards(options = {}) {
   // 2. 쓰는 속도 — 지난 4주. 이번 달 주차로 그리면 1주차가 부분 주간이라 비교가 틀린다.
   //    다만 이 화면이 받아 둔 기록은 보고 있는 달뿐이라, 그 달 시작보다 앞선 주는
   //    자료가 없다. 그런 주를 0원으로 그리면 "안 썼다"는 거짓말이 되므로 비워 둔다.
+  // V22.9.79 V78 S-3: 오늘로 끝나는 7일 창은 오늘이 속한 달에만 맞다. 지난·과거 달은 그 달 말일로 끝나는 마지막 4주를 쓴다
+  //   (예전에는 창 넷이 모두 그 달 밖이라 지출이 있어도 ‘0원 · 직전 7일과 같은 속도입니다’였다). 아직 오지 않은 달은 지난 4주가 없어
+  //   창 넷을 비우고 ‘관측 전’이라 적는다. 이번 달의 계산과 문구는 그대로다.
   const monthStart = `${month}-01`;
   const todayDate = nowKstDate();
+  const monthShaped = /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+  const paceFuture = monthShaped && month > formatDate(todayDate).slice(0, 7);
+  const pacePast = monthShaped && month < formatDate(todayDate).slice(0, 7);
+  const paceAnchor = pacePast ? new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0) : todayDate;
   const weeks = [3, 2, 1, 0].map((back) => {
-    const end = addDays(todayDate, -7 * back);
+    if (paceFuture) return { covered: false, amount: 0 };
+    const end = addDays(paceAnchor, -7 * back);
     const start = addDays(end, -6);
     const startKey = formatDate(start);
     const endKey = formatDate(end);
@@ -217,14 +235,19 @@ function renderHomeReportCards(options = {}) {
   // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
   // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 "지난주" 대신 "직전 7일"이라고 말한다. 홈 HTML 바이트 예산(35KiB)이
   // 꽉 차 있어 문구는 짧게 둔다.
-  const paceRead = paceDelta === null
-    ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
-    : paceDelta > 0
-      ? `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
-      : paceDelta < 0
-        ? `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `직전 7일과 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="최근 4주 지출">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+  // V22.9.79: 지난·과거 달은 ‘속도’가 아니라 그 달의 마지막 7일과 그 앞 7일을 견준 실적이라 과거형으로 말한다.
+  const paceRead = paceFuture
+    ? `아직 시작하지 않은 달이에요`
+    : paceDelta === null
+      ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
+      : pacePast && !thisWeek.amount && !lastWeek.amount
+        ? `마지막 2주에는 기록된 지출이 없어요`
+        : paceDelta > 0
+          ? (pacePast ? `마지막 7일이 직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 많았어요` : `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`)
+          : paceDelta < 0
+            ? (pacePast ? `마지막 7일이 직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 적었어요` : `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`)
+            : (pacePast ? `마지막 7일과 직전 7일이 같았어요` : `직전 7일과 같은 속도입니다`);
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -379,6 +402,7 @@ export {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
   lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
   memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
-  renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm, todayExpense,
+  renderTxEditSuggestionLists, renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm,
+  todayExpense,
 };
 // @build:exports-end

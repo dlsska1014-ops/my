@@ -154,6 +154,42 @@ function renderWeekdayTrend(rows = []) {
   return `<div class="weekdayTrendGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;width:100%;box-sizing:border-box;">${cells}</div>`;
 }
 
+// V22.9.79 감사 V44 D-16: 홈 ‘주별’ 탭은 요일별 합계(renderWeekdayTrend)를 보여 줘 이름과 달랐다. 그 달을 일~토 주로 나눠(홈 캘린더의 한 줄과 같다)
+// 주마다 지출을 더한다. 첫 주·마지막 주는 달 경계에서 잘린 부분 주간이라 날짜 범위를 함께 적는다. 지출이 없는 주는 일별 격자처럼 ‘·’로 둔다.
+// 요일별 추이는 종합 리포트의 renderWeekdayTrend 가 그대로 맡는다. 칸 모양을 요일 칸과 같게 두어 다크 모드 규칙(.weekdayCell)을 함께 받는다.
+function renderWeeklyTrend(rows = [], month = currentMonthKst()) {
+  const ym = validMonth(month) || currentMonthKst();
+  const year = Number(ym.slice(0, 4));
+  const mon = Number(ym.slice(5, 7));
+  const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
+  const weekOf = (day) => Math.floor((day - 1 + firstDow) / 7);
+  const weeks = Array.from({ length: weekOf(lastDay) + 1 }, () => ({ from: 0, to: 0, amount: 0, count: 0 }));
+  for (let day = 1; day <= lastDay; day += 1) {
+    const week = weeks[weekOf(day)];
+    if (!week.from) week.from = day;
+    week.to = day;
+  }
+  for (const r of safeArray(rows)) {
+    if (r.type === "income") continue;
+    const date = String(r.transaction_date || "");
+    if (date.slice(0, 7) !== ym) continue;
+    const day = Number(date.slice(8, 10));
+    if (!(day >= 1 && day <= lastDay)) continue;
+    const week = weeks[weekOf(day)];
+    week.amount += Number(r.amount || 0);
+    week.count += 1;
+  }
+  const max = Math.max(1, ...weeks.map((w) => w.amount));
+  const cells = weeks.map((w, index) => {
+    const pct = Math.max(w.amount ? 8 : 2, Math.round(w.amount / max * 100));
+    const peak = w.amount === max && w.amount > 0;
+    const range = w.from === w.to ? `${w.from}일` : `${w.from}~${w.to}일`;
+    return `<div class="weekdayCell weekCell${peak ? " peak" : ""}" style="display:grid;gap:7px;background:${peak ? "#FFFBEB" : "#F8F9FB"};border:1px solid ${peak ? "#FDE68A" : "#EEF0F3"};border-radius:14px;padding:11px;box-sizing:border-box;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="font-size:15px;color:#4E5968;">${index + 1}주차</b>${w.count ? `<span style="font-size:11px;color:#8B95A1;font-weight:800;">${numberWithCommas(w.count)}건</span>` : ""}</div><small style="font-size:11px;color:#8B95A1;font-weight:800;">${range}</small><strong style="font-size:17px;color:#191919;white-space:nowrap;letter-spacing:-.02em;">${w.amount ? shortWonLabel(w.amount) : "·"}</strong><div style="height:7px;background:#E8EBEF;border-radius:999px;overflow:hidden;"><i style="display:block;height:100%;width:${pct}%;background:${peak ? "#F5B800" : "#3182F6"};border-radius:999px;"></i></div></div>`;
+  }).join("");
+  return `<div class="weeklyTrendGrid" role="group" aria-label="${mon}월 주별 지출" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;width:100%;box-sizing:border-box;">${cells}</div>`;
+}
+
 function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month = currentMonthKst() }) {
   const income = Number(stats.totals?.income || analysis.income || 0);
   const expense = Number(stats.totals?.expense || analysis.expense || 0);
@@ -257,6 +293,6 @@ function shiftMonthString(month = currentMonthKst(), delta = 0) {
 // @build:exports-start
 export {
   computeFairMoM, renderMyAnalysisHtml, renderReadableDailyTrend, renderWeekdayTrend,
-  shiftMonthString, shortWonLabel,
+  renderWeeklyTrend, shiftMonthString, shortWonLabel,
 };
 // @build:exports-end

@@ -646,6 +646,9 @@ function accountbookSearchClientMain() {
       + (r.transaction_date ? "&date=" + encodeURIComponent(r.transaction_date) : "")
       + "&abfm=" + encodeURIComponent(r.memo || r.category || "")
       + "&abfa=" + encodeURIComponent(String(r.amount || ""))
+      // V22.9.79 V44 F-7: 기록 번호를 함께 보내 같은 메모·금액이 여럿이어도 그 기록으로 간다. 그날 기록이 열 건을 넘어도 잘리지 않게 전체로 연다.
+      + (r.id ? "&abid=" + encodeURIComponent(r.id) : "")
+      + "&feed=all"
       + "#feed";
     a.setAttribute("role", "listitem");
     var main = document.createElement("div");
@@ -778,15 +781,18 @@ function accountbookSearchClientMain() {
   setMessage("메모·분류·결제수단·금액으로 검색해 보세요.");
   function tryFocusFromUrl() {
     var p; try { p = new URLSearchParams(location.search); } catch (e) { return; }
+    var wanted = (p.get("abid") || "").trim();
     var memo = (p.get("abfm") || "").trim();
     var amtDigits = (p.get("abfa") || "").replace(/[^0-9]/g, "");
-    if (!memo && !amtDigits) return;
+    if (!wanted && !memo && !amtDigits) return;
     var tries = 0;
     function attempt() {
       tries += 1;
-      var candidates = document.querySelectorAll(".txRow,.txItem,.timelineItem");
-      var found = null;
-      for (var i = 0; i < candidates.length; i++) {
+      // V22.9.79 V44 F-7: 홈 최근 내역의 기록 카드는 .v8-tx(id="tx-<기록 번호>")라서 예전 선택자(.txRow,.txItem,.timelineItem)에 없었다.
+      // 번호로 먼저 찾고, 없으면 메모·금액으로 찾는다.
+      var candidates = document.querySelectorAll(".txRow,.txItem,.timelineItem,.v8-tx");
+      var found = wanted ? document.getElementById("tx-" + wanted) : null;
+      for (var i = 0; !found && i < candidates.length; i++) {
         var node = candidates[i];
         if (node.closest && node.closest("#abV5Search")) continue;
         var text = node.textContent || "";
@@ -795,7 +801,11 @@ function accountbookSearchClientMain() {
         if (okMemo && okAmt) { found = node; break; }
       }
       if (found) {
-        try { found.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+        // V22.9.79 V44 F-7: 이 스크립트는 화면 구성(내비 등)이 끝나기 전에 돌아 그 뒤에 줄이 밀린다(실측: 기록이 하단 내비 뒤로 가려졌다).
+        // 다 그려진 뒤(load) 한 번 더 가운데로 맞춘다.
+        var reveal = function () { try { found.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} };
+        reveal();
+        if (document.readyState !== "complete") window.addEventListener("load", function () { setTimeout(reveal, 80); }, { once: true });
         found.classList.add("abV5Focus");
         setTimeout(function () { found.classList.remove("abV5Focus"); }, 2600);
         return;

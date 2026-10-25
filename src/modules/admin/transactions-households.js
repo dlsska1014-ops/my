@@ -32,7 +32,7 @@ import {
 import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
 import { purgeHouseholdData } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
-import { renderV8TxEditForm } from "../my/home-sections.js";
+import { renderTxEditSuggestionLists, renderV8TxEditForm } from "../my/home-sections.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
@@ -436,7 +436,8 @@ async function handleTransactionEditPage(request, env, url) {
   // V22.9.34 감사 T1b: 제목 아래 설명도 권한 판정용 좁은 행이 아니라 전체 행으로 쓴다(예전에는 늘 "기록").
   const memo = editRow.memo || editRow.raw_text || "기록";
   const title = escapeHtml(appName(env));
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
+  // V22.9.79 V44 F-3: 온전한 수정 화면은 폼의 분류·결제수단 칸이 가리키는 제안 목록(datalist)을 폼 뒤에 함께 싣는다(조각에는 싣지 않는다).
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}${renderTxEditSuggestionLists(editRow)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
 }
 
 async function handleAdminUpdateTransaction(request, env) {
@@ -549,7 +550,8 @@ function renderTransactionEditConflictHtml(env, current, conflicts, backTo, memb
   const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.now)}원` : c.field === "type" ? (c.now === "income" ? "수입" : "지출") : (c.now || "(비어 있음)");
   const typed = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
   const rows = conflicts.map((c) => `<li><b>${escapeHtml(c.label)}</b> 지금 값 ${escapeHtml(shown(c))} · 내가 입력한 값 ${escapeHtml(typed(c))}</li>`).join("");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert"><b>다른 곳에서 이 기록이 먼저 바뀌었어요.</b> 저장하지 않았어요. 지금 값을 확인하고 다시 저장해 주세요.<ul>${rows}</ul></div></section><section class="card">${renderV8TxEditForm(current, backTo, members, isManager)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
+  // V22.9.79 V44 F-3: 충돌 안내의 수정 폼도 같은 제안 목록을 가진다.
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert"><b>다른 곳에서 이 기록이 먼저 바뀌었어요.</b> 저장하지 않았어요. 지금 값을 확인하고 다시 저장해 주세요.<ul>${rows}</ul></div></section><section class="card">${renderV8TxEditForm(current, backTo, members, isManager)}${renderTxEditSuggestionLists(current)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 async function handleAdminHouseholdCreate(request, env) {

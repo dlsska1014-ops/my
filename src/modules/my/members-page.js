@@ -30,7 +30,7 @@ async function handleMyMembersPage(request, env, url) {
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
   if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
-  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
+  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true, screen: "members" });
   // V22.9.43: 구성원 권한은 참여자 목록과 함께 읽는다. 읽지 못하면 값을 추측하지 않고 확인 불가로 그린다.
   const [members, memberPolicy] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),

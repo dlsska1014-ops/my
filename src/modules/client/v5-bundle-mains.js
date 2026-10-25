@@ -936,6 +936,14 @@ function accountbookDayDetailClientMain() {
       return '<option value="' + esc(id) + '"' + (id === String(selected || "") ? " selected" : "") + '>' + esc(member && member.nickname || "구성원") + " (" + esc(member && member.role || "member") + ")</option>";
     }).join("");
   }
+  // V22.9.79 V44 F-3: 분류·결제수단 칸의 제안 목록. 서버가 보낸 categories·payments 로 시트 안에 datalist 를 한 번만 만든다
+  // (칸마다 만들면 같은 id 가 겹친다). 목록이 없으면 칸은 예전처럼 목록 없이 쓴다.
+  function suggestAttr(data, key, id) { return data && Array.isArray(data[key]) && data[key].length ? ' list="' + id + '"' : ""; }
+  function suggestLists(data) {
+    function options(values) { return values.map(function (value) { return '<option value="' + esc(value) + '"></option>'; }).join(""); }
+    return (data && Array.isArray(data.categories) && data.categories.length ? '<datalist id="abDayCategoryList">' + options(data.categories) + "</datalist>" : "")
+      + (data && Array.isArray(data.payments) && data.payments.length ? '<datalist id="abDayPaymentList">' + options(data.payments) + "</datalist>" : "");
+  }
   function renderItemActions(item, data) {
     if (!item || (!item.can_edit && !item.can_delete)) return "";
     var date = String(item.transaction_date || activeDate || "");
@@ -949,7 +957,7 @@ function accountbookDayDetailClientMain() {
     var spender = data && data.can_manage_spender
       ? '<label><span>' + (item.type === "income" ? "수입자" : "지출자") + '</span><select name="user_id" required>' + memberOptions(data.members, item.user_id) + "</select></label>"
       : '<input type="hidden" name="user_id" value="' + esc(item.user_id || "") + '"/><p class="abDayDetailSpender">' + (item.type === "income" ? "수입자" : "지출자") + " " + esc(item.member || "미지정") + "</p>";
-    var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + orig + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category" value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method" value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(rawMemo) + '" placeholder="' + esc(item.memo || "메모") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
+    var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + orig + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category"' + suggestAttr(data, "categories", "abDayCategoryList") + ' value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method"' + suggestAttr(data, "payments", "abDayPaymentList") + ' value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(rawMemo) + '" placeholder="' + esc(item.memo || "메모") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
     var description = (item.memo || "내용 없음") + " · " + fmt(item.amount) + "원";
     var remove = item.can_delete ? '<form method="post" action="/admin/delete" class="abDayDetailDelete" data-ab-day-write data-ab-day-delete data-confirm="' + esc(description + " 기록을 삭제할까요?") + '">' + hidden + '<button type="submit">삭제</button></form>' : "";
     return '<div class="abDayDetailActions">' + edit + remove + "</div>";
@@ -1045,7 +1053,7 @@ function accountbookDayDetailClientMain() {
       var memo = item.memo || "내용 없음";
       var meta = [item.payment_method, item.member].filter(Boolean).map(esc).join(" · ");
       return '<article class="abDayDetailItem ' + (income ? "isIncome" : "isExpense") + '"><span class="abDayDetailType">' + (income ? "수입" : "지출") + '</span><div class="abDayDetailCopy"><b>' + esc(memo) + '</b><span>' + esc(category) + (meta ? " · " + meta : "") + '</span></div><strong>' + (income ? "+" : "−") + fmt(item.amount) + '원</strong>' + renderItemActions(item, data) + '</article>';
-    }).join("") + (data && data.has_more ? '<div class="abDayDetailMore">거래가 많아 최근 ' + Number(data.displayed_count || 0) + '건만 표시했습니다. 전체 기록에서 나머지를 확인하세요.</div>' : "");
+    }).join("") + (data && data.has_more ? '<div class="abDayDetailMore">거래가 많아 최근 ' + Number(data.displayed_count || 0) + '건만 표시했습니다. 전체 기록에서 나머지를 확인하세요.</div>' : "") + suggestLists(data);
   }
   function load(date, householdId, href) {
     if (activeRequest && typeof activeRequest.abort === "function") activeRequest.abort();

@@ -18,7 +18,7 @@ import { fetchUserById } from "../data/users-household-create.js";
 import { abEchoQuickRequestId } from "./backup-import.js";
 import { buildReportChallengeForHousehold, renderReportChallenge } from "./report-challenge.js";
 import {
-  renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
+  renderReadableDailyTrend, renderWeeklyTrend, shiftMonthString, shortWonLabel,
 } from "./analysis-page.js";
 import {
   MEMBER_POLICY_RECORD_ONLY, canWriteMyHousehold, getMySelectedHousehold, householdIdWasRemembered,
@@ -249,12 +249,13 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
       ? `<span class="homeTrendOn" aria-current="true">${label}</span>`
       : `<a href="${escapeHtml(trendTabPath(key))}">${label}</a>`)
     .join("");
+  // V22.9.79 V44 D-16: ‘주별’ 탭은 요일별 합계(renderWeekdayTrend)가 아니라 그 달의 주별 합계를 그린다. 요일별은 종합 리포트에 있다.
   const trendBody = trendView === "daily"
     ? renderReadableDailyTrend(rows, month, trendDrillBase)
     : trendView === "monthly"
       ? renderMonthlySeriesChart(monthlyTrend)
       : trendView === "weekly"
-        ? renderWeekdayTrend(rows)
+        ? renderWeeklyTrend(rows, month)
         : `<p class="homeTrendHint">보고 싶은 기간을 고르면 그래프가 열립니다.</p>`;
   const homeTrendHtml = `<div class="homeTrend" id="homeTrend"><div class="homeTrendSeg">${trendTabs}</div><div class="homeTrendPanel">${trendBody}</div></div>`;
 

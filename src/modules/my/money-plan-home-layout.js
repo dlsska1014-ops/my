@@ -35,13 +35,14 @@ const MONEY_PLAN_TABS = [
   ["settings", "설정 한눈에", "/my/settings", "요약·정기·분류"],
 ];
 
-function renderMoneyPlanTabs(active = "budgets", { month = currentMonthKst(), householdId = "" } = {}) {
+// V22.9.79 V44 F-6: 설정 한눈에(/my/settings)는 소유자·관리자 전용이라 canManage 가 아니면 이 탭을 그리지 않는다(구성원이 누르면 403 이었다).
+function renderMoneyPlanTabs(active = "budgets", { month = currentMonthKst(), householdId = "", canManage = true } = {}) {
   const qs = `month=${encodeURIComponent(validMonth(month) || currentMonthKst())}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
-  const links = MONEY_PLAN_TABS.map(([key, label, path, hint]) => {
+  const links = MONEY_PLAN_TABS.filter(([key]) => canManage || key !== "settings").map(([key, label, path, hint]) => {
     const on = key === active;
     return `<a href="${escapeHtml(`${path}?${qs}`)}"${on ? ' class="on" aria-current="page"' : ""}><b>${escapeHtml(label)}</b><small>${escapeHtml(hint)}</small></a>`;
   }).join("");
-  return `<nav class="abMoneyPlanTabs" aria-label="예산·정기 설정">${links}</nav>`;
+  return `<nav class="abMoneyPlanTabs${canManage ? "" : " isTwo"}" aria-label="예산·정기 설정">${links}</nav>`;
 }
 
 function moneyPlanTabsCss() {
@@ -51,7 +52,8 @@ function moneyPlanTabsCss() {
     + `.abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:900}`
     + `.abMoneyPlanTabs a.on{background:#111827;border-color:#111827;color:#fff!important}`
     + `.abMoneyPlanTabs a.on small{color:#cbd5e1}`
-    + `@media(max-width:600px){.abMoneyPlanTabs{grid-template-columns:1fr;gap:6px}.abMoneyPlanTabs a{display:flex;align-items:baseline;gap:8px;padding:10px 12px}}`
+    + `.abMoneyPlanTabs.isTwo{grid-template-columns:repeat(2,minmax(0,1fr))}`
+    + `@media(max-width:600px){.abMoneyPlanTabs,.abMoneyPlanTabs.isTwo{grid-template-columns:1fr;gap:6px}.abMoneyPlanTabs a{display:flex;align-items:baseline;gap:8px;padding:10px 12px}}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a{background:#1e2026;border-color:#3b475a;color:#edeff3!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a small{color:#b3bdc9}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff!important}`

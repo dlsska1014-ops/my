@@ -42,7 +42,8 @@ for (const word of ["살까", "buyOrNot", "affordCalculator"]) {
 
 // 6. 세 렌더 함수는 호출만 한다.
 ok(source.includes("renderReadableDailyTrend(rows, month, trendDrillBase)"), "the daily trend is called, not reimplemented");
-ok(source.includes("renderWeekdayTrend(rows)"), "the weekday trend is called");
+ok(source.includes("renderWeeklyTrend(rows, month)"), "the weekly trend is called (V22.9.79 D-16: 주별 탭은 요일별이 아니라 주별 합계)");
+ok(source.includes("${renderWeekdayTrend(rows)}"), "the weekday trend is still called from the report page");
 ok(source.includes("renderMonthlySeriesChart(monthlyTrend)"), "the monthly chart is called");
 ok(source.includes("function renderReadableDailyTrend("), "renderReadableDailyTrend still exists");
 ok(source.includes("function renderWeekdayTrend("), "renderWeekdayTrend still exists");
