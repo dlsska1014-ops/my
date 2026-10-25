@@ -17,8 +17,8 @@ import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
-function backupJsonResponse(data, filename) {
-  return new Response(JSON.stringify(data, null, 2), {
+function backupJsonResponse(body, filename) {
+  return new Response(body, {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "content-disposition": `attachment; filename="${filename}"`,
@@ -39,6 +39,14 @@ function backupScopeParams(month, householdId) {
 // 모든 가계부를 한꺼번에 담는 백업은 가계부마다 읽기가 다섯 번씩 늘어 요청 한도(50회)에 걸리므로 계속 한 달 단위다.
 // 전체 기간 백업의 요청 수: 가계부 1 + 거래 쪽수(1,000건당 1, 최대 16) + 참여자·예산·정기·분류·적립 5~6.
 const ADMIN_FULL_BACKUP_ROW_LIMIT = 15000;
+// V22.9.79 감사 E-16: 남은 두 가지. (1) 만든 파일이 복구 단계(미리보기·비교·후보 고르기)가 받는 크기(8MB, 글자 수)를 넘으면 받아도 쓸 수 없으므로
+// 만들지 않는다(거래 15,000건이 긴 메모·원문을 가지면 들여쓴 JSON 이 8MB 를 넘을 수 있었다 → 전체 기간 백업은 들여쓰기 없이 만든다).
+// (2) 모든 가계부 백업은 가계부마다 읽기가 7번(별명·참여자·예산·정기·분류 표·분류 설정·적립) 늘어 공통 읽기 3번과 합쳐 가계부 7개부터 요청
+// 한도(50회)를 넘는다 — 읽다가 503 으로 끝나지 않게 가계부 5개까지만 받고, 그보다 많으면 읽기 전에 알린다. 전체 기간을 가계부마다 받는 단추와
+// 거래가 15,000건을 넘는 가계부를 해마다 나눠 받는 연도별 단추(year=)를 백업센터에 둔다.
+const ADMIN_BACKUP_FILE_MAX_CHARS = 8 * 1024 * 1024;
+const ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX = 5;
+const ADMIN_BACKUP_CENTER_HOUSEHOLD_LINKS = 40;
 
 async function fetchAllBudgetsForBackup(env, householdId) {
   const params = new URLSearchParams();
@@ -48,12 +56,14 @@ async function fetchAllBudgetsForBackup(env, householdId) {
   return fetchPostgrestRows(env, `/rest/v1/accountbook_budgets?${params.toString()}`, { maxRows: 20000 });
 }
 
-async function buildBackupPayload(env, { month, householdId, range = "month" }) {
+async function buildBackupPayload(env, { month, householdId, range = "month", year = "" }) {
   const allMonths = range === "all" && !!householdId;
   const households = await fetchAdminHouseholds(env);
   const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
+  if (!householdId && selectedHouseholds.length > ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX) throw Object.assign(new Error(`가계부 ${selectedHouseholds.length}개를 한 번에 백업할 수 없습니다.`), { code: "too_many_households", count: selectedHouseholds.length, limit: ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX });
+  const yearOnly = allMonths && /^20\d{2}$/.test(String(year || "")) ? String(year) : "";
   const transactions = allMonths
-    ? await fetchAdminRowsRange(env, { householdId, type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
+    ? await fetchAdminRowsRange(env, { householdId, ...(yearOnly ? { start: `${yearOnly}-01-01`, end: `${Number(yearOnly) + 1}-01-01` } : {}), type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
     : await fetchAdminRows(env, { month, householdId, type: "all" });
   const membersByHousehold = Object.create(null);
   const budgetsByHousehold = Object.create(null);
@@ -65,18 +75,27 @@ async function buildBackupPayload(env, { month, householdId, range = "month" }) 
   // V22.9.77 N-15: 분류·키워드와 구성원 별명도 엄격 조회로 읽는다(예전에는 실패하면 빈 목록이 들어간 파일이 정상으로 나갔다).
   for (const h of selectedHouseholds) {
     membersByHousehold[h.id] = await fetchHouseholdMembers(env, h.id, { strict: true });
-    budgetsByHousehold[h.id] = allMonths ? await fetchAllBudgetsForBackup(env, h.id) : await fetchBudgets(env, h.id, month, { strict: true });
+    budgetsByHousehold[h.id] = allMonths ? (await fetchAllBudgetsForBackup(env, h.id)).filter((row) => !yearOnly || String(row.month || "").startsWith(`${yearOnly}-`)) : await fetchBudgets(env, h.id, month, { strict: true });
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
     categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id, { strict: true });
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
   }
-  const dates = allMonths ? transactions.map((row) => String(row.transaction_date || "").slice(0, 10)).filter(Boolean).sort() : [];
+  // V22.9.79 E-16: 첫·마지막 날짜는 거래 수만큼 정렬하지 않고 한 번 훑어 구한다(1만 5천 건 정렬이 요청 CPU 를 불필요하게 썼다). 값은 같다.
+  let firstDate = "", lastDate = "";
+  if (allMonths) {
+    for (const row of transactions) {
+      const date = String(row.transaction_date || "").slice(0, 10);
+      if (!date) continue;
+      if (!firstDate || date < firstDate) firstDate = date;
+      if (!lastDate || date > lastDate) lastDate = date;
+    }
+  }
   return {
     app: "kakao-accountbook",
     version: APP_VERSION,
     exported_at: new Date().toISOString(),
     scope: allMonths
-      ? { month, range: "all", household_id: householdId, household_scope: "selected", first_date: dates[0] || "", last_date: dates[dates.length - 1] || "" }
+      ? { month, range: "all", household_id: householdId, household_scope: "selected", ...(yearOnly ? { year: yearOnly } : {}), first_date: firstDate, last_date: lastDate }
       : { month, range: "month", household_id: householdId || "", household_scope: householdId ? "selected" : "all" },
     counts: {
       households: selectedHouseholds.length,
@@ -98,7 +117,9 @@ async function buildBackupPayload(env, { month, householdId, range = "month" }) 
       "이 파일은 백업용 JSON입니다.",
       "민감한 가계부 데이터가 포함될 수 있으므로 외부 공유를 피하세요.",
       "복구 자동 반영 기능은 아직 제공하지 않으며, 운영 안정화를 위해 먼저 내보내기만 제공합니다.",
-      allMonths
+      yearOnly
+        ? `선택한 가계부의 ${yearOnly}년 거래와 예산만 담은 연도별 백업입니다. 다른 해는 해마다 따로 받으세요. 백업센터의 복구 단계는 한 달씩 진행합니다(비교·후보 화면에서 달을 고르세요).`
+        : allMonths
         ? "선택한 가계부의 모든 달 거래와 예산을 담은 전체 기간 백업입니다. 백업센터의 복구 단계는 한 달씩 진행합니다(비교·후보 화면에서 달을 고르세요)."
         : `선택한 달(${month})의 거래와 예산만 담은 백업입니다.`,
     ],
@@ -111,16 +132,25 @@ async function handleAdminExportJson(request, env, url) {
   const householdId = String(url.searchParams.get("household_id") || "").trim();
   const range = url.searchParams.get("range") === "all" ? "all" : "month";
   if (range === "all" && !householdId) return jsonResponse({ ok: false, error: "household_required", message: "전체 기간 백업은 가계부를 하나 골라야 만들 수 있습니다." }, 400);
+  const yearParam = String(url.searchParams.get("year") || "").trim();
+  if (yearParam && (range !== "all" || !/^20\d{2}$/.test(yearParam))) return jsonResponse({ ok: false, error: "invalid_year", message: "연도별 백업은 전체 기간 백업에서 2000년대 연도(예: 2026) 하나만 받을 수 있습니다." }, 400);
   let payload;
   try {
-    payload = await buildBackupPayload(env, { month, householdId, range });
+    payload = await buildBackupPayload(env, { month, householdId, range, year: yearParam });
   } catch (err) {
     rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
-    if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 달별 백업을 이용해 주세요.` }, 413);
+    if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 연도별 백업을 이용해 주세요.` }, 413);
+    if (err?.code === "too_many_households") return jsonResponse({ ok: false, error: "backup_too_many_households", households: err.count, limit: err.limit, message: `가계부가 ${numberWithCommas(err.count)}개라 요청 한도 때문에 한 번에 담지 못했습니다(${numberWithCommas(err.limit)}개까지). 백업센터의 ‘가계부별 전체 기간 백업’에서 가계부마다 받아 주세요.` }, 413);
     return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
   }
+  // 전체 기간 백업은 들여쓰기 없이 만든다(같은 내용에서 약 22% 작고 만드는 시간이 짧다). 복구 단계가 받는 8MB 를 넘는 파일은 만들지 않는다.
+  const body = JSON.stringify(payload, null, range === "all" ? 0 : 2);
+  if (body.length > ADMIN_BACKUP_FILE_MAX_CHARS) {
+    rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: `file_too_large:${body.length}` });
+    return jsonResponse({ ok: false, error: "backup_too_large", message: `백업 파일이 복구 단계가 받는 크기(8MB)를 넘어 만들지 않았습니다. ${range === "all" && !yearParam ? "연도별 백업" : "달별 백업"}을 이용해 주세요.` }, 413);
+  }
   const scope = householdId ? "household" : "all";
-  return backupJsonResponse(payload, `accountbook_backup_${range === "all" ? "all-months" : month}_${scope}.json`);
+  return backupJsonResponse(body, `accountbook_backup_${range === "all" ? `all-months${yearParam ? `_${yearParam}` : ""}` : month}_${scope}.json`);
 }
 
 async function handleBackupCenterPage(request, env, url) {
@@ -139,6 +169,12 @@ async function handleBackupCenterPage(request, env, url) {
   const qs = backupScopeParams(month, hid);
   const allQs = backupScopeParams(month, "");
   const fullQs = `${qs}&range=all`;
+  // V22.9.79 감사 E-16: 연도별 단추(거래 15,000건 넘는 가계부), 가계부별 전체 기간 단추, 모든 가계부 한 달 단추(가계부 5개까지).
+  const thisYear = Number(currentMonthKst().slice(0, 4));
+  const yearLinks = hid ? [0, 1, 2, 3, 4].map((back) => `<a class="btn light" href="/admin/export/json?${escapeHtml(fullQs)}&amp;year=${thisYear - back}">${thisYear - back}년만</a>`).join("") : "";
+  const householdLinks = households.slice(0, ADMIN_BACKUP_CENTER_HOUSEHOLD_LINKS).map((h) => `<a class="btn light" href="/admin/export/json?${escapeHtml(backupScopeParams(month, h.id))}&amp;range=all">${escapeHtml(h.name || "가계부")}</a>`).join("");
+  const manyHouseholds = households.length > ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX;
+  const allButton = manyHouseholds ? "" : `<a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">모든 가계부 ${escapeHtml(month)}만 백업</a>`;
   const cards = [
     ["거래 기록", `${numberWithCommas(rows.length)}건`, "현재 선택한 월의 수입·지출 데이터"],
     ["참여자", `${numberWithCommas(members.length)}명`, "가계부 구성원 정보"],
@@ -146,7 +182,7 @@ async function handleBackupCenterPage(request, env, url) {
     ["고정항목", recurring ? `${numberWithCommas(recurring.length)}개` : "확인 불가", "반복 기록 설정"],
     ["사용자 분류", `${numberWithCommas(categories.length)}개`, "직접 추가한 분류"],
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다. 전체 기간 백업은 선택한 가계부의 모든 달(거래 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건까지)을, ‘${escapeHtml(month)}만’ 단추는 그 달만 담습니다. 모든 가계부 백업은 요청 한도 때문에 한 달씩만 만듭니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(fullQs)}">1. 현재 가계부 전체 기간 백업</a><a class="btn light" href="/admin/export/json?${escapeHtml(qs)}">현재 가계부 ${escapeHtml(month)}만 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV(${escapeHtml(month)})</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">모든 가계부 ${escapeHtml(month)}만 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다. 전체 기간 백업은 선택한 가계부의 모든 달(거래 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건까지)을, ‘${escapeHtml(month)}만’ 단추는 그 달만 담습니다. 거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘는 가계부는 아래 연도별 단추로 해마다 받으세요. ‘모든 가계부’ 백업은 요청 한도 때문에 가계부 ${ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX}개까지·한 달 치만 만들 수 있어, 모든 가계부의 전체 기간은 아래 ‘가계부별 전체 기간 백업’에서 가계부마다 받으세요.${manyHouseholds ? ` 지금은 가계부가 ${numberWithCommas(households.length)}개라 ‘모든 가계부’ 단추를 두지 않았습니다.` : ""}</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(fullQs)}">1. 현재 가계부 전체 기간 백업</a><a class="btn light" href="/admin/export/json?${escapeHtml(qs)}">현재 가계부 ${escapeHtml(month)}만 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV(${escapeHtml(month)})</a>${allButton}</div>${yearLinks ? `<h3>현재 가계부 연도별 전체 기간 백업</h3><div class="actions">${yearLinks}</div>` : ""}${householdLinks ? `<h3>가계부별 전체 기간 백업</h3><div class="actions">${householdLinks}</div>${households.length > ADMIN_BACKUP_CENTER_HOUSEHOLD_LINKS ? `<p class="muted">가계부가 ${numberWithCommas(households.length)}개라 처음 ${ADMIN_BACKUP_CENTER_HOUSEHOLD_LINKS}개만 보여 줍니다. 나머지는 위 선택 칸에서 가계부를 골라 ‘백업 기준 변경’ 뒤 받으세요.</p>` : ""}` : ""}<div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
 }
 
 function safeArray(value) {
