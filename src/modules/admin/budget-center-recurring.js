@@ -207,11 +207,13 @@ async function handleRecurringSave(request, env) {
   const members = await fetchHouseholdMembers(env, householdId);
   const spenderId = String(form.get("user_id") || "").trim();
   const ruleId = String(form.get("id") || "").trim();
+  const type = String(form.get("type") || "expense") === "income" ? "income" : "expense";
   const row = {
     household_id: householdId,
-    type: String(form.get("type") || "expense") === "income" ? "income" : "expense",
+    type,
     amount: Math.max(0, Math.round(parseBudgetFormAmount(form.get("amount") || 0))),
-    category: String(form.get("category") || "기타").slice(0, 80),
+    // V22.9.79 W-3: 분류를 비운 고정 수입은 수입 기본 분류(‘기타수입’, /my/settings 와 같다)다. 지출은 예전처럼 ‘기타’다.
+    category: String(form.get("category") || (type === "income" ? "기타수입" : "기타")).slice(0, 80),
     memo: String(form.get("memo") || "").slice(0, 160),
     payment_method: String(form.get("payment_method") || "").slice(0, 40),
     day_of_month: normalizeRecurringDay(form.get("day_of_month")),

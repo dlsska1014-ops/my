@@ -73,6 +73,7 @@ const validationScripts = [
   ["V22.9.79 카카오 명령 답장(오늘 뭐 썼어·복구 안내·단톡방 안내·지출자 이름·같은 이름 가계부)", "validation/validate-kakao-replies-v22979.mjs"],
   ["V22.9.79 환불 연결(플래그 꺼짐 기본)·카카오 정산 외 N명", "validation/validate-refund-links-v22979.mjs"],
   ["V22.9.79 예약 실행 말일 바퀴·주간 스냅숏·수정 경로 다시 만들기", "validation/validate-cron-v22979.mjs"],
+  ["V22.9.79 정기 항목 목록 실패 표시·정기 수입 기본 분류", "validation/validate-recurring-web-v22979.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

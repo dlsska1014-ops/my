@@ -21,7 +21,8 @@ for (const route of ["/admin/recurring/save", "/admin/recurring/apply", "/admin/
 ok(source.includes("accountbook_apply_recurring_v227"), "the apply RPC is unchanged");
 
 // 정기 관리 페이지가 고정지출을 함께 읽는다.
-ok(source.includes("fetchRecurring(env, householdId),"), "the reserve plans page loads recurring rows");
+// V22.9.79 D-25: 목록을 못 읽으면 빈 목록이 아니라 '불러오지 못함'으로 보이도록 strict 로 읽는다(실패는 null).
+ok(source.includes("fetchRecurringStrict(env, householdId).catch(() => null),"), "the reserve plans page loads recurring rows");
 ok(source.includes('<section class="card" id="fixed">'), "the fixed-expense section lives on the reserve plans page");
 // V22.9.76: 이 구역에는 월급·수당 같은 고정 수입도 들어가므로 제목이 "고정 수입·지출"이 됐다(예전 제목은 수입 행에도 "고정지출").
 ok(source.includes("매월 자동 반영되는 고정 수입·지출"), "the section is labelled");
