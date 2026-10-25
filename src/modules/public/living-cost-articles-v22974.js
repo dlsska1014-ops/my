@@ -1481,7 +1481,7 @@ function publicLivingCostArticlesV22974() {
         ],
         [
           "국세청 종합소득세 세율 안내(2023~2025년 귀속)",
-          "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2229&cntntsId=7667"
+          "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2227&cntntsId=7667"
         ],
         [
           "찾기쉬운 생활법령정보 — 신용카드와 세금(법제처)",
@@ -4579,7 +4579,7 @@ function publicArticlesHubPage(index = []) {
     title: "생활비 가이드 글 전체 목록",
     description: `예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 생활비를 계획하고 점검할 때 참고할 글 ${index.length}편을 주제 ${groups.length}개로 모았습니다. 작성일과 요약을 함께 표시합니다.`,
     eyebrow: "생활비 가이드 · 전체 목록",
-    intro: `앱을 쓰지 않아도 읽을 수 있는 생활비 글입니다. 주제별로 묶었고 글마다 작성일·수정일과 참고한 공식 자료를 표시합니다. 가장 최근 글은 ${newest ? `${newest.published}에 올린 ‘${newest.title}’` : "준비 중"}입니다.`,
+    intro: `앱을 쓰지 않아도 읽을 수 있는 생활비 글입니다. 주제별로 묶었고 글마다 작성일과 수정일을 표시합니다. 외부 자료를 참고한 글에는 출처를 덧붙입니다. 가장 최근 글은 ${newest ? `${newest.published}에 올린 ‘${newest.title}’` : "준비 중"}입니다.`,
     type: "CollectionPage",
     updated,
     primary: ["글 작성·검토 방식 보기", "/about"],
@@ -4606,8 +4606,7 @@ function publicArticleSiteMapLinks(index = []) {
 }
 // @build:exports-start
 export {
-  publicArticleHangul, publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
-  publicNormalizeLivingArticles,
+  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleSiteMapLinks,
+  publicArticlesHubPage, publicLivingCostArticlesV22974, publicNormalizeLivingArticles,
 };
 // @build:exports-end

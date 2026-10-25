@@ -9,9 +9,8 @@ import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
 import {
-  publicArticleHangul, publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
-  publicNormalizeLivingArticles,
+  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleSiteMapLinks,
+  publicArticlesHubPage, publicLivingCostArticlesV22974, publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -141,7 +140,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home") {
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
-    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true, wordCount: publicArticleHangul(page) } : {}),
+    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
