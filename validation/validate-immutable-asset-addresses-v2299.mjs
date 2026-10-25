@@ -27,6 +27,10 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어 두 주소를 올렸다.
+  // 옛 주소(mobile-home-shell-v22976·mobile-home-v22976)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 V22.9.76 해시로 계속 내려간다.
+  "/assets/mobile-home-shell-v22978.js": "9f3eaf3caa755fd89b257998bd4ee3830f5c7df34724ab16d206b4643bafbca1",
+  "/assets/mobile-home-v22978.js": "e6fe59fef461436e5d70e1cdbba9496e50e7be7543873a95a5ad23ce73695045",
   // V22.9.76: 홈 스크립트·홈 셸·분류 규칙 자산의 내용이 바뀌어(수입·지출 화면 수정, 분류 규칙 데이터 A-10) 세 주소를 올렸다.
   // 옛 주소(mobile-home-shell-v22951·ab-category-rules-v22948·mobile-home-v22951)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남는다.
   "/assets/mobile-home-shell-v22976.js": "6cebf524b54a1cd284e7d9bcc450e932f82a107d5f7daffd6c495343a84c50d6",

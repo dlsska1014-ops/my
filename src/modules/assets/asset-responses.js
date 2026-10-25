@@ -103,7 +103,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22976-js"'
+          ? '"mobile-home-shell-v22978-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22937-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
@@ -116,7 +116,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
           ? '"accountbook-v5-v22951-js"'
-          : '"mobile-home-v22976-js"',
+          : '"mobile-home-v22978-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }
