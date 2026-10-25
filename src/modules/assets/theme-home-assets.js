@@ -5,6 +5,10 @@ import {
   transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentPatterns,
+  joinSpacedKoreanAmount, normalizeInputText,
+} from "../client/shared-input-nlu.js";
+import {
   UIUX_RUNTIME_STYLE, V2281_GUIDED_UIUX_STYLE, V2284_UI_REVALIDATION_STYLE, V2285_LOGIN_STYLE,
   V2285_MENU_STYLE, guidedUiUxClientMain, mobileShellUiClientMain, v2284UiStyleFor,
 } from "../client/legacy-ui-runtime.js";
@@ -220,6 +224,8 @@ function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
       quickAmountFieldState.toString(), moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
+      // V22.9.79: 서버(nlu/*)와 같은 해석 함수 — 전각·띄어 쓴 금액 정리, 결제수단·분류·메모 판정(client/shared-input-nlu.js).
+      foldInputWidth.toString(), joinSpacedKoreanAmount.toString(), normalizeInputText.toString(), inputPaymentPatterns.toString(), detectInputPayment.toString(), inferInputCategory.toString(), cleanInputMemo.toString(),
       rawMobileHomeInlineRuntime(),
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,

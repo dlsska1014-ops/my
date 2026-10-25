@@ -15,6 +15,7 @@ public/guide-content.js
 public/living-cost-articles-v22974.js
 public/content-pages.js
 client/shared-input-parsers.js
+client/shared-input-nlu.js
 client/legacy-ui-runtime.js
 web/html-postprocess.js
 runtime/leases.js

@@ -95,24 +95,29 @@ const shellJs = await (await app.fetch(new Request(`${ORIGIN}/assets/mobile-home
 ok(shellJs.includes("window.AB_CATEGORY_RULES=["), "홈 셸 자산이 규칙을 함께 싣는다(요청이 늘지 않는다)");
 const noDom = { querySelectorAll: () => [] };
 const sharedType = slice(source,"function transactionTypeFromText(","\nfunction quickInputDate(");
+// V22.9.79: 분류 판정(inferInputCategory)·문장 다듬기(normalizeInputText)는 서버와 화면이 같은 공유 함수(client/shared-input-nlu.js)를 쓴다.
+// 화면 자산에 실려 가는 그 함수들을 홈이 받는 자산에서 그대로 떼어 세 곳에 모두 넣는다(홈은 대신 옛 사본을 들고 있지 않다는 것도 본다).
+const sharedNlu = slice(shellJs, "function foldInputWidth(", "(function(){var q=");
+ok(!shellJs.includes("var best=null;quickRules.forEach"), "홈 빠른입력이 분류 점수 계산 사본을 들고 있지 않다(공유 함수를 부른다)");
 const homeAsk = new Function("window", "document",
-  sharedType + "\n" + slice(shellJs, "function abNorm(v){", "function parseQuickDate(text){")
+  sharedType + "\n" + sharedNlu + "\n" + slice(shellJs, "function abNorm(v){", "function parseQuickDate(text){")
   + slice(shellJs, "var quickRules=", "function stripQuickMemo(")
   + "\nreturn function(t){var ty=detectQuickType(t);return ty + \"/\" + inferQuickCategory(t,ty);};")(win, noDom);
 
 // ② 다른 화면(mobileUiUxClientMain)
 const mainAt = source.indexOf("function mobileUiUxClientMain()");
 const otherAsk = new Function("window",
-  sharedType + "\n" + slice(source.slice(mainAt), "  function normalizeText(value) {", "  function detectPayment(text) {")
+  sharedType + "\n" + sharedNlu + "\n" + slice(source.slice(mainAt), "  function detectType(text) {", "  // V22.9.79 (V77 N-11")
   + slice(source.slice(mainAt), "  function detectCategory(text, type) {", "\n  function ")
-  + '\nreturn function(t){var raw=normalizeText(t);var ty=detectType(raw);return ty + "/" + (detectCategory(raw,ty)||"기타지출");};')(win);
+  + '\nreturn function(t){var raw=normalizeInputText(foldInputWidth(t));var ty=detectType(raw);return ty + "/" + (detectCategory(raw,ty)||"기타지출");};')(win);
 
 // ③ 서버
 const serverAsk = new Function(
   slice(source, "const AB_TYPE_HINTS = Object.freeze({", "});") + "});"
   + "\n" + slice(source, "const CATEGORY_RULES = [", "\n];") + "\n];"
   + '\nfunction normalizeText(v){return String(v||"").replace(/\\s+/g," ").trim();}\n'
-  + slice(source, "function inferCategory(text, type) {", "\nfunction cleanMemo")
+  + slice(source, "function inferInputCategory(raw, type, rules) {", "\nfunction cleanInputMemo")
+  + "\n" + slice(source, "function inferCategory(text, type) {", "\nfunction cleanMemo")
   + "\n" + sharedType + "\nfunction detectType(text){return transactionTypeFromText(text,CATEGORY_RULES);}\n"
   + '\nreturn function(t){var ty=detectType(t);return ty + "/" + inferCategory(t,ty);};')();
 

@@ -51,6 +51,7 @@
     "validate:recurring-web-v22979": "node validation/validate-recurring-web-v22979.mjs",
     "measure:cron-cpu-v22979": "node tools/measure-cron-cpu-v22979.mjs",
     "validate:spending-outlook-v22979": "node validation/validate-spending-outlook-v22979.mjs",
+    "validate:nlu-v22979": "node validation/validate-nlu-v22979.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",

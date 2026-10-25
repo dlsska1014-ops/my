@@ -1,6 +1,6 @@
 // @build:imports-start
+import { cleanInputMemo, inferInputCategory } from "../client/shared-input-nlu.js";
 import { detectType, normalizeText } from "./amount-parser.js";
-import { AB_PAYMENT_WORD_END } from "./date-payment.js";
 // @build:imports-end
 
 const CATEGORY_RULES = [
@@ -102,156 +102,15 @@ function normalizeCategoryName(value, type) {
   return raw.slice(0, 40);
 }
 
+// V22.9.79: 분류 판정의 본문은 화면 빠른 입력과 함께 쓰는 공유 함수(client/shared-input-nlu.js inferInputCategory)로 옮겼다(V44 A-10).
+// 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓰므로 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
 function inferCategory(text, type) {
-  // 영문 키워드(cu·gs25·ktx·srt·ev·kt·skt)는 사람이 대문자로도 쓴다. 표의 낱말은
-  // 소문자로 적어 두고 들어온 글도 소문자로 낮춰 비교한다 — 한글은 영향이 없다.
-  const raw = normalizeText(text).toLowerCase();
-  // V22.9.76 감사 A-10: 낱말 속 글자가 분류를 정하지 않게 한다. 걸린 낱말이 다른 규칙의 더 긴 낱말 안에 들어 있으면
-  // 세지 않는다(동물병원 속 병원, 전기차 속 전기, 수술·미술 속 술, 이마트24 속 이마트). 규칙의 except 는 그 규칙의
-  // 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 마트, 농협카드의 농협, 아이패드의 아이). 같은 규칙 안에서 겹치는
-  // 낱말(미용실·미용)과 서로 겹치지 않는 낱말은 예전처럼 무게를 더해 겨룬다("맥도날드 배달"은 배달). 한 낱말의 위치는
-  // 앞에서 16곳까지만 본다. exact 낱말은 앞뒤가 글자·숫자가 아닐 때만 맞는다(큰 가져오기 칸에서도 낱말 배열을 만들지 않는다).
-  const spans = [];
-  const collect = (rule, word, exact) => {
-    for (let at = raw.indexOf(word), seen = 0; at >= 0 && seen < 16; at = raw.indexOf(word, at + 1)) {
-      const end = at + word.length;
-      if (exact && !((at === 0 || !/[a-z0-9가-힣]/.test(raw[at - 1])) && (end === raw.length || !/[a-z0-9가-힣]/.test(raw[end])))) continue;
-      spans.push({ start: at, end, rule, id: (exact ? "=" : "~") + word, gain: rule.weight + Math.min(word.length, 8), dead: false });
-      seen += 1;
-    }
-  };
-  for (const rule of CATEGORY_RULES) {
-    if (rule.type !== type) continue;
-    const first = spans.length;
-    for (const word of rule.words) if (word) collect(rule, word, false);
-    for (const word of rule.exact || []) if (word) collect(rule, word, true);
-    if (spans.length === first) continue;
-    for (const block of rule.except || []) {
-      for (let at = block ? raw.indexOf(block) : -1, seen = 0; at >= 0 && seen < 16; at = raw.indexOf(block, at + 1), seen += 1) {
-        for (let k = first; k < spans.length; k += 1) if (spans[k].start >= at && spans[k].end <= at + block.length) spans[k].dead = true;
-      }
-    }
-  }
-  if (spans.some((span) => span.rule !== spans[0].rule)) {
-    // 시작 위치 순으로 훑으며, 앞선 위치들에서 가장 멀리 끝나는 낱말을 규칙이 다른 두 개까지 기억한다.
-    spans.sort((a, b) => a.start - b.start || b.end - a.end);
-    let reach = [];
-    let group = [];
-    const remember = (span) => {
-      const same = reach.findIndex((item) => item.rule === span.rule);
-      if (same < 0) reach.push(span); else if (span.end > reach[same].end) reach[same] = span;
-      reach = reach.sort((a, b) => b.end - a.end).slice(0, 2);
-    };
-    for (const span of spans) {
-      if (group.length && group[0].start !== span.start) { group.forEach(remember); group = []; }
-      const outer = reach.find((item) => item.rule !== span.rule);
-      if ((outer && outer.end >= span.end) || group.some((item) => item.rule !== span.rule && item.end > span.end)) span.dead = true;
-      group.push(span);
-    }
-  }
-  const scores = new Map();
-  const counted = new Set();
-  for (const span of spans) {
-    if (span.dead || counted.has(span.rule.name + span.id)) continue;
-    counted.add(span.rule.name + span.id);
-    scores.set(span.rule, (scores.get(span.rule) || 0) + span.gain);
-  }
-  let best = null;
-  for (const rule of CATEGORY_RULES) {
-    const score = scores.get(rule) || 0;
-    if (score > 0 && (!best || score > best.score)) best = { category: rule.name, score };
-  }
-  return best ? best.category : (type === "income" ? "기타수입" : "기타지출");
+  return inferInputCategory(normalizeText(text).toLowerCase(), type, CATEGORY_RULES);
 }
 
-const CLEAN_MEMO_COMMAND_WORDS = ["수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부"];
-const CLEAN_MEMO_FIXED_WORDS = [
-  ...CLEAN_MEMO_COMMAND_WORDS,
-  // V22.9.76 카카오 감사 17: "이자 받았어 3000원"의 메모가 "이자 어"였다. 긴 말끝부터 통째로 뺀다.
-  "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
-  "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
-];
-// V22.9.77: 카드 이름 앞에 붙은 카드사 이름("KB국민카드"의 KB, "NH농협카드"의 NH, "IBK기업카드"의 IBK기업,
-// "국민체크카드"의 국민)과 띄어 쓴 영문 카드사 이름("KB 국민카드"의 KB)도 결제수단의 일부라 함께 지운다. 예전에는
-// "커피 4500 KB국민카드"의 메모가 "커피 KB"였다. 결제수단 낱말은 낱말 끝에서만 지운다(AB_PAYMENT_WORD_END).
-// 예전에는 "토스트"가 "트", "현금영수증"이 "영수증"이 됐다.
-const CLEAN_MEMO_CARD_NAME_PREFIX = "(?:(?<![A-Za-z가-힣])(?:(?:KB|NH|IBK|SC|BC|BNK|DGB|KDB|KEB)\\s+|[A-Za-z]{1,6}[가-힣]{0,4}|신한|현대|삼성|국민|우리|롯데|하나|농협|비씨|카카오|토스|기업|씨티|수협|신협|우체국|새마을|케이뱅크|카카오뱅크|토스뱅크))?";
-// 카드사 이름이 붙은 카드와 온전한 간편결제 이름은 결제수단 찾기(date-payment.js)처럼 낱말 끝을 따지지 않고 지우고, 띄어
-// 쓴 것("현대 카드", "삼성 페이")도 통째로 지운다. 예전에는 메모에 ‘현대’, ‘삼성 페이’가 남았다.
-const CLEAN_MEMO_PAYMENT_ANYWHERE = /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i;
-// V22.9.77 감사 E-1(남은 것): 메모 다듬기의 고정 낱말 정규식은 처음 부를 때 한 번만 만든다. 예전에는 부를 때마다 낱말 수
-// (37개)만큼 RegExp 를 새로 만들어 자연어 가져오기 한 줄에 50개 남짓이 들었다. 낱말 순서와 하나씩 차례로 지우는 방식은
-// 예전 그대로라 결과가 같다(전역 정규식은 replace 가 처음부터 다시 찾는다). 금액·결제수단처럼 문장마다 다른 말만 그때 만든다.
-// date-payment.js 와 서로 가져오는 모듈이라, 그 모듈의 상수(AB_PAYMENT_WORD_END)를 쓰는 정규식은 처음 부를 때 만든다.
-let CLEAN_MEMO_PATTERNS = null;
-function cleanMemoPatterns() {
-  if (CLEAN_MEMO_PATTERNS) return CLEAN_MEMO_PATTERNS;
-  CLEAN_MEMO_PATTERNS = {
-    fixed: CLEAN_MEMO_FIXED_WORDS.map((item) => new RegExp(CLEAN_MEMO_COMMAND_WORDS.includes(item) ? "(^|\\s)" + escapeRegExp(item) + "(?=\\s|\\d|$)" : escapeRegExp(item), "g")),
-    cardName: new RegExp(`${CLEAN_MEMO_CARD_NAME_PREFIX}(?:신용카드|체크카드|카드)${AB_PAYMENT_WORD_END}`, "gi"),
-    paymentWord: new RegExp(`(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)${AB_PAYMENT_WORD_END}`, "g"),
-  };
-  return CLEAN_MEMO_PATTERNS;
-}
-
+// V22.9.79: 메모 다듬기의 본문은 화면 빠른 입력과 함께 쓰는 공유 함수(client/shared-input-nlu.js cleanInputMemo)로 옮겼다(V77 N-11·N-13).
 function cleanMemo(raw, amountRaw, type, paymentMethod, category) {
-  let memo = normalizeText(raw);
-  const patterns = cleanMemoPatterns();
-  // 금액 → 고정 낱말(명령어·받은 말·날짜 말) → 결제수단 순서로 하나씩 지운다(예전 순서 그대로).
-  if (amountRaw) memo = memo.replace(new RegExp(escapeRegExp(amountRaw), "g"), " ");
-  for (const pattern of patterns.fixed) memo = memo.replace(pattern, " ");
-  if (paymentMethod) {
-    const token = escapeRegExp(paymentMethod);
-    const prefix = /카드$/.test(paymentMethod) ? CLEAN_MEMO_CARD_NAME_PREFIX : "";
-    memo = CLEAN_MEMO_COMMAND_WORDS.includes(paymentMethod)
-      ? memo.replace(new RegExp("(^|\\s)" + token + "(?=\\s|\\d|$)", "g"), " ")
-      : CLEAN_MEMO_PAYMENT_ANYWHERE.test(paymentMethod)
-        ? memo.replace(new RegExp(prefix + token.replace(/(카드|페이)$/, "\\s*$1"), "gi"), " ")
-        : memo.replace(new RegExp(prefix + token + AB_PAYMENT_WORD_END, "gi"), " ");
-  }
-
-  memo = memo
-    .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
-    // V22.9.77: 요일 앞의 ‘지난·저번·이번·다음’도 ‘주’ 없이 쓰면("지난 금요일") 함께 지운다. 예전에는 "지난 금요일 회식"의
-    // 메모가 "지난 회식"이었다. 날짜는 예전과 같다(날짜는 요일로 정하고, 이 줄은 메모만 다듬는다).
-    .replace(/(?:(?<![가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\s*)?[월화수목금토일]요일/g, " ")
-    .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
-    .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
-    .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
-    // V22.9.34 감사 N6·D8: "일주일/이틀/한 달 전", 말일, 작년·올해 같은 날짜 말도 메모에서 뺀다. "N일 전"은
-    // 낱말 경계에서만 뺀다. 예전에는 "1일 전기요금"이 "기요금"이 됐다.
-    .replace(/(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)/g, " ")
-    .replace(/(?:^|\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)/g, " ")
-    .replace(/(?:(?:지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
-    .replace(/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?=\d{1,2}\s*(?:월|[./]))/g, " ")
-    .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
-    .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
-    .replace(/(?:^|\s)\d{1,2}일(?:\s|$)/g, " ")
-    .replace(patterns.cardName, " ")
-    .replace(patterns.paymentWord, " ")
-    // 조사·서술어는 낱말 "끝"에서만 떼어낸다. 위치를 가리지 않고 지우면
-    // 타이어교체→"타 어교체", 이발→"발", 가방→"방"처럼 내용이 파괴된다.
-    // 한 글자 조사(이·가·로·에·은·는·을·를)는 떼어내지 않는다. 고양이→"고양",
-    // 목걸이→"목걸", 을지로→"을지"처럼 멀쩡한 낱말의 끝 글자와 구분할 수 없다.
-    // 두 글자 조사만 떼어낸다. "마트에서 12000"→"마트" 같은 주된 사례는 그대로 처리된다.
-    .replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\s|$)/g, "$1 ")
-    // V22.9.77 감사 A-15: 붙여 쓴 말끝은 동사 꼴(썼어·샀어·했어 …)만 뗀다. 사용·결제·구매·납부·송금·이체는 앞말과 붙으면 한
-    // 낱말(공동구매·간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 띄어 쓴 토막은 아래 줄이 그대로 지운다.
-    .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다)(?=\s|$)/g, "$1 ")
-    // 홀로 남은 조사·서술어 토막만 따로 지운다.
-    .replace(/(?:^|\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썻어|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, " ")
-    // V22.9.77 감사 A-15: 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’("만원 정도")도 지운다.
-    // 낱말 속 ‘원’·‘정도’(원정·공원·정도전)는 그대로다.
-    .replace(/(?:^|\s)(?:원|정도)(?=\s|$)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!memo) memo = category || (type === "income" ? "기타수입" : "기타지출");
-  return memo.slice(0, 160);
-}
-
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return cleanInputMemo(raw, amountRaw, type, paymentMethod, category);
 }
 // @build:exports-start
 export {

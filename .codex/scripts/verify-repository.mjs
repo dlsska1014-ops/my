@@ -75,6 +75,7 @@ const validationScripts = [
   ["V22.9.79 예약 실행 말일 바퀴·주간 스냅숏·수정 경로 다시 만들기", "validation/validate-cron-v22979.mjs"],
   ["V22.9.79 정기 항목 목록 실패 표시·정기 수입 기본 분류", "validation/validate-recurring-web-v22979.mjs"],
   ["V22.9.79 월말 예상 하나(분석·예산 알림·알림센터·홈 같은 숫자)·하루 사용 가능 내림·외식 갈래·증감률", "validation/validate-spending-outlook-v22979.mjs"],
+  ["V22.9.79 금액·분류·결제수단 해석(웹·카카오 같은 해석: A-07·A-10·A-16·N-11·N-13)", "validation/validate-nlu-v22979.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
