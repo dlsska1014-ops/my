@@ -1,3 +1,7 @@
+## V22.9.79 운영 DB 변경 없음(환불 연결 SQL 은 검토용)
+
+운영 스키마·RPC·RLS·권한 변경 없음. 환불 연결용 검토 SQL 두 개를 더했다(실행 금지, 맨 앞 `RAISE EXCEPTION` 가드): `migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql`(표 `accountbook_refund_links`, RPC `accountbook_link_refund_v22979`·`accountbook_unlink_refund_v22979`, 트리거 `refund_link_guard_v22979`)과 `migrations/V22_9_79_REFUND_LINKS_ROLLBACK_REVIEW_ONLY.sql`(연결이 남아 있으면 멈춤). 적용은 그때 운영자 승인 뒤, 플래그 `REFUND_LINKS_ENABLED` 를 켜기 전에만. 예약 상태 키 `cron_recurring_state_v22976` 에 선택 칸 `scan_after[].started` 와 주간 다시 만들기 항목이 생길 수 있다(같은 accountbook_settings 행).
+
 ## V22.9.78 DB 변경 없음
 
 스키마·RPC·RLS·권한 변경 없음. 새 설정 키 `cron_run_log_v22978`(예약 실행 요약 최근 14번, 기존 설정 저장과 같은 accountbook_settings 행)과 상태 키 `cron_recurring_state_v22976` 의 선택 칸 `scan_after`(이어 읽을 자리, 다 읽으면 사라짐)가 생길 수 있다. `migrations/RPC_DEFINITIONS_PROD_2026_10_23.sql` 은 운영 함수 3개 정의의 읽기 전용 사본이다(실행 금지). 환불 연결 변경안(`docs/codex/PROPOSAL_REFUND_LINKS_V22_9_78.md`)의 표·트리거·RPC 는 검토용 초안이고 적용하지 않았다.

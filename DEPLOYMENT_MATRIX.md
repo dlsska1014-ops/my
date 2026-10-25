@@ -1,3 +1,15 @@
+## V22.9.79 배포 판단
+
+앱 Worker 코드 변경(월말 예상, 카카오 답장, 입력 해석, 예약 반영, 웹 화면, 백업·가져오기, 시각 결함, 플래그 뒤 환불 연결)과 1년 캐시 자산 새 주소 7개(v22979). 관제 Worker·SQL·스키마·Secret 변경 없음. 번들 7.11 MiB(gzip 1.82 MiB, V22.9.78 은 6.39·1.64 — 옛 자산 바이트 보존분).
+
+- 전제: V22.9.78 운영 반영(2026-10-25 20:15, `53da778a-cb7a-4a84-98f3-9e7f4834ae26`) — 충족. V22.9.78 다음 날 확인(2026-10-26 09:10 예약 실행 뒤)을 먼저 끝내면 V22.9.79 의 예약 반영 변경과 섞이지 않는다.
+- 순서: 앱 Worker 하나. 환불 연결 플래그 `REFUND_LINKS_ENABLED` 는 설정하지 않는다(꺼짐). 환불 연결 DB 적용은 별도 승인 뒤 다른 날.
+- 날짜: 매월 1일·2일과 말일은 피한다(2026-10-31·11-01·11-02 제외). 10-30 까지 못 하면 11-03 이후.
+- 배포 직후: /health version `V22.9.79-SPENDING-OUTLOOK`, /ready 필수 표 13개·실패 0. 새 주소 7개가 200 이고, 옛 주소 7개(mobile-home-v22940.css·mobile-home-v22978.js·mobile-home-shell-v22978.js·accountbook-shell-v22947.css·accountbook-search-v22937.js·accountbook-v5-v22951.js·accountbook-budget-preview-v22953.js)도 200(옛 바이트, validate-immutable-asset-addresses-v2299 의 옛 해시와 같음). 공개 화면 검사.
+- 배포 뒤 운영 이벤트(읽기만): `kakao_recent_owner_filter_rejected`(T-2 의 서버 조건을 운영 PostgREST 가 거절하면 남는다 — 남으면 예전 조회로 답했다는 뜻), `household_role_check_failed`(D-27, 구성원 조회 실패의 실제 모양).
+- 다음 날(09:10 KST 예약 실행 뒤, 읽기만): 설정 키 `cron_run_log_v22978` 에 그날 실행 한 건(status ok)이 있고 `cron_recurring_state_v22976` 의 checked_date 가 그날이다. `/ops-dashboard` ‘최근 예약 실행’이 같은 값을 보인다.
+- 되돌릴 때: V22.9.78(`53da778a-cb7a-4a84-98f3-9e7f4834ae26`). V22.9.78 번들은 상태 키의 `started` 칸과 주간 다시 만들기 항목을 버리고 돈다(그 주 스냅숏을 다시 만들지 않을 뿐). 플래그를 켜지 않았으면 환불 연결 데이터는 없다. 옛 자산 주소는 V22.9.78 이 그대로 낸다.
+
 ## V22.9.78 배포 판단
 
 Worker 코드 변경(날짜 해석, 홈 ‘앞으로 나갈 돈’, 백업 화면 안내, 정기 반영 다음 쪽, 예약 실행 기록, 운영 상황판 ‘최근 예약 실행’)과 1년 캐시 자산 새 주소 2개(`/assets/mobile-home-v22978.js`, `/assets/mobile-home-shell-v22978.js`), 관제 Worker 1.2.0→1.2.1. SQL·스키마·RPC·Secret·환경변수·카카오 콘솔·광고 모드 변경 없음. 관제 D1 이전 없음.

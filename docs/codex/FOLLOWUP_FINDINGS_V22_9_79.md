@@ -36,3 +36,12 @@ V22.9.79(운영자가 권장안을 채택한 W-7 월말 예상·D-5·M-7 환불 
 - **T-27** (P3) `nlu/date-payment.js` 157~161줄 nowKstDate() 는 withKstNowScope 밖에서 부를 때마다 Intl.DateTimeFormat 을 새로 만든다(빈 isolate 첫 호출 약 5ms). 고정 UTC+9 계산과 결과가 같다.
 - **T-28** (P3) E-11 의 남은 꼴: ‘지점: 인터넷’ 같은 ‘키: 값’ 줄과 머리글 없는 표는 줄 전체를 분류 근거로 써서 ‘인터넷’ 열이 통신비를 정한다(`import/flexible-import-parser.js` normalizeImportedRecordDetailed, 매핑이 없으면 contextText = rawText).
 - **T-29** (P3) 머리글 비슷한 이름 매핑(`import/flexible-import-parser.js` 218줄 canonicalImportField)이 ‘카드번호’를 결제수단(가린 카드번호가 결제수단 이름으로 저장), ‘가맹점주소’를 메모(주소 낱말 ‘병원 앞’이 분류를 정함)로 읽는다.
+- **T-30** (P2) 다크 모드 예산 센터 카드(`admin/budget-center-recurring.js` 140줄 `.budgetP0.isWarn·.isOver`, `assets/accountbook-shell-css.js` 25줄)는 게이지 색 #fbbf24·#f87171 을 카드 배경으로 쓰고 글씨는 흰색이다 — 경고 1.67:1(잰 값), 초과 약 2.8:1(계산). 예산을 85~100% 쓴 다크 모드에서 보인다.
+- **T-31** (P2) 다크 모드 /meeting-households·/travel-households·/household-templates 의 서식 카드(`features/settlement-ops-pages.js` 173~225줄)는 흰 배경에 밝은 글씨(1.10~1.15:1)다.
+- **T-32** (P2) 다크 모드 로그인 꼴 화면에 오류가 있을 때(예: /my/kakao-link) 오류 요약 `.authErrorSummary`(`web/login-page-side-nav.js` 26줄) 대비가 1.05:1 이다.
+- **T-33** (P3) 사이드바 작은 달력의 ‘오늘’ 표시와 ‘오늘이 있는 달로’(`client/v5-bundle-mains.js` 305~306줄)는 기기 시간대 날짜를 쓴다(F-8 과 같은 꼴).
+- **T-34** (P3) 거절 문장이 자유 글이라(`admin/transactions-households.js` 242·352·468줄, `admin/budget-center-recurring.js` 202·259·305줄) 실제 거절(조회 전용·차단)이 홈·정기 화면에서 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 보인다. 코드와 formatMessage 안내가 필요하다.
+- **T-35** (P3) 역할 조회를 엄격하지 않게 읽는 곳이 남았다(D-27 과 같은 꼴: 조회 실패 = 권한 없음): `admin/pc-analysis-calendar.js` 46·83줄, `settings/payment-assets.js` 489줄, `settings/reserve-plans.js` 444·482·516줄, `my/money-plan-home-layout.js` 90·161줄.
+- **T-36** (P3) 옛 관리자 화면(/admin-view)의 `.footerNote` 2.41:1, small 2.56:1, `.expense` 3.44:1, `a.disabled` 3.86:1, 모바일 내비 글자 3.03:1, 1024px 에서 `section.grid8`(4×190px) 80px 넘침(`admin/dashboard-page.js`, `dashboard-fragments.js`, `web/unified-nav.js`).
+- **T-37** (P3) 종합 리포트 예산 사용률 표(`my/analysis-page.js` 245줄 부근)는 360px 에서 9자리 금액이면 분류 이름이 한 글자씩 줄바꿈된다(가로 스크롤로 읽을 수는 있다).
+- **T-38** (P3) /kakao-commands 예시 줄(`admin/meme-content-pages.js` 163줄)에 글자 그대로의 `\n` 이 보인다.
