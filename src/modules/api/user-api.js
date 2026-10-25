@@ -12,7 +12,7 @@ import {
 import {
   attachSpenderNames, attachSpenderNamesWithHistory, fetchAdminRows, fetchAdminRowsRange,
   fetchHouseholdMembers, fetchPostgrestRows, getScopedHouseholdsForPage, isRowLimitExceededError,
-  selectRequestedScopedHousehold,
+  memberNameMap, selectRequestedScopedHousehold,
 } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
@@ -219,6 +219,7 @@ async function handleUserDayTransactions(request, env, url) {
   const canWrite = !!scope.adminOk || canWriteMyHousehold(role);
   const canManageSpender = !!scope.adminOk || canManageMyHousehold(role);
   const activeMembers = safeArray(members).filter(memberCanBeSpender);
+  const spenderNames = memberNameMap(members);
   let expense = 0;
   let income = 0;
   for (const row of rows) {
@@ -252,7 +253,9 @@ async function handleUserDayTransactions(request, env, url) {
     date,
     can_write: canWrite,
     can_manage_spender: canManageSpender,
-    members: canManageSpender ? activeMembers.map((member) => ({ user_id: String(member.user_id || ""), nickname: String(member.nickname || "구성원"), role: String(member.role || "member") })) : [],
+    // V22.9.79 감사 N-4: 날짜 시트의 지출자 고르기 이름도 같은 날 목록의 지출자(item.member)·요약·정산·카카오 저장 답장과 같은 규칙이다.
+    // 이름이 같은 구성원(‘카카오사용자’ 여럿)이 목록에서는 ‘카카오사용자 1·2’인데 여기서는 둘 다 ‘카카오사용자’여서 고를 수 없었다.
+    members: canManageSpender ? activeMembers.map((member) => ({ user_id: String(member.user_id || ""), nickname: String(spenderNames[member.user_id] || member.nickname || "구성원"), role: String(member.role || "member") })) : [],
     count: rows.length,
     displayed_count: items.length,
     has_more: rows.length > items.length,

@@ -298,7 +298,8 @@ try {
   const first = await callSkill(groupFixture, skillPayload({ utterance: "점심 12000원 국민카드", groupKey: "deleted-link-with-other-households" }));
   eq(first.response.status, 200, "unlinked group transaction request succeeds safely");
   eq(groupFixture.db.transactions.length, before, "unlinked group input creates zero transactions when other households exist");
-  ok(kakaoText(first.data).includes("기존 연결 가계부가 삭제됐거나"), "group response explains the deleted-link case");
+  // V22.9.79 감사 B-10: 한 번도 연결된 적 없는 방에는 "삭제됐거나 해제된 방"이라고 하지 않는다(그 말은 실제로 연결이 끊긴 방에만 — 새 검사 validate-kakao-replies-v22979 가 본다).
+  ok(kakaoText(first.data).includes("연결된 가계부가 없습니다") && kakaoText(first.data).includes("이 방에는 아직 가계부가 없어") && !kakaoText(first.data).includes("삭제됐거나"), "group response says an unlinked room has no ledger yet (no deleted-link claim)");
   ok(kakaoText(first.data).includes("어디에도 저장하지 않았어요"), "group response explicitly confirms zero storage");
 
   groupFixture.db.household_members = groupFixture.db.household_members.filter((item) => item.user_id !== "user-bin");

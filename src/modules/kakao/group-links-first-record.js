@@ -21,7 +21,7 @@ import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import {
   isDefiniteStorageFailure, isUncertainStorageWrite, kakaoText,
 } from "./response-builders.js";
-import { getHouseholdById } from "./household-budget-commands.js";
+import { getHouseholdById, kakaoUnlinkedRoomStateLine } from "./household-budget-commands.js";
 import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
 import { markKakaoChatFirstHistory, stableShortHash } from "./identity-chat-first.js";
 import {
@@ -123,6 +123,26 @@ async function readKakaoGroupFirstSnapshot(env, groupKey, userId = "") {
   const done = parseKakaoGroupFirstMarker(value(keys.done), groupKey, true);
   if (marker && done && (marker.candidate_id !== done.candidate_id || marker.owner_id !== done.owner_id)) throw settingsDataError("kakao_group_first", "completion_conflict");
   return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member };
+}
+
+// V22.9.79 감사 B-10: 방 상태를 한 곳에서 가른다 — linked 연결됨 / retired 연결이 해제됐거나 가계부가 삭제돼 자동으로 다시 만들지 않는 방 /
+// preparing 첫 기록으로 방 가계부를 만드는 중(표식은 있고 연결·완료는 아직) / never 한 번도 연결된 적 없음. 안내 글이 이 상태를 따른다.
+function kakaoRoomPhaseOf(snapshot = {}) {
+  if (snapshot.link) return "linked";
+  if (snapshot.retired || snapshot.done || snapshot.marker?.phase === "complete") return "retired";
+  return snapshot.marker ? "preparing" : "never";
+}
+
+// V22.9.79 감사 B-10: 이 사람이 이 가계부에서 나간 이력이 있으면 방에서 기록해도 자동으로 다시 참여하지 않는다(tryKakaoGroupFirstRecord).
+// 참여 전·승인 대기인 사람에게 보내는 조회 답이 그 사실을 따르도록 한 번 읽는다. 읽지 못하면 이력 없음으로 본다(예전 안내).
+async function kakaoRoomDepartedFromHousehold(env, groupKey = "", userId = "", householdId = "") {
+  if (!groupKey || !userId || !householdId) return false;
+  try {
+    const snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, userId);
+    return !!snapshot.departures.households[await sha256Hex(String(householdId))];
+  } catch (_) {
+    return false;
+  }
 }
 
 function kakaoGroupPreparationUnknown(cause) {
@@ -227,6 +247,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
         if (!(await userUnmerged)) throw new Error("kakao_group_identity_scope_changed");
         let marker = snapshot.done || snapshot.marker;
         let firstNotice = "";
+        let roomCreatedNow = false; // V22.9.79 감사 N-4: 이 요청이 방 가계부를 막 준비했다 — 구성원은 첫 입력자 한 명뿐이다
         if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {
           return kakaoText("이 단톡방의 이전 연결이 해제되거나 가계부가 삭제되어 자동으로 다시 준비하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
         }
@@ -342,6 +363,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             assertFresh();
             snapshot.done = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.done, { ...marker, phase: "complete" }), groupKey, true);
             await phase("complete");
+            if (marker.owner_id === String(user.id)) roomCreatedNow = true;
             if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n참여자 권한: 기록·수정 (기록만 허용하려면 ‘구성원 권한 기록만’)\n\n";
           }
           // V22.9.44: 준비 중이 아니었으면 잠금 첫머리에서 가계부와 함께 읽은 역할을 쓰고, 준비 중이었으면 소유자 행을 만든 뒤 다시 읽는다.
@@ -404,7 +426,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
               firstNotice = `${automaticRoom ? "이 방의 공동 가계부에 참여했어요." : `이 방에 연결된 ‘${household.name}’ 가계부에 참여했어요.`}\n같은 방의 참여자들이 함께 기록을 사용해요.\n${policy ? `${memberPolicyJoinLine(policy)}\n` : ""}\n`;
             }
           }
-          return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, assertFresh, onSaved: async () => { recordSaved = true; } });
+          return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; } });
         });
       });
     });
@@ -687,8 +709,12 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
   }
   const household = await getLinkedKakaoGroupHousehold(env, groupKey);
   if (!household) {
+    // V22.9.79 감사 B-10: 연결이 없는 방도 실제 상태(한 번도 연결된 적 없음 / 만드는 중 / 해제·삭제된 방)를 말한다.
+    let phase = "never";
+    try { phase = kakaoRoomPhaseOf(await readKakaoGroupFirstSnapshot(env, groupKey)); } catch (_) {}
     return [
       "👥 이 단톡방은 아직 가계부와 연결되지 않았어요.",
+      kakaoUnlinkedRoomStateLine({ retired: phase === "retired", preparing: phase === "preparing" }),
       "",
       "가계부 소유자 또는 관리자가 아래처럼 연결할 수 있어요.",
       "",
@@ -699,11 +725,19 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     ].join("\n");
   }
   const role = user?.id ? await getHouseholdMemberRole(env, user.id, household.id) : "";
+  // V22.9.79 감사 B-10: 참여 전·승인 대기인 사람에게는 이 방에서 기록하면 어떻게 되는지를 실제대로 말한다(나간 이력이 있으면 자동 참여하지 않는다).
+  const departed = user?.id && (!role || role === "pending") ? await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id) : false;
+  const roleLine = !role
+    ? (departed ? "내 권한: 아직 참여 전 · 나간 이력이 있어 이 방에서 기록해도 자동으로 참여하지 않아요. 개인 대화에서 초대코드로 참여해 주세요"
+      : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요")
+    : role === "pending"
+      ? `내 권한: ${userHouseholdRoleLabel(role)} · ${departed ? "나간 이력이 있어 소유자·관리자가 승인해야 참여해요" : "이 방에서 거래를 한 번 보내면 바로 참여해요"}`
+      : `내 권한: ${userHouseholdRoleLabel(role)}`;
   return [
     "👥 단톡방 연결 상태",
     "",
     `연결 가계부: ${household.name}`,
-    role ? `내 권한: ${userHouseholdRoleLabel(role)}` : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요",
+    roleLine,
     "",
     "이 방에서 입력한 지출/수입은 연결된 가계부에 기록됩니다.",
     "예: 점심 12000원 국민카드",
@@ -733,8 +767,9 @@ export {
   getExplicitKakaoBotGroupKey, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
   kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey,
   kakaoGroupLinksSettingsKey, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
-  markKakaoGroupDeparture, normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker,
-  preserveKakaoGroupDeparturesForMerge, readKakaoGroupFirstSnapshot, reassignKakaoGroupLinkOwner,
-  removeKakaoGroupLink, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
+  kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, markKakaoGroupDeparture,
+  normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
+  readKakaoGroupFirstSnapshot, reassignKakaoGroupLinkOwner, removeKakaoGroupLink,
+  tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
 };
 // @build:exports-end

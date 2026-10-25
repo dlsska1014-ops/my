@@ -80,30 +80,70 @@ function kakaoHouseholdChoiceQuickReplies(rows = [], prefix = "가계부 선택"
   ]));
 }
 
+// V22.9.79 감사 N-5: 가계부의 만든 날·시각(KST). 예전 만든 날은 저장된 UTC 시각의 앞 10자라, 한국 시각 새벽 0~9시에 만든 가계부는 하루 전
+// 날짜로 보였다. 시각(시:분)은 날짜 문자열이 아니라 시각을 가진 값일 때만 있다.
+function kakaoHouseholdStamp(createdAt = "") {
+  const text = String(createdAt || "").trim();
+  const ms = Date.parse(text);
+  if (!text || !Number.isFinite(ms)) return { date: /^20\d{2}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : "", time: "" };
+  const kst = new Date(ms + 9 * 60 * 60 * 1000).toISOString();
+  return { date: kst.slice(0, 10), time: /T\d{2}:\d{2}/.test(text) ? kst.slice(11, 16) : "" };
+}
+
+// V22.9.76 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 역할 뒤에 만든 날을 붙인다("소유자 · 만든 날 2026-07-01").
+// V22.9.79 감사 N-5: 역할·만든 날까지 같은 가계부(같은 이름을 두 번 만든 경우)는 그래도 구별되지 않았다. 그런 가계부가 있으면 만든 시각(시:분)을,
+// 시각까지 같으면 만든 순서(1/2)를 더 붙인다. 이름이 같은 가계부가 없으면 빈 문자열이다. roleOnlyWhenUnique 이면 역할만으로 갈릴 때 역할만 돌려준다.
+function kakaoHouseholdLabelParts(household = {}, rows = [], { roleOnlyWhenUnique = false } = {}) {
+  const id = String(household?.id || "");
+  const name = normalizeText(household?.name || "");
+  const list = safeArray(rows);
+  const twins = list.filter((other) => String(other?.id || "") !== id && normalizeText(other?.name || "") === name);
+  if (!twins.length) return "";
+  const listed = list.find((h) => String(h?.id || "") === id) || household;
+  const own = { ...household, ...listed, role: listed?.role || household?.role, created_at: listed?.created_at || household?.created_at };
+  const describe = (h) => ({ id: String(h?.id || ""), role: userHouseholdRoleLabel(h?.role || "member"), createdAt: String(h?.created_at || ""), ...kakaoHouseholdStamp(h?.created_at) });
+  const me = describe(own);
+  const sameRole = twins.map(describe).filter((other) => other.role === me.role);
+  if (roleOnlyWhenUnique && !sameRole.length) return me.role;
+  let out = `${me.role}${me.date ? ` · 만든 날 ${me.date}` : ""}`;
+  const sameDay = sameRole.filter((other) => other.date === me.date);
+  if (sameDay.length) {
+    if (me.time) out += ` ${me.time}`;
+    const sameMinute = sameDay.filter((other) => other.time === me.time);
+    if (sameMinute.length) {
+      const ordered = [me, ...sameMinute].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      out += ` · ${ordered.findIndex((item) => item.id === me.id) + 1}/${ordered.length}`;
+    }
+  }
+  return out;
+}
+
+// V22.9.79 감사 N-5: 이름·역할·만든 날이 모두 같은 가계부가 목록에 있으면 이름을 바꾸라는 한 줄을 붙인다(이름 바꾸기는 웹의 가계부 관리, 소유자·관리자).
+function kakaoHouseholdTwinHint(rows = []) {
+  const list = safeArray(rows).slice(0, 10);
+  const key = (h) => `${normalizeText(h?.name || "")}|${userHouseholdRoleLabel(h?.role || "member")}|${kakaoHouseholdStamp(h?.created_at).date}`;
+  const keys = list.map(key);
+  return keys.some((item, index) => keys.indexOf(item) !== index) ? "이름·역할·만든 날이 같은 가계부가 있어요. 웹 ‘가계부 관리’에서 이름을 바꾸면 구분하기 쉬워요(소유자·관리자)." : "";
+}
+
 function kakaoHouseholdListLines(rows = [], { showCodes = false } = {}) {
   const list = safeArray(rows).slice(0, 10);
-  // V22.9.76 감사 D-6: 이름이 같은 가계부는 역할만으로 구별되지 않을 수 있어 만든 날을 붙인다.
-  const sameName = (h) => list.filter((other) => normalizeText(other?.name || "") === normalizeText(h?.name || "")).length > 1;
-  return list.map((h, index) => {
-    const role = userHouseholdRoleLabel(h?.role || "member");
+  const lines = list.map((h, index) => {
     const code = showCodes && h?.invite_code ? ` · 코드 ${h.invite_code}` : "";
-    const made = sameName(h) && h?.created_at ? ` · 만든 날 ${String(h.created_at).slice(0, 10)}` : "";
-    return `${index + 1}. ${h?.name || "가계부"} · ${role}${made}${code}`;
+    return `${index + 1}. ${h?.name || "가계부"} · ${kakaoHouseholdLabelParts(h, list) || userHouseholdRoleLabel(h?.role || "member")}${code}`;
   });
+  const hint = kakaoHouseholdTwinHint(list);
+  return hint ? [...lines, hint] : lines;
 }
 
 // V22.9.77 감사 D-6(남은 것): 저장 답장의 ‘가계부: 이름’이 같은 이름의 두 가계부를 구별하지 못했다. 내 가계부 목록에 같은 이름이
 // 또 있을 때만, 고를 때 본 목록 줄과 같은 꼴로 역할·만든 날을 붙인다("우리집 생활비 · 소유자 · 만든 날 2026-07-01").
 // 같은 이름이 없으면 이름만 그대로다. 역할·만든 날은 목록의 그 가계부 행에서 읽는다(없으면 넘겨받은 값).
+// V22.9.79 감사 N-5: 역할·만든 날까지 같으면 시각·순서까지 붙는다(kakaoHouseholdLabelParts).
 function kakaoHouseholdReplyName(household = {}, rows = []) {
   const name = String(household?.name || "가계부");
-  const id = String(household?.id || "");
-  const list = safeArray(rows);
-  const twin = list.some((other) => String(other?.id || "") !== id && normalizeText(other?.name || "") === normalizeText(name));
-  if (!twin) return name;
-  const own = list.find((h) => String(h?.id || "") === id) || household;
-  const madeAt = own?.created_at || household?.created_at || "";
-  return `${name} · ${userHouseholdRoleLabel(own?.role || household?.role || "member")}${madeAt ? ` · 만든 날 ${String(madeAt).slice(0, 10)}` : ""}`;
+  const parts = kakaoHouseholdLabelParts(household, rows);
+  return parts ? `${name} · ${parts}` : name;
 }
 
 function parseKakaoHouseholdChoice(text = "", rows = []) {
@@ -164,19 +204,32 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
   };
 }
 
+// V22.9.79 감사 B-10: 연결이 없는 방의 상태 한 줄. 방의 실제 상태(retired 해제·삭제된 방 / preparing 첫 기록으로 가계부를 만드는 중 /
+// 그 밖 = 아직 한 번도 연결된 적 없음)와 이 말이 기록이었는지(writeRejected)를 따른다. 예전에는 기록이 막히면 늘 "기존 연결 가계부가
+// 삭제됐거나 해제된 방이라"라고 했다 — 한 번도 연결된 적 없는 방이나 가계부를 만드는 중인 방에도 그렇게 말해 틀렸다.
+function kakaoUnlinkedRoomStateLine(options = {}) {
+  const writeRejected = options?.writeRejected === true;
+  const retired = options?.retired === true;
+  const preparing = options?.preparing === true && !retired;
+  if (retired) return writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요."
+    : "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 기록을 보내도 자동으로 다시 만들지 않아요.";
+  if (preparing) return writeRejected ? "이 방의 공동 가계부를 만드는 중이라 방금 기록은 아직 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
+    : "이 방의 공동 가계부를 만드는 중이에요. 첫 기록 저장이 끝나면 바로 쓸 수 있어요. 잠시 뒤 다시 확인해 주세요.";
+  return writeRejected ? "이 방에는 아직 가계부가 없어 방금 기록은 어디에도 저장하지 않았어요."
+    : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.";
+}
+
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
-  const writeRejected = options?.writeRejected === true;
   // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
   // V22.9.68 감사(단톡방 2): 안내는 방의 실제 상태를 따른다. 해제·삭제된 방(retired)에는 자동 준비를 약속하지 않고, 기록이 아닌
-  // 말(writeRejected 아님)에는 "방금 기록"이라고 하지 않는다.
-  const retired = options?.retired === true;
+  // 말(writeRejected 아님)에는 "방금 기록"이라고 하지 않는다. V22.9.79 감사 B-10: 만드는 중인 방(preparing)과 한 번도 연결된 적 없는
+  // 방도 각자의 상태로 말한다(kakaoUnlinkedRoomStateLine).
+  const preparing = options?.preparing === true && options?.retired !== true;
   return [
     "이 단톡방에 연결된 가계부가 없습니다.",
-    writeRejected ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 방금 기록은 어디에도 저장하지 않았어요."
-      : retired ? "기존 연결 가계부가 삭제됐거나 연결이 해제된 방이라 기록을 보내도 자동으로 다시 만들지 않아요."
-      : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.",
-    "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요.",
+    kakaoUnlinkedRoomStateLine(options),
+    preparing ? "" : "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
 
@@ -428,9 +481,10 @@ async function copyKakaoBudgetsFromPreviousMonth(env, householdId = "", month = 
   });
 }
 
+// V22.9.79 감사 N-5: 단톡방 저장 답장이 같은 이름 가계부를 구별하는 꼬리표(만든 날·시각)를 만들 수 있게 created_at 도 읽는다(같은 한 번의 조회).
 async function getHouseholdById(env, householdId = "") {
   if (!householdId) return null;
-  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}&select=id,name,invite_code&limit=1`, { method: "GET" });
+  const rows = await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(householdId)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" });
   if (!Array.isArray(rows) || rows.some(row => !row || String(row.id || "") !== String(householdId))) throw new Error("household_source_invalid");
   return rows[0] || null;
 }
@@ -649,12 +703,13 @@ export {
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
   kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryParts,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoHouseholdReplyName,
-  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
-  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
-  kakaoUnlinkedGroupStartText, maybeKakaoCta, parseBareInviteCode, parseDirectBudgetSetCommand,
-  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
-  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
-  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdLabelParts, kakaoHouseholdListLines,
+  kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
+  kakaoManageableHouseholds, kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText,
+  kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, kakaoUnlinkedRoomStateLine, maybeKakaoCta,
+  parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
+  setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

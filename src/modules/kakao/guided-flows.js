@@ -4,7 +4,6 @@ import { safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
-import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import {
   createUserHousehold, fetchUserHouseholds, withHouseholdCreateLock,
 } from "../data/users-household-create.js";
@@ -22,11 +21,12 @@ import {
   copyKakaoBudgetsFromPreviousMonth, findExistingKakaoHouseholdByNameV2254, getHouseholdById,
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
   isKakaoCreateKindOptionsRequest, kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdListLines, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta,
-  parseBareInviteCode, parseKakaoCreateKind, parseKakaoHouseholdChoice,
-  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
-  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
+  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdLabelParts, kakaoHouseholdListLines,
+  kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
+  kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta, parseBareInviteCode,
+  parseKakaoCreateKind, parseKakaoHouseholdChoice, plausibleHouseholdNameAtKindStep,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  suggestedHouseholdName,
 } from "./household-budget-commands.js";
 import {
   bindKakaoGroupByInviteCode, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
@@ -199,7 +199,9 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     if (action === "select") {
       await setKakaoSelectedHousehold(env, user.id, chosen.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-      const roleNote = candidates.filter((h) => normalizeText(h?.name || "") === normalizeText(chosen.name || "")).length > 1 ? `(${userHouseholdRoleLabel(chosen.role || "member")})` : "";
+      // V22.9.79 감사 N-5: 이름이 같은 가계부 중 역할도 같으면 역할만으로는 어느 쪽인지 몰라 만든 날·시각까지 적는다(역할만 다르면 예전처럼 역할).
+      const twinParts = kakaoHouseholdLabelParts(chosen, candidates, { roleOnlyWhenUnique: true });
+      const roleNote = twinParts ? `(${twinParts})` : "";
       return { text: `✅ ‘${chosen.name}’${roleNote} 가계부를 선택했어요.\n\n이후 기록·예산·요약은 이 가계부 기준으로 처리합니다.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
     }
     await clearKakaoFlowState(env, user.id, payload);
@@ -210,7 +212,11 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       const current = await getLinkedKakaoGroupHousehold(env, groupKey);
       if (current?.id && String(current.id) === String(chosen.id)) return { text: `이 단톡방은 이미 ‘${chosen.name}’ 가계부에 연결되어 있어요.`, quickReplies: kakaoStartQuickReplies(true) };
       await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: groupKey, target_household_id: chosen.id, current_household_id: current?.id || "" } });
-      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${current.name}` : "현재: 연결되지 않음", `변경: ${chosen.name}`, kakaoRoomBindConfirmLine(chosen.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
+      // V22.9.79 감사 N-5: 현재 연결과 바꿀 가계부의 이름이 같으면 "현재: 우리집 생활비 / 변경: 우리집 생활비"로는 무엇이 바뀌는지 알 수 없다.
+      // 둘이 같은 이름일 때만 역할·만든 날(·시각)을 붙여 구별한다.
+      const currentRow = current?.id ? { ...current, role: all.find((h) => String(h.id) === String(current.id))?.role } : null;
+      const currentLabel = currentRow ? kakaoHouseholdReplyName(currentRow, [chosen]) : "";
+      return { text: ["단톡방 연결을 변경할까요?", current?.name ? `현재: ${currentLabel || current.name}` : "현재: 연결되지 않음", `변경: ${currentRow ? kakaoHouseholdReplyName(chosen, [currentRow]) : chosen.name}`, kakaoRoomBindConfirmLine(chosen.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
     }
   }
   if (state.flow === "create_household") {

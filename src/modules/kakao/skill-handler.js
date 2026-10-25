@@ -71,7 +71,8 @@ import { readJson } from "../api/admin-api.js";
 import {
   bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
   getLinkedKakaoGroupHousehold, kakaoGroupInfoText, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
-  readKakaoGroupFirstSnapshot, tryKakaoGroupFirstRecord,
+  kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, readKakaoGroupFirstSnapshot,
+  tryKakaoGroupFirstRecord,
 } from "./group-links-first-record.js";
 import {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
@@ -292,6 +293,35 @@ function isKakaoEditSessionBypassCommand(text = "") {
     isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
 }
 
+// V22.9.79 감사 A-18: ‘오늘 뭐 썼어’·‘어제 뭐 썼어’·‘오늘 기록 보여줘’·‘7월 3일 뭐 썼어’처럼 하루를 가리킨 조회가 그 날짜와 상관없이
+// 방금 입력한 5건을 보여 줬다(헤더만 ‘최근 입력 내역’). 이런 말은 ‘그날 기록 보기’와 같은 목록(그날 KST 의 내 기록을 번호와 함께, 빈
+// 날은 같은 짧은 안내)으로 답한다 — 아래 수정 명령 라우터에 ‘N일 기록 보기’ 꼴로 바꿔 넘긴다. 하루를 가리키지 않은 ‘최근 기록’·‘마지막’·
+// ‘내 기록’·‘이번 주 뭐 썼어’는 예전처럼 최근 5건이고, 날짜 말이 둘 이상이면(‘어제 오늘 뭐 썼어’) 어느 날인지 몰라 바꾸지 않는다.
+function kakaoRecentDayListUtterance(text = "") {
+  if (!isRecentCommand(text)) return "";
+  const t = normalizeText(text);
+  const words = [...new Set(t.match(/오늘|어제|그저께|그제/g) || [])];
+  const dates = [...new Set((t.match(/(?:20\d{2}\s*[.\-/년]\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일/g) || []).map((item) => item.trim()))];
+  if (words.length + dates.length !== 1) return "";
+  return `${words[0] || dates[0]} 기록 보기`;
+}
+
+// V22.9.79 감사 B-10: 연결된 방에서 아직 구성원이 아닌 사람(참여 전·승인 대기)이 조회·명령을 보냈을 때의 안내. 이 방 가계부는 승인 없이
+// 거래를 한 번 보내면 구성원이 된다(V22.9.43, 승인 대기도 같다). 예전에는 승인 대기 사람에게 "관리자가 참여자를 승인해야"라고 해서 이미
+// 쓸 수 있는 길을 막았고, 이 가계부에서 나간 이력이 있는 사람에게도 "기록을 보내면 바로 참여돼요"라고 했다(실제로는 자동으로 다시 참여하지
+// 않는다 — group-links-first-record.js). 나간 이력은 이 두 경우에만 한 번 읽는다(읽지 못하면 이력 없음으로 본다).
+async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {}, household = {}, role = "" } = {}) {
+  const departed = await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id);
+  if (departed) {
+    return kakaoText(role === "pending"
+      ? "이 방 가계부 참여 승인을 기다리는 중이에요.\n이 가계부에서 나간 이력이 있어 기록을 보내도 자동으로 참여하지 않아요.\n소유자·관리자가 승인해야 기록할 수 있어요."
+      : "이 가계부에서 나간 이력이 있어 이 방에서 기록을 보내도 자동으로 참여하지 않아요.\n다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
+  }
+  return kakaoNextStepReply(role === "pending"
+    ? "이 방 가계부에 참여 대기 중이에요.\n승인 없이 기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원"
+    : "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", payload);
+}
+
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
@@ -420,16 +450,19 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   const settle = async (promise) => { const result = await promise; if (result.error) throw result.error; return result.value; };
   // V22.9.63 감사(단톡방 2): 연결 전 방 안내는 방의 실제 상태를 따른다. 해제·삭제된 방은 "기록을 보내면 자동으로 준비해요"라고
   // 하지 않고, 기록이 아닌 말에는 "방금 입력한 기록은 저장하지 않았어요"라고 하지 않는다(읽기 실패는 연결 전 방 기본 안내).
+  // V22.9.79 감사 B-10: 첫 기록으로 가계부를 만드는 중인 방(preparing)도 따로 알려, 안내가 "기록하면 만들어져요"라고 하지 않게 한다.
   const unlinkedRoomTextOptions = async (writeRejected = false) => {
-    let retired = false;
+    let phase = "never";
     if (botGroupKey) {
-      try {
-        const roomState = await readKakaoGroupFirstSnapshot(env, botGroupKey);
-        retired = !roomState.link && (roomState.retired || !!roomState.done || roomState.marker?.phase === "complete");
-      } catch (_) {}
+      try { phase = kakaoRoomPhaseOf(await readKakaoGroupFirstSnapshot(env, botGroupKey)); } catch (_) {}
     }
-    return { writeRejected: !!writeRejected, retired };
+    return { writeRejected: !!writeRejected, retired: phase === "retired", preparing: phase === "preparing" };
   };
+  // 시작·도움말 첫 화면의 상태 한 줄. 해제·삭제된 방(retired)과 한 번도 연결된 적 없는 방은 예전 문구 그대로, 만드는 중인 방만 새로 말한다.
+  const unlinkedRoomStatusLine = (options) => options.retired
+    ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
+    : options.preparing ? "이 방의 공동 가계부를 만드는 중이에요. 잠시 뒤 다시 확인해 주세요."
+    : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요.";
 
   if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
     return kakaoManualReply("home", { group: !!botGroupKey });
@@ -446,10 +479,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     if (botGroupKey) {
       // V22.9.68: 시작은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
       if (!linkedGroupHousehold?.id) {
-        const roomOptions = await unlinkedRoomTextOptions(false);
-        return kakaoManualReply("home", { group: true, statusLine: roomOptions.retired
-          ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
-          : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
+        return kakaoManualReply("home", { group: true, statusLine: unlinkedRoomStatusLine(await unlinkedRoomTextOptions(false)) });
       }
       // V22.9.43: 참여 전이거나 승인 대기면 이 방에서 거래 한 번으로 바로 참여한다고 알린다(예전에는 승인대기로만 보였다).
       const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
@@ -480,10 +510,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     // V22.9.65: 도움말·사용법은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
     if (botGroupKey && !linkedGroupHousehold?.id) {
       // V22.9.68 감사(단톡방 2): 해제·삭제된 방에는 "첫 기록을 보내면 만들어져요"라고 하지 않는다.
-      const roomOptions = await unlinkedRoomTextOptions(false);
-      return kakaoManualReply("home", { group: true, statusLine: roomOptions.retired
-        ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
-        : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요." });
+      return kakaoManualReply("home", { group: true, statusLine: unlinkedRoomStatusLine(await unlinkedRoomTextOptions(false)) });
     }
     if (botGroupKey && linkedGroupHousehold?.id) {
       return kakaoManualReply("home", { group: true, statusLine: `이 방 가계부: ${linkedGroupHousehold.name}` });
@@ -541,7 +568,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       if (result.error === "not_allowed_current") return kakaoText(`이 단톡방은 현재 ‘${result.current?.name || "다른 가계부"}’에 연결되어 있어요. 연결을 바꾸려면 현재 연결 가계부와 새 가계부 양쪽에서 소유자 또는 관리자 권한이 필요해요.`);
       if (result.error === "replace_confirmation_required") {
         await saveKakaoFlowState(env, user.id, payload, { flow: "household_choice", step: "confirm_bind", data: { action: "bind", group_key: botGroupKey, target_household_id: result.household?.id || "", current_household_id: result.current?.id || "" } });
-        return kakaoText(["단톡방 연결을 변경할까요?", result.current?.name ? `현재: ${result.current.name}` : "현재: 연결되지 않음", `변경: ${result.household?.name || "가계부"}`, kakaoRoomBindConfirmLine(result.household?.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
+        // V22.9.79 감사 N-5: 현재 연결과 바꿀 가계부의 이름이 같으면 역할·만든 날(·시각)로 구별해 보여 준다(이름이 다르면 예전과 같다).
+        const bindCurrent = result.current?.id ? { ...result.current, role: result.current_role } : null;
+        const bindTarget = { ...(result.household || {}), role: result.role };
+        return kakaoText(["단톡방 연결을 변경할까요?", bindCurrent?.name ? `현재: ${kakaoHouseholdReplyName(bindCurrent, [bindTarget])}` : "현재: 연결되지 않음", `변경: ${bindCurrent ? kakaoHouseholdReplyName(bindTarget, [bindCurrent]) : (result.household?.name || "가계부")}`, kakaoRoomBindConfirmLine(result.household?.name), "", "연결하려면 ‘응’ 또는 ‘연결하기’를 입력해 주세요."].join("\n"), [["연결하기", "연결하기"], ["취소", "취소"]]);
       }
       return kakaoText("단톡방 연결을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
@@ -557,7 +587,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       const [households, linkedGroupHousehold] = await Promise.all([settle(householdsPromise), settle(linkedGroupPromise)]);
       if (kakaoManageableHouseholds(households).length) {
         const choice = await beginKakaoHouseholdChoice(env, { user, payload, households, action: "bind", origin, groupKey: botGroupKey, forceChoice: true });
-        const currentLine = linkedGroupHousehold?.id ? `현재 연결: ${linkedGroupHousehold.name}` : "현재 연결: 없음";
+        // V22.9.79 감사 N-5: 내 가계부 중에 같은 이름이 또 있으면 현재 연결도 역할·만든 날(·시각)로 구별해 보인다.
+        const currentLine = linkedGroupHousehold?.id ? `현재 연결: ${kakaoHouseholdReplyName({ ...linkedGroupHousehold, role: households.find((h) => String(h.id) === String(linkedGroupHousehold.id))?.role }, households)}` : "현재 연결: 없음";
         return kakaoText(`${currentLine}\n${choice.text}`, choice.quickReplies || []);
       }
     }
@@ -585,7 +616,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     if (preParsedList.length > limit) return kakaoText(`한 번에 ${limit}건까지 입력할 수 있어요. ${preParsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
-    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey });
+    // V22.9.79 감사 N-5: 방 기록의 저장 답장도 같은 이름 가계부를 구별한다 — 이미 던져 둔 내 가계부 목록을 답장 만들 때 쓰도록 넘긴다(조회는 늘지 않는다).
+    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, householdRowsPromise: householdsPromise.then((result) => result.value || null) });
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -613,7 +645,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
     return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
   }
-  if (pendingHousehold && !activeHouseholds.length && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isInviteCommand(utterance)) {
+  // V22.9.79 감사 B-10: 연결된 방에서는 이 안내를 하지 않는다. 내 승인 대기 가계부는 이 방 가계부와 다른 것일 수 있고(남의 가계부 이름이 방에
+  // 나갔다), 이 방 가계부의 승인 대기는 승인 없이 기록 한 번으로 참여되므로 "관리자가 승인해야"가 틀리다. 아래 방 분기가 방 기준으로 답한다.
+  if (pendingHousehold && !activeHouseholds.length && !botGroupKey && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isInviteCommand(utterance)) {
     return kakaoText(`🕒 아직 승인 대기 중입니다.\n가계부: ${pendingHousehold.name}\n\n관리자가 참여자를 승인해야 기록할 수 있어요.`);
   }
   if (!botGroupKey && seedChatFirst && firstRecordInput && !selectedHouseholdId &&
@@ -645,7 +679,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     // V22.9.43: \uC5F0\uACB0\uB41C \uBC29\uC740 \uC2B9\uC778 \uC5C6\uC774 \uAC70\uB798 \uD55C \uBC88\uC73C\uB85C \uCC38\uC5EC\uD55C\uB2E4(group-links-first-record.js). \uAE30\uB85D\uC774 \uC544\uB2CC \uB9D0\uC5D0\uB294 \uADF8 \uBC29\uBC95\uC744 \uC54C\uB9B0\uB2E4.
     // V22.9.72: \uCC38\uC5EC \uC804 \uC548\uB0B4\uB294 \uC138 \uC904\uB85C \uC904\uC774\uACE0 \uB9E8 \uC544\uB798 \u2018\uAE30\uB85D\uD558\uAE30\u2019(\uBA58\uC158) \uBC84\uD2BC\uC73C\uB85C \uB2E4\uC74C \uD589\uB3D9\uC744 \uC787\uB294\uB2E4(2026-10-20 \uB514\uC790\uC774\uB108 \uD53C\uB4DC\uBC31).
     // \uB098\uAC04 \uC774\uB825\uC774 \uC788\uB294 \uC0AC\uB78C\uC740 \uC2E4\uC81C \uAE30\uB85D \uC2DC\uB3C4\uC5D0\uC11C group-links-first-record.js \uAC00 \uCD08\uB300\uCF54\uB4DC \uC548\uB0B4\uB85C \uAC70\uC808\uD55C\uB2E4.
-    if (!accessRole) return kakaoNextStepReply("\uC544\uC9C1 \uC774 \uBC29 \uAC00\uACC4\uBD80\uC5D0 \uCC38\uC5EC \uC804\uC774\uC5D0\uC694.\n\uAE30\uB85D\uC744 \uD55C \uBC88 \uBCF4\uB0B4\uBA74 \uBC14\uB85C \uCC38\uC5EC\uB3FC\uC694.\n\uC608) @\uB9D0\uD574\uAC00\uACC4\uBD80 \uCEE4\uD53C 4500\uC6D0", payload);
+    // V22.9.79 감사 B-10: 나간 이력이 있는 사람에게는 "기록을 보내면 바로 참여돼요"라고 하지 않는다(실제로는 자동으로 다시 참여하지 않는다).
+    if (!accessRole) return await kakaoRoomJoinGuideReply(env, { payload, groupKey: botGroupKey, user, household, role: "" });
   } else {
     household = activeHouseholds.find((h) => String(h.id) === String(selectedHouseholdId || "")) || null;
     if (!household && selectedHouseholdId) await clearKakaoSelectedHousehold(env, user.id);
@@ -663,6 +698,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
 
   // pending/blocked는 어떤 데이터 조회도 허용하지 않는다. viewer는 조회 명령만 허용한다.
   if (["pending", "blocked"].includes(accessRole)) {
+    // V22.9.79 감사 B-10: 연결된 방의 승인 대기는 승인 없이 기록 한 번으로 참여된다(V22.9.43). 나간 이력이 있을 때만 승인을 기다려야 한다.
+    if (botGroupKey && accessRole === "pending") return await kakaoRoomJoinGuideReply(env, { payload, groupKey: botGroupKey, user, household, role: "pending" });
     return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
   if (accessRole === "viewer") {
@@ -727,7 +764,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
   if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
-  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
+  // V22.9.79 감사 A-18: 하루를 가리킨 ‘뭐 썼어’류 조회는 그날의 번호 있는 기록 목록으로 답한다(아래 최근 5건 답은 날짜 없는 ‘최근’용).
+  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance: kakaoRecentDayListUtterance(utterance) || utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
   if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
