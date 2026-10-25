@@ -237,9 +237,9 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 44 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22940.css"'), 1, "home loads the byte-preserved base stylesheet once");
-  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22947.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22946.js") && externalScripts.includes("/assets/mobile-home-shell-v22978.js") && externalScripts.includes("/assets/accountbook-nav-v22937.js") && externalScripts.includes("/assets/accountbook-v5-v22951.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v22979.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v22979.css"'), 1, "home loads the current shell stylesheet once");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22946.js") && externalScripts.includes("/assets/mobile-home-shell-v22979.js") && externalScripts.includes("/assets/accountbook-nav-v22937.js") && externalScripts.includes("/assets/accountbook-v5-v22979.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   ok(homeHtml.includes('class="abLayoutNav abNavMobileDrawer"') && !homeHtml.includes('class="homeDesktopNav"') && !homeHtml.includes('class="bottom"') && homeHtml.includes('class="appTop abV5PageHeader"') && homeHtml.includes('class="homeMetrics abV5KpiGrid"') && homeHtml.includes('aria-label="가계부 주요 메뉴"'), "home uses the shared V5 header, KPI grid, and functional mobile-drawer navigation landmarks");
@@ -279,7 +279,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v22940.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22947.css"];
+  const cssPaths = ["/assets/mobile-home-v22979.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v22979.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -295,7 +295,7 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v22940.css") {
+    if (path === "/assets/mobile-home-v22979.css") {
       // V22.8.97(M2 블록 3): 최근 7일 스트립의 스타일이 들어왔다. 주소를 v22896 →
       // v22897 로 올리고 고정 해시도 함께 옮긴다.
       // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
@@ -311,7 +311,9 @@ try {
       // V22.9.19: 영수증 화면을 없애면서 그 규칙이 빠졌다. 주소를 v22918 → v22919 로 올리고 해시를 옮긴다.
       // V22.9.40 A3(감사 U9): 수정 폼 11px 라벨 색과 다크 읽기 전용 지출자 칸 규칙이 바뀌어 주소를 v22919 → v22940 으로
       // 올리고 해시를 옮긴다. 옛 v22919 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다.
-      eq(createHash("sha256").update(bytes).digest("hex"), "f05fe3470dc0e98680b6c701639c2ae894e6290ef84bd802a00cfb6e98e996dc", "legacy home stylesheet bytes remain pinned");
+      // V22.9.79 F-4: 좁은 화면에서 긴 이름·큰 금액이 칸 밖으로 밀던 격자 규칙(minmax(0,1fr)·min-width:0·overflow-wrap)이 더해져
+      // 주소를 v22940 → v22979 로 올리고 해시를 옮긴다. 옛 v22940 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다.
+      eq(createHash("sha256").update(bytes).digest("hex"), "2fcbe755ae1b608875b4a2eedb38e379459a5bd97f390f9577d61a92cdf50562", "legacy home stylesheet bytes remain pinned");
     }
   }
 
@@ -329,10 +331,10 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22978.js");
+  const shellJs = await request("/assets/mobile-home-shell-v22979.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22978.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v22979.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");
@@ -402,7 +404,7 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   eq(createHash("sha256").update(legacyShellBytes).digest("hex"), "2322ba028d2faed65d0d2ca68d844584aae7f72fef2733522dd96008d5d08fcf", "V22.8.11 shell stylesheet bytes remain pinned");
   eq(legacyShellCss.headers.get("etag"), '"accountbook-shell-v22811-css"', "V22.8.11 shell stylesheet ETag remains pinned");
 
-  const shellCssResponse = await request("/assets/accountbook-shell-v22947.css");
+  const shellCssResponse = await request("/assets/accountbook-shell-v22979.css");
   const shellCss = await shellCssResponse.text();
   const normalizedShellCss = shellCss.replace(/#fff(?![0-9a-f])/gi, "#ffffff").toLowerCase();
   const verifiedContrastPairs = [
@@ -461,21 +463,21 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
   const households = await request("/my/households?month=2026-07&household_id=house-home");
   const householdsHtml = await households.text();
   eq(households.status, 200, "accountbook management renders");
-  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22947.css"'), 1, "accountbook management loads the shell once");
+  eq(countOf(householdsHtml, 'href="/assets/accountbook-shell-v22979.css"'), 1, "accountbook management loads the shell once");
   ok(householdsHtml.includes("abV22812Shell") && householdsHtml.includes("abPageHouseholds") && householdsHtml.includes("가계부 전환·관리") && householdsHtml.includes('data-key="my-households" class="active"') && !householdsHtml.includes('data-key="members" class="active"') && householdsHtml.includes('class="accountSecurity"') && householdsHtml.includes('class="hhCard active"') && householdsHtml.includes('class="optionGrid"') && shellCss.includes("body.abV22812Shell.abPageHouseholds .hhCard.active") && shellCss.includes("body.abV22812Shell.abPageHouseholds :is(.accountSecurity span,.hhMain span,.sectionHead p,.inlineHelp,.exitGuide,.optionGrid span)"), "management shell scopes its surfaces and selects the exact accountbook-management route");
   ok(householdsHtml.includes("month=2026-07") && householdsHtml.includes("household_id=house-home"), "management navigation preserves month and accountbook context");
-  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22947.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
+  ok(householdsHtml.lastIndexOf('href="/assets/accountbook-shell-v22979.css"') > householdsHtml.lastIndexOf("</style>"), "accountbook shell is the final stylesheet cascade");
 
   const backup = await request("/my/backup-login?return_to=%2Fapp");
   const backupHtml = await backup.text();
-  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22947.css"'), 1, "account security loads the shell once");
+  eq(countOf(backupHtml, 'href="/assets/accountbook-shell-v22979.css"'), 1, "account security loads the shell once");
   ok(backupHtml.includes('action="/my/backup-login"') && backupHtml.includes('name="access_code_confirm"'), "account security form action and confirmation field remain intact");
   ok(backupHtml.includes("abPageAccountSecurity") && backupHtml.includes('class="abLayoutNav ') && backupHtml.includes("abV5RemainingPage"), "account security receives the shared navigation and isolated dark-mode surface scope");
 
   const login = await request("/my", { public: true });
   const loginHtml = await login.text();
   eq(login.status, 200, "public login renders");
-  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22947.css"'), 1, "login loads the shell once");
+  eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22979.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
   ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
 
@@ -505,7 +507,7 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6
       && (!path.startsWith("/my/analysis?") || (html.includes('class="filterBar abV5FilterBar"') && html.includes('class="kpiRow abV5KpiGrid"')));
     const expectsRemainingPage = ["/budgets?", "/my/settings?", "/payment-methods?", "/reserve-plans?", "/smart-tools?", "/my/households?", "/my/members?", "/keyword-guide?", "/my/backup?", "/my/groups?", "/start-guide?", "/reports?", "/households?"].some((prefix) => path.startsWith(prefix));
     const hasRemainingPageContract = !expectsRemainingPage || (html.includes("abV5RemainingPage") && html.includes("abV5PageHeader"));
-    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22947.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22946.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
+    ok(response.status === 200 && countOf(html, 'href="/assets/accountbook-shell-v22979.css"') === 1 && countOf(html, 'src="/assets/accountbook-theme-v22946.js"') === 1 && html.includes("abV22812Shell") && hasUserNavigation && hasRemainingPageContract, `${path} receives one centralized user navigation and the V5 authenticated-page contract exactly once`);
     if (path.startsWith("/budgets?")) ok(html.includes("abPageBudgets"), "budget center receives its dark-mode route scope");
     if (path.startsWith("/settlement-summary?")) ok(html.includes("abPageSettlement") && html.includes('<h1>정산</h1>') && html.includes('class="filters abV5ControlBar"') && html.includes('class="grid abV5KpiGrid"'), "settlement receives its V5 page header, controls, KPI grid, and dark-mode route scope");
     if (path.startsWith("/my/settings?")) ok(html.includes("abPageSettings"), "personal settings receives its dark-mode route scope");

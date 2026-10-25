@@ -352,7 +352,7 @@ if (run("member")) await scenario("member", () => withClock("2026-07-15", () => 
 // F-7 검색 결과 → 홈 기록 이동·강조
 // ─────────────────────────────────────────────────────────────────────────────
 if (run("search")) await scenario("search", () => withClock("2026-07-15", () => fixture(async (fx) => {
-  const asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-search-v22937.js`), fx.env, ctx)).text();
+  const asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-search-v22979.js`), fx.env, ctx)).text();
   const bundlePath = ((await page(fx, `/app?month=2026-07&${hh}`)).html.match(/\/assets\/accountbook-v5-v\d+\.js/) || [""])[0];
   const bundle = await (await app.fetch(new Request(`${BASE}${bundlePath}`), fx.env, ctx)).text();
   ok(asset.includes(".v8-tx") && bundle.includes(".txRow,.txItem,.timelineItem,.v8-tx"), "검색 스크립트(단독 자산·묶음 자산) 모두 홈 기록 카드(.v8-tx)를 찾는다");
