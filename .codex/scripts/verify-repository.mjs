@@ -70,6 +70,7 @@ const validationScripts = [
   ["V22.9.78 운영 함수 정의 사본·코드 호출 인자 대조(G-13)", "validation/validate-rpc-definitions-v22978.mjs"],
   ["V22.9.78 홈 '앞으로 나갈 돈'(반영 대기 고정지출을 중복 없이 포함)", "validation/validate-home-upcoming-v22978.mjs"],
   ["V22.9.78 정기 반영 다음 쪽·이어 읽기·예약 실행 기록", "validation/validate-cron-v22978.mjs"],
+  ["V22.9.79 카카오 명령 답장(오늘 뭐 썼어·복구 안내·단톡방 안내·지출자 이름·같은 이름 가계부)", "validation/validate-kakao-replies-v22979.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
