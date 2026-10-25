@@ -25,7 +25,7 @@ import {
   myAccessStatusResponse,
 } from "./access-control.js";
 import {
-  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurring,
+  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
@@ -53,7 +53,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
     householdId ? fetchObservationMonthRows(env, householdId, addMonthsYm(month, -1)) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
-    householdId ? fetchRecurring(env, householdId) : [],
+    householdId ? fetchRecurringStrict(env, householdId).catch(() => null) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
   const truncated = historyRaw.length > 9000;
@@ -62,7 +62,8 @@ async function handleMyAnalysisPage(request, env, url) {
   const yearRows = historyRows.filter((row) => String(row.transaction_date || "").startsWith(yearPrefix));
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });

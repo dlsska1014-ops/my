@@ -477,7 +477,7 @@ function budgetPlanMessage(code = "") {
 export {
   budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint,
   budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary, fetchBudgets,
-  fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurring, fetchRecurringRuleByIdStrict,
+  fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringRuleByIdStrict,
   fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase, renderBudgetBasisRows,
   renderBudgetConsistencyAlert, renderBudgetRows,
 };

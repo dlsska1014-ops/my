@@ -115,7 +115,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
-//   고정 4~6회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 저장 1은 필요할 때만)
+//   고정 4~7회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 다시 읽기·저장 2는 필요할 때만)
 //   묶음마다 최대 4회(규칙 최대 40개): 참여자 확인 + 이미 들어간 기록 확인 + 한 번에 저장 + 반영 표식
 // 그래서 한 번에 규칙 약 240개를 넣는다. 다 못 넣으면 partial 로 끝나고 다음 실행이 이어 간다. 반영한 규칙은 표식이 바뀌어
 // 목록에서 빠지므로 커서가 필요 없다. 같은 규칙·같은 달은 기록 확인과 (household_id, raw_text) 고유 색인으로 한 번만 들어간다
@@ -618,12 +618,12 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const frontierOf = (phase) => phase.firstUnsettled ? recurringCronDueDate(phase.firstUnsettled.rule, phase.month)
     : !phase.end ? recurringCronDueDate({ day_of_month: phase.lastKey ? phase.lastKey[0] : 1 }, phase.month) : "";
   partial = partial || remaining > 0 || unread || phases.some((phase) => phase.firstUnsettled);
-  // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(예약 실행 1회,
-  // ?month= 실행은 읽기·저장 2회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
+  // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(다시 읽기·저장 2회,
+  // V22.9.79 전 예약 실행은 저장 1회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
   let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
   let reportRebuilt = 0;
   if (reportQueue.length) {
-    const reserve = stored ? 1 : 2;
+    const reserve = 2;
     const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
@@ -654,8 +654,21 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
     const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
     if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
-      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter)); }
-      catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
+      // V22.9.79: 이 실행이 도는 동안 예약 실행 밖(정기 규칙 수정·수동 반영의 queueRecurringReportRebuild)이 다시 만들기 대기에
+      // 보탠 항목을 덮지 않는다. 예전에는 처음 읽은 상태로 계산한 값을 그대로 써서 그 항목이 사라졌다. 저장 바로 앞에 상태를 다시
+      // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
+      // 겹치지 않고, 실행 밖에서는 대기만 보탠다). 다시 읽지 못하면 쓰지 않는다(저장 실패와 같다: 다음 실행이 앞선 상태에서 다시
+      // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
+      try {
+        const latest = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+        const known = new Set(stored.report_rebuild);
+        const added = latest.report_rebuild.filter((key) => !known.has(key));
+        if (added.length) {
+          reportQueue = recurringReportQueue([...reportQueue, ...added]);
+          if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
+        }
+        await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter));
+      } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
   } else if (reportQueue.length) {
     // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
@@ -702,23 +715,51 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   const outcome = await applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
   // V22.9.77 감사 M-8: 이 지난달 몫은 따라잡기가 넣었을 기록인데 표식이 지난달로 바뀌어 다음 예약 실행은 이 가계부를 다시
   // 보지 않는다. 지난달 월간 스냅숏이 이미 있으면 여기서 다시 만든다(실패해도 고친 내용 저장은 막지 않는다).
-  // V22.9.79 N-9: 그 기록이 든 주가 오늘 앞에 끝났으면 그 주 주간 스냅숏도 있으면 다시 만든다.
+  // V22.9.79 N-9: 그 기록이 든 주가 끝났으면 그 주 주간 스냅숏도 있으면 다시 만든다.
   // V22.9.79 N-10: 여기서 못 만든 스냅숏(확인·기록 조회·저장 실패)은 예약 실행의 다시 만들기 대기에 보태 다음 예약 실행이 잇는다.
-  if (outcome === "applied" || outcome === "deduplicated") {
-    const entries = [{ household_id: householdId, month: previousMonth }];
-    const weekEnd = recurringCronWeekEnd(recurringCronDueDate(existing, previousMonth));
-    if (weekEnd && weekEnd < today) entries.push({ household_id: householdId, week_end: weekEnd });
-    const rebuilt = await rebuildMonthlyReportSnapshots(env, entries, { limit: entries.length, path: "/recurring/edit", method: "POST" });
-    if (safeArray(rebuilt?.remaining).length) await queueRecurringReportRebuild(env, rebuilt.remaining);
-  }
+  if (outcome === "applied" || outcome === "deduplicated") await refreshRecurringReports(env, householdId, [existing], previousMonth);
   return outcome;
 }
 
-// V22.9.79 감사 N-10: 예약 실행 밖(정기 규칙 수정)에서 다시 만들지 못한 스냅숏을 상태 키의 다시 만들기 대기(report_rebuild)에
+// V22.9.79: 예약 실행 밖에서 정기 기록을 넣은 뒤(정기 규칙 수정의 지난달 몫, 수동 반영 '기록하기') 이미 만든 스냅숏 가운데 그
+// 기록이 빠진 것. 그 달이 끝났으면(말일이면 그날 만든 이번 달 스냅숏도) 그 달 월간, 기록 날짜가 든 주가 오늘이나 그 앞에
+// 끝났으면(일요일 실행이 이미 만들었을 수 있다) 그 주 주간이다. 예약 실행(N-9)은 오늘 끝나는 주·달을 같은 실행의 리포트
+// 단계가 뒤에서 만들므로 그 앞에 끝난 것만 본다.
+function recurringReportTouches(householdId = "", rules = [], month = "", today = "") {
+  if (!householdId || !validMonth(month)) return [];
+  const entries = recurringDateForMonth(month, 31) <= today ? [{ household_id: householdId, month }] : [];
+  const weeks = new Set();
+  for (const rule of safeArray(rules)) {
+    const weekEnd = recurringCronWeekEnd(recurringCronDueDate(rule, month));
+    if (weekEnd && weekEnd <= today) weeks.add(weekEnd);
+  }
+  for (const weekEnd of [...weeks].sort()) entries.push({ household_id: householdId, week_end: weekEnd });
+  return entries;
+}
+
+// 위 스냅숏을 이 요청에서 RECURRING_REPORT_REBUILDS 개까지 다시 만들고(있는 스냅숏만, 확인 1회 + 하나에 2회), 못 만든 것은
+// 다시 만들기 대기에 보태 다음 예약 실행이 잇는다(N-10, 읽기·저장 2회). 요청의 저장소 호출 몫이 모자라면 바로 대기에 보탠다.
+// queueOnly 면 다시 만들지 않고 대기에만 보탠다. 던지지 않는다(기록 저장 결과를 바꾸지 않는다). 돌려주는 값은 항목 수다.
+async function refreshRecurringReports(env, householdId = "", rules = [], month = "", { queueOnly = false, path = "/recurring/edit", method = "POST" } = {}) {
+  const entries = recurringReportTouches(householdId, rules, month, formatDate(nowKstDate()));
+  if (!entries.length) return 0;
+  const budget = env.__AB_DB_BUDGET;
+  const canSpend = (calls) => !budget || Number(budget.used || 0) + calls + 2 <= Number(budget.limit || 0);
+  try {
+    const rebuilt = queueOnly ? { remaining: entries } : await rebuildMonthlyReportSnapshots(env, entries, { limit: RECURRING_REPORT_REBUILDS, canSpend, path, method });
+    if (safeArray(rebuilt?.remaining).length) await queueRecurringReportRebuild(env, rebuilt.remaining, { path, method });
+  } catch (err) {
+    rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: safeError(err) });
+  }
+  return entries.length;
+}
+
+// V22.9.79 감사 N-10: 예약 실행 밖(정기 규칙 수정·수동 반영)에서 다시 만들지 못한 스냅숏을 상태 키의 다시 만들기 대기(report_rebuild)에
 // 보태 다음 예약 실행이 잇게 한다. 예전에는 운영 이벤트(free_report_rebuild_failed)만 남았고, 그 규칙은 표식이 지난달로 바뀌어
 // 따라잡기에서 빠지므로 다음 실행도 그 가계부·달을 보지 않아 스냅숏이 예전 금액으로 남았다. 상태를 못 읽거나 깨졌으면
 // 덮어쓰지 않는다(깨진 상태는 예약 실행이 처음 실행처럼 다시 쓴다). 저장소 호출은 읽기 1회·저장 1회이고, 실패해도 던지지 않고
-// 운영 이벤트만 남긴다. 같은 때 끝나는 예약 실행이 상태를 쓰면 이 항목이 덮일 수 있다(예약 실행은 하루 한 번, 몇 초).
+// 운영 이벤트만 남긴다. 같은 때 도는 예약 실행은 저장 바로 앞에 상태를 다시 읽어 이 항목을 붙인다(그 사이 한 번 왕복에 보탠
+// 항목만 덮일 수 있다).
 async function queueRecurringReportRebuild(env, entries = [], { path = "/recurring/edit", method = "POST" } = {}) {
   const add = recurringReportQueue(safeArray(entries).map(recurringReportKey));
   if (!add.length) return false;
@@ -872,6 +913,7 @@ async function readScheduledRunLog(env) {
 export {
   SCHEDULED_RUN_LOG_CALLS, applyRecurringRuleForMonth, eligibleRecurringSpenders,
   handleRecurringCronApply, readScheduledRunLog, recordScheduledRun, recurringDateForMonth,
-  recurringSpenderEligible, runRecurringAutoApply, scheduledRunErrorCode, settleRecurringBeforeEdit,
+  recurringSpenderEligible, refreshRecurringReports, runRecurringAutoApply, scheduledRunErrorCode,
+  settleRecurringBeforeEdit,
 };
 // @build:exports-end

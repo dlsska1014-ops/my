@@ -17,7 +17,7 @@ import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
 import {
   applyRecurringRuleForMonth, eligibleRecurringSpenders, recurringDateForMonth,
-  recurringSpenderEligible, settleRecurringBeforeEdit,
+  recurringSpenderEligible, refreshRecurringReports, settleRecurringBeforeEdit,
 } from "../cron/recurring-auto-apply.js";
 import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
@@ -315,6 +315,8 @@ async function handleRecurringApply(request, env) {
   // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
   if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);
   let mutationConfirmed = false;
+  // V22.9.79: 기록을 넣었거나 이미 있던 기록을 확인한 규칙. 그 기록이 든 지난 달·끝난 주의 스냅숏을 다시 만든다.
+  const settled = [];
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
@@ -336,6 +338,7 @@ async function handleRecurringApply(request, env) {
         const summary = Array.isArray(result) ? result[0] : result;
         count = Math.max(0, Number(summary?.inserted || 0));
         mutationConfirmed = true;
+        settled.push(...pending);
         // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
         for (const r of pending) {
           const previous = String(r.last_applied_month || "");
@@ -345,15 +348,21 @@ async function handleRecurringApply(request, env) {
         for (const r of pending) {
           if (blocked.includes(r)) continue;
           const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
-          if (outcome !== "skipped") mutationConfirmed = true;
+          if (outcome !== "skipped") { mutationConfirmed = true; settled.push(r); }
           if (outcome === "applied") count += 1;
         }
       }
+      // V22.9.79: 지난 달이나 이미 끝난 주에 넣은 기록은 그 기간의 월간·주간 스냅숏에 빠져 있고, 표식이 이 달로 바뀌어 예약
+      // 실행도 이 가계부·달을 다시 보지 않는다. 예약 실행(N-9)·규칙 수정과 같은 길로 있는 스냅숏을 다시 만들고, 못 만든 것은
+      // 다시 만들기 대기에 보탠다. 실패해도 기록 결과 안내는 그대로다.
+      await refreshRecurringReports(env, householdId, settled, month, { path: "/recurring/apply" });
       const skippedNote = blocked.length ? ` · ${blocked.length}건은 지출자가 활성 참여자가 아니어서 건너뜀` : "";
       return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록${skippedNote}` }));
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
+    // 기록은 들어갔는데 끝을 맺지 못했으면(반영 표식 되살리기 실패 등) 스냅숏은 다시 만들기 대기에만 보태 다음 예약 실행이 잇는다.
+    if (settled.length) await refreshRecurringReports(env, householdId, settled, month, { queueOnly: true, path: "/recurring/apply" });
     const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }

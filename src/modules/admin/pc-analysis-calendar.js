@@ -16,7 +16,7 @@ import {
 } from "../my/analysis-page.js";
 import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
 import {
-  budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurring,
+  budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurringStrict,
 } from "../domain/budgets.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
 import {
@@ -208,6 +208,7 @@ function detectRecurringCandidates(historyRows = [], month = currentMonthKst(), 
 }
 
 function renderRecurringInsightList(candidates = []) {
+  if (candidates === null) return `<p class="muted" role="status">정기 항목 목록을 불러오지 못해 반복 지출 후보를 고르지 않았어요. 새로고침해 다시 확인해 주세요.</p>`;
   if (!candidates.length) return `<p class="muted">최근 3개월에서 같은 이름·같은 금액으로 반복된 지출을 찾지 못했습니다. 구독료나 회비는 메모를 같은 이름으로 적으면 자동으로 잡아드립니다.</p>`;
   return `<ul class="insightList">${candidates.map((c) => `<li><b>${escapeHtml(c.memo || "이름 없음")}</b><span>${escapeHtml(c.category || "미분류")} · 최근 3개월 중 ${c.hitMonths}개월 반복</span><strong>${numberWithCommas(c.amount)}원</strong></li>`).join("")}</ul>`;
 }
@@ -378,11 +379,12 @@ async function handlePcAnalysisPage(request, env, url) {
   const yearResult = householdId ? await fetchAnalysisRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : { rows: [], truncated: false };
   const historyRows = historyResult.rows;
   const yearRows = yearResult.rows;
-  const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
+  const registeredRecurring = householdId ? await fetchRecurringStrict(env, householdId).catch(() => null) : [];
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   return htmlResponse(renderPcAnalysisHtml({ ...ctx, extended, recurringCandidates, anomalies, weeklyReport }));

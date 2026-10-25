@@ -10,6 +10,11 @@
 //        300개)는 월간 항목만 센다. 넘치면 주간 항목부터 잘린다.
 //   N-10 정기 규칙 수정이 놓친 지난달 몫을 넣고 그 자리에서 스냅숏을 다시 만들지 못하면, 운영 이벤트만 남기지 않고 상태 키의
 //        다시 만들기 대기(report_rebuild)에 보태 다음 예약 실행이 잇는다. 고친 내용 저장은 막지 않는다.
+//   F-1  (V22.9.79 후속) 수동 반영 '기록하기'(/admin/recurring/apply)로 지난 달이나 이미 끝난 주에 넣은 기록은 그 기간 월간·
+//        주간 스냅숏에 빠진 채 남았다(표식이 바뀌어 예약 실행도 다시 보지 않았다). 이제 같은 길로 두 개까지 그 자리에서 다시
+//        만들고 남은 것·끝을 맺지 못한 반영은 대기에 넣는다. 오늘(일요일) 아침 실행이 만든 이번 주 스냅숏도 다시 만든다.
+//   F-2  (V22.9.79 후속) 예약 실행 끝 상태 저장은 처음 읽은 상태로 계산한 값을 그대로 써서, 실행 중에 실행 밖에서 대기에 보탠
+//        항목(F-1·N-10)을 지웠다. 이제 저장 바로 앞에 다시 읽어 새 항목을 붙이고, 다시 읽지 못하면 쓰지 않는다.
 // 픽스처는 PostgREST 논리식(and·or)을 무시하고 지정일을 글자 순으로 정렬하므로, 정기 규칙 목록 조회는 V22.9.78 검사와 같은
 // 작은 PostgREST 흉내(논리식·지정일 숫자 정렬·limit)로 답한다.
 // 사용: node validation/validate-cron-v22979.mjs
@@ -419,5 +424,124 @@ await fixture(async (fx) => {
   ok(grew(snapshot(fx, weeklyKey("house-home", "2026-11-01")), staleWeek, 13000, 1), "N10-C 고친 요청이 그 기록이 든 주 주간 스냅숏도 다시 만든다 (예전: 월간만)");
   ok(!stateOf(fx)?.report_rebuild, "N10-C 다 만들었으면 대기에 남기지 않는다");
 });
+
+// ── F1-A: 지난달 '기록하기'(수동 반영)가 그 달 월간·끝난 주 주간 스냅숏을 다시 만들고, 남은 것은 대기에 넣는다 ─────────────
+await fixture(async (fx) => {
+  fx.db.accountbook_recurring.length = 0;
+  seedHousehold(fx, "f1-a", { weekly: true, monthly: true, tx: [["2026-10-07", 8000], ["2026-10-14", 7000]] });
+  putState(fx, { checked_date: "2026-10-10", pending_month: "" });
+  for (const day of ["2026-10-11", "2026-10-18", "2026-10-31"]) await runCron(fx, day);
+  const staleWeek1 = snapshot(fx, weeklyKey("f1-a", "2026-10-11"));
+  const staleWeek2 = snapshot(fx, weeklyKey("f1-a", "2026-10-18"));
+  const staleMonth = snapshot(fx, monthlyKey("f1-a"));
+  ok(staleWeek1?.transaction_count === 1 && staleWeek2?.transaction_count === 1 && staleMonth?.transaction_count === 2, "F1-A 10월 월간·10/5~11·10/12~18 주간 스냅숏이 있다");
+  // 11월에 만든 규칙 둘(6일·15일)을 10월 몫으로 기록한다(D-11 확인 화면을 거친 요청).
+  seedRule(fx, { id: "f1a-06", household_id: "f1-a", amount: 9900, memo: "학습지", day_of_month: 6, last_applied_month: null, created_at: "2026-11-02T10:00:00+09:00" });
+  seedRule(fx, { id: "f1a-15", household_id: "f1-a", amount: 4500, memo: "음악", day_of_month: 15, last_applied_month: null, created_at: "2026-11-02T10:00:00+09:00" });
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-11-03", "10:00");
+  const res = await post(fx, "/admin/recurring/apply", { household_id: "f1-a", month: "2026-10", confirmed: "yes" });
+  ok(res.status === 303 && /고정항목.2건.기록/.test(res.decoded), `F1-A 10월 몫 두 건을 기록한다 (${res.decoded.slice(0, 120)})`);
+  ok(grew(snapshot(fx, monthlyKey("f1-a")), staleMonth, 14400, 2), "F1-A 그 요청이 10월 월간 스냅숏을 다시 만든다 (예전: 예전 금액으로 남았고 표식이 바뀌어 예약 실행도 다시 보지 않았다)");
+  ok(grew(snapshot(fx, weeklyKey("f1-a", "2026-10-11")), staleWeek1, 9900, 1), "F1-A 그 요청이 10/6 기록이 든 주(10/5~11) 주간 스냅숏을 다시 만든다");
+  deepEq(snapshot(fx, weeklyKey("f1-a", "2026-10-18")), staleWeek2, "F1-A 한 요청은 스냅숏을 두 개까지만 다시 만든다");
+  deepEq(stateOf(fx)?.report_rebuild, ["2026-10-18|f1-a"], "F1-A 못 만든 10/12~18 주간 스냅숏은 다시 만들기 대기에 넣는다");
+  eq(stateOf(fx)?.checked_date, "2026-10-31", "F1-A 대기만 보태고 checked_date 는 그대로 둔다");
+  await runCron(fx, "2026-11-04");
+  ok(grew(snapshot(fx, weeklyKey("f1-a", "2026-10-18")), staleWeek2, 4500, 1), "F1-A 다음 예약 실행(11/4)이 10/15 기록이 든 주 주간 스냅숏을 다시 만든다");
+  ok(!stateOf(fx)?.report_rebuild, "F1-A 다 만든 뒤 대기는 비어 있다");
+});
+
+// ── F1-B: 이번 달 '기록하기'는 끝난 주와 오늘(일요일) 아침 만든 이번 주 주간 스냅숏을 다시 만든다. 다음 주 기록·이번 달 월간은 그대로 ───
+await fixture(async (fx) => {
+  fx.db.accountbook_recurring.length = 0;
+  seedHousehold(fx, "f1-b", { weekly: true, monthly: true, tx: [["2026-10-14", 7000], ["2026-10-21", 6000]] });
+  putState(fx, { checked_date: "2026-10-17", pending_month: "" });
+  for (const day of ["2026-10-18", "2026-10-25"]) await runCron(fx, day);
+  const staleLast = snapshot(fx, weeklyKey("f1-b", "2026-10-18"));
+  const staleThis = snapshot(fx, weeklyKey("f1-b", "2026-10-25"));
+  ok(staleLast?.transaction_count === 1 && staleThis?.transaction_count === 1, "F1-B 10/12~18·10/19~25 주간 스냅숏이 있다");
+  for (const [id, day, amount] of [["f1b-13", 13, 3000], ["f1b-22", 22, 5000], ["f1b-28", 28, 7000]]) seedRule(fx, { id, household_id: "f1-b", amount, memo: `구독${day}`, day_of_month: day, last_applied_month: null, created_at: "2026-10-25T12:00:00+09:00" });
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-10-25", "20:00");
+  const res = await post(fx, "/admin/recurring/apply", { household_id: "f1-b", month: "2026-10" });
+  ok(res.status === 303 && /고정항목.3건.기록/.test(res.decoded), `F1-B 이번 달 몫 세 건을 기록한다 (${res.decoded.slice(0, 120)})`);
+  ok(grew(snapshot(fx, weeklyKey("f1-b", "2026-10-18")), staleLast, 3000, 1), "F1-B 끝난 주(10/12~18) 주간 스냅숏을 다시 만든다 (예전: 예전 금액)");
+  ok(grew(snapshot(fx, weeklyKey("f1-b", "2026-10-25")), staleThis, 5000, 1), "F1-B 오늘(일요일) 아침 예약 실행이 만든 이번 주 스냅숏도 다시 만든다(10/28 기록은 다음 주 몫)");
+  ok(!settingValue(fx, monthlyKey("f1-b")), "F1-B 이번 달 월간 스냅숏은 만들지 않는다(말일 실행이 만든다)");
+  ok(!stateOf(fx)?.report_rebuild, "F1-B 다 만들었으면 대기에 남기지 않는다");
+});
+
+// ── F1-C: 기록은 들어갔는데 반영 표식 되살리기(SIM-8)가 실패하면 스냅숏은 대기에 넣어 다음 예약 실행이 다시 만든다 ───────────
+await fixture(async (fx) => {
+  fx.db.accountbook_recurring.length = 0;
+  seedHousehold(fx, "f1-c", { monthly: true, tx: [["2026-10-14", 7000]] });
+  putState(fx, { checked_date: "2026-10-30", pending_month: "" });
+  await runCron(fx, "2026-10-31");
+  const stale = snapshot(fx, monthlyKey("f1-c"));
+  ok(stale?.transaction_count === 1, "F1-C 10월 월간 스냅숏이 있다");
+  // 표식이 이미 11월인 규칙의 10월 몫을 넣는다. RPC 뒤 표식을 11월로 되살리는 요청이 실패한다.
+  seedRule(fx, { id: "f1c-20", household_id: "f1-c", amount: 8800, memo: "보험", day_of_month: 20, last_applied_month: "2026-11", created_at: "2026-09-01T10:00:00+09:00" });
+  globalThis.__AB_QA_FIXED_NOW_MS = KST("2026-11-03", "10:00");
+  const restore = intercept(({ url, method }) => (method === "PATCH" && url.pathname.endsWith("/accountbook_recurring") ? failure(503) : null));
+  let res;
+  try { res = await post(fx, "/admin/recurring/apply", { household_id: "f1-c", month: "2026-10", confirmed: "yes" }); } finally { restore(); }
+  ok(res.status === 303 && /err=/.test(res.decoded), `F1-C 끝을 맺지 못한 반영은 오류로 안내한다 (${res.decoded.slice(0, 120)})`);
+  eq(applied(fx, "f1c-20").length, 1, "F1-C 10월 몫 기록은 들어갔다");
+  deepEq(snapshot(fx, monthlyKey("f1-c")), stale, "F1-C 그 요청은 스냅숏을 다시 만들지 않는다");
+  deepEq(stateOf(fx)?.report_rebuild, ["2026-10|f1-c", "2026-10-25|f1-c"], "F1-C 10월 월간·10/19~25 주간 스냅숏을 다시 만들기 대기에 넣는다 (예전: 아무것도 남지 않았다)");
+  await runCron(fx, "2026-11-04");
+  ok(grew(snapshot(fx, monthlyKey("f1-c")), stale, 8800, 1), "F1-C 다음 예약 실행이 10월 월간 스냅숏을 다시 만든다");
+  ok(!stateOf(fx)?.report_rebuild, "F1-C 없는 주간 스냅숏 항목은 버리고 대기를 비운다");
+});
+
+// ── F2: 예약 실행이 도는 동안 실행 밖에서 다시 만들기 대기에 보탠 항목을 실행 끝 상태 저장이 지우지 않는다 ─────────────────
+// 실행이 첫 쪽을 읽을 때(상태를 처음 읽은 뒤) 규칙 수정·수동 반영이 대기에 '2026-09|f2'를 보탠 것처럼 상태 키를 바꾼다.
+const stateRead = ({ url, method }) => method === "GET" && url.pathname.endsWith("/accountbook_settings") && url.searchParams.get("key") === `eq.${STATE_KEY}`;
+function queueDuringRun(fx, entry, { failReread = false } = {}) {
+  const seen = { stateReads: 0, injected: false };
+  const handler = (request) => {
+    if (stateRead(request)) { seen.stateReads += 1; if (failReread && seen.stateReads >= 2) return outage(); }
+    if (!seen.injected && request.method === "GET" && request.url.pathname.endsWith("/accountbook_recurring")) {
+      seen.injected = true;
+      const state = stateOf(fx);
+      putState(fx, { ...state, report_rebuild: [...(state.report_rebuild || []), entry] });
+    }
+    return null;
+  };
+  return { seen, handler };
+}
+for (const failReread of [false, true]) {
+  await fixture(async (fx) => {
+    const tag = failReread ? "F2-B" : "F2-A";
+    fx.db.accountbook_recurring.length = 0;
+    seedHousehold(fx, "f2", { monthly: true, tx: [["2026-09-10", 5000]] });
+    putState(fx, { checked_date: "2026-09-29", pending_month: "" });
+    await runCron(fx, "2026-09-30");
+    const stale = snapshot(fx, monthlyKey("f2", "2026-09"));
+    await runCron(fx, "2026-10-20");
+    ok(stale?.transaction_count === 1 && stateOf(fx)?.checked_date === "2026-10-20", `${tag} 9월 월간 스냅숏이 있고 checked_date 는 10/20 이다`);
+    // 실행 밖에서 넣은 9월 기록(규칙 수정의 지난달 몫 같은 것). 그 스냅숏 다시 만들기를 실행 중에 대기에 보탠다.
+    fx.db.transactions.push({ id: "f2-late", household_id: "f2", user_id: "user-bin", transaction_date: "2026-09-20", type: "expense", amount: 7700, category: "구독", memo: "늦은 기록", payment_method: "", source: "recurring_auto", raw_text: "recurring:f2-late:2026-09", created_at: "2026-10-21T00:00:00Z" });
+    const during = queueDuringRun(fx, "2026-09|f2", { failReread });
+    const run = await runCron(fx, "2026-10-21", { handler: during.handler });
+    ok(during.seen.injected && run.calls <= 50, `${tag} 실행 중에 대기가 보태졌고 호출은 50회 안이다 (${run.calls}회)`);
+    if (!failReread) {
+      eq(during.seen.stateReads, 2, "F2-A 상태를 바꾸는 실행은 저장 바로 앞에 상태를 다시 읽는다(처음 1회 + 저장 앞 1회)");
+      deepEq(stateOf(fx)?.report_rebuild, ["2026-09|f2"], "F2-A 실행 중에 보탠 대기 항목이 실행 끝 저장 뒤에도 남는다 (예전: 처음 읽은 상태로 덮여 사라졌다)");
+      eq(stateOf(fx)?.checked_date, "2026-10-21", "F2-A checked_date 등 다른 칸은 이 실행의 값이다");
+      await runCron(fx, "2026-10-22");
+      ok(grew(snapshot(fx, monthlyKey("f2", "2026-09")), stale, 7700, 1), "F2-A 다음 실행이 그 항목의 9월 스냅숏을 다시 만든다");
+      ok(!stateOf(fx)?.report_rebuild, "F2-A 다 만든 뒤 대기는 비어 있다");
+      // 상태가 바뀌지 않는 실행(같은 날 두 번째)은 다시 읽지도 쓰지도 않고, 그 사이 보탠 항목은 그대로 남는다.
+      const again = queueDuringRun(fx, "2026-09|f2");
+      await runCron(fx, "2026-10-22", { handler: again.handler });
+      ok(again.seen.injected && again.seen.stateReads === 1 && (stateOf(fx)?.report_rebuild || []).includes("2026-09|f2"), `F2-A 상태가 그대로인 실행은 상태를 한 번만 읽고 보탠 항목을 건드리지 않는다 (읽기 ${again.seen.stateReads}회)`);
+    } else {
+      deepEq(stateOf(fx), { checked_date: "2026-10-20", pending_month: "", report_rebuild: ["2026-09|f2"] }, "F2-B 상태를 다시 읽지 못하면 쓰지 않아 보탠 항목이 남는다(저장 실패와 같다: 다음 실행이 다시 확인한다)");
+      ok(run.events.some((e) => e.kind === "recurring_state_save_failed"), "F2-B 운영 이벤트 recurring_state_save_failed 를 남긴다");
+      await runCron(fx, "2026-10-22");
+      ok(grew(snapshot(fx, monthlyKey("f2", "2026-09")), stale, 7700, 1) && stateOf(fx)?.checked_date === "2026-10-22", "F2-B 다음 실행이 9월 스냅숏을 다시 만들고 checked_date 를 옮긴다");
+    }
+  });
+}
 
 done();

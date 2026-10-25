@@ -15983,7 +15983,8 @@ async function handleBackupCenterPage(request, env, url) {
   const rows = await fetchAdminRows(env, { month, householdId: hid, type: "all" });
   const members = hid ? await fetchHouseholdMembers(env, hid) : [];
   const budgets = hid ? await fetchBudgets(env, hid, month) : [];
-  const recurring = hid ? await fetchRecurring(env, hid) : [];
+  // V22.9.79: 고정항목 목록을 못 읽으면 0개가 아니라 '확인 불가'다.
+  const recurring = hid ? await fetchRecurringStrict(env, hid).catch(() => null) : [];
   const categories = hid ? await fetchCustomCategories(env, hid) : [];
   const qs = backupScopeParams(month, hid);
   const allQs = backupScopeParams(month, "");
@@ -15992,7 +15993,7 @@ async function handleBackupCenterPage(request, env, url) {
     ["거래 기록", `${numberWithCommas(rows.length)}건`, "현재 선택한 월의 수입·지출 데이터"],
     ["참여자", `${numberWithCommas(members.length)}명`, "가계부 구성원 정보"],
     ["예산", `${numberWithCommas(budgets.length)}개`, "월 예산/분류 예산"],
-    ["고정항목", `${numberWithCommas(recurring.length)}개`, "반복 기록 설정"],
+    ["고정항목", recurring ? `${numberWithCommas(recurring.length)}개` : "확인 불가", "반복 기록 설정"],
     ["사용자 분류", `${numberWithCommas(categories.length)}개`, "직접 추가한 분류"],
   ].map(([label, value, desc]) => `<div class="metric"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><small>${escapeHtml(desc)}</small></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>백업센터</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin:6px 0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.actions{display:flex;gap:8px;flex-wrap:wrap}.stepActions{margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.green{background:#059669}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:640px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>백업센터</h1><p>새 기능을 추가하기 전, 현재 가계부 데이터를 안전하게 내려받아 보관합니다. PC 로컬 저장 구조가 아니라 Supabase 클라우드 데이터를 export합니다.</p><form class="filters" method="get" action="/backup"><select name="household_id">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">백업 기준 변경</button></form></section><section class="grid">${cards}</section><section class="card"><h2>내보내기</h2><p class="warn">JSON 백업은 거래 기록, 예산, 고정항목, 사용자 분류, 참여자 정보를 함께 담습니다. CSV는 거래 목록 확인/엑셀 검토용입니다. 전체 기간 백업은 선택한 가계부의 모든 달(거래 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건까지)을, ‘${escapeHtml(month)}만’ 단추는 그 달만 담습니다. 모든 가계부 백업은 요청 한도 때문에 한 달씩만 만듭니다.</p><div class="actions"><a class="btn green" href="/admin/export/json?${escapeHtml(fullQs)}">1. 현재 가계부 전체 기간 백업</a><a class="btn light" href="/admin/export/json?${escapeHtml(qs)}">현재 가계부 ${escapeHtml(month)}만 백업</a><a class="btn light" href="/admin/csv?${escapeHtml(qs)}">거래내역 엑셀용 CSV(${escapeHtml(month)})</a><a class="btn" href="/admin/export/json?${escapeHtml(allQs)}">모든 가계부 ${escapeHtml(month)}만 백업</a></div><div class="actions stepActions"><a class="btn light" href="/backup/preview">2. 백업 파일 확인</a><a class="btn light" href="/backup/compare?${escapeHtml(qs)}">3. 중복/충돌 확인</a><a class="btn light" href="/backup/select?${escapeHtml(qs)}">4. 복구할 항목 고르기</a><a class="btn light" href="/backup/final-check?${escapeHtml(qs)}">5. 복구 전 최종 확인</a><a class="btn light" href="/backup/apply?${escapeHtml(qs)}">6. 선택 항목 복구 실행</a><a class="btn light" href="/backup/import-history?${escapeHtml(qs)}">복구 이력 보기</a><a class="btn light" href="/backup/rollback-candidates?${escapeHtml(qs)}">되돌릴 항목 고르기</a><a class="btn light" href="/backup/rollback-final-check?${escapeHtml(qs)}">되돌리기 전 최종 확인</a></div></section><section class="card"><h2>운영 안전 원칙</h2><ul><li>복구와 되돌리기는 단계별 확인 후 진행합니다. 실제 적용 전에는 반드시 현재 데이터를 먼저 백업하세요.</li><li>백업 파일에는 민감한 가계부 데이터가 포함되므로 외부 공유를 피하세요.</li><li>큰 구조 변경 전에는 이 화면에서 JSON 백업을 먼저 내려받으세요.</li></ul></section></main></body></html>`);
@@ -25154,7 +25155,7 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
-//   고정 4~6회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 저장 1은 필요할 때만)
+//   고정 4~7회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 다시 읽기·저장 2는 필요할 때만)
 //   묶음마다 최대 4회(규칙 최대 40개): 참여자 확인 + 이미 들어간 기록 확인 + 한 번에 저장 + 반영 표식
 // 그래서 한 번에 규칙 약 240개를 넣는다. 다 못 넣으면 partial 로 끝나고 다음 실행이 이어 간다. 반영한 규칙은 표식이 바뀌어
 // 목록에서 빠지므로 커서가 필요 없다. 같은 규칙·같은 달은 기록 확인과 (household_id, raw_text) 고유 색인으로 한 번만 들어간다
@@ -25657,12 +25658,12 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const frontierOf = (phase) => phase.firstUnsettled ? recurringCronDueDate(phase.firstUnsettled.rule, phase.month)
     : !phase.end ? recurringCronDueDate({ day_of_month: phase.lastKey ? phase.lastKey[0] : 1 }, phase.month) : "";
   partial = partial || remaining > 0 || unread || phases.some((phase) => phase.firstUnsettled);
-  // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(예약 실행 1회,
-  // ?month= 실행은 읽기·저장 2회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
+  // V22.9.77 감사 M-8: 이번 실행과 앞선 실행이 남긴 가계부·달의 월간 스냅숏을 다시 만든다. 상태 저장 몫(다시 읽기·저장 2회,
+  // V22.9.79 전 예약 실행은 저장 1회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
   let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
   let reportRebuilt = 0;
   if (reportQueue.length) {
-    const reserve = stored ? 1 : 2;
+    const reserve = 2;
     const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
@@ -25693,8 +25694,21 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
     const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
     if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
-      try { await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter)); }
-      catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
+      // V22.9.79: 이 실행이 도는 동안 예약 실행 밖(정기 규칙 수정·수동 반영의 queueRecurringReportRebuild)이 다시 만들기 대기에
+      // 보탠 항목을 덮지 않는다. 예전에는 처음 읽은 상태로 계산한 값을 그대로 써서 그 항목이 사라졌다. 저장 바로 앞에 상태를 다시
+      // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
+      // 겹치지 않고, 실행 밖에서는 대기만 보탠다). 다시 읽지 못하면 쓰지 않는다(저장 실패와 같다: 다음 실행이 앞선 상태에서 다시
+      // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
+      try {
+        const latest = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+        const known = new Set(stored.report_rebuild);
+        const added = latest.report_rebuild.filter((key) => !known.has(key));
+        if (added.length) {
+          reportQueue = recurringReportQueue([...reportQueue, ...added]);
+          if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
+        }
+        await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter));
+      } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
   } else if (reportQueue.length) {
     // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
@@ -25741,23 +25755,51 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   const outcome = await applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
   // V22.9.77 감사 M-8: 이 지난달 몫은 따라잡기가 넣었을 기록인데 표식이 지난달로 바뀌어 다음 예약 실행은 이 가계부를 다시
   // 보지 않는다. 지난달 월간 스냅숏이 이미 있으면 여기서 다시 만든다(실패해도 고친 내용 저장은 막지 않는다).
-  // V22.9.79 N-9: 그 기록이 든 주가 오늘 앞에 끝났으면 그 주 주간 스냅숏도 있으면 다시 만든다.
+  // V22.9.79 N-9: 그 기록이 든 주가 끝났으면 그 주 주간 스냅숏도 있으면 다시 만든다.
   // V22.9.79 N-10: 여기서 못 만든 스냅숏(확인·기록 조회·저장 실패)은 예약 실행의 다시 만들기 대기에 보태 다음 예약 실행이 잇는다.
-  if (outcome === "applied" || outcome === "deduplicated") {
-    const entries = [{ household_id: householdId, month: previousMonth }];
-    const weekEnd = recurringCronWeekEnd(recurringCronDueDate(existing, previousMonth));
-    if (weekEnd && weekEnd < today) entries.push({ household_id: householdId, week_end: weekEnd });
-    const rebuilt = await rebuildMonthlyReportSnapshots(env, entries, { limit: entries.length, path: "/recurring/edit", method: "POST" });
-    if (safeArray(rebuilt?.remaining).length) await queueRecurringReportRebuild(env, rebuilt.remaining);
-  }
+  if (outcome === "applied" || outcome === "deduplicated") await refreshRecurringReports(env, householdId, [existing], previousMonth);
   return outcome;
 }
 
-// V22.9.79 감사 N-10: 예약 실행 밖(정기 규칙 수정)에서 다시 만들지 못한 스냅숏을 상태 키의 다시 만들기 대기(report_rebuild)에
+// V22.9.79: 예약 실행 밖에서 정기 기록을 넣은 뒤(정기 규칙 수정의 지난달 몫, 수동 반영 '기록하기') 이미 만든 스냅숏 가운데 그
+// 기록이 빠진 것. 그 달이 끝났으면(말일이면 그날 만든 이번 달 스냅숏도) 그 달 월간, 기록 날짜가 든 주가 오늘이나 그 앞에
+// 끝났으면(일요일 실행이 이미 만들었을 수 있다) 그 주 주간이다. 예약 실행(N-9)은 오늘 끝나는 주·달을 같은 실행의 리포트
+// 단계가 뒤에서 만들므로 그 앞에 끝난 것만 본다.
+function recurringReportTouches(householdId = "", rules = [], month = "", today = "") {
+  if (!householdId || !validMonth(month)) return [];
+  const entries = recurringDateForMonth(month, 31) <= today ? [{ household_id: householdId, month }] : [];
+  const weeks = new Set();
+  for (const rule of safeArray(rules)) {
+    const weekEnd = recurringCronWeekEnd(recurringCronDueDate(rule, month));
+    if (weekEnd && weekEnd <= today) weeks.add(weekEnd);
+  }
+  for (const weekEnd of [...weeks].sort()) entries.push({ household_id: householdId, week_end: weekEnd });
+  return entries;
+}
+
+// 위 스냅숏을 이 요청에서 RECURRING_REPORT_REBUILDS 개까지 다시 만들고(있는 스냅숏만, 확인 1회 + 하나에 2회), 못 만든 것은
+// 다시 만들기 대기에 보태 다음 예약 실행이 잇는다(N-10, 읽기·저장 2회). 요청의 저장소 호출 몫이 모자라면 바로 대기에 보탠다.
+// queueOnly 면 다시 만들지 않고 대기에만 보탠다. 던지지 않는다(기록 저장 결과를 바꾸지 않는다). 돌려주는 값은 항목 수다.
+async function refreshRecurringReports(env, householdId = "", rules = [], month = "", { queueOnly = false, path = "/recurring/edit", method = "POST" } = {}) {
+  const entries = recurringReportTouches(householdId, rules, month, formatDate(nowKstDate()));
+  if (!entries.length) return 0;
+  const budget = env.__AB_DB_BUDGET;
+  const canSpend = (calls) => !budget || Number(budget.used || 0) + calls + 2 <= Number(budget.limit || 0);
+  try {
+    const rebuilt = queueOnly ? { remaining: entries } : await rebuildMonthlyReportSnapshots(env, entries, { limit: RECURRING_REPORT_REBUILDS, canSpend, path, method });
+    if (safeArray(rebuilt?.remaining).length) await queueRecurringReportRebuild(env, rebuilt.remaining, { path, method });
+  } catch (err) {
+    rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: safeError(err) });
+  }
+  return entries.length;
+}
+
+// V22.9.79 감사 N-10: 예약 실행 밖(정기 규칙 수정·수동 반영)에서 다시 만들지 못한 스냅숏을 상태 키의 다시 만들기 대기(report_rebuild)에
 // 보태 다음 예약 실행이 잇게 한다. 예전에는 운영 이벤트(free_report_rebuild_failed)만 남았고, 그 규칙은 표식이 지난달로 바뀌어
 // 따라잡기에서 빠지므로 다음 실행도 그 가계부·달을 보지 않아 스냅숏이 예전 금액으로 남았다. 상태를 못 읽거나 깨졌으면
 // 덮어쓰지 않는다(깨진 상태는 예약 실행이 처음 실행처럼 다시 쓴다). 저장소 호출은 읽기 1회·저장 1회이고, 실패해도 던지지 않고
-// 운영 이벤트만 남긴다. 같은 때 끝나는 예약 실행이 상태를 쓰면 이 항목이 덮일 수 있다(예약 실행은 하루 한 번, 몇 초).
+// 운영 이벤트만 남긴다. 같은 때 도는 예약 실행은 저장 바로 앞에 상태를 다시 읽어 이 항목을 붙인다(그 사이 한 번 왕복에 보탠
+// 항목만 덮일 수 있다).
 async function queueRecurringReportRebuild(env, entries = [], { path = "/recurring/edit", method = "POST" } = {}) {
   const add = recurringReportQueue(safeArray(entries).map(recurringReportKey));
   if (!add.length) return false;
@@ -27196,10 +27238,11 @@ async function handleMyPremiumPage(request, env, url) {
   const [prevRows, historyRows, registeredRecurring] = await Promise.all([
     householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: historyStart, end: historyEnd }) : [],
-    householdId ? fetchRecurring(env, householdId) : [],
+    householdId ? fetchRecurringStrict(env, householdId).catch(() => null) : [],
   ]);
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows: historyRows, rowsBase: ctx.rows });
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 새 후보(등록 단추)로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const premium = buildPremiumState({ env, month, allRows: ctx.rows, analysis: ctx.analysis, extended });
@@ -27209,6 +27252,7 @@ async function handleMyPremiumPage(request, env, url) {
 }
 
 function renderRecurringCandidateCards(candidates = [], selected = {}, month = currentMonthKst()) {
+  if (candidates === null) return `<p class="muted" role="status">정기 항목 목록을 불러오지 못해 반복 지출 후보를 고르지 않았어요. 이미 등록한 항목이 있을 수 있으니 새로고침해 다시 확인해 주세요.</p>`;
   if (!candidates.length) return `<p class="muted">최근 3개월에서 같은 이름·금액으로 반복된 새 후보가 없습니다. 메모를 같은 이름으로 기록하면 더 정확하게 찾아드립니다.</p>`;
   const canManage = canManageMyHousehold(selected?.role || "");
   return `<div class="candidateGrid">${candidates.map((c) => {
@@ -27222,13 +27266,14 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   const role = selected?.role || "";
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected?.id || "")}`;
   const recurringTotal = safeArray(recurringCandidates).reduce((sum, x) => sum + Number(x.amount || 0), 0);
+  const recurringMetric = recurringCandidates === null ? "<b>확인 불가</b><small>정기 항목 목록을 불러오지 못했어요</small>" : `<b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small>`;
   const anomalyTotal = safeArray(anomalies).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const weeklyText = weeklyReport ? `${numberWithCommas(weeklyReport.thisWeek || 0)}원` : "집계 대기";
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
 // V22.9.76 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
@@ -27248,7 +27293,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
     householdId ? fetchObservationMonthRows(env, householdId, addMonthsYm(month, -1)) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
-    householdId ? fetchRecurring(env, householdId) : [],
+    householdId ? fetchRecurringStrict(env, householdId).catch(() => null) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
   const truncated = historyRaw.length > 9000;
@@ -27257,7 +27302,8 @@ async function handleMyAnalysisPage(request, env, url) {
   const yearRows = historyRows.filter((row) => String(row.transaction_date || "").startsWith(yearPrefix));
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
@@ -37195,6 +37241,7 @@ function detectRecurringCandidates(historyRows = [], month = currentMonthKst(), 
 }
 
 function renderRecurringInsightList(candidates = []) {
+  if (candidates === null) return `<p class="muted" role="status">정기 항목 목록을 불러오지 못해 반복 지출 후보를 고르지 않았어요. 새로고침해 다시 확인해 주세요.</p>`;
   if (!candidates.length) return `<p class="muted">최근 3개월에서 같은 이름·같은 금액으로 반복된 지출을 찾지 못했습니다. 구독료나 회비는 메모를 같은 이름으로 적으면 자동으로 잡아드립니다.</p>`;
   return `<ul class="insightList">${candidates.map((c) => `<li><b>${escapeHtml(c.memo || "이름 없음")}</b><span>${escapeHtml(c.category || "미분류")} · 최근 3개월 중 ${c.hitMonths}개월 반복</span><strong>${numberWithCommas(c.amount)}원</strong></li>`).join("")}</ul>`;
 }
@@ -37365,11 +37412,12 @@ async function handlePcAnalysisPage(request, env, url) {
   const yearResult = householdId ? await fetchAnalysisRowsRange(env, { householdId, start: `${month.slice(0, 4)}-01-01`, end: `${Number(month.slice(0, 4)) + 1}-01-01` }) : { rows: [], truncated: false };
   const historyRows = historyResult.rows;
   const yearRows = yearResult.rows;
-  const registeredRecurring = householdId ? await fetchRecurring(env, householdId) : [];
+  const registeredRecurring = householdId ? await fetchRecurringStrict(env, householdId).catch(() => null) : [];
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   return htmlResponse(renderPcAnalysisHtml({ ...ctx, extended, recurringCandidates, anomalies, weeklyReport }));
@@ -37838,6 +37886,8 @@ async function handleRecurringApply(request, env) {
   // 이번 달이 아니면 기록할 항목과 날짜를 보여 주는 확인 화면을 한 번 거친다.
   if (month !== currentMonthKst() && String(form.get("confirmed") || "") !== "yes") return renderRecurringApplyConfirmPage(env, householdId, month, returnTo);
   let mutationConfirmed = false;
+  // V22.9.79: 기록을 넣었거나 이미 있던 기록을 확인한 규칙. 그 기록이 든 지난 달·끝난 주의 스냅숏을 다시 만든다.
+  const settled = [];
   try {
     return await withHouseholdDatabaseLease(env, householdId, async ({ assertFresh }) => {
       // V22.9.29 requires the month-end RPC patch before this Worker is deployed.
@@ -37859,6 +37909,7 @@ async function handleRecurringApply(request, env) {
         const summary = Array.isArray(result) ? result[0] : result;
         count = Math.max(0, Number(summary?.inserted || 0));
         mutationConfirmed = true;
+        settled.push(...pending);
         // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
         for (const r of pending) {
           const previous = String(r.last_applied_month || "");
@@ -37868,15 +37919,21 @@ async function handleRecurringApply(request, env) {
         for (const r of pending) {
           if (blocked.includes(r)) continue;
           const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
-          if (outcome !== "skipped") mutationConfirmed = true;
+          if (outcome !== "skipped") { mutationConfirmed = true; settled.push(r); }
           if (outcome === "applied") count += 1;
         }
       }
+      // V22.9.79: 지난 달이나 이미 끝난 주에 넣은 기록은 그 기간의 월간·주간 스냅숏에 빠져 있고, 표식이 이 달로 바뀌어 예약
+      // 실행도 이 가계부·달을 다시 보지 않는다. 예약 실행(N-9)·규칙 수정과 같은 길로 있는 스냅숏을 다시 만들고, 못 만든 것은
+      // 다시 만들기 대기에 보탠다. 실패해도 기록 결과 안내는 그대로다.
+      await refreshRecurringReports(env, householdId, settled, month, { path: "/recurring/apply" });
       const skippedNote = blocked.length ? ` · ${blocked.length}건은 지출자가 활성 참여자가 아니어서 건너뜀` : "";
       return redirectResponse(addQueryToUrl(returnTo, { msg: `고정항목 ${count}건 기록${skippedNote}` }));
     });
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
+    // 기록은 들어갔는데 끝을 맺지 못했으면(반영 표식 되살리기 실패 등) 스냅숏은 다시 만들기 대기에만 보태 다음 예약 실행이 잇는다.
+    if (settled.length) await refreshRecurringReports(env, householdId, settled, month, { queueOnly: true, path: "/recurring/apply" });
     const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }

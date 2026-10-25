@@ -8,6 +8,9 @@
 //        이 값은 읽을 때 수입 기본 분류 '기타수입'으로 보이고 다음 저장 때 그 값으로 남는다. 배포 뒤에 만든 수입 계획과 지출
 //        계획의 '세금/수수료', 수정 화면에서 고른 분류는 그대로다. /reserve-plans 고정 항목 추가 폼(/admin/recurring/save)도
 //        분류를 비운 고정 수입을 '기타'가 아니라 '기타수입'으로 저장한다(/my/settings 와 같다).
+//   F-3  (V22.9.79 후속) 종합 리포트(/my/analysis?view=report)·무료 리포트(/my/premium)·PC 분석(/analysis)은 목록을 못 읽으면
+//        이미 등록한 정기 항목까지 반복 후보(무료 리포트는 등록 단추)로 보였고, 백업센터(/backup)는 '고정항목 0개'였다. 이제
+//        후보를 고르지 않고 '확인 불가'를 보인다.
 // 사용: node validation/validate-recurring-web-v22979.mjs
 import { counter, failure, fixture, formFields, intercept, page, post, putSetting, settingValue, withClock } from "./lib-audit-v22934.mjs";
 
@@ -152,6 +155,45 @@ for (const [mode, categoriesPresent] of MODES) {
     eq(fx.db.accountbook_recurring.find((rule) => rule.memo === "정수기")?.category, "기타", `W3-C ${mode} 분류를 비운 고정 지출은 예전처럼 '기타'다`);
     await post(fx, "/my/recurring/save", { household_id: HH, month: "2026-10", type: "income", memo: "용돈", amount: "50000", day_of_month: "5", category: "", payment_method: "", user_id: "user-bin", return_to: `/my/settings?${Q}` });
     eq(fx.db.accountbook_recurring.find((rule) => rule.memo === "용돈")?.category, "기타수입", `W3-C ${mode} /my/settings 경로도 '기타수입'이다(V22.9.76 W-1 그대로)`);
+  }, { categoriesPresent }));
+}
+
+// ── F3: 정기 항목 목록을 못 읽은 분석·리포트·백업 화면은 '없음'·새 후보가 아니라 '확인 불가'다 ─────────────────────
+// 반복 지출 후보는 등록한 정기 항목을 빼고 고른다. 예전에는 목록을 못 읽으면 빈 목록으로 골라(너그러운 읽기 fetchRecurring)
+// 이미 등록한 '월세'가 새 후보(무료 리포트는 등록 단추)로 보였고, 백업센터는 '고정항목 0개'였다.
+const adminLogin = async (fx) => {
+  fx.env.ADMIN_PASSWORD = "qa-admin-123";
+  fx.env.ADMIN_SESSION_SECRET = "qa-admin-session";
+  const login = await post(fx, "/login", { password: "qa-admin-123" }, { cookie: "" });
+  return (login.setCookie.match(/ab_admin=[^;]+/) || [""])[0];
+};
+const NO_LIST = "정기 항목 목록을 불러오지 못해 반복 지출 후보를 고르지 않았어요";
+const RENT_CANDIDATE = /월세 주거\/관리 · (최근 3개월 중 )?3개월 반복/;
+for (const [mode, categoriesPresent] of MODES) {
+  await withClock("2026-10-26", () => fixture(async (fx) => {
+    // 등록된 정기 항목 '월세 650,000원'(픽스처)과 같은 이름·금액의 기록이 8~10월에 있다.
+    for (const date of ["2026-08-05", "2026-09-05", "2026-10-05"]) fx.db.transactions.push({ id: `f3-rent-${date}`, household_id: HH, user_id: "user-bin", transaction_date: date, type: "expense", amount: 650000, category: "주거/관리", memo: "월세", payment_method: "계좌이체", source: "web", raw_text: `월세 650000 ${date}`, created_at: `${date}T03:00:00Z` });
+    const admin = `${fx.cookie}; ${await adminLogin(fx)}`;
+    const views = async () => {
+      const out = {};
+      for (const [name, path, cookie] of [["report", `/my/analysis?view=report&${Q}`, fx.cookie], ["premium", `/my/premium?${Q}`, fx.cookie], ["pc", `/analysis?${Q}`, admin], ["backup", `/backup?${Q}`, admin]]) {
+        const res = await page(fx, path, { cookie });
+        out[name] = { status: res.status, text: strip(res.html) };
+      }
+      return out;
+    };
+    const fine = await views();
+    ok(Object.values(fine).every((view) => view.status === 200), `F3 ${mode} 네 화면이 열린다 (${Object.entries(fine).map(([name, view]) => `${name}:${view.status}`).join(" ")})`);
+    ok(!RENT_CANDIDATE.test(fine.report.text) && !RENT_CANDIDATE.test(fine.pc.text) && !fine.premium.text.includes("매월 5일 제안"), `F3 ${mode} 목록을 읽으면 등록한 월세는 반복 후보가 아니다`);
+    ok(![fine.report, fine.premium, fine.pc].some((view) => view.text.includes(NO_LIST)) && fine.backup.text.includes("고정항목 1개"), `F3 ${mode} 목록을 읽으면 '확인 불가'가 없고 백업센터는 고정항목 1개다`);
+    const restore = listFails();
+    let broken;
+    try { broken = await views(); } finally { restore(); }
+    ok(Object.values(broken).every((view) => view.status === 200), `F3 ${mode} 목록을 못 읽어도 네 화면이 열린다 (${Object.entries(broken).map(([name, view]) => `${name}:${view.status}`).join(" ")})`);
+    ok(broken.report.text.includes(NO_LIST) && !RENT_CANDIDATE.test(broken.report.text) && !broken.report.text.includes("반복된 지출을 찾지 못했습니다"), `F3 ${mode} 종합 리포트는 등록한 월세를 새 후보로 보이지 않고 후보를 확인할 수 없다고 알린다 (예전: 월세가 후보)`);
+    ok(broken.premium.text.includes("반복지출 후보 확인 불가") && broken.premium.text.includes(NO_LIST) && !broken.premium.text.includes("매월 5일 제안"), `F3 ${mode} 무료 리포트는 반복지출 후보 '확인 불가'이고 월세 등록 단추를 보이지 않는다 (예전: 1건·등록 단추)`);
+    ok(broken.pc.text.includes(NO_LIST) && !RENT_CANDIDATE.test(broken.pc.text), `F3 ${mode} PC 분석 화면도 후보를 확인할 수 없다고 알린다`);
+    ok(broken.backup.text.includes("고정항목 확인 불가") && !broken.backup.text.includes("고정항목 0개"), `F3 ${mode} 백업센터는 고정항목 0개가 아니라 '확인 불가'다`);
   }, { categoriesPresent }));
 }
 
