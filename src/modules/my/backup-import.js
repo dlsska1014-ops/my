@@ -17,7 +17,7 @@ import {
 } from "../import/flexible-import-parser.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
-  fetchPostgrestRows, isRowLimitExceededError,
+  fetchPostgrestRows, isRowLimitExceededError, memberNameMap,
 } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
@@ -143,13 +143,21 @@ async function readImportUploadText(file) {
   return "";
 }
 
+// V22.9.79 감사 E-15: 이름이 같은 구성원(단톡방 ‘카카오사용자’ 여럿)이 둘 이상이면 백업 CSV 의 지출자 칸에는 ‘이름 1’·‘이름 2’처럼 겹치지 않게
+// 붙인 이름이 적힌다(attachSpenderNames). 가져올 때 이 이름으로도 그 구성원을 찾는다 — 예전에는 닉네임으로만 찾아 이런 행이 모두
+// 지출자 오류로 빠졌다. 닉네임 그대로는 예전처럼 둘 이상이면 어느 쪽인지 알 수 없어 거절한다(이름이 하나뿐이면 번호가 붙지 않아 같은 이름이다).
 function buildMyImportMemberLookup(members = []) {
   const lookup = new Map();
-  for (const member of safeArray(members)) {
-    const key = normalizeText(member.nickname || "").toLowerCase().replace(/\s+/g, "");
-    if (!key) continue;
+  const labels = memberNameMap(members);
+  const add = (name, member) => {
+    const key = normalizeText(name || "").toLowerCase().replace(/\s+/g, "");
+    if (!key) return;
     if (!lookup.has(key)) lookup.set(key, []);
-    lookup.get(key).push(member);
+    if (!lookup.get(key).includes(member)) lookup.get(key).push(member);
+  };
+  for (const member of safeArray(members)) {
+    add(member.nickname, member);
+    add(labels[member.user_id], member);
   }
   return lookup;
 }
