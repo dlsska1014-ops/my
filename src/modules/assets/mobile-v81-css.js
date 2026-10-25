@@ -133,6 +133,13 @@ html[data-ab-resolved-theme="dark"] .filterAdvanced summary{color:var(--ab12-mut
 .abBusinessFooter{margin-bottom:calc(88px + env(safe-area-inset-bottom,0px))!important;overflow-wrap:anywhere}
 @media(max-width:640px){.topLine{align-items:flex-start}.topLine h1,.topLine b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.selectLine{grid-template-columns:1fr!important}.filterAdvancedGrid{grid-template-columns:1fr}.wrap{padding:12px 10px 42px!important}.panel{overflow:hidden}.topActions a{padding:0 9px;font-size:12px}}
 @media(max-width:360px){.topActions{gap:4px}.topActions a{padding:0 7px}.filterQuick{grid-template-columns:1fr}}
+
+/* V22.9.79 F-4: 긴 표시 이름·긴 결제수단·줄바꿈 없는 메모가 빠른 입력·최근 내역·수정 폼을 화면 밖으로 밀지 않게 한다.
+   grid 의 암묵 열은 minmax(auto,1fr)라 줄바꿈 없는 글자 하나(nowrap 요약 줄, 영문 닉네임)가 열 전체를 넓힌다 → minmax(0,1fr). */
+.form,.v8-edit,.v8-edit-field{grid-template-columns:minmax(0,1fr)}
+.v8-edit-field select,.v8-edit select,.v8-edit input{min-width:0;max-width:100%}
+.v8-tx-main>div{min-width:0;overflow-wrap:anywhere}
+.chipRow button{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 `;
 // @build:exports-start
 export { MOBILE_V81_CSS };

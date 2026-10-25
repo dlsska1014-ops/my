@@ -226,13 +226,13 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .dRow b{font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dRow .pct{color:#8B95A1;font-size:12px;font-weight:800}
 .dRow .amt{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
-.hRows{display:grid;gap:4px}
-.hRow{display:grid;gap:5px;border:0;background:transparent;padding:8px;border-radius:12px;font:inherit;text-align:left;cursor:pointer}
+.hRows{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+.hRow{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;border:0;background:transparent;padding:8px;border-radius:12px;font:inherit;text-align:left;cursor:pointer}
 .hRow:hover{background:#F5F7F9}
 .hRow.dim{opacity:.45}
 .hRow.sel{background:#EFF6FF}
 .hTop{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.hTop b{font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hTop b{min-width:0;font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hTop span{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
 .hTop span small{color:#8B95A1;font-weight:700;margin-left:4px}
 .hTrack{height:8px;background:#EFF3F8;border-radius:999px;overflow:hidden}

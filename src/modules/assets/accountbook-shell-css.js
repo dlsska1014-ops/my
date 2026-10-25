@@ -1340,6 +1340,8 @@ body.abV22812Shell .card:has(>table) :is(th,td){word-break:keep-all}
 body.abV22812Shell .filters select{min-width:0;max-width:100%}
 @media(max-width:980px){body.abV22812Shell form.upload{grid-template-columns:minmax(0,1fr)}}
 @media(min-width:981px){body.abV22812Shell form.upload[action="/backup/apply"]{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}body.abV22812Shell form.upload[action="/backup/apply"] input[type=file]{grid-column:1/-1}}
+/* V22.9.79 F-4: 머리말 제목에 표시 이름이 든 화면('…님 시작가이드')은 줄바꿈 없는 긴 영문 닉네임이 360px 밖(글자 끝 R=616)으로 나갔다. 제목만 어디서든 꺾는다. */
+body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}
 /* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려
