@@ -59,3 +59,12 @@ V22.9.44 감사 G-13 이 짚은 3개(`accountbook_mutate_payment_assets_v2280`·
 다시 셀 때: `grep -rhoE '/rest/v1/[a-z_0-9]+' src/modules | sort -u`.
 
 정확한 컬럼·제약·RLS 는 위 `pg_dump` 결과를 정본으로 삼으세요.
+
+## V22.9.79 환불 연결(검토용, 실행 금지)
+
+`V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql` 은 환불 연결 표 `accountbook_refund_links`, RPC `accountbook_link_refund_v22979`·
+`accountbook_unlink_refund_v22979`, 트리거 `refund_link_guard_v22979` 를 만든다. 되돌리기는 `V22_9_79_REFUND_LINKS_ROLLBACK_REVIEW_ONLY.sql`.
+두 파일 모두 맨 앞 `RAISE EXCEPTION` 가드가 있어 그대로 실행하면 멈춘다. 운영자가 검토·승인한 뒤에만 가드를 지우고 적용한다.
+Worker 는 기능 플래그 `REFUND_LINKS_ENABLED`(기본 꺼짐)가 켜졌을 때만 이 표를 읽는다. 이 표는 `/ready` 필수 표 13개에 넣지 않았다
+(플래그가 켜지면 `/ready` 의 `refund_links` 항목이 표·함수가 있는지 따로 알린다). 순서: 플래그를 끈 채 배포 → SQL 검토·적용 →
+읽기 전용 확인 → 플래그 켜기.
