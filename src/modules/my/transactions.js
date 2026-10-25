@@ -223,7 +223,9 @@ async function handleMyUpdateTransaction(request, env) {
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
-    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_update_failed" }));
+    // V22.9.79 D-5: 환불과 연결된 기록의 종류·금액·환급 분류·날짜를 바꾸면 DB 트리거(refund_link_guard_v22979)가 막는다.
+    const refundLocked = /refund_link_locked/.test(safeError(err));
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked ? "refund_link_locked" : "record_update_failed" }));
   }
 }
 

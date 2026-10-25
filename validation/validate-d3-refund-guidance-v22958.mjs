@@ -7,6 +7,7 @@ import {computeFairMoM, renderMyAnalysisHtml} from "../src/modules/my/analysis-p
 import {buildBudgetAlertPolishModel, renderPendingRecurringList} from "../src/modules/features/budget-alerts-annual-goals.js";
 import {fetchBudgets, fetchRecurringStrict} from "../src/modules/domain/budgets.js";
 import {buildSettlementModel} from "../src/modules/features/settlement-ops-pages.js";
+// V22.9.79 D-5: 환불 연결(refundNetting)을 받으려 buildSettlementModel 을 의도적으로 바꿔 d3-refund-protection-v22958.json 의 지문을 새로 적었다. 플래그가 꺼지면 계산은 예전과 같다.
 import {kakaoSettlementParts} from "../src/modules/kakao/simple-commands.js";
 // V22.9.72: 카카오 정산 문구는 parts(빈 결과 표식) 로 바뀌었다. 문구만 쓴다.
 const kakaoSettlementText=async (...args)=>(await kakaoSettlementParts(...args)).text;

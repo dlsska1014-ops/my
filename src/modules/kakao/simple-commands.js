@@ -3,6 +3,11 @@ import {
   fetchAdminRows, fetchFormerSpenderMembers, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import { buildSettlementModel } from "../features/settlement-ops-pages.js";
+import { refundLinksEnabled } from "../domain/refund-links.js";
+import {
+  kakaoRefundSettlementLines, kakaoRefundSurplusLine, loadRefundLinkMonthState,
+  refundSettlementSpenderRows,
+} from "../features/settlement-refund-links.js";
 import { detectKakaoNaturalIntent } from "./intent-nlu.js";
 import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
@@ -71,16 +76,22 @@ async function kakaoSettlementText(env, household = {}) {
 async function kakaoSettlementParts(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
-  const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
+  // V22.9.79 D-5: 환불 연결 플래그가 켜지면 같은 달 환급 행까지 한 번에 읽고 연결한 환불을 정산에서 뺀다(꺼지면 예전 그대로).
+  // 표가 없으면(DDL 적용 전) 연결 없이 예전 답장과 같다. 원래 지출 고르기는 웹 정산 화면에서만 한다.
+  const refundOn = refundLinksEnabled(env);
+  const monthRows = await fetchAdminRows(env, { month, householdId: household.id, type: refundOn ? "all" : "expense" });
+  const rows = refundOn ? monthRows.filter((row) => row.type === "expense") : monthRows;
+  const refund = refundOn ? await loadRefundLinkMonthState(env, { householdId: household.id, monthRows }) : null;
   // V22.9.77 감사 B-5: 웹 정산과 같이 나간 사람의 이름을 읽어 ‘별명(나간 구성원)’으로 구분한다(명단에 없는 지출자가 없으면 읽지 않는다).
-  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
-  const model = buildSettlementModel(rows, members, { formerMembers });
+  const formerMembers = await fetchFormerSpenderMembers(env, refund ? refundSettlementSpenderRows(rows, refund) : rows, members);
+  const model = buildSettlementModel(rows, members, { formerMembers, ...(refund?.netting ? { refundNetting: refund.netting } : {}) });
   // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
-  if (!model.totalExpense || !model.people.length) {
+  const refundLines = refund?.available ? kakaoRefundSettlementLines(refund, model) : [refundNotice];
+  if (!model.people.length || (!model.totalExpense && !model.refundTotal)) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
-    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
   }
   const people = model.people.slice(0, 8).map((p) => {
     if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
@@ -88,15 +99,19 @@ async function kakaoSettlementParts(env, household = {}) {
     return `• ${p.name}: 정산 차액 없음`;
   });
   const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+  // V22.9.44 감사 D-21: 8명·8건을 넘으면 말없이 잘렸다. 남은 수를 한 줄로 알린다.
+  const morePeople = model.people.length > 8 ? [`외 ${numberWithCommas(model.people.length - 8)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
+  const moreTransfers = model.transfers.length > 8 ? [`외 ${numberWithCommas(model.transfers.length - 8)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
   return { empty: false, text: [
     `📊 ${month} 정산`,
-    refundNotice,
-    `총 지출: ${numberWithCommas(model.totalExpense)}원`,
+    ...refundLines,
+    `총 지출: ${numberWithCommas(model.totalExpense)}원${model.refundTotal ? ` (환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
-    kakaoSettlementShareLine(model),
+    model.totalExpense < 0 ? kakaoRefundSurplusLine(model) : kakaoSettlementShareLine(model),
     "",
     ...people,
-    ...(transfers.length ? ["", "송금 제안", ...transfers] : []),
+    ...morePeople,
+    ...(transfers.length ? ["", "송금 제안", ...transfers, ...moreTransfers] : []),
   ].join("\n") };
 }
 

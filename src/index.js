@@ -2248,11 +2248,13 @@ const ACCOUNTBOOK_WORKER = {
         const missing = missingRuntimeConfiguration(env);
         // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다.
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env) }, 503);
-        const [checks, optionalChecks, rpcResults, alternativeRpcResults] = await Promise.all([
+        // V22.9.79 D-5: 환불 연결은 플래그가 켜졌을 때만 따로 알린다(ready 판정·필수 표 13개에는 넣지 않는다).
+        const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
           Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
           Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
           Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name))),
           Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
+          refundLinksEnabled(env) ? refundLinksReadiness(env) : null,
         ]);
         const failed = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
         const unavailableOptionalTables = READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok);
@@ -2261,7 +2263,7 @@ const ACCOUNTBOOK_WORKER = {
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -2708,7 +2710,22 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/settlement/save" && request.method === "POST") {
+        // V22.9.79 D-5: 환불 연결 플래그가 켜지면 연결한 환불을 뺀 정산을 완료 이력에 남긴다(꺼지면 예전 처리 그대로).
+        if (refundLinksEnabled(env)) return await handleSettlementHistorySaveV22979(request, env);
         return await handleSettlementHistorySave(request, env);
+      }
+      // V22.9.79 D-5·M-7: 환불 연결 고르기·걸기·풀기·수입으로 두기. 플래그가 꺼져 있으면 예전처럼 없는 주소다.
+      if (url.pathname === "/my/settlement/refund-link" && request.method === "GET" && refundLinksEnabled(env)) {
+        return safeHtmlRoute(request, url, async () => handleRefundLinkPicker(request, env, url), "환불 연결");
+      }
+      if (url.pathname === "/my/settlement/refund-link" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundLinkPost(request, env);
+      }
+      if (url.pathname === "/my/settlement/refund-unlink" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundUnlinkPost(request, env);
+      }
+      if (url.pathname === "/my/settlement/refund-keep" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundKeepPost(request, env);
       }
 
       if ((url.pathname === "/meeting-archive" || url.pathname === "/household-archive-guide") && request.method === "GET") {
@@ -20603,7 +20620,8 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     paidBy[uid] = (paidBy[uid] || 0) + amount;
     participantIds.add(uid);
   }
-  const refundAdjustments = options.refundLinks?.length ? validateSettlementRefundLinks(rows, members, options) : null;
+  // V22.9.79 D-5: 환불 연결 플래그가 켜지면 표에 저장한 연결(refundNetting, domain/refund-links.js)로 뺀다. 미리보기(refundLinks)는 그대로다.
+  const refundAdjustments = options.refundLinks?.length ? validateSettlementRefundLinks(rows, members, options) : (options.refundNetting || null);
   const grossExpense = totalExpense;
   if (refundAdjustments) {
     totalExpense -= refundAdjustments.total;
@@ -20633,6 +20651,11 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     for (const row of expenseRows) {
       const selected = safeArray(options.itemParticipants?.[row.id]).map(String).filter((id) => ids.includes(id));
       allocate(row.amount - (refundAdjustments?.byExpense.get(String(row.id)) || 0), selected.length ? selected : ids, Object.fromEntries(ids.map((id) => [id, 1])));
+    }
+    // 원래 지출이 이 달 정산 행에 없으면(지난달 지출의 환불) 그 몫을 모든 참여자에게 똑같이 나눠 뺀다.
+    if (options.refundNetting && !options.refundLinks?.length) {
+      const itemIds = new Set(expenseRows.map((row) => String(row.id)));
+      for (const [expenseId, amount] of options.refundNetting.byExpense) if (!itemIds.has(expenseId)) allocate(-amount, ids, Object.fromEntries(ids.map((id) => [id, 1])));
     }
   } else {
     allocate(totalExpense, ids, weights);
@@ -20886,7 +20909,7 @@ function renderSettlementConfig({ mode = "equal", members = [], rows = [], weigh
 function renderSettlementHistory(history = []) {
   const rows = safeArray(history).slice().reverse().slice(0, 8);
   if (!rows.length) return `<p class="muted">완료 처리한 정산이 아직 없습니다.</p>`;
-  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(String(item.completed_at || "").slice(0, 10))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(String(item.completed_at || "").slice(0, 10))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원${Number(item.refund_total) > 0 ? ` (환불 ${numberWithCommas(item.refund_total)}원 뺌)` : ""}</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 async function handleSettlementSummaryPage(request, env, url) {
@@ -20899,14 +20922,18 @@ async function handleSettlementSummaryPage(request, env, url) {
   if (access.restricted) return myAccessStatusResponse({ env, user, household: access.restricted, role: access.restricted.role, month });
   if (!access.selected) return redirectResponse("/my?err=household_required");
   const selected = access.selected;
-  const [members, rows, historyValue] = await Promise.all([fetchHouseholdMembers(env, selected.id), fetchAdminRows(env, { month, householdId: selected.id, type: "expense" }), getSettingValue(env, settlementHistoryKey(selected.id))]);
+  // V22.9.79 D-5: 환불 연결 플래그가 켜지면 같은 달 환급 행까지 한 번에 읽어 연결을 붙인다. 정산 계산·지문·설정에는 지출 행만 쓴다.
+  const refundLinksOn = refundLinksEnabled(env);
+  const [members, monthRows, historyValue] = await Promise.all([fetchHouseholdMembers(env, selected.id), fetchAdminRows(env, { month, householdId: selected.id, type: refundLinksOn ? "all" : "expense" }), getSettingValue(env, settlementHistoryKey(selected.id))]);
+  const rows = refundLinksOn ? monthRows.filter((row) => row.type === "expense") : monthRows;
+  const refundState = refundLinksOn ? await loadRefundLinkMonthState(env, { householdId: selected.id, monthRows, withExpenses: true }) : null;
   const mode = ["equal", "ratio", "headcount", "item"].includes(String(url.searchParams.get("mode") || "")) ? String(url.searchParams.get("mode")) : "equal";
   // V22.9.34 2차 점검 B11: 완료 저장과 같은 규칙으로 조건을 읽고, 완료 폼에 조건과 미리보기 지문을 싣는다.
   const conditions = parseSettlementConditions(url.searchParams, members, rows);
   const { weights, itemParticipants } = conditions;
-  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
-  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants, formerMembers });
-  const previewDigest = await settlementPreviewDigest({ month, mode, conditions, rows });
+  const formerMembers = await fetchFormerSpenderMembers(env, refundState ? refundSettlementSpenderRows(rows, refundState) : rows, members);
+  const model = buildSettlementModel(rows, members, { mode, weights, itemParticipants, formerMembers, ...(refundState?.netting ? { refundNetting: refundState.netting } : {}) });
+  const previewDigest = refundState ? await settlementRefundDigest({ month, mode, conditions, rows, links: refundState.links }) : await settlementPreviewDigest({ month, mode, conditions, rows });
   const completionHidden = [...settlementConditionPairs(mode, conditions), ["preview_digest", previewDigest]].map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}"/>`).join("");
   const history = parseJsonSetting(historyValue, []);
   const opts = access.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(selected.id) ? " selected" : ""}>${escapeHtml(h.name || "가계부")} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
@@ -20915,15 +20942,17 @@ async function handleSettlementSummaryPage(request, env, url) {
   const transferText = model.transfers.map((t) => `${t.from} → ${t.to} ${numberWithCommas(t.amount)}원`).join("\n") || "송금 제안 없음";
   const inviteText = canManageMyHousehold(selected.role) && selected.invite_code ? `가계부 참여 ${selected.invite_code}` : "초대코드는 소유자·관리자만 확인할 수 있습니다.";
   const canComplete = canManageMyHousehold(selected.role);
-  const refundNotice = "환급 계산은 미리보기로만 제공합니다. 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
-  const refundLink = canComplete ? `<a href="/my/settlement/refund-preview?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}">환급 연결 미리보기</a>` : "소유자·관리자가 환급 미리보기를 확인할 수 있습니다.";
+  // V22.9.79 D-5: 플래그가 켜지면 안내·연결 구역·완료 확인 문장을 환불 연결 기준으로 바꾼다(꺼지면 예전 문장 그대로).
+  const refundParts = refundState ? settlementRefundPageParts({ state: refundState, model, month, householdId: selected.id, canManage: canComplete, history, members, url }) : null;
+  const refundNotice = refundParts ? refundParts.notice : "환급 계산은 미리보기로만 제공합니다. 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
+  const refundLink = refundParts?.linkHtml || (canComplete ? `<a href="/my/settlement/refund-preview?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}">환급 연결 미리보기</a>` : "소유자·관리자가 환급 미리보기를 확인할 수 있습니다.");
   const settlementMessage = url.searchParams.get("msg") || "";
   const message = settlementMessage === "settlement_completed"
     ? `<div class="ok">정산 완료 상태와 이력을 저장했습니다. ${refundNotice}</div>`
     : settlementMessage === "settlement_already_completed"
       ? `<div class="ok">같은 조건의 완료 이력이 이미 있어 중복 저장하지 않았습니다. ${refundNotice}</div>`
       : "";
-  const settlementError = url.searchParams.get("err") || "";
+  const settlementError = refundParts?.flashHtml && refundLinkMessage(url.searchParams.get("err") || "") ? "" : url.searchParams.get("err") || "";
   const error = settlementError === "settlement_busy"
     ? `<div class="error">다른 정산 저장이 진행 중입니다. 같은 버튼을 반복해서 누르지 말고 잠시 후 이력을 확인해 주세요.</div>`
     : settlementError === "settlement_changed"
@@ -20933,7 +20962,7 @@ async function handleSettlementSummaryPage(request, env, url) {
     : settlementError
       ? `<div class="error">정산 상태를 저장하지 못했습니다. 확인 체크와 관리 권한을 확인해 주세요.</div>`
       : "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 고급 정산</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.filters{display:grid;grid-template-columns:1fr 150px 160px 100px;gap:8px}.filters select,.filters input,.filters button,.weight input{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 11px;font:inherit}.filters button,button{background:#111827;color:#fff;border:0;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:19px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.plus{color:#166534;font-weight:1000}.minus{color:#b91c1c;font-weight:1000}.zero{color:#64748b;font-weight:1000}.weightGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}.weight{display:grid;gap:5px;border:1px solid #e5e7eb;border-radius:16px;padding:11px}.weight span{font-weight:1000}.weight small{color:#64748b}.itemGrid{display:grid;gap:9px;margin:10px 0}.itemSplit{border:1px solid #e5e7eb;border-radius:17px;padding:13px}.itemSplit span{display:block;color:#64748b;font-size:12px;margin-top:4px}.checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.checks label{background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;padding:0 13px;text-decoration:none;color:#fff!important;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.note,.copy,.ok,.error{border-radius:16px;padding:13px;line-height:1.6}.note,.copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475569}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.muted{color:#64748b;line-height:1.6}.complete{display:grid;gap:9px}.complete input[type=text]{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit}@media(max-width:760px){.wrap{padding:12px}.filters{grid-template-columns:1fr}.btn,button{width:100%;margin:4px 0}.checks{display:grid}.hero h1{font-size:25px}}</style></head><body>${renderUnifiedNav("settlement", { month, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap">${message}${error}<section class="hero"><h1>고급 정산</h1><p>${escapeHtml(selected.name || "가계부")} · 동일, 비율, 인원수, 품목별 참여자 중 실제 모임 규칙에 맞는 방식을 선택하세요.</p><form class="filters" method="get" action="/settlement-summary"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="mode">${modeOptions}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(modeLabel)} 설정</h2><p>${refundLink}</p><p class="note">${refundNotice}</p>${renderSettlementConfig({ mode, members, rows, weights, itemParticipants, month, householdId: selected.id })}</section><section class="grid"><div class="metric"><span>정산 대상 지출</span><b>${numberWithCommas(model.totalExpense)}원</b></div><div class="metric"><span>참여자</span><b>${numberWithCommas(model.participantCount)}명</b></div><div class="metric"><span>평균 부담</span><b>${numberWithCommas(model.share)}원</b></div><div class="metric"><span>지출 건수</span><b>${numberWithCommas(model.itemCount)}건</b></div><div class="metric"><span>최소 송금 제안</span><b>${numberWithCommas(model.transfers.length)}건</b></div></section>${model.unknownPaid ? `<section class="card"><div class="error">지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했습니다. 기록 화면에서 지출자를 지정한 뒤 다시 계산하세요.</div></section>` : ""}<section class="card"><h2>참여자별 정산</h2><div class="tableWrap"><table><thead><tr><th>참여자</th><th>낸 금액</th><th>부담액</th><th>정산 상태</th></tr></thead><tbody>${renderSettlementRows(model)}</tbody></table></div></section><section class="card"><h2>송금 횟수를 줄인 제안</h2><div class="tableWrap"><table><thead><tr><th>보낼 사람</th><th>받을 사람</th><th>금액</th></tr></thead><tbody>${renderTransferRows(model.transfers)}</tbody></table></div><p class="muted">받을 금액과 보낼 금액을 큰 순서로 맞춰 불필요한 교차 송금을 줄였습니다. 실제 송금 전에 참여자와 금액을 확인하세요.</p></section><section class="card"><h2>공유 문구</h2><div class="copy" id="settlementCopy">${escapeHtml(selected.name || "가계부")} ${escapeHtml(month)} 정산<br/>${refundNotice}<br/>방식: ${escapeHtml(modeLabel)}<br/>총 지출: ${numberWithCommas(model.totalExpense)}원<br/>참여자: ${numberWithCommas(model.participantCount)}명<br/><br/>${escapeHtml(transferText).replace(/\n/g, "<br/>")}<br/><br/>초대/참여 문구: ${escapeHtml(inviteText)}</div><p><button type="button" id="copySettlement">문구 복사</button><a class="btn light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}#quick">기록 추가</a></p></section><section class="card"><h2>정산 완료·이력</h2><p class="note">${refundNotice} 완료 이력은 저장 당시 일반 정산 결과입니다. 과거 이력은 다시 계산하거나 변경하지 않습니다.</p>${canComplete ? `<form class="complete" method="post" action="/my/settlement/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/>${completionHidden}<input type="text" name="note" placeholder="예: 7월 여행 정산 완료" maxlength="160"/><label><input type="checkbox" name="confirmed" value="yes" required/> 참여자와 환급 미리보기 계산이 포함되지 않은 금액을 확인했고 완료 이력으로 저장합니다.</label><button type="submit">정산 완료로 저장</button></form>` : `<p class="note">소유자·관리자가 완료 상태를 저장할 수 있습니다.</p>`}${renderSettlementHistory(history)}</section></main><script>(function(){var b=document.getElementById('copySettlement'),box=document.getElementById('settlementCopy');if(!b||!box)return;b.addEventListener('click',function(){var text=box.innerText;var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done);else{window.prompt('복사하세요',text);}});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 고급 정산</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.filters{display:grid;grid-template-columns:1fr 150px 160px 100px;gap:8px}.filters select,.filters input,.filters button,.weight input{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 11px;font:inherit}.filters button,button{background:#111827;color:#fff;border:0;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:19px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.tableWrap{overflow:auto;border:1px solid #e8edf4;border-radius:18px}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px}.plus{color:#166534;font-weight:1000}.minus{color:#b91c1c;font-weight:1000}.zero{color:#64748b;font-weight:1000}.weightGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}.weight{display:grid;gap:5px;border:1px solid #e5e7eb;border-radius:16px;padding:11px}.weight span{font-weight:1000}.weight small{color:#64748b}.itemGrid{display:grid;gap:9px;margin:10px 0}.itemSplit{border:1px solid #e5e7eb;border-radius:17px;padding:13px}.itemSplit span{display:block;color:#64748b;font-size:12px;margin-top:4px}.checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.checks label{background:#f8fafc;border-radius:999px;padding:7px 10px;font-size:12px}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;padding:0 13px;text-decoration:none;color:#fff!important;cursor:pointer}.light{background:#eff6ff!important;color:#1e3a8a!important}.note,.copy,.ok,.error{border-radius:16px;padding:13px;line-height:1.6}.note,.copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475569}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.muted{color:#64748b;line-height:1.6}.complete{display:grid;gap:9px}.complete input[type=text]{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit}@media(max-width:760px){.wrap{padding:12px}.filters{grid-template-columns:1fr}.btn,button{width:100%;margin:4px 0}.checks{display:grid}.hero h1{font-size:25px}}</style></head><body>${renderUnifiedNav("settlement", { month, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap">${message}${error}${refundParts?.flashHtml || ""}<section class="hero"><h1>고급 정산</h1><p>${escapeHtml(selected.name || "가계부")} · 동일, 비율, 인원수, 품목별 참여자 중 실제 모임 규칙에 맞는 방식을 선택하세요.</p><form class="filters" method="get" action="/settlement-summary"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="mode">${modeOptions}</select><button type="submit">조회</button></form></section><section class="card"><h2>${escapeHtml(modeLabel)} 설정</h2><p>${refundLink}</p><p class="note">${refundNotice}</p>${renderSettlementConfig({ mode, members, rows, weights, itemParticipants, month, householdId: selected.id })}</section>${refundParts?.sectionHtml || ""}<section class="grid"><div class="metric"><span>정산 대상 지출</span><b>${numberWithCommas(model.totalExpense)}원</b></div><div class="metric"><span>참여자</span><b>${numberWithCommas(model.participantCount)}명</b></div><div class="metric"><span>평균 부담</span><b>${numberWithCommas(model.share)}원</b></div><div class="metric"><span>지출 건수</span><b>${numberWithCommas(model.itemCount)}건</b></div><div class="metric"><span>최소 송금 제안</span><b>${numberWithCommas(model.transfers.length)}건</b></div>${refundParts?.metricHtml || ""}</section>${model.unknownPaid ? `<section class="card"><div class="error">지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했습니다. 기록 화면에서 지출자를 지정한 뒤 다시 계산하세요.</div></section>` : ""}<section class="card"><h2>참여자별 정산</h2><div class="tableWrap"><table><thead><tr><th>참여자</th><th>낸 금액</th><th>부담액</th><th>정산 상태</th></tr></thead><tbody>${renderSettlementRows(model)}</tbody></table></div></section><section class="card"><h2>송금 횟수를 줄인 제안</h2><div class="tableWrap"><table><thead><tr><th>보낼 사람</th><th>받을 사람</th><th>금액</th></tr></thead><tbody>${renderTransferRows(model.transfers)}</tbody></table></div><p class="muted">받을 금액과 보낼 금액을 큰 순서로 맞춰 불필요한 교차 송금을 줄였습니다. 실제 송금 전에 참여자와 금액을 확인하세요.</p></section><section class="card"><h2>공유 문구</h2><div class="copy" id="settlementCopy">${escapeHtml(selected.name || "가계부")} ${escapeHtml(month)} 정산<br/>${refundNotice}<br/>방식: ${escapeHtml(modeLabel)}<br/>총 지출: ${numberWithCommas(model.totalExpense)}원<br/>참여자: ${numberWithCommas(model.participantCount)}명<br/><br/>${escapeHtml(transferText).replace(/\n/g, "<br/>")}<br/><br/>초대/참여 문구: ${escapeHtml(inviteText)}</div><p><button type="button" id="copySettlement">문구 복사</button><a class="btn light" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id)}#quick">기록 추가</a></p></section><section class="card"><h2>정산 완료·이력</h2><p class="note">${refundNotice} 완료 이력은 저장 당시 일반 정산 결과입니다. 과거 이력은 다시 계산하거나 변경하지 않습니다.</p>${canComplete ? `<form class="complete" method="post" action="/my/settlement/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="mode" value="${escapeHtml(mode)}"/>${completionHidden}<input type="text" name="note" placeholder="예: 7월 여행 정산 완료" maxlength="160"/><label><input type="checkbox" name="confirmed" value="yes" required/> ${refundParts?.confirmText || "참여자와 환급 미리보기 계산이 포함되지 않은 금액을 확인했고 완료 이력으로 저장합니다."}</label><button type="submit">정산 완료로 저장</button></form>` : `<p class="note">소유자·관리자가 완료 상태를 저장할 수 있습니다.</p>`}${renderSettlementHistory(history)}</section></main><script>(function(){var b=document.getElementById('copySettlement'),box=document.getElementById('settlementCopy');if(!b||!box)return;b.addEventListener('click',function(){var text=box.innerText;var done=function(){b.textContent='복사됨';};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done);else{window.prompt('복사하세요',text);}});})();</script></body></html>`);
 }
 
 async function handleMeetingArchiveGuidePage(request, env, url) {
@@ -21099,6 +21128,815 @@ async function handleSettlementRefundPreview(request,env,url) {
   const weightInputs=eligible.map(m=>`<label>${escapeHtml(m.nickname||"구성원")} 부담 비율·인원수<input type="number" name="weight_${escapeHtml(m.user_id)}" min="0.1" max="1000" step="0.1" value="${escapeHtml(conditions.weights[m.user_id]||1)}"/></label>`).join("");
   const itemInputs=expenses.slice(0,40).map(row=>`<fieldset><legend>${escapeHtml(row.memo||row.category)} 품목별 참여자</legend>${eligible.map(m=>`<label><input type="checkbox" name="item_${escapeHtml(row.id)}" value="${escapeHtml(m.user_id)}"${!conditions.itemParticipants[row.id]||conditions.itemParticipants[row.id].includes(m.user_id)?" checked":""}/> ${escapeHtml(m.nickname||"구성원")}</label>`).join("")}</fieldset>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>환급 연결 미리보기</title><style>main{max-width:900px;margin:auto;padding:24px;font-family:system-ui}label{display:block;margin:12px 0}input,select,button{min-height:44px;max-width:100%;font:inherit}fieldset,section{margin:20px 0;padding:16px}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ccc;text-align:left}</style></head><body><main><h1>환급 연결 미리보기</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)}</p><p>원래 지출과 기존 환급 수입, 실제 수령자, 미리보기에 적용할 환급액을 선택해 계산을 확인합니다. 수령자는 환급 기록에 지정된 사람과 같아야 합니다. 명시적으로 연결한 적격 환급만 이 미리보기에서 계산합니다. 일반 수입과 연결하지 않은 환급은 미리보기 계산에서 제외합니다.</p><p>${refundNotice} 교차 월과 완료 이력은 다시 계산하지 않습니다.</p>${error}${result}<form method="post" action="/my/settlement/refund-preview"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>정산 방식<select name="mode">${[["equal","동일 부담"],["ratio","비율"],["headcount","인원수"],["item","품목별"]].map(([value,text])=>`<option value="${value}"${mode===value?" selected":""}>${text}</option>`).join("")}</select></label>${fields}<details><summary>부담 조건</summary>${weightInputs}${itemInputs}</details><button type="submit">계산 미리보기</button></form><p><a href="/settlement-summary?household_id=${encodeURIComponent(householdId)}&month=${encodeURIComponent(month)}">정산 요약으로 돌아가기</a></p></main></body></html>`,status);
+}
+// V22.9.79 V44 D-5·V76 M-7: 환불 연결 계산(요청 없음). 연결은 accountbook_refund_links 표(검토용 SQL
+// migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql)에 있고, 읽기·쓰기는 features/settlement-refund-links.js 가 한다.
+// 기능 플래그 REFUND_LINKS_ENABLED 가 꺼져 있으면(기본) 어느 화면도 이 계산을 부르지 않는다.
+// 규칙(변경안 docs/codex/PROPOSAL_REFUND_LINKS_V22_9_78.md ‘계산’, 2026-10-25 운영자 답 4~8):
+//   - 원지출과 명시적으로 연결한 환불(분류 ‘환급’ 수입)만 뺀다. 연결하지 않은 환급은 지금처럼 수입이다.
+//   - 차감은 환불이 들어온 달(환급 날짜)에 원지출의 분류·지출자로 잡는다. 수입도 연결한 몫만큼 줄어 잔액은 그대로다.
+//   - 정산은 그 달 총액에서 빼고, 받은 사람(환급 행 user_id)이 낸 돈에서 뺀다.
+//   - 원지출은 환급 날짜보다 늦지 않고 365일 전까지의 지출만 고를 수 있다.
+// 연결 행(normalizeRefundLinkRows 가 만드는 평평한 모양, W-7 월말 예상도 이 모양을 받는다):
+//   { id, expense_id, refund_id, amount, recipient_user_id, refund_date, refund_amount,
+//     expense_date, expense_category, expense_user_id, expense_amount, expense_memo, created_at }
+// 원지출을 읽지 않은 경로(카카오 정산)는 지난달 원지출의 expense_* 칸이 비어 있다. 정산 계산은 expense_id 만 쓴다.
+
+const REFUND_LINK_CATEGORY = "환급";
+const REFUND_LINK_LOOKBACK_DAYS = 365;
+
+function refundLinksEnabled(env = {}) {
+  return envFlagEnabled(env?.REFUND_LINKS_ENABLED, false);
+}
+
+function isRefundIncomeRow(row = {}) {
+  return row?.type === "income" && String(row?.category ?? "") === REFUND_LINK_CATEGORY;
+}
+
+// 환급을 받은 사람이 될 수 있는 구성원(정산 참여자: 차단·승인 대기가 아닌 사람). SQL 의 받은 사람 확인과 같다.
+function refundRecipientEligible(member = {}) {
+  return Boolean(member?.user_id) && ["owner", "admin", "member", "viewer"].includes(String(member?.role || "member").toLowerCase());
+}
+
+function refundLinkPositiveAmount(value) {
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) && amount > 0 && amount <= MAX_TRANSACTION_AMOUNT ? amount : 0;
+}
+
+// 날짜만 있는 값이라 UTC 로 더해도 달력 날짜가 같다(SQL 의 date - 365 와 같은 값).
+function refundLinkWindowStart(refundDate = "") {
+  const ymd = String(refundDate || "").slice(0, 10);
+  if (!isValidTransactionDateString(ymd)) return "";
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) - REFUND_LINK_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
+}
+
+function refundLinkDateAllowed(expenseDate = "", refundDate = "") {
+  const expense = String(expenseDate || "").slice(0, 10);
+  const refund = String(refundDate || "").slice(0, 10);
+  if (!isValidTransactionDateString(expense) || !isValidTransactionDateString(refund)) return false;
+  return expense <= refund && expense >= refundLinkWindowStart(refund);
+}
+
+// 표에서 읽은 연결을 그 달 환급 행·원지출 행과 맞춰 평평한 모양으로 만든다. 환급 행이 이 목록에 없거나 환급이 아니면,
+// 받은 사람이 없으면, 금액이 맞지 않으면 버린다(트리거가 막는 상태라 정상이면 생기지 않는다).
+function normalizeRefundLinkRows(rawLinks = [], { householdId = "", refundRowsById = new Map(), expenseRowsById = new Map() } = {}) {
+  const out = [];
+  const seen = new Set();
+  for (const link of safeArray(rawLinks)) {
+    const id = String(link?.id || "").trim();
+    const refundId = String(link?.refund_id || "").trim();
+    const expenseId = String(link?.expense_id || "").trim();
+    const amount = refundLinkPositiveAmount(link?.amount);
+    if (!id || seen.has(id) || !refundId || !expenseId || refundId === expenseId || !amount) continue;
+    if (householdId && link?.household_id && String(link.household_id) !== String(householdId)) continue;
+    const refund = refundRowsById.get(refundId);
+    const recipient = String(refund?.user_id || "").trim();
+    if (!refund || !isRefundIncomeRow(refund) || !recipient) continue;
+    const expense = expenseRowsById.get(expenseId) || null;
+    if (expense && (expense.type !== "expense" || (householdId && String(expense.household_id || householdId) !== String(householdId)))) continue;
+    seen.add(id);
+    out.push({
+      id, expense_id: expenseId, refund_id: refundId, amount, recipient_user_id: recipient,
+      refund_date: String(refund.transaction_date || "").slice(0, 10),
+      refund_amount: Math.round(Number(refund.amount || 0)),
+      expense_date: expense ? String(expense.transaction_date || "").slice(0, 10) : "",
+      expense_category: expense ? String(expense.category || "") : "",
+      expense_user_id: expense ? String(expense.user_id || "").trim() : "",
+      expense_amount: expense ? Math.round(Number(expense.amount || 0)) : 0,
+      expense_memo: expense ? String(expense.memo || expense.raw_text || "") : "",
+      created_at: String(link?.created_at || ""),
+    });
+  }
+  return out.sort((a, b) => a.refund_date.localeCompare(b.refund_date) || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+}
+
+// buildSettlementModel 의 refundNetting 옵션 모양. 연결이 없으면 null(정산은 지금과 같다).
+function refundSettlementNetting(links = []) {
+  const byExpense = new Map();
+  const received = new Map();
+  let total = 0;
+  for (const link of safeArray(links)) {
+    const amount = refundLinkPositiveAmount(link?.amount);
+    const recipient = String(link?.recipient_user_id || "").trim();
+    if (!amount || !recipient || !link?.expense_id) continue;
+    byExpense.set(String(link.expense_id), (byExpense.get(String(link.expense_id)) || 0) + amount);
+    received.set(recipient, (received.get(recipient) || 0) + amount);
+    total += amount;
+  }
+  return total ? { byExpense, received, total } : null;
+}
+
+// 그 달 환급 행마다 연결 상태. 남은 금액이 있고 ‘수입으로 두기’를 하지 않은 환급이 확인 대상이다(운영자 답 7: 분류는 그대로).
+function buildRefundReviewItems(refundRows = [], links = [], kept = new Set()) {
+  const byRefund = new Map();
+  for (const link of safeArray(links)) {
+    if (!byRefund.has(link.refund_id)) byRefund.set(link.refund_id, []);
+    byRefund.get(link.refund_id).push(link);
+  }
+  return safeArray(refundRows).filter(isRefundIncomeRow).map((row) => {
+    const id = String(row.id || "");
+    const rowLinks = byRefund.get(id) || [];
+    const amount = Math.max(0, Math.round(Number(row.amount || 0)));
+    const linked = rowLinks.reduce((sum, link) => sum + link.amount, 0);
+    const remaining = Math.max(0, amount - linked);
+    const isKept = kept.has(id);
+    return { row, id, amount, linked, remaining, links: rowLinks, kept: isKept, needsReview: remaining > 0 && !isKept };
+  }).sort((a, b) => String(a.row.transaction_date || "").localeCompare(String(b.row.transaction_date || "")) || a.id.localeCompare(b.id));
+}
+
+// V22.9.79 W-7 연결점: 달마다 환불 차감. 키는 환급 날짜의 달(YYYY-MM)이고, 원지출의 분류·지출자와 받은 사람별로 나눈다.
+// 맵은 모두 원형 없는 객체다(분류 이름이 키가 된다). 원지출을 읽지 않은 연결은 분류·지출자가 "" 로 모인다.
+function refundDeductionsByMonth(links = []) {
+  const months = Object.create(null);
+  for (const link of safeArray(links)) {
+    const month = String(link?.refund_date || "").slice(0, 7);
+    const amount = refundLinkPositiveAmount(link?.amount);
+    if (!/^\d{4}-\d{2}$/.test(month) || !amount) continue;
+    if (!months[month]) months[month] = { month, total: 0, count: 0, byCategory: Object.create(null), bySpender: Object.create(null), byRecipient: Object.create(null) };
+    const bucket = months[month];
+    const category = String(link.expense_category || "");
+    const spender = String(link.expense_user_id || "");
+    const recipient = String(link.recipient_user_id || "");
+    bucket.total += amount;
+    bucket.count += 1;
+    bucket.byCategory[category] = (bucket.byCategory[category] || 0) + amount;
+    bucket.bySpender[spender] = (bucket.bySpender[spender] || 0) + amount;
+    bucket.byRecipient[recipient] = (bucket.byRecipient[recipient] || 0) + amount;
+  }
+  return months;
+}
+
+// 차감 행: 환급 날짜에 원지출의 분류·지출자로 잡는 음수 지출. 기록 합계에는 넣고, 속도(하루 평균) 계산에서는 뺀다(W-7 변경안 6).
+// source 가 "refund_link" 라 다른 계산이 골라낼 수 있다.
+function refundLinkDeductionRows(links = []) {
+  return safeArray(links).filter((link) => refundLinkPositiveAmount(link?.amount) && isValidTransactionDateString(link?.refund_date)).map((link) => ({
+    id: `refund-link:${link.id}`,
+    user_id: String(link.expense_user_id || ""),
+    type: "expense",
+    amount: -refundLinkPositiveAmount(link.amount),
+    category: String(link.expense_category || ""),
+    memo: link.expense_memo ? `환불 차감 · ${link.expense_memo}` : "환불 차감",
+    payment_method: "",
+    transaction_date: link.refund_date,
+    source: "refund_link",
+    refund_link_id: link.id,
+    expense_id: link.expense_id,
+    refund_id: link.refund_id,
+  }));
+}
+
+// 그 달 행에 차감을 반영한 목록: 연결한 몫만큼 환급(수입) 행을 줄이고(다 연결되면 뺀다) 차감 행을 더한다.
+// 지출 합계는 −L, 수입 합계는 −L, 잔액은 그대로다. 기록 목록 화면에는 쓰지 않는다(합계·분류·예산 계산용).
+function applyRefundLinkNetting(rows = [], links = []) {
+  const present = new Set(safeArray(rows).map((row) => String(row?.id || "")));
+  const monthLinks = safeArray(links).filter((link) => present.has(String(link?.refund_id || "")) && refundLinkPositiveAmount(link?.amount));
+  const linkedByRefund = new Map();
+  for (const link of monthLinks) linkedByRefund.set(link.refund_id, (linkedByRefund.get(link.refund_id) || 0) + link.amount);
+  const out = [];
+  for (const row of safeArray(rows)) {
+    const linked = linkedByRefund.get(String(row?.id || "")) || 0;
+    if (!linked || !isRefundIncomeRow(row)) { out.push(row); continue; }
+    const rest = Math.round(Number(row.amount || 0)) - linked;
+    if (rest > 0) out.push({ ...row, amount: rest, refund_linked_amount: linked });
+  }
+  const deductions = refundLinkDeductionRows(monthLinks);
+  return { rows: [...out, ...deductions], deductions, total: deductions.reduce((sum, row) => sum - row.amount, 0) };
+}
+
+function normalizeRefundMemo(text = "") {
+  return String(text || "").toLowerCase()
+    .replace(/부분\s*환불|환불|환급|취소|반품|주문|결제|구매/g, "")
+    .replace(/[\s·.,:;!?~'"()[\]{}<>/\\|_+=*&^%$#@-]+/g, "");
+}
+
+// 원래 지출 후보: 같은 가계부의 지출(쓴 사람 있음), 환급 날짜 이하·365일 안.
+// 같은 내용 → 같은 결제수단 → 남은 환급액 이상 → 가까운 날짜 순.
+function rankRefundCandidates(refund = {}, expenses = [], { remaining = 0 } = {}) {
+  const refundDate = String(refund?.transaction_date || "").slice(0, 10);
+  const memo = normalizeRefundMemo(refund?.memo || refund?.raw_text || "");
+  const payment = String(refund?.payment_method || "").trim();
+  const need = Math.max(0, Number(remaining) || 0);
+  return safeArray(expenses)
+    .filter((row) => row && row.type === "expense" && String(row.id || "") && String(row.id) !== String(refund?.id || "")
+      && String(row.user_id || "").trim() && refundLinkPositiveAmount(row.amount) && refundLinkDateAllowed(row.transaction_date, refundDate))
+    .map((row) => {
+      const rowMemo = normalizeRefundMemo(row.memo || row.raw_text || "");
+      const sameMemo = memo && rowMemo ? (memo === rowMemo ? 2 : memo.includes(rowMemo) || rowMemo.includes(memo) ? 1 : 0) : 0;
+      const samePayment = payment && String(row.payment_method || "").trim() === payment ? 1 : 0;
+      const covers = Number(row.amount) >= need ? 1 : 0;
+      return { row, rank: [sameMemo, samePayment, covers] };
+    })
+    .sort((a, b) => b.rank[0] - a.rank[0] || b.rank[1] - a.rank[1] || b.rank[2] - a.rank[2]
+      || String(b.row.transaction_date || "").localeCompare(String(a.row.transaction_date || ""))
+      || Number(b.row.amount) - Number(a.row.amount) || String(a.row.id).localeCompare(String(b.row.id)))
+    .map((item) => item.row);
+}
+
+// 표·RPC 가 아직 없을 때(404 + PGRST205 표 없음 · PGRST202 함수 없음, 옛 PostgREST 의 42P01·42883).
+function isRefundLinksAbsentError(error) {
+  const raw = safeError(error);
+  return /Supabase 404\b/.test(raw) && /PGRST205|PGRST202|42P01|42883/.test(raw);
+}
+
+const REFUND_LINK_MESSAGES = Object.freeze({
+  refund_linked: "원래 지출과 연결했어요. 이 정산과 지출 합계에서 그 금액을 뺐어요.",
+  refund_unlinked: "연결을 풀었어요. 이 환급은 다시 확인 대상이에요.",
+  refund_kept: "수입으로 두었어요. 분류는 그대로이고 확인 대상에서만 뺐어요.",
+  refund_unkept: "다시 확인 대상으로 돌렸어요.",
+  refund_link_unavailable: "환불 연결 기능을 아직 쓸 수 없어요. 아무것도 바꾸지 않았어요.",
+  refund_link_permission_denied: "소유자·관리자만 환불을 연결하거나 풀 수 있어요.",
+  refund_link_month_completed: "정산을 완료한 달의 환급은 연결하거나 풀 수 없어요. 완료 이력은 그대로예요.",
+  refund_link_amount_exceeded: "연결 금액이 남은 환급액이나 원래 지출의 남은 금액보다 커요. 아무것도 바꾸지 않았어요.",
+  refund_link_amount_invalid: "연결 금액을 확인해 주세요. 1원 이상, 기록 금액 이하만 연결할 수 있어요.",
+  refund_link_source_changed: "화면을 연 뒤 기록이나 연결이 바뀌어 저장하지 않았어요. 다시 열어 확인해 주세요.",
+  refund_link_window: "원래 지출은 환급 날짜 기준 365일 안의 기록만 고를 수 있어요.",
+  refund_link_date_order: "원래 지출은 환급 날짜보다 늦을 수 없어요.",
+  refund_link_kind_invalid: "분류가 ‘환급’인 수입과 지출 기록만 연결할 수 있어요.",
+  refund_link_spender_required: "원래 지출에 쓴 사람이 없어 연결할 수 없어요. 기록에서 쓴 사람을 먼저 정해 주세요.",
+  refund_link_recipient_required: "환급 기록에 받은 사람을 먼저 정해 주세요.",
+  refund_link_recipient_invalid: "환급을 받은 사람이 이 가계부의 정산 참여자가 아니에요. 환급 기록의 받은 사람을 먼저 바꿔 주세요.",
+  refund_link_duplicate: "이미 연결한 두 기록이에요. 금액을 바꾸려면 연결을 풀고 다시 연결해 주세요.",
+  refund_link_not_found: "연결을 찾지 못했어요. 이미 풀렸거나 기록이 지워졌을 수 있어요.",
+  refund_link_record_not_found: "연결할 기록을 찾지 못했어요. 이미 지워졌거나 이 가계부의 기록이 아니에요.",
+  refund_link_history_invalid: "정산 완료 이력을 읽지 못해 바꾸지 않았어요. 잠시 후 다시 시도해 주세요.",
+  refund_link_input_invalid: "연결할 기록을 다시 골라 주세요. 아무것도 바꾸지 않았어요.",
+  refund_link_busy: "다른 정산 저장이 진행 중이에요. 잠시 후 한 번만 다시 시도해 주세요.",
+  refund_link_unknown: "연결 결과를 확인하지 못했어요. 정산 화면을 새로 열어 바뀌었는지 먼저 확인해 주세요.",
+  refund_link_failed: "환불 연결을 저장하지 못했어요. 기존 기록과 연결은 그대로예요.",
+});
+
+function refundLinkMessage(code = "") {
+  return Object.prototype.hasOwnProperty.call(REFUND_LINK_MESSAGES, code) ? REFUND_LINK_MESSAGES[code] : "";
+}
+
+function refundLinkErrorCode(error) {
+  const raw = safeError(error);
+  if (isRefundLinksAbsentError(error)) return "refund_link_unavailable";
+  if (/settings_rmw_busy/.test(raw)) return "refund_link_busy";
+  if (isUncertainStorageWrite(error)) return "refund_link_unknown";
+  const code = raw.match(/\brefund_link_[a-z_]+/)?.[0] || "";
+  return refundLinkMessage(code) ? code : "refund_link_failed";
+}
+// V22.9.79 V44 D-5·V76 M-7: 환불 연결의 읽기·쓰기와 화면. 기능 플래그 REFUND_LINKS_ENABLED 가 켜졌을 때만 부른다
+// (라우터·정산 화면·카카오 정산·/ready). 표와 RPC 는 운영자가 검토용 SQL(migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql)을
+// 적용해야 생긴다. 표나 RPC 가 없으면(404 PGRST205·PGRST202) 기능을 ‘쓸 수 없음’으로 알리고 정산은 예전 그대로 계산한다.
+// 연결·풀기·수입으로 두기는 소유자·관리자만 한다(운영자 답 4, 서버에서 확인하고 RPC 도 다시 확인한다).
+
+const REFUND_LINK_TABLE_SELECT = "id,household_id,expense_id,refund_id,amount,created_at";
+const REFUND_LINK_TX_SELECT = "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at";
+const REFUND_REVIEW_KEPT_LIMIT = 500;
+const REFUND_PICKER_SHOW = 40;
+const REFUND_PICKER_SCAN = 300;
+
+function refundLinkIdValid(value) {
+  return /^[A-Za-z0-9_-]{1,160}$/.test(String(value || ""));
+}
+
+function refundReviewKeptKey(householdId = "") {
+  return `refund_review_kept:${String(householdId || "").trim()}`.slice(0, 180);
+}
+
+function parseRefundReviewKept(value) {
+  let list = [];
+  try { list = Array.isArray(value) ? value : value ? JSON.parse(String(value)) : []; } catch (err) { list = []; }
+  return new Set(safeArray(list).map((id) => String(id || "").trim()).filter(refundLinkIdValid));
+}
+
+function settlementMonthCompleted(history = [], month = "") {
+  return safeArray(history).some((item) => item && typeof item === "object" && item.month === month);
+}
+
+function refundShortDate(value = "") {
+  const ymd = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}` : "";
+}
+
+function refundRowLabel(row = {}, fallback = "기록") {
+  return String(row?.memo || row?.raw_text || row?.category || fallback).replace(/\s+/g, " ").trim().slice(0, 40) || fallback;
+}
+
+function refundDayAfter(ymd = "") {
+  return new Date(Date.parse(`${String(ymd).slice(0, 10)}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+}
+
+// 연결 행을 환급 id 나 원지출 id 로 읽는다(100개씩). 표가 없으면 오류를 그대로 던지고 호출부가 isRefundLinksAbsentError 로 가른다.
+async function fetchRefundLinkRows(env, householdId, { refundIds = [], expenseIds = [] } = {}) {
+  const column = refundIds.length ? "refund_id" : "expense_id";
+  const ids = [...new Set(safeArray(refundIds.length ? refundIds : expenseIds).map((id) => String(id || "").trim()).filter(refundLinkIdValid))];
+  const rows = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const params = new URLSearchParams();
+    params.set("household_id", `eq.${householdId}`);
+    params.set(column, `in.(${ids.slice(offset, offset + 100).join(",")})`);
+    params.set("select", REFUND_LINK_TABLE_SELECT);
+    params.set("order", "created_at.asc,id.asc");
+    params.set("limit", "1000");
+    rows.push(...safeArray(await supabase(env, `/rest/v1/accountbook_refund_links?${params.toString()}`, { method: "GET" })));
+  }
+  return rows.filter((row) => String(row?.household_id || householdId) === String(householdId));
+}
+
+// 그 달 환급 행에 걸린 연결 상태. 환급 행이 없으면 요청하지 않는다. withExpenses 이면 지난달 원지출 행도 읽는다(웹 화면·W-7).
+// 표가 없으면 available:false 로 돌려주고, 다른 읽기 실패는 던진다(정산 금액은 틀리게 보이느니 보이지 않는다).
+async function loadRefundLinkMonthState(env, { householdId = "", monthRows = [], withExpenses = false } = {}) {
+  const refundRows = safeArray(monthRows).filter(isRefundIncomeRow);
+  const state = { enabled: true, available: true, refundRows, links: [], netting: null, kept: new Set(), review: [], needsReviewCount: 0, linkedTotal: 0, expenseRowsById: new Map() };
+  if (!refundRows.length) return state;
+  let rawLinks = [];
+  let keptValue = "";
+  try {
+    [rawLinks, keptValue] = await Promise.all([
+      fetchRefundLinkRows(env, householdId, { refundIds: refundRows.map((row) => row.id) }),
+      getSettingValue(env, refundReviewKeptKey(householdId)),
+    ]);
+  } catch (error) {
+    if (isRefundLinksAbsentError(error)) return { ...state, available: false };
+    throw error;
+  }
+  const monthById = new Map(safeArray(monthRows).map((row) => [String(row?.id || ""), row]));
+  const expenseRowsById = new Map();
+  for (const link of safeArray(rawLinks)) {
+    const expense = monthById.get(String(link?.expense_id || ""));
+    if (expense) expenseRowsById.set(String(expense.id), expense);
+  }
+  if (withExpenses) {
+    const missing = safeArray(rawLinks).map((link) => String(link?.expense_id || "")).filter((id) => id && !expenseRowsById.has(id));
+    for (const row of await fetchRowsByPlainIds(env, "transactions", missing, REFUND_LINK_TX_SELECT)) {
+      if (String(row?.household_id || "") === String(householdId)) expenseRowsById.set(String(row.id), row);
+    }
+  }
+  const links = normalizeRefundLinkRows(rawLinks, { householdId, refundRowsById: new Map(refundRows.map((row) => [String(row.id), row])), expenseRowsById });
+  const kept = parseRefundReviewKept(keptValue);
+  const review = buildRefundReviewItems(refundRows, links, kept);
+  return {
+    ...state, links, netting: refundSettlementNetting(links), kept, review, expenseRowsById,
+    needsReviewCount: review.filter((item) => item.needsReview).length,
+    linkedTotal: links.reduce((sum, link) => sum + link.amount, 0),
+  };
+}
+
+// V22.9.79 M-7 연결점: 지출 합계·분류·예산 화면이 그 달 기록(모든 종류)에 환불 차감을 반영할 때 부른다.
+// 플래그가 꺼져 있거나 그 달에 환급 행이 없으면 요청 없이 그대로 돌려준다. 표가 없으면 available:false 로 그대로 돌려준다.
+// rows 의 차감 행은 source "refund_link"(음수 지출)라 속도 계산(W-7)에서 골라낼 수 있다.
+async function refundNettedMonthRows(env, { householdId = "", monthRows = [] } = {}) {
+  if (!refundLinksEnabled(env)) return { enabled: false, available: false, rows: monthRows, deductions: [], total: 0, links: [] };
+  const state = await loadRefundLinkMonthState(env, { householdId, monthRows, withExpenses: true });
+  if (!state.available || !state.links.length) return { enabled: true, available: state.available, rows: monthRows, deductions: [], total: 0, links: [] };
+  return { enabled: true, available: true, links: state.links, ...applyRefundLinkNetting(monthRows, state.links) };
+}
+
+// 나간 사람 이름 읽기(fetchFormerSpenderMembers)에 넘길 행: 지출 행 + 연결한 환급 행(받은 사람도 정산 참여자가 된다).
+function refundSettlementSpenderRows(rows = [], state = {}) {
+  if (!state?.links?.length) return rows;
+  const linked = new Set(state.links.map((link) => link.refund_id));
+  return [...safeArray(rows), ...safeArray(state.refundRows).filter((row) => linked.has(String(row.id)))];
+}
+
+// 완료 저장 지문. 연결이 없으면 예전 지문(settlementPreviewDigest)과 같다. 연결이 있으면 연결과 연결한 환급 행(금액·받은 사람)을 넣는다.
+async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [] }) {
+  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows });
+  const canonical = JSON.stringify([
+    "v3-refund-links",
+    month,
+    mode,
+    settlementConditionPairs(mode, conditions).sort(),
+    safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
+    links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
+    [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
+  ]);
+  return (await sha256Hex(canonical)).slice(0, 32);
+}
+
+// 정산 화면(플래그 켜짐) 안내 문장.
+function settlementRefundNotice(state = {}) {
+  if (!state.available) return "환불 연결 기능을 아직 쓸 수 없어 환급은 이 정산에서 빼지 않았습니다. 환급 계산은 미리보기로만 제공합니다.";
+  if (state.linkedTotal) return `연결한 환불 ${numberWithCommas(state.linkedTotal)}원은 이 정산과 완료 이력에 반영했습니다. 원래 지출을 고르지 않은 환급은 빼지 않습니다.`;
+  return "원래 지출과 연결한 환불만 이 정산과 완료 이력에 반영합니다. 원래 지출을 고르지 않은 환급은 빼지 않습니다.";
+}
+
+function renderRefundLinkFlash(url) {
+  const msg = String(url.searchParams.get("msg") || "");
+  const err = String(url.searchParams.get("err") || "");
+  if (/^refund_/.test(msg) && refundLinkMessage(msg)) return `<div class="ok">${escapeHtml(refundLinkMessage(msg))}</div>`;
+  if (/^refund_/.test(err) && refundLinkMessage(err)) return `<div class="error">${escapeHtml(refundLinkMessage(err))}</div>`;
+  return "";
+}
+
+// 정산 화면의 ‘환불·환급’ 구역. 연결한 환불, 확인 대상(원래 지출 고르기·수입으로 두기), 수입으로 둔 환급을 보여 준다.
+function renderSettlementRefundSection({ state = {}, month = "", householdId = "", canManage = false, completed = false, members = [] }) {
+  const head = `<section class="card" id="refund-links"><h2>환불·환급</h2>`;
+  if (!state.available) return `${head}<p class="note">환불 연결 기능을 아직 쓸 수 없어 환급은 이 정산에서 빼지 않았어요. 준비가 끝나면 이곳에서 원래 지출을 고를 수 있어요.</p></section>`;
+  if (!safeArray(state.refundRows).length) return `${head}<p class="note">이 달에는 분류가 ‘환급’인 수입이 없어요. 환불을 ‘환급’ 수입으로 기록하면 이곳에서 원래 지출과 연결해 정산과 지출 합계에서 뺄 수 있어요.</p></section>`;
+  const names = memberNameMap(members);
+  const eligible = new Set(safeArray(members).filter(refundRecipientEligible).map((member) => String(member.user_id)));
+  const editable = canManage && !completed;
+  const refundById = new Map(safeArray(state.refundRows).map((row) => [String(row.id), row]));
+  const hidden = (extra) => `<input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${extra}`;
+  const button = (action, fields, label) => `<form method="post" action="${action}" style="display:inline-block;margin:4px 6px 0 0">${hidden(fields)}<button type="submit" class="light">${escapeHtml(label)}</button></form>`;
+  const item = (body) => `<li style="border:1px solid rgba(148,163,184,.45);border-radius:16px;padding:12px;margin:8px 0;list-style:none">${body}</li>`;
+  const linked = safeArray(state.links).map((link) => {
+    const refund = refundById.get(link.refund_id) || {};
+    const expense = state.expenseRowsById?.get(link.expense_id) || null;
+    const expenseText = expense
+      ? `${refundShortDate(expense.transaction_date)} ${refundRowLabel(expense, "지출")} ${numberWithCommas(expense.amount)}원(${expense.category || "분류 없음"})`
+      : "원래 지출";
+    const text = `${refundShortDate(refund.transaction_date)} ${refundRowLabel(refund, "환급")} ${numberWithCommas(link.amount)}원 → ${expenseText}에서 뺐어요`;
+    const action = editable ? button("/my/settlement/refund-unlink", `<input type="hidden" name="link_id" value="${escapeHtml(link.id)}"/><input type="hidden" name="amount" value="${escapeHtml(link.amount)}"/>`, "연결 풀기") : "";
+    return item(`<span>${escapeHtml(text)}</span>${action ? `<div>${action}</div>` : ""}`);
+  });
+  const reviewItems = safeArray(state.review).filter((entry) => entry.needsReview).map((entry) => {
+    const recipient = String(entry.row.user_id || "");
+    const amountText = entry.linked ? `남은 ${numberWithCommas(entry.remaining)}원 확인 대상` : `+${numberWithCommas(entry.amount)}원`;
+    const who = recipient ? `받은 사람 ${names[recipient] || "이전 구성원"}` : "받은 사람 미지정";
+    const text = `${refundShortDate(entry.row.transaction_date)} ${refundRowLabel(entry.row, "환급")} ${amountText} · ${who}`;
+    const blocked = !recipient ? "환급 기록에서 받은 사람을 먼저 정해 주세요." : !eligible.has(recipient) ? "받은 사람이 정산 참여자가 아니라 연결할 수 없어요. 환급 기록의 받은 사람을 바꿔 주세요." : "";
+    const pickHref = `/my/settlement/refund-link?household_id=${encodeURIComponent(householdId)}&month=${encodeURIComponent(month)}&refund_id=${encodeURIComponent(entry.id)}`;
+    const actions = editable
+      ? `${blocked ? "" : `<a class="btn light" href="${escapeHtml(pickHref)}" style="margin:4px 6px 0 0">원래 지출 고르기</a>`}${button("/my/settlement/refund-keep", `<input type="hidden" name="refund_id" value="${escapeHtml(entry.id)}"/><input type="hidden" name="action" value="keep"/>`, "수입으로 두기")}`
+      : "";
+    return item(`<span>${escapeHtml(text)}</span><small class="muted" style="display:block">${escapeHtml(blocked || "원래 지출을 고르면 정산과 지출 합계에서 뺍니다.")}</small>${actions ? `<div>${actions}</div>` : ""}`);
+  });
+  const keptItems = safeArray(state.review).filter((entry) => entry.kept && entry.remaining > 0).map((entry) => {
+    const text = `${refundShortDate(entry.row.transaction_date)} ${refundRowLabel(entry.row, "환급")} ${numberWithCommas(entry.remaining)}원 · 수입으로 둠`;
+    const action = editable ? button("/my/settlement/refund-keep", `<input type="hidden" name="refund_id" value="${escapeHtml(entry.id)}"/><input type="hidden" name="action" value="unkeep"/>`, "다시 확인") : "";
+    return item(`<span>${escapeHtml(text)}</span>${action ? `<div>${action}</div>` : ""}`);
+  });
+  const lock = completed
+    ? `<p class="note">정산을 완료한 달이라 연결을 바꿀 수 없어요. 완료 이력은 그대로예요.</p>`
+    : !canManage ? `<p class="note">소유자·관리자가 원래 지출을 연결하거나 풀 수 있어요.</p>` : "";
+  const list = (title, rows) => rows.length ? `<h3>${escapeHtml(title)}</h3><ul style="padding:0;margin:0">${rows.join("")}</ul>` : "";
+  return `${head}<p class="note">원래 지출과 연결한 환불만 이 정산과 지출 합계에서 뺍니다. 환불이 들어온 달에 원래 지출의 분류로 빠지고, 고르지 않은 환급은 수입으로 남습니다.</p>${lock}${list("연결한 환불", linked)}${list("확인할 환급", reviewItems)}${list("수입으로 둔 환급", keptItems)}${!linked.length && !reviewItems.length && !keptItems.length ? `<p class="muted">이 달 환급은 모두 확인했어요.</p>` : ""}</section>`;
+}
+
+// 정산 화면에 넣을 조각을 한 번에 만든다(settlement-ops-pages.js 의 화면 틀은 그대로 두고 값만 바꾼다).
+function settlementRefundPageParts({ state = {}, model = {}, month = "", householdId = "", canManage = false, history = [], members = [], url }) {
+  const completed = settlementMonthCompleted(history, month);
+  return {
+    notice: settlementRefundNotice(state),
+    linkHtml: state.available ? `<a href="#refund-links">환불·환급 연결 확인</a>` : "",
+    confirmText: state.available ? "참여자와 연결한 환불을 뺀 금액을 확인했고 완료 이력으로 저장합니다." : "",
+    sectionHtml: renderSettlementRefundSection({ state, month, householdId, canManage, completed, members }),
+    metricHtml: model.refundTotal ? `<div class="metric"><span>뺀 환불</span><b>${numberWithCommas(model.refundTotal)}원</b></div>` : "",
+    flashHtml: url ? renderRefundLinkFlash(url) : "",
+  };
+}
+
+// V22.9.79 D-5: 카카오 ‘정산’ 답장의 환불 줄(플래그 켜짐·표 있음). 원래 지출 고르기는 웹 정산 화면에서만 한다.
+function kakaoRefundSettlementLines(state = {}, model = {}) {
+  const lines = [];
+  const linked = Math.max(0, Math.round(Number(model.refundTotal || 0)));
+  if (linked) lines.push(`연결한 환불 ${numberWithCommas(linked)}원은 이 정산에서 뺐어요.`);
+  if (state.needsReviewCount) lines.push(`원래 지출을 고르지 않은 환급 ${numberWithCommas(state.needsReviewCount)}건은 빼지 않았어요. 웹 정산 화면에서 고를 수 있어요.`);
+  if (!lines.length) lines.push("환급(돌려받은 돈)은 웹 정산 화면에서 원래 지출과 연결하면 이 정산에서 빼요.");
+  return lines;
+}
+
+function kakaoRefundSurplusLine(model = {}) {
+  return `연결한 환불이 지출보다 ${numberWithCommas(Math.abs(Math.round(Number(model.totalExpense || 0))))}원 많아요. 아래 송금 제안대로 나누면 돼요.`;
+}
+
+function refundLinkExpected(row = {}) {
+  return {
+    amount: Math.round(Number(row.amount || 0)),
+    type: String(row.type || ""),
+    category: row.category ?? null,
+    user_id: row.user_id ? String(row.user_id) : null,
+    transaction_date: String(row.transaction_date || "").slice(0, 10),
+  };
+}
+
+// 고르기 화면과 연결 저장 사이에 두 기록·연결 합계가 바뀌었는지 보는 지문.
+async function refundLinkSourceDigest({ refund = {}, expense = {}, refundLinked = 0, expenseLinked = 0 }) {
+  const tuple = (row) => [String(row.id || ""), Math.round(Number(row.amount || 0)), String(row.type || ""), String(row.category ?? ""), String(row.user_id || ""), String(row.transaction_date || "").slice(0, 10)];
+  return (await sha256Hex(JSON.stringify(["refund-link-source-v22979", tuple(refund), tuple(expense), refundLinked, expenseLinked]))).slice(0, 32);
+}
+
+// 연결 저장 전에 Worker 가 먼저 확인한다(RPC 가 잠근 행으로 같은 규칙을 다시 확인한다). 문제가 없으면 "".
+function refundLinkPairProblem({ refund = null, expense = null, month = "", amount = 0, householdId = "", members = [], links = [] }) {
+  if (!refund || !expense || String(refund.household_id || "") !== String(householdId) || String(expense.household_id || "") !== String(householdId)) return "refund_link_record_not_found";
+  if (!isRefundIncomeRow(refund) || expense.type !== "expense") return "refund_link_kind_invalid";
+  if (String(refund.transaction_date || "").slice(0, 7) !== month) return "refund_link_input_invalid";
+  if (!String(expense.user_id || "").trim()) return "refund_link_spender_required";
+  const recipient = String(refund.user_id || "").trim();
+  if (!recipient) return "refund_link_recipient_required";
+  if (!safeArray(members).some((member) => String(member.user_id) === recipient && refundRecipientEligible(member))) return "refund_link_recipient_invalid";
+  if (String(expense.transaction_date || "").slice(0, 10) > String(refund.transaction_date || "").slice(0, 10)) return "refund_link_date_order";
+  if (!refundLinkDateAllowed(expense.transaction_date, refund.transaction_date)) return "refund_link_window";
+  if (safeArray(links).some((link) => String(link.expense_id) === String(expense.id) && String(link.refund_id) === String(refund.id))) return "refund_link_duplicate";
+  if (!refundLinkPositiveAmount(amount)) return "refund_link_amount_invalid";
+  const sum = (key, id) => safeArray(links).filter((link) => String(link[key]) === String(id)).reduce((total, link) => total + Math.round(Number(link.amount || 0)), 0);
+  if (sum("refund_id", refund.id) + amount > Math.round(Number(refund.amount || 0)) || sum("expense_id", expense.id) + amount > Math.round(Number(expense.amount || 0))) return "refund_link_amount_exceeded";
+  return "";
+}
+
+function refundLinkLogFailure(path, code, error) {
+  if (!["refund_link_failed", "refund_link_unknown", "refund_link_busy", "refund_link_unavailable", "refund_link_history_invalid"].includes(code)) return;
+  rememberOpsEvent({ kind: "refund_link_failed", severity: "warn", path, method: "POST", detail: `${code}: ${safeError(error)}`.slice(0, 400) });
+}
+
+// 세 POST 의 공통 앞부분: 로그인 → 가계부 → 소유자·관리자.
+async function refundLinkPostContext(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return { response: redirectResponse("/my") };
+  const form = await request.formData();
+  const householdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const back = (query) => redirectResponse(`/settlement-summary?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&${query}#refund-links`);
+  const { selected } = await getMySelectedHousehold(env, userId, householdId);
+  if (!selected || String(selected.id) !== householdId) return { response: redirectResponse("/my?err=no_household") };
+  if (!canManageMyHousehold(selected.role)) return { response: back("err=refund_link_permission_denied") };
+  return { userId, form, householdId, month, back };
+}
+
+// 완료 이력을 잠금 안에서 다시 읽어, 그 달을 완료했으면 바꾸지 않는다(운영자 답 5). RPC 도 같은 확인을 한다.
+async function assertRefundMonthOpen(env, householdId, month) {
+  const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(householdId)), "refund_link_history_invalid");
+  if (settlementMonthCompleted(history, month)) throw new Error("refund_link_month_completed");
+}
+
+async function handleRefundLinkPost(request, env) {
+  const context = await refundLinkPostContext(request, env);
+  if (context.response) return context.response;
+  const { userId, form, householdId, month, back } = context;
+  const refundId = String(form.get("refund_id") || "").trim();
+  const expenseId = String(form.get("expense_id") || "").trim();
+  const rawAmount = String(form.get("amount") || "").replace(/[,\s원]/g, "");
+  const amount = /^\d{1,10}$/.test(rawAmount) ? refundLinkPositiveAmount(Number(rawAmount)) : 0;
+  const sourceDigest = String(form.get("source_digest") || "").trim();
+  if (!refundLinkIdValid(refundId) || !refundLinkIdValid(expenseId) || refundId === expenseId || !/^[a-f0-9]{32}$/.test(sourceDigest)) return back("err=refund_link_input_invalid");
+  if (!amount) return back("err=refund_link_amount_invalid");
+  try {
+    const [rows, refundLinks, expenseLinks, members] = await Promise.all([
+      fetchRowsByPlainIds(env, "transactions", [refundId, expenseId], REFUND_LINK_TX_SELECT),
+      fetchRefundLinkRows(env, householdId, { refundIds: [refundId] }),
+      fetchRefundLinkRows(env, householdId, { expenseIds: [expenseId] }),
+      fetchHouseholdMembers(env, householdId),
+    ]);
+    const refund = rows.find((row) => String(row.id) === refundId) || null;
+    const expense = rows.find((row) => String(row.id) === expenseId) || null;
+    const links = [...new Map([...refundLinks, ...expenseLinks].map((link) => [String(link.id), link])).values()];
+    const problem = refundLinkPairProblem({ refund, expense, month, amount, householdId, members, links });
+    if (problem) return back(`err=${problem}`);
+    const refundLinked = refundLinks.reduce((sum, link) => sum + Math.round(Number(link.amount || 0)), 0);
+    const expenseLinked = expenseLinks.reduce((sum, link) => sum + Math.round(Number(link.amount || 0)), 0);
+    if (sourceDigest !== await refundLinkSourceDigest({ refund, expense, refundLinked, expenseLinked })) return back("err=refund_link_source_changed");
+    await withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+      await assertRefundMonthOpen(env, householdId, month);
+      assertFresh();
+      await supabase(env, "/rest/v1/rpc/accountbook_link_refund_v22979", {
+        method: "POST",
+        body: JSON.stringify({
+          p_household_id: householdId, p_actor_user_id: userId, p_expense_id: expenseId, p_refund_id: refundId, p_amount: amount,
+          p_expected: { expense: refundLinkExpected(expense), refund: refundLinkExpected(refund) },
+        }),
+      });
+    });
+    return back("msg=refund_linked");
+  } catch (error) {
+    const code = refundLinkErrorCode(error);
+    refundLinkLogFailure("/my/settlement/refund-link", code, error);
+    return back(`err=${code}`);
+  }
+}
+
+async function handleRefundUnlinkPost(request, env) {
+  const context = await refundLinkPostContext(request, env);
+  if (context.response) return context.response;
+  const { userId, form, householdId, back } = context;
+  const linkId = String(form.get("link_id") || "").trim();
+  const rawAmount = String(form.get("amount") || "").trim();
+  const expectedAmount = /^\d{1,10}$/.test(rawAmount) ? refundLinkPositiveAmount(Number(rawAmount)) : 0;
+  if (!refundLinkIdValid(linkId) || !expectedAmount) return back("err=refund_link_input_invalid");
+  try {
+    const params = new URLSearchParams({ id: `eq.${linkId}`, household_id: `eq.${householdId}`, select: REFUND_LINK_TABLE_SELECT, limit: "1" });
+    const link = safeArray(await supabase(env, `/rest/v1/accountbook_refund_links?${params.toString()}`, { method: "GET" }))[0] || null;
+    if (!link || String(link.household_id || householdId) !== householdId) return back("err=refund_link_not_found");
+    if (Math.round(Number(link.amount || 0)) !== expectedAmount) return back("err=refund_link_source_changed");
+    const refund = (await fetchRowsByPlainIds(env, "transactions", [link.refund_id], REFUND_LINK_TX_SELECT))[0] || null;
+    if (!refund || String(refund.household_id || "") !== householdId) return back("err=refund_link_not_found");
+    // 완료 여부는 화면의 달이 아니라 환급 날짜의 달로 본다(RPC 와 같다).
+    const refundMonth = String(refund.transaction_date || "").slice(0, 7);
+    await withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+      await assertRefundMonthOpen(env, householdId, refundMonth);
+      assertFresh();
+      await supabase(env, "/rest/v1/rpc/accountbook_unlink_refund_v22979", {
+        method: "POST",
+        body: JSON.stringify({ p_household_id: householdId, p_actor_user_id: userId, p_link_id: linkId, p_expected_amount: expectedAmount }),
+      });
+    });
+    return back("msg=refund_unlinked");
+  } catch (error) {
+    const code = refundLinkErrorCode(error);
+    refundLinkLogFailure("/my/settlement/refund-unlink", code, error);
+    return back(`err=${code}`);
+  }
+}
+
+// ‘수입으로 두기’(운영자 답 7): 분류·금액은 그대로 두고 확인 대상에서만 뺀다. 가계부 설정 refund_review_kept:<가계부> 에 환급 id 를 둔다.
+async function handleRefundKeepPost(request, env) {
+  const context = await refundLinkPostContext(request, env);
+  if (context.response) return context.response;
+  const { form, householdId, back } = context;
+  const refundId = String(form.get("refund_id") || "").trim();
+  const action = String(form.get("action") || "keep") === "unkeep" ? "unkeep" : "keep";
+  if (!refundLinkIdValid(refundId)) return back("err=refund_link_input_invalid");
+  try {
+    const refund = (await fetchRowsByPlainIds(env, "transactions", [refundId], REFUND_LINK_TX_SELECT))[0] || null;
+    if (!refund || String(refund.household_id || "") !== householdId || !isRefundIncomeRow(refund)) return back("err=refund_link_record_not_found");
+    await withHouseholdSettingsRmw(env, householdId, async ({ assertFresh }) => {
+      const current = parseJsonArraySettingStrict(await getSettingValueStrict(env, refundReviewKeptKey(householdId)), "refund_review_kept_invalid");
+      const ids = current.map((id) => String(id || "").trim()).filter((id) => refundLinkIdValid(id) && id !== refundId);
+      if (action === "keep") ids.push(refundId);
+      assertFresh();
+      await saveSettingValue(env, refundReviewKeptKey(householdId), ids.slice(-REFUND_REVIEW_KEPT_LIMIT));
+    });
+    return back(`msg=${action === "keep" ? "refund_kept" : "refund_unkept"}`);
+  } catch (error) {
+    const code = refundLinkErrorCode(error);
+    refundLinkLogFailure("/my/settlement/refund-keep", code, error);
+    return back(`err=${code}`);
+  }
+}
+
+function refundPickerHtml(title, body, status = 200) {
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(title)}</title><style>main{max-width:900px;margin:auto;padding:24px 16px;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;line-height:1.6}label{display:inline-block;margin:6px 8px 6px 0}input,select,button{min-height:44px;max-width:100%;font:inherit}ul{padding:0}li{list-style:none;border:1px solid rgba(148,163,184,.5);border-radius:14px;padding:12px;margin:10px 0}li span{display:block;opacity:.8;font-size:14px}.note{border-radius:12px;padding:12px;background:rgba(148,163,184,.15)}</style></head><body><main>${body}</main></body></html>`, status);
+}
+
+// 원래 지출 고르기(소유자·관리자). 기본은 환급 날짜 전 365일 안의 최근 지출 300건에서 고르고, 달을 골라 그 달 전체를 볼 수 있다.
+async function handleRefundLinkPicker(request, env, url) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const householdId = String(url.searchParams.get("household_id") || "").trim();
+  const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
+  const refundId = String(url.searchParams.get("refund_id") || "").trim();
+  const { selected } = await getMySelectedHousehold(env, userId, householdId);
+  if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
+  const backHref = `/settlement-summary?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}#refund-links`;
+  const backLink = `<p><a href="${escapeHtml(backHref)}">정산으로 돌아가기</a></p>`;
+  const title = "원래 지출 고르기";
+  if (!canManageMyHousehold(selected.role)) return refundPickerHtml(title, `<h1>${title}</h1><p>${escapeHtml(refundLinkMessage("refund_link_permission_denied"))}</p>${backLink}`, 403);
+  if (!refundLinkIdValid(refundId)) return refundPickerHtml(title, `<h1>${title}</h1><p>${escapeHtml(refundLinkMessage("refund_link_input_invalid"))}</p>${backLink}`, 400);
+  const [refundRows, members, historyValue] = await Promise.all([
+    fetchRowsByPlainIds(env, "transactions", [refundId], REFUND_LINK_TX_SELECT),
+    fetchHouseholdMembers(env, householdId),
+    getSettingValueStrict(env, settlementHistoryKey(householdId)),
+  ]);
+  const refund = refundRows.find((row) => String(row.id) === refundId) || null;
+  if (!refund || String(refund.household_id || "") !== householdId || !isRefundIncomeRow(refund) || String(refund.transaction_date || "").slice(0, 7) !== month) {
+    return refundPickerHtml(title, `<h1>${title}</h1><p>이 달의 ‘환급’ 수입 기록을 찾지 못했어요. 이미 지워졌거나 분류·날짜가 바뀌었을 수 있어요.</p>${backLink}`, 404);
+  }
+  let refundLinks = [];
+  try {
+    refundLinks = await fetchRefundLinkRows(env, householdId, { refundIds: [refundId] });
+  } catch (error) {
+    if (!isRefundLinksAbsentError(error)) throw error;
+    return refundPickerHtml(title, `<h1>${title}</h1><p class="note">${escapeHtml(refundLinkMessage("refund_link_unavailable"))}</p>${backLink}`);
+  }
+  const names = memberNameMap(members);
+  const refundDate = String(refund.transaction_date).slice(0, 10);
+  const refundAmount = Math.round(Number(refund.amount || 0));
+  const refundLinked = refundLinks.reduce((sum, link) => sum + Math.round(Number(link.amount || 0)), 0);
+  const remaining = Math.max(0, refundAmount - refundLinked);
+  const recipient = String(refund.user_id || "");
+  const header = `<h1>${title}</h1><p>${escapeHtml(selected.name || "가계부")} · ${escapeHtml(month)}</p><p><b>${escapeHtml(`${refundShortDate(refundDate)} ${refundRowLabel(refund, "환급")}`)}</b><span style="display:block">${escapeHtml(`환급 ${numberWithCommas(refundAmount)}원 · 받은 사람 ${recipient ? names[recipient] || "이전 구성원" : "미지정"} · 남은 ${numberWithCommas(remaining)}원`)}</span></p>`;
+  const completed = settlementMonthCompleted(parseJsonArraySettingStrict(historyValue, "refund_link_history_invalid"), month);
+  const stop = completed ? refundLinkMessage("refund_link_month_completed")
+    : !recipient ? refundLinkMessage("refund_link_recipient_required")
+      : !safeArray(members).some((member) => String(member.user_id) === recipient && refundRecipientEligible(member)) ? refundLinkMessage("refund_link_recipient_invalid")
+        : remaining <= 0 ? "이 환급은 모두 원래 지출과 연결했어요. 금액을 바꾸려면 정산 화면에서 연결을 먼저 풀어 주세요." : "";
+  if (stop) return refundPickerHtml(title, `${header}<p class="note">${escapeHtml(stop)}</p>${backLink}`);
+  const windowStart = refundLinkWindowStart(refundDate);
+  const months = [];
+  for (let offset = 0; offset <= 12; offset += 1) {
+    const d = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 - offset, 1));
+    const value = d.toISOString().slice(0, 7);
+    if (value < windowStart.slice(0, 7)) break;
+    months.push(value);
+  }
+  const pickMonth = months.includes(String(url.searchParams.get("pick_month") || "")) ? String(url.searchParams.get("pick_month")) : "";
+  const query = String(url.searchParams.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  const candidateRows = pickMonth
+    ? await fetchAdminRows(env, { month: pickMonth, householdId, type: "expense" })
+    : await fetchAdminRowsRange(env, { householdId, start: windowStart, end: refundDayAfter(refundDate), type: "expense", limit: REFUND_PICKER_SCAN, complete: false });
+  const needle = query.toLowerCase();
+  const filtered = needle ? candidateRows.filter((row) => `${row.memo || ""} ${row.raw_text || ""} ${row.category || ""} ${row.payment_method || ""}`.toLowerCase().includes(needle)) : candidateRows;
+  const ranked = rankRefundCandidates(refund, filtered, { remaining }).slice(0, REFUND_PICKER_SHOW);
+  const expenseLinks = ranked.length ? await fetchRefundLinkRows(env, householdId, { expenseIds: ranked.map((row) => row.id) }) : [];
+  const usedByExpense = new Map();
+  for (const link of expenseLinks) usedByExpense.set(String(link.expense_id), (usedByExpense.get(String(link.expense_id)) || 0) + Math.round(Number(link.amount || 0)));
+  const already = new Set(refundLinks.map((link) => String(link.expense_id)));
+  const items = [];
+  for (const row of ranked) {
+    const used = usedByExpense.get(String(row.id)) || 0;
+    const expenseRemaining = Math.round(Number(row.amount || 0)) - used;
+    if (expenseRemaining <= 0 || already.has(String(row.id))) continue;
+    const max = Math.min(remaining, expenseRemaining);
+    const digest = await refundLinkSourceDigest({ refund, expense: row, refundLinked, expenseLinked: used });
+    const info = `${row.category || "분류 없음"} · ${names[String(row.user_id || "")] || "이전 구성원"} · ${numberWithCommas(row.amount)}원${used ? ` · 이미 연결 ${numberWithCommas(used)}원` : ""}`;
+    items.push(`<li><b>${escapeHtml(`${refundShortDate(row.transaction_date)} ${refundRowLabel(row, "지출")}`)}</b><span>${escapeHtml(info)}</span><form method="post" action="/my/settlement/refund-link"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="refund_id" value="${escapeHtml(refundId)}"/><input type="hidden" name="expense_id" value="${escapeHtml(row.id)}"/><input type="hidden" name="source_digest" value="${escapeHtml(digest)}"/><label>뺄 금액 <input type="number" name="amount" min="1" max="${max}" step="1" value="${max}" required/></label><button type="submit">이 지출에서 빼기</button></form></li>`);
+  }
+  const monthOptions = [`<option value=""${pickMonth ? "" : " selected"}>최근 지출</option>`, ...months.map((value) => `<option value="${value}"${value === pickMonth ? " selected" : ""}>${value}</option>`)].join("");
+  const finder = `<form method="get" action="/my/settlement/refund-link"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="refund_id" value="${escapeHtml(refundId)}"/><label>찾을 달 <select name="pick_month">${monthOptions}</select></label><label>내용 <input type="text" name="q" maxlength="40" value="${escapeHtml(query)}"/></label><button type="submit">찾기</button></form>`;
+  const note = `<p class="note">고른 지출의 분류·쓴 사람으로 ${escapeHtml(month)} 지출 합계와 정산에서 뺍니다. 원래 지출 기록은 바뀌지 않아요. 환급 날짜 전 365일 안의 지출만 고를 수 있어요.</p>`;
+  const list = items.length ? `<ul>${items.join("")}</ul>` : `<p>고를 수 있는 지출이 없어요. 다른 달이나 내용으로 찾아 보세요.</p>`;
+  return refundPickerHtml(title, `${header}${note}${finder}${list}${backLink}`);
+}
+
+// 플래그가 켜졌을 때의 정산 완료 저장. 예전 처리(handleSettlementHistorySave)와 같고, 연결 걸기·풀기와 같은 잠금 안에서
+// 기록·연결·이력을 읽어 연결한 환불을 뺀 결과를 남긴다. 연결이 있으면 schema_version 3(refund_total·refund_links)이다.
+async function handleSettlementHistorySaveV22979(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const householdId = String(form.get("household_id") || "").trim();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const rawMode = String(form.get("mode") || "");
+  const mode = ["equal", "ratio", "headcount", "item"].includes(rawMode) ? rawMode : "equal";
+  const returnTo = `/settlement-summary?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&mode=${encodeURIComponent(mode)}`;
+  const { selected } = await getMySelectedHousehold(env, userId, householdId);
+  if (!selected || String(selected.id) !== householdId) return redirectResponse("/my?err=no_household");
+  if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=manage_required`);
+  if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
+  if (rawMode !== mode) return redirectResponse(`${returnTo}&err=invalid_mode`);
+  let backTo = returnTo;
+  try {
+    const submittedDigest = String(form.get("preview_digest") || "").trim();
+    const note = String(form.get("note") || "").trim().slice(0, 160);
+    const outcome = await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
+      const [monthRows, members, historyValue] = await Promise.all([
+        fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
+        fetchHouseholdMembers(env, selected.id),
+        getSettingValueStrict(env, settlementHistoryKey(selected.id)),
+      ]);
+      const rows = monthRows.filter((row) => row.type === "expense");
+      const refund = await loadRefundLinkMonthState(env, { householdId: selected.id, monthRows });
+      const conditions = parseSettlementConditions(form, members, rows);
+      backTo = `${returnTo}${settlementConditionQuery(mode, conditions)}`;
+      const formerMembers = await fetchFormerSpenderMembers(env, refundSettlementSpenderRows(rows, refund), members);
+      const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
+      const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links });
+      if (submittedDigest && submittedDigest !== digest) return "changed";
+      const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
+      const duplicate = history.some((item) => {
+        const completedAt = Date.parse(String(item.completed_at || ""));
+        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+      });
+      if (duplicate) return "duplicate";
+      const linked = refund.links.length > 0;
+      history.push({
+        id: crypto.randomUUID(),
+        schema_version: linked ? 3 : 2,
+        month,
+        mode,
+        conditions,
+        total_expense: model.totalExpense,
+        ...(linked ? {
+          gross_expense: model.grossExpense,
+          refund_total: refund.linkedTotal,
+          refund_links: refund.links.map((link) => ({ id: link.id, expense_id: link.expense_id, refund_id: link.refund_id, amount: link.amount, recipient_user_id: link.recipient_user_id })),
+        } : {}),
+        participant_count: model.participantCount,
+        shares: model.people.map((person) => ({ user_id: person.user_id, name: person.name, paid: person.paid, share: person.share, balance: person.balance })),
+        transfers: model.transfers,
+        rows_digest: digest,
+        note,
+        completed_by: userId,
+        completed_at: new Date().toISOString(),
+        status: "completed",
+      });
+      assertFresh();
+      await saveSettingValue(env, settlementHistoryKey(selected.id), history.slice(-30));
+      return "saved";
+    });
+    if (outcome === "changed") return redirectResponse(`${backTo}&err=settlement_changed`);
+    return redirectResponse(`${backTo}&msg=${outcome === "duplicate" ? "settlement_already_completed" : "settlement_completed"}`);
+  } catch (err) {
+    rememberOpsEvent({ kind: "settlement_history_save_failed", severity: "warn", path: "/my/settlement/save", method: "POST", detail: safeError(err) });
+    if (/settings_rmw_busy/.test(safeError(err))) return redirectResponse(`${backTo}&err=settlement_busy`);
+    return redirectResponse(`${backTo}&err=settlement_save_failed`);
+  }
+}
+
+// /ready(플래그 켜짐)에 붙이는 준비 상태. ready 판정과 필수 표 목록에는 넣지 않는다(운영 /ready 는 필수 표 13개를 확인하고,
+// DDL 적용 전에 이 표를 필수로 두면 /ready 가 실패한다). RPC 는 잘못된 uuid("")로 불러 본문을 실행하지 않고 존재만 본다.
+async function refundRpcAvailable(env, name, body) {
+  try {
+    await supabase(env, `/rest/v1/rpc/${name}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(body) });
+    return true;
+  } catch (error) {
+    return !/PGRST202|Could not find the function/i.test(safeError(error));
+  }
+}
+
+async function refundLinksReadiness(env) {
+  const [table, link, unlink] = await Promise.all([
+    supabase(env, "/rest/v1/accountbook_refund_links?select=id&limit=1", { method: "GET" }).then(() => "ok", (error) => (isRefundLinksAbsentError(error) ? "missing" : "error")),
+    refundRpcAvailable(env, "accountbook_link_refund_v22979", { p_household_id: "", p_actor_user_id: "", p_expense_id: "", p_refund_id: "", p_amount: 0, p_expected: {} }),
+    refundRpcAvailable(env, "accountbook_unlink_refund_v22979", { p_household_id: "", p_actor_user_id: "", p_link_id: "", p_expected_amount: 0 }),
+  ]);
+  const missingRpcs = [["accountbook_link_refund_v22979", link], ["accountbook_unlink_refund_v22979", unlink]].filter(([, available]) => !available).map(([name]) => name);
+  return { enabled: true, available: table === "ok" && !missingRpcs.length, table, missing_rpcs: missingRpcs };
 }
 
 function expectedOpenBuilderRows() {
@@ -28782,7 +29620,9 @@ async function handleMyUpdateTransaction(request, env) {
     return redirectResponse(myReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id, { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
-    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_update_failed" }));
+    // V22.9.79 D-5: 환불과 연결된 기록의 종류·금액·환급 분류·날짜를 바꾸면 DB 트리거(refund_link_guard_v22979)가 막는다.
+    const refundLocked = /refund_link_locked/.test(safeError(err));
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked ? "refund_link_locked" : "record_update_failed" }));
   }
 }
 
@@ -38320,6 +39160,8 @@ function formatMessage(msg) {
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
+    // V22.9.79 D-5: 환불 연결 트리거가 막은 수정(연결된 기록의 종류·금액·환급 분류·날짜 변경).
+    refund_link_locked: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
     payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
@@ -46581,16 +47423,22 @@ async function kakaoSettlementText(env, household = {}) {
 async function kakaoSettlementParts(env, household = {}) {
   const month = currentMonthKst();
   const members = await fetchHouseholdMembers(env, household.id);
-  const rows = await fetchAdminRows(env, { month, householdId: household.id, type: "expense" });
+  // V22.9.79 D-5: 환불 연결 플래그가 켜지면 같은 달 환급 행까지 한 번에 읽고 연결한 환불을 정산에서 뺀다(꺼지면 예전 그대로).
+  // 표가 없으면(DDL 적용 전) 연결 없이 예전 답장과 같다. 원래 지출 고르기는 웹 정산 화면에서만 한다.
+  const refundOn = refundLinksEnabled(env);
+  const monthRows = await fetchAdminRows(env, { month, householdId: household.id, type: refundOn ? "all" : "expense" });
+  const rows = refundOn ? monthRows.filter((row) => row.type === "expense") : monthRows;
+  const refund = refundOn ? await loadRefundLinkMonthState(env, { householdId: household.id, monthRows }) : null;
   // V22.9.77 감사 B-5: 웹 정산과 같이 나간 사람의 이름을 읽어 ‘별명(나간 구성원)’으로 구분한다(명단에 없는 지출자가 없으면 읽지 않는다).
-  const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
-  const model = buildSettlementModel(rows, members, { formerMembers });
+  const formerMembers = await fetchFormerSpenderMembers(env, refund ? refundSettlementSpenderRows(rows, refund) : rows, members);
+  const model = buildSettlementModel(rows, members, { formerMembers, ...(refund?.netting ? { refundNetting: refund.netting } : {}) });
   // V22.9.76 카카오 감사 14: 이 답장에는 환급 계산이 없다. 정산은 지출만 나누고 환급(돌려받은 돈)을 빼지 않으며, 환급 연결
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
-  if (!model.totalExpense || !model.people.length) {
+  const refundLines = refund?.available ? kakaoRefundSettlementLines(refund, model) : [refundNotice];
+  if (!model.people.length || (!model.totalExpense && !model.refundTotal)) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
-    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", refundNotice].join("\n") };
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
   }
   const people = model.people.slice(0, 8).map((p) => {
     if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
@@ -46598,15 +47446,19 @@ async function kakaoSettlementParts(env, household = {}) {
     return `• ${p.name}: 정산 차액 없음`;
   });
   const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+  // V22.9.44 감사 D-21: 8명·8건을 넘으면 말없이 잘렸다. 남은 수를 한 줄로 알린다.
+  const morePeople = model.people.length > 8 ? [`외 ${numberWithCommas(model.people.length - 8)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
+  const moreTransfers = model.transfers.length > 8 ? [`외 ${numberWithCommas(model.transfers.length - 8)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
   return { empty: false, text: [
     `📊 ${month} 정산`,
-    refundNotice,
-    `총 지출: ${numberWithCommas(model.totalExpense)}원`,
+    ...refundLines,
+    `총 지출: ${numberWithCommas(model.totalExpense)}원${model.refundTotal ? ` (환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
-    kakaoSettlementShareLine(model),
+    model.totalExpense < 0 ? kakaoRefundSurplusLine(model) : kakaoSettlementShareLine(model),
     "",
     ...people,
-    ...(transfers.length ? ["", "송금 제안", ...transfers] : []),
+    ...morePeople,
+    ...(transfers.length ? ["", "송금 제안", ...transfers, ...moreTransfers] : []),
   ].join("\n") };
 }
 
@@ -48343,5 +49195,7 @@ export { budgetExpenseRows };
 export { explicitDateIntent };
 
 export { buildSettlementRefundPreview, settlementRefundPreviewDigest };
+// V22.9.79 D-5·M-7: 환불 연결 계산과 W-7·M-7 연결점(검사용).
+export { refundDeductionsByMonth, applyRefundLinkNetting, refundLinkDeductionRows, normalizeRefundLinkRows, refundSettlementNetting, rankRefundCandidates, refundLinkDateAllowed, refundNettedMonthRows, loadRefundLinkMonthState, settlementRefundDigest, refundLinkErrorCode, refundLinkMessage };
 
 export { kakaoGroupFirstKeys, kakaoGroupLinkItemSettingsKey, getExplicitKakaoBotGroupKey, readKakaoGroupFirstSnapshot, removeKakaoGroupLink, bindKakaoGroupByInviteCode };
