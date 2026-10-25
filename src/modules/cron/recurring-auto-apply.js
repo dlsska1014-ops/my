@@ -196,6 +196,8 @@ function recurringCronState(raw) {
 
 // V22.9.78 N-16: 달마다 이어 읽을 자리({month, day, household_id, id}). 예전 상태(칸 없음)와 형식이 틀린 항목은 자리 없음이다.
 // 자리가 없으면 앞에서부터 읽으므로(다시 확인할 뿐 빠뜨리지 않는다) 버려도 안전하다.
+// V22.9.79 S-4: 그 달 말일 이후에 앞에서부터 시작한 바퀴의 자리는 시작한 날(started)을 함께 적는다. 옛 코드는 이 칸을 읽지 않고
+// 버리므로(되돌리면 자리만 남는다) 형식이 같고, 칸이 없거나 틀리면 말일 전에 시작한 바퀴의 자리로 본다.
 function recurringScanAfter(values = []) {
   const out = [];
   for (const item of Array.isArray(values) ? values : []) {
@@ -204,7 +206,8 @@ function recurringScanAfter(values = []) {
     const householdId = typeof item?.household_id === "string" ? item.household_id : "";
     const id = typeof item?.id === "string" ? item.id : "";
     if (!month || !Number.isSafeInteger(day) || !householdId || !id || householdId.length > 120 || id.length > 120) continue;
-    if (!out.some((entry) => entry.month === month)) out.push({ month, day, household_id: householdId, id });
+    const started = typeof item?.started === "string" && item.started.length === 10 && isValidTransactionDateString(item.started) ? item.started : "";
+    if (!out.some((entry) => entry.month === month)) out.push({ month, day, household_id: householdId, id, ...(started ? { started } : {}) });
   }
   return out.slice(0, 2);
 }
@@ -239,17 +242,35 @@ function recurringCronAfterFilter(key = []) {
 }
 
 // V22.9.77 감사 M-8: 월간 스냅숏을 다시 만들 가계부·달 목록("YYYY-MM|가계부ID"). 형식이 틀린 항목·겹친 항목은 버린다.
+// V22.9.79 N-9: 주간 스냅숏은 그 주 일요일로 적는다("YYYY-MM-DD|가계부ID"). 옛 코드(V22.9.77·78)는 이 항목을 형식이 틀린 것으로
+// 보고 버리므로 되돌려도 주간 다시 만들기만 빠진다. 월간을 앞에 두어 먼저 만들고, 대기가 넘치면 저장할 때 주간부터 잘린다.
 function recurringReportQueue(values = []) {
-  const out = new Set();
+  const monthly = new Set();
+  const weekly = new Set();
   for (const value of Array.isArray(values) ? values : []) {
     const text = String(value ?? "");
-    if (text[7] === "|" && validMonth(text.slice(0, 7)) && /^[^|\s"(),]{1,80}$/.test(text.slice(8))) out.add(text);
+    if (text[7] === "|" && validMonth(text.slice(0, 7)) && /^[^|\s"(),]{1,80}$/.test(text.slice(8))) monthly.add(text);
+    else if (text[10] === "|" && recurringCronIsWeekEnd(text.slice(0, 10)) && /^[^|\s"(),]{1,80}$/.test(text.slice(11))) weekly.add(text);
   }
-  return [...out];
+  return [...monthly, ...weekly];
 }
 
 function recurringReportEntries(queue = []) {
-  return queue.map((item) => ({ month: item.slice(0, 7), household_id: item.slice(8) }));
+  return queue.map((item) => (item[7] === "|" ? { month: item.slice(0, 7), household_id: item.slice(8) } : { week_end: item.slice(0, 10), household_id: item.slice(11) }));
+}
+
+function recurringReportKey(entry = {}) {
+  return `${entry.week_end || entry.month}|${entry.household_id}`;
+}
+
+// V22.9.79 N-9: 기록 날짜가 든 주의 일요일. 주간 스냅숏은 일요일 실행이 그 주 월~일 기록으로 만든다(isoWeekPeriod).
+function recurringCronWeekEnd(ymd = "") {
+  if (!isValidTransactionDateString(ymd)) return "";
+  return recurringCronAddDays(ymd, (7 - new Date(`${ymd}T00:00:00Z`).getUTCDay()) % 7);
+}
+
+function recurringCronIsWeekEnd(ymd = "") {
+  return isValidTransactionDateString(ymd) && new Date(`${ymd}T00:00:00Z`).getUTCDay() === 0;
 }
 
 function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = []) {
@@ -363,7 +384,19 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     // V22.9.78 N-16: 앞선 실행이 이 달을 다 못 읽었으면 남긴 자리 뒤부터 읽는다. 따라잡기는 checked_date 가 지난달 안이면 그 다음
     // 지정일부터다. 첫 쪽은 예전처럼 처리 전에 읽는다(읽기 실패는 아무것도 바꾸지 않고 단계 오류로 끝난다).
     const resume = stored?.scan_after.find((entry) => entry.month === phase.month);
-    phase.resume = resume ? [resume.day, resume.household_id, resume.id] : null;
+    // V22.9.79 S-4: 이어 읽기는 남긴 자리 앞쪽을 다시 보지 않는다. 그래서 여러 실행에 걸쳐 읽는 동안 앞쪽에 새로 만들거나 다시 켠
+    // 규칙(반영할 수 있게 된 규칙)은 앞에서부터 다시 읽는 다음 바퀴에서만 보였고, 그 바퀴가 말일을 넘기면 그 달 몫을 놓쳤다.
+    // 이제 한 달을 끝내는 바퀴는 그 달 말일 이후에 앞에서부터 시작한 바퀴뿐이다. 말일 실행과 새 달 따라잡기는 말일 이후에 시작한
+    // 바퀴가 남긴 자리(started, 오늘 뒤 날짜는 틀린 값)만 잇고, 그 밖의 자리는 버리고 앞에서부터 읽는다(말일에 실행이 여러 번이어도
+    // 다시 시작은 한 번).
+    // 자리를 버려도 다시 확인할 뿐 두 번 넣지 않는다(넣은 규칙은 표식으로 목록에서 빠지고, 같은 기록은 기록 확인과 고유 색인으로
+    // 한 번만 들어간다). 말일 전의 이번 달 실행은 예전처럼 자리를 잇는다.
+    const monthEnd = recurringDateForMonth(phase.month, 31);
+    const started = String(resume?.started || "");
+    const closing = (phase.kind === "catchup" || phase.dueDay >= lastDay) && !(started >= monthEnd && started <= today);
+    phase.resume = resume && !closing ? [resume.day, resume.household_id, resume.id] : null;
+    phase.started = phase.resume ? started : today;
+    phase.monthEnd = monthEnd;
     phase.minDay = phase.kind === "catchup" && phase.after >= `${phase.month}-01` ? Number(phase.after.slice(8, 10)) : 0;
     phase.firstPage = await fetchRecurringCronRows(env, phase, phase.resume);
     pagesRead += 1;
@@ -408,7 +441,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   let reportDeferred = 0;
   const reportQueueWork = (phase, candidates) => {
     if (phase.month >= currentMonth) return candidates;
-    const queued = new Set([...(stored ? stored.report_rebuild : queuedBefore), ...reportTouched]);
+    // V22.9.79 N-9: 자리는 월간 항목만 센다. 주간 항목은 남는 자리에만 남고, 넘치면 저장할 때 주간부터 잘린다(넘침 운영 이벤트).
+    const queued = new Set([...(stored ? stored.report_rebuild : queuedBefore), ...reportTouched].filter((key) => key[7] === "|"));
     const work = candidates.filter((rule) => {
       const key = `${phase.month}|${String(rule.household_id || "")}`;
       if (queued.has(key)) return true;
@@ -501,7 +535,15 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       const advance = confirmed.filter((rule) => { const marker = markerOf(rule); return !marker || marker < phase.month; });
       // V22.9.77 감사 M-8: 지난 달 몫을 이 실행에서 넣었거나(표식이 그 달에 못 미친 기존 기록 포함) 확인한 가계부는 그 달 월간
       // 스냅숏이 이미 있으면 다시 만든다. 표식이 이미 그 달 이후인 규칙(?month= 재실행의 기존 기록)은 앞선 실행이 맡았다.
-      if (phase.month < currentMonth) for (const rule of advance) reportTouched.push(`${phase.month}|${String(rule.household_id || "")}`);
+      // V22.9.79 N-9: 오늘 앞에 끝난 주에 들어간 기록(따라잡기·늦게 넣은 이번 달 몫)은 그 주 주간 스냅숏도 있으면 다시 만든다.
+      // 예전에는 월간만 다시 만들어 일요일에 만든 주간 스냅숏이 그 기록 없이 남았다. 일요일에 그 주 기록을 넣으면 같은 실행의
+      // 리포트 단계가 뒤에서 그 주 스냅숏을 만든다.
+      for (const rule of advance) {
+        const householdId = String(rule.household_id || "");
+        if (phase.month < currentMonth) reportTouched.push(`${phase.month}|${householdId}`);
+        const weekEnd = recurringCronWeekEnd(recurringCronDueDate(rule, phase.month));
+        if (weekEnd && weekEnd < today) reportTouched.push(`${weekEnd}|${householdId}`);
+      }
       for (const rule of confirmed) {
         done.add(String(rule.id));
         touched.add(String(rule.household_id || ""));
@@ -585,7 +627,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
-    reportQueue = recurringReportQueue(outcome.remaining.map((entry) => `${entry.month}|${entry.household_id}`));
+    reportQueue = recurringReportQueue(outcome.remaining.map(recurringReportKey));
     if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
   }
   let nextChecked = checkedDate;
@@ -606,8 +648,9 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const pendingIn = (phase) => !!phase && (remainingOf(phase).length > 0 || !phase.end);
     const nextPending = pendingIn(currentPhase) ? currentMonth : pendingIn(catchupPhase) ? previousMonth : "";
     // N-16: 끝내지 못한 달만 이어 읽을 자리를 남긴다. 끝낸 달은 자리를 지워 다음 실행이 앞에서부터 다시 본다.
+    // S-4: 말일 이후에 시작한 바퀴만 시작한 날을 적는다(따라잡기가 그 자리를 이어도 되는지 볼 때만 쓴다). 그 밖의 자리는 예전 형식이다.
     const scanAfter = phases.filter((phase) => !complete(phase) && phase.cursor)
-      .map((phase) => ({ month: phase.month, day: phase.cursor[0], household_id: phase.cursor[1], id: phase.cursor[2] }));
+      .map((phase) => ({ month: phase.month, day: phase.cursor[0], household_id: phase.cursor[1], id: phase.cursor[2], ...(phase.started >= phase.monthEnd ? { started: phase.started } : {}) }));
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
     const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
     if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
@@ -618,7 +661,10 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
     try {
       const current = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
-      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, recurringReportQueue([...current.report_rebuild, ...reportQueue]), current.scan_after));
+      const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
+      // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
+      if (merged.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${merged.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
+      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after));
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
   }
   const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
@@ -640,7 +686,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
 // 실행이 끝까지 처리했거나, 지난달에 없던 규칙이거나, 꺼져 있거나 지출자 자격이 없으면) 아무것도 넣지 않는다.
 async function settleRecurringBeforeEdit(env, householdId, existing = {}, next = {}) {
   if (!existing?.id || !householdId) return "none";
-  const previousMonth = addMonthsYm(formatDate(nowKstDate()).slice(0, 7), -1);
+  const today = formatDate(nowKstDate());
+  const previousMonth = addMonthsYm(today.slice(0, 7), -1);
   const marker = String(existing.last_applied_month || "");
   if (marker && marker >= previousMonth) return "none";
   if (existing.is_active === false || String(existing.is_active) === "false" || !(Number(existing.amount || 0) > 0)) return "none";
@@ -655,8 +702,38 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   const outcome = await applyRecurringRuleForMonth(env, householdId, existing, previousMonth);
   // V22.9.77 감사 M-8: 이 지난달 몫은 따라잡기가 넣었을 기록인데 표식이 지난달로 바뀌어 다음 예약 실행은 이 가계부를 다시
   // 보지 않는다. 지난달 월간 스냅숏이 이미 있으면 여기서 다시 만든다(실패해도 고친 내용 저장은 막지 않는다).
-  if (outcome === "applied" || outcome === "deduplicated") await rebuildMonthlyReportSnapshots(env, [{ household_id: householdId, month: previousMonth }], { limit: 1, path: "/recurring/edit", method: "POST" });
+  // V22.9.79 N-9: 그 기록이 든 주가 오늘 앞에 끝났으면 그 주 주간 스냅숏도 있으면 다시 만든다.
+  // V22.9.79 N-10: 여기서 못 만든 스냅숏(확인·기록 조회·저장 실패)은 예약 실행의 다시 만들기 대기에 보태 다음 예약 실행이 잇는다.
+  if (outcome === "applied" || outcome === "deduplicated") {
+    const entries = [{ household_id: householdId, month: previousMonth }];
+    const weekEnd = recurringCronWeekEnd(recurringCronDueDate(existing, previousMonth));
+    if (weekEnd && weekEnd < today) entries.push({ household_id: householdId, week_end: weekEnd });
+    const rebuilt = await rebuildMonthlyReportSnapshots(env, entries, { limit: entries.length, path: "/recurring/edit", method: "POST" });
+    if (safeArray(rebuilt?.remaining).length) await queueRecurringReportRebuild(env, rebuilt.remaining);
+  }
   return outcome;
+}
+
+// V22.9.79 감사 N-10: 예약 실행 밖(정기 규칙 수정)에서 다시 만들지 못한 스냅숏을 상태 키의 다시 만들기 대기(report_rebuild)에
+// 보태 다음 예약 실행이 잇게 한다. 예전에는 운영 이벤트(free_report_rebuild_failed)만 남았고, 그 규칙은 표식이 지난달로 바뀌어
+// 따라잡기에서 빠지므로 다음 실행도 그 가계부·달을 보지 않아 스냅숏이 예전 금액으로 남았다. 상태를 못 읽거나 깨졌으면
+// 덮어쓰지 않는다(깨진 상태는 예약 실행이 처음 실행처럼 다시 쓴다). 저장소 호출은 읽기 1회·저장 1회이고, 실패해도 던지지 않고
+// 운영 이벤트만 남긴다. 같은 때 끝나는 예약 실행이 상태를 쓰면 이 항목이 덮일 수 있다(예약 실행은 하루 한 번, 몇 초).
+async function queueRecurringReportRebuild(env, entries = [], { path = "/recurring/edit", method = "POST" } = {}) {
+  const add = recurringReportQueue(safeArray(entries).map(recurringReportKey));
+  if (!add.length) return false;
+  try {
+    const raw = await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY);
+    parseStrictSettingsObject(raw, "recurring_state");
+    const state = recurringCronState(raw);
+    const queue = recurringReportQueue([...state.report_rebuild, ...add]);
+    if (queue.length > RECURRING_REPORT_QUEUE_MAX) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${queue.length - RECURRING_REPORT_QUEUE_MAX}` });
+    if (queue.join(",") !== state.report_rebuild.join(",")) await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after));
+    return true;
+  } catch (err) {
+    rememberOpsEvent({ kind: "recurring_report_rebuild_queue_failed", severity: "warn", path, method, detail: safeError(err) });
+    return false;
+  }
 }
 
 async function runRecurringAutoApply(env, opts = {}) {

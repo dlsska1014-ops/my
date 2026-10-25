@@ -261,9 +261,12 @@ async function runAutomaticReports(env, opts = {}) {
 // 1회 더)·저장 1회. 한 번에 limit 개까지만 만들고, 못 한 항목은 remaining 으로 돌려줘 호출부가 다음 실행에 넘긴다.
 const REPORT_REBUILD_LOOKUP = 40;
 
+// V22.9.79 N-9: 주간 항목({ household_id, week_end: 그 주 일요일 })도 같은 길로 다시 만든다. 기간·주 번호는 일요일 실행이
+// 만드는 것과 같다(그 일요일 앞 6일부터 그 일요일까지, isoWeekPeriod). 월간 항목은 예전 그대로다.
 async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
-  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && validMonth(entry.month));
-  const keyOf = (entry) => freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
+  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && (entry.week_end ? isValidTransactionDateString(entry.week_end) && weekdayIndexOfYmd(entry.week_end) === 0 : validMonth(entry.month)));
+  const weekPeriodOf = (entry) => isoWeekPeriod(new Date(`${entry.week_end}T12:00:00`));
+  const keyOf = (entry) => entry.week_end ? freeReportSnapshotKey(entry.household_id, "weekly", weekPeriodOf(entry)) : freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
   const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
   if (!list.length || !canSpend(1)) return result;
   const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
@@ -283,20 +286,23 @@ async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, can
   for (const entry of rebuild.slice(0, Math.max(0, limit))) {
     if (!canSpend(2)) break;
     const key = keyOf(entry);
+    const job = entry.week_end
+      ? { kind: "weekly", period: weekPeriodOf(entry), start: ymdShift(entry.week_end, -6), end: ymdShift(entry.week_end, 1) }
+      : { kind: "monthly", period: entry.month, start: `${entry.month}-01`, end: nextMonthStart(entry.month) };
     try {
-      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: `${entry.month}-01`, end: nextMonthStart(entry.month), limit: 9001 });
+      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: job.start, end: job.end, limit: 9001 });
       const previous = parseJsonSetting(values.get(key), {});
-      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: "monthly", period: entry.month }));
+      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period }));
       done.add(key); result.rebuilt++;
     } catch (err) {
       result.failed++;
       if (isRowLimitExceededError(err)) {
         // 월말 생성과 같이, 기록이 한도를 넘으면 일부만으로 덮지 않고 예전 스냅숏을 둔다.
         done.add(key);
-        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:monthly:${entry.month}` });
+        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:${job.kind}:${job.period}` });
         continue;
       }
-      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.month}:${safeError(err)}` });
+      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.week_end || entry.month}:${safeError(err)}` });
       break;
     }
   }

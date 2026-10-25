@@ -47,6 +47,8 @@
     "validate:cron-v22978": "node validation/validate-cron-v22978.mjs",
     "validate:kakao-replies-v22979": "node validation/validate-kakao-replies-v22979.mjs",
     "validate:refund-links-v22979": "node validation/validate-refund-links-v22979.mjs",
+    "validate:cron-v22979": "node validation/validate-cron-v22979.mjs",
+    "measure:cron-cpu-v22979": "node tools/measure-cron-cpu-v22979.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
