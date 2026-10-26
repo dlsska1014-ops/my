@@ -411,6 +411,10 @@ await section("my", () => withClock("2026-07-15", () => fixture(async (fx) => {
   const refused = await page(fx, "/my?month=2026-07&household_id=house-home&err=refund_link_locked_amount");
   t.eq(paramOf(refused.location, "err"), "refund_link_locked_amount", "U-20 /my 의 err(막힌 이유 포함)를 /app 으로 넘긴다");
   t.ok((await page(fx, refused.location)).html.includes(formatMessage("refund_link_locked_amount")), "U-20 /app 이 막힌 이유를 보인다");
+  for (const code of ["no_household", "household_required"]) {
+    const bounced = await page(fx, `/my?month=2026-07&household_id=house-home&err=${code}`);
+    t.eq(bounced.location, `/app?month=2026-07&household_id=house-home`, `U-20 가계부가 있는 사람에게 ‘열 수 있는 가계부가 없다’(${code})는 /app 으로 넘기지 않는다(사실과 다르다)`);
+  }
   const both = await page(fx, "/my?month=2026-07&household_id=house-home&msg=updated&err=record_update_failed");
   t.ok(paramOf(both.location, "msg") === "updated" && paramOf(both.location, "err") === "record_update_failed", "U-20 msg 와 err 를 함께 넘긴다");
   const injected = "<b>지금 02-000-0000 으로 전화</b>";

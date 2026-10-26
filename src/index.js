@@ -31517,7 +31517,10 @@ async function handleMyPage(request, env, url) {
     // V22.9.81 U-20: 결과 안내(msg·err)를 버리지 않고 /app 으로 넘긴다. /my/update·/my/delete(myReturnLocation)·카카오 연결·가계부 확인 실패가
     // /my?msg=…·/my?err=… 로 돌아오는데, 예전에는 이 넘김에서 둘 다 빠져 저장·거절·막힌 이유(V22.9.80 T-12)가 화면에 보이지 않았다.
     // /app 은 formatMessage 표의 코드만 안내로 바꾼다(모르는 값은 일반 안내). 둘 다 없으면 주소는 예전과 같다.
-    const notices = ["msg", "err"].map((key) => [key, url.searchParams.get(key) || ""]).filter(([, value]) => value)
+    // 다른 화면이 고른 가계부를 열지 못해 보낸 ‘열 수 있는 가계부가 없습니다’(no_household·household_required)는 지금 가계부를 여는 /app 에서는
+    // 사실과 달라(가계부가 있다) 예전처럼 넘기지 않는다.
+    const notices = ["msg", "err"].map((key) => [key, url.searchParams.get(key) || ""])
+      .filter(([key, value]) => value && !(key === "err" && ["no_household", "household_required"].includes(value)))
       .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`).join("");
     return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}${notices}`);
   }
