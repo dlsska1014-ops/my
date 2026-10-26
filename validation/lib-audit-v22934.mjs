@@ -25,6 +25,11 @@ export function beforeBotObservationRenderer(block) {
     [
         "<span class=\"${comparisonDisplay.income.cls}\">${escapeHtml(comparisonDisplay.income.text)}</span>",
         "<span class=\"${fair.income > 0 ? \"deltaDown\" : fair.income < 0 ? \"deltaUp\" : \"deltaFlat\"}\">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span>"
+    ],
+    // V22.9.80 T-21: 분석 보고서(?view=report) 내비가 구성원에게 ‘관리자 전용’ 표시를 붙이도록 역할(role)을 넘기는 한 조각. 렌더러의 나머지 바이트는 그대로다.
+    [
+        "showSidebarDashboard: true, role: String(selected.role || \"\"), sidebarRows: rows,",
+        "showSidebarDashboard: true, sidebarRows: rows,"
     ]
 ];
   for (const [current, previous] of reversals) {

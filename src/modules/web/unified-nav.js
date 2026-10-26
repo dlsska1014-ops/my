@@ -66,9 +66,17 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "record";
   // V22.9.37 감사 U14: 참여자·초대와 단톡방 연결은 소유자·관리자만 열 수 있다. 일반 참여자(member·viewer)에게는
   // 숨기지 않고 "관리자 전용"을 붙인다 — 목적지 20개는 그대로 두되 눌러서 403 을 만나기 전에 알린다.
-  // 역할을 넘기지 않은 화면(관리자 범위 등)은 예전과 같다.
-  const navRole = String(opts.role || "").trim().toLowerCase();
-  const adminOnlyKeys = ["member", "viewer"].includes(navRole) ? new Set(["members", "groups"]) : new Set();
+  // (V22.9.37 에는 역할을 넘기지 않은 화면을 표시 없이 그렸다 — 아래 V22.9.80 이 바꾼 부분.)
+  // V22.9.80 T-21: 호출 88곳 가운데 17곳만 역할을 넘겨서, 나머지 사용자 화면(/reports·/payment-methods·/budget-alerts·안내문 …)에서는 구성원이
+  // 꼬리표 없는 관리자 전용 링크(누르면 403)를 봤다. 이제 사용자 범위(navScope user) 화면은 다음 순서로 판정한다.
+  //   - 소유자·관리자(owner·admin)로 넘겼다 → 표시 없음.
+  //   - 빈 문자열("")로 넘겼다 → 가계부 역할이 없는 관리자(운영자) 세션 화면이다(선택한 가계부가 관리자 목록에서 와 role 이 없다). 예전처럼 표시 없음.
+  //   - 그 밖의 역할(member·viewer …)로 넘겼다 → 표시.
+  //   - 역할을 아예 넘기지 않았다(undefined) → 모르는 화면(가계부가 없는 안내문·계정 화면)이다. 보수적으로 표시를 붙인다 — 소유자·관리자에게도 맞는 말이고, 구성원이 403 을 만나기 전에 알린다.
+  // 운영(ops)·관리자(admin) 범위는 가계부 역할이 없는 운영자 화면이라 예전처럼 표시를 붙이지 않는다.
+  const navRoleGiven = opts.role !== undefined && opts.role !== null;
+  const navRole = String(opts.role ?? "").trim().toLowerCase();
+  const adminOnlyKeys = navScope === "user" && (!navRoleGiven || !["owner", "admin", ""].includes(navRole)) ? new Set(["members", "groups"]) : new Set();
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
     const links = g.items.map(([key, label, href, itemIcon = "home"]) => {

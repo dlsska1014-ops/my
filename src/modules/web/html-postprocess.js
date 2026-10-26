@@ -320,7 +320,9 @@ function promoteLegacyUserLayoutToV5(html = "") {
   // V22.9.37 감사 U14: 옛 사이드바(renderMySideNav)는 관리자가 아니면 "참여자·초대" 대신 "내 프로필"을 그린다. 이 승격
   // 경로는 역할을 직접 받지 않으므로 그 흔적으로 일반 참여자를 알아보고 공통 내비에 "관리자 전용" 표시를 넘긴다.
   const legacyMenu = source.slice(layoutStart, pageStart);
-  const role = legacyMenu.includes('href="/my/profile"') && !legacyMenu.includes("/my/members?") ? "member" : "";
+  // V22.9.80 T-21: 내비는 역할을 넘기지 않으면(undefined) 모르는 화면으로 보고 표시를 붙이고, 빈 문자열("")은 운영자 세션 화면으로 봐 표시를 붙이지 않는다.
+  // 옛 사이드바에 참여자·초대(/my/members?) 링크가 있으면 관리 권한이 있는 사람(admin), 내 프로필만 있으면 일반 참여자(member)다. 어느 쪽 흔적도 없으면 모르는 것(undefined)이다.
+  const role = legacyMenu.includes("/my/members?") ? "admin" : legacyMenu.includes('href="/my/profile"') ? "member" : undefined;
   const nav = renderUnifiedNav(active, { month, householdId, householdName, role });
   source = source.slice(0, layoutStart) + pageMarker + source.slice(pageStart + pageMarker.length);
   const legacyClosing = source.lastIndexOf("</div></div></main>");
