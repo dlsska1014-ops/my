@@ -76,3 +76,8 @@ V22.9.80 에서 같은 적용 파일에 5) 절을 더했다(아직 적용 전인
 - V76 M-7: 플래그가 켜진 화면(홈·예산·예산 알림·리포트·소비 분석·카카오 요약·남은예산)은 연결을 환급 날짜로 한 번 읽는다. 이 읽기는
   FK 이름 `accountbook_refund_links_refund_fkey`·`accountbook_refund_links_expense_fkey` 로 거래를 붙여 읽으므로(PostgREST 내장 조회),
   운영 FK 이름이 이 SQL 과 같아야 한다. `/ready` 의 `refund_links.table` 확인도 같은 조회를 쓴다(이름이 다르면 `error`).
+
+V22.9.81 U-27: 정산 완료 이력은 최근 30건만 남는다. Worker 는 잘려 나가는 달에 남는 완료 항목이 없으면 같은 배열 맨 앞에 금액 없는
+‘완료 달 표식’(`{"kind":"settlement_month_completed","month":"YYYY-MM","status":"completed"}`)을 남긴다(플래그와 상관없이, 지우지 않는다).
+두 RPC 의 완료 달 확인은 배열 항목의 `month` 를 보므로 SQL 논리는 그대로이고 적용 때 채우기도 없다. 표식이 `settlement_history:<가계부>`
+같은 줄에 있어 적용된 가계부 삭제 함수가 함께 지운다. V22.9.81 전에 잘려 나간 달은 되살릴 수 없다(적용 파일 맨 아래 읽기 전용 확인).

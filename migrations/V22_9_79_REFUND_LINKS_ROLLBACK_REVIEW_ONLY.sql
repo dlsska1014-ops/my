@@ -9,6 +9,8 @@
 --      정말 의도일 때만 같은 트랜잭션 안에서 사용자 설정 accountbook.refund_links_drop_confirmed 를 'yes' 로 두고 실행한다.
 --   3) 정산 완료 이력(schema_version 3)에 적힌 refund_links·refund_total 은 그대로 남는다(과거 이력은 다시 계산하지 않는다).
 --      설정 'refund_review_kept:<가계부>'(수입으로 두기 목록)도 남지만 플래그가 꺼져 있으면 읽지 않는다.
+--      V22.9.81 U-27 의 완료 달 표식({"kind":"settlement_month_completed",…})도 정산 이력 배열에 그대로 남는다. 이 SQL 이 만든 것이
+--      아니고(Worker 가 플래그와 상관없이 쓴다) 금액이 없으며 화면에 보이지 않는다. 되돌린 뒤 다시 적용해도 그 달은 계속 잠긴다.
 --   4) V22.9.80 T-11 의 가계부 삭제 정리 트리거(refund_review_kept_cleanup_v22980)도 함께 지운다. 그 뒤로는 가계부를 지워도
 --      위 설정 줄이 남는다(V22.9.79 전과 같다).
 BEGIN;

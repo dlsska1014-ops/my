@@ -12,7 +12,7 @@ import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-
 import { safeArray } from "../admin/backup-compare.js";
 import {
   buildSettlementModel, parseSettlementConditions, settlementConditionPairs,
-  settlementConditionQuery, settlementHistoryKey, settlementPreviewDigest,
+  settlementConditionQuery, settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest,
 } from "./settlement-ops-pages.js";
 import {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
@@ -55,6 +55,7 @@ function parseRefundReviewKept(value) {
   return new Set(safeArray(list).map((id) => String(id || "").trim()).filter(refundLinkIdValid));
 }
 
+// V22.9.81 U-27: 이력의 완료 항목과 완료 달 표식(30건으로 자를 때 남긴다, settlementHistoryForSave)을 함께 본다. 둘 다 month 가 있다.
 function settlementMonthCompleted(history = [], month = "") {
   return safeArray(history).some((item) => item && typeof item === "object" && item.month === month);
 }
@@ -604,7 +605,8 @@ async function handleSettlementHistorySaveV22979(request, env) {
         status: "completed",
       });
       assertFresh();
-      await saveSettingValue(env, settlementHistoryKey(selected.id), history.slice(-30));
+      // V22.9.81 U-27: 30건으로 자를 때 잘려 나가는 달은 완료 달 표식으로 남긴다(플래그 꺼짐 저장과 같은 규칙).
+      await saveSettingValue(env, settlementHistoryKey(selected.id), settlementHistoryForSave(history));
       return "saved";
     });
     if (outcome === "changed") return redirectResponse(`${backTo}&err=settlement_changed`);
