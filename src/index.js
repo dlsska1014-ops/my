@@ -14352,10 +14352,20 @@ const IMPORT_ALIAS_INDEX = (() => {
   return { exact, fuzzy };
 })();
 
+// V22.9.80 T-29: 비슷한 이름으로 읽을 때 번호·주소 머리글은 내용·결제수단·금액으로 읽지 않는다. 머리글에 별칭 낱말이 들어 있기만 하면 읽어서
+// ‘카드번호’(가린 카드번호 1234-56**-…)가 결제수단 이름으로, ‘입금계좌번호’가 수입 금액 열로 저장·판정되고 ‘가맹점주소’·‘가맹점번호’가 내용이
+// 되어 주소 낱말(‘병원 앞’)이 분류를 정했다. 영문 ‘No.’ 도 ‘inout’(구분 별칭) 속 글자 둘이라 구분 열로 읽혀 행마다 경고가 붙었다.
+// 이런 머리글은 제외 열(ignore)로 둔다 — 열 연결 화면에는 ‘제외 열’로 보이고 사용자가 직접 바꿀 수 있다. 정확히 같은 별칭(‘승인번호’·‘번호’ …)은
+// 그대로이고, 예전에 아무 열로도 읽지 않던 머리글(‘주소’)도 그대로다.
+const IMPORT_NUMBER_ADDRESS_HEADER = /번호|주소|number|address|^no$/;
+
 function canonicalImportField(value = "") {
   const key = normalizeImportHeader(value);
   if (!key) return "";
-  return IMPORT_ALIAS_INDEX.exact.get(key)?.field || IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || item.key.includes(key))?.field || "";
+  const exact = IMPORT_ALIAS_INDEX.exact.get(key)?.field;
+  if (exact) return exact;
+  const fuzzy = IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || item.key.includes(key))?.field || "";
+  return fuzzy && IMPORT_NUMBER_ADDRESS_HEADER.test(key) ? "ignore" : fuzzy;
 }
 
 function canonicalImportHeaderField(value = "") {
@@ -14875,15 +14885,25 @@ function alignImportCells(headers = [], cells = [], columns = null) {
   return { cells: out, warnings, matched: out.length === headers.length };
 }
 
+// V22.9.80 T-28: ‘키: 값’ 줄에서 분류를 추정하는 데 쓰는 항목. 내용·분류·구분·원문의 값만 글로 읽는다(날짜·금액·결제수단·지출자·제외 열은 글이 아니다).
+const IMPORT_EVIDENCE_FIELDS = new Set(["memo", "category", "type", "raw_text"]);
+
 function importKeyValueObject(line = "") {
   const parts = String(line || "").split(/[|;\t]+/).map((part) => part.trim()).filter(Boolean);
   const pairs = [];
+  // V22.9.80 T-28: 분류 근거로 읽을 말. 위 항목의 값과 ‘키: 값’ 꼴이 아닌 글만 든다. 알 수 없는 키(‘지점: 인터넷’)의 값과 날짜·금액·결제수단
+  // 같은 항목은 뺀다 — 예전에는 줄 전체를 근거로 써서 ‘인터넷’이 통신비를 정했다(제목이 있는 표가 읽는 열의 글만 근거로 쓰는 것과 같은 기준).
+  const evidence = [];
   for (const part of parts) {
     const match = part.match(/^([^:=]{1,40})\s*[:=]\s*(.+)$/);
-    if (match && canonicalImportField(match[1])) pairs.push([match[1], match[2]]);
+    const field = match ? canonicalImportField(match[1]) : "";
+    if (field) {
+      pairs.push([match[1], match[2]]);
+      if (IMPORT_EVIDENCE_FIELDS.has(field)) evidence.push(match[2]);
+    } else if (!match || !/[A-Za-z가-힣]/.test(match[1])) evidence.push(part);
   }
   if (pairs.length < 2) return null;
-  const obj = { __canonical: {}, __cells: pairs.map(([, value]) => value) };
+  const obj = { __canonical: {}, __cells: pairs.map(([, value]) => value), __evidence: evidence };
   for (const [key, value] of pairs) {
     obj[normalizeImportHeader(key)] = value;
     const field = canonicalImportField(key);
@@ -14929,6 +14949,24 @@ function parseImportJsonTable(text = "", options = {}) {
   } catch (err) {
     return null;
   }
+}
+
+// V22.9.80 T-28: 제목 행이 없는 줄(‘키: 값’ 줄·머리글 없는 표)에서 분류를 추정할 근거 글. 예전에는 줄 전체를 썼다.
+//  · ‘키: 값’ 줄은 importKeyValueObject 가 모은 글(읽는 키의 값과 키 없는 글)만 쓴다 — 알 수 없는 키(‘지점: 인터넷’)의 값은 뺀다.
+//  · 머리글 없는 표는 칸의 뜻을 모르므로 금액·날짜·결제수단으로 읽은 것만 뺀다: 날짜나 금액으로 읽히는 칸은 통째로, 결제수단은 그 판정을 한 낱말
+//    (‘카페이’·‘신한카드’)만 칸 안에서 지운다. 나머지 글은 그대로 근거다(칸의 뜻을 모르므로 ‘인터넷’ 같은 칸이 남는 것은 어쩔 수 없다).
+// 제목 있는 표는 읽는 열의 글(contextText)이라 그대로다.
+function importCategoryEvidence(obj = {}, contextText = "", cells = [], payment = "", options = {}) {
+  if (obj.__mapped === true) return contextText;
+  if (Array.isArray(obj.__evidence)) return obj.__evidence.join(" ");
+  const paymentWord = payment ? inputPaymentPatterns().methods.find(([, method]) => method === payment)?.[0] : null;
+  const pieces = [];
+  for (const cell of safeArray(cells).length ? cells : [contextText]) {
+    const piece = String(cell ?? "").trim();
+    if (!piece || parseImportDateCell(piece, options) || parseImportAmountCell(piece).amount > 0) continue;
+    pieces.push(paymentWord ? normalizeText(piece).replace(paymentWord, " ") : piece);
+  }
+  return pieces.join(" ");
 }
 
 function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", cells = [], defaultUserId = "", options = {}) {
@@ -15050,7 +15088,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 빈 결제수단·분류·내용 칸이 "값이 없음"이다. 내용 글에서 결제수단·분류를 추측하거나 빈 내용을
   // 분류 이름으로 채우지 않고 파일에 적힌 그대로 되살린다(분류가 비면 구분별 기본 분류).
   const payment = paymentVal ? String(paymentVal).trim() : backup ? "" : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type)));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${importCategoryEvidence(obj, contextText, cells, payment, options)} ${memoVal}`, type)));
   const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category);
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
@@ -15227,7 +15265,11 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
       obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns, backupExport);
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
     const summaryCells = obj.__mapped === true ? obj.__context : cells;
-    if (isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
+    // V22.9.80 T-25: 이 앱이 내보낸 백업 표(열 9개)의 날짜가 읽히는 행은 기록이다. 합계 행 거르기는 은행·카드사 파일에 끼는 합계 줄을 위한 것이라,
+    // 메모가 ‘카드값 합계’·‘7월 소계’로 끝나는 기록까지 합계 행으로 빼고 있었다(되살리기에서 조용히 빠졌다). 날짜가 읽히지 않는 행(엑셀에서 손으로
+    // 더한 ‘합계’ 줄)은 예전처럼 합계 행 안내와 함께 제외한다.
+    const backupRecord = obj.__backup === true && !!parseImportDateCell(canonicalImportValue(obj, "date"), { ...options, allowSerial: true });
+    if (!backupRecord && isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
     if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells, options)) effectiveCells = [raw];
     const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { ...options, natural, rowNumber, source: options.source || "import_smart", signConvention: signConvention.mode });
