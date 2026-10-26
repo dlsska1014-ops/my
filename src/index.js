@@ -19251,10 +19251,11 @@ async function handleKakaoLoginRecoveryGuidePage(request, env, url) {
 
 function openBuilderFinalRows(origin = "") {
   const skill = `${origin}/skill`;
+  // V22.9.81 U-16: 여러 줄 입력 예시가 글자 그대로의 \n 으로 보였다. 실제 줄바꿈을 넣고 줄이 있는 칸만 white-space:pre-line 으로 그린다.
   const rows = [
     ["기본 도움말", "도움말, 처음, 메뉴, 시작", "도움말 블록 → Skill", skill],
     ["기록 입력", "점심 12000 국민카드, 커피 4500 카카오페이", "입력 블록 또는 폴백 → Skill", skill],
-    ["여러 줄 입력", "7월3일\\n온열안대 9900 삼성카드\\n풋샴푸 10150 삼성카드", "폴백 → Skill", skill],
+    ["여러 줄 입력", "7월3일\n온열안대 9900 삼성카드\n풋샴푸 10150 삼성카드", "폴백 → Skill", skill],
     ["조회", "요약, 오늘 기록, 최근, 내역", "조회 블록 → Skill", skill],
     ["예산", "남은예산, 예산 현황, 예산 설정, 정기지출", "예산 블록 → Skill", skill],
     ["수정/삭제", "01번 금액 13000원, 01번 삭제, 수정가이드", "수정 블록 → Skill", skill],
@@ -19262,7 +19263,7 @@ function openBuilderFinalRows(origin = "") {
     ["정책", "개인정보, 데이터 보관, 브랜드, 심사", "안내 블록 → Skill", skill],
     ["폴백", "알 수 없는 모든 사용자 문장", "반드시 /skill로 전달", skill],
   ];
-  return rows.map((r) => `<tr><td><b>${escapeHtml(r[0])}</b></td><td>${escapeHtml(r[1])}</td><td>${escapeHtml(r[2])}</td><td><code>${escapeHtml(r[3])}</code></td></tr>`).join("");
+  return rows.map((r) => `<tr><td><b>${escapeHtml(r[0])}</b></td><td${r[1].includes("\n") ? ' style="white-space:pre-line"' : ""}>${escapeHtml(r[1])}</td><td>${escapeHtml(r[2])}</td><td><code>${escapeHtml(r[3])}</code></td></tr>`).join("");
 }
 
 async function handleOpenBuilderFinalUtterancePage(request, env, url) {
