@@ -26,7 +26,7 @@ import {
   renderInlinePremiumTeaser, renderPremiumTab,
 } from "../features/meme-engine-premium.js";
 import {
-  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, renderCustomStats,
+  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, paymentListOptionsHtml, renderCustomStats,
   renderDesktopTransactionTable, renderInsightCards, renderServerCalendar,
   renderTransactionEditModal, renderTransactionPager, renderTransactionTurboScript,
 } from "./dashboard-fragments.js";
@@ -432,7 +432,7 @@ ${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="
   <a class="portalAction" href="${escapeHtml(dashboardQuery(month, householdValue, { tab: "import", group_by: groupBy }))}"><b>파일 업로드</b><span>엑셀/CSV 가져오기</span></a><a class="portalAction" href="/diagnostics"><b>시스템진단</b><span>DB/화면 연결 점검</span></a>
 </section>
 ${renderTabs(tab, month, householdValue, { type, q, quality, category: categoryFilter, payment_method: paymentFilter, group_by: groupBy })}
-<datalist id="categoryList">${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("")}</datalist><datalist id="paymentList">${paymentOptions.map((p) => `<option value="${escapeHtml(p)}"></option>`).join("")}</datalist>
+<datalist id="categoryList">${categoryOptions.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("")}</datalist><datalist id="paymentList">${paymentListOptionsHtml(paymentOptions, paymentAssetRows.map((p) => p.name))}</datalist>
 ${tabHtml}
 ${renderMobileBottomNav(tab, month, householdValue)}
 <div class="footerNote">관리자 웹과 모바일 입력 화면을 분리해 더 빠르게 사용할 수 있습니다.</div>

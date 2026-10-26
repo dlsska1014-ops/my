@@ -23,6 +23,9 @@ import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transact
 import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
 import { applyUserSettingsToParsedTransactions } from "../src/modules/settings/payment-assets.js";
 import { parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
+// 새 함수는 이름공간으로 받는다(고치기 전 번들에서 SOFT 모드로 셀 때 없는 이름 때문에 파일 전체가 멈추지 않게).
+import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js";
+const paymentListOptionsHtml = dashboardFragments.paymentListOptionsHtml || (() => "");
 
 const SOFT = process.env.V22981_SOFT === "1";
 const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류) 웹·카카오 같은 해석 검사");
@@ -124,6 +127,7 @@ function makeWebFactory(script, { paymentOptions = [], categoryOptions = [] } = 
     const fire = (field, kind) => { for (const fn of field.handlers[kind] || []) fn.call(field, { target: field }); };
     return {
       fill(text) { fields.smartInput.value = text; fire(fields.smartInput, "input"); return this; },
+      edit(id, value) { fields[id].value = value; fire(fields[id], "input"); return this; },
       submit() { const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; for (const fn of form.handlers.submit || []) fn.call(form, event); return !event.defaultPrevented; },
       values() {
         return {
@@ -429,6 +433,56 @@ await scene("U-6", async () => {
     }
     t.eq(fx.db.transactions.length, before, "U-6 요약 물음은 기록을 만들지 않는다");
   }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-7. 글로 쓴 ‘자동이체’는 카카오와 같은 이름(공유 판정 → 계좌이체)으로 저장한다. 목록에서 직접 고르면 그대로다.
+// ════════════════════════════════════════════════════════════════════════════════════
+const AUTO_DEBIT_TEXTS = ["통신비 50000 자동이체", "관리비 120000 자동이체로", "보험료 자동이체 30000", "자동이체 넷플릭스 13500"];
+await scene("U-7", async () => {
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { paymentOptions, web, legacy, createState } = await webHarness(fx);
+    const pick = paymentOptions.filter((option) => option.attrs["data-ab-pick"] === "1").map((option) => option.value);
+    t.ok(pick.length === 1 && pick[0] === "자동이체" && paymentOptions.some((option) => option.value === "자동이체"), `U-7 홈 결제수단 목록의 ‘자동이체’는 고를 수만 있게 표시된다(목록에는 그대로 있다) ${JSON.stringify(pick)}`);
+    for (const text of AUTO_DEBIT_TEXTS) {
+      const kakao = kakaoRows(text)[0]?.payment, w = web(text).payment, l = legacy(text).payment;
+      t.ok(kakao === "계좌이체" && w === kakao && l === kakao, `U-7 "${text}" → 웹·옛 화면도 카카오와 같은 ${kakao} (웹 ${w} · 옛 화면 ${l})`);
+    }
+    // 다른 기본 이름은 예전처럼 글에서 찾는다(공유 판정이 제 이름으로 읽는 말)
+    for (const [text, payment] of [["점심 9000 계좌이체", "계좌이체"], ["점심 9000 체크카드", "체크카드"], ["점심 9000 국민카드", "국민카드"], ["택시 8000 현금", "현금"]]) {
+      t.ok(web(text).payment === payment && kakaoRows(text)[0]?.payment === payment, `U-7 음성 "${text}"는 예전처럼 ${payment}`);
+    }
+    // 카카오 저장과 웹 폼 저장이 같은 이름
+    const before = fx.db.transactions.length;
+    await say(fx, "통신비 50000 자동이체");
+    const saved = fx.db.transactions.slice(before);
+    const state = createState().fill("통신비 50000 자동이체");
+    const webBefore = fx.db.transactions.length;
+    await post(fx, "/admin/transactions", { ...state.values(), transaction_date: "2026-08-04" });
+    const webSaved = fx.db.transactions.slice(webBefore);
+    t.ok(saved.length === 1 && saved[0].payment_method === "계좌이체" && webSaved.length === 1 && webSaved[0].payment_method === "계좌이체", `U-7 카카오 저장·웹 저장 모두 계좌이체 (카카오 ${JSON.stringify(saved.map((row) => row.payment_method))} · 웹 ${JSON.stringify(webSaved.map((row) => row.payment_method))})`);
+    // 목록에서 직접 고른 ‘자동이체’는 그대로 저장한다
+    const picked = createState().fill("통신비 50000").edit("payInput", "자동이체");
+    const pickedBefore = fx.db.transactions.length;
+    await post(fx, "/admin/transactions", { ...picked.values(), transaction_date: "2026-08-03" });
+    const pickedRow = fx.db.transactions.slice(pickedBefore)[0];
+    t.ok(picked.values().quick_manual_payment === "1" && pickedRow?.payment_method === "자동이체", `U-7 목록에서 직접 고른 자동이체는 그대로 자동이체 (받음 ${pickedRow?.payment_method})`);
+  }));
+  // 등록 결제수단 이름이 ‘자동이체’면 카카오도 그 이름으로 읽으므로 웹도 글에서 찾는다(고를 수만 있는 표시 없음)
+  await withClock(DAY, () => fixture(async (fx) => {
+    const assets = [{ id: "asset-1", name: "국민카드", kind: "credit_card", balance: 0 }, { id: "asset-v81-auto", name: "자동이체", kind: "bank_account", balance: 0 }];
+    const { paymentOptions, web, legacy } = await webHarness(fx, assets);
+    t.ok(!paymentOptions.some((option) => option.attrs["data-ab-pick"]), "U-7 등록 결제수단 ‘자동이체’는 고를 수만 있는 표시가 없다");
+    for (const text of AUTO_DEBIT_TEXTS.slice(0, 2)) {
+      const kakao = kakaoRows(text, assets)[0]?.payment, w = web(text).payment, l = legacy(text).payment;
+      t.ok(kakao === "자동이체" && w === kakao && l === kakao, `U-7 등록 결제수단 ‘자동이체’: "${text}" → 웹·옛 화면·카카오 모두 자동이체 (카카오 ${kakao} · 웹 ${w} · 옛 화면 ${l})`);
+    }
+  }));
+  // 옛 관리자 화면의 빠른 기록(옛 화면 런타임)도 같은 목록 표시를 받는다
+  t.eq(paymentListOptionsHtml(["계좌이체", "자동이체", "회사카드"], []), '<option value="계좌이체"></option><option value="자동이체" data-ab-pick="1"></option><option value="회사카드"></option>', "U-7 목록 option: 기본 목록의 ‘자동이체’만 고를 수만 있게 표시한다");
+  t.eq(paymentListOptionsHtml(["자동이체"], ["자동이체"]), '<option value="자동이체"></option>', "U-7 등록 결제수단과 같은 이름이면 표시하지 않는다");
+  const dashboardSource = read("src/modules/admin/dashboard-page.js");
+  t.ok(dashboardSource.includes('<datalist id="paymentList">${paymentListOptionsHtml(paymentOptions, paymentAssetRows.map((p) => p.name))}</datalist>'), "U-7 옛 관리자 화면의 결제수단 목록도 같은 함수로 만든다");
 });
 
 if (SOFT) {
